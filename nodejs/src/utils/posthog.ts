@@ -60,6 +60,36 @@ export function captureTeamEvent(
     }
 }
 
+export async function isFeatureFlagEnabled(
+    key: string,
+    distinctId: string,
+    options?: {
+        groups?: Record<string, string>
+        personProperties?: Record<string, string>
+        groupProperties?: Record<string, Record<string, string>>
+        onlyEvaluateLocally?: boolean
+        sendFeatureFlagEvents?: boolean
+    }
+): Promise<boolean> {
+    if (!posthog) {
+        return false
+    }
+
+    try {
+        const isEnabled = await posthog.isFeatureEnabled(key, distinctId, options)
+        return isEnabled ?? false
+    } catch (error) {
+        // Log errors to aid debugging of feature flag evaluation issues (e.g. SES v1 vs v2 gating).
+        console.error('Error evaluating PostHog feature flag', {
+            key,
+            distinctId,
+            options,
+            error,
+        })
+        return false
+    }
+}
+
 export function shutdown(): Promise<void> | null {
     return posthog ? posthog.shutdown() : null
 }

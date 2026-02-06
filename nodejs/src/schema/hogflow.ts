@@ -149,6 +149,7 @@ const HogFlowActionSchema = z.discriminatedUnion('type', [
         type: z.literal('function_email'),
         config: z.object({
             message_category_id: z.string().uuid().optional(),
+            message_category_type: z.enum(['marketing', 'transactional']).optional(),
             template_uuid: z.string().optional(), // May be used later to specify a specific template version
             template_id: z.literal('template-email'),
             inputs: z.record(CyclotronInputSchema),
@@ -172,6 +173,7 @@ const HogFlowActionSchema = z.discriminatedUnion('type', [
         type: z.literal('function_sms'),
         config: z.object({
             message_category_id: z.string().uuid().optional(),
+            message_category_type: z.enum(['marketing', 'transactional']).optional(),
             template_uuid: z.string().uuid().optional(),
             template_id: z.literal('template-twilio'),
             inputs: z.record(CyclotronInputSchema),

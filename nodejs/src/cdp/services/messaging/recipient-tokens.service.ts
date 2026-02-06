@@ -46,4 +46,10 @@ export class RecipientTokensService {
         const token = this.generatePreferencesToken(recipient)
         return `${this.hub.SITE_URL}/messaging-preferences/${token}/` // NOTE: Trailing slash is required for the preferences page to work
     }
+
+    public generateOneClickUnsubscribeUrl(
+        recipient: Pick<RecipientManagerRecipient, 'team_id' | 'identifier'>
+    ): string {
+        return `${this.generatePreferencesUrl(recipient)}?one_click_unsubscribe=1`
+    }
 }

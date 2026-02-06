@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Message preferences</title>
+        <script src="https://cdn.tailwindcss.com"></script>
+    </head>
+    <body>
+        {% block content %}
+        <div class="min-h-screen bg-gray-50">
+            <div class="max-w-lg mx-auto py-12 px-4 sm:px-6 lg:px-8">
+                <div class="bg-white shadow-xl rounded-xl p-8">
+                    <h1 class="text-3xl font-bold text-gray-900 mb-2">Successfully unsubscribed</h1>
+                    <p class="text-gray-600 text-lg mb-8"><span class="font-semibold">{{ recipient.identifier|escape }}</span> has been unsubscribed from all marketing emails.</p>
+                    <p class="text-gray-600 text-lg mb-8">
+                        To manage message preferences, please visit the
+                        <a class="text-blue-600 hover:underline" href="{{ request.path }}">message preferences page</a>.
+                    </p>
+                </div>
+            </div>
+        </div>
+        {% endblock %}
+    </body>
+</html>

@@ -136,6 +136,11 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                         value: '{{unsubscribe_url}}',
                         sample: 'https://example.com/unsubscribe/12345',
                     },
+                    unsubscribe_url_one_click: {
+                        name: 'One-Click Unsubscribe URL',
+                        value: '{{unsubscribe_url_one_click}}',
+                        sample: 'https://example.com/unsubscribe/12345?one_click_unsubscribe=1',
+                    },
                 }
 
                 // Add person properties as merge tags

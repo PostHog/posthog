@@ -47,6 +47,7 @@
     "dependencies": {
         "@amplitude/ua-parser-js": "^0.7.33",
         "@aws-sdk/client-s3": "^3.723.0",
+        "@aws-sdk/client-sesv2": "^3.980.0",
         "@aws-sdk/client-sts": "^3.975.0",
         "@aws-sdk/lib-storage": "^3.723.0",
         "@babel/core": "^7.22.10",

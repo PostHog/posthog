@@ -19,7 +19,7 @@ from django.http import HttpRequest, HttpResponse, HttpResponseNotAllowed, JsonR
 from django.shortcuts import redirect, render
 from django.views.decorators.cache import never_cache
 from django.views.decorators.clickjacking import xframe_options_exempt
-from django.views.decorators.csrf import csrf_protect
+from django.views.decorators.csrf import csrf_exempt, csrf_protect
 from django.views.decorators.http import require_http_methods
 
 import structlog
@@ -464,7 +464,8 @@ def api_key_search_view(request: HttpRequest):
     return render(request, template_name="api_key_search/values.html", context=context, status=200)
 
 
-@require_http_methods(["GET"])
+@csrf_exempt
+@require_http_methods(["GET", "POST"])
 def preferences_page(request: HttpRequest, token: str) -> HttpResponse:
     """Render the preferences page for a given recipient token"""
     response = validate_messaging_preferences_token(token)
@@ -481,31 +482,59 @@ def preferences_page(request: HttpRequest, token: str) -> HttpResponse:
     if not team_id or not identifier:
         return render(request, "message_preferences/error.html", {"error": "Invalid recipient"}, status=400)
 
-    try:
-        recipient = MessageRecipientPreference.objects.get(team_id=team_id, identifier=identifier)
-    except MessageRecipientPreference.DoesNotExist:
-        # A first-time preferences page visitor will not have a recipient in Postgres yet.
-        recipient = None
+    recipient, _ = MessageRecipientPreference.objects.get_or_create(team_id=team_id, identifier=identifier)
+    categories = MessageCategory.objects.filter(deleted=False, team=team_id, category_type="marketing").order_by("name")
+
+    is_one_click_unsubscribe = (
+        request.GET.get("one_click_unsubscribe") == "1" or request.POST.get("one_click_unsubscribe") == "1"
+    )
+    if is_one_click_unsubscribe:
+        # If one-click unsubscribe, set all preferences to opted out
+        preferences_dict = {str(cat.id): PreferenceStatus.OPTED_OUT.value for cat in categories}
+
+        # Also set the "$all" preference
+        preferences_dict[ALL_MESSAGE_PREFERENCE_CATEGORY_ID] = PreferenceStatus.OPTED_OUT.value
+
+        recipient.preferences = preferences_dict
+        recipient.save(update_fields=["preferences"])
+
+        if request.method == "POST":
+            return HttpResponse(status=200)
 
     # Only fetch active categories and their preferences
-    categories = MessageCategory.objects.filter(deleted=False, team=team_id, category_type="marketing").order_by("name")
     preferences = recipient.get_all_preferences() if recipient else {}
+
+    categories_templating = [
+        {
+            "id": cat.id,
+            "name": cat.name,
+            "description": cat.public_description,
+            "status": preferences.get(str(cat.id), PreferenceStatus.NO_PREFERENCE),
+        }
+        for cat in categories
+    ]
 
     context = {
         "recipient": recipient,
         "categories": [
+            *categories_templating,
             {
-                "id": cat.id,
-                "name": cat.name,
-                "description": cat.public_description,
-                "status": preferences.get(str(cat.id), PreferenceStatus.NO_PREFERENCE),
-            }
-            for cat in categories
+                "id": ALL_MESSAGE_PREFERENCE_CATEGORY_ID,
+                "name": "All marketing communications",
+                "description": "Unsubscribing here overrides individual preferences.",
+                "status": preferences.get(ALL_MESSAGE_PREFERENCE_CATEGORY_ID, PreferenceStatus.NO_PREFERENCE),
+            },
         ],
         "token": token,
     }
 
-    return render(request, "message_preferences/preferences.html", context)
+    return render(
+        request,
+        "message_preferences/one_click_unsubscribe_success.html"
+        if is_one_click_unsubscribe
+        else "message_preferences/preferences.html",
+        context,
+    )
 
 
 @csrf_protect

@@ -239,7 +239,9 @@ describe('HogFunctionHandler', () => {
         expect(callArgs[1]).toBe(action)
         expect(handlerResult.nextAction?.id).toBe('exit')
         expect(invocationResult.logs).toHaveLength(1)
-        expect(invocationResult.logs[0].message).toContain(`[Action:function] Recipient opted out for action function`)
+        expect(invocationResult.logs[0].message).toContain(
+            `[Action:function] Recipient has opted out, skipping message delivery.`
+        )
         expect(mockFetch).not.toHaveBeenCalled()
     })
 
@@ -340,6 +342,6 @@ describe('HogFunctionHandler', () => {
 
         // Verify the function was still marked as finished with the right log
         expect(invocationResult.logs).toHaveLength(1)
-        expect(invocationResult.logs[0].message).toContain('Recipient opted out')
+        expect(invocationResult.logs[0].message).toContain('Recipient has opted out')
     })
 })

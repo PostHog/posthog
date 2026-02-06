@@ -1,23 +1,36 @@
+import { MessageHeader, SESv2Client, SendEmailCommand, SendEmailCommandInput } from '@aws-sdk/client-sesv2'
 import AWS from 'aws-sdk'
 
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult, IntegrationType } from '~/cdp/types'
 import { createAddLogFunction, logEntry } from '~/cdp/utils'
 import { createInvocationResult } from '~/cdp/utils/invocation-utils'
 import { CyclotronInvocationQueueParametersEmailType } from '~/schema/cyclotron'
+import { isFeatureFlagEnabled } from '~/utils/posthog'
 
 import { Hub } from '../../../types'
+import { RecipientManagerRecipient } from '../managers/recipients-manager.service'
 import { addTrackingToEmail } from './email-tracking.service'
 import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
-import { addPreheaderToEmail } from './helpers/preheader'
+import { maybeAddPreheaderToEmail } from './helpers/preheader'
 import { generateEmailTrackingCode } from './helpers/tracking-code'
+import { RecipientTokensService } from './recipient-tokens.service'
 
 export type EmailServiceHub = Pick<
     Hub,
-    'SES_ACCESS_KEY_ID' | 'SES_SECRET_ACCESS_KEY' | 'SES_REGION' | 'SES_ENDPOINT' | 'integrationManager'
+    | 'SES_ACCESS_KEY_ID'
+    | 'SES_SECRET_ACCESS_KEY'
+    | 'SES_REGION'
+    | 'SES_ENDPOINT'
+    | 'SITE_URL'
+    | 'ENCRYPTION_SALT_KEYS'
+    | 'integrationManager'
 >
 
 export class EmailService {
     ses: AWS.SES
+    sesV2Client: SESv2Client
+
+    private recipientTokensService: RecipientTokensService
 
     constructor(private hub: EmailServiceHub) {
         this.ses = new AWS.SES({
@@ -26,6 +39,15 @@ export class EmailService {
             region: this.hub.SES_REGION,
             endpoint: this.hub.SES_ENDPOINT || undefined,
         })
+        this.sesV2Client = new SESv2Client({
+            credentials: {
+                accessKeyId: this.hub.SES_ACCESS_KEY_ID,
+                secretAccessKey: this.hub.SES_SECRET_ACCESS_KEY,
+            },
+            region: this.hub.SES_REGION,
+            endpoint: this.hub.SES_ENDPOINT || undefined,
+        })
+        this.recipientTokensService = new RecipientTokensService(hub)
     }
 
     // Send email
@@ -62,8 +84,23 @@ export class EmailService {
                     await this.sendEmailWithMaildev(result, params)
                     break
                 case 'ses':
-                    await this.sendEmailWithSES(result, params)
+                    if (
+                        await isFeatureFlagEnabled('workflows-ses-v2', `${invocation.teamId}`, {
+                            groups: { project: `${invocation.teamId}` },
+                            groupProperties: {
+                                project: {
+                                    id: `${invocation.teamId}`,
+                                },
+                            },
+                            sendFeatureFlagEvents: false,
+                        })
+                    ) {
+                        await this.sendEmailWithSESv2(result, params)
+                    } else {
+                        await this.sendEmailWithSES(result, params)
+                    }
                     break
+
                 case 'unsupported':
                     throw new Error('Email delivery mode not supported')
             }
@@ -139,7 +176,7 @@ export class EmailService {
         const trackingCode = generateEmailTrackingCode(result.invocation)
         const htmlWithTracking = addTrackingToEmail(params.html, result.invocation)
         const htmlWithTrackingAndPreheader = params.preheader
-            ? addPreheaderToEmail(htmlWithTracking, params.preheader)
+            ? maybeAddPreheaderToEmail(htmlWithTracking, params.preheader)
             : htmlWithTracking
 
         const sendEmailParams: AWS.SES.SendEmailRequest = {
@@ -183,5 +220,83 @@ export class EmailService {
         } catch (error) {
             throw new Error(`Failed to send email via SES: ${error.message}`)
         }
+    }
+
+    private async sendEmailWithSESv2(
+        result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
+        params: CyclotronInvocationQueueParametersEmailType
+    ): Promise<void> {
+        const trackingCode = generateEmailTrackingCode(result.invocation)
+        const htmlWithTracking = addTrackingToEmail(params.html, result.invocation)
+        const htmlWithTrackingAndPreheader = maybeAddPreheaderToEmail(htmlWithTracking, params.preheader)
+
+        const sendEmailParams: SendEmailCommandInput = {
+            FromEmailAddress: params.from.name ? `"${params.from.name}" <${params.from.email}>` : params.from.email,
+            Destination: {
+                ToAddresses: [params.to.name ? `"${params.to.name}" <${params.to.email}>` : params.to.email],
+            },
+            Content: {
+                Simple: {
+                    Subject: {
+                        Data: params.subject,
+                        Charset: 'UTF-8',
+                    },
+                    Body: {
+                        Html: {
+                            Data: htmlWithTrackingAndPreheader,
+                            Charset: 'UTF-8',
+                        },
+                        Text: {
+                            Data: params.text,
+                            Charset: 'UTF-8',
+                        },
+                    },
+                },
+            },
+            ConfigurationSetName: 'posthog-messaging',
+            EmailTags: [{ Name: 'ph_id', Value: trackingCode }],
+            FeedbackForwardingEmailAddress: params.from.email,
+        }
+
+        const isTransactionalEmail = result.invocation.hogFunction.metadata?.message_category_type === 'transactional'
+        // Automatically add unsubscribe headers for non-transactional emails
+        if (sendEmailParams.Content?.Simple && !isTransactionalEmail) {
+            sendEmailParams.Content.Simple.Headers = this.generateUnsubscribeHeaders({
+                team_id: result.invocation.teamId,
+                identifier: params.to.email,
+            })
+        }
+
+        if (params.replyTo && params.replyTo.trim()) {
+            sendEmailParams.ReplyToAddresses = params.replyTo
+                .split(',')
+                .map((addr) => addr.trim())
+                .filter((addr) => addr.length > 0)
+        }
+
+        try {
+            const response = await this.sesV2Client.send(new SendEmailCommand(sendEmailParams))
+            if (!response.MessageId) {
+                throw new Error('No messageId returned from SES')
+            }
+        } catch (error: unknown) {
+            const message = error instanceof Error ? error.message : String(error)
+            throw new Error(`Failed to send email via SES: ${message}`)
+        }
+    }
+
+    private generateUnsubscribeHeaders(
+        recipient: Pick<RecipientManagerRecipient, 'team_id' | 'identifier'>
+    ): MessageHeader[] {
+        return [
+            {
+                Name: 'List-Unsubscribe',
+                Value: `<${this.recipientTokensService.generateOneClickUnsubscribeUrl(recipient)}>`,
+            },
+            {
+                Name: 'List-Unsubscribe-Post',
+                Value: 'List-Unsubscribe=One-Click',
+            },
+        ]
     }
 }
