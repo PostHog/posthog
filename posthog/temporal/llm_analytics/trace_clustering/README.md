@@ -117,11 +117,11 @@ graph TB
 
 The workflow uses **three separate activities** with independent timeouts and retry policies:
 
-| Activity                              | Purpose                              | Timeout | Retries | Data Size      |
-| ------------------------------------- | ------------------------------------ | ------- | ------- | -------------- |
-| `perform_clustering_compute_activity` | Fetch embeddings, HDBSCAN, distances | 120s    | 3       | ~150 KB output |
-| `generate_cluster_labels_activity`    | LLM-based cluster labeling           | 600s    | 2       | ~4 KB output   |
-| `emit_cluster_events_activity`        | Write results to ClickHouse          | 60s     | 3       | ~150 KB input  |
+| Activity                              | Purpose                              | Timeout | Heartbeat | Retries | Data Size      |
+| ------------------------------------- | ------------------------------------ | ------- | --------- | ------- | -------------- |
+| `perform_clustering_compute_activity` | Fetch embeddings, HDBSCAN, distances | 120s    | 60s       | 3       | ~150 KB output |
+| `generate_cluster_labels_activity`    | LLM-based cluster labeling           | 600s    | 120s      | 2       | ~4 KB output   |
+| `emit_cluster_events_activity`        | Write results to ClickHouse          | 60s     | 30s       | 3       | ~150 KB input  |
 
 **Benefits:**
 
