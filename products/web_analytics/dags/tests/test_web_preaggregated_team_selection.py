@@ -672,6 +672,7 @@ class TestHighVolumeTeamCandidatesAsset:
         context = dagster.build_asset_context()
         result = web_analytics_high_volume_team_candidates(context)
 
+        assert isinstance(result, dagster.MaterializeResult)
         metadata = result.metadata
         assert metadata is not None
         team_details = metadata["team_details"]
