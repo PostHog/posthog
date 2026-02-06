@@ -901,7 +901,7 @@ class InsightSerializer(InsightBasicSerializer):
                 logger.exception("insight_calculation_error", insight_id=insight.id, team_id=insight.team_id)
                 return InsightResult(
                     result=None,
-                    last_refresh=now(),
+                    last_refresh=None,
                     is_cached=False,
                     query_status=dict(
                         QueryStatus(
