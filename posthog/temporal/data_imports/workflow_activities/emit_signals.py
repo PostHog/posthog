@@ -74,19 +74,9 @@ async def emit_data_import_signals_activity(inputs: EmitSignalsActivityInputs) -
     schema, team = await database_sync_to_async(_fetch_schema_and_team, thread_sensitive=False)(
         inputs.schema_id, inputs.team_id
     )
-    if schema is None:
-        activity.logger.warning(
-            f"Schema {inputs.schema_id} not found for emitting signals", extra=inputs.properties_to_log
-        )
-        return {"status": "error", "reason": "schema_not_found", "signals_emitted": 0}
-    if schema.table is None:
-        activity.logger.warning(
-            f"Schema {inputs.schema_id} has no table for emitting signals", extra=inputs.properties_to_log
-        )
-        return {"status": "skipped", "reason": "no_table", "signals_emitted": 0}
-    if team is None:
-        activity.logger.warning(f"Team {inputs.team_id} not found", extra=inputs.properties_to_log)
-        return {"status": "error", "reason": "team_not_found", "signals_emitted": 0}
+    validation_error = _validate_schema_and_team(schema, team, inputs)
+    if validation_error is not None:
+        return validation_error
     # Query for new records
     records = await database_sync_to_async(_query_new_records, thread_sensitive=False)(
         team=team,
@@ -126,6 +116,25 @@ async def emit_data_import_signals_activity(inputs: EmitSignalsActivityInputs) -
         extra=inputs.properties_to_log,
     )
     return {"status": "success", "signals_emitted": signals_emitted}
+
+
+def _validate_schema_and_team(
+    schema: ExternalDataSchema | None, team: Team | None, inputs: EmitSignalsActivityInputs
+) -> dict[str, Any] | None:
+    if schema is None:
+        activity.logger.warning(
+            f"Schema {inputs.schema_id} not found for emitting signals", extra=inputs.properties_to_log
+        )
+        return {"status": "error", "reason": "schema_not_found", "signals_emitted": 0}
+    if schema.table is None:
+        activity.logger.warning(
+            f"Schema {inputs.schema_id} has no table for emitting signals", extra=inputs.properties_to_log
+        )
+        return {"status": "skipped", "reason": "no_table", "signals_emitted": 0}
+    if team is None:
+        activity.logger.warning(f"Team {inputs.team_id} not found", extra=inputs.properties_to_log)
+        return {"status": "error", "reason": "team_not_found", "signals_emitted": 0}
+    return None
 
 
 def _is_feature_flag_enabled(team_id: int) -> bool:
