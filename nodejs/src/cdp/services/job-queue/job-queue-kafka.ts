@@ -93,17 +93,16 @@ export class CyclotronJobQueueKafka {
     public async stopConsumer() {
         await this.kafkaConsumer?.disconnect()
 
-if (this.seekTestConsumer) {
-    await new Promise<void>((resolve) => {
-        this.seekTestConsumer!.disconnect((error) => {
-            if (error) {
-                logger.warn('Failed to disconnect seek test consumer', { error })
-            }
-            resolve()
-        })
-    })
-}
-
+        if (this.seekTestConsumer) {
+            await new Promise<void>((resolve) => {
+                this.seekTestConsumer!.disconnect((error) => {
+                    if (error) {
+                        logger.warn('Failed to disconnect seek test consumer', { error })
+                    }
+                    resolve()
+                })
+            })
+        }
     }
 
     public async stopProducer() {
