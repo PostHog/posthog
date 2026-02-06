@@ -1,23 +1,35 @@
-import { actions, connect, kea, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 import { groupsModel } from '~/models/groupsModel'
 import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 
-import { SortDirection, SortState, llmAnalyticsSharedLogic } from '../llmAnalyticsSharedLogic'
+import {
+    LLMAnalyticsSharedLogicProps,
+    SortDirection,
+    SortState,
+    llmAnalyticsSharedLogic,
+} from '../llmAnalyticsSharedLogic'
 import type { llmAnalyticsUsersLogicType } from './llmAnalyticsUsersLogicType'
+
+export interface LLMAnalyticsUsersLogicProps {
+    tabId?: string
+    personId?: string
+}
 
 export const llmAnalyticsUsersLogic = kea<llmAnalyticsUsersLogicType>([
     path(['products', 'llm_analytics', 'frontend', 'tabs', 'llmAnalyticsUsersLogic']),
-    connect({
+    props({} as LLMAnalyticsUsersLogicProps),
+    key((props: LLMAnalyticsUsersLogicProps) => props?.personId || props?.tabId || 'llmAnalyticsScene'),
+    connect((props: LLMAnalyticsUsersLogicProps) => ({
         values: [
-            llmAnalyticsSharedLogic,
+            llmAnalyticsSharedLogic(props as LLMAnalyticsSharedLogicProps),
             ['dateFilter', 'shouldFilterTestAccounts', 'propertyFilters'],
             groupsModel,
             ['groupsTaxonomicTypes'],
         ],
-    }),
+    })),
 
     actions({
         setUsersSort: (column: string, direction: SortDirection) => ({ column, direction }),

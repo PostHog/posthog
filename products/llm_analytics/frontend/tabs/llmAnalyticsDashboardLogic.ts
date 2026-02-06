@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
@@ -20,8 +20,13 @@ import {
     PropertyOperator,
 } from '~/types'
 
-import { llmAnalyticsSharedLogic } from '../llmAnalyticsSharedLogic'
+import { LLMAnalyticsSharedLogicProps, llmAnalyticsSharedLogic } from '../llmAnalyticsSharedLogic'
 import type { llmAnalyticsDashboardLogicType } from './llmAnalyticsDashboardLogicType'
+
+export interface LLMAnalyticsDashboardLogicProps {
+    tabId?: string
+    personId?: string
+}
 
 export interface QueryTile {
     title: string
@@ -49,9 +54,14 @@ function getDayDateRange(day: string): { date_from: string; date_to: string } {
 
 export const llmAnalyticsDashboardLogic = kea<llmAnalyticsDashboardLogicType>([
     path(['products', 'llm_analytics', 'frontend', 'tabs', 'llmAnalyticsDashboardLogic']),
-    connect({
-        values: [llmAnalyticsSharedLogic, ['dashboardDateFilter', 'shouldFilterTestAccounts', 'propertyFilters']],
-    }),
+    props({} as LLMAnalyticsDashboardLogicProps),
+    key((props: LLMAnalyticsDashboardLogicProps) => props?.personId || props?.tabId || 'llmAnalyticsScene'),
+    connect((props: LLMAnalyticsDashboardLogicProps) => ({
+        values: [
+            llmAnalyticsSharedLogic(props as LLMAnalyticsSharedLogicProps),
+            ['dashboardDateFilter', 'shouldFilterTestAccounts', 'propertyFilters'],
+        ],
+    })),
 
     actions({
         refreshAllDashboardItems: true,

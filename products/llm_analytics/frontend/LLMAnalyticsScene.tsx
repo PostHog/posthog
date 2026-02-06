@@ -67,7 +67,11 @@ import { llmEvaluationsLogic } from './evaluations/llmEvaluationsLogic'
 import { EvaluationConfig } from './evaluations/types'
 import { useSortableColumns } from './hooks/useSortableColumns'
 import { llmAnalyticsColumnRenderers } from './llmAnalyticsColumnRenderers'
-import { LLM_ANALYTICS_DATA_COLLECTION_NODE_ID, llmAnalyticsSharedLogic } from './llmAnalyticsSharedLogic'
+import {
+    LLMAnalyticsSharedLogicProps,
+    LLM_ANALYTICS_DATA_COLLECTION_NODE_ID,
+    llmAnalyticsSharedLogic,
+} from './llmAnalyticsSharedLogic'
 import { LLMPromptsScene } from './prompts/LLMPromptsScene'
 import { LLMProviderKeysSettings } from './settings/LLMProviderKeysSettings'
 import { TrialUsageMeter } from './settings/TrialUsageMeter'
@@ -352,9 +356,7 @@ function LLMAnalyticsGenerations(): JSX.Element {
 function LLMAnalyticsEvaluations(): JSX.Element {
     return (
         <BindLogic logic={llmEvaluationsLogic} props={{}}>
-            <BindLogic logic={evaluationMetricsLogic} props={{}}>
-                <LLMAnalyticsEvaluationsContent />
-            </BindLogic>
+            <LLMAnalyticsEvaluationsContent />
         </BindLogic>
     )
 }
@@ -587,7 +589,7 @@ const DOCS_URLS_BY_TAB: Record<string, string> = {
     evaluations: 'https://posthog.com/docs/llm-analytics/evaluations',
 }
 
-export function LLMAnalyticsScene(): JSX.Element {
+export function LLMAnalyticsScene({ tabId }: LLMAnalyticsSharedLogicProps = {}): JSX.Element {
     const { activeTab } = useValues(llmAnalyticsSharedLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { searchParams } = useValues(router)
@@ -640,7 +642,7 @@ export function LLMAnalyticsScene(): JSX.Element {
             label: 'Traces',
             content: (
                 <LLMAnalyticsSetupPrompt thing="trace">
-                    <LLMAnalyticsTraces />
+                    <LLMAnalyticsTraces tabId={tabId} />
                 </LLMAnalyticsSetupPrompt>
             ),
             link: combineUrl(urls.llmAnalyticsTraces(), searchParams).url,
@@ -662,7 +664,7 @@ export function LLMAnalyticsScene(): JSX.Element {
             label: 'Users',
             content: (
                 <LLMAnalyticsSetupPrompt>
-                    <LLMAnalyticsUsers />
+                    <LLMAnalyticsUsers tabId={tabId} />
                 </LLMAnalyticsSetupPrompt>
             ),
             link: combineUrl(urls.llmAnalyticsUsers(), searchParams).url,
@@ -679,7 +681,7 @@ export function LLMAnalyticsScene(): JSX.Element {
             label: 'Errors',
             content: (
                 <LLMAnalyticsSetupPrompt>
-                    <LLMAnalyticsErrors />
+                    <LLMAnalyticsErrors tabId={tabId} />
                 </LLMAnalyticsSetupPrompt>
             ),
             link: combineUrl(urls.llmAnalyticsErrors(), searchParams).url,
@@ -697,7 +699,7 @@ export function LLMAnalyticsScene(): JSX.Element {
             label: 'Sessions',
             content: (
                 <LLMAnalyticsSetupPrompt>
-                    <LLMAnalyticsSessionsScene />
+                    <LLMAnalyticsSessionsScene tabId={tabId} />
                 </LLMAnalyticsSetupPrompt>
             ),
             link: combineUrl(urls.llmAnalyticsSessions(), searchParams).url,
@@ -807,31 +809,39 @@ export function LLMAnalyticsScene(): JSX.Element {
         })
     }
 
+    const childLogicProps = { tabId }
+
     return (
         <BindLogic logic={dataNodeCollectionLogic} props={{ key: LLM_ANALYTICS_DATA_COLLECTION_NODE_ID }}>
-            <SceneContent>
-                <SceneTitleSection
-                    name={sceneConfigurations[Scene.LLMAnalytics].name}
-                    description={sceneConfigurations[Scene.LLMAnalytics].description}
-                    resourceType={{
-                        type: sceneConfigurations[Scene.LLMAnalytics].iconType || 'default_icon_type',
-                    }}
-                    actions={
-                        <>
-                            <LemonButton
-                                to={DOCS_URLS_BY_TAB[activeTab] || DEFAULT_DOCS_URL}
-                                type="secondary"
-                                targetBlank
-                                size="small"
-                            >
-                                Documentation
-                            </LemonButton>
-                        </>
-                    }
-                />
+            <BindLogic logic={llmAnalyticsGenerationsLogic} props={childLogicProps}>
+                <BindLogic logic={llmAnalyticsDashboardLogic} props={childLogicProps}>
+                    <BindLogic logic={evaluationMetricsLogic} props={childLogicProps}>
+                        <SceneContent>
+                            <SceneTitleSection
+                                name={sceneConfigurations[Scene.LLMAnalytics].name}
+                                description={sceneConfigurations[Scene.LLMAnalytics].description}
+                                resourceType={{
+                                    type: sceneConfigurations[Scene.LLMAnalytics].iconType || 'default_icon_type',
+                                }}
+                                actions={
+                                    <>
+                                        <LemonButton
+                                            to={DOCS_URLS_BY_TAB[activeTab] || DEFAULT_DOCS_URL}
+                                            type="secondary"
+                                            targetBlank
+                                            size="small"
+                                        >
+                                            Documentation
+                                        </LemonButton>
+                                    </>
+                                }
+                            />
 
-                <LemonTabs activeKey={activeTab} data-attr="llm-analytics-tabs" tabs={tabs} sceneInset />
-            </SceneContent>
+                            <LemonTabs activeKey={activeTab} data-attr="llm-analytics-tabs" tabs={tabs} sceneInset />
+                        </SceneContent>
+                    </BindLogic>
+                </BindLogic>
+            </BindLogic>
         </BindLogic>
     )
 }

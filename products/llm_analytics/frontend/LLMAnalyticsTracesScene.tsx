@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 
 import { LemonTag } from '@posthog/lemon-ui'
 
@@ -19,7 +19,15 @@ import { llmAnalyticsSharedLogic } from './llmAnalyticsSharedLogic'
 import { llmAnalyticsTracesTabLogic } from './tabs/llmAnalyticsTracesTabLogic'
 import { formatLLMCost, formatLLMLatency, formatLLMUsage, getTraceTimestamp, normalizeMessages } from './utils'
 
-export function LLMAnalyticsTraces(): JSX.Element {
+export function LLMAnalyticsTraces({ tabId }: { tabId?: string } = {}): JSX.Element {
+    return (
+        <BindLogic logic={llmAnalyticsTracesTabLogic} props={{ tabId }}>
+            <LLMAnalyticsTracesContent />
+        </BindLogic>
+    )
+}
+
+function LLMAnalyticsTracesContent(): JSX.Element {
     const { setDates, setShouldFilterTestAccounts, setShouldFilterSupportTraces, setPropertyFilters } =
         useActions(llmAnalyticsSharedLogic)
     const { propertyFilters: currentPropertyFilters } = useValues(llmAnalyticsSharedLogic)

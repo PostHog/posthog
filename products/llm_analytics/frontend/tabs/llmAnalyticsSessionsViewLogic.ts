@@ -1,4 +1,4 @@
-import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
 import api from 'lib/api'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -7,20 +7,35 @@ import { groupsModel } from '~/models/groupsModel'
 import { DataTableNode, LLMTrace, NodeKind, TraceQuery, TracesQuery } from '~/queries/schema/schema-general'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
-import { SortDirection, SortState, llmAnalyticsSharedLogic } from '../llmAnalyticsSharedLogic'
+import {
+    LLMAnalyticsSharedLogicProps,
+    SortDirection,
+    SortState,
+    llmAnalyticsSharedLogic,
+} from '../llmAnalyticsSharedLogic'
 import type { llmAnalyticsSessionsViewLogicType } from './llmAnalyticsSessionsViewLogicType'
+
+export interface LLMAnalyticsSessionsViewLogicProps {
+    tabId?: string
+    personId?: string
+}
 
 export const llmAnalyticsSessionsViewLogic = kea<llmAnalyticsSessionsViewLogicType>([
     path(['products', 'llm_analytics', 'frontend', 'tabs', 'llmAnalyticsSessionsViewLogic']),
-    connect({
+    props({} as LLMAnalyticsSessionsViewLogicProps),
+    key((props: LLMAnalyticsSessionsViewLogicProps) => props?.personId || props?.tabId || 'llmAnalyticsScene'),
+    connect((props: LLMAnalyticsSessionsViewLogicProps) => ({
         values: [
-            llmAnalyticsSharedLogic,
+            llmAnalyticsSharedLogic(props as LLMAnalyticsSharedLogicProps),
             ['dateFilter', 'shouldFilterTestAccounts', 'propertyFilters'],
             groupsModel,
             ['groupsTaxonomicTypes'],
         ],
-        actions: [llmAnalyticsSharedLogic, ['setDates', 'setPropertyFilters', 'setShouldFilterTestAccounts']],
-    }),
+        actions: [
+            llmAnalyticsSharedLogic(props as LLMAnalyticsSharedLogicProps),
+            ['setDates', 'setPropertyFilters', 'setShouldFilterTestAccounts'],
+        ],
+    })),
 
     actions({
         setSessionsSort: (column: string, direction: SortDirection) => ({ column, direction }),

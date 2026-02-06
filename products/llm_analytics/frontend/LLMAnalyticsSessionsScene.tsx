@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 
 import { IconChevronDown, IconChevronRight } from '@posthog/icons'
 import { LemonTag } from '@posthog/lemon-ui'
@@ -19,7 +19,15 @@ import { llmAnalyticsSharedLogic } from './llmAnalyticsSharedLogic'
 import { llmAnalyticsSessionsViewLogic } from './tabs/llmAnalyticsSessionsViewLogic'
 import { formatLLMCost, getTraceTimestamp } from './utils'
 
-export function LLMAnalyticsSessionsScene(): JSX.Element {
+export function LLMAnalyticsSessionsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
+    return (
+        <BindLogic logic={llmAnalyticsSessionsViewLogic} props={{ tabId }}>
+            <LLMAnalyticsSessionsContent />
+        </BindLogic>
+    )
+}
+
+function LLMAnalyticsSessionsContent(): JSX.Element {
     const { setDates, setShouldFilterTestAccounts, setPropertyFilters } = useActions(llmAnalyticsSharedLogic)
     const { dateFilter } = useValues(llmAnalyticsSharedLogic)
 

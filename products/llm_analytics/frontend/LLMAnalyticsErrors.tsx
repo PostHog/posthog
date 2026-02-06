@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
 import { IconCopy } from '@posthog/icons'
@@ -17,7 +17,15 @@ import { useSortableColumns } from './hooks/useSortableColumns'
 import { llmAnalyticsSharedLogic } from './llmAnalyticsSharedLogic'
 import { llmAnalyticsErrorsLogic } from './tabs/llmAnalyticsErrorsLogic'
 
-export function LLMAnalyticsErrors(): JSX.Element {
+export function LLMAnalyticsErrors({ tabId }: { tabId?: string } = {}): JSX.Element {
+    return (
+        <BindLogic logic={llmAnalyticsErrorsLogic} props={{ tabId }}>
+            <LLMAnalyticsErrorsContent />
+        </BindLogic>
+    )
+}
+
+function LLMAnalyticsErrorsContent(): JSX.Element {
     const { setDates, setShouldFilterTestAccounts, setPropertyFilters } = useActions(llmAnalyticsSharedLogic)
     const { setErrorsSort } = useActions(llmAnalyticsErrorsLogic)
     const { errorsQuery, errorsSort } = useValues(llmAnalyticsErrorsLogic)

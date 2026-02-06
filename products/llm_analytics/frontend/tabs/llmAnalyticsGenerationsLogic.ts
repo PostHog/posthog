@@ -1,4 +1,4 @@
-import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
 import api from 'lib/api'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -8,8 +8,18 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { DataTableNode, LLMTrace, NodeKind, TraceQuery } from '~/queries/schema/schema-general'
 
-import { SortDirection, SortState, llmAnalyticsSharedLogic } from '../llmAnalyticsSharedLogic'
+import {
+    LLMAnalyticsSharedLogicProps,
+    SortDirection,
+    SortState,
+    llmAnalyticsSharedLogic,
+} from '../llmAnalyticsSharedLogic'
 import type { llmAnalyticsGenerationsLogicType } from './llmAnalyticsGenerationsLogicType'
+
+export interface LLMAnalyticsGenerationsLogicProps {
+    tabId?: string
+    personId?: string
+}
 
 export function getDefaultGenerationsColumns(showInputOutput: boolean): string[] {
     return [
@@ -28,17 +38,22 @@ export function getDefaultGenerationsColumns(showInputOutput: boolean): string[]
 
 export const llmAnalyticsGenerationsLogic = kea<llmAnalyticsGenerationsLogicType>([
     path(['products', 'llm_analytics', 'frontend', 'tabs', 'llmAnalyticsGenerationsLogic']),
-    connect({
+    props({} as LLMAnalyticsGenerationsLogicProps),
+    key((props: LLMAnalyticsGenerationsLogicProps) => props?.personId || props?.tabId || 'llmAnalyticsScene'),
+    connect((props: LLMAnalyticsGenerationsLogicProps) => ({
         values: [
-            llmAnalyticsSharedLogic,
+            llmAnalyticsSharedLogic(props as LLMAnalyticsSharedLogicProps),
             ['dateFilter', 'shouldFilterTestAccounts', 'propertyFilters'],
             groupsModel,
             ['groupsTaxonomicTypes'],
             featureFlagLogic,
             ['featureFlags'],
         ],
-        actions: [llmAnalyticsSharedLogic, ['setDates', 'setPropertyFilters', 'setShouldFilterTestAccounts']],
-    }),
+        actions: [
+            llmAnalyticsSharedLogic(props as LLMAnalyticsSharedLogicProps),
+            ['setDates', 'setPropertyFilters', 'setShouldFilterTestAccounts'],
+        ],
+    })),
 
     actions({
         setGenerationsQuery: (query: DataTableNode) => ({ query }),
