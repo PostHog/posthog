@@ -5384,11 +5384,7 @@ export enum ProductIntentContext {
     DATA_PIPELINE_CREATED = 'data_pipeline_created',
     BATCH_EXPORT_CREATED = 'batch_export_created',
     BATCH_EXPORT_UPDATED = 'batch_export_updated',
-    BATCH_EXPORT_CONFIGURATION_VIEWED = 'batch_export_configuration_viewed',
-    BATCH_EXPORT_METRICS_VIEWED = 'batch_export_metrics_viewed',
-    BATCH_EXPORT_LOGS_VIEWED = 'batch_export_logs_viewed',
-    BATCH_EXPORT_RUNS_VIEWED = 'batch_export_runs_viewed',
-    BATCH_EXPORT_BACKFILLS_VIEWED = 'batch_export_backfills_viewed',
+    BATCH_EXPORT_BACKFILL_CREATED = 'batch_export_backfill_created',
 
     // Notebooks
     NOTEBOOK_CREATED = 'notebook_created',
