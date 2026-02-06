@@ -32,7 +32,7 @@ import { surveyLogic } from './surveyLogic'
 
 type OperatorOption = { label: string; value: PropertyOperator }
 
-const OPERATOR_OPTIONS: Record<SurveyQuestionType, OperatorOption[]> = {
+export const OPERATOR_OPTIONS: Record<SurveyQuestionType, OperatorOption[]> = {
     [SurveyQuestionType.Open]: [
         { label: allOperatorsMapping[PropertyOperator.IContains], value: PropertyOperator.IContains },
         { label: allOperatorsMapping[PropertyOperator.NotIContains], value: PropertyOperator.NotIContains },
