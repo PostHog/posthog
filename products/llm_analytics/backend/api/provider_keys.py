@@ -67,7 +67,7 @@ class LLMProviderKeySerializer(serializers.ModelSerializer):
         elif provider == LLMProvider.ANTHROPIC:
             if not value.startswith("sk-ant-"):
                 raise serializers.ValidationError("Invalid Anthropic API key format. Key should start with 'sk-ant-'.")
-        # Gemini keys have no standard prefix, so no format validation needed
+        # Gemini and OpenRouter keys have no standard prefix, so no format validation needed
 
         return value
 
