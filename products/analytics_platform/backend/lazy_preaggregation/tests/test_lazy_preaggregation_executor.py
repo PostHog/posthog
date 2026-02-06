@@ -15,7 +15,7 @@ from posthog.clickhouse.preaggregation.sql import DISTRIBUTED_PREAGGREGATION_RES
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 
 from products.analytics_platform.backend.lazy_preaggregation.lazy_preaggregation_executor import (
-    FATAL_CLICKHOUSE_ERROR_CODES,
+    NON_RETRYABLE_CLICKHOUSE_ERROR_CODES,
     PreaggregationExecutor,
     PreaggregationResult,
     PreaggregationTable,
@@ -24,11 +24,10 @@ from products.analytics_platform.backend.lazy_preaggregation.lazy_preaggregation
     build_preaggregation_insert_sql,
     compute_query_hash,
     ensure_preaggregated,
-    execute_preaggregation_jobs,
     filter_overlapping_jobs,
     find_missing_contiguous_windows,
     heartbeat_while_running,
-    is_fatal_error,
+    is_non_retryable_error,
 )
 from products.analytics_platform.backend.models import PreaggregationJob
 
@@ -445,7 +444,7 @@ class TestExecutePreaggregationJobs(ClickhouseTestMixin, BaseTest):
         query = self._make_preaggregation_query()
         query_info = QueryInfo(query=query, table=PreaggregationTable.PREAGGREGATION_RESULTS, timezone="UTC")
 
-        result = execute_preaggregation_jobs(
+        result = PreaggregationExecutor().execute(
             team=self.team,
             query_info=query_info,
             start=datetime(2024, 1, 1, tzinfo=UTC),
@@ -478,7 +477,7 @@ class TestExecutePreaggregationJobs(ClickhouseTestMixin, BaseTest):
         query_info = QueryInfo(query=query, table=PreaggregationTable.PREAGGREGATION_RESULTS, timezone="UTC")
 
         # First: run for Jan 1-2
-        first_result = execute_preaggregation_jobs(
+        first_result = PreaggregationExecutor().execute(
             team=self.team,
             query_info=query_info,
             start=datetime(2024, 1, 1, tzinfo=UTC),
@@ -494,7 +493,7 @@ class TestExecutePreaggregationJobs(ClickhouseTestMixin, BaseTest):
         assert len(ch_results_1) == 1  # Jan 1
 
         # Second: run again for same range
-        second_result = execute_preaggregation_jobs(
+        second_result = PreaggregationExecutor().execute(
             team=self.team,
             query_info=query_info,
             start=datetime(2024, 1, 1, tzinfo=UTC),
@@ -523,7 +522,7 @@ class TestExecutePreaggregationJobs(ClickhouseTestMixin, BaseTest):
         query_info = QueryInfo(query=query, table=PreaggregationTable.PREAGGREGATION_RESULTS, timezone="UTC")
 
         # First: Create job for Jan 2 only
-        jan2_result = execute_preaggregation_jobs(
+        jan2_result = PreaggregationExecutor().execute(
             team=self.team,
             query_info=query_info,
             start=datetime(2024, 1, 2, tzinfo=UTC),
@@ -540,7 +539,7 @@ class TestExecutePreaggregationJobs(ClickhouseTestMixin, BaseTest):
 
         # Second: Run for Jan 1-4 (Jan 2 is covered)
         # Missing: Jan 1, Jan 3 -> 2 contiguous ranges
-        result = execute_preaggregation_jobs(
+        result = PreaggregationExecutor().execute(
             team=self.team,
             query_info=query_info,
             start=datetime(2024, 1, 1, tzinfo=UTC),
@@ -1434,10 +1433,10 @@ class TestExecuteWithWaiting(BaseTest):
             )
 
         # With wait_for_pending=False, it shouldn't hang waiting
-        # The result should have errors because it can't create a duplicate pending job
+        # It tried to create a new job for the same range but the unique constraint blocked it
         assert result is not None
-        # Should have an error because it tried to create a new job but unique constraint blocked it
-        assert len(result.errors) > 0
+        assert len(result.errors) == 1
+        assert "Failed to create preaggregation for" in result.errors[0]
 
 
 class TestStaleJobHandling(BaseTest):
@@ -1743,8 +1742,8 @@ class TestHeartbeat(BaseTest):
             assert call.get("status") == PreaggregationJob.Status.PENDING
 
 
-class TestIsFatalError(BaseTest):
-    """Tests for the is_fatal_error function."""
+class TestIsNonRetryableError(BaseTest):
+    """Tests for the is_non_retryable_error function."""
 
     @parameterized.expand(
         [
@@ -1753,9 +1752,9 @@ class TestIsFatalError(BaseTest):
             ("timeout_error", TimeoutError("Connection timed out")),
         ]
     )
-    def test_network_errors_are_fatal(self, name, error):
-        """Test that network-related errors are classified as fatal."""
-        assert is_fatal_error(error) is True
+    def test_network_errors_are_retryable(self, name, error):
+        """Test that network-related errors are retryable (transient)."""
+        assert is_non_retryable_error(error) is False
 
     @parameterized.expand(
         [
@@ -1766,48 +1765,48 @@ class TestIsFatalError(BaseTest):
             ("unknown_identifier", 47, "Unknown identifier"),
             ("unknown_table", 60, "Unknown table"),
             ("no_such_column", 16, "No such column"),
+            ("timeout", 159, "Timeout exceeded"),
+            ("too_many_queries", 202, "Too many simultaneous queries"),
         ]
     )
-    def test_clickhouse_fatal_error_codes(self, name, code, message):
-        """Test that ClickHouse errors with fatal codes are classified as fatal."""
+    def test_clickhouse_non_retryable_error_codes(self, name, code, message):
+        """Test that ClickHouse errors with non-retryable codes are classified correctly."""
         from clickhouse_driver.errors import ServerException
 
         error = ServerException(message=message, code=code)
-        assert is_fatal_error(error) is True
-        assert code in FATAL_CLICKHOUSE_ERROR_CODES
+        assert is_non_retryable_error(error) is True
+        assert code in NON_RETRYABLE_CLICKHOUSE_ERROR_CODES
 
     @parameterized.expand(
         [
-            ("timeout", 159, "Timeout exceeded"),
-            ("too_many_queries", 202, "Too many simultaneous queries"),
             ("memory_limit", 241, "Memory limit exceeded"),
         ]
     )
     def test_clickhouse_retryable_error_codes(self, name, code, message):
-        """Test that ClickHouse errors with retryable codes are NOT classified as fatal."""
+        """Test that ClickHouse errors with retryable codes are NOT classified as non-retryable."""
         from clickhouse_driver.errors import ServerException
 
         error = ServerException(message=message, code=code)
-        assert is_fatal_error(error) is False
+        assert is_non_retryable_error(error) is False
 
-    def test_wrapped_fatal_error_detected(self):
-        """Test that fatal errors wrapped in other exceptions are detected."""
+    def test_wrapped_non_retryable_error_detected(self):
+        """Test that non-retryable errors wrapped in other exceptions are detected."""
         from clickhouse_driver.errors import ServerException
 
         inner_error = ServerException(message="Syntax error", code=62)
         outer_error = RuntimeError("Query failed")
         outer_error.__cause__ = inner_error
 
-        assert is_fatal_error(outer_error) is True
+        assert is_non_retryable_error(outer_error) is True
 
-    def test_generic_exception_not_fatal(self):
-        """Test that generic exceptions are not classified as fatal."""
+    def test_generic_exception_is_retryable(self):
+        """Test that generic exceptions are retryable (not classified as non-retryable)."""
         error = Exception("Something went wrong")
-        assert is_fatal_error(error) is False
+        assert is_non_retryable_error(error) is False
 
 
-class TestFatalErrorHandling(BaseTest):
-    """Tests for fatal error handling in the wait/retry flow."""
+class TestNonRetryableErrorHandling(BaseTest):
+    """Tests for non-retryable error handling in the wait/retry flow."""
 
     def _make_preaggregation_query(self) -> ast.SelectQuery:
         """Create a query that produces columns matching the preaggregation table schema."""
@@ -1825,8 +1824,8 @@ class TestFatalErrorHandling(BaseTest):
         assert isinstance(s, ast.SelectQuery)
         return s
 
-    def test_fatal_error_not_retried(self):
-        """Test that a fatal ClickHouse error (syntax error) fails immediately without retry."""
+    def test_syntax_error_not_retried(self):
+        """Test that a syntax error fails immediately without retry."""
         from unittest.mock import patch
 
         from django.utils import timezone as django_timezone
@@ -1836,7 +1835,7 @@ class TestFatalErrorHandling(BaseTest):
         executor = PreaggregationExecutor(
             wait_timeout_seconds=5.0,
             poll_interval_seconds=0.1,
-            max_attempts=3,  # Even with 3 attempts, fatal error should fail immediately
+            max_attempts=3,  # Even with 3 attempts, non-retryable error should fail immediately
         )
 
         # Create a FAILED job to trigger replacement flow
@@ -1858,7 +1857,6 @@ class TestFatalErrorHandling(BaseTest):
 
         def mock_insert(*args, **kwargs):
             insert_attempt_count[0] += 1
-            # Raise a fatal syntax error
             raise ServerException(message="Syntax error near SELECT", code=62)
 
         with patch(
@@ -1867,21 +1865,21 @@ class TestFatalErrorHandling(BaseTest):
         ):
             result = executor._wait_for_pending_jobs(self.team, [failed_job], query_info)
 
-        # Should have failed immediately after first attempt (fatal error)
+        # Should have failed immediately after first attempt (non-retryable error)
         assert insert_attempt_count[0] == 1
         assert result.success is False
         assert len(result.failed_jobs) == 1
         assert result.timed_out is False
 
-    def test_network_error_not_retried(self):
-        """Test that network errors fail immediately without retry."""
+    def test_network_error_is_retried(self):
+        """Test that network errors are retried (transient failures)."""
         from unittest.mock import patch
 
         from django.utils import timezone as django_timezone
 
         executor = PreaggregationExecutor(
             wait_timeout_seconds=5.0,
-            poll_interval_seconds=0.1,
+            poll_interval_seconds=0.05,
             max_attempts=3,
         )
 
@@ -1902,7 +1900,9 @@ class TestFatalErrorHandling(BaseTest):
 
         def mock_insert(*args, **kwargs):
             insert_attempt_count[0] += 1
-            raise ConnectionError("Connection refused")
+            if insert_attempt_count[0] < 2:
+                raise ConnectionError("Connection refused")
+            # Second attempt succeeds
 
         with patch(
             "products.analytics_platform.backend.lazy_preaggregation.lazy_preaggregation_executor.run_preaggregation_insert",
@@ -1910,13 +1910,13 @@ class TestFatalErrorHandling(BaseTest):
         ):
             result = executor._wait_for_pending_jobs(self.team, [failed_job], query_info)
 
-        # Should have failed immediately (network error is fatal)
-        assert insert_attempt_count[0] == 1
-        assert result.success is False
-        assert len(result.failed_jobs) == 1
+        # Should have retried and succeeded on second attempt
+        assert insert_attempt_count[0] == 2
+        assert result.success is True
+        assert len(result.ready_job_ids) == 1
 
     def test_retryable_error_triggers_replacement(self):
-        """Test that retryable errors (e.g., timeout) trigger the normal retry flow."""
+        """Test that retryable errors (e.g., memory limit) trigger the normal retry flow."""
         from unittest.mock import patch
 
         from django.utils import timezone as django_timezone
@@ -1940,7 +1940,7 @@ class TestFatalErrorHandling(BaseTest):
             time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
             time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
             status=PreaggregationJob.Status.FAILED,
-            error="Previous timeout",
+            error="Previous memory error",
             expires_at=django_timezone.now() + timedelta(days=7),
         )
 
@@ -1952,8 +1952,8 @@ class TestFatalErrorHandling(BaseTest):
         def mock_insert(*args, **kwargs):
             insert_attempt_count[0] += 1
             if insert_attempt_count[0] < 3:
-                # Retryable timeout error on first 2 attempts
-                raise ServerException(message="Timeout exceeded", code=159)
+                # Retryable memory limit error on first 2 attempts
+                raise ServerException(message="Memory limit exceeded", code=241)
             # Third attempt succeeds (do nothing = success)
 
         with patch(

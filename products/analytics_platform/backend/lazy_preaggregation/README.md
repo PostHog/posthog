@@ -122,7 +122,7 @@ When creating a replacement for a failed job, we use the exact same time range a
 
 ### Attempt tracking
 
-Each waiter tracks their own attempt count locally. After a configurable number of failures (default 3), the waiter stops retrying and reports the job as permanently failed. This means new queries get fresh attempt budgets, so newer queries may succeed where older ones gave up.
+Each waiter tracks their own attempt count locally. After a configurable number of failures (default 2), the waiter stops retrying and reports the job as permanently failed. This means new queries get fresh attempt budgets, so newer queries may succeed where older ones gave up.
 
 ### Stale pending jobs
 
