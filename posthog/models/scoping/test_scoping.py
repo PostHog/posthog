@@ -2,7 +2,14 @@ from posthog.test.base import BaseTest
 
 from parameterized import parameterized
 
-from posthog.models.scoping import get_current_team_id, reset_current_team_id, set_current_team_id, team_scope, unscoped
+from posthog.models.scoping import (
+    get_current_team_id,
+    reset_current_team_id,
+    set_current_team_id,
+    team_scope,
+    unscoped,
+    with_team_scope,
+)
 
 
 class TestContextVar(BaseTest):
@@ -110,3 +117,89 @@ class TestUnscopedContextManager(BaseTest):
             except ValueError:
                 pass
             assert get_current_team_id() == 99
+
+
+class TestWithTeamScopeDecorator(BaseTest):
+    def test_sets_team_id_from_kwarg(self):
+        """Decorator extracts team_id from keyword argument."""
+        captured_team_id = None
+
+        @with_team_scope()
+        def my_task(team_id: int, other: str):
+            nonlocal captured_team_id
+            captured_team_id = get_current_team_id()
+
+        my_task(team_id=42, other="test")
+        assert captured_team_id == 42
+        # Context should be cleaned up after function returns
+        assert get_current_team_id() is None
+
+    def test_sets_team_id_from_positional_arg(self):
+        """Decorator extracts team_id from positional argument."""
+        captured_team_id = None
+
+        @with_team_scope()
+        def my_task(team_id: int, other: str):
+            nonlocal captured_team_id
+            captured_team_id = get_current_team_id()
+
+        my_task(42, "test")
+        assert captured_team_id == 42
+
+    def test_custom_param_name(self):
+        """Decorator supports custom parameter names."""
+        captured_team_id = None
+
+        @with_team_scope(team_id_param="project_team_id")
+        def my_task(project_team_id: int, other: str):
+            nonlocal captured_team_id
+            captured_team_id = get_current_team_id()
+
+        my_task(project_team_id=99, other="test")
+        assert captured_team_id == 99
+
+    def test_raises_if_param_not_found(self):
+        """Decorator raises ValueError if team_id param is missing."""
+        import pytest
+
+        @with_team_scope()
+        def my_task(other: str):
+            pass
+
+        with pytest.raises(ValueError, match="team_id"):
+            my_task(other="test")
+
+    def test_cleans_up_on_exception(self):
+        """Decorator cleans up context even if function raises."""
+
+        @with_team_scope()
+        def my_task(team_id: int):
+            raise ValueError("task error")
+
+        try:
+            my_task(team_id=42)
+        except ValueError:
+            pass
+
+        assert get_current_team_id() is None
+
+    def test_preserves_function_metadata(self):
+        """Decorator preserves function name and docstring."""
+
+        @with_team_scope()
+        def my_documented_task(team_id: int):
+            """This is my docstring."""
+            pass
+
+        assert my_documented_task.__name__ == "my_documented_task"
+        assert my_documented_task.__doc__ == "This is my docstring."
+
+    def test_returns_function_result(self):
+        """Decorator returns the function's return value."""
+
+        @with_team_scope()
+        def my_task(team_id: int) -> str:
+            return f"result for team {team_id}"
+
+        result = my_task(team_id=42)
+        assert result == "result for team 42"
