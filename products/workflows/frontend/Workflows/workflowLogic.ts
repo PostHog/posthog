@@ -93,6 +93,22 @@ function getTemplatingError(value: string, templating?: 'liquid' | 'hog'): strin
     }
 }
 
+function hasSurveyTrigger(workflow: HogFlow): boolean {
+    const trigger = workflow.actions.find((a) => a.type === 'trigger')
+    if (!trigger || trigger.config.type !== 'event') {
+        return false
+    }
+    const events = trigger.config.filters?.events ?? []
+    return events.length === 1 && events[0]?.id === SurveyEventName.SENT
+}
+
+function ensureSurveysLoaded(): void {
+    surveyTriggerLogic.mount()
+    if (surveyTriggerLogic.values.allSurveys.length === 0 && !surveyTriggerLogic.values.surveysLoading) {
+        surveyTriggerLogic.actions.loadSurveys()
+    }
+}
+
 export function sanitizeWorkflow(
     workflow: HogFlow,
     hogFunctionTemplatesById: Record<string, HogFunctionTemplateType>
@@ -365,7 +381,7 @@ export const workflowLogic = kea<workflowLogicType>([
                             // custom validation here that we can't easily express in the schema
                             if (action.config.type === 'event') {
                                 const events = action.config.filters?.events ?? []
-                                const isSurveyTrigger = events.some((e: any) => e.id === 'survey sent')
+                                const isSurveyTrigger = events.length === 1 && events[0]?.id === SurveyEventName.SENT
 
                                 if (isSurveyTrigger) {
                                     // Survey trigger requires a survey selection (specific or "any")
@@ -468,6 +484,9 @@ export const workflowLogic = kea<workflowLogicType>([
         },
         loadWorkflowSuccess: async ({ originalWorkflow }) => {
             actions.resetWorkflow(originalWorkflow)
+            if (hasSurveyTrigger(originalWorkflow)) {
+                ensureSurveysLoaded()
+            }
         },
         saveWorkflowSuccess: async ({ originalWorkflow }) => {
             const tasksToMarkAsCompleted: SetupTaskId[] = []
@@ -550,6 +569,16 @@ export const workflowLogic = kea<workflowLogicType>([
             const changes = { actions: newActions } as Partial<HogFlow>
             if (action.type === 'trigger') {
                 changes.trigger = updatedConfig as TriggerAction['config']
+
+                // Load surveys when the trigger is changed to a survey trigger
+                if (
+                    'type' in updatedConfig &&
+                    updatedConfig.type === 'event' &&
+                    updatedConfig.filters?.events?.length === 1 &&
+                    updatedConfig.filters?.events?.[0]?.id === SurveyEventName.SENT
+                ) {
+                    ensureSurveysLoaded()
+                }
             }
 
             actions.setWorkflowValues(changes)

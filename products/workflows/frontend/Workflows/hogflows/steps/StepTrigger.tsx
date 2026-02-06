@@ -175,17 +175,19 @@ export function StepTriggerConfiguration({
         })
     }
 
-    triggerOptions.splice(1, 0, {
-        label: 'Survey',
-        value: 'survey',
-        icon: <IconMessage />,
-        labelInMenu: (
-            <div className="flex flex-col my-1">
-                <div className="font-semibold">Survey</div>
-                <p className="text-xs text-muted">Trigger when a user submits a survey response</p>
-            </div>
-        ),
-    })
+    if (featureFlags[FEATURE_FLAGS.WORKFLOWS_SURVEY_TRIGGERS]) {
+        triggerOptions.splice(1, 0, {
+            label: 'Survey',
+            value: 'survey',
+            icon: <IconMessage />,
+            labelInMenu: (
+                <div className="flex flex-col my-1">
+                    <div className="font-semibold">Survey</div>
+                    <p className="text-xs text-muted">Trigger when a user submits a survey response</p>
+                </div>
+            ),
+        })
+    }
 
     // For display purposes, detect if this is a survey trigger (event trigger with 'survey sent' event)
     const displayType = isSurveyTriggerConfig(node.data.config) ? 'survey' : type
@@ -365,7 +367,7 @@ function StepTriggerConfigurationSurvey({
     const { actionValidationErrorsById } = useValues(workflowLogic)
     const { allSurveys, surveysLoading, moreSurveysLoading, hasMoreSurveys, responseCounts } =
         useValues(surveyTriggerLogic)
-    const { loadSurveys, loadMoreSurveys } = useActions(surveyTriggerLogic)
+    const { loadMoreSurveys, loadSurveys } = useActions(surveyTriggerLogic)
     const validationResult = actionValidationErrorsById[action.id]
     const selectedSurveyId = getSelectedSurveyId(config)
     const completedOnly = getCompletedResponsesOnly(config)
@@ -390,9 +392,20 @@ function StepTriggerConfigurationSurvey({
     // Search state for filtering surveys
     const [searchTerm, setSearchTerm] = useState('')
 
+    // Store selected survey name so it persists even when survey list hasn't loaded
+    const [_, setSelectedSurveyName] = useState<string | null>(null)
+
+    // Update stored name when survey is found in the list
     useEffect(() => {
-        loadSurveys()
-    }, [loadSurveys])
+        if (selectedSurveyId) {
+            const survey = allSurveys.find((s) => s.id === selectedSurveyId)
+            if (survey) {
+                setSelectedSurveyName(survey.name)
+            }
+        } else {
+            setSelectedSurveyName(null)
+        }
+    }, [selectedSurveyId, allSurveys])
 
     // Filter surveys based on search term
     const filteredSurveys = useMemo(() => {
