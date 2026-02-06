@@ -128,7 +128,11 @@ def _get_feature_flags_for_teams_batch(teams: list[Team]) -> dict[int, dict[str,
     # loaded by the caller. Avoiding the join saves memory.
     all_flags = list(
         FeatureFlag.objects.filter(
-            Q(is_remote_configuration=False) | Q(has_encrypted_payloads=False) | Q(has_encrypted_payloads__isnull=True),
+            Q(is_remote_configuration=False)
+            | (
+                Q(is_remote_configuration=True)
+                & (Q(has_encrypted_payloads=False) | Q(has_encrypted_payloads__isnull=True))
+            ),
             team__in=teams,
             deleted=False,
         ).annotate(
