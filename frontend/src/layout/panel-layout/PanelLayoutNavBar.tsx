@@ -603,6 +603,27 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                         'items-center flex-col-reverse': isLayoutNavCollapsed,
                                     })}
                                 >
+                                    <Link
+                                        buttonProps={{
+                                            menuItem: !isLayoutNavCollapsed,
+                                            className: 'group',
+                                            iconOnly: isLayoutNavCollapsed,
+                                            active: isStaticNavItemActive('Toolbar'),
+                                        }}
+                                        to={urls.toolbarLaunch()}
+                                        onClick={() => {
+                                            handleStaticNavbarItemClick(urls.toolbarLaunch(), true)
+                                        }}
+                                        tooltip={isLayoutNavCollapsed ? 'Toolbar' : undefined}
+                                        tooltipDocLink="https://posthog.com/docs/toolbar"
+                                        tooltipPlacement="right"
+                                        data-attr="navbar-toolbar"
+                                    >
+                                        <span className="flex text-tertiary group-hover:text-primary">
+                                            <IconToolbar />
+                                        </span>
+                                        {!isLayoutNavCollapsed && 'Toolbar'}
+                                    </Link>
                                     <HelpMenu />
                                     <HealthMenu />
                                     <PosthogStatusShownOnlyIfNotOperational />
