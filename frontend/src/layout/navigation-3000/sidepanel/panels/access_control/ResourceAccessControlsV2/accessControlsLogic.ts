@@ -272,9 +272,14 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
                 for (const member of allMembers) {
                     const levels: AccessControlLevelMapping[] = []
                     const projectOverride = mappedAccessControlMembers[member.id]
+                    const isOrgAdmin = member.level >= OrganizationMembershipLevel.Admin
+                    // Org admins/owners always have admin access to the project
+                    const effectiveProjectLevel = isOrgAdmin
+                        ? AccessControlLevel.Admin
+                        : ((projectOverride?.access_level ?? projectDefaultLevel) as AccessControlLevel)
                     levels.push({
                         resourceKey: 'project',
-                        level: (projectOverride?.access_level ?? projectDefaultLevel) as AccessControlLevel,
+                        level: effectiveProjectLevel,
                     })
 
                     const memberResourceEntry = mappedMemberResourceEntries[member.id]

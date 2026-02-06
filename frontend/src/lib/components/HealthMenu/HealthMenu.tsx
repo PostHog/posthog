@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconCode, IconDatabase, IconStethoscope, IconWarning } from '@posthog/icons'
+import { IconCloud, IconCode, IconDatabase, IconStethoscope, IconWarning } from '@posthog/icons'
 import { LemonTag } from '@posthog/lemon-ui'
 
 import { Link } from 'lib/lemon-ui/Link/Link'
@@ -23,7 +23,13 @@ import { keyBinds } from '../AppShortcuts/shortcuts'
 import { healthMenuLogic } from './healthMenuLogic'
 
 export function HealthMenu(): JSX.Element {
-    const { isHealthMenuOpen } = useValues(healthMenuLogic)
+    const {
+        isHealthMenuOpen,
+        postHogStatus,
+        postHogStatusTooltip,
+        postHogStatusBadgeContent,
+        postHogStatusBadgeStatus,
+    } = useValues(healthMenuLogic)
     const { setHealthMenuOpen } = useActions(healthMenuLogic)
     const { needsAttention, needsUpdatingCount, sdkHealth } = useValues(sidePanelSdkDoctorLogic)
     const { issueCount: pipelineIssueCount } = useValues(sidePanelHealthLogic)
@@ -41,8 +47,15 @@ export function HealthMenu(): JSX.Element {
             ? `${pipelineIssueCount} pipeline issue${pipelineIssueCount === 1 ? '' : 's'}`
             : 'All pipelines healthy'
 
-    const triggerBadgeContent = needsAttention || needsUpdatingCount > 0 || pipelineIssueCount > 0 ? '!' : '✓'
-    const triggerBadgeStatus = needsAttention || needsUpdatingCount > 0 || pipelineIssueCount > 0 ? 'danger' : 'success'
+    // Cumulative badge content and status
+    const triggerBadgeContent =
+        postHogStatus !== 'operational' || needsAttention || needsUpdatingCount > 0 || pipelineIssueCount > 0
+            ? '!'
+            : '✓'
+    const triggerBadgeStatus =
+        postHogStatus !== 'operational' || needsAttention || needsUpdatingCount > 0 || pipelineIssueCount > 0
+            ? 'danger'
+            : 'success'
 
     return (
         <DropdownMenu open={isHealthMenuOpen} onOpenChange={setHealthMenuOpen}>
@@ -99,11 +112,27 @@ export function HealthMenu(): JSX.Element {
                 </DropdownMenuGroup>
                 <DropdownMenuGroup className="flex flex-col gap-px pt-0">
                     <DropdownMenuItem asChild>
-                        <Link to={urls.ingestionWarnings()} buttonProps={{ menuItem: true }}>
-                            <IconWarning className="size-5" />
-                            Ingestion warnings
+                        <Link
+                            targetBlankIcon
+                            target="_blank"
+                            buttonProps={{ menuItem: true }}
+                            to="https://posthogstatus.com"
+                            tooltip={postHogStatusTooltip}
+                            tooltipPlacement="right"
+                            tooltipCloseDelayMs={0}
+                        >
+                            <IconWithBadge
+                                content={postHogStatusBadgeContent}
+                                size="xsmall"
+                                status={postHogStatusBadgeStatus}
+                                className="flex"
+                            >
+                                <IconCloud />
+                            </IconWithBadge>
+                            PostHog status
                         </Link>
                     </DropdownMenuItem>
+
                     <DropdownMenuItem asChild>
                         <Link
                             to={urls.sdkDoctor()}
@@ -138,6 +167,12 @@ export function HealthMenu(): JSX.Element {
                                 <IconDatabase className="size-5" />
                             </IconWithBadge>
                             Pipeline status
+                        </Link>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem asChild>
+                        <Link to={urls.ingestionWarnings()} buttonProps={{ menuItem: true }}>
+                            <IconWarning className="size-5" />
+                            Ingestion warnings
                         </Link>
                     </DropdownMenuItem>
                 </DropdownMenuGroup>

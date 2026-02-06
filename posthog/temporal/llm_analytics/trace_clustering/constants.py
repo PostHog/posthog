@@ -18,6 +18,7 @@ DEFAULT_MAX_CONCURRENT_TEAMS = 3  # Max teams to process in parallel
 
 # Workflow timeouts
 WORKFLOW_EXECUTION_TIMEOUT = timedelta(minutes=30)
+COORDINATOR_EXECUTION_TIMEOUT = timedelta(hours=12)  # Must be less than daily schedule interval to avoid blocking
 # Temporal configuration
 WORKFLOW_NAME = "llma-trace-clustering"
 COORDINATOR_WORKFLOW_NAME = "llma-trace-clustering-coordinator"
@@ -75,19 +76,6 @@ LLMA_TRACE_RENDERING_LEGACY = "llma_trace_detailed"
 
 # Product for LLM trace summaries (matches sorting key in posthog_document_embeddings)
 LLMA_TRACE_PRODUCT = "llm-analytics"
-
-# Team allowlist (empty list = no teams processed)
-ALLOWED_TEAM_IDS: list[int] = [
-    1,  # Local development
-    2,  # Internal PostHog project
-    # Dogfooding projects
-    112495,
-    148051,
-    140227,
-    237906,
-    294356,
-    21999,
-]
 
 # Cluster labeling agent configuration
 LABELING_AGENT_MODEL = "gpt-5.2"  # OpenAI GPT-5.2 for reasoning

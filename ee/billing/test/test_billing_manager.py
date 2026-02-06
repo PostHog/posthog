@@ -13,7 +13,7 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.user import User
 
 from ee.billing.billing_manager import BillingManager, _get_user_organization_role, build_billing_token
-from ee.billing.billing_types import Product
+from ee.billing.billing_types import BillingProvider, Product
 from ee.models.license import License, LicenseManager
 
 
@@ -244,6 +244,49 @@ class TestBillingManager(BaseTest):
                 "quota_limiting_suspended_until": 1611705600,
             },
         }
+
+    @patch(
+        "ee.billing.billing_manager.requests.post",
+        return_value=MagicMock(status_code=200, json=MagicMock(return_value={"success": True})),
+    )
+    def test_deauthorize_calls_billing_service(self, billing_post_request_mock: MagicMock):
+        """Deauthorize should call the billing service uninstall endpoint."""
+        license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key123::key123",
+            plan="enterprise",
+            valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
+        )
+
+        result = BillingManager(license).deauthorize(self.organization, BillingProvider.VERCEL)
+
+        assert result == {"success": True}
+        billing_post_request_mock.assert_called_once()
+
+        call_args = billing_post_request_mock.call_args
+        assert call_args[0][0].endswith("/api/activate/authorize/uninstall")
+        assert call_args[1]["json"] == {"billing_provider": "vercel"}
+        assert "Authorization" in call_args[1]["headers"]
+
+    @patch(
+        "ee.billing.billing_manager.requests.post",
+        return_value=MagicMock(
+            status_code=400,
+            json=MagicMock(return_value={"error": "Customer billing provider mismatch"}),
+            ok=False,
+        ),
+    )
+    def test_deauthorize_handles_billing_service_error(self, billing_post_request_mock: MagicMock):
+        """Deauthorize should raise an exception when billing service returns an error."""
+        license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key123::key123",
+            plan="enterprise",
+            valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
+        )
+
+        with self.assertRaises(Exception) as context:
+            BillingManager(license).deauthorize(self.organization, BillingProvider.VERCEL)
+
+        assert "400" in str(context.exception)
 
 
 class TestBuildBillingToken(BaseTest):

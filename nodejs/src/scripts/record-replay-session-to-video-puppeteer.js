@@ -152,18 +152,28 @@ async function detectInactivityPeriods(page, playbackSpeed, segmentStartTimestam
         })
         // Merge segment timestamps into periods
         if (segmentStartTimestamps && Object.keys(segmentStartTimestamps).length > 0) {
+            let prevPeriodWithRecording = null
             for (const period of inactivityPeriodsRaw) {
                 const tsFromS = period.ts_from_s
                 if (tsFromS !== undefined && segmentStartTimestamps[tsFromS] !== undefined) {
                     const rawTimestamp = segmentStartTimestamps[tsFromS]
                     // We played video sped up, so need to multiply by playback speed to know where this moment is in the final video
                     period.recording_ts_from_s = rawTimestamp * playbackSpeed
+                    // Calculate the expected duration of the current segment in actual video time
                     const tsToS = period.ts_to_s
                     if (tsToS !== undefined) {
                         const segmentDuration = tsToS - tsFromS
                         // As the final video is always slowed down to 1x, to get the end of the segment we just need to add the duration
                         period.recording_ts_to_s = period.recording_ts_from_s + segmentDuration
                     }
+                    // Ensure that periods don't overlap, as the previous period should end at max at the same time as the current period starts
+                    if (prevPeriodWithRecording) {
+                        prevPeriodWithRecording.recording_ts_to_s = Math.min(
+                            prevPeriodWithRecording.recording_ts_to_s,
+                            period.recording_ts_from_s
+                        )
+                    }
+                    prevPeriodWithRecording = period
                 }
             }
         }
