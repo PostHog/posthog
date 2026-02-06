@@ -114,7 +114,7 @@ const Component = ({
         }
 
         return modifiedQuery
-    }, [query])
+    }, [query]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     if (!expanded) {
         return null

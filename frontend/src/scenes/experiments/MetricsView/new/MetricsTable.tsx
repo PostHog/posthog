@@ -131,7 +131,19 @@ export function MetricsTable({
                                         return
                                     }
 
-                                    removeMetricBreakdown(metric.uuid, index)
+                                    /**
+                                     * we pass the breakdown just for instrumentation purposes
+                                     */
+                                    const breakdown = metric.breakdownFilter?.breakdowns?.[index]
+
+                                    /**
+                                     * throw an error if the breakdown is not found
+                                     */
+                                    if (!breakdown) {
+                                        throw new Error('Breakdown not found')
+                                    }
+
+                                    removeMetricBreakdown(metric.uuid, index, breakdown)
                                 }}
                                 error={error}
                                 isLoading={isLoading}

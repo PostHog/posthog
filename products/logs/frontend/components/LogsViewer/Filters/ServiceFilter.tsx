@@ -7,15 +7,13 @@ import { projectLogic } from 'scenes/projectLogic'
 import { LogsQuery } from '~/queries/schema/schema-general'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
-import { logsViewerConfigLogic } from 'products/logs/frontend/components/LogsViewer/config/logsViewerConfigLogic'
-
-import { logsSceneLogic } from '../../../logsSceneLogic'
+import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
 
 export const ServiceFilter = (): JSX.Element => {
-    const { serviceNames, dateRange } = useValues(logsSceneLogic)
+    const { filters } = useValues(logsViewerFiltersLogic)
+    const { serviceNames, dateRange } = filters
     const { currentProjectId } = useValues(projectLogic)
-    const { setServiceNames } = useActions(logsSceneLogic)
-    const { setFilter } = useActions(logsViewerConfigLogic)
+    const { setServiceNames } = useActions(logsViewerFiltersLogic)
 
     const endpoint = combineUrl(`api/environments/${currentProjectId}/logs/values`, {
         key: 'service.name',
@@ -34,7 +32,6 @@ export const ServiceFilter = (): JSX.Element => {
                 value={serviceNames}
                 onSet={(value: LogsQuery['serviceNames']) => {
                     setServiceNames(value)
-                    setFilter('serviceNames', value)
                 }}
                 placeholder="Service name"
                 preloadValues

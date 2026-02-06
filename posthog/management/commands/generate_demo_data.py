@@ -1,6 +1,5 @@
 # ruff: noqa: T201 allow print statements
 
-import os
 import sys
 import logging
 import secrets
@@ -224,12 +223,8 @@ class Command(BaseCommand):
                 )
             )
 
-            if options["say_on_complete"]:
-                os.system('say "initiating self destruct sequence" || true')
         else:
             print("Dry run - not saving results.")
-            if options["say_on_complete"]:
-                os.system('say "demo data dry run completed" || true')
 
     @staticmethod
     def print_results(matrix: Matrix, *, seed: str, duration: float, verbosity: int):

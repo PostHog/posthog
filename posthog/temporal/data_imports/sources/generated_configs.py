@@ -63,6 +63,11 @@ class AshbySourceConfig(config.Config):
 
 
 @config.config
+class AttioSourceConfig(config.Config):
+    api_key: str
+
+
+@config.config
 class BigQuerySourceConfig(config.Config):
     key_file: BigQueryKeyFileConfig
     dataset_id: str
@@ -152,7 +157,7 @@ class MSSQLSourceConfig(config.Config):
 
 @config.config
 class MailchimpSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -230,6 +235,12 @@ class ShopifySourceConfig(config.Config):
 
 
 @config.config
+class SnapchatAdsSourceConfig(config.Config):
+    ad_account_id: str
+    snapchat_integration_id: int = config.value(converter=config.str_to_int)
+
+
+@config.config
 class SnowflakeSourceConfig(config.Config):
     account_id: str
     database: str
@@ -275,11 +286,6 @@ class TikTokAdsSourceConfig(config.Config):
 
 
 @config.config
-class SnapchatAdsSourceConfig(config.Config):
-    pass
-
-
-@config.config
 class VitallySourceConfig(config.Config):
     secret_token: str
     region: VitallyRegionConfig
@@ -295,6 +301,7 @@ class ZendeskSourceConfig(config.Config):
 def get_config_for_source(source: ExternalDataSourceType):
     return {
         ExternalDataSourceType.ASHBY: AshbySourceConfig,
+        ExternalDataSourceType.ATTIO: AttioSourceConfig,
         ExternalDataSourceType.BIGQUERY: BigQuerySourceConfig,
         ExternalDataSourceType.BINGADS: BingAdsSourceConfig,
         ExternalDataSourceType.BRAZE: BrazeSourceConfig,
@@ -321,12 +328,12 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.REVENUECAT: RevenueCatSourceConfig,
         ExternalDataSourceType.SALESFORCE: SalesforceSourceConfig,
         ExternalDataSourceType.SHOPIFY: ShopifySourceConfig,
+        ExternalDataSourceType.SNAPCHATADS: SnapchatAdsSourceConfig,
         ExternalDataSourceType.SNOWFLAKE: SnowflakeSourceConfig,
         ExternalDataSourceType.STRIPE: StripeSourceConfig,
         ExternalDataSourceType.SUPABASE: SupabaseSourceConfig,
         ExternalDataSourceType.TEMPORALIO: TemporalIOSourceConfig,
         ExternalDataSourceType.TIKTOKADS: TikTokAdsSourceConfig,
-        ExternalDataSourceType.SNAPCHATADS: SnapchatAdsSourceConfig,
         ExternalDataSourceType.VITALLY: VitallySourceConfig,
         ExternalDataSourceType.ZENDESK: ZendeskSourceConfig,
     }[source]

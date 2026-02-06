@@ -70,39 +70,35 @@ def failing_result() -> TestSuiteResult:
 
 class TestSendSlackNotification:
     @patch("posthog.temporal.ingestion_acceptance_test.slack.requests.post")
-    def test_posts_to_webhook_url(self, mock_post: MagicMock, config: Config, passing_result: TestSuiteResult) -> None:
+    def test_skips_notification_on_success(
+        self, mock_post: MagicMock, config: Config, passing_result: TestSuiteResult
+    ) -> None:
+        result = send_slack_notification(config, passing_result)
+
+        assert result is True
+        mock_post.assert_not_called()
+
+    @patch("posthog.temporal.ingestion_acceptance_test.slack.requests.post")
+    def test_posts_to_webhook_url_on_failure(
+        self, mock_post: MagicMock, config: Config, failing_result: TestSuiteResult
+    ) -> None:
         mock_post.return_value.raise_for_status = MagicMock()
 
-        send_slack_notification(config, passing_result)
+        send_slack_notification(config, failing_result)
 
         mock_post.assert_called_once()
         url = mock_post.call_args[0][0]
         assert url == "https://hooks.slack.com/services/T00/B00/XXX"
 
     @patch("posthog.temporal.ingestion_acceptance_test.slack.requests.post")
-    def test_sends_json_payload(self, mock_post: MagicMock, config: Config, passing_result: TestSuiteResult) -> None:
+    def test_sends_json_payload(self, mock_post: MagicMock, config: Config, failing_result: TestSuiteResult) -> None:
         mock_post.return_value.raise_for_status = MagicMock()
 
-        send_slack_notification(config, passing_result)
+        send_slack_notification(config, failing_result)
 
         call_kwargs = mock_post.call_args[1]
         assert "json" in call_kwargs
         assert "blocks" in call_kwargs["json"]
-
-    @patch("posthog.temporal.ingestion_acceptance_test.slack.requests.post")
-    def test_passing_payload_contains_success_header(
-        self, mock_post: MagicMock, config: Config, passing_result: TestSuiteResult
-    ) -> None:
-        mock_post.return_value.raise_for_status = MagicMock()
-
-        send_slack_notification(config, passing_result)
-
-        payload = mock_post.call_args[1]["json"]
-        blocks = payload["blocks"]
-
-        header_block = next(b for b in blocks if b.get("type") == "header")
-        header_text = header_block["text"]["text"]
-        assert "Passed" in header_text
 
     @patch("posthog.temporal.ingestion_acceptance_test.slack.requests.post")
     def test_failing_payload_contains_failure_header(
@@ -115,9 +111,10 @@ class TestSendSlackNotification:
         payload = mock_post.call_args[1]["json"]
         blocks = payload["blocks"]
 
-        header_block = next(b for b in blocks if b.get("type") == "header")
+        header_block = blocks[0]
+        assert header_block["type"] == "section"
         header_text = header_block["text"]["text"]
-        assert "Failed" in header_text
+        assert "Unsuccessful" in header_text
 
     @patch("posthog.temporal.ingestion_acceptance_test.slack.requests.post")
     def test_payload_contains_summary_with_counts(
@@ -130,28 +127,30 @@ class TestSendSlackNotification:
         payload = mock_post.call_args[1]["json"]
         blocks = payload["blocks"]
 
-        section_blocks = [b for b in blocks if b.get("type") == "section"]
-        all_text = " ".join(str(b) for b in section_blocks)
+        summary_block = blocks[1]
+        assert summary_block["type"] == "context"
+        summary_text = summary_block["elements"][0]["text"]
 
-        assert "1" in all_text  # passed count
-        assert "1" in all_text  # failed count
+        assert "Passed: 1" in summary_text
+        assert "Failed" in summary_text
 
     @patch("posthog.temporal.ingestion_acceptance_test.slack.requests.post")
     def test_payload_contains_environment_info(
-        self, mock_post: MagicMock, config: Config, passing_result: TestSuiteResult
+        self, mock_post: MagicMock, config: Config, failing_result: TestSuiteResult
     ) -> None:
         mock_post.return_value.raise_for_status = MagicMock()
 
-        send_slack_notification(config, passing_result)
+        send_slack_notification(config, failing_result)
 
         payload = mock_post.call_args[1]["json"]
         blocks = payload["blocks"]
 
-        context_blocks = [b for b in blocks if b.get("type") == "context"]
-        all_text = " ".join(str(b) for b in context_blocks)
+        env_block = blocks[-1]
+        assert env_block["type"] == "context"
+        env_text = env_block["elements"][0]["text"]
 
-        assert "test.posthog.com" in all_text
-        assert "12345" in all_text
+        assert "test.posthog.com" in env_text
+        assert "12345" in env_text
 
     @patch("posthog.temporal.ingestion_acceptance_test.slack.requests.post")
     def test_failing_payload_contains_error_message(
@@ -164,12 +163,14 @@ class TestSendSlackNotification:
         payload = mock_post.call_args[1]["json"]
         blocks = payload["blocks"]
 
-        all_text = " ".join(str(b) for b in blocks)
+        context_blocks = [b for b in blocks if b.get("type") == "context"]
+        all_text = " ".join(str(b) for b in context_blocks)
+
         assert "test_failing" in all_text
         assert "AssertionError" in all_text
 
     @patch("posthog.temporal.ingestion_acceptance_test.slack.requests.post")
-    def test_does_nothing_when_no_webhook_url(self, mock_post: MagicMock, passing_result: TestSuiteResult) -> None:
+    def test_does_nothing_when_no_webhook_url(self, mock_post: MagicMock, failing_result: TestSuiteResult) -> None:
         config_no_webhook = Config(
             api_host="https://test.posthog.com",
             project_api_key="phc_test_key",
@@ -178,6 +179,6 @@ class TestSendSlackNotification:
             slack_webhook_url=None,
         )
 
-        send_slack_notification(config_no_webhook, passing_result)
+        send_slack_notification(config_no_webhook, failing_result)
 
         mock_post.assert_not_called()

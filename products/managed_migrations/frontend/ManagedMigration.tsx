@@ -133,7 +133,7 @@ export function ManagedMigration(): JSX.Element {
                         <div className="flex gap-4">
                             <LemonField name="start_date" label="Start Date" className="flex-1">
                                 <LemonCalendarSelectInput
-                                    granularity="minute"
+                                    granularity={managedMigration.source_type === 'mixpanel' ? 'day' : 'hour'}
                                     value={managedMigration.start_date ? dayjs(managedMigration.start_date) : null}
                                     onChange={(date) =>
                                         setManagedMigrationValue('start_date', date?.format('YYYY-MM-DD HH:mm:ss'))
@@ -143,7 +143,7 @@ export function ManagedMigration(): JSX.Element {
 
                             <LemonField name="end_date" label="End Date" className="flex-1">
                                 <LemonCalendarSelectInput
-                                    granularity="minute"
+                                    granularity={managedMigration.source_type === 'mixpanel' ? 'day' : 'hour'}
                                     value={managedMigration.end_date ? dayjs(managedMigration.end_date) : null}
                                     onChange={(date) =>
                                         setManagedMigrationValue('end_date', date?.format('YYYY-MM-DD HH:mm:ss'))

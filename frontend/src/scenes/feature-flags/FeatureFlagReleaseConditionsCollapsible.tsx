@@ -1,8 +1,9 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
+import { useRef } from 'react'
+import { v4 as uuidv4 } from 'uuid'
 
-import { IconCopy, IconPlus, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonCollapse, LemonInput, LemonLabel, LemonSelect, Spinner } from '@posthog/lemon-ui'
+import { IconCopy, IconInfo, IconPlus, IconTrash } from '@posthog/icons'
+import { LemonButton, LemonCollapse, LemonInput, LemonLabel, LemonSelect, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
 import { EditableField } from 'lib/components/EditableField/EditableField'
@@ -10,12 +11,14 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
+import { Link } from 'lib/lemon-ui/Link'
 import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
 import { humanFriendlyNumber } from 'lib/utils'
 import { clamp } from 'lib/utils'
 
-import { AnyPropertyFilter, FeatureFlagGroupType, PropertyFilterType } from '~/types'
+import { AnyPropertyFilter, FeatureFlagGroupType, MultivariateFlagVariant, PropertyFilterType } from '~/types'
 
+import { type ModifiedField } from './FeatureFlagTemplates'
 import {
     FeatureFlagReleaseConditionsLogicProps,
     featureFlagReleaseConditionsLogic,
@@ -23,6 +26,9 @@ import {
 
 interface FeatureFlagReleaseConditionsCollapsibleProps extends FeatureFlagReleaseConditionsLogicProps {
     readOnly?: boolean
+    variants?: MultivariateFlagVariant[]
+    highlightedFields?: ModifiedField[]
+    onClearHighlight?: (field: ModifiedField) => void
 }
 
 function summarizeProperties(properties: AnyPropertyFilter[], aggregationTargetName: string): string {
@@ -102,7 +108,7 @@ function ConditionHeader({
             </div>
             <div className="flex items-center gap-1">
                 <span className="text-sm text-muted mr-2">
-                    ({rollout}%
+                    ({rollout}%{group.variant && ` · ${group.variant}`}
                     {actualUserCount !== null &&
                         totalUsers !== null &&
                         ` · ${humanFriendlyNumber(actualUserCount)} ${aggregationTargetName}`}
@@ -166,6 +172,9 @@ export function FeatureFlagReleaseConditionsCollapsible({
     filters,
     onChange,
     readOnly,
+    variants,
+    highlightedFields = [],
+    onClearHighlight,
 }: FeatureFlagReleaseConditionsCollapsibleProps): JSX.Element {
     const releaseConditionsLogic = featureFlagReleaseConditionsLogic({
         id,
@@ -180,10 +189,10 @@ export function FeatureFlagReleaseConditionsCollapsible({
         filtersTaxonomicOptions,
         affectedUsers,
         totalUsers,
-        computeBlastRadiusPercentage,
         aggregationTargetName,
         filters: releaseFilters,
         groupTypes,
+        openConditions,
     } = useValues(releaseConditionsLogic)
     const {
         updateConditionSet,
@@ -193,22 +202,34 @@ export function FeatureFlagReleaseConditionsCollapsible({
         moveConditionSetUp,
         moveConditionSetDown,
         setAggregationGroupTypeIndex,
+        setOpenConditions,
     } = useActions(releaseConditionsLogic)
 
-    // Use sort_key as the stable identifier to maintain open/closed state across reordering
-    const [openConditions, setOpenConditions] = useState<string[]>(
-        filterGroups.length === 1 ? [`condition-${filterGroups[0]?.sort_key ?? 0}`] : []
-    )
-
     const handleAddConditionSet = (): void => {
-        // Get the next sort_key - it will be max(existing sort_keys) + 1
-        const maxSortKey = filterGroups.reduce(
-            (max, group) => Math.max(max, typeof group.sort_key === 'number' ? group.sort_key : 0),
-            -1
-        )
-        const newSortKey = maxSortKey + 1
-        addConditionSet()
-        setOpenConditions((prev) => [...prev, `condition-${newSortKey}`])
+        addConditionSet(uuidv4())
+    }
+
+    const collapseRef = useRef<HTMLDivElement>(null)
+
+    const handleOpenConditionsChange = (newKeys: string[]): void => {
+        // Find newly opened panels
+        const newlyOpened = newKeys.filter((key) => !openConditions.includes(key))
+        setOpenConditions(newKeys)
+
+        // Scroll to first newly opened panel after it expands
+        if (newlyOpened.length > 0 && collapseRef.current) {
+            // Extract the index from the key (format: "condition-{sort_key}")
+            const openedKey = newlyOpened[0]
+            const panelIndex = filterGroups.findIndex((g, i) => `condition-${g.sort_key ?? i}` === openedKey)
+
+            setTimeout(() => {
+                // Find the panel by its position in the collapse
+                const panels = collapseRef.current?.querySelectorAll('.LemonCollapse__panel')
+                if (panels && panels[panelIndex]) {
+                    panels[panelIndex].scrollIntoView({ behavior: 'smooth', block: 'start' })
+                }
+            }, 150)
+        }
     }
 
     if (readOnly) {
@@ -231,7 +252,9 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                         </span>
                                         <span>{summary}</span>
                                     </div>
-                                    <span className="text-muted">({rollout}%)</span>
+                                    <span className="text-muted">
+                                        ({rollout}%{group.variant && ` · ${group.variant}`})
+                                    </span>
                                 </div>
                             </div>
                         </div>
@@ -319,131 +342,193 @@ export function FeatureFlagReleaseConditionsCollapsible({
                 </div>
             )}
 
-            <LemonCollapse
-                multiple
-                activeKeys={openConditions}
-                onChange={setOpenConditions}
-                panels={filterGroups.map((group, index) => ({
-                    key: `condition-${group.sort_key ?? index}`,
-                    header: (
-                        <ConditionHeader
-                            group={group}
-                            index={index}
-                            totalGroups={filterGroups.length}
-                            affectedUserCount={group.sort_key ? affectedUsers[group.sort_key] : undefined}
-                            totalUsers={totalUsers}
-                            aggregationTargetName={aggregationTargetName}
-                            onMoveUp={() => moveConditionSetUp(index)}
-                            onMoveDown={() => moveConditionSetDown(index)}
-                            onDuplicate={() => duplicateConditionSet(index)}
-                            onRemove={() => removeConditionSet(index)}
-                        />
-                    ),
-                    className: index > 0 ? 'mt-1' : '',
-                    content: (
-                        <div className="flex flex-col gap-3 pt-2">
-                            <div className="max-w-md">
-                                <EditableField
-                                    multiline
-                                    name="description"
-                                    value={group.description || ''}
-                                    placeholder="Description (optional)"
-                                    onSave={(value) =>
-                                        updateConditionSet(index, undefined, undefined, undefined, value)
-                                    }
-                                    saveOnBlur={true}
-                                    maxLength={600}
-                                    data-attr={`condition-set-${index}-description`}
-                                    compactButtons
-                                />
-                            </div>
-
-                            <div>
-                                <LemonLabel className="mb-1">Match filters</LemonLabel>
-                                <PropertyFilters
-                                    orFiltering={true}
-                                    pageKey={`feature-flag-workflow-${id}-${index}`}
-                                    propertyFilters={group?.properties}
-                                    logicalRowDivider
-                                    addText="Add filter"
-                                    onChange={(properties) => updateConditionSet(index, undefined, properties)}
-                                    taxonomicGroupTypes={taxonomicGroupTypes}
-                                    taxonomicFilterOptionsFromProp={filtersTaxonomicOptions}
-                                    hasRowOperator={false}
-                                />
-                            </div>
-
-                            <div>
-                                <LemonLabel className="mb-1">Rollout percentage</LemonLabel>
-                                <div className="flex items-center gap-3">
-                                    <div className="flex-1">
-                                        <LemonSlider
-                                            value={group.rollout_percentage ?? 100}
-                                            onChange={(value) => updateConditionSet(index, value)}
-                                            min={0}
-                                            max={100}
-                                            step={1}
-                                        />
-                                    </div>
-                                    <LemonInput
-                                        type="number"
-                                        min={0}
-                                        max={100}
-                                        value={group.rollout_percentage ?? 100}
-                                        onChange={(value) => {
-                                            const numValue = value ? parseInt(value.toString()) : 0
-                                            updateConditionSet(index, Math.min(100, Math.max(0, numValue)))
-                                        }}
-                                        suffix={<span>%</span>}
-                                        className="w-20"
+            <div ref={collapseRef}>
+                <LemonCollapse
+                    multiple
+                    activeKeys={openConditions}
+                    onChange={handleOpenConditionsChange}
+                    panels={filterGroups.map((group, index) => ({
+                        key: `condition-${group.sort_key ?? index}`,
+                        header: (
+                            <ConditionHeader
+                                group={group}
+                                index={index}
+                                totalGroups={filterGroups.length}
+                                affectedUserCount={group.sort_key ? affectedUsers[group.sort_key] : undefined}
+                                totalUsers={totalUsers}
+                                aggregationTargetName={aggregationTargetName}
+                                onMoveUp={() => moveConditionSetUp(index)}
+                                onMoveDown={() => moveConditionSetDown(index)}
+                                onDuplicate={() => duplicateConditionSet(index)}
+                                onRemove={() => removeConditionSet(index)}
+                            />
+                        ),
+                        className: index > 0 ? 'mt-1' : '',
+                        content: (
+                            <div className="flex flex-col gap-3 pt-2">
+                                <div className="max-w-md">
+                                    <EditableField
+                                        multiline
+                                        name="description"
+                                        value={group.description || ''}
+                                        placeholder="Description (optional)"
+                                        onSave={(value) =>
+                                            updateConditionSet(index, undefined, undefined, undefined, value)
+                                        }
+                                        saveOnBlur={true}
+                                        maxLength={600}
+                                        data-attr={`condition-set-${index}-description`}
+                                        compactButtons
                                     />
                                 </div>
-                                {group.sort_key && affectedUsers[group.sort_key] !== undefined ? (
-                                    <div className="text-xs text-muted mt-2">
-                                        Will match approximately{' '}
-                                        <b>
-                                            {`${Math.max(
-                                                Math.round(
-                                                    computeBlastRadiusPercentage(
-                                                        Number.isNaN(group.rollout_percentage)
-                                                            ? 0
-                                                            : group.rollout_percentage,
-                                                        group.sort_key
-                                                    ) * 100
-                                                ) / 100,
-                                                0
-                                            )}%`}
-                                        </b>{' '}
-                                        {(() => {
-                                            const affectedUserCount = group.sort_key
-                                                ? affectedUsers[group.sort_key]
-                                                : undefined
-                                            if (
-                                                affectedUserCount !== undefined &&
-                                                affectedUserCount >= 0 &&
-                                                totalUsers !== null
-                                            ) {
+
+                                <div>
+                                    <LemonLabel className="mb-1">Match filters</LemonLabel>
+                                    <div
+                                        className={
+                                            index === 0 && highlightedFields.includes('conditions')
+                                                ? 'template-highlight-glow rounded p-1 -m-1'
+                                                : ''
+                                        }
+                                    >
+                                        <PropertyFilters
+                                            orFiltering={true}
+                                            pageKey={`feature-flag-workflow-${id}-${index}`}
+                                            propertyFilters={group?.properties}
+                                            logicalRowDivider
+                                            addText="Add filter"
+                                            onChange={(properties) => {
+                                                onClearHighlight?.('conditions')
+                                                updateConditionSet(index, undefined, properties)
+                                            }}
+                                            taxonomicGroupTypes={taxonomicGroupTypes}
+                                            taxonomicFilterOptionsFromProp={filtersTaxonomicOptions}
+                                            hasRowOperator={false}
+                                        />
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <LemonLabel className="mb-1">Rollout percentage</LemonLabel>
+                                    <div
+                                        className={`flex items-center gap-3 ${index === 0 && highlightedFields.includes('rollout') ? 'template-highlight-glow rounded p-1 -m-1' : ''}`}
+                                    >
+                                        <div className="flex-1">
+                                            <LemonSlider
+                                                value={group.rollout_percentage ?? 100}
+                                                onChange={(value) => {
+                                                    onClearHighlight?.('rollout')
+                                                    updateConditionSet(index, value)
+                                                }}
+                                                min={0}
+                                                max={100}
+                                                step={1}
+                                            />
+                                        </div>
+                                        <LemonInput
+                                            type="number"
+                                            min={0}
+                                            max={100}
+                                            value={group.rollout_percentage ?? 100}
+                                            onChange={(value) => {
+                                                onClearHighlight?.('rollout')
+                                                const numValue = value ? parseInt(value.toString()) : 0
+                                                updateConditionSet(index, Math.min(100, Math.max(0, numValue)))
+                                            }}
+                                            suffix={<span>%</span>}
+                                            className="w-20"
+                                        />
+                                    </div>
+                                    {group.sort_key && affectedUsers[group.sort_key] !== undefined ? (
+                                        <div className="text-xs text-muted mt-2">
+                                            {(() => {
+                                                const affectedUserCount = group.sort_key
+                                                    ? affectedUsers[group.sort_key]
+                                                    : undefined
                                                 const rolloutPct = Number.isNaN(group.rollout_percentage)
                                                     ? 0
                                                     : (group.rollout_percentage ?? 100)
-                                                return `(${humanFriendlyNumber(
-                                                    Math.floor((affectedUserCount * clamp(rolloutPct, 0, 100)) / 100)
-                                                )} / ${humanFriendlyNumber(totalUsers)})`
-                                            }
-                                            return ''
-                                        })()}{' '}
-                                        of total {aggregationTargetName}
-                                    </div>
-                                ) : (
-                                    <div className="text-xs text-muted mt-2 flex items-center gap-1">
-                                        <Spinner className="text-sm" /> Calculating affected {aggregationTargetName}…
+
+                                                if (
+                                                    affectedUserCount === undefined ||
+                                                    affectedUserCount < 0 ||
+                                                    totalUsers === null
+                                                ) {
+                                                    return null
+                                                }
+
+                                                const usersReceivingFlag = Math.floor(
+                                                    (affectedUserCount * clamp(rolloutPct, 0, 100)) / 100
+                                                )
+
+                                                if (rolloutPct === 100) {
+                                                    return (
+                                                        <>
+                                                            <b>{humanFriendlyNumber(affectedUserCount)}</b> of{' '}
+                                                            {humanFriendlyNumber(totalUsers)} {aggregationTargetName}{' '}
+                                                            match these conditions
+                                                        </>
+                                                    )
+                                                }
+                                                return (
+                                                    <>
+                                                        Will match ~<b>{humanFriendlyNumber(usersReceivingFlag)}</b> of{' '}
+                                                        {humanFriendlyNumber(totalUsers)} {aggregationTargetName} (
+                                                        {humanFriendlyNumber(affectedUserCount)} matching × {rolloutPct}
+                                                        %)
+                                                    </>
+                                                )
+                                            })()}
+                                        </div>
+                                    ) : (
+                                        <div className="text-xs text-muted mt-2 flex items-center gap-1">
+                                            <Spinner className="text-sm" /> Calculating affected {aggregationTargetName}
+                                            …
+                                        </div>
+                                    )}
+                                </div>
+
+                                {variants && variants.length > 0 && (
+                                    <div className="flex items-center gap-2 flex-wrap text-sm text-muted">
+                                        <span className="flex items-center gap-1">
+                                            <span className="font-medium text-default">Optional override</span>
+                                            <Tooltip
+                                                title={
+                                                    <>
+                                                        Force all matching {aggregationTargetName} to receive a specific
+                                                        variant.{' '}
+                                                        <Link
+                                                            to="https://posthog.com/docs/feature-flags/testing#method-1-assign-a-user-a-specific-flag-value"
+                                                            target="_blank"
+                                                        >
+                                                            Learn more
+                                                        </Link>
+                                                    </>
+                                                }
+                                            >
+                                                <IconInfo className="text-base" />
+                                            </Tooltip>
+                                        </span>
+                                        <span>Set variant for all {aggregationTargetName} in this set to</span>
+                                        <LemonSelect
+                                            placeholder="Select variant"
+                                            allowClear={true}
+                                            value={group.variant ?? null}
+                                            onChange={(value) => updateConditionSet(index, undefined, undefined, value)}
+                                            options={variants.map((variant) => ({
+                                                label: variant.key,
+                                                value: variant.key,
+                                            }))}
+                                            size="small"
+                                            data-attr="feature-flags-variant-override-select"
+                                        />
                                     </div>
                                 )}
                             </div>
-                        </div>
-                    ),
-                }))}
-            />
+                        ),
+                    }))}
+                />
+            </div>
 
             <LemonButton type="secondary" icon={<IconPlus />} onClick={handleAddConditionSet} className="mt-1">
                 Add condition set

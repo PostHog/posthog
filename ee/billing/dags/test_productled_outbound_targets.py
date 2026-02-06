@@ -1,7 +1,6 @@
 from datetime import datetime
 from typing import cast
 
-import pytest
 from unittest.mock import MagicMock, patch
 
 import polars as pl
@@ -12,9 +11,9 @@ from parameterized import parameterized
 from ee.billing.dags.productled_outbound_targets import (
     TEAM_PRODUCT_SCHEMA,
     build_team_product_df,
+    compute_active_products,
     compute_event_growth,
     compute_multi_product_usage,
-    compute_new_product_this_month,
     compute_new_users_30d,
     dataframe_to_plo_clay_payload,
     fetch_org_users,
@@ -216,49 +215,44 @@ class TestComputeEventGrowth:
     @parameterized.expand(
         [
             (
-                "growth_above_30pct",
-                [(1, 1000, 500)],
-                pl.DataFrame({"team_id": [1], "organization_id": ["org-1"]}),
-                {"org-1": 100.0},
+                "high_event_volume_passes",
+                [("org-1", 50000, 0, 0, 0)],  # 50k events > 10k threshold
+                {"org-1": 100.0},  # Returns 100.0 to pass the >30% filter
             ),
             (
-                "no_events",
-                [],
-                pl.DataFrame({"team_id": [1], "organization_id": ["org-1"]}),
+                "low_event_volume_fails",
+                [("org-1", 5000, 0, 0, 0)],  # 5k events < 10k threshold
+                {"org-1": 0.0},  # Returns 0.0, won't pass the >30% filter
+            ),
+            (
+                "no_usage_data",
+                [],  # No usage data returned
                 {},
             ),
             (
-                "decline",
-                [(1, 200, 500)],
-                pl.DataFrame({"team_id": [1], "organization_id": ["org-1"]}),
-                {"org-1": -60.0},
+                "exactly_at_threshold",
+                [("org-1", 10000, 0, 0, 0)],  # Exactly 10k, not above
+                {"org-1": 0.0},
             ),
             (
-                "new_org_zero_prior",
-                [(1, 500, 0)],
-                pl.DataFrame({"team_id": [1], "organization_id": ["org-1"]}),
-                {"org-1": None},
-            ),
-            (
-                "multiple_teams_same_org",
-                [(1, 300, 200), (2, 400, 100)],
-                pl.DataFrame({"team_id": [1, 2], "organization_id": ["org-1", "org-1"]}),
-                {"org-1": pytest.approx(133.33, abs=0.01)},
+                "multiple_orgs_mixed",
+                [("org-1", 50000, 0, 0, 0), ("org-2", 5000, 0, 0, 0)],
+                {"org-1": 100.0, "org-2": 0.0},
             ),
         ]
     )
-    @patch("ee.billing.dags.productled_outbound_targets.execute_hogql_query")
-    @patch("ee.billing.dags.productled_outbound_targets.Team")
-    def test_event_growth(self, name, hogql_results, team_df, expected, mock_team, mock_hogql):
-        mock_team.objects.get.return_value = MagicMock()
-        mock_response = MagicMock()
-        mock_response.results = hogql_results
-        mock_hogql.return_value = mock_response
+    @patch("ee.billing.dags.productled_outbound_targets.fetch_org_usage")
+    def test_event_growth(self, name, usage_data, expected, mock_fetch_usage):
+        mock_fetch_usage.return_value = pl.DataFrame(
+            usage_data,
+            schema=["organization_id", "event_count", "recording_count", "survey_count", "exception_count"],
+            orient="row",
+        )
 
-        result = compute_event_growth(team_df)
+        org_ids = [row[0] for row in usage_data] if usage_data else ["org-1"]
+        result = compute_event_growth(org_ids)
 
-        for org_id, val in expected.items():
-            assert result[org_id] == val
+        assert result == expected
 
 
 class TestComputeNewUsers30d:
@@ -323,80 +317,41 @@ class TestFetchOrgUsers:
         assert result == {}
 
 
-class TestComputeNewProductThisMonth:
+class TestComputeActiveProducts:
     @parameterized.expand(
         [
             (
-                "new_product_detected",
-                [(1, "$snapshot", 50, 0)],
-                pl.DataFrame(
-                    {
-                        "team_id": [1],
-                        "organization_id": ["org-1"],
-                        "session_recording_opt_in": [True],
-                        "surveys_opt_in": [False],
-                        "heatmaps_opt_in": [False],
-                        "autocapture_exceptions_opt_in": [False],
-                    }
-                ),
+                "single_product_with_usage",
+                [("org-1", 1000, 500, 0, 0)],  # org_id, events, recordings, surveys, exceptions
                 {"org-1": "session_recording"},
             ),
             (
-                "existing_product_not_new",
-                [(1, "$snapshot", 50, 30)],
-                pl.DataFrame(
-                    {
-                        "team_id": [1],
-                        "organization_id": ["org-1"],
-                        "session_recording_opt_in": [True],
-                        "surveys_opt_in": [False],
-                        "heatmaps_opt_in": [False],
-                        "autocapture_exceptions_opt_in": [False],
-                    }
-                ),
+                "multiple_products_with_usage",
+                [("org-1", 1000, 500, 100, 50)],
+                {"org-1": "autocapture_exceptions,session_recording,surveys"},
+            ),
+            (
+                "no_products_with_usage",
+                [("org-1", 1000, 0, 0, 0)],  # Only events, no product usage
                 {},
             ),
             (
-                "flag_off_ignored",
-                [(1, "$snapshot", 50, 0)],
-                pl.DataFrame(
-                    {
-                        "team_id": [1],
-                        "organization_id": ["org-1"],
-                        "session_recording_opt_in": [False],
-                        "surveys_opt_in": [False],
-                        "heatmaps_opt_in": [False],
-                        "autocapture_exceptions_opt_in": [False],
-                    }
-                ),
-                {},
-            ),
-            (
-                "multiple_new_products",
-                [(1, "$snapshot", 10, 0), (1, "survey sent", 5, 0)],
-                pl.DataFrame(
-                    {
-                        "team_id": [1],
-                        "organization_id": ["org-1"],
-                        "session_recording_opt_in": [True],
-                        "surveys_opt_in": [True],
-                        "heatmaps_opt_in": [False],
-                        "autocapture_exceptions_opt_in": [False],
-                    }
-                ),
-                {"org-1": "session_recording,surveys"},
+                "multiple_orgs",
+                [("org-1", 1000, 500, 0, 0), ("org-2", 2000, 0, 100, 0)],
+                {"org-1": "session_recording", "org-2": "surveys"},
             ),
         ]
     )
-    @patch("ee.billing.dags.productled_outbound_targets.execute_hogql_query")
-    @patch("ee.billing.dags.productled_outbound_targets.Team")
-    def test_new_product(self, name, hogql_results, team_df, expected, mock_team, mock_hogql):
-        mock_team.objects.get.return_value = MagicMock()
-        mock_response = MagicMock()
-        mock_response.results = hogql_results
-        mock_hogql.return_value = mock_response
+    @patch("ee.billing.dags.productled_outbound_targets.fetch_org_usage")
+    def test_active_products(self, name, usage_data, expected, mock_fetch_usage):
+        mock_fetch_usage.return_value = pl.DataFrame(
+            usage_data,
+            schema=["organization_id", "event_count", "recording_count", "survey_count", "exception_count"],
+            orient="row",
+        )
 
-        result = compute_new_product_this_month(team_df)
+        org_ids = [row[0] for row in usage_data]
+        result = compute_active_products(org_ids)
 
         assert result == expected
 
@@ -505,6 +460,41 @@ class TestDataframeToPloClayPayload:
 
         assert len(payload) == 1
         assert payload[0]["users"] == []
+
+    def test_converts_datetime_columns_to_strings(self):
+        """Datetime columns must be converted to ISO strings for JSON serialization."""
+        import json
+
+        row = make_base_row(
+            domain="acme.com",
+            organization_id="org-1",
+            organization_name="Acme Inc",
+            vitally_churned_at="2024-06-15",  # Set a non-null value for testing
+        )
+        row.update(
+            {
+                "multi_product_count": 3,
+                "event_growth_pct": 50.0,
+                "new_user_count": 2,
+                "new_products": "session_recording",
+            }
+        )
+        df = pl.DataFrame([row])
+        # Simulate HogQL returning datetime objects by casting columns to Datetime
+        df = df.with_columns(
+            pl.col("organization_created_at").str.to_datetime().alias("organization_created_at"),
+            pl.col("vitally_churned_at").str.to_datetime().alias("vitally_churned_at"),
+        )
+        assert df["organization_created_at"].dtype == pl.Datetime
+
+        payload = dataframe_to_plo_clay_payload(df, {})
+
+        assert len(payload) == 1
+        # Verify the payload is JSON serializable (no datetime objects)
+        json.dumps(payload)
+        # Verify the datetime was converted to string
+        assert isinstance(payload[0]["organization_created_at"], str)
+        assert payload[0]["organization_created_at"].startswith("2023-01-01")
 
 
 class TestPloQualifiedToClay:
@@ -671,7 +661,7 @@ class TestGetPloPriorHashes:
 
 
 class TestQualifySignals:
-    @patch("ee.billing.dags.productled_outbound_targets.compute_new_product_this_month")
+    @patch("ee.billing.dags.productled_outbound_targets.compute_active_products")
     @patch("ee.billing.dags.productled_outbound_targets.compute_new_users_30d")
     @patch("ee.billing.dags.productled_outbound_targets.compute_event_growth")
     @patch("ee.billing.dags.productled_outbound_targets.compute_multi_product_usage")
@@ -783,14 +773,12 @@ class TestFilterQualifiedBoundaries:
 
 
 class TestEmptyDataFramePaths:
-    def test_compute_event_growth_empty_dataframe(self):
-        empty_df = pl.DataFrame(schema={"team_id": pl.Int64, "organization_id": pl.Utf8})
-        result = compute_event_growth(empty_df)
+    def test_compute_event_growth_empty_org_ids(self):
+        result = compute_event_growth([])
         assert result == {}
 
-    def test_compute_new_product_this_month_empty_dataframe(self):
-        empty_df = pl.DataFrame(schema=TEAM_PRODUCT_SCHEMA)
-        result = compute_new_product_this_month(empty_df)
+    def test_compute_active_products_empty_org_ids(self):
+        result = compute_active_products([])
         assert result == {}
 
     @patch("ee.billing.dags.productled_outbound_targets.OrganizationMembership")

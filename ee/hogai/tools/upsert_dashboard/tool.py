@@ -8,7 +8,6 @@ from pydantic import BaseModel, Field
 from posthog.schema import DataTableNode, HogQLQuery, InsightVizNode, QuerySchemaRoot
 
 from posthog.models import Dashboard, DashboardTile, Insight
-from posthog.rbac.user_access_control import UserAccessControl, access_level_satisfied_for_resource
 from posthog.sync import database_sync_to_async
 
 from ee.hogai.artifacts.types import ModelArtifactResult, VisualizationWithSourceResult
@@ -20,7 +19,6 @@ from ee.hogai.tools.upsert_dashboard.prompts import (
     CREATE_NO_INSIGHTS_PROMPT,
     DASHBOARD_NOT_FOUND_PROMPT,
     MISSING_INSIGHT_IDS_PROMPT,
-    NO_PERMISSION_PROMPT,
     PERMISSION_REQUEST_PROMPT,
     UPDATE_NO_CHANGES_PROMPT,
     UPSERT_DASHBOARD_CONTEXT_PROMPT_TEMPLATE,
@@ -225,13 +223,6 @@ class UpsertDashboardTool(MaxTool):
         return results
 
     @database_sync_to_async
-    def _check_user_permissions(self, dashboard: Dashboard) -> bool | None:
-        """Check if user has permission to edit the dashboard."""
-        user_access_control = UserAccessControl(user=self._user, team=self._team)
-        access_level = user_access_control.get_user_access_level(dashboard)
-        return access_level and access_level_satisfied_for_resource("dashboard", access_level, "editor")
-
-    @database_sync_to_async
     @transaction.atomic
     def _create_dashboard_with_tiles(self, name: str, description: str, insights: list[Insight]) -> Dashboard:
         """Create a new dashboard with tiles for the given insights."""
@@ -391,14 +382,17 @@ class UpsertDashboardTool(MaxTool):
 
     async def _get_dashboard(self, dashboard_id: Any) -> Dashboard:
         """Get the dashboard and sorted tiles for the given dashboard ID."""
+        # LLMs sometimes output IDs as floats (e.g., "642161.0"), so we parse to int
         try:
-            dashboard = await Dashboard.objects.aget(id=dashboard_id, team=self._team, deleted=False)
+            parsed_id = int(float(dashboard_id))
+        except (ValueError, TypeError):
+            raise MaxToolFatalError(DASHBOARD_NOT_FOUND_PROMPT.format(dashboard_id=dashboard_id))
+        try:
+            dashboard = await Dashboard.objects.aget(id=parsed_id, team=self._team, deleted=False)
         except Dashboard.DoesNotExist:
             raise MaxToolFatalError(DASHBOARD_NOT_FOUND_PROMPT.format(dashboard_id=dashboard_id))
 
-        permission_result = await self._check_user_permissions(dashboard)
-        if not permission_result:
-            raise MaxToolFatalError(NO_PERMISSION_PROMPT)
+        await self.check_object_access(dashboard, "editor", action="edit")
 
         return dashboard
 

@@ -25,7 +25,6 @@ from posthog.schema import (
 
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
 from posthog.temporal.ai.chat_agent import ChatAgentWorkflow, ChatAgentWorkflowInputs
 from posthog.temporal.ai.research_agent import ResearchAgentWorkflow, ResearchAgentWorkflowInputs
 
@@ -606,30 +605,139 @@ class TestConversation(APIBaseTest):
             self.assertEqual(results[1]["title"], "Older conversation")
 
     @override_settings(DEBUG=False)
-    def test_get_throttles_applies_rate_limits_for_create_action(self):
-        """Test that rate limits are applied for create action in non-debug, non-exempt conditions."""
+    def test_get_throttles_returns_empty_for_create_action(self):
+        """Test that get_throttles returns empty list for create action (throttling is handled in check_throttles)."""
 
         viewset = ConversationViewSet()
         viewset.action = "create"
         viewset.team_id = 12345
-        # get_throttles checks organization.customer_id - no customer_id means rate limits apply
         viewset.organization = self.organization
         throttles = viewset.get_throttles()
-        self.assertIsInstance(throttles[0], AIBurstRateThrottle)
-        self.assertIsInstance(throttles[1], AISustainedRateThrottle)
+        # For create action, throttles are handled in check_throttles() for conditional logic
+        self.assertEqual(throttles, [])
 
     @override_settings(DEBUG=True)
-    def test_get_throttles_skips_rate_limits_for_create_action_in_debug_mode(self):
-        """Test that AI rate limits are skipped in debug mode (falls back to default throttles)."""
+    def test_get_throttles_returns_empty_for_create_action_in_debug_mode(self):
+        """Test that get_throttles returns empty list for create action in debug mode."""
 
         viewset = ConversationViewSet()
         viewset.action = "create"
         viewset.team_id = 12345
         viewset.organization = self.organization
         throttles = viewset.get_throttles()
-        # In debug mode, AI-specific throttles are skipped, default throttles are returned
-        self.assertNotIsInstance(throttles[0], AIBurstRateThrottle)
-        self.assertNotIsInstance(throttles[1], AISustainedRateThrottle)
+        # For create action, throttles are handled in check_throttles()
+        self.assertEqual(throttles, [])
+
+    @override_settings(DEBUG=False)
+    def test_research_rate_limit_burst(self):
+        """Test that research conversations have more aggressive burst rate limits."""
+        with patch(
+            "ee.hogai.core.executor.AgentExecutor.astream",
+            return_value=_async_generator(),
+        ):
+            with patch("ee.api.conversation.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
+                # First 3 requests should succeed (3/minute limit)
+                for i in range(3):
+                    response = self.client.post(
+                        f"/api/environments/{self.team.id}/conversations/",
+                        {
+                            "content": f"test query {i}",
+                            "trace_id": str(uuid.uuid4()),
+                            "conversation": str(uuid.uuid4()),
+                            "agent_mode": AgentMode.RESEARCH.value,
+                        },
+                    )
+                    self.assertEqual(response.status_code, status.HTTP_200_OK, f"Request {i} should succeed")
+
+                # 4th request should be rate limited
+                response = self.client.post(
+                    f"/api/environments/{self.team.id}/conversations/",
+                    {
+                        "content": "test query 4",
+                        "trace_id": str(uuid.uuid4()),
+                        "conversation": str(uuid.uuid4()),
+                        "agent_mode": AgentMode.RESEARCH.value,
+                    },
+                )
+                self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+                # Check that the response contains the research-specific message
+                response_data = response.json()
+                self.assertIn("Research mode", response_data["detail"])
+                self.assertIn("beta", response_data["detail"])
+
+    @override_settings(DEBUG=False)
+    def test_research_rate_limit_applies_to_existing_research_conversations(self):
+        """Test that research rate limits apply to existing deep research conversations."""
+        # Create an existing DEEP_RESEARCH conversation
+        conversation = Conversation.objects.create(
+            user=self.user, team=self.team, type=Conversation.Type.DEEP_RESEARCH, status=Conversation.Status.IDLE
+        )
+
+        with patch(
+            "ee.hogai.core.executor.AgentExecutor.astream",
+            return_value=_async_generator(),
+        ):
+            with patch("ee.api.conversation.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
+                # First 3 requests should succeed
+                for i in range(3):
+                    response = self.client.post(
+                        f"/api/environments/{self.team.id}/conversations/",
+                        {
+                            "content": f"test query {i}",
+                            "trace_id": str(uuid.uuid4()),
+                            "conversation": str(conversation.id),
+                        },
+                    )
+                    self.assertEqual(response.status_code, status.HTTP_200_OK, f"Request {i} should succeed")
+
+                # 4th request should be rate limited
+                response = self.client.post(
+                    f"/api/environments/{self.team.id}/conversations/",
+                    {
+                        "content": "test query 4",
+                        "trace_id": str(uuid.uuid4()),
+                        "conversation": str(conversation.id),
+                    },
+                )
+                self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+                # Check that the response contains the research-specific message
+                response_data = response.json()
+                self.assertIn("Research mode", response_data["detail"])
+
+    @override_settings(DEBUG=False)
+    def test_normal_ai_has_standard_rate_limits(self):
+        """Test that normal AI conversations have standard rate limits (10/minute)."""
+        with patch(
+            "ee.hogai.core.executor.AgentExecutor.astream",
+            return_value=_async_generator(),
+        ):
+            with patch("ee.api.conversation.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
+                # First 10 requests should succeed (10/minute limit)
+                for i in range(10):
+                    response = self.client.post(
+                        f"/api/environments/{self.team.id}/conversations/",
+                        {
+                            "content": f"test query {i}",
+                            "trace_id": str(uuid.uuid4()),
+                            "conversation": str(uuid.uuid4()),
+                            # No agent_mode or agent_mode != RESEARCH
+                        },
+                    )
+                    self.assertEqual(response.status_code, status.HTTP_200_OK, f"Request {i} should succeed")
+
+                # 11th request should be rate limited
+                response = self.client.post(
+                    f"/api/environments/{self.team.id}/conversations/",
+                    {
+                        "content": "test query 11",
+                        "trace_id": str(uuid.uuid4()),
+                        "conversation": str(uuid.uuid4()),
+                    },
+                )
+                self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+                # Check that the response does NOT contain research-specific message
+                response_data = response.json()
+                self.assertNotIn("Research mode", response_data["detail"])
 
     def test_billing_context_validation_valid_data(self):
         """Test that valid billing context data is accepted."""

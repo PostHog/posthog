@@ -1,109 +1,59 @@
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
 
-import { IconCheckCircle, IconPeople, IconRocket, IconShield } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
-
-import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { IconFlask, IconPeople, IconTestTube, IconToggle } from '@posthog/icons'
+import { LemonButton, LemonCollapse } from '@posthog/lemon-ui'
 
 import { FeatureFlagType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { userLogic } from '../userLogic'
 import { featureFlagLogic } from './featureFlagLogic'
 
-export interface TemplateValues {
+interface TemplateValues {
     key?: string
     name?: string
     active?: boolean
+    is_remote_configuration?: boolean
     filters?: FeatureFlagType['filters']
 }
+
+export type ModifiedField = 'key' | 'flagType' | 'rollout' | 'conditions'
 
 interface FlagTemplate {
     id: string
     name: string
     description: string
     icon: React.ReactNode
+    modifiedFields: ModifiedField[]
     getValues: (currentFlag: FeatureFlagType) => TemplateValues
 }
 
-export interface ApplyTemplateResult {
-    updatedFlag: Partial<FeatureFlagType>
-    preservedFields: string[]
-}
-
-/** Pure function that merges template values into a flag, respecting user-edited fields. */
-export function mergeTemplateValues(
-    currentFlag: FeatureFlagType,
-    templateValues: TemplateValues,
-    userEditedFields: Set<string>
-): ApplyTemplateResult {
-    const preservedFields: string[] = []
-    const updates: Partial<FeatureFlagType> = { ...currentFlag }
-
-    if (templateValues.key !== undefined) {
-        if (userEditedFields.has('key')) {
-            preservedFields.push('flag key')
-        } else {
-            updates.key = currentFlag.key || templateValues.key
-        }
-    }
-
-    if (templateValues.name !== undefined) {
-        if (userEditedFields.has('name')) {
-            preservedFields.push('description')
-        } else {
-            updates.name = currentFlag.name || templateValues.name
-        }
-    }
-
-    if (templateValues.active !== undefined) {
-        if (userEditedFields.has('active')) {
-            preservedFields.push('enabled state')
-        } else {
-            updates.active = templateValues.active
-        }
-    }
-
-    if (templateValues.filters !== undefined) {
-        if (userEditedFields.has('filters')) {
-            preservedFields.push('release conditions')
-        } else {
-            updates.filters = {
-                ...currentFlag.filters,
-                ...templateValues.filters,
-            }
-        }
-    }
-
-    return { updatedFlag: updates, preservedFields }
-}
-
 interface FeatureFlagTemplatesProps {
-    onTemplateApplied?: (sectionsToOpen: string[]) => void
+    onTemplateApplied?: (modifiedFields: ModifiedField[]) => void
 }
 
 export function FeatureFlagTemplates({ onTemplateApplied }: FeatureFlagTemplatesProps): JSX.Element | null {
-    const { featureFlag, featureFlagLoading, userEditedFields } = useValues(featureFlagLogic)
+    const { featureFlag, featureFlagLoading } = useValues(featureFlagLogic)
     const { setFeatureFlag } = useActions(featureFlagLogic)
     const { user } = useValues(userLogic)
+    const [isExpanded, setIsExpanded] = useState(true)
 
     const applyTemplate = (template: FlagTemplate): void => {
-        const currentFlag = featureFlag
-        if (!currentFlag) {
+        if (!featureFlag) {
             return
         }
-        const templateValues = template.getValues(currentFlag)
-        const { updatedFlag, preservedFields } = mergeTemplateValues(currentFlag, templateValues, userEditedFields)
+        const templateValues = template.getValues(featureFlag)
 
-        setFeatureFlag(updatedFlag as FeatureFlagType)
+        setFeatureFlag({
+            ...featureFlag,
+            ...templateValues,
+            filters: {
+                ...featureFlag.filters,
+                ...templateValues.filters,
+            },
+        } as FeatureFlagType)
 
-        if (preservedFields.length > 0) {
-            lemonToast.info(
-                `Template applied: ${template.name}. Your ${preservedFields.join(', ')} ${preservedFields.length === 1 ? 'was' : 'were'} preserved.`
-            )
-        } else {
-            lemonToast.success(`Template applied: ${template.name}`)
-        }
-        onTemplateApplied?.(['basics', 'targeting'])
+        onTemplateApplied?.(template.modifiedFields)
     }
 
     if (!featureFlag) {
@@ -118,27 +68,33 @@ export function FeatureFlagTemplates({ onTemplateApplied }: FeatureFlagTemplates
 
     const templates: FlagTemplate[] = [
         {
-            id: 'percentage-rollout',
-            name: '% Rollout',
-            description: 'Gradually roll out to a percentage of users',
-            icon: <IconRocket className="text-2xl" />,
+            id: 'simple',
+            name: 'Simple flag',
+            description: 'On/off for all users',
+            icon: <IconToggle className="text-2xl" />,
+            modifiedFields: ['key', 'rollout'],
             getValues: (flag) => ({
-                key: 'gradual-rollout',
+                key: 'my-feature',
+                is_remote_configuration: false,
                 filters: {
                     ...flag.filters,
-                    groups: [{ properties: [], rollout_percentage: 20, variant: null }],
+                    multivariate: null,
+                    groups: [{ properties: [], rollout_percentage: 100, variant: null }],
                 },
             }),
         },
         {
-            id: 'internal-only',
-            name: 'Internal Only',
-            description: 'Only your team can see this',
-            icon: <IconShield className="text-2xl" />,
+            id: 'targeted',
+            name: 'Targeted release',
+            description: 'Release to specific users',
+            icon: <IconPeople className="text-2xl" />,
+            modifiedFields: ['key', 'conditions', 'rollout'],
             getValues: (flag) => ({
-                key: 'internal-only',
+                key: 'targeted-release',
+                is_remote_configuration: false,
                 filters: {
                     ...flag.filters,
+                    multivariate: null,
                     groups: [
                         {
                             properties: [
@@ -157,22 +113,51 @@ export function FeatureFlagTemplates({ onTemplateApplied }: FeatureFlagTemplates
             }),
         },
         {
-            id: 'beta-users',
-            name: 'Beta Users',
-            description: 'Target users with a beta property',
-            icon: <IconPeople className="text-2xl" />,
+            id: 'multivariate',
+            name: 'Multivariate',
+            description: 'Multiple variants',
+            icon: <IconTestTube className="text-2xl" />,
+            modifiedFields: ['key', 'flagType', 'rollout'],
             getValues: (flag) => ({
-                key: 'beta-feature',
+                key: 'multivariate-flag',
+                is_remote_configuration: false,
                 filters: {
                     ...flag.filters,
+                    multivariate: {
+                        variants: [
+                            { key: 'control', rollout_percentage: 50 },
+                            { key: 'test', rollout_percentage: 50 },
+                        ],
+                    },
+                    groups: [{ properties: [], rollout_percentage: 100, variant: null }],
+                },
+            }),
+        },
+        {
+            id: 'targeted-multivariate',
+            name: 'Targeted multivariate',
+            description: 'Variants for specific users',
+            icon: <IconFlask className="text-2xl" />,
+            modifiedFields: ['key', 'flagType', 'conditions', 'rollout'],
+            getValues: (flag) => ({
+                key: 'targeted-multivariate',
+                is_remote_configuration: false,
+                filters: {
+                    ...flag.filters,
+                    multivariate: {
+                        variants: [
+                            { key: 'control', rollout_percentage: 50 },
+                            { key: 'test', rollout_percentage: 50 },
+                        ],
+                    },
                     groups: [
                         {
                             properties: [
                                 {
-                                    key: 'beta',
+                                    key: 'email',
                                     type: PropertyFilterType.Person,
-                                    value: ['true'],
-                                    operator: PropertyOperator.Exact,
+                                    value: `@${emailDomain}`,
+                                    operator: PropertyOperator.IContains,
                                 },
                             ],
                             rollout_percentage: 100,
@@ -182,45 +167,45 @@ export function FeatureFlagTemplates({ onTemplateApplied }: FeatureFlagTemplates
                 },
             }),
         },
-        {
-            id: 'kill-switch',
-            name: 'Kill Switch',
-            description: 'Quick on/off for incidents',
-            icon: <IconCheckCircle className="text-2xl" />,
-            getValues: (flag) => ({
-                key: 'kill-switch',
-                name: 'Emergency kill switch for…',
-                active: true,
-                filters: {
-                    ...flag.filters,
-                    groups: [{ properties: [], rollout_percentage: 100, variant: null }],
-                },
-            }),
-        },
     ]
 
     return (
-        <div className="mb-4">
-            <div className="flex items-center justify-between mb-2">
-                <h3 className="mb-0 text-sm font-semibold">Start with a template</h3>
+        <>
+            <div className="mb-4">
+                <LemonCollapse
+                    activeKey={isExpanded ? 'templates' : undefined}
+                    onChange={(key) => setIsExpanded(key === 'templates')}
+                    panels={[
+                        {
+                            key: 'templates',
+                            header: 'Start with a template',
+                            content: (
+                                <div className="flex gap-3 overflow-x-auto pt-2">
+                                    {templates.map((template) => (
+                                        <LemonButton
+                                            key={template.id}
+                                            type="secondary"
+                                            onClick={() => applyTemplate(template)}
+                                            disabledReason={isLoading ? 'Loading flag data…' : undefined}
+                                            className="flex-shrink-0 w-36 !h-auto !items-start"
+                                        >
+                                            <div className="flex flex-col text-left py-1">
+                                                <div className="text-muted mb-2">{template.icon}</div>
+                                                <div className="font-semibold text-sm mb-1">{template.name}</div>
+                                                <div className="text-xs text-muted whitespace-normal">
+                                                    {template.description}
+                                                </div>
+                                            </div>
+                                        </LemonButton>
+                                    ))}
+                                </div>
+                            ),
+                        },
+                    ]}
+                    embedded
+                />
             </div>
-            <div className="flex gap-3 overflow-x-auto">
-                {templates.map((template) => (
-                    <LemonButton
-                        key={template.id}
-                        type="secondary"
-                        onClick={() => applyTemplate(template)}
-                        disabledReason={isLoading ? 'Loading flag data…' : undefined}
-                        className="flex-shrink-0 w-36 !h-auto !items-start"
-                    >
-                        <div className="flex flex-col text-left py-1">
-                            <div className="text-muted mb-2">{template.icon}</div>
-                            <div className="font-semibold text-sm mb-1">{template.name}</div>
-                            <div className="text-xs text-muted whitespace-normal">{template.description}</div>
-                        </div>
-                    </LemonButton>
-                ))}
-            </div>
-        </div>
+            {isExpanded && <h3 className="text-sm font-semibold text-muted mb-2">Or customize your flag</h3>}
+        </>
     )
 }

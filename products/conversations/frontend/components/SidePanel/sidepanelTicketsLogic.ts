@@ -15,9 +15,9 @@ const POLL_INTERVAL = 60 * 1000 // 60 seconds
 
 export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
     path(['products', 'conversations', 'frontend', 'components', 'SidePanel', 'sidepanelTicketsLogic']),
-    connect({
+    connect(() => ({
         values: [sidePanelStateLogic, ['sidePanelOpen'], featureFlagLogic, ['featureFlags']],
-    }),
+    })),
     actions({
         loadTickets: true,
         startPolling: true,
@@ -138,20 +138,36 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
             }
             actions.setMessagesLoading(true)
             try {
-                const response = await posthog.conversations.getMessages(ticketId)
-                if (response) {
-                    const transformedMessages: ChatMessage[] = (response.messages as ConversationMessage[]).map(
-                        (msg) => ({
-                            id: msg.id,
-                            content: msg.content,
-                            authorType: msg.author_type,
-                            authorName: msg.author_name || '',
-                            createdAt: msg.created_at,
-                        })
-                    )
-                    actions.setMessages(transformedMessages)
-                    actions.setHasMoreMessages(response.has_more)
+                const allMessages: ConversationMessage[] = []
+                let after: string | undefined
+                let hasMore = true
+
+                // Fetch all pages of messages using `after` timestamp pagination
+                while (hasMore) {
+                    const response = await (posthog.conversations.getMessages as any)(ticketId, after)
+                    // Check if we're still viewing the same ticket (avoid race condition when switching quickly)
+                    if (!response || values.currentTicket?.id !== ticketId) {
+                        return
+                    }
+                    const messages = response.messages as ConversationMessage[]
+                    allMessages.push(...messages)
+                    hasMore = response.has_more && messages.length > 0
+                    // Use the last message's created_at as the `after` cursor for next page
+                    if (hasMore && messages.length > 0) {
+                        after = messages[messages.length - 1].created_at
+                    }
                 }
+
+                // Transform and set all messages
+                const transformedMessages: ChatMessage[] = allMessages.map((msg) => ({
+                    id: msg.id,
+                    content: msg.content,
+                    authorType: msg.author_type,
+                    authorName: msg.author_name || '',
+                    createdAt: msg.created_at,
+                }))
+                actions.setMessages(transformedMessages)
+                actions.setHasMoreMessages(false)
             } catch (e) {
                 console.error('Failed to load messages:', e)
                 lemonToast.error('Failed to load messages. Please try again.')
@@ -207,6 +223,7 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
         },
         setCurrentTicket: ({ ticket }: { ticket: ConversationTicket }) => {
             actions.setView('ticket')
+            actions.setMessages([]) // Clear messages immediately to avoid showing stale data
             actions.loadMessages(ticket.id)
             actions.markAsRead(ticket.id)
         },

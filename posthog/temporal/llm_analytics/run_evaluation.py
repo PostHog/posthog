@@ -17,7 +17,6 @@ from posthog.models.event.util import create_event
 from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 from posthog.temporal.llm_analytics.message_utils import extract_text_from_messages
 from posthog.temporal.llm_analytics.metrics import (
     increment_errors,
@@ -365,23 +364,21 @@ Output: {output_data}"""
     )
 
     try:
-        # HeartbeaterSync sends periodic heartbeats during the potentially long-running LLM call
-        with HeartbeaterSync(details=("llm_judge", evaluation["id"])):
-            response = client.complete(
-                CompletionRequest(
-                    model=model,
-                    system=system_prompt,
-                    messages=[{"role": "user", "content": user_prompt}],
-                    provider=provider,
-                    response_format=response_format,
-                )
+        response = client.complete(
+            CompletionRequest(
+                model=model,
+                system=system_prompt,
+                messages=[{"role": "user", "content": user_prompt}],
+                provider=provider,
+                response_format=response_format,
             )
+        )
     except AuthenticationError:
         increment_errors("auth_error")
         if is_byok:
             raise ApplicationError(
                 "API key is invalid or has been deleted.",
-                {"error_type": "auth_error", "key_id": key_id},
+                {"error_type": "auth_error", "key_id": key_id, "provider": provider},
                 non_retryable=True,
             )
         raise
@@ -390,7 +387,7 @@ Output: {output_data}"""
         if is_byok:
             raise ApplicationError(
                 "API key doesn't have access to this model.",
-                {"error_type": "permission_error", "key_id": key_id},
+                {"error_type": "permission_error", "key_id": key_id, "provider": provider},
                 non_retryable=True,
             )
         raise
@@ -399,12 +396,18 @@ Output: {output_data}"""
         if is_byok:
             raise ApplicationError(
                 "API key has exceeded its quota.",
-                {"error_type": "quota_error", "key_id": key_id},
+                {"error_type": "quota_error", "key_id": key_id, "provider": provider},
                 non_retryable=True,
             )
         raise
     except RateLimitError:
         increment_errors("rate_limit")
+        if is_byok:
+            raise ApplicationError(
+                "API key is being rate limited.",
+                {"error_type": "rate_limit", "key_id": key_id, "provider": provider},
+                non_retryable=True,
+            )
         raise
     except ModelNotFoundError:
         increment_errors("model_not_found")
@@ -589,7 +592,6 @@ class RunEvaluationWorkflow(PostHogWorkflow):
                 execute_llm_judge_activity,
                 args=[evaluation, inputs.event_data],
                 schedule_to_close_timeout=timedelta(minutes=6),  # > SDK timeout (300s) to allow graceful handling
-                heartbeat_timeout=timedelta(seconds=60),
                 retry_policy=LLM_JUDGE_RETRY_POLICY,
             )
         except temporalio.exceptions.ActivityError as e:
@@ -616,7 +618,7 @@ class RunEvaluationWorkflow(PostHogWorkflow):
 
                 # Update key state for API-related errors
                 key_id = details.get("key_id")
-                if key_id and error_type in ("auth_error", "permission_error", "quota_error"):
+                if key_id and error_type in ("auth_error", "permission_error", "quota_error", "rate_limit"):
                     new_state = (
                         LLMProviderKey.State.INVALID if error_type == "auth_error" else LLMProviderKey.State.ERROR
                     )

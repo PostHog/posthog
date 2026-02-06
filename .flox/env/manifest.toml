@@ -39,9 +39,12 @@ util-linux = { pkg-path = "util-linux" } # flock
 cmake = { pkg-path = "cmake", version = "3.31.5", pkg-group = "cmake" }
 sqlx-cli = { pkg-path = "sqlx-cli", version = "0.8.3" } # sqlx
 postgresql = { pkg-path = "postgresql_14" } # psql
-ffmpeg.pkg-path = "ffmpeg"
+ffmpeg = { pkg-path = "ffmpeg_5", version = "5.1.4", pkg-group = "ffmpeg" }
 gh = { pkg-path = "gh" }
 protobuf = { pkg-path = "protobuf" } # protoc compiler for gRPC code generation
+ninja.pkg-path = "ninja"
+emscripten = { pkg-path = "emscripten", pkg-group = "emscripten", version = "4.0.23" }
+libpthread-stubs = { pkg-path = "libpthread-stubs", pkg-group = "emscripten" }
 watchman = { pkg-path = "watchman" } # Fast file watching for Django/Celery autoreload (uses pywatchman)
 
 # Set environment variables in the `[vars]` section. These variables may not
