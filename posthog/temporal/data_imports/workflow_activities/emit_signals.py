@@ -51,14 +51,15 @@ async def emit_data_import_signals_activity(inputs: EmitSignalsActivityInputs) -
     emitter = get_signal_emitter(inputs.source_type, inputs.schema_name)
     # Check if we care about this source type + schema
     if emitter is None:
-        activity.logger.debug(
+        activity.logger.warning(
             f"No signal emitter registered for {inputs.source_type}/{inputs.schema_name}",
             extra=inputs.properties_to_log,
         )
         return {"status": "skipped", "reason": "no_emitter_registered", "signals_emitted": 0}
     # Check if the FF enabled to allow signals emission
-    if not await database_sync_to_async(_is_feature_flag_enabled, thread_sensitive=False)(inputs.team_id):
-        activity.logger.debug(
+    # TODO: Revert after testing
+    if False and not await database_sync_to_async(_is_feature_flag_enabled, thread_sensitive=False)(inputs.team_id):
+        activity.logger.warning(
             f"Feature flag {EMIT_SIGNALS_FEATURE_FLAG} not enabled for team {inputs.team_id} for emitting signals",
             extra=inputs.properties_to_log,
         )
@@ -88,7 +89,7 @@ async def emit_data_import_signals_activity(inputs: EmitSignalsActivityInputs) -
         extra=inputs.properties_to_log,
     )
     if not records:
-        activity.logger.debug(
+        activity.logger.warning(
             f"No new records found for {inputs.source_type}/{inputs.schema_name} for emitting signals",
             extra=inputs.properties_to_log,
         )
@@ -150,7 +151,6 @@ def _query_new_records(
             LIMIT {MAX_SIGNALS_PER_SYNC}
         """
         parsed = parse_select(query)
-
     try:
         result = execute_hogql_query(query=parsed, team=team, query_type="EmitSignalsNewRecords")
     except Exception as e:
