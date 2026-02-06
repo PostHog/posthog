@@ -261,13 +261,14 @@ jobs:
         runs-on: ubuntu-latest
         needs: changes
         if: needs.changes.outputs.frontend == 'true'
-        name: Jest test (${{ matrix.segment }})
+        name: Jest test (${{ matrix.segment }} - ${{ matrix.chunk }})
 
         strategy:
             # If one test fails, still run the others
             fail-fast: false
             matrix:
                 segment: ['FOSS', 'EE']
+                chunk: [1, 2]
 
         steps:
             - uses: actions/checkout@v6
@@ -316,6 +317,8 @@ jobs:
               run: bin/turbo run test --filter=@posthog/frontend --force -- --maxWorkers=2
               env:
                   NODE_OPTIONS: --max-old-space-size=16384
+                  SHARD_INDEX: ${{ matrix.chunk }}
+                  SHARD_COUNT: 2
 
             - name: Stop resource monitoring
               if: always()
@@ -335,7 +338,7 @@ jobs:
               if: always()
               uses: actions/upload-artifact@v6
               with:
-                  name: resource-logs-jest-${{ matrix.segment }}
+                  name: resource-logs-jest-${{ matrix.segment }}-${{ matrix.chunk }}
                   path: /tmp/resource-logs/
                   retention-days: 7
                   if-no-files-found: ignore
