@@ -406,7 +406,7 @@ class ModalSandbox:
         if not self.is_running():
             raise RuntimeError("Sandbox not in running state.")
 
-        credentials = self._sandbox.create_connect_token(timeout=self.config.ttl_seconds)
+        credentials = self._sandbox.create_connect_token()
         self._sandbox_url = credentials.url
 
         logger.info(f"Got connect credentials for sandbox {self.id}: {credentials.url}")

@@ -84,7 +84,7 @@ class TestProcessTaskWorkflow:
 
             await asyncio.sleep(2)
 
-            await handle.signal(ProcessTaskWorkflow.complete_task, signal_status, signal_error)
+            await handle.signal(ProcessTaskWorkflow.complete_task, args=[signal_status, signal_error])
 
             result = await handle.result()
 
