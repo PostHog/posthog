@@ -405,6 +405,59 @@ class TestProperty(BaseTest):
                 "arrayExists(v -> ifNull(not(match(toString(v), 'ValidationError')), 1), JSONExtract(ifNull(properties.$exception_types, ''), 'Array(String)'))"
             ),
         )
+        self.assertEqual(
+            self._property_to_expr(
+                {
+                    "type": "event",
+                    "key": "$exception_types",
+                    "value": ["ReferenceError", "TypeError"],
+                    "operator": "icontains",
+                }
+            ),
+            self._parse_expr(
+                "arrayExists(v -> multiSearchAnyCaseInsensitive(toString(v), ['ReferenceError', 'TypeError']) > 0, JSONExtract(ifNull(properties.$exception_types, ''), 'Array(String)'))"
+            ),
+        )
+        self.assertEqual(
+            self._property_to_expr(
+                {
+                    "type": "event",
+                    "key": "$exception_types",
+                    "value": ["ReferenceError", "TypeError"],
+                    "operator": "not_icontains",
+                }
+            ),
+            self._parse_expr(
+                "arrayExists(v -> multiSearchAnyCaseInsensitive(toString(v), ['ReferenceError', 'TypeError']) = 0, JSONExtract(ifNull(properties.$exception_types, ''), 'Array(String)'))"
+            ),
+        )
+
+    def test_property_to_expr_multiSearch_edge_cases(self):
+        # Test empty array
+        self.assertEqual(
+            self._property_to_expr(
+                {
+                    "type": "event",
+                    "key": "a",
+                    "value": [],
+                    "operator": "icontains",
+                }
+            ),
+            self._parse_expr("true"),
+        )
+
+        # Test non-string values being stringified
+        self.assertEqual(
+            self._property_to_expr(
+                {
+                    "type": "event",
+                    "key": "a",
+                    "value": [123, 456.78, True],
+                    "operator": "icontains",
+                }
+            ),
+            self._parse_expr("multiSearchAnyCaseInsensitive(toString(properties.a), ['123', '456.78', 'True']) > 0"),
+        )
 
     def test_property_to_expr_element(self):
         self.assertEqual(

@@ -7,6 +7,7 @@ from django.db.models import Q
 from django.db.models.functions.comparison import Coalesce
 
 from pydantic import BaseModel
+from structlog import getLogger
 
 from posthog.schema import (
     CohortPropertyFilter,
@@ -53,6 +54,8 @@ from posthog.utils import get_from_dict_or_attr
 
 from products.data_warehouse.backend.models import DataWarehouseJoin
 from products.data_warehouse.backend.models.util import get_view_or_table_by_name
+
+logger = getLogger(__name__)
 
 
 def parse_semver(value: str) -> tuple[str, str, str]:
@@ -305,6 +308,33 @@ def _validate_between_values(value: ValueT, operator: PropertyOperator) -> TypeG
     return True
 
 
+def _multi_search_found(search_call: ast.Call) -> ast.CompareOperation:
+    """Create comparison operation to check if multiSearchAnyCaseInsensitive found a match."""
+    return ast.CompareOperation(op=ast.CompareOperationOp.Gt, left=search_call, right=ast.Constant(value=0))
+
+
+def _multi_search_not_found(search_call: ast.Call) -> ast.CompareOperation:
+    """Create comparison operation to check if multiSearchAnyCaseInsensitive did not find a match."""
+    return ast.CompareOperation(op=ast.CompareOperationOp.Eq, left=search_call, right=ast.Constant(value=0))
+
+
+def _create_multi_search_call(expr: ast.Expr, value: list) -> ast.Call:
+    """Create a multiSearchAnyCaseInsensitive call for the given expression and values."""
+    logger.debug(
+        "Using multiSearchAnyCaseInsensitive optimization",
+        field_expression=str(expr),
+        values_count=len(value),
+        optimization="multi_search_contains",
+    )
+    return ast.Call(
+        name="multiSearchAnyCaseInsensitive",
+        args=[
+            ast.Call(name="toString", args=[expr]),
+            ast.Array(exprs=[ast.Constant(value=str(v)) for v in value]),
+        ],
+    )
+
+
 def _expr_to_compare_op(
     expr: ast.Expr, value: ValueT, operator: PropertyOperator, property: Property, is_json_field: bool, team: Team
 ) -> ast.Expr:
@@ -323,19 +353,12 @@ def _expr_to_compare_op(
     elif operator == PropertyOperator.ICONTAINS:
         if isinstance(value, list):
             # Multiple values: use ClickHouse's multiSearchAnyCaseInsensitive for efficient searching
-            return ast.CompareOperation(
-                op=ast.CompareOperationOp.Gt,
-                left=ast.Call(
-                    name="multiSearchAnyCaseInsensitive",
-                    args=[
-                        ast.Call(name="toString", args=[expr]),
-                        ast.Array(exprs=[ast.Constant(value=str(v)) for v in value]),
-                    ],
-                ),
-                right=ast.Constant(value=0),
-            )
+            return _multi_search_found(_create_multi_search_call(expr, value))
         else:
             # Single value: keep existing ILIKE logic for backward compatibility
+            logger.debug(
+                "Using legacy ILIKE for single value contains", field_expression=str(expr), optimization="legacy_ilike"
+            )
             return ast.CompareOperation(
                 op=ast.CompareOperationOp.ILike,
                 left=ast.Call(name="toString", args=[expr]),
@@ -344,19 +367,14 @@ def _expr_to_compare_op(
     elif operator == PropertyOperator.NOT_ICONTAINS:
         if isinstance(value, list):
             # Multiple values: use ClickHouse's multiSearchAnyCaseInsensitive with negation
-            return ast.CompareOperation(
-                op=ast.CompareOperationOp.Eq,
-                left=ast.Call(
-                    name="multiSearchAnyCaseInsensitive",
-                    args=[
-                        ast.Call(name="toString", args=[expr]),
-                        ast.Array(exprs=[ast.Constant(value=str(v)) for v in value]),
-                    ],
-                ),
-                right=ast.Constant(value=0),
-            )
+            return _multi_search_not_found(_create_multi_search_call(expr, value))
         else:
             # Single value: keep existing NOT ILIKE logic for backward compatibility
+            logger.debug(
+                "Using legacy NOT ILIKE for single value not_contains",
+                field_expression=str(expr),
+                optimization="legacy_not_ilike",
+            )
             return ast.CompareOperation(
                 op=ast.CompareOperationOp.NotILike,
                 left=ast.Call(name="toString", args=[expr]),
@@ -809,7 +827,23 @@ def property_to_expr(
                         return compare_op
                 elif operator in (PropertyOperator.ICONTAINS, PropertyOperator.NOT_ICONTAINS):
                     # For contains operators, delegate to _expr_to_compare_op which handles multiple values efficiently
-                    return _expr_to_compare_op(expr, value, operator, property, property.type != "session", team)
+                    if is_exception_string_array_property or is_visited_page_property:
+                        # For exception properties and visited_page, use multiSearch optimization within arrayExists
+                        multi_search_expr = _expr_to_compare_op(
+                            ast.Field(chain=["v"]), value, operator, property, property.type != "session", team
+                        )
+                        if is_exception_string_array_property:
+                            return parse_expr(
+                                "arrayExists(v -> {expr}, {key})",
+                                {"expr": multi_search_expr, "key": extracted_field},
+                            )
+                        else:  # is_visited_page_property
+                            return parse_expr(
+                                "arrayExists(v -> {expr}, {key})",
+                                {"expr": multi_search_expr, "key": all_urls_field},
+                            )
+                    else:
+                        return _expr_to_compare_op(expr, value, operator, property, property.type != "session", team)
 
                 exprs = [
                     property_to_expr(
