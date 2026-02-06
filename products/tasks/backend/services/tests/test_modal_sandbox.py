@@ -128,13 +128,29 @@ class TestModalSandboxAgentServer:
         mock_modal_sandbox.object_id = "test-sandbox-id"
         mock_modal_sandbox.poll.return_value = None
 
-        mock_tunnel = MagicMock()
-        mock_tunnel.url = "https://test-tunnel.modal.run"
-        mock_modal_sandbox.tunnels.return_value = {AGENT_SERVER_PORT: mock_tunnel}
-        mock_modal_sandbox.create_connect_token.return_value = "test-connect-token-abc123"
+        mock_credentials = MagicMock()
+        mock_credentials.url = "https://test-sandbox.modal.run"
+        mock_credentials.token = "test-connect-token-abc123"
+        mock_modal_sandbox.create_connect_token.return_value = mock_credentials
 
         config = SandboxConfig(name="test-sandbox")
         return ModalSandbox(sandbox=mock_modal_sandbox, config=config)
+
+    def test_get_connect_credentials_success(self, mock_sandbox: ModalSandbox):
+        result = mock_sandbox.get_connect_credentials()
+
+        assert isinstance(result, AgentServerResult)
+        assert result.url == "https://test-sandbox.modal.run"
+        assert result.token == "test-connect-token-abc123"
+        assert mock_sandbox.sandbox_url == "https://test-sandbox.modal.run"
+
+        mock_sandbox._sandbox.create_connect_token.assert_called_once_with(timeout=mock_sandbox.config.ttl_seconds)
+
+    def test_get_connect_credentials_raises_when_not_running(self, mock_sandbox: ModalSandbox):
+        mock_sandbox._sandbox.poll.return_value = 0
+
+        with pytest.raises(RuntimeError, match="Sandbox not in running state"):
+            mock_sandbox.get_connect_credentials()
 
     def test_start_agent_server_success(self, mock_sandbox: ModalSandbox):
         mock_sandbox.execute = MagicMock(
@@ -144,19 +160,12 @@ class TestModalSandboxAgentServer:
             ]
         )
 
-        result = mock_sandbox.start_agent_server(
+        mock_sandbox.start_agent_server(
             repository="posthog/posthog",
             task_id="task-123",
             run_id="run-456",
             mode="background",
         )
-
-        assert isinstance(result, AgentServerResult)
-        assert result.url == "https://test-tunnel.modal.run"
-        assert result.token == "test-connect-token-abc123"
-        assert mock_sandbox.sandbox_url == "https://test-tunnel.modal.run"
-
-        mock_sandbox._sandbox.create_connect_token.assert_called_once_with(timeout=mock_sandbox.config.ttl_seconds)
 
         start_call = mock_sandbox.execute.call_args_list[0]
         command = start_call[0][0]

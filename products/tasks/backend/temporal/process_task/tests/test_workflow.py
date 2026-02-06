@@ -6,7 +6,6 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 
 import pytest
-from unittest.mock import patch
 
 from django.conf import settings
 
@@ -19,9 +18,9 @@ from products.tasks.backend.models import SandboxSnapshot
 from products.tasks.backend.services.sandbox import Sandbox, SandboxConfig, SandboxStatus, SandboxTemplate
 from products.tasks.backend.temporal.process_task.activities import (
     cleanup_sandbox,
-    execute_task_in_sandbox,
     get_sandbox_for_repository,
     get_task_processing_context,
+    start_agent_server,
     track_workflow_event,
     update_task_run_status,
 )
@@ -42,48 +41,52 @@ class TestProcessTaskWorkflow:
     """
     End-to-end workflow tests using real Modal sandboxes.
 
-    These tests create actual sandboxes, only mocking the task execution command
-    to avoid running the full AI agent. Snapshot creation is triggered asynchronously
-    when no snapshot exists.
+    The workflow now starts an agent-server and waits for a completion signal
+    or timeout. Tests verify the workflow starts correctly and handles signals.
     """
 
-    async def _run_workflow(
-        self, run_id: str, mock_task_command: str = "echo 'task complete'", create_pr: bool = True
+    async def _run_workflow_with_signal(
+        self,
+        run_id: str,
+        signal_status: str = "completed",
+        signal_error: str | None = None,
+        create_pr: bool = True,
     ) -> ProcessTaskOutput:
         workflow_id = str(uuid.uuid4())
         workflow_input = ProcessTaskInput(run_id=str(run_id), create_pr=create_pr)
 
-        with patch(
-            "products.tasks.backend.temporal.process_task.activities.execute_task_in_sandbox.Sandbox._get_task_command"
-        ) as mock_task:
-            mock_task.return_value = mock_task_command
+        async with (
+            await WorkflowEnvironment.start_time_skipping() as env,
+            Worker(
+                env.client,
+                task_queue=settings.TASKS_TASK_QUEUE,
+                workflows=[ProcessTaskWorkflow],
+                activities=[
+                    get_task_processing_context,
+                    get_sandbox_for_repository,
+                    start_agent_server,
+                    cleanup_sandbox,
+                    track_workflow_event,
+                    update_task_run_status,
+                ],
+                workflow_runner=UnsandboxedWorkflowRunner(),
+                activity_executor=ThreadPoolExecutor(max_workers=10),
+            ),
+        ):
+            handle = await env.client.start_workflow(
+                ProcessTaskWorkflow.run,
+                workflow_input,
+                id=workflow_id,
+                task_queue=settings.TASKS_TASK_QUEUE,
+                retry_policy=RetryPolicy(maximum_attempts=1),
+                execution_timeout=timedelta(minutes=60),
+            )
 
-            async with (
-                await WorkflowEnvironment.start_time_skipping() as env,
-                Worker(
-                    env.client,
-                    task_queue=settings.TASKS_TASK_QUEUE,
-                    workflows=[ProcessTaskWorkflow],
-                    activities=[
-                        get_task_processing_context,
-                        get_sandbox_for_repository,
-                        execute_task_in_sandbox,
-                        cleanup_sandbox,
-                        track_workflow_event,
-                        update_task_run_status,
-                    ],
-                    workflow_runner=UnsandboxedWorkflowRunner(),
-                    activity_executor=ThreadPoolExecutor(max_workers=10),
-                ),
-            ):
-                result = await env.client.execute_workflow(
-                    ProcessTaskWorkflow.run,
-                    workflow_input,
-                    id=workflow_id,
-                    task_queue=settings.TASKS_TASK_QUEUE,
-                    retry_policy=RetryPolicy(maximum_attempts=1),
-                    execution_timeout=timedelta(minutes=60),
-                )
+            await asyncio.sleep(2)
+
+            await handle.signal(ProcessTaskWorkflow.complete_task, signal_status, signal_error)
+
+            result = await handle.result()
 
         return result
 
@@ -113,53 +116,42 @@ class TestProcessTaskWorkflow:
             if sandbox:
                 sandbox.destroy()
 
-    async def test_workflow_with_existing_snapshot_reuses_snapshot(self, test_task_run, github_integration):
+    async def test_workflow_starts_agent_server_and_waits_for_signal(self, test_task_run, github_integration):
+        """Workflow starts agent-server and completes when signaled."""
         snapshot = await sync_to_async(self._create_test_snapshot)(github_integration)
 
         try:
-            result = await self._run_workflow(test_task_run.id)
+            result = await self._run_workflow_with_signal(test_task_run.id, signal_status="completed")
 
             assert result.success is True
-            assert result.task_result is not None
-            assert result.task_result.exit_code == 0
-            assert "task complete" in result.task_result.stdout
+            assert result.sandbox_id is not None
 
         finally:
             await sync_to_async(snapshot.delete)()
 
-    async def test_workflow_without_snapshot_still_succeeds(self, test_task_run, github_integration):
-        """When no snapshot exists, workflow should still complete successfully using base image."""
-        with patch.object(ProcessTaskWorkflow, "_trigger_snapshot_workflow"):
-            result = await self._run_workflow(test_task_run.id)
-
-            assert result.success is True
-            assert result.task_result is not None
-            assert result.task_result.exit_code == 0
-
-    async def test_workflow_executes_task_in_sandbox(self, test_task_run, github_integration):
+    async def test_workflow_handles_failure_signal(self, test_task_run, github_integration):
+        """Workflow handles failure signal correctly."""
         snapshot = await sync_to_async(self._create_test_snapshot)(github_integration)
 
-        custom_message = f"workflow_test_{uuid.uuid4().hex[:8]}"
-
         try:
-            result = await self._run_workflow(test_task_run.id, mock_task_command=f"echo '{custom_message}'")
+            result = await self._run_workflow_with_signal(
+                test_task_run.id, signal_status="failed", signal_error="Test error"
+            )
 
             assert result.success is True
-            assert result.task_result is not None
-            assert result.task_result.exit_code == 0
-            assert custom_message in result.task_result.stdout
+            assert result.sandbox_id is not None
 
         finally:
             await sync_to_async(snapshot.delete)()
 
-    async def test_workflow_cleans_up_sandbox_on_success(self, test_task_run, github_integration):
+    async def test_workflow_cleans_up_sandbox(self, test_task_run, github_integration):
+        """Workflow cleans up sandbox after completion."""
         snapshot = await sync_to_async(self._create_test_snapshot)(github_integration)
 
         try:
-            result = await self._run_workflow(test_task_run.id)
+            result = await self._run_workflow_with_signal(test_task_run.id)
 
             assert result.success is True
-            assert result.task_result is not None
             assert result.sandbox_id is not None
 
             await asyncio.sleep(10)
@@ -170,31 +162,38 @@ class TestProcessTaskWorkflow:
         finally:
             await sync_to_async(snapshot.delete)()
 
-    async def test_workflow_cleans_up_sandbox_on_failure(self, test_task_run, github_integration):
-        snapshot = await sync_to_async(self._create_test_snapshot)(github_integration)
-
-        try:
-            result = await self._run_workflow(test_task_run.id, mock_task_command="exit 1")
-
-            assert result.success is False
-            assert result.error is not None
-            assert result.task_result is None
-
-            assert result.sandbox_id is not None
-            sandbox_id = result.sandbox_id
-
-            await asyncio.sleep(10)
-            sandbox = Sandbox.get_by_id(sandbox_id)
-            assert sandbox.get_status() == SandboxStatus.SHUTDOWN
-
-        finally:
-            await sync_to_async(snapshot.delete)()
-
     async def test_workflow_handles_missing_task(self):
         fake_task_id = str(uuid.uuid4())
 
-        result = await self._run_workflow(fake_task_id)
+        workflow_id = str(uuid.uuid4())
+        workflow_input = ProcessTaskInput(run_id=fake_task_id)
+
+        async with (
+            await WorkflowEnvironment.start_time_skipping() as env,
+            Worker(
+                env.client,
+                task_queue=settings.TASKS_TASK_QUEUE,
+                workflows=[ProcessTaskWorkflow],
+                activities=[
+                    get_task_processing_context,
+                    get_sandbox_for_repository,
+                    start_agent_server,
+                    cleanup_sandbox,
+                    track_workflow_event,
+                    update_task_run_status,
+                ],
+                workflow_runner=UnsandboxedWorkflowRunner(),
+                activity_executor=ThreadPoolExecutor(max_workers=10),
+            ),
+        ):
+            result = await env.client.execute_workflow(
+                ProcessTaskWorkflow.run,
+                workflow_input,
+                id=workflow_id,
+                task_queue=settings.TASKS_TASK_QUEUE,
+                retry_policy=RetryPolicy(maximum_attempts=1),
+                execution_timeout=timedelta(minutes=60),
+            )
 
         assert result.success is False
         assert result.error is not None
-        assert "activity task failed" in result.error.lower() or "failed" in result.error.lower()

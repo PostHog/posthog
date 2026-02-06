@@ -18,7 +18,6 @@ from typing import Optional
 
 from django.conf import settings
 
-from products.tasks.backend.constants import SETUP_REPOSITORY_PROMPT
 from products.tasks.backend.models import SandboxSnapshot
 from products.tasks.backend.temporal.exceptions import (
     SandboxCleanupError,
@@ -34,7 +33,6 @@ from .sandbox import AgentServerResult, ExecutionResult, ExecutionStream, Sandbo
 logger = logging.getLogger(__name__)
 
 WORKING_DIR = "/tmp/workspace"
-DEFAULT_TASK_TIMEOUT_SECONDS = 20 * 60  # 20 minutes
 DEFAULT_IMAGE_NAME = "posthog-sandbox-base"
 NOTEBOOK_IMAGE_NAME = "posthog-sandbox-notebook"
 AGENT_SERVER_PORT = 47821  # Arbitrary high port unlikely to conflict with dev servers
@@ -243,11 +241,6 @@ class DockerSandbox:
                             value = DockerSandbox._transform_url_for_docker(value)
                         env_args.extend(["-e", f"{key}={value}"])
 
-            volume_args = []
-            runagent_path = os.path.join(settings.BASE_DIR, "products/tasks/scripts/runAgent.mjs")
-            if os.path.exists(runagent_path):
-                volume_args.extend(["-v", f"{runagent_path}:/scripts/runAgent.mjs:ro"])
-
             host_port = DockerSandbox._find_available_port()
             port_args = ["-p", f"{host_port}:{AGENT_SERVER_PORT}"]
 
@@ -264,7 +257,6 @@ class DockerSandbox:
                 f"--memory={config.memory_gb}g",
                 f"--cpus={config.cpu_cores}",
                 *env_args,
-                *volume_args,
                 *port_args,
                 image,
                 "tail",
@@ -516,28 +508,8 @@ class DockerSandbox:
         return self.execute(clone_command, timeout_seconds=5 * 60)
 
     def setup_repository(self, repository: str) -> ExecutionResult:
-        if not self.is_running():
-            raise RuntimeError("Sandbox not in running state.")
-
-        org, repo = repository.lower().split("/")
-        repo_path = f"/tmp/workspace/repos/{org}/{repo}"
-
-        check_result = self.execute(f"test -d {repo_path} && echo 'exists' || echo 'missing'")
-        if "missing" in check_result.stdout:
-            raise RuntimeError(f"Repository path {repo_path} does not exist. Clone the repository first.")
-
-        agent_setup_command = self._get_setup_command(repo_path)
-        setup_command = f"cd {repo_path} && {agent_setup_command}"
-
-        logger.info(f"Setting up repository {repository} in sandbox {self.id}")
-        result = self.execute(setup_command, timeout_seconds=15 * 60)
-
-        logger.info(f"Setup completed: exit_code={result.exit_code}")
-        if result.exit_code != 0:
-            logger.warning(f"Setup stdout:\n{result.stdout}")
-            logger.warning(f"Setup stderr:\n{result.stderr}")
-
-        return result
+        """No-op: Repository setup is now handled by agent-server."""
+        return ExecutionResult(stdout="", stderr="", exit_code=0, error=None)
 
     def is_git_clean(self, repository: str) -> tuple[bool, str]:
         if not self.is_running():
@@ -552,44 +524,30 @@ class DockerSandbox:
         return is_clean, result.stdout
 
     def execute_task(self, task_id: str, run_id: str, repository: str, create_pr: bool = True) -> ExecutionResult:
+        """No-op: Task execution is now handled by agent-server."""
+        return ExecutionResult(stdout="", stderr="", exit_code=0, error=None)
+
+    def get_connect_credentials(self) -> AgentServerResult:
+        """Get connect credentials (URL) for this sandbox.
+
+        For Docker sandboxes, the URL is the localhost URL with the exposed port.
+        No token is needed for local Docker sandboxes.
+        """
         if not self.is_running():
             raise RuntimeError("Sandbox not in running state.")
 
-        org, repo = repository.lower().split("/")
-        repo_path = f"/tmp/workspace/repos/{org}/{repo}"
+        if self._host_port is None:
+            raise RuntimeError("Sandbox was not created with port exposure.")
 
-        task_command = self._get_task_command(task_id, run_id, repo_path, create_pr)
-        command = f"cd {repo_path} && {task_command}"
+        url = f"http://localhost:{self._host_port}"
+        logger.info(f"Got connect credentials for sandbox {self.id}: {url}")
+        return AgentServerResult(url=url, token=None)
 
-        logger.info(f"Executing task {task_id} for run {run_id} in {repo_path} in sandbox {self.id}")
-        logger.info(f"Task command: {task_command}")
-        logger.info(f"Full command: {command}")
+    def start_agent_server(self, repository: str, task_id: str, run_id: str, mode: str = "background") -> None:
+        """Start the agent-server HTTP server in the sandbox.
 
-        result = self.execute(command, timeout_seconds=DEFAULT_TASK_TIMEOUT_SECONDS)
-
-        logger.info(f"Task execution completed: exit_code={result.exit_code}")
-        logger.info(f"Task stdout length: {len(result.stdout)} chars")
-        logger.info(f"Task stderr length: {len(result.stderr)} chars")
-        if result.exit_code != 0:
-            logger.warning(f"Task stdout:\n{result.stdout}")
-            logger.warning(f"Task stderr:\n{result.stderr}")
-
-        return result
-
-    def start_agent_server(
-        self, repository: str, task_id: str, run_id: str, mode: str = "background"
-    ) -> AgentServerResult:
-        """
-        Start the agent-server HTTP server in the sandbox.
-
-        Args:
-            repository: Repository in org/repo format
-            task_id: Task ID
-            run_id: Task run ID
-            mode: Execution mode ('background' or 'interactive')
-
-        Returns:
-            AgentServerResult with sandbox URL (token is None for Docker)
+        The sandbox URL should be obtained via get_connect_credentials()
+        before calling this method.
         """
         if not self.is_running():
             raise RuntimeError("Sandbox not in running state.")
@@ -626,7 +584,6 @@ class DockerSandbox:
             )
 
         logger.info(f"Agent-server started on port {self._host_port}")
-        return AgentServerResult(url=self.sandbox_url, token=None)  # type: ignore
 
     def _wait_for_health_check(self, max_attempts: int = 10, delay_seconds: float = 0.5) -> bool:
         """Poll health endpoint until server is ready."""
@@ -637,13 +594,6 @@ class DockerSandbox:
                 return True
             time.sleep(delay_seconds)
         return False
-
-    def _get_task_command(self, task_id: str, run_id: str, repo_path: str, create_pr: bool = True) -> str:
-        create_pr_flag = "true" if create_pr else "false"
-        return f"git reset --hard HEAD && IS_SANDBOX=True node /scripts/runAgent.mjs --taskId {task_id} --runId {run_id} --repositoryPath {repo_path} --createPR {create_pr_flag}"
-
-    def _get_setup_command(self, repo_path: str) -> str:
-        return f"git reset --hard HEAD && IS_SANDBOX=True && node /scripts/runAgent.mjs --repositoryPath {repo_path} --prompt '{SETUP_REPOSITORY_PROMPT.format(cwd=repo_path, repository=repo_path)}' --max-turns 20"
 
     def create_snapshot(self) -> str:
         if not self.is_running():

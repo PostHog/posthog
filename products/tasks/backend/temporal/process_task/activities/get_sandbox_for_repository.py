@@ -7,7 +7,7 @@ from temporalio import activity
 
 from posthog.temporal.common.utils import asyncify
 
-from products.tasks.backend.models import SandboxSnapshot, Task
+from products.tasks.backend.models import SandboxSnapshot, Task, TaskRun
 from products.tasks.backend.services.connection_token import get_sandbox_jwt_public_key
 from products.tasks.backend.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
 from products.tasks.backend.temporal.exceptions import GitHubAuthenticationError, OAuthTokenError, TaskNotFoundError
@@ -28,6 +28,8 @@ class GetSandboxForRepositoryInput:
 @dataclass
 class GetSandboxForRepositoryOutput:
     sandbox_id: str
+    sandbox_url: str
+    connect_token: str | None
     used_snapshot: bool
     should_create_snapshot: bool
 
@@ -97,10 +99,23 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
                 sandbox.destroy()
                 raise RuntimeError(f"Failed to clone repository {ctx.repository}: {clone_result.stderr}")
 
+        credentials = sandbox.get_connect_credentials()
+
+        task_run = TaskRun.objects.get(id=ctx.run_id)
+        state = task_run.state or {}
+        state["sandbox_id"] = sandbox.id
+        state["sandbox_url"] = credentials.url
+        if credentials.token:
+            state["sandbox_connect_token"] = credentials.token
+        task_run.state = state
+        task_run.save(update_fields=["state", "updated_at"])
+
         activity.logger.info(f"Created sandbox {sandbox.id} (used_snapshot={used_snapshot})")
 
         return GetSandboxForRepositoryOutput(
             sandbox_id=sandbox.id,
+            sandbox_url=credentials.url,
+            connect_token=credentials.token,
             used_snapshot=used_snapshot,
             should_create_snapshot=not used_snapshot,
         )

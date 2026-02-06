@@ -98,8 +98,20 @@ class SandboxProtocol(Protocol):
 
     def execute_task(self, task_id: str, run_id: str, repository: str, create_pr: bool = True) -> ExecutionResult: ...
 
-    def start_agent_server(self, repository: str, task_id: str, run_id: str, mode: str = "background") -> AgentServerResult:
-        """Start the agent-server HTTP server and return the result with URL and optional token."""
+    def get_connect_credentials(self) -> AgentServerResult:
+        """Get connect credentials (URL and token) for this sandbox.
+
+        Should be called after sandbox creation to get the URL and authentication
+        token needed to connect to the sandbox.
+        """
+        ...
+
+    def start_agent_server(self, repository: str, task_id: str, run_id: str, mode: str = "background") -> None:
+        """Start the agent-server HTTP server in the sandbox.
+
+        The sandbox URL and token should be obtained via get_connect_credentials()
+        before calling this method.
+        """
         ...
 
     def create_snapshot(self) -> str: ...
