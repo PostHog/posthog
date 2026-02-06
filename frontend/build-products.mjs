@@ -27,6 +27,7 @@ function buildProductManifests() {
     const enumFile = path.resolve(__dirname, '../frontend/src/queries/schema/schema-general.ts')
     const allSourceFiles = [...sourceFiles, enumFile]
     const shouldForce = process.argv.includes('--force') || process.env.BUILD_PRODUCTS_FORCE === '1'
+    const shouldSkipPrettier = process.argv.includes('--skip-prettier')
 
     if (!shouldForce && canSkipBuild(allSourceFiles)) {
         return
@@ -341,7 +342,9 @@ function buildProductManifests() {
     fse.mkdirSync(tsxTmpDir, { recursive: true })
     const tsxTmpFile = path.join(tsxTmpDir, 'products.tsx')
     fse.writeFileSync(tsxTmpFile, productsTsx)
-    ps.execFileSync('prettier', ['--write', tsxTmpFile])
+    if (!shouldSkipPrettier) {
+        ps.execFileSync('prettier', ['--write', tsxTmpFile])
+    }
     fse.renameSync(tsxTmpFile, PRODUCTS_TSX_PATH)
 
     // 8. Assemble `products.json`, write, format, move to src/
@@ -365,7 +368,9 @@ function buildProductManifests() {
     fse.mkdirSync(jsonTmpDir, { recursive: true })
     const jsonTmpFile = path.join(jsonTmpDir, 'products.json')
     fse.writeFileSync(jsonTmpFile, JSON.stringify(productsJson))
-    ps.execFileSync('prettier', ['--write', jsonTmpFile])
+    if (!shouldSkipPrettier) {
+        ps.execFileSync('prettier', ['--write', jsonTmpFile])
+    }
     fse.renameSync(jsonTmpFile, PRODUCTS_JSON_PATH)
 
     writeBuildHash(allSourceFiles)
