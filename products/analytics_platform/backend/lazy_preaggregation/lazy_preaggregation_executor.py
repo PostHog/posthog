@@ -1,12 +1,18 @@
 import copy
 import json
+import time
 import hashlib
+import threading
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 
+from django.db import IntegrityError, transaction
 from django.db.models import Q
 from django.utils import timezone as django_timezone
+
+from clickhouse_driver.errors import ServerException
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
@@ -26,6 +32,85 @@ DEFAULT_TTL_SECONDS = 7 * 24 * 60 * 60  # 7 days
 # This prevents race conditions where we try to query data that ClickHouse
 # is about to delete or has just deleted.
 EXPIRY_BUFFER_SECONDS = 1 * 60 * 60  # 1 hour
+
+# Waiting configuration for pending jobs
+DEFAULT_WAIT_TIMEOUT_SECONDS = 180  # 3 minutes
+DEFAULT_POLL_INTERVAL_SECONDS = 1.0  # Poll every 1 second
+DEFAULT_MAX_ATTEMPTS = 3  # Maximum retry attempts for failed jobs
+
+# Heartbeat configuration - keeps job marked as "alive" during long INSERTs
+DEFAULT_HEARTBEAT_INTERVAL_SECONDS = 30.0  # Update updated_at every 30 seconds
+
+# Threshold for detecting stale PENDING jobs (executor may have crashed)
+# With 30s heartbeat, 2 minutes = 4 missed heartbeats before considering dead
+DEFAULT_STALE_PENDING_THRESHOLD_SECONDS = 120  # 2 minutes
+
+# ClickHouse error codes that should NOT be retried (fatal errors)
+FATAL_CLICKHOUSE_ERROR_CODES = frozenset(
+    {
+        62,  # SYNTAX_ERROR
+        43,  # ILLEGAL_TYPE_OF_ARGUMENT
+        53,  # TYPE_MISMATCH
+        46,  # UNKNOWN_FUNCTION
+        47,  # UNKNOWN_IDENTIFIER
+        60,  # UNKNOWN_TABLE
+        16,  # NO_SUCH_COLUMN_IN_TABLE
+    }
+)
+
+
+def is_fatal_error(error: Exception) -> bool:
+    """
+    Check if an error should NOT be retried.
+
+    Fatal errors include:
+    - Network/connection errors (can't reach ClickHouse)
+    - ClickHouse syntax errors, type mismatches, unknown identifiers
+    """
+    # Network/connection errors - can't reach ClickHouse
+    if isinstance(error, (ConnectionError, OSError, TimeoutError)):
+        return True
+
+    # ClickHouse server errors with fatal codes
+    if isinstance(error, ServerException) and error.code in FATAL_CLICKHOUSE_ERROR_CODES:
+        return True
+
+    # Check wrapped errors (e.g., from wrap_query_error)
+    if error.__cause__ is not None:
+        return is_fatal_error(error.__cause__)
+
+    return False
+
+
+@contextmanager
+def heartbeat_while_running(
+    job: "PreaggregationJob",
+    interval_seconds: float = DEFAULT_HEARTBEAT_INTERVAL_SECONDS,
+):
+    """
+    Update job.updated_at periodically while the wrapped code runs.
+
+    This prevents the job from being marked as stale while a long INSERT
+    is still executing. The heartbeat stops when the context exits
+    (whether success or failure).
+    """
+    stop_event = threading.Event()
+
+    def heartbeat_loop():
+        while not stop_event.wait(timeout=interval_seconds):
+            # Atomic update - only if job is still PENDING
+            PreaggregationJob.objects.filter(
+                id=job.id,
+                status=PreaggregationJob.Status.PENDING,
+            ).update(updated_at=django_timezone.now())
+
+    heartbeat_thread = threading.Thread(target=heartbeat_loop, daemon=True)
+    heartbeat_thread.start()
+    try:
+        yield
+    finally:
+        stop_event.set()
+        heartbeat_thread.join(timeout=5.0)  # Don't block forever if thread is stuck
 
 
 class PreaggregationTable(StrEnum):
@@ -51,6 +136,16 @@ class PreaggregationResult:
     ready: bool
     job_ids: list
     errors: list[str] = field(default_factory=list)
+
+
+@dataclass
+class WaitResult:
+    """Result of waiting for pending preaggregation jobs."""
+
+    success: bool
+    ready_job_ids: list
+    failed_jobs: list  # List of PreaggregationJob objects that permanently failed
+    timed_out: bool = False
 
 
 def compute_query_hash(query_info: QueryInfo) -> str:
@@ -339,6 +434,9 @@ def run_preaggregation_insert(
 ) -> None:
     """
     Run the INSERT query to populate preaggregation results in ClickHouse.
+
+    Uses a heartbeat to update job.updated_at periodically, preventing the job
+    from being marked as stale during long-running INSERTs.
     """
     assert job.expires_at is not None
 
@@ -350,7 +448,282 @@ def run_preaggregation_insert(
         time_range_end=job.time_range_end,
         expires_at=job.expires_at,
     )
-    sync_execute(insert_sql, values)
+
+    with heartbeat_while_running(job):
+        sync_execute(insert_sql, values)
+
+
+class PreaggregationExecutor:
+    """
+    Executes preaggregation jobs with configurable waiting behavior.
+
+    Settings can be configured at initialization:
+    - wait_for_pending: Whether to wait for pending jobs (default True)
+    - wait_timeout_seconds: Max time to wait for pending jobs (default 180s)
+    - poll_interval_seconds: How often to check job status (default 1s)
+    - max_attempts: Max retry attempts for failed jobs (default 3)
+    - ttl_seconds: How long preaggregated data persists (default 7 days)
+    - stale_pending_threshold_seconds: How long before a PENDING job is considered stale
+    """
+
+    def __init__(
+        self,
+        wait_for_pending: bool = True,
+        wait_timeout_seconds: float = DEFAULT_WAIT_TIMEOUT_SECONDS,
+        poll_interval_seconds: float = DEFAULT_POLL_INTERVAL_SECONDS,
+        max_attempts: int = DEFAULT_MAX_ATTEMPTS,
+        ttl_seconds: int = DEFAULT_TTL_SECONDS,
+        stale_pending_threshold_seconds: float = DEFAULT_STALE_PENDING_THRESHOLD_SECONDS,
+    ):
+        self.wait_for_pending = wait_for_pending
+        self.wait_timeout_seconds = wait_timeout_seconds
+        self.poll_interval_seconds = poll_interval_seconds
+        self.max_attempts = max_attempts
+        self.ttl_seconds = ttl_seconds
+        self.stale_pending_threshold_seconds = stale_pending_threshold_seconds
+
+    def execute(
+        self,
+        team: Team,
+        query_info: QueryInfo,
+        start: datetime,
+        end: datetime,
+    ) -> PreaggregationResult:
+        """
+        Execute preaggregation jobs for the given query and time range.
+
+        1. Hash the query to get a stable identifier
+        2. Find existing jobs (READY and PENDING)
+        3. Wait for pending jobs if enabled
+        4. Identify missing time windows
+        5. Create and execute jobs for missing ranges
+        6. Return job IDs for the combiner query
+        """
+        errors: list[str] = []
+        job_ids: list = []
+
+        query_hash = compute_query_hash(query_info)
+
+        existing_jobs = find_existing_jobs(team, query_hash, start, end)
+
+        # Separate READY and PENDING jobs
+        ready_jobs = [j for j in existing_jobs if j.status == PreaggregationJob.Status.READY]
+        pending_jobs = [j for j in existing_jobs if j.status == PreaggregationJob.Status.PENDING]
+
+        # Wait for pending jobs if enabled
+        if self.wait_for_pending and pending_jobs:
+            wait_result = self._wait_for_pending_jobs(team, pending_jobs, query_info)
+
+            # Add successfully completed jobs to ready list
+            for job_id in wait_result.ready_job_ids:
+                job = PreaggregationJob.objects.get(id=job_id)
+                ready_jobs.append(job)
+
+            # Report failed jobs as errors
+            for failed_job in wait_result.failed_jobs:
+                errors.append(f"Job {failed_job.id} failed: {failed_job.error}")
+
+            if wait_result.timed_out:
+                errors.append("Timeout waiting for pending jobs")
+
+        # Filter to remove overlapping jobs (keep most recent)
+        ready_jobs = filter_overlapping_jobs(ready_jobs)
+
+        for existing_job in ready_jobs:
+            job_ids.append(existing_job.id)
+
+        # Find missing windows merged into contiguous ranges
+        missing_ranges = find_missing_contiguous_windows(ready_jobs, start, end)
+
+        if not missing_ranges and not job_ids:
+            return PreaggregationResult(ready=True, job_ids=[])
+
+        for range_start, range_end in missing_ranges:
+            new_job: PreaggregationJob | None = None
+            try:
+                new_job = create_preaggregation_job(team, query_hash, range_start, range_end, self.ttl_seconds)
+                run_preaggregation_insert(team, new_job, query_info)
+
+                new_job.status = PreaggregationJob.Status.READY
+                new_job.computed_at = django_timezone.now()
+                new_job.save()
+
+                job_ids.append(new_job.id)
+
+            except Exception as e:
+                if new_job is not None:
+                    new_job.status = PreaggregationJob.Status.FAILED
+                    new_job.error = str(e)
+                    new_job.save()
+                errors.append(f"Failed to create preaggregation for {range_start}-{range_end}: {e}")
+
+        # Ready if no errors (all missing ranges were successfully created)
+        all_ready = len(errors) == 0
+
+        return PreaggregationResult(ready=all_ready, job_ids=job_ids, errors=errors)
+
+    def _try_create_replacement_job(
+        self,
+        failed_job: PreaggregationJob,
+    ) -> PreaggregationJob | None:
+        """
+        Try to create a replacement job for a failed job.
+
+        Uses the same range as the failed job. Returns the new job if created,
+        or None if another waiter already created a replacement (IntegrityError).
+        """
+        try:
+            # Use a savepoint to properly handle IntegrityError without
+            # breaking the outer transaction (important for test compatibility)
+            with transaction.atomic():
+                return PreaggregationJob.objects.create(
+                    team=failed_job.team,
+                    query_hash=failed_job.query_hash,
+                    time_range_start=failed_job.time_range_start,
+                    time_range_end=failed_job.time_range_end,
+                    status=PreaggregationJob.Status.PENDING,
+                    expires_at=django_timezone.now() + timedelta(seconds=self.ttl_seconds),
+                )
+        except IntegrityError:
+            # Another waiter created a replacement first - this is expected
+            return None
+
+    def _find_pending_replacement(
+        self,
+        failed_job: PreaggregationJob,
+    ) -> PreaggregationJob | None:
+        """Find the pending replacement job for a failed job."""
+        return PreaggregationJob.objects.filter(
+            team=failed_job.team,
+            query_hash=failed_job.query_hash,
+            time_range_start=failed_job.time_range_start,
+            time_range_end=failed_job.time_range_end,
+            status=PreaggregationJob.Status.PENDING,
+        ).first()
+
+    def _try_mark_stale_job_as_failed(self, job: PreaggregationJob) -> bool:
+        """
+        Try to mark a stale PENDING job as FAILED.
+
+        Uses atomic update with status check to prevent races.
+        Returns True if this call marked it, False if another waiter did or status changed.
+        """
+        updated = PreaggregationJob.objects.filter(
+            id=job.id,
+            status=PreaggregationJob.Status.PENDING,  # Only if still PENDING
+        ).update(
+            status=PreaggregationJob.Status.FAILED,
+            error="Job was stale (executor may have crashed)",
+        )
+        return updated > 0
+
+    def _wait_for_pending_jobs(
+        self,
+        team: Team,
+        pending_jobs: list[PreaggregationJob],
+        query_info: QueryInfo,
+    ) -> WaitResult:
+        """
+        Wait for pending jobs to complete, handling failures with retry logic.
+
+        If a job fails and this waiter wins the race to create a replacement, execute the retry.
+        If another waiter wins, continue waiting for their replacement.
+        If max_attempts exceeded, mark as permanently failed.
+
+        Attempt tracking is per-waiter (not stored on jobs), so new queries get fresh attempts.
+
+        Returns WaitResult indicating success/failure and which jobs are ready.
+        """
+        start_time = time.monotonic()
+        # Track jobs we're waiting for: maps tracking key -> (current job, attempt count)
+        # The tracking key stays constant even as the job changes on replacement
+        waiting_for: dict = {job.id: {"job": job, "attempts": 0} for job in pending_jobs}
+        ready_job_ids: list = []
+        failed_jobs: list[PreaggregationJob] = []
+
+        while waiting_for:
+            elapsed = time.monotonic() - start_time
+            if elapsed >= self.wait_timeout_seconds:
+                return WaitResult(
+                    success=False,
+                    ready_job_ids=ready_job_ids,
+                    failed_jobs=failed_jobs,
+                    timed_out=True,
+                )
+
+            # Check status of all jobs we're waiting for
+            job_ids_to_check = [entry["job"].id for entry in waiting_for.values()]
+            jobs_by_id = {job.id: job for job in PreaggregationJob.objects.filter(id__in=job_ids_to_check)}
+
+            for tracking_key, entry in list(waiting_for.items()):
+                job = jobs_by_id.get(entry["job"].id)
+                if job is None:
+                    continue
+
+                if job.status == PreaggregationJob.Status.READY:
+                    ready_job_ids.append(job.id)
+                    del waiting_for[tracking_key]
+
+                elif job.status == PreaggregationJob.Status.FAILED:
+                    # Each failed job counts as an attempt, regardless of who creates the replacement
+                    entry["attempts"] += 1
+
+                    if entry["attempts"] >= self.max_attempts:
+                        # This waiter has exceeded their attempt budget
+                        failed_jobs.append(job)
+                        del waiting_for[tracking_key]
+                    else:
+                        # Try to create a replacement job
+                        replacement = self._try_create_replacement_job(job)
+                        if replacement is not None:
+                            # We won the race - execute the replacement
+                            try:
+                                run_preaggregation_insert(team, replacement, query_info)
+                                replacement.status = PreaggregationJob.Status.READY
+                                replacement.computed_at = django_timezone.now()
+                                replacement.save()
+                                ready_job_ids.append(replacement.id)
+                                del waiting_for[tracking_key]
+                            except Exception as e:
+                                replacement.status = PreaggregationJob.Status.FAILED
+                                replacement.error = str(e)
+                                replacement.save()
+
+                                if is_fatal_error(e):
+                                    # Fatal error - don't retry, fail immediately
+                                    failed_jobs.append(replacement)
+                                    del waiting_for[tracking_key]
+                                else:
+                                    # Retryable error - wait for replacement (might be retried again)
+                                    entry["job"] = replacement
+                        else:
+                            # Another waiter created a replacement - find it and wait for it
+                            existing_replacement = self._find_pending_replacement(job)
+                            if existing_replacement is not None:
+                                entry["job"] = existing_replacement
+                            # else: Edge case - re-check on next iteration
+
+                elif job.status == PreaggregationJob.Status.PENDING:
+                    # Check if job is stale (executor may have crashed)
+                    stale_threshold = django_timezone.now() - timedelta(seconds=self.stale_pending_threshold_seconds)
+                    if job.updated_at < stale_threshold:
+                        # Try to mark as failed - triggers replacement flow on next iteration
+                        self._try_mark_stale_job_as_failed(job)
+                        # Either way, status will be checked on next iteration
+                    # else: Still waiting - keep polling
+
+            if waiting_for:
+                remaining_timeout = self.wait_timeout_seconds - (time.monotonic() - start_time)
+                sleep_time = min(self.poll_interval_seconds, remaining_timeout)
+                if sleep_time > 0:
+                    time.sleep(sleep_time)
+
+        return WaitResult(
+            success=len(failed_jobs) == 0,
+            ready_job_ids=ready_job_ids,
+            failed_jobs=failed_jobs,
+            timed_out=False,
+        )
 
 
 def execute_preaggregation_jobs(
@@ -360,59 +733,12 @@ def execute_preaggregation_jobs(
     end: datetime,
 ) -> PreaggregationResult:
     """
-    Main orchestration function for preaggregation jobs.
+    Backward-compatible function for executing preaggregation jobs.
 
-    1. Hash the query to get a stable identifier
-    2. Find existing jobs for this query
-    3. Filter out overlapping jobs (keep most recent)
-    4. Identify missing time windows (merged into contiguous ranges)
-    5. Create and execute jobs for missing ranges
-    6. Return job IDs for the combiner query
+    Uses PreaggregationExecutor with default settings.
     """
-    errors: list[str] = []
-    job_ids: list = []
-
-    query_hash = compute_query_hash(query_info)
-
-    existing_jobs = find_existing_jobs(team, query_hash, start, end)
-
-    # Filter to only READY jobs, then remove overlaps (keeping most recent)
-    ready_jobs = [j for j in existing_jobs if j.status == PreaggregationJob.Status.READY]
-    ready_jobs = filter_overlapping_jobs(ready_jobs)
-
-    for existing_job in ready_jobs:
-        job_ids.append(existing_job.id)
-
-    # Find missing windows merged into contiguous ranges
-    # Use filtered ready_jobs so coverage matches what we'll actually return
-    missing_ranges = find_missing_contiguous_windows(ready_jobs, start, end)
-
-    if not missing_ranges and not job_ids:
-        return PreaggregationResult(ready=True, job_ids=[])
-
-    for range_start, range_end in missing_ranges:
-        new_job: PreaggregationJob | None = None
-        try:
-            new_job = create_preaggregation_job(team, query_hash, range_start, range_end)
-            run_preaggregation_insert(team, new_job, query_info)
-
-            new_job.status = PreaggregationJob.Status.READY
-            new_job.computed_at = django_timezone.now()
-            new_job.save()
-
-            job_ids.append(new_job.id)
-
-        except Exception as e:
-            if new_job is not None:
-                new_job.status = PreaggregationJob.Status.FAILED
-                new_job.error = str(e)
-                new_job.save()
-            errors.append(f"Failed to create preaggregation for {range_start}-{range_end}: {e}")
-
-    # Ready if no errors (all missing ranges were successfully created)
-    all_ready = len(errors) == 0
-
-    return PreaggregationResult(ready=all_ready, job_ids=job_ids, errors=errors)
+    executor = PreaggregationExecutor()
+    return executor.execute(team, query_info, start, end)
 
 
 def ensure_preaggregated(
