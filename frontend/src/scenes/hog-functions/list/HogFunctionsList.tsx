@@ -51,10 +51,10 @@ export function HogFunctionList({
     hideFeedback?: boolean
     emptyText?: string
 }): JSX.Element {
-    const { loading, filteredHogFunctions, filters, hogFunctions, hiddenHogFunctions } = useValues(
+    const { loading, filteredHogFunctions, hogFunctionsByGroup, filters, hogFunctions, hiddenHogFunctions } = useValues(
         hogFunctionsListLogic(props)
     )
-    const { loadHogFunctions, setFilters, resetFilters, toggleEnabled, deleteHogFunction, setReorderModalOpen } =
+    const { loadHogFunctionGroups, loadHogFunctions, moveToGroup, setCreateGroupModalOpen, createGroup, setFilters, resetFilters, toggleEnabled, deleteHogFunction, setReorderModalOpen } =
         useActions(hogFunctionsListLogic(props))
 
     const { openFeedbackDialog } = useActions(hogFunctionRequestModalLogic)
@@ -62,6 +62,7 @@ export function HogFunctionList({
     const humanizedType = humanizeHogFunctionType(props.type)
 
     useOnMountEffect(loadHogFunctions)
+    useOnMountEffect(loadHogFunctionGroups)
 
     const isManualFunction = useCallback(
         (hogFunction: HogFunctionType): boolean => {
@@ -115,6 +116,10 @@ export function HogFunctionList({
                         </div>
                     )
                 },
+            {
+                title: 'Group',
+                render: (_, hogFunction: HogFunctionType) => <span className="text-muted">{hogFunction.group?.name || 'None'}</span>,
+            },
             },
 
             updatedAtColumn() as LemonTableColumn<HogFunctionType, any>,
@@ -193,6 +198,19 @@ export function HogFunctionList({
                                                       label: hogFunction.enabled ? 'Pause' : 'Unpause',
                                                       onClick: () => toggleEnabled(hogFunction, !hogFunction.enabled),
                                                   },
+                                                        {
+                                                            label: 'Move to group',
+                                                            children: [
+                                                                ...(hogFunctionGroups || []).map((group: any) => ({
+                                                                    label: group.name,
+                                                                    onClick: () => moveToGroup(hogFunction, group.id),
+                                                                })),
+                                                                {
+                                                                    label: 'Remove from group',
+                                                                    onClick: () => moveToGroup(hogFunction, null),
+                                                                },
+                                                            ],
+                                                        },
                                                   {
                                                       label: 'Delete',
                                                       status: 'danger' as const, // for typechecker happiness
@@ -230,7 +248,7 @@ export function HogFunctionList({
         }
 
         return columns
-    }, [props.type, humanizedType, toggleEnabled, deleteHogFunction, isManualFunction]) // oxlint-disable-line react-hooks/exhaustive-deps
+    }, [props.type, humanizedType, toggleEnabled, deleteHogFunction, isManualFunction, hogFunctionGroups]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     return (
         <div className="flex flex-col gap-4">
@@ -241,6 +259,7 @@ export function HogFunctionList({
                     value={filters.search ?? ''}
                     onChange={(e) => setFilters({ search: e })}
                 />
+                <LemonButton type="secondary" onClick={() => setCreateGroupModalOpen(true)}>New folder</LemonButton>
                 {!hideFeedback ? (
                     <Link className="text-sm font-semibold" subtle onClick={() => openFeedbackDialog(props.type)}>
                         Can't find what you're looking for?
@@ -299,5 +318,20 @@ export function HogFunctionList({
                 <HogFunctionOrderModal />
             </BindLogic>
         </div>
+    )
+}
+
+function CreateGroupModal({ isOpen, onClose, onCreate }: { isOpen: boolean; onClose: () => void; onCreate: (name: string) => void }): JSX.Element {
+    const [name, setName] = useState('')
+    return (
+        <LemonModal title="New Folder" isOpen={isOpen} onClose={onClose}>
+            <div className="flex flex-col gap-4">
+                <LemonInput value={name} onChange={setName} placeholder="Folder name" autoFocus />
+                <div className="flex justify-end gap-2">
+                    <LemonButton type="secondary" onClick={onClose}>Cancel</LemonButton>
+                    <LemonButton type="primary" disabled={!name} onClick={() => { onCreate(name); setName(''); }}>Create</LemonButton>
+                </div>
+            </div>
+        </LemonModal>
     )
 }

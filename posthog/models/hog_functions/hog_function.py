@@ -113,6 +113,7 @@ class HogFunction(FileSystemSyncMixin, UUIDTModel):
     )
     execution_order = models.PositiveSmallIntegerField(null=True, blank=True)
 
+    group = models.ForeignKey("posthog.HogFunctionGroup", on_delete=models.SET_NULL, null=True, blank=True, related_name="hog_functions")
     batch_export = models.ForeignKey(
         "posthog.BatchExport",
         on_delete=models.SET_NULL,
