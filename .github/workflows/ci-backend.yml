@@ -134,9 +134,6 @@ jobs:
                         # Generation tooling - changes here could affect output
                         - 'frontend/bin/generate-openapi-types.mjs'
                         - 'frontend/src/lib/api-orval-mutator.ts'
-                        # Turbo config affects caching behavior
-                        - 'turbo.json'
-                        - 'common/hogli/manifest.yaml'
 
     detect-snapshot-mode:
         name: Detect snapshot mode
