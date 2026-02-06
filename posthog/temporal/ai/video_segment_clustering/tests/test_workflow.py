@@ -27,6 +27,7 @@ from posthog.temporal.ai.video_segment_clustering.activities import (
     match_clusters_activity,
     persist_reports_activity,
 )
+from posthog.temporal.ai.video_segment_clustering.clustering_workflow import VideoSegmentClusteringWorkflow
 from posthog.temporal.ai.video_segment_clustering.models import (
     ClusteringWorkflowInputs,
     ClusterLabel,
@@ -37,7 +38,6 @@ from posthog.temporal.ai.video_segment_clustering.models import (
     VideoSegment,
     VideoSegmentMetadata,
 )
-from posthog.temporal.ai.video_segment_clustering.workflow import VideoSegmentClusteringWorkflow
 
 from products.signals.backend.models import SignalReport
 
