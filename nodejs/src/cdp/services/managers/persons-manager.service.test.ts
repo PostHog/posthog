@@ -232,6 +232,7 @@ describe('PersonsManager', () => {
                     properties_last_operation: {},
                     created_at: TIMESTAMP,
                     version: 0,
+                    last_seen_at: null,
                 },
                 {
                     id: '2',
@@ -245,6 +246,7 @@ describe('PersonsManager', () => {
                     properties_last_operation: {},
                     created_at: TIMESTAMP,
                     version: 0,
+                    last_seen_at: null,
                 },
                 {
                     id: '3',
@@ -258,6 +260,7 @@ describe('PersonsManager', () => {
                     properties_last_operation: {},
                     created_at: TIMESTAMP,
                     version: 0,
+                    last_seen_at: null,
                 },
             ]
 
@@ -302,6 +305,7 @@ describe('PersonsManager', () => {
                 properties_last_operation: {},
                 created_at: TIMESTAMP,
                 version: 0,
+                last_seen_at: null,
             }))
             const batch2 = Array.from({ length: 300 }, (_, i) => ({
                 id: `${i + 500}`,
@@ -315,6 +319,7 @@ describe('PersonsManager', () => {
                 properties_last_operation: {},
                 created_at: TIMESTAMP,
                 version: 0,
+                last_seen_at: null,
             }))
 
             let callCount = 0
@@ -360,6 +365,7 @@ describe('PersonsManager', () => {
                 properties_last_operation: {},
                 created_at: TIMESTAMP,
                 version: 0,
+                last_seen_at: null,
             }))
 
             const fetchSpy = jest.spyOn(hub.personRepository, 'fetchPersonsByProperties').mockResolvedValueOnce(batch)
@@ -400,6 +406,7 @@ describe('PersonsManager', () => {
                 properties_last_operation: {},
                 created_at: TIMESTAMP,
                 version: 0,
+                last_seen_at: null,
             }))
             const batch2 = Array.from({ length: 50 }, (_, i) => ({
                 id: `${i + 100}`,
@@ -413,6 +420,7 @@ describe('PersonsManager', () => {
                 properties_last_operation: {},
                 created_at: TIMESTAMP,
                 version: 0,
+                last_seen_at: null,
             }))
 
             let callCount = 0
