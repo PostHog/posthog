@@ -461,6 +461,41 @@ class TestDataframeToPloClayPayload:
         assert len(payload) == 1
         assert payload[0]["users"] == []
 
+    def test_converts_datetime_columns_to_strings(self):
+        """Datetime columns must be converted to ISO strings for JSON serialization."""
+        import json
+
+        row = make_base_row(
+            domain="acme.com",
+            organization_id="org-1",
+            organization_name="Acme Inc",
+            vitally_churned_at="2024-06-15",  # Set a non-null value for testing
+        )
+        row.update(
+            {
+                "multi_product_count": 3,
+                "event_growth_pct": 50.0,
+                "new_user_count": 2,
+                "new_products": "session_recording",
+            }
+        )
+        df = pl.DataFrame([row])
+        # Simulate HogQL returning datetime objects by casting columns to Datetime
+        df = df.with_columns(
+            pl.col("organization_created_at").str.to_datetime().alias("organization_created_at"),
+            pl.col("vitally_churned_at").str.to_datetime().alias("vitally_churned_at"),
+        )
+        assert df["organization_created_at"].dtype == pl.Datetime
+
+        payload = dataframe_to_plo_clay_payload(df, {})
+
+        assert len(payload) == 1
+        # Verify the payload is JSON serializable (no datetime objects)
+        json.dumps(payload)
+        # Verify the datetime was converted to string
+        assert isinstance(payload[0]["organization_created_at"], str)
+        assert payload[0]["organization_created_at"].startswith("2023-01-01")
+
 
 class TestPloQualifiedToClay:
     @patch("ee.billing.dags.productled_outbound_targets.fetch_org_users")

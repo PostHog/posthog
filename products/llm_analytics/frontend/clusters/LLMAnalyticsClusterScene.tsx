@@ -10,6 +10,7 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { ProductKey } from '~/queries/schema/schema-general'
 
 import { BulletList, ClusterDescription, parseBullets } from './ClusterDescriptionComponents'
 import { ClusterDetailScatterPlot } from './ClusterDetailScatterPlot'
@@ -20,6 +21,7 @@ import { ClusterItemInfo, ClusteringLevel, TraceSummary } from './types'
 export const scene: SceneExport<ClusterDetailLogicProps> = {
     component: LLMAnalyticsClusterScene,
     logic: clusterDetailLogic,
+    productKey: ProductKey.LLM_ANALYTICS,
     paramsToProps: ({ params: { runId, clusterId } }) => ({
         runId: runId ? decodeURIComponent(runId) : '',
         clusterId: clusterId ? parseInt(clusterId, 10) : 0,

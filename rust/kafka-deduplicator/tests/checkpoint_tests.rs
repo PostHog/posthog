@@ -626,7 +626,7 @@ async fn test_checkpoint_with_pre_cancelled_token_fails() {
 
     // Checkpoint should fail with cancellation error
     let result = worker
-        .checkpoint_partition_cancellable(&store, None, Some(&cancel_token))
+        .checkpoint_partition_cancellable(&store, None, Some(&cancel_token), Some("test"))
         .await;
 
     assert!(result.is_err(), "Checkpoint should fail when pre-cancelled");
@@ -694,7 +694,7 @@ async fn test_checkpoint_with_active_token_succeeds() {
 
     // Checkpoint should succeed with active token
     let result = worker
-        .checkpoint_partition_cancellable(&store, None, Some(&cancel_token))
+        .checkpoint_partition_cancellable(&store, None, Some(&cancel_token), None)
         .await;
 
     assert!(

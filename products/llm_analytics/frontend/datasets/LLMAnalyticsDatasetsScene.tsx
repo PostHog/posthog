@@ -12,6 +12,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { LemonInput } from '~/lib/lemon-ui/LemonInput'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from '~/lib/lemon-ui/LemonTable'
 import { createdAtColumn, updatedAtColumn } from '~/lib/lemon-ui/LemonTable/columnUtils'
+import { ProductKey } from '~/queries/schema/schema-general'
 import { Dataset } from '~/types'
 
 import { DATASETS_PER_PAGE, llmAnalyticsDatasetsLogic } from './llmAnalyticsDatasetsLogic'
@@ -19,6 +20,7 @@ import { DATASETS_PER_PAGE, llmAnalyticsDatasetsLogic } from './llmAnalyticsData
 export const scene: SceneExport = {
     component: LLMAnalyticsDatasetsScene,
     logic: llmAnalyticsDatasetsLogic,
+    productKey: ProductKey.LLM_ANALYTICS,
 }
 
 export function LLMAnalyticsDatasetsScene(): JSX.Element {
@@ -46,7 +48,7 @@ export function LLMAnalyticsDatasetsScene(): JSX.Element {
             key: 'description',
             width: '50%',
             render: function renderDescription(description) {
-                return <span className="text-muted">{description || <i>–</i>}</span>
+                return <span className="text-muted">{String(description) || <i>–</i>}</span>
             },
         },
         {
@@ -98,7 +100,8 @@ export function LLMAnalyticsDatasetsScene(): JSX.Element {
         <SceneContent>
             <SceneTitleSection
                 name="Datasets"
-                resourceType={{ type: 'llm_analytics' }}
+                description="Manage datasets for testing and evaluation."
+                resourceType={{ type: 'llm_datasets' }}
                 actions={
                     <LemonButton
                         type="primary"

@@ -249,7 +249,7 @@ jobs:
                   NODE_OPTIONS: --max-old-space-size=16384
 
             - name: Check if schema.json and validators.js are up to date
-              run: bin/turbo --filter=@posthog/frontend schema:build:json && git diff --exit-code
+              run: pnpm --filter=@posthog/frontend schema:build:json && git diff --exit-code
 
             - name: Check if mobile replay "schema.json" is up to date
               run: pnpm --filter=@posthog/frontend mobile-replay:schema:build:json && git diff --exit-code
@@ -309,6 +309,7 @@ jobs:
         needs: [jest, frontend-typescript-checks, frontend-format, frontend-bundle-size, changes]
         runs-on: ubuntu-latest
         if: # Run on pull requests to PostHog/posthog + on PostHog/posthog outside of PRs - but never on forks
+            always() &&
             needs.changes.outputs.frontend == 'true' && (
             (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog') ||
             (github.event_name != 'pull_request' && github.repository == 'PostHog/posthog'))

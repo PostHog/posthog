@@ -14,6 +14,7 @@ import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import { urls } from 'scenes/urls'
 
 import { navigation3000Logic } from './navigation-3000/navigationLogic'
+import { themeLogic } from './navigation-3000/themeLogic'
 
 export function GlobalShortcuts(): null {
     const { superpowersEnabled } = useValues(superpowersLogic)
@@ -26,6 +27,7 @@ export function GlobalShortcuts(): null {
     const { toggleAccountMenu, toggleProjectSwitcher, toggleOrgSwitcher } = useActions(newAccountMenuLogic)
     const { openSuperpowers } = useActions(superpowersLogic)
     const { toggleHealthMenu } = useActions(healthMenuLogic)
+    const { toggleTheme } = useActions(themeLogic)
 
     useAppShortcut({
         name: 'Search',
@@ -122,6 +124,14 @@ export function GlobalShortcuts(): null {
         intent: 'Toggle organization switcher',
         interaction: 'function',
         callback: () => toggleOrgSwitcher(),
+    })
+
+    useAppShortcut({
+        name: 'toggle-theme',
+        keybind: [keyBinds.theme],
+        intent: 'Toggle theme (dark / light)',
+        interaction: 'function',
+        callback: () => toggleTheme(),
     })
 
     return null

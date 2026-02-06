@@ -2,6 +2,7 @@ import {
     actions,
     afterMount,
     beforeUnmount,
+    connect,
     defaults,
     kea,
     key,
@@ -17,7 +18,8 @@ import { router, urlToAction } from 'kea-router'
 
 import api from '~/lib/api'
 import { lemonToast } from '~/lib/lemon-ui/LemonToast/LemonToast'
-import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
+import { DataTableNode, NodeKind, ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
+import { teamLogic } from '~/scenes/teamLogic'
 import { urls } from '~/scenes/urls'
 import { Breadcrumb, LLMPrompt, PropertyFilterType, PropertyOperator } from '~/types'
 
@@ -52,6 +54,9 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
     path(['scenes', 'llm-analytics', 'llmPromptLogic']),
     props({ promptName: 'new' } as PromptLogicProps),
     key(({ promptName }) => `prompt-${promptName}`),
+    connect(() => ({
+        actions: [teamLogic, ['addProductIntent']],
+    })),
 
     actions({
         setPrompt: (prompt: LLMPrompt | PromptFormValues) => ({ prompt }),
@@ -111,6 +116,11 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
                         })
                         lemonToast.success('Prompt created successfully')
                         router.actions.replace(urls.llmAnalyticsPrompt(savedPrompt.name))
+
+                        void actions.addProductIntent({
+                            product_type: ProductKey.LLM_PROMPTS,
+                            intent_context: ProductIntentContext.LLM_PROMPT_CREATED,
+                        })
                     } else {
                         const currentPrompt = values.prompt
 
@@ -187,21 +197,15 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
             (s) => [s.prompt],
             (prompt): Breadcrumb[] => [
                 {
-                    name: 'LLM Analytics',
-                    path: urls.llmAnalyticsDashboard(),
-                    key: 'LLMAnalytics',
-                    iconType: 'llm_analytics',
-                },
-                {
                     name: 'Prompts',
                     path: urls.llmAnalyticsPrompts(),
                     key: 'LLMAnalyticsPrompts',
-                    iconType: 'llm_analytics',
+                    iconType: 'llm_prompts',
                 },
                 {
                     name: prompt && 'name' in prompt ? prompt.name : 'New prompt',
                     key: 'LLMAnalyticsPrompt',
-                    iconType: 'llm_analytics',
+                    iconType: 'llm_prompts',
                 },
             ],
         ],

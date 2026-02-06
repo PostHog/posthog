@@ -14,6 +14,7 @@ import {
     DataWarehouseActivityRecord,
     DataWarehouseJobStats,
     DataWarehouseJobStatsRequestPayload,
+    DataWarehouseSavedQuery,
     DataWarehouseSourceRowCount,
 } from '~/types'
 
@@ -35,13 +36,13 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
     connect(() => ({
         values: [
             databaseTableListLogic,
-            ['dataWarehouseTables', 'views', 'databaseLoading'],
+            ['dataWarehouseTables', 'databaseLoading'],
             externalDataSourcesLogic,
             ['dataWarehouseSources', 'dataWarehouseSourcesLoading'],
             billingLogic,
             ['billingPeriodUTC', 'billing'],
             dataWarehouseViewsLogic,
-            ['dataWarehouseSavedQueryMapById'],
+            ['dataWarehouseSavedQueries'],
         ],
         actions: [
             databaseTableListLogic,
@@ -212,16 +213,16 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
                 return databaseLoading || dataWarehouseSourcesLoading
             },
         ],
-        materializedViews: [
-            (s) => [s.views, s.dataWarehouseSavedQueryMapById],
-            (views, dataWarehouseSavedQueryMapById) => {
-                return views.filter((view) => dataWarehouseSavedQueryMapById[view.id]?.is_materialized)
-            },
-        ],
         dataWarehouseProduct: [
             (s) => [s.billing],
             (billing): BillingProductV2Type | null => {
                 return billing?.products?.find((product) => product.type === 'data_warehouse') || null
+            },
+        ],
+        materializedViews: [
+            (s) => [s.dataWarehouseSavedQueries],
+            (queries: DataWarehouseSavedQuery[]) => {
+                return queries.filter((q) => q.is_materialized)
             },
         ],
     }),

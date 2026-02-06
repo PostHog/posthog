@@ -15,6 +15,7 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
+import { ProductKey } from '~/queries/schema/schema-general'
 
 import { useTracesQueryContext } from '../LLMAnalyticsTracesScene'
 import { PromptLogicProps, PromptMode, isPrompt, llmPromptLogic } from './llmPromptLogic'
@@ -23,6 +24,7 @@ import { openDeletePromptDialog } from './utils'
 export const scene: SceneExport<PromptLogicProps> = {
     component: LLMPromptScene,
     logic: llmPromptLogic,
+    productKey: ProductKey.LLM_ANALYTICS,
     paramsToProps: ({ params: { name }, searchParams }) => ({
         promptName: name && name !== 'new' ? name : 'new',
         mode: searchParams?.edit === 'true' ? PromptMode.Edit : PromptMode.View,

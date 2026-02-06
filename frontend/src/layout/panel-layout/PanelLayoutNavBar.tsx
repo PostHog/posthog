@@ -31,6 +31,7 @@ import { DebugNotice } from 'lib/components/DebugNotice'
 import { HealthMenu } from 'lib/components/HealthMenu/HealthMenu'
 import { HelpMenu } from 'lib/components/HelpMenu/HelpMenu'
 import { NavPanelAdvertisement } from 'lib/components/NavPanelAdvertisement/NavPanelAdvertisement'
+import { PosthogStatusShownOnlyIfNotOperational } from 'lib/components/PosthogStatus/PosthogStatusShownOnlyIfNotOperational'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -151,13 +152,11 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
     }
 
     useAppShortcut({
-        name: 'collapse-left-navigation',
+        name: 'ToggleLeftNav',
         keybind: [keyBinds.toggleLeftNav],
-        intent: 'Collapse left navigation',
+        intent: 'Toggle collapse left navigation',
         interaction: 'function',
-        callback: () => {
-            toggleLayoutNavCollapsed(!isLayoutNavCollapsed)
-        },
+        callback: toggleLayoutNavCollapsed,
     })
 
     const navItems: {
@@ -599,9 +598,14 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                     />
                                 </>
                             ) : (
-                                <div className="flex gap-1">
+                                <div
+                                    className={cn('flex gap-1', {
+                                        'items-center flex-col-reverse': isLayoutNavCollapsed,
+                                    })}
+                                >
                                     <HelpMenu />
                                     <HealthMenu />
+                                    <PosthogStatusShownOnlyIfNotOperational />
                                 </div>
                             )}
                         </div>

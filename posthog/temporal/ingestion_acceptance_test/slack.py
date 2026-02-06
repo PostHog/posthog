@@ -14,16 +14,22 @@ logger = structlog.get_logger(__name__)
 def send_slack_notification(config: Config, result: TestSuiteResult) -> bool:
     """Send test results to Slack via incoming webhook.
 
+    Only sends notifications when there are failures or errors. Successful runs
+    are not reported to avoid noise.
+
     Args:
         config: Configuration containing the Slack webhook URL.
         result: The test suite result to report.
 
     Returns:
-        True if notification was sent successfully, False otherwise.
-        Returns True if Slack is not configured (no-op).
+        True if notification was sent successfully or skipped, False on send failure.
     """
     if not config.slack_webhook_url:
         logger.debug("Slack webhook URL not configured, skipping notification")
+        return True
+
+    if result.success:
+        logger.debug("All tests passed, skipping Slack notification")
         return True
 
     blocks = _build_slack_blocks(config, result)
@@ -57,18 +63,13 @@ def _build_slack_blocks(config: Config, result: TestSuiteResult) -> list[dict[st
 
 
 def _build_header_block(result: TestSuiteResult) -> dict[str, Any]:
-    if result.success:
-        emoji = ":white_check_mark:"
-        status_text = "Successful"
-    else:
-        emoji = ":bomb:"
-        status_text = "Unsuccessful"
-
+    # Only called when there are failures (send_slack_notification returns early on success)
+    _ = result  # Unused but kept for API consistency
     return {
         "type": "section",
         "text": {
             "type": "mrkdwn",
-            "text": f"{emoji} *{status_text} run for Ingestion Acceptance Tests*",
+            "text": ":bomb: *Unsuccessful run for Ingestion Acceptance Tests*",
         },
     }
 
@@ -98,12 +99,17 @@ def _build_summary_block(result: TestSuiteResult) -> dict[str, Any]:
 
 
 def _build_context_block(config: Config, result: TestSuiteResult) -> dict[str, Any]:
+    text = (
+        f":globe_with_meridians: Env: {config.api_host} | "
+        f":file_folder: Project: {config.project_id} | "
+        f":hourglass: Duration: {result.total_duration_seconds:.2f}s"
+    )
     return {
         "type": "context",
         "elements": [
             {
                 "type": "mrkdwn",
-                "text": f":globe_with_meridians: Env: {config.api_host} |  :file_folder: Project: {config.project_id} |  :hourglass: Duration: {result.total_duration_seconds:.2f}s",
+                "text": text,
             },
         ],
     }
