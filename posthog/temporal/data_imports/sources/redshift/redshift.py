@@ -602,8 +602,6 @@ def redshift_source(
                             f"10 min timeout statement reached. Please ensure your incremental field ({incremental_field}) is set as a SORTKEY on the table"
                         )
                     raise
-                except Exception:
-                    raise
 
     def get_rows(chunk_size: int) -> Iterator[Any]:
         arrow_schema = table.to_arrow_schema()
