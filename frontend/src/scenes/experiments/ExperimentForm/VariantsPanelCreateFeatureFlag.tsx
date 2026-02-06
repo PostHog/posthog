@@ -115,11 +115,11 @@ export const VariantsPanelCreateFeatureFlag = ({
     return (
         <div className="flex flex-col gap-4">
             <LemonField.Pure label="Variants">
-                <div className="text-sm border border-primary rounded p-4">
-                    <div className="grid grid-cols-18 gap-2 font-bold mb-2 items-center">
+                <div className="text-sm border border-primary rounded pt-2 ps-4 pb-4">
+                    <div className="grid grid-cols-18 gap-2 font-bold mb-0 items-center px-2">
                         <div />
                         <div className="col-span-4">Variant key</div>
-                        <div className="col-span-3 flex items-center gap-1">
+                        <div className="col-span-2 flex items-center gap-1 min-w-24">
                             <span>Split</span>
                             {!disabled && (
                                 <div className="flex items-center gap-1 min-w-[72px]">
@@ -144,7 +144,7 @@ export const VariantsPanelCreateFeatureFlag = ({
                     {variants.map((variant, index) => (
                         <div
                             key={index}
-                            className={`grid grid-cols-18 gap-2 mb-2 p-2 rounded ${
+                            className={`grid grid-cols-18 gap-2 mb-1 p-1 rounded ${
                                 hasVariantError(index)
                                     ? 'bg-danger-highlight border border-danger'
                                     : 'bg-transparent border border-transparent'
@@ -153,7 +153,7 @@ export const VariantsPanelCreateFeatureFlag = ({
                             <div className="flex items-center justify-center">
                                 <Lettermark name={alphabet[index]} color={LettermarkColor.Gray} />
                             </div>
-                            <div className="col-span-4">
+                            <div className="col-span-4 flex items-center">
                                 <LemonInput
                                     value={variant.key}
                                     disabledReason={
@@ -174,7 +174,7 @@ export const VariantsPanelCreateFeatureFlag = ({
                                     spellCheck={false}
                                 />
                             </div>
-                            <div className="col-span-3">
+                            <div className="col-span-2 min-w-24 flex items-center">
                                 {isCustomSplit && !disabled ? (
                                     <LemonInput
                                         type="number"
