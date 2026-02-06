@@ -5,6 +5,22 @@ updates:
       schedule:
           interval: weekly
 
+    # npm dependencies - configured to only update from root to support pnpm workspaces
+    # Without this, automatic security updates may try to update from subdirectories
+    # which fails with "Updating workspaces from inside a workspace subdirectory is not supported"
+    - package-ecosystem: 'npm'
+      directory: '/'
+      schedule:
+          interval: weekly
+      open-pull-requests-limit: 5
+      groups:
+          npm-dependencies:
+              patterns:
+                  - '*'
+              update-types:
+                  - 'minor'
+                  - 'patch'
+
     # Python dependencies for main PostHog application (uv updates both pyproject.toml and uv.lock)
     - package-ecosystem: 'uv'
       directory: '/'

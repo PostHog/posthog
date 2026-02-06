@@ -144,6 +144,95 @@ export const conversationsCancelPartialUpdate = async (
     })
 }
 
+export const getConversationsQueueRetrieveUrl = (projectId: string, conversation: string) => {
+    return `/api/environments/${projectId}/conversations/${conversation}/queue/`
+}
+
+export const conversationsQueueRetrieve = async (
+    projectId: string,
+    conversation: string,
+    options?: RequestInit
+): Promise<ConversationApi> => {
+    return apiMutator<ConversationApi>(getConversationsQueueRetrieveUrl(projectId, conversation), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getConversationsQueueCreateUrl = (projectId: string, conversation: string) => {
+    return `/api/environments/${projectId}/conversations/${conversation}/queue/`
+}
+
+export const conversationsQueueCreate = async (
+    projectId: string,
+    conversation: string,
+    conversationApi: NonReadonly<ConversationApi>,
+    options?: RequestInit
+): Promise<ConversationApi> => {
+    return apiMutator<ConversationApi>(getConversationsQueueCreateUrl(projectId, conversation), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(conversationApi),
+    })
+}
+
+export const getConversationsQueuePartialUpdateUrl = (projectId: string, conversation: string, queueId: string) => {
+    return `/api/environments/${projectId}/conversations/${conversation}/queue/${queueId}/`
+}
+
+export const conversationsQueuePartialUpdate = async (
+    projectId: string,
+    conversation: string,
+    queueId: string,
+    patchedConversationApi: NonReadonly<PatchedConversationApi>,
+    options?: RequestInit
+): Promise<ConversationApi> => {
+    return apiMutator<ConversationApi>(getConversationsQueuePartialUpdateUrl(projectId, conversation, queueId), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedConversationApi),
+    })
+}
+
+export const getConversationsQueueDestroyUrl = (projectId: string, conversation: string, queueId: string) => {
+    return `/api/environments/${projectId}/conversations/${conversation}/queue/${queueId}/`
+}
+
+export const conversationsQueueDestroy = async (
+    projectId: string,
+    conversation: string,
+    queueId: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getConversationsQueueDestroyUrl(projectId, conversation, queueId), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getConversationsQueueClearCreateUrl = (projectId: string, conversation: string) => {
+    return `/api/environments/${projectId}/conversations/${conversation}/queue/clear/`
+}
+
+export const conversationsQueueClearCreate = async (
+    projectId: string,
+    conversation: string,
+    conversationApi: NonReadonly<ConversationApi>,
+    options?: RequestInit
+): Promise<ConversationApi> => {
+    return apiMutator<ConversationApi>(getConversationsQueueClearCreateUrl(projectId, conversation), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(conversationApi),
+    })
+}
+
+/**
+ * List tickets with person data attached.
+ */
 export const getConversationsTicketsListUrl = (projectId: string, params?: ConversationsTicketsListParams) => {
     const normalizedParams = new URLSearchParams()
 

@@ -141,6 +141,9 @@ export function CodeEditor({
     )
     const [monaco, editor] = monacoAndEditor ?? []
 
+    // Keep a ref to the editor for cleanup - ensures we can dispose it even if state is stale
+    const editorRef = useRef<importedEditor.IStandaloneCodeEditor | null>(null)
+
     const [realKey] = useState(() => codeEditorIndex++)
     const builtCodeEditorLogic = codeEditorLogic({
         key: queryKey ?? `new/${realKey}`,
@@ -170,8 +173,36 @@ export function CodeEditor({
         return monacoRoot
     }, [])
 
+    // Using useRef, not useState, as we don't want to reload the component when this changes.
+    const monacoDisposables = useRef([] as IDisposable[])
+    const mutationObserver = useRef<MutationObserver | null>(null)
+
+    // Consolidated cleanup: dispose editor and its resources BEFORE removing monacoRoot from DOM.
+    // This prevents Monaco's internal services (hoverService, contextViewService) from holding
+    // references to detached DOM nodes.
     useOnMountEffect(() => {
-        return () => monacoRoot?.remove()
+        return () => {
+            // 1. Dispose all custom disposables (actions, observers, etc.)
+            monacoDisposables.current.forEach((d) => d?.dispose())
+            monacoDisposables.current = []
+
+            // 2. Disconnect and clear mutation observer to fully release DOM references
+            mutationObserver.current?.disconnect()
+            mutationObserver.current = null
+
+            // 3. Clear codeEditorLogic reference from model to break kea reference chain
+            const model = editorRef.current?.getModel()
+            if (model) {
+                ;(model as any).codeEditorLogic = undefined
+            }
+
+            // 4. Clear state to release React's reference to the editor
+            setMonacoAndEditor(null)
+
+            // 5. Now safe to remove monacoRoot - editor disposal happens via @monaco-editor/react
+            // but our cleanup ran first, breaking the reference chains
+            monacoRoot?.remove()
+        }
     })
 
     useEffect(() => {
@@ -204,15 +235,6 @@ export function CodeEditor({
         })
     }, [monaco, schema])
 
-    // Using useRef, not useState, as we don't want to reload the component when this changes.
-    const monacoDisposables = useRef([] as IDisposable[])
-    const mutationObserver = useRef<MutationObserver | null>(null)
-    useOnMountEffect(() => {
-        return () => {
-            monacoDisposables.current.forEach((d) => d?.dispose())
-        }
-    })
-
     const editorOptions: editor.IStandaloneEditorConstructionOptions = {
         minimap: {
             enabled: false,
@@ -240,6 +262,7 @@ export function CodeEditor({
     }
 
     const editorOnMount = (editor: importedEditor.IStandaloneCodeEditor, monaco: Monaco): void => {
+        editorRef.current = editor
         setMonacoAndEditor([monaco, editor])
         initEditor(monaco, editor, editorProps, options ?? {}, builtCodeEditorLogic)
 
@@ -328,6 +351,7 @@ export function CodeEditor({
         // If originalValue is provided, we render a diff editor instead
         const diffEditorOnMount = (diff: importedEditor.IStandaloneDiffEditor, monaco: Monaco): void => {
             const modifiedEditor = diff.getModifiedEditor()
+            editorRef.current = modifiedEditor
             setMonacoAndEditor([monaco, modifiedEditor])
 
             if (editorProps.onChange) {

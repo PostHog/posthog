@@ -1,10 +1,12 @@
+import { JSONContent } from '@tiptap/core'
+
 import { IconLock } from '@posthog/icons'
 import { ProfilePicture, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
-import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 
 import type { ChatMessage } from '../../types'
+import { SupportMarkdown, SupportRichContentPreview } from '../Editor'
 
 export interface MessageProps {
     message: ChatMessage
@@ -45,9 +47,16 @@ export function Message({ message, isCustomer }: MessageProps): JSX.Element {
                         <div
                             className={`border py-2 px-3 rounded-lg ${
                                 isPrivate ? 'bg-warning-highlight border-warning' : 'bg-surface-primary'
-                            }`}
+                            } [&_.SupportMarkdown__image]:max-h-64 [&_.SupportEditor__image]:max-h-64`}
                         >
-                            <LemonMarkdown className="text-sm">{message.content}</LemonMarkdown>
+                            {message.richContent ? (
+                                <SupportRichContentPreview
+                                    content={message.richContent as JSONContent}
+                                    className="text-sm"
+                                />
+                            ) : (
+                                <SupportMarkdown className="text-sm">{message.content}</SupportMarkdown>
+                            )}
                         </div>
                     </div>
                 </div>

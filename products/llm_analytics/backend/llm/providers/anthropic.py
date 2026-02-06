@@ -14,7 +14,7 @@ from anthropic.types import MessageParam, TextBlockParam, ThinkingConfigEnabledP
 from posthoganalytics.ai.anthropic import Anthropic
 from pydantic import BaseModel
 
-from products.llm_analytics.backend.llm.errors import AuthenticationError
+from products.llm_analytics.backend.llm.errors import AuthenticationError, QuotaExceededError, RateLimitError
 from products.llm_analytics.backend.llm.types import (
     AnalyticsContext,
     CompletionRequest,
@@ -35,40 +35,33 @@ class AnthropicConfig:
     TIMEOUT: float = 300.0
 
     SUPPORTED_MODELS: list[str] = [
+        "claude-haiku-4-5",
         "claude-sonnet-4-5",
-        "claude-sonnet-4-5-20250929",
+        "claude-opus-4-5",
+        "claude-opus-4-1",
         "claude-sonnet-4-0",
         "claude-opus-4-0",
-        "claude-opus-4-20250514",
-        "claude-opus-4-1-20250805",
-        "claude-sonnet-4-20250514",
         "claude-3-7-sonnet-latest",
-        "claude-3-7-sonnet-20250219",
-        "claude-3-5-sonnet-20241022",
-        "claude-3-5-haiku-20241022",
-        "claude-haiku-4-5-20251001",
     ]
 
     SUPPORTED_MODELS_WITH_CACHE_CONTROL: list[str] = [
+        "claude-haiku-4-5",
         "claude-sonnet-4-5",
-        "claude-sonnet-4-5-20250929",
-        "claude-opus-4-20250514",
-        "claude-opus-4-1-20250805",
-        "claude-sonnet-4-20250514",
-        "claude-3-7-sonnet-20250219",
-        "claude-3-5-sonnet-20241022",
-        "claude-3-5-haiku-20241022",
-        "claude-3-opus-20240229",
-        "claude-3-haiku-20240307",
+        "claude-opus-4-5",
+        "claude-opus-4-1",
+        "claude-sonnet-4-0",
+        "claude-opus-4-0",
+        "claude-3-7-sonnet-latest",
     ]
 
     SUPPORTED_MODELS_WITH_THINKING: list[str] = [
+        "claude-haiku-4-5",
         "claude-sonnet-4-5",
-        "claude-sonnet-4-5-20250929",
-        "claude-3-7-sonnet-20250219",
-        "claude-sonnet-4-20250514",
-        "claude-opus-4-20250514",
-        "claude-opus-4-1-20250805",
+        "claude-opus-4-5",
+        "claude-opus-4-1",
+        "claude-sonnet-4-0",
+        "claude-opus-4-0",
+        "claude-3-7-sonnet-latest",
     ]
 
 
@@ -82,6 +75,7 @@ class AnthropicAdapter:
         request: CompletionRequest,
         api_key: str | None,
         analytics: AnalyticsContext,
+        _base_url: str | None = None,
     ) -> CompletionResponse:
         """Non-streaming completion with optional structured output."""
         effective_api_key = api_key or self._get_default_api_key()
@@ -148,16 +142,20 @@ Return ONLY the JSON object, no other text or markdown formatting."""
                 usage=usage,
                 parsed=parsed,
             )
-        except Exception as e:
-            if "authentication" in str(e).lower() or "invalid api key" in str(e).lower():
-                raise AuthenticationError(str(e))
-            raise
+        except anthropic.AuthenticationError as e:
+            raise AuthenticationError(str(e))
+        except anthropic.RateLimitError as e:
+            error_message = str(e).lower()
+            if "quota" in error_message or "credit" in error_message or "billing" in error_message:
+                raise QuotaExceededError(str(e))
+            raise RateLimitError(str(e))
 
     def stream(
         self,
         request: CompletionRequest,
         api_key: str | None,
         analytics: AnalyticsContext,
+        _base_url: str | None = None,
     ) -> Generator[StreamChunk, None, None]:
         """Streaming completion."""
         effective_api_key = api_key or self._get_default_api_key()
@@ -291,7 +289,7 @@ Return ONLY the JSON object, no other text or markdown formatting."""
         try:
             client = anthropic.Anthropic(api_key=api_key)
             client.messages.create(
-                model="claude-3-5-haiku-20241022",
+                model="claude-haiku-4-5",
                 max_tokens=1,
                 messages=[{"role": "user", "content": "hi"}],
             )

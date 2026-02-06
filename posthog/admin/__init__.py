@@ -39,6 +39,7 @@ def register_all_admin():
         UserAdmin,
         UserProductListAdmin,
     )
+    from posthog.admin.admins.exported_asset_admin import ExportedAssetAdmin
     from posthog.models import (
         AsyncDeletion,
         BatchImport,
@@ -48,9 +49,11 @@ def register_all_admin():
         DashboardTemplate,
         DataColorTheme,
         DataWarehouseTable,
+        DuckLakeCatalog,
         EventIngestionRestrictionConfig,
         Experiment,
         ExperimentSavedMetric,
+        ExportedAsset,
         FeatureFlag,
         GroupTypeMapping,
         HogFunction,
@@ -74,6 +77,8 @@ def register_all_admin():
 
     from products.desktop_recordings.backend.admin import DesktopRecordingAdmin
     from products.desktop_recordings.backend.models import DesktopRecording
+    from products.signals.backend.admin import SignalReportAdmin
+    from products.signals.backend.models import SignalReport
     from products.tasks.backend.admin import SandboxSnapshotAdmin, TaskAdmin, TaskRunAdmin
     from products.tasks.backend.models import SandboxSnapshot, Task, TaskRun
 
@@ -91,6 +96,7 @@ def register_all_admin():
 
     admin.site.register(Experiment, ExperimentAdmin)
     admin.site.register(ExperimentSavedMetric, ExperimentSavedMetricAdmin)
+    admin.site.register(ExportedAsset, ExportedAssetAdmin)
     admin.site.register(FeatureFlag, FeatureFlagAdmin)
 
     admin.site.register(AsyncDeletion, AsyncDeletionAdmin)
@@ -110,6 +116,7 @@ def register_all_admin():
     admin.site.register(ProductTour, ProductTourAdmin)
 
     admin.site.register(DataWarehouseTable, DataWarehouseTableAdmin)
+    admin.site.register(DuckLakeCatalog, DuckLakeCatalogAdmin)
     admin.site.register(HogFunction, HogFunctionAdmin)
     admin.site.register(EventIngestionRestrictionConfig, EventIngestionRestrictionConfigAdmin)
     admin.site.register(Link, LinkAdmin)
@@ -124,8 +131,6 @@ def register_all_admin():
 
     admin.site.register(DesktopRecording, DesktopRecordingAdmin)
 
+    admin.site.register(SignalReport, SignalReportAdmin)
+
     admin.site.register(UserProductList, UserProductListAdmin)
-
-    from posthog.ducklake.models import DuckLakeCatalog
-
-    admin.site.register(DuckLakeCatalog, DuckLakeCatalogAdmin)

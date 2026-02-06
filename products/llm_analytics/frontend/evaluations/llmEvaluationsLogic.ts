@@ -1,14 +1,19 @@
-import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 
 import api from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { teamLogic } from 'scenes/teamLogic'
+
+import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 
 import type { llmEvaluationsLogicType } from './llmEvaluationsLogicType'
 import { EvaluationConfig } from './types'
 
 export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
     path(['products', 'llm_analytics', 'evaluations', 'llmEvaluationsLogic']),
+    connect(() => ({
+        actions: [teamLogic, ['addProductIntent']],
+    })),
 
     actions({
         loadEvaluations: true,
@@ -80,7 +85,13 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
 
                 const response = await api.create(`/api/environments/${teamId}/evaluations/`, evaluation)
                 actions.createEvaluationSuccess(response)
+
+                // Trigger global tracking stuff for quick start + intent
                 globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.SetUpLlmEvaluation)
+                void actions.addProductIntent({
+                    product_type: ProductKey.LLM_EVALUATIONS,
+                    intent_context: ProductIntentContext.LLM_EVALUATION_CREATED,
+                })
             } catch (error) {
                 console.error('Failed to create evaluation:', error)
             }

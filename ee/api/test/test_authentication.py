@@ -815,6 +815,55 @@ YotAcSbU3p5bzd11wpyebYHB"""
             "Authentication failed: Your organization does not have the required license to use SAML.",
         )
 
+    @freeze_time("2021-08-25T22:09:14.252Z")
+    def test_saml_login_rejects_email_domain_not_matching_organization_domain(self):
+        from posthog.models import Organization
+
+        User.objects.create(email="engineering@posthog.com", distinct_id=str(uuid.uuid4()))
+
+        other_org = Organization.objects.create(name="Other Org")
+        other_org.available_product_features = [{"key": AvailableFeature.SAML, "name": AvailableFeature.SAML}]
+        other_org.save()
+
+        other_domain = OrganizationDomain.objects.create(
+            domain="other.com",
+            verified_at=timezone.now(),
+            organization=other_org,
+            jit_provisioning_enabled=True,
+            saml_entity_id=self.organization_domain.saml_entity_id,
+            saml_acs_url=self.organization_domain.saml_acs_url,
+            saml_x509_cert=self.organization_domain.saml_x509_cert,
+        )
+
+        response = self.client.get("/login/saml/?email=engineering@posthog.com")
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+
+        _session = self.client.session
+        _session.update({"saml_state": "ONELOGIN_87856a50b5490e643b1ebef9cb5bf6e78225a3c6"})
+        _session.save()
+
+        with open(
+            os.path.join(CURRENT_FOLDER, "fixtures/saml_login_response"),
+            encoding="utf_8",
+        ) as f:
+            saml_response = f.read()
+
+        with self.assertRaises(AuthFailed) as e:
+            self.client.post(
+                "/complete/saml/",
+                {
+                    "SAMLResponse": saml_response,
+                    "RelayState": str(other_domain.id),
+                },
+                follow=True,
+                format="multipart",
+            )
+
+        self.assertIn("does not match the configured domain", str(e.exception))
+
+        response = self.client.get("/api/users/@me/")
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
     # Remove after we figure out saml / xmlsec issues
     # Test login with SAML on dev prod before removing
     def test_xmlsec_and_lxml(self):
@@ -1003,18 +1052,11 @@ class TestSSOEnforcement(APILicensedTest):
     def test_saml_auth_flow_blocked_when_google_oauth2_enforced(self):
         """Integration test: Verify SAML auth flow is blocked when Google OAuth2 is enforced"""
 
-        OrganizationDomain.objects.create(
+        org_domain_saml = OrganizationDomain.objects.create(
             domain="posthog.com",
             organization=self.organization,
             verified_at=timezone.now(),
             sso_enforcement="google-oauth2",
-        )
-
-        # Create SAML configuration for the same organization (needed for RelayState)
-        org_domain_saml = OrganizationDomain.objects.create(
-            domain="saml-posthog.com",  # Different domain for SAML config
-            organization=self.organization,
-            verified_at=timezone.now(),
             saml_entity_id="http://www.okta.com/exk1ijlhixJxpyEBZ5d7",
             saml_acs_url="https://my.posthog.app/complete/saml/",
             saml_x509_cert="""MIIDqDCCApCgAwIBAgIGAXtoc3o9MA0GCSqGSIb3DQEBCwUAMIGUMQswCQYDVQQGEwJVUzETMBEG

@@ -1,12 +1,14 @@
 import re
 from datetime import timedelta
 from functools import cached_property
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 from django.db.models import Prefetch
 from django.utils.timezone import now
 
 import orjson
+import structlog
+import posthoganalytics
 
 from posthog.schema import CachedEventsQueryResponse, DashboardFilter, EventsQuery, EventsQueryResponse
 
@@ -28,6 +30,11 @@ from posthog.models.person.person import READ_DB_FOR_PERSONS, PersonDistinctId, 
 from posthog.models.person.util import get_persons_by_distinct_ids
 from posthog.utils import relative_date_parse
 
+if TYPE_CHECKING:
+    from posthog.models import Team
+
+logger = structlog.get_logger(__name__)
+
 # Allow-listed fields returned when you select "*" from events. Person and group fields will be nested later.
 SELECT_STAR_FROM_EVENTS_FIELDS = [
     "uuid",
@@ -40,6 +47,28 @@ SELECT_STAR_FROM_EVENTS_FIELDS = [
     "created_at",
     "person_mode",
 ]
+
+# Wide columns that defeat presorted optimization
+WIDE_COLUMNS = {"elements_chain", "properties"}
+
+
+def use_presorted_events_query(team: "Team") -> bool:
+    return posthoganalytics.feature_enabled(
+        "presorted-events-query",
+        str(team.uuid),
+        groups={
+            "organization": str(team.organization_id),
+            "project": str(team.id),
+        },
+        group_properties={
+            "organization": {
+                "id": str(team.organization_id),
+            },
+            "project": {
+                "id": str(team.id),
+            },
+        },
+    )
 
 
 class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
@@ -90,6 +119,28 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
         return select_input, [
             map_virtual_properties(parse_expr(column, timings=self.timings)) for column in select_input
         ]
+
+    def _can_use_presorted_optimization(self, order_by: list[ast.OrderExpr] | None) -> bool:
+        """
+        Check if ORDER BY can use presorted optimization.
+
+        We can optimize any ORDER BY that doesn't need wide columns directly.
+        - properties.$foo is fine (we extract just that value)
+        - elements_chain or raw properties blob is not fine
+        """
+        if not order_by:
+            return False
+
+        for order_expr in order_by:
+            if isinstance(order_expr.expr, ast.Field) and order_expr.expr.chain:
+                first = order_expr.expr.chain[0]
+                if first in WIDE_COLUMNS:
+                    # properties.$foo is fine - we extract just that property
+                    if first == "properties" and len(order_expr.expr.chain) >= 2:
+                        continue
+                    return False
+
+        return True
 
     def to_query(self) -> ast.SelectQuery:
         # Note: This code is inefficient and problematic, see https://github.com/PostHog/posthog/issues/13485 for details.
@@ -258,30 +309,24 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                     order_by=order_by,
                 )
 
-                # sorting a large amount of columns is expensive, so we filter by a presorted table if possible
+                # Presorted optimization: sort narrow data (uuid) first, then fetch wide data for matched rows.
+                # Avoids sorting giant rows with properties and elements_chain cols - instead sorts uuids.
                 if (
-                    self.modifiers.usePresortedEventsTable
-                    and (
-                        order_by is not None
-                        and len(order_by) == 1
-                        and isinstance(order_by[0].expr, ast.Field)
-                        and order_by[0].expr.chain == ["timestamp"]
-                    )
+                    self._can_use_presorted_optimization(order_by)
                     and not has_any_aggregation
+                    and use_presorted_events_query(self.team)
                 ):
-                    inner_query = parse_select(
-                        "SELECT timestamp, event, cityHash64(distinct_id), cityHash64(uuid) FROM events"
+                    logger.info(
+                        "events_query_runner_presorted_optimization",
+                        team_id=self.team.pk,
                     )
+                    inner_query = parse_select("SELECT uuid FROM events")
                     assert isinstance(inner_query, ast.SelectQuery)
                     inner_query.where = where
                     inner_query.order_by = order_by
                     self.paginator.paginate(inner_query)
 
-                    # prefilter the events table based on the sort order with a narrow set of columns
-                    prefilter_sorted = parse_expr(
-                        "(timestamp, event, cityHash64(distinct_id), cityHash64(uuid)) in ({inner_query})",
-                        {"inner_query": inner_query},
-                    )
+                    prefilter_sorted = parse_expr("uuid in ({inner_query})", {"inner_query": inner_query})
 
                     if where is not None:
                         stmt.where = ast.And(exprs=[prefilter_sorted, where])

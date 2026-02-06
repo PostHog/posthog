@@ -166,3 +166,6 @@ data/seaweedfs/
 .claude/agents/agent-os
 .claude/commands/agent-os
 agent-os/
+
+# MCP build files
+services/mcp/ui-apps-dist

@@ -15,7 +15,7 @@ import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
 import { SavedInsightsFilters } from 'scenes/saved-insights/SavedInsightsFilters'
 import { urls } from 'scenes/urls'
 
-import { QueryBasedInsightModel, SavedInsightsTabs } from '~/types'
+import { QueryBasedInsightModel } from '~/types'
 
 import { InsightIcon } from './SavedInsights'
 import { INSIGHTS_PER_PAGE, addSavedInsightsModalLogic } from './addSavedInsightsModalLogic'
@@ -29,8 +29,6 @@ export function SavedInsightsTable({ renderActionColumn }: SavedInsightsTablePro
     const { modalPage, insights, count, insightsLoading, filters, sorting } = useValues(addSavedInsightsModalLogic)
     const { setModalPage, setModalFilters } = useActions(addSavedInsightsModalLogic)
     const summarizeInsight = useSummarizeInsight()
-
-    const { tab } = filters
 
     const startCount = (modalPage - 1) * INSIGHTS_PER_PAGE + 1
     const endCount = Math.min(modalPage * INSIGHTS_PER_PAGE, count)
@@ -82,14 +80,7 @@ export function SavedInsightsTable({ renderActionColumn }: SavedInsightsTablePro
                 return <ObjectTags tags={tags} staticOnly />
             },
         },
-        ...(tab === SavedInsightsTabs.Yours
-            ? []
-            : [
-                  createdByColumn() as LemonTableColumn<
-                      QueryBasedInsightModel,
-                      keyof QueryBasedInsightModel | undefined
-                  >,
-              ]),
+        createdByColumn() as LemonTableColumn<QueryBasedInsightModel, keyof QueryBasedInsightModel | undefined>,
         createdAtColumn() as LemonTableColumn<QueryBasedInsightModel, keyof QueryBasedInsightModel | undefined>,
         {
             title: 'Last modified',
@@ -105,7 +96,7 @@ export function SavedInsightsTable({ renderActionColumn }: SavedInsightsTablePro
 
     return (
         <div className="saved-insights">
-            <SavedInsightsFilters filters={filters} setFilters={setModalFilters} />
+            <SavedInsightsFilters filters={filters} setFilters={setModalFilters} showQuickFilters={false} />
             <LemonDivider className="my-4" />
             <div className="flex justify-between mb-4 gap-2 flex-wrap mt-2 items-center">
                 <span className="text-secondary">

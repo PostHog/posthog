@@ -62,6 +62,7 @@ export function PinnedFolder(): JSX.Element {
                     tooltipPlacement="top"
                     onClick={openEditCustomProductsModal}
                     size="xs"
+                    data-attr="edit-sidebar-apps-button"
                 >
                     <CustomProductsIcon className="size-3 text-secondary" />
                 </ButtonPrimitive>

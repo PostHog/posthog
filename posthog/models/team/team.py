@@ -405,6 +405,9 @@ class Team(UUIDTClassicModel):
     conversations_enabled = models.BooleanField(null=True, blank=True)
     conversations_settings = models.JSONField(null=True, blank=True)
 
+    # Proactive tasks (#team-signals)
+    proactive_tasks_enabled = models.BooleanField(null=True, blank=True)
+
     # Surveys
     survey_config = field_access_control(models.JSONField(null=True, blank=True), "survey", "editor")
     surveys_opt_in = field_access_control(models.BooleanField(null=True, blank=True), "survey", "editor")
@@ -575,6 +578,15 @@ class Team(UUIDTClassicModel):
         null=True,
         blank=True,
         help_text="Default confidence level for new experiments in this environment. Valid values: 0.90, 0.95, 0.99.",
+    )
+
+    default_experiment_stats_method = models.CharField(
+        max_length=20,
+        choices=Organization.DefaultExperimentStatsMethod.choices,
+        default=Organization.DefaultExperimentStatsMethod.BAYESIAN,
+        help_text="Default statistical method for new experiments in this environment.",
+        null=True,
+        blank=True,
     )
 
     business_model = models.CharField(

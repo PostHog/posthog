@@ -15,7 +15,7 @@ from google.genai.types import GenerateContentConfig, HttpOptions
 from posthoganalytics.ai.gemini import genai as posthog_genai
 from pydantic import BaseModel
 
-from products.llm_analytics.backend.llm.errors import AuthenticationError
+from products.llm_analytics.backend.llm.errors import AuthenticationError, QuotaExceededError, RateLimitError
 from products.llm_analytics.backend.llm.types import (
     AnalyticsContext,
     CompletionRequest,
@@ -57,6 +57,7 @@ class GeminiAdapter:
         request: CompletionRequest,
         api_key: str | None,
         analytics: AnalyticsContext,
+        _base_url: str | None = None,
     ) -> CompletionResponse:
         """Non-streaming completion with optional structured output."""
         effective_api_key = api_key or self._get_default_api_key()
@@ -116,9 +117,15 @@ class GeminiAdapter:
                 usage=usage,
                 parsed=parsed,
             )
-        except Exception as e:
-            if "authentication" in str(e).lower() or "api key" in str(e).lower():
+        except APIError as e:
+            error_message = str(e).lower()
+            status_code = getattr(e, "code", None) or getattr(e, "status_code", None)
+            if status_code == 401 or "authentication" in error_message or "api key" in error_message:
                 raise AuthenticationError(str(e))
+            if status_code == 429 or "rate limit" in error_message or "resource exhausted" in error_message:
+                if "quota" in error_message or "billing" in error_message:
+                    raise QuotaExceededError(str(e))
+                raise RateLimitError(str(e))
             raise
 
     def stream(
@@ -126,6 +133,7 @@ class GeminiAdapter:
         request: CompletionRequest,
         api_key: str | None,
         analytics: AnalyticsContext,
+        _base_url: str | None = None,
     ) -> Generator[StreamChunk, None, None]:
         """Streaming completion."""
         effective_api_key = api_key or self._get_default_api_key()
