@@ -1038,7 +1038,7 @@ jobs:
 
     clickhouse-compat:
         name: ClickHouse compat tests - ${{ matrix.clickhouse-server-image }}
-        needs: [changes, get_clickhouse_versions]
+        needs: [changes, get_clickhouse_versions, detect-snapshot-mode]
         if: needs.changes.outputs.backend == 'true'
         runs-on: depot-ubuntu-latest
         strategy:
@@ -1071,6 +1071,8 @@ jobs:
                   # Compat tests run a subset of snapshot tests, so unused snapshots are expected
                   # This makes unused snapshots non-fatal (warning only) instead of failing the build
                   snapshot-warn-unused: 'true'
+                  # Use the same snapshot mode as Django tests (update on PRs, check on master)
+                  snapshot-mode: ${{ needs.detect-snapshot-mode.outputs.mode }}
 
     # Aggregate and commit snapshot changes from all matrix jobs
     handle-snapshots:

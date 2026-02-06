@@ -39,6 +39,10 @@ inputs:
         required: false
         default: 'false'
         description: Use --snapshot-warn-unused instead of failing on unused snapshots (useful for compat tests that run a subset)
+    snapshot-mode:
+        required: false
+        default: ''
+        description: Snapshot mode - 'update' to add --snapshot-update, 'check' for strict mode, empty for auto-detect based on PR context
 
 runs:
     using: 'composite'
@@ -199,9 +203,10 @@ runs:
               bin/check_temporal_up
 
         - name: Determine if --snapshot-update should be on
+          # Use explicit snapshot-mode if provided, otherwise auto-detect based on PR context
           # Skip on forks (due to GITHUB_TOKEN being read-only in PRs coming from them) except for persons-on-events
           # runs, as we want to ignore snapshots diverging there
-          if: github.event.pull_request.head.repo.full_name == github.repository || inputs.person-on-events == 'true'
+          if: inputs.snapshot-mode == 'update' || (inputs.snapshot-mode == '' && (github.event.pull_request.head.repo.full_name == github.repository || inputs.person-on-events == 'true'))
           shell: bash
           run: echo "PYTEST_ARGS=--snapshot-update" >> $GITHUB_ENV # We can only update snapshots within the PostHog org
 
