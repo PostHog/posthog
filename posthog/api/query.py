@@ -132,6 +132,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
     )
     @monitor(feature=Feature.QUERY, endpoint="query", method="POST")
     def create(self, request: Request, *args, **kwargs) -> Response:
+        self._validate_query_kind(request, kwargs.get("query_kind"))
         upgraded_query = upgrade(request.data)
         data = self.get_model(upgraded_query, QueryRequest)
         try:
@@ -183,6 +184,20 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         except Exception as e:
             capture_exception(e)
             raise
+
+    @action(methods=["POST"], detail=False, url_path=r"(?P<query_kind>[^/]+)")
+    def create_with_kind(self, request: Request, *args, **kwargs) -> Response:
+        return self.create(request, *args, **kwargs)
+
+    def _validate_query_kind(self, request: Request, query_kind: str | None) -> None:
+        if not query_kind:
+            return
+        query_payload = request.data.get("query")
+        body_kind = query_payload.get("kind") if isinstance(query_payload, dict) else None
+        if query_kind != body_kind:
+            raise ValidationError(
+                f'Query kind mismatch: path kind "{query_kind}" does not match body kind "{body_kind}".'
+            )
 
     @extend_schema(
         description="(Experimental)",
