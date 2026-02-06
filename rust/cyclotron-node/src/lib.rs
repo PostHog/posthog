@@ -78,12 +78,13 @@ impl DeferredGuard {
     }
 
     /// Settle the promise with the given closure and disarm the guard so Drop does nothing.
-    fn settle_with<F>(&mut self, f: F)
+    fn settle_with<V, F>(&mut self, f: F)
     where
-        F: FnOnce(TaskContext) -> JsResult<JsNull> + Send + 'static,
+        V: neon::types::Value,
+        F: FnOnce(TaskContext) -> JsResult<V> + Send + 'static,
     {
         if let Some((deferred, channel)) = self.inner.take() {
-            deferred.settle_with::<JsNull, _>(&channel, f);
+            deferred.settle_with::<V, _>(&channel, f);
         }
     }
 }
@@ -116,7 +117,7 @@ fn init_worker_impl(mut cx: FunctionContext, throw_on_reinit: bool) -> JsResult<
 
     let fut = async move {
         let worker = Worker::new(config, worker_config).await;
-        guard.settle_with(move |mut cx| {
+        guard.settle_with::<JsNull, _>(move |mut cx| {
             if WORKER.get().is_some() && !throw_on_reinit {
                 return Ok(cx.null()); // Short circuit to make using maybe_init a no-op
             }
@@ -146,7 +147,7 @@ fn init_manager_impl(mut cx: FunctionContext, throw_on_reinit: bool) -> JsResult
 
     let fut = async move {
         let manager = QueueManager::new(config).await;
-        guard.settle_with(move |mut cx| {
+        guard.settle_with::<JsNull, _>(move |mut cx| {
             if MANAGER.get().is_some() && !throw_on_reinit {
                 return Ok(cx.null()); // Short circuit to make using maybe_init a no-op
             }
@@ -192,7 +193,7 @@ fn init_shadow_manager_impl(mut cx: FunctionContext, throw_on_reinit: bool) -> J
 
     let fut = async move {
         let manager = QueueManager::new(config).await;
-        guard.settle_with(move |mut cx| {
+        guard.settle_with::<JsNull, _>(move |mut cx| {
             if SHADOW_MANAGER.get().is_some() && !throw_on_reinit {
                 return Ok(cx.null()); // Short circuit to make using maybe_init a no-op
             }
