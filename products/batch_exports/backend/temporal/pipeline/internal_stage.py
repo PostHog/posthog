@@ -58,10 +58,15 @@ from products.batch_exports.backend.temporal.sql import (
     EXPORT_TO_S3_FROM_EVENTS_WORKFLOWS,
     EXPORT_TO_S3_FROM_PERSONS,
     EXPORT_TO_S3_FROM_PERSONS_BACKFILL,
+    get_s3_function_call,
 )
 from products.batch_exports.backend.temporal.utils import set_status_to_running_task
 
 LOGGER = get_write_only_logger()
+
+
+def _is_local_or_test() -> bool:
+    return settings.DEBUG or settings.TEST
 
 
 def _get_s3_endpoint_url() -> str:
@@ -70,9 +75,27 @@ def _get_s3_endpoint_url() -> str:
     When running the stack locally, MinIO runs in Docker but the Temporal workers run outside, so we need to pass in
     localhost URL rather than the hostname of the container.
     """
-    if settings.DEBUG or settings.TEST:
+    if _is_local_or_test():
         return "http://localhost:19000"
     return settings.BATCH_EXPORT_OBJECT_STORAGE_ENDPOINT
+
+
+def _get_s3_credentials() -> tuple[str | None, str | None]:
+    """Get the S3 credentials for S3 internal staging bucket.
+
+    If keyless S3 auth is enabled, we use no credentials as the IAM role will be used to authenticate.
+    Otherwise, we use the credentials from the object storage settings.
+
+    TODO: Remove BATCH_EXPORT_USE_KEYLESS_S3_AUTH after rollout.
+    """
+    use_keyless_s3_auth = not _is_local_or_test() and settings.BATCH_EXPORT_USE_KEYLESS_S3_AUTH
+    if use_keyless_s3_auth:
+        aws_access_key_id = None
+        aws_secret_access_key = None
+    else:
+        aws_access_key_id = settings.OBJECT_STORAGE_ACCESS_KEY_ID
+        aws_secret_access_key = settings.OBJECT_STORAGE_SECRET_ACCESS_KEY
+    return aws_access_key_id, aws_secret_access_key
 
 
 def socket_factory(addr_info):
@@ -110,11 +133,12 @@ class AIOHTTPSession(BaseAIOHTTPSession):
 @asynccontextmanager
 async def get_s3_client():
     """Async context manager for creating and managing an S3 client."""
+    aws_access_key_id, aws_secret_access_key = _get_s3_credentials()
     session = aioboto3.Session()
     async with session.client(
         "s3",
-        aws_access_key_id=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-        aws_secret_access_key=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+        aws_access_key_id=aws_access_key_id,
+        aws_secret_access_key=aws_secret_access_key,
         endpoint_url=_get_s3_endpoint_url(),
         region_name=settings.BATCH_EXPORT_OBJECT_STORAGE_REGION,
         # aiobotocore defaults keepalive_timeout to 12 seconds, which can be low for
@@ -297,16 +321,20 @@ async def _get_query(
     is_backfill = backfill_details is not None
     # The number of partitions controls how many files ClickHouse writes to concurrently.
     num_partitions = num_partitions or settings.BATCH_EXPORT_CLICKHOUSE_S3_PARTITIONS
+    assert num_partitions is not None  # to satisfy mypy
+
+    aws_access_key_id, aws_secret_access_key = _get_s3_credentials()
+    s3_function = get_s3_function_call(
+        s3_folder=s3_staging_folder_url,
+        s3_key=aws_access_key_id,
+        s3_secret=aws_secret_access_key,
+        num_partitions=num_partitions,
+    )
 
     if model_name == "persons":
         if is_backfill and full_range[0] is None:
             query_template = EXPORT_TO_S3_FROM_PERSONS_BACKFILL
-            query = query_template.safe_substitute(
-                s3_key=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-                s3_secret=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-                s3_folder=s3_staging_folder_url,
-                num_partitions=num_partitions,
-            )
+            query = query_template.safe_substitute(s3_function=s3_function)
         else:
             query_template = EXPORT_TO_S3_FROM_PERSONS
             if str(team_id) in settings.BATCH_EXPORTS_PERSONS_LIMITED_EXPORT_TEAM_IDS:
@@ -322,10 +350,7 @@ async def _get_query(
             else:
                 filter_distinct_ids = ""
             query = query_template.safe_substitute(
-                s3_key=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-                s3_secret=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-                s3_folder=s3_staging_folder_url,
-                num_partitions=num_partitions,
+                s3_function=s3_function,
                 filter_distinct_ids=filter_distinct_ids,
             )
     else:
@@ -382,10 +407,7 @@ async def _get_query(
         query = query_template.safe_substitute(
             fields=query_fields,
             filters=filters_str,
-            s3_key=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-            s3_secret=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-            s3_folder=s3_staging_folder_url,
-            num_partitions=num_partitions,
+            s3_function=s3_function,
         )
 
     parameters["team_id"] = team_id
@@ -428,7 +450,7 @@ def _get_clickhouse_s3_staging_folder_url(folder: str) -> str:
     bucket = settings.BATCH_EXPORT_INTERNAL_STAGING_BUCKET
     region = settings.BATCH_EXPORT_OBJECT_STORAGE_REGION
     # in these environments this will be a URL for MinIO
-    if settings.DEBUG or settings.TEST:
+    if _is_local_or_test():
         base_url = f"{settings.BATCH_EXPORT_OBJECT_STORAGE_ENDPOINT}/{bucket}/"
     else:
         base_url = f"https://{bucket}.s3.{region}.amazonaws.com/"
@@ -478,14 +500,13 @@ async def _write_batch_export_record_batches_to_internal_stage(
             query_parameters["interval_end"] = interval_end.strftime("%Y-%m-%d %H:%M:%S.%f")
 
             if isinstance(query_or_model, RecordBatchModel):
-                assert settings.OBJECT_STORAGE_ACCESS_KEY_ID is not None
-                assert settings.OBJECT_STORAGE_SECRET_ACCESS_KEY is not None
+                aws_access_key_id, aws_secret_access_key = _get_s3_credentials()
                 query, query_parameters = await query_or_model.as_insert_into_s3_query_with_parameters(
                     data_interval_start=interval_start,
                     data_interval_end=interval_end,
                     s3_folder=s3_staging_folder_url,
-                    s3_key=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-                    s3_secret=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+                    s3_key=aws_access_key_id,
+                    s3_secret=aws_secret_access_key,
                     num_partitions=num_partitions or settings.BATCH_EXPORT_CLICKHOUSE_S3_PARTITIONS,
                 )
             else:

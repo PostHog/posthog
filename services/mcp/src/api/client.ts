@@ -813,7 +813,7 @@ export class ApiClient {
     featureFlags({ projectId }: { projectId: string }): Endpoint {
         return {
             list: async ({ params }: { params?: { limit?: number; offset?: number } } = {}): Promise<
-                Result<Array<{ id: number; key: string; name: string; active: boolean }>>
+                Result<Array<{ id: number; key: string; name: string; active: boolean; updated_at?: string | null }>>
             > => {
                 try {
                     const limit = params?.limit ?? 50
@@ -831,6 +831,7 @@ export class ApiClient {
                             key: f.key,
                             name: f.name ?? '',
                             active: f.active ?? false,
+                            updated_at: f.updated_at ?? null,
                         })),
                     }
                 } catch (error) {
@@ -838,39 +839,21 @@ export class ApiClient {
                 }
             },
 
-            get: async ({
-                flagId,
-            }: {
-                flagId: string | number
-            }): Promise<
-                Result<{
-                    id: number
-                    key: string
-                    name: string
-                    active: boolean
-                    description?: string | null | undefined
-                }>
-            > => {
+            get: async ({ flagId }: { flagId: string | number }): Promise<Result<FeatureFlag>> => {
                 return this.fetchWithSchema(
                     `${this.baseUrl}/api/projects/${projectId}/feature_flags/${flagId}/`,
                     FeatureFlagSchema
                 )
             },
 
-            findByKey: async ({
-                key,
-            }: {
-                key: string
-            }): Promise<Result<{ id: number; key: string; name: string; active: boolean } | undefined>> => {
+            findByKey: async ({ key }: { key: string }): Promise<Result<FeatureFlag | undefined>> => {
                 const listResult = await this.featureFlags({ projectId }).list()
 
                 if (!listResult.success) {
                     return { success: false, error: listResult.error }
                 }
 
-                const found = listResult.data.find(
-                    (f: { id: number; key: string; name: string; active: boolean }) => f.key === key
-                )
+                const found = listResult.data.find((f: { key: string }) => f.key === key)
 
                 if (!found) {
                     return { success: true, data: undefined }
@@ -885,11 +868,7 @@ export class ApiClient {
                 return { success: true, data: flagResult.data }
             },
 
-            create: async ({
-                data,
-            }: {
-                data: CreateFeatureFlagInput
-            }): Promise<Result<{ id: number; key: string; name: string; active: boolean }>> => {
+            create: async ({ data }: { data: CreateFeatureFlagInput }): Promise<Result<FeatureFlag>> => {
                 const validatedInput = CreateFeatureFlagInputSchema.parse(data)
 
                 const body = {
@@ -916,7 +895,7 @@ export class ApiClient {
             }: {
                 key: string
                 data: UpdateFeatureFlagInput
-            }): Promise<Result<{ id: number; key: string; name: string; active: boolean }>> => {
+            }): Promise<Result<FeatureFlag>> => {
                 const validatedInput = UpdateFeatureFlagInputSchema.parse(data)
                 const findResult = await this.featureFlags({ projectId }).findByKey({ key })
 

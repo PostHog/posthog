@@ -25,11 +25,7 @@ from posthog.temporal.ai.session_summary.types.video import VideoSummarySingleSe
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.exports_video.workflow import VideoExportInputs, VideoExportWorkflow
 
-from ee.hogai.session_summaries.constants import (
-    DEFAULT_VIDEO_EXPORT_MIME_TYPE,
-    EXPIRES_AFTER_DAYS,
-    MIN_SESSION_DURATION_FOR_VIDEO_SUMMARY_S,
-)
+from ee.hogai.session_summaries.constants import EXPIRES_AFTER_DAYS, MIN_SESSION_DURATION_FOR_VIDEO_SUMMARY_S
 from ee.hogai.session_summaries.tracking import capture_session_summary_timing
 
 logger = structlog.get_logger(__name__)
@@ -50,7 +46,8 @@ async def export_session_video_activity(inputs: VideoSummarySingleSessionInputs)
         existing_asset = (
             await ExportedAsset.objects.filter(
                 team_id=inputs.team_id,
-                export_format=DEFAULT_VIDEO_EXPORT_MIME_TYPE,
+                # TODO: Use constant
+                export_format="video/mp4",
                 export_context__session_recording_id=inputs.session_id,
             )
             .exclude(content_location__isnull=True, content__isnull=True)

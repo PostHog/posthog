@@ -23,6 +23,7 @@ export function SidePanelContentContainer({
                         'h-full p-2 bg-surface-primary flex flex-col flex-1 overflow-y-auto focus-within:outline-none focus-within:ring-2 focus-within:ring-primary z-10',
                     className
                 )}
+                data-attr={isRemovingSidePanelFlag ? 'side-panel-content' : undefined}
             >
                 {children}
             </div>
