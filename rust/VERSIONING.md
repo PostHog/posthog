@@ -26,13 +26,57 @@ Dependencies are updated alongside Rust toolchain updates. We use `cargo outdate
 
 ## Version Synchronization Points
 
-The Rust version must be updated in the following locations:
+The Rust version is pinned across multiple files in the repository. The source of truth is `rust/rust-toolchain.toml`, and all other locations must stay in sync.
 
-| File | Line(s) | Format | Notes |
-|------|---------|--------|-------|
-| `.github/workflows/ci-rust.yml` | 73, 162, 255 | `1.XX.Y` | CI build, test, and lint jobs |
-| `rust/Dockerfile` | 2 | `1.XX` | Minor version only (patch updates automatically) |
-| `rust/cyclotron-core/Cargo.toml` | 5 | `1.XX.Y` | MSRV metadata |
+A verification script is provided at `rust/bin/check-rust-version-sync`. Run it from the repository root to confirm all sync points match:
+
+```sh
+rust/bin/check-rust-version-sync
+```
+
+### Source of Truth
+
+| File | Format | Notes |
+|------|--------|-------|
+| `rust/rust-toolchain.toml` | `1.XX.Y` | Canonical version; used by `rustup` for local development |
+
+### CI Workflows (full version `1.XX.Y`)
+
+All `toolchain:` entries in the following workflow files must match the full version:
+
+| File | Notes |
+|------|-------|
+| `.github/workflows/ci-rust.yml` | Rust build, test, and lint jobs |
+| `.github/workflows/ci-backend.yml` | Backend CI requiring Rust compilation |
+| `.github/workflows/ci-cli.yml` | CLI build, test, lint, and release jobs |
+| `.github/workflows/ci-ai.yml` | AI service CI |
+| `.github/workflows/ci-nodejs.yml` | Node.js CI (native module compilation) |
+
+### Dockerfiles (minor version `1.XX`)
+
+Docker base images use the minor version only so patch updates are picked up automatically:
+
+| File | Notes |
+|------|-------|
+| `rust/Dockerfile` | Main Rust service image |
+| `rust/Dockerfile.sqlx-migrate` | SQLx migration runner |
+| `rust/Dockerfile.migrate-hooks` | Hooks migration runner |
+
+### Composite Container Images (minor version `1.XX`)
+
+These use a composite `rust-node-container` image tag that embeds the Rust minor version:
+
+| File | Notes |
+|------|-------|
+| `Dockerfile` | Root production image |
+| `Dockerfile.node` | Node.js production image |
+
+### Other
+
+| File | Format | Notes |
+|------|--------|-------|
+| `.flox/env/manifest.toml` | `1.XX.Y` | Flox dev environment; keeps local tooling in sync |
+| `rust/cyclotron-core/Cargo.toml` | `1.XX.Y` | MSRV metadata (`rust-version` field) |
 
 ### Workspace-Level Dependency Versions
 
@@ -66,19 +110,19 @@ Apply the versioning strategy:
 
 ### Step 3: Update Rust Toolchain Version
 
-Update all synchronization points:
+Search for the current version across the repository and replace it in every sync point listed above. Start with the source of truth, then propagate:
+
+1. Update `rust/rust-toolchain.toml` with the new full version
+2. Search `.github/workflows/` for the old `toolchain:` value and replace with the new full version
+3. Search `rust/Dockerfile*` for the old `rust:` base image tag and replace the minor version
+4. Search the root `Dockerfile` and `Dockerfile.node` for `rust_` in the composite image tag and replace the minor version
+5. Update the `cargo` version in `.flox/env/manifest.toml`
+6. Update `rust-version` in `rust/cyclotron-core/Cargo.toml`
+
+After editing, run the verification script from the repository root to confirm every sync point was updated correctly:
 
 ```sh
-cd /path/to/posthog
-
-# 1. Update CI workflow (3 locations)
-# Edit .github/workflows/ci-rust.yml and update all `toolchain:` entries
-
-# 2. Update Dockerfile base image
-# Edit rust/Dockerfile line 2: FROM rust:1.XX-bookworm AS base
-
-# 3. Update MSRV in cyclotron-core
-# Edit rust/cyclotron-core/Cargo.toml line 5: rust-version = "1.XX.Y"
+rust/bin/check-rust-version-sync
 ```
 
 ### Step 4: Verify Toolchain Compatibility
@@ -135,8 +179,8 @@ Generally there won't be a lot of outdated crates listed here, but they will req
 
 For each outdated dependency, assess the update:
 
-1. **Compatible updates** (Project → Compat): Generally safe, apply these
-2. **Breaking updates** (Project → Latest crosses major version): Review changelog for:
+1. **Compatible updates** (Project -> Compat): Generally safe, apply these
+2. **Breaking updates** (Project -> Latest crosses major version): Review changelog for:
    - Breaking API changes
    - Deprecated features we use
    - New features that benefit us
@@ -242,53 +286,52 @@ For significant breaking changes, consider:
 
 ### rust-toolchain.toml
 
-The workspace intentionally does not use a `rust-toolchain.toml` file. Version management is handled through:
-
-- CI workflow for builds and tests
-- Dockerfile for production images
-- Developer discretion for local development
-
-This approach provides flexibility while ensuring CI consistency.
+The file `rust/rust-toolchain.toml` is the single source of truth for the Rust version. When present in a directory, `rustup` automatically installs and uses the specified toolchain, which ensures local development stays in sync with CI and production.
 
 ## Quick Reference
 
 ```sh
-cd rust
-
 # 1. Check current stable Rust version
 rustup check
 
-# 2. Update sync points (manual edits):
-#    - .github/workflows/ci-rust.yml (lines 73, 162, 255)
-#    - rust/Dockerfile (line 2)
-#    - rust/cyclotron-core/Cargo.toml (line 5)
+# 2. Update all sync points (see table above for the full list)
+#    - rust/rust-toolchain.toml               (full version)
+#    - .github/workflows/ci-*.yml             (full version, toolchain: entries)
+#    - rust/Dockerfile*                        (minor version, FROM rust: tags)
+#    - Dockerfile, Dockerfile.node             (minor version, rust_ in image tag)
+#    - .flox/env/manifest.toml                 (full version, cargo version)
+#    - rust/cyclotron-core/Cargo.toml          (full version, rust-version field)
 
-# 3. Verify toolchain compatibility
+# 3. Verify all sync points match
+rust/bin/check-rust-version-sync
+
+# 4. Verify toolchain compatibility
+cd rust
 cargo check --all
 
-# 4. Update lockfile with compatible versions (semver)
+# 5. Update lockfile with compatible versions (semver)
 cargo update
 
-# 5. Verify after lockfile update
+# 6. Verify after lockfile update
 cargo check --all
 
-# 6. Check for outdated dependencies (breaking updates)
+# 7. Check for outdated dependencies (breaking updates)
 cargo outdated --root-deps-only
 
-# 7. Edit Cargo.toml for any breaking updates, then:
+# 8. Edit Cargo.toml for any breaking updates, then:
 cargo update -p <package1> -p <package2>
 
-# 8. Full verification
+# 9. Full verification
 cargo build --all --locked --release
 cargo test --all
 cargo fmt --check
 cargo clippy --all-targets --all-features -- -D warnings
 cargo shear
 
-# 9. Verify Docker build
+# 10. Verify Docker build
 docker build -t posthog-rust-test .
 
-# 10. Commit and create PR
+# 11. Commit and create PR
 git add -A
 git commit -m "chore(rust): update rust to 1.XX.Y and refresh dependencies"
 ```
