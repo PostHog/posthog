@@ -2289,9 +2289,8 @@ class TestOAuthAPI(APIBaseTest):
         self.assertTrue(data["active"])
         self.assertEqual(data["scope"], "openid user:read")
 
-    def test_claude_code_client_gets_extended_token_expiry(self):
-        """Claude Code clients should get 7-day token expiry instead of 1 hour."""
-        self.public_application.name = "Claude Code MCP Client"
+    def test_dcr_client_gets_extended_token_expiry(self):
+        self.public_application.is_dcr_client = True
         self.public_application.save()
 
         auth_data = {
@@ -2323,18 +2322,15 @@ class TestOAuthAPI(APIBaseTest):
 
         data = token_response.json()
 
-        # Verify expires_in is 7 days (604800 seconds), not 1 hour (3600)
         self.assertEqual(data["expires_in"], 60 * 60 * 24 * 7)
 
-        # Also verify the actual token in DB has correct expiry
         access_token = OAuthAccessToken.objects.get(token=data["access_token"])
         expected_expiry = timezone.now() + timedelta(days=7)
         time_diff = abs((access_token.expires - expected_expiry).total_seconds())
-        self.assertLess(time_diff, 60)  # Within 1 minute tolerance
+        self.assertLess(time_diff, 60)
 
-    def test_non_claude_client_gets_default_token_expiry(self):
-        """Non-Claude clients should get the default 1-hour token expiry."""
-        self.public_application.name = "Some Other App"
+    def test_non_dcr_client_gets_default_token_expiry(self):
+        self.public_application.is_dcr_client = False
         self.public_application.save()
 
         auth_data = {
@@ -2366,8 +2362,112 @@ class TestOAuthAPI(APIBaseTest):
 
         data = token_response.json()
 
-        # Verify expires_in is the default (1 hour = 3600 seconds)
         self.assertEqual(data["expires_in"], 60 * 60)
+
+    @freeze_time("2025-01-01 00:00:00")
+    def test_dcr_client_refresh_token_is_not_rotated(self):
+        self.public_application.is_dcr_client = True
+        self.public_application.save()
+
+        response = self.client.post(
+            "/oauth/authorize/",
+            {
+                "client_id": self.public_application.client_id,
+                "redirect_uri": "https://example.com/callback",
+                "response_type": "code",
+                "code_challenge": self.code_challenge,
+                "code_challenge_method": "S256",
+                "allow": True,
+                "access_level": OAuthApplicationAccessLevel.ALL.value,
+                "scoped_organizations": [],
+                "scoped_teams": [],
+                "scope": "openid",
+            },
+        )
+        code = response.json()["redirect_to"].split("code=")[1].split("&")[0]
+
+        token_response = self.post(
+            "/oauth/token/",
+            {
+                "grant_type": "authorization_code",
+                "code": code,
+                "client_id": self.public_application.client_id,
+                "redirect_uri": "https://example.com/callback",
+                "code_verifier": self.code_verifier,
+            },
+        )
+        original_refresh_token = token_response.json()["refresh_token"]
+        original_access_token = token_response.json()["access_token"]
+
+        # Refresh multiple times - should always get back the same refresh token
+        for _i in range(3):
+            refresh_response = self.post(
+                "/oauth/token/",
+                {
+                    "grant_type": "refresh_token",
+                    "refresh_token": original_refresh_token,
+                    "client_id": self.public_application.client_id,
+                },
+            )
+            self.assertEqual(refresh_response.status_code, status.HTTP_200_OK)
+            data = refresh_response.json()
+            self.assertEqual(data["refresh_token"], original_refresh_token)
+            self.assertNotEqual(data["access_token"], original_access_token)
+            self.assertEqual(data["expires_in"], 60 * 60 * 24 * 7)
+            original_access_token = data["access_token"]
+
+        # Verify the refresh token was never revoked
+        db_refresh_token = OAuthRefreshToken.objects.get(token=original_refresh_token)
+        self.assertIsNone(db_refresh_token.revoked)
+
+    @freeze_time("2025-01-01 00:00:00")
+    def test_non_dcr_client_refresh_token_is_rotated(self):
+        self.public_application.is_dcr_client = False
+        self.public_application.save()
+
+        response = self.client.post(
+            "/oauth/authorize/",
+            {
+                "client_id": self.public_application.client_id,
+                "redirect_uri": "https://example.com/callback",
+                "response_type": "code",
+                "code_challenge": self.code_challenge,
+                "code_challenge_method": "S256",
+                "allow": True,
+                "access_level": OAuthApplicationAccessLevel.ALL.value,
+                "scoped_organizations": [],
+                "scoped_teams": [],
+                "scope": "openid",
+            },
+        )
+        code = response.json()["redirect_to"].split("code=")[1].split("&")[0]
+
+        token_response = self.post(
+            "/oauth/token/",
+            {
+                "grant_type": "authorization_code",
+                "code": code,
+                "client_id": self.public_application.client_id,
+                "redirect_uri": "https://example.com/callback",
+                "code_verifier": self.code_verifier,
+            },
+        )
+        original_refresh_token = token_response.json()["refresh_token"]
+
+        refresh_response = self.post(
+            "/oauth/token/",
+            {
+                "grant_type": "refresh_token",
+                "refresh_token": original_refresh_token,
+                "client_id": self.public_application.client_id,
+            },
+        )
+        self.assertEqual(refresh_response.status_code, status.HTTP_200_OK)
+        new_refresh_token = refresh_response.json()["refresh_token"]
+        self.assertNotEqual(new_refresh_token, original_refresh_token)
+
+        old_db_token = OAuthRefreshToken.objects.get(token=original_refresh_token)
+        self.assertIsNotNone(old_db_token.revoked)
 
 
 class TestOAuthAuthorizationServerMetadata(APIBaseTest):

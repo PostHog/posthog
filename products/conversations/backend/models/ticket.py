@@ -1,8 +1,13 @@
+from typing import TYPE_CHECKING
+
 from django.db import models, transaction
 
 from posthog.models.utils import UUIDTModel
 
 from .constants import Channel, Priority, Status
+
+if TYPE_CHECKING:
+    from posthog.models import Person
 
 
 class TicketManager(models.Manager):
@@ -28,6 +33,9 @@ class TicketManager(models.Manager):
 
 class Ticket(UUIDTModel):
     objects = TicketManager()
+
+    # Dynamic attribute set by TicketViewSet._attach_persons_to_tickets for serialization
+    person: "Person | None"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     ticket_number = models.PositiveIntegerField()

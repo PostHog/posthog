@@ -3356,6 +3356,8 @@ export interface ProductTourSurveyQuestion {
 
 export type ProductTourProgressionTriggerType = 'button' | 'click'
 
+// 'element' is deprecated in favor of all 'modal' steps having the option
+// to be positioned near a given element.
 export type ProductTourStepType = 'element' | 'modal' | 'survey' | 'banner'
 
 export interface ProductTourBannerConfig {

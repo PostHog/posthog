@@ -53,15 +53,17 @@ export function RunningTimeConfigModal({ experimentId, tabId }: RunningTimeConfi
         dailyExposureRate,
         remainingDays,
         isRunningTimeConfigModalOpen,
+        experiment,
     } = useValues(runningTimeLogic({ experimentId, tabId }))
     const { setConfig, save, cancel } = useActions(runningTimeLogic({ experimentId, tabId }))
 
     const hasAutomaticData = remainingDays !== null
+    const isPreLaunch = !experiment?.start_date
 
     return (
         <LemonModal isOpen={isRunningTimeConfigModalOpen} onClose={cancel} width={480} simple>
             <LemonModal.Header>
-                <h3>Running time configuration</h3>
+                <h3>{isPreLaunch ? 'Estimate running time' : 'Running time configuration'}</h3>
             </LemonModal.Header>
             <LemonModal.Content className="flex-1 min-h-0">
                 <div className="space-y-6">
@@ -72,7 +74,11 @@ export function RunningTimeConfigModal({ experimentId, tabId }: RunningTimeConfi
                             size="small"
                             fullWidth
                             options={[
-                                { value: 'automatic', label: 'Automatic' },
+                                {
+                                    value: 'automatic',
+                                    label: 'Automatic',
+                                    disabledReason: isPreLaunch ? 'Available after launching experiment' : undefined,
+                                },
                                 { value: 'manual', label: 'Manual' },
                             ]}
                             value={config.mode}

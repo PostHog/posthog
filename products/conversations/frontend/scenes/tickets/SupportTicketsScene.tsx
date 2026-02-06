@@ -193,7 +193,26 @@ export function SupportTicketsScene(): JSX.Element {
                         key: 'customer',
                         render: (_, ticket) => (
                             <div className="flex items-center gap-2">
-                                <PersonDisplay person={{ distinct_id: ticket.distinct_id }} withIcon />
+                                <PersonDisplay
+                                    person={
+                                        ticket.person
+                                            ? {
+                                                  id: ticket.person.id,
+                                                  distinct_id: ticket.distinct_id,
+                                                  distinct_ids: ticket.person.distinct_ids,
+                                                  // Merge anonymous_traits as fallback for missing person properties
+                                                  properties: {
+                                                      ...ticket.anonymous_traits,
+                                                      ...ticket.person.properties,
+                                                  },
+                                              }
+                                            : {
+                                                  distinct_id: ticket.distinct_id,
+                                                  properties: ticket.anonymous_traits || {},
+                                              }
+                                    }
+                                    withIcon
+                                />
                             </div>
                         ),
                     },

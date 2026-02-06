@@ -20,6 +20,15 @@ export interface UserBasic {
     is_email_verified: boolean
 }
 
+export interface TicketPerson {
+    id: string
+    name: string
+    distinct_ids: string[]
+    properties: Record<string, any>
+    created_at?: string
+    is_identified?: boolean
+}
+
 export interface Ticket {
     id: string
     ticket_number: number
@@ -44,6 +53,7 @@ export interface Ticket {
         current_url?: string
         [key: string]: any
     }
+    person?: TicketPerson | null
 }
 
 export interface ConversationTicket {

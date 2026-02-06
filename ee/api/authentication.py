@@ -144,6 +144,18 @@ class MultitenantSAMLAuth(SAMLAuth):
         Overridden to find attributes across multiple possible names.
         """
         attributes = response["attributes"]
+        email = self._get_attr(
+            attributes,
+            [
+                "email",
+                "EMAIL",
+                "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress",
+                OID_MAIL,
+            ],
+        )
+
+        self._validate_email_domain(response, email)
+
         return {
             "fullname": self._get_attr(
                 attributes,
@@ -172,16 +184,29 @@ class MultitenantSAMLAuth(SAMLAuth):
                 ],
                 optional=True,
             ),
-            "email": self._get_attr(
-                attributes,
-                [
-                    "email",
-                    "EMAIL",
-                    "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress",
-                    OID_MAIL,
-                ],
-            ),
+            "email": email,
         }
+
+    def _validate_email_domain(self, response: dict, email: str) -> None:
+        """
+        Ensures the email domain from the SAML assertion is consistent with
+        the OrganizationDomain that owns this IdP configuration.
+        """
+        idp_name = response.get("idp_name")
+        if not idp_name:
+            raise AuthFailed(self, "Authentication request is invalid. Missing IdP identifier.")
+
+        try:
+            organization_domain = OrganizationDomain.objects.verified_domains().get(id=idp_name)
+        except (OrganizationDomain.DoesNotExist, DjangoValidationError):
+            raise AuthFailed(self, "Authentication request is invalid. Invalid IdP identifier.")
+
+        email_domain = email.split("@")[-1].lower()
+        if email_domain != organization_domain.domain.lower():
+            raise AuthFailed(
+                self,
+                "Authentication failed. The email domain from your identity provider does not match the configured domain.",
+            )
 
     def get_user_id(self, details, response):
         """

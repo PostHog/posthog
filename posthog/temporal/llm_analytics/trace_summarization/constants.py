@@ -30,6 +30,9 @@ GENERATE_SUMMARY_TIMEOUT_SECONDS = 300  # 5 minutes per summary generation (incr
 
 # Workflow-level timeouts (in minutes)
 WORKFLOW_EXECUTION_TIMEOUT_MINUTES = 120  # Max time for single team workflow (increased with longer activity timeouts)
+COORDINATOR_EXECUTION_TIMEOUT_MINUTES = (
+    55  # Max time for coordinator, must be less than schedule interval to avoid blocking
+)
 
 # Retry policies
 SAMPLE_RETRY_POLICY = RetryPolicy(maximum_attempts=3)
