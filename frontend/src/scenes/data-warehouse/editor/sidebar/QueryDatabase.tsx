@@ -142,9 +142,9 @@ export const QueryDatabase = (): JSX.Element => {
             return null
         }
 
-        switch (item.record.type) {
+        switch (item.record.traversedFieldType ?? item.record.type) {
             case 'lazy-table':
-                return 'lazy join'
+                return 'join'
             case 'virtual-table':
                 return 'virtual table'
             case 'managed-view':
