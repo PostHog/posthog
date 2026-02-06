@@ -568,19 +568,20 @@ class TestCSVExporter(APIBaseTest):
                 ],
             )
 
+    @patch("posthog.models.exported_asset.object_storage.write_from_file")
     @patch("posthog.tasks.exports.csv_exporter.process_query_dict")
-    @patch("posthog.models.exported_asset.UUIDT")
-    def test_retries_without_limit_when_query_returns_error(
-        self, mocked_uuidt: Any, mock_process_query: MagicMock
+    @patch("posthog.tasks.exports.csv_exporter._query_supports_limit")
+    def test_skips_limit_when_query_does_not_support_it(
+        self, mock_supports_limit: MagicMock, mock_process_query: MagicMock, mock_write: MagicMock
     ) -> None:
-        """Verify that when a query returns an error (e.g. doesn't support limit), we retry without limit."""
-        from posthog.tasks.exports.csv_exporter import QUERY_PAGE_SIZE
-
-        # First call (with limit) returns error, second call (without limit) returns data
-        mock_process_query.side_effect = [
-            {"error": "limit: Extra inputs are not permitted", "results": None},
-            {"results": [["value1"], ["value2"]], "columns": ["col"], "types": ["String"]},
-        ]
+        """Verify that when schema validation shows limit is not supported, we don't add it."""
+        mock_supports_limit.return_value = False
+        mock_process_query.return_value = {
+            "results": [["value1"], ["value2"]],
+            "columns": ["col"],
+            "types": ["String"],
+        }
+        mock_write.side_effect = ObjectStorageError("mock write failed")
 
         exported_asset = ExportedAsset(
             team=self.team,
@@ -588,24 +589,50 @@ class TestCSVExporter(APIBaseTest):
             export_context={"source": {"kind": "SomeQuery"}},
         )
         exported_asset.save()
-        mocked_uuidt.return_value = "a-guid"
 
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
             csv_exporter.export_tabular(exported_asset)
 
-            # Verify first call included limit, second call did not
-            self.assertEqual(mock_process_query.call_count, 2)
+            # Verify only one call made, without limit
+            self.assertEqual(mock_process_query.call_count, 1)
+            query_json = mock_process_query.call_args_list[0].kwargs["query_json"]
+            self.assertNotIn("limit", query_json)
 
-            first_call_query = mock_process_query.call_args_list[0][1]["query_json"]
-            second_call_query = mock_process_query.call_args_list[1][1]["query_json"]
-
-            self.assertEqual(first_call_query.get("limit"), QUERY_PAGE_SIZE)
-            self.assertNotIn("limit", second_call_query)
-
-            # Verify export succeeded with the retry data
-            content = object_storage.read(exported_asset.content_location)
-            lines = (content or "").strip().split("\r\n")
+            # Verify content fell back to DB storage
+            lines = (exported_asset.content or b"").decode("utf-8").strip().split("\r\n")
             self.assertEqual(lines, ["col", "value1", "value2"])
+
+    @patch("posthog.models.exported_asset.object_storage.write_from_file")
+    @patch("posthog.tasks.exports.csv_exporter.process_query_dict")
+    @patch("posthog.tasks.exports.csv_exporter._query_supports_limit")
+    def test_adds_limit_when_query_supports_it(
+        self, mock_supports_limit: MagicMock, mock_process_query: MagicMock, mock_write: MagicMock
+    ) -> None:
+        """Verify that when schema validation shows limit is supported, we add it."""
+        from posthog.tasks.exports.csv_exporter import QUERY_PAGE_SIZE
+
+        mock_supports_limit.return_value = True
+        mock_process_query.return_value = {
+            "results": [["value1"], ["value2"]],
+            "columns": ["col"],
+            "types": ["String"],
+            "hasMore": False,
+        }
+        mock_write.side_effect = ObjectStorageError("mock write failed")
+
+        exported_asset = ExportedAsset(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.CSV,
+            export_context={"source": {"kind": "SomeQuery"}},
+        )
+        exported_asset.save()
+
+        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
+            csv_exporter.export_tabular(exported_asset)
+
+            self.assertEqual(mock_process_query.call_count, 1)
+            query_json = mock_process_query.call_args_list[0].kwargs["query_json"]
+            self.assertEqual(query_json.get("limit"), QUERY_PAGE_SIZE)
 
     def test_funnel_time_to_convert(self) -> None:
         bins = [
