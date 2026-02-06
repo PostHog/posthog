@@ -159,6 +159,14 @@ const sortFieldsWithPrimary = (tableName: string, fields: DatabaseSchemaField[])
     })
 }
 
+const shouldHideField = (field: DatabaseSchemaField): boolean => {
+    return field.name === 'team_id' && field.type === 'unknown'
+}
+
+const shouldHideFieldName = (fieldName: string): boolean => {
+    return fieldName === 'team_id'
+}
+
 const createColumnNode = (
     tableName: string,
     field: DatabaseSchemaField,
@@ -319,45 +327,63 @@ const createLazyTableChildren = (
             return []
         }
 
-        return field.fields.map((childFieldName) =>
-            createFieldNode(
-                tableName,
-                {
-                    name: childFieldName,
-                    hogql_value: childFieldName,
-                    type: 'unknown',
-                    schema_valid: true,
-                },
-                isSearch,
-                `${columnPath}.${childFieldName}`,
-                tableLookup,
-                { expandedLazyNodeIds }
+        return field.fields
+            .filter((childFieldName) => !shouldHideFieldName(childFieldName))
+            .map((childFieldName) =>
+                createFieldNode(
+                    tableName,
+                    {
+                        name: childFieldName,
+                        hogql_value: childFieldName,
+                        type: 'unknown',
+                        schema_valid: true,
+                    },
+                    isSearch,
+                    `${columnPath}.${childFieldName}`,
+                    tableLookup,
+                    { expandedLazyNodeIds }
+                )
             )
-        )
     }
 
     if (field.fields?.length) {
-        return field.fields.map((childFieldName) => {
-            const childField =
-                referencedTable.fields[childFieldName] ??
-                ({
-                    name: childFieldName,
-                    hogql_value: childFieldName,
-                    type: 'unknown',
-                    schema_valid: true,
-                } as DatabaseSchemaField)
+        return field.fields
+            .filter((childFieldName) => !shouldHideFieldName(childFieldName))
+            .map((childFieldName) => {
+                const childField =
+                    referencedTable.fields[childFieldName] ??
+                    ({
+                        name: childFieldName,
+                        hogql_value: childFieldName,
+                        type: 'unknown',
+                        schema_valid: true,
+                    } as DatabaseSchemaField)
 
-            return createFieldNode(tableName, childField, isSearch, `${columnPath}.${childField.name}`, tableLookup, {
-                expandedLazyNodeIds,
+                if (shouldHideField(childField)) {
+                    return null
+                }
+
+                return createFieldNode(
+                    tableName,
+                    childField,
+                    isSearch,
+                    `${columnPath}.${childField.name}`,
+                    tableLookup,
+                    {
+                        expandedLazyNodeIds,
+                    }
+                )
             })
-        })
+            .filter((node): node is TreeDataItem => node !== null)
     }
 
-    return Object.values(referencedTable.fields).map((childField) =>
-        createFieldNode(tableName, childField, isSearch, `${columnPath}.${childField.name}`, tableLookup, {
-            expandedLazyNodeIds,
-        })
-    )
+    return Object.values(referencedTable.fields)
+        .filter((childField) => !shouldHideField(childField))
+        .map((childField) =>
+            createFieldNode(tableName, childField, isSearch, `${columnPath}.${childField.name}`, tableLookup, {
+                expandedLazyNodeIds,
+            })
+        )
 }
 
 const createViewTableChildren = (
@@ -378,46 +404,64 @@ const createViewTableChildren = (
             return []
         }
 
-        return field.fields.map((childFieldName) =>
-            createFieldNode(
-                tableName,
-                {
-                    name: childFieldName,
-                    hogql_value: childFieldName,
-                    type: 'unknown',
-                    schema_valid: true,
-                },
-                isSearch,
-                `${columnPath}.${childFieldName}`,
-                tableLookup,
-                { expandedLazyNodeIds }
+        return field.fields
+            .filter((childFieldName) => !shouldHideFieldName(childFieldName))
+            .map((childFieldName) =>
+                createFieldNode(
+                    tableName,
+                    {
+                        name: childFieldName,
+                        hogql_value: childFieldName,
+                        type: 'unknown',
+                        schema_valid: true,
+                    },
+                    isSearch,
+                    `${columnPath}.${childFieldName}`,
+                    tableLookup,
+                    { expandedLazyNodeIds }
+                )
             )
-        )
     }
 
     if (field.fields?.length) {
-        return field.fields.map((childFieldName) => {
-            const childField =
-                referencedTable.fields[childFieldName] ??
-                ({
-                    name: childFieldName,
-                    hogql_value: childFieldName,
-                    type: 'unknown',
-                    schema_valid: true,
-                } as DatabaseSchemaField)
+        return field.fields
+            .filter((childFieldName) => !shouldHideFieldName(childFieldName))
+            .map((childFieldName) => {
+                const childField =
+                    referencedTable.fields[childFieldName] ??
+                    ({
+                        name: childFieldName,
+                        hogql_value: childFieldName,
+                        type: 'unknown',
+                        schema_valid: true,
+                    } as DatabaseSchemaField)
 
-            return createFieldNode(tableName, childField, isSearch, `${columnPath}.${childField.name}`, tableLookup, {
-                expandedLazyNodeIds,
+                if (shouldHideField(childField)) {
+                    return null
+                }
+
+                return createFieldNode(
+                    tableName,
+                    childField,
+                    isSearch,
+                    `${columnPath}.${childField.name}`,
+                    tableLookup,
+                    {
+                        expandedLazyNodeIds,
+                    }
+                )
             })
-        })
+            .filter((node): node is TreeDataItem => node !== null)
     }
 
     const sortedFields = sortFieldsWithPrimary(referencedTable.name, Object.values(referencedTable.fields))
-    return sortedFields.map((childField) =>
-        createFieldNode(tableName, childField, isSearch, `${columnPath}.${childField.name}`, tableLookup, {
-            expandedLazyNodeIds,
-        })
-    )
+    return sortedFields
+        .filter((childField) => !shouldHideField(childField))
+        .map((childField) =>
+            createFieldNode(tableName, childField, isSearch, `${columnPath}.${childField.name}`, tableLookup, {
+                expandedLazyNodeIds,
+            })
+        )
 }
 
 const createTraversedLazyTableNode = (
@@ -467,13 +511,18 @@ const createTraversedVirtualTableNode = (
     const children =
         traversedField.fields
             ?.slice()
+            .filter((fieldName) => !shouldHideFieldName(fieldName))
             .sort((a, b) => a.localeCompare(b))
             .map((fieldName) => {
                 const childField = createVirtualTableField(fieldName, traversedField, tableLookup)
+                if (shouldHideField(childField)) {
+                    return null
+                }
                 return createFieldNode(tableName, childField, isSearch, `${columnPath}.${fieldName}`, tableLookup, {
                     expandedLazyNodeIds,
                 })
-            }) ?? []
+            })
+            .filter((node): node is TreeDataItem => node !== null) ?? []
 
     return {
         id: `${isSearch ? 'search-' : ''}traverser-${tableName}-${columnPath}`,
@@ -504,13 +553,18 @@ const createFieldNode = (
         const children =
             field.fields
                 ?.slice()
+                .filter((fieldName) => !shouldHideFieldName(fieldName))
                 .sort((a, b) => a.localeCompare(b))
                 .map((fieldName) => {
                     const childField = createVirtualTableField(fieldName, field, tableLookup)
+                    if (shouldHideField(childField)) {
+                        return null
+                    }
                     return createFieldNode(tableName, childField, isSearch, `${columnPath}.${fieldName}`, tableLookup, {
                         expandedLazyNodeIds,
                     })
-                }) ?? []
+                })
+                .filter((node): node is TreeDataItem => node !== null) ?? []
 
         return {
             id: `${isSearch ? 'search-' : ''}virtual-${tableName}-${columnPath}`,
@@ -661,13 +715,15 @@ const createTableNode = (
     const tableChildren: TreeDataItem[] = []
 
     if ('fields' in table) {
-        sortFieldsWithPrimary(table.name, Object.values(table.fields)).forEach((field: DatabaseSchemaField) => {
-            tableChildren.push(
-                createFieldNode(table.name, field, isSearch, field.name, tableLookup, {
-                    expandedLazyNodeIds: options?.expandedLazyNodeIds,
-                })
-            )
-        })
+        sortFieldsWithPrimary(table.name, Object.values(table.fields))
+            .filter((field) => !shouldHideField(field))
+            .forEach((field: DatabaseSchemaField) => {
+                tableChildren.push(
+                    createFieldNode(table.name, field, isSearch, field.name, tableLookup, {
+                        expandedLazyNodeIds: options?.expandedLazyNodeIds,
+                    })
+                )
+            })
     }
 
     const tableId = `${isSearch ? 'search-' : ''}table-${table.name}`
@@ -722,13 +778,15 @@ const createViewNode = (
     const viewFields =
         schemaTable && Object.keys(schemaTable.fields).length > 0 ? Object.values(schemaTable.fields) : view.columns
 
-    sortFieldsWithPrimary(view.name, viewFields).forEach((column: DatabaseSchemaField) => {
-        viewChildren.push(
-            createFieldNode(view.name, column, isSearch, column.name, tableLookup, {
-                expandedLazyNodeIds: options?.expandedLazyNodeIds,
-            })
-        )
-    })
+    sortFieldsWithPrimary(view.name, viewFields)
+        .filter((column) => !shouldHideField(column))
+        .forEach((column: DatabaseSchemaField) => {
+            viewChildren.push(
+                createFieldNode(view.name, column, isSearch, column.name, tableLookup, {
+                    expandedLazyNodeIds: options?.expandedLazyNodeIds,
+                })
+            )
+        })
 
     const viewId = `${isSearch ? 'search-' : ''}view-${view.id}`
 
@@ -764,13 +822,15 @@ const createManagedViewNode = (
 ): TreeDataItem => {
     const viewChildren: TreeDataItem[] = []
 
-    sortFieldsWithPrimary(managedView.name, Object.values(managedView.fields)).forEach((field: DatabaseSchemaField) => {
-        viewChildren.push(
-            createFieldNode(managedView.name, field, isSearch, field.name, tableLookup, {
-                expandedLazyNodeIds: options?.expandedLazyNodeIds,
-            })
-        )
-    })
+    sortFieldsWithPrimary(managedView.name, Object.values(managedView.fields))
+        .filter((field) => !shouldHideField(field))
+        .forEach((field: DatabaseSchemaField) => {
+            viewChildren.push(
+                createFieldNode(managedView.name, field, isSearch, field.name, tableLookup, {
+                    expandedLazyNodeIds: options?.expandedLazyNodeIds,
+                })
+            )
+        })
 
     const managedViewId = `${isSearch ? 'search-' : ''}managed-view-${managedView.id}`
 
@@ -799,13 +859,15 @@ const createEndpointNode = (
 ): TreeDataItem => {
     const endpointChildren: TreeDataItem[] = []
 
-    sortFieldsWithPrimary(endpoint.name, Object.values(endpoint.fields)).forEach((field: DatabaseSchemaField) => {
-        endpointChildren.push(
-            createFieldNode(endpoint.name, field, isSearch, field.name, tableLookup, {
-                expandedLazyNodeIds: options?.expandedLazyNodeIds,
-            })
-        )
-    })
+    sortFieldsWithPrimary(endpoint.name, Object.values(endpoint.fields))
+        .filter((field) => !shouldHideField(field))
+        .forEach((field: DatabaseSchemaField) => {
+            endpointChildren.push(
+                createFieldNode(endpoint.name, field, isSearch, field.name, tableLookup, {
+                    expandedLazyNodeIds: options?.expandedLazyNodeIds,
+                })
+            )
+        })
 
     const endpointId = `${isSearch ? 'search-' : ''}endpoint-${endpoint.id}`
 
@@ -1729,19 +1791,23 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 }
 
                 if ('fields' in table && table !== null) {
-                    return sortFieldsWithPrimary(table.name, Object.values(table.fields)).map((field) => ({
-                        name: field.name,
-                        type: field.type,
-                        menuItems: menuItems(field, table?.name ?? ''), // table cant be null, but the typechecker is confused
-                    }))
+                    return sortFieldsWithPrimary(table.name, Object.values(table.fields))
+                        .filter((field) => !shouldHideField(field))
+                        .map((field) => ({
+                            name: field.name,
+                            type: field.type,
+                            menuItems: menuItems(field, table?.name ?? ''), // table cant be null, but the typechecker is confused
+                        }))
                 }
 
                 if ('columns' in table && table !== null) {
-                    return sortFieldsWithPrimary(table.name, Object.values(table.columns)).map((column) => ({
-                        name: column.name,
-                        type: column.type,
-                        menuItems: menuItems(column, table?.name ?? ''), // table cant be null, but the typechecker is confused
-                    }))
+                    return sortFieldsWithPrimary(table.name, Object.values(table.columns))
+                        .filter((column) => !shouldHideField(column))
+                        .map((column) => ({
+                            name: column.name,
+                            type: column.type,
+                            menuItems: menuItems(column, table?.name ?? ''), // table cant be null, but the typechecker is confused
+                        }))
                 }
                 return []
             },
