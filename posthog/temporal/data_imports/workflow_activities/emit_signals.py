@@ -21,9 +21,8 @@ from posthog.temporal.data_imports.signals.registry import SignalEmitterOutput
 from products.data_warehouse.backend.models import ExternalDataSchema
 from products.signals.backend.api import emit_signal
 
-# Maximum number of records to emit signals for per sync
-# TODO: Rever to 1000 after testing
-MAX_SIGNALS_PER_SYNC = 10
+# Maximum number of records to emit signals for per syncg
+MAX_SIGNALS_PER_SYNC = 1000
 EMIT_SIGNALS_FEATURE_FLAG = "emit-data-import-signals"
 # Concurrency limit for LLM actionability checks
 LLM_CONCURRENCY_LIMIT = 10
@@ -65,8 +64,7 @@ async def emit_data_import_signals_activity(inputs: EmitSignalsActivityInputs) -
         )
         return {"status": "skipped", "reason": "no_config_registered", "signals_emitted": 0}
     # Check if the FF enabled to allow signals emission
-    # TODO: Revert after testing
-    if False and not await database_sync_to_async(_is_feature_flag_enabled, thread_sensitive=False)(inputs.team_id):
+    if not await database_sync_to_async(_is_feature_flag_enabled, thread_sensitive=False)(inputs.team_id):
         activity.logger.warning(
             f"Feature flag {EMIT_SIGNALS_FEATURE_FLAG} not enabled for team {inputs.team_id} for emitting signals",
             extra=inputs.properties_to_log,
@@ -158,8 +156,7 @@ def _query_new_records(
     where_parts: list[str] = []
     placeholders: dict[str, Any] = {}
     # Continuous sync - need to analyze all that happened since the last one
-    # TODO: Reverse to "is not None" after testing
-    if last_synced_at is None:
+    if last_synced_at is not None:
         where_parts.append("created_at > {last_synced_at}")
         placeholders["last_synced_at"] = last_synced_at
         limit = MAX_SIGNALS_PER_SYNC
