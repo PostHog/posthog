@@ -10,7 +10,7 @@ use crate::metrics::MetricsHelper;
 use crate::rocksdb::store::{block_based_table_factory, RocksDbStore};
 
 use super::keys::TimestampKey;
-use super::metadata::TimestampMetadata;
+use crate::pipelines::ingestion_events::TimestampMetadata;
 
 #[derive(Debug, Clone)]
 pub struct DeduplicationStoreConfig {

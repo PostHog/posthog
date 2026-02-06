@@ -198,6 +198,8 @@ mod test {
             group3_created_at: None,
             group4_created_at: None,
             person_mode: PersonMode::Propertyless,
+            captured_at: None,
+            historical_migration: None,
         };
 
         let ts = parse_datetime_assuming_utc(&event.timestamp).unwrap();
@@ -235,6 +237,8 @@ mod test {
             group3_created_at: None,
             group4_created_at: None,
             person_mode: PersonMode::Propertyless,
+            captured_at: None,
+            historical_migration: None,
         };
 
         let buffer = vec![Ok(event)];
