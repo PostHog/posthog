@@ -57,6 +57,7 @@ class TestCreateExperimentTool(APIBaseTest):
         )
 
         assert "Successfully created" in result
+        assert artifact is not None
         assert artifact["experiment_name"] == "Test Experiment"
         assert artifact["feature_flag_key"] == "test-experiment-flag"
         assert "/experiments/" in artifact["url"]
@@ -96,6 +97,7 @@ class TestCreateExperimentTool(APIBaseTest):
         )
 
         assert "Successfully created" in result
+        assert artifact is not None
         assert artifact["type"] == "web"
 
         experiment = await Experiment.objects.aget(name="Homepage Redesign", team=self.team)
@@ -120,6 +122,7 @@ class TestCreateExperimentTool(APIBaseTest):
 
         assert "Failed to create" in result
         assert "already exists" in result
+        assert artifact is not None
         assert artifact.get("error") is not None
 
     async def test_create_experiment_with_existing_flag(self):
@@ -132,6 +135,7 @@ class TestCreateExperimentTool(APIBaseTest):
         )
 
         assert "Successfully created" in result
+        assert artifact is not None
 
         experiment = await Experiment.objects.select_related("feature_flag").aget(name="New Experiment", team=self.team)
         assert experiment.feature_flag.key == "existing-flag"
@@ -154,6 +158,7 @@ class TestCreateExperimentTool(APIBaseTest):
 
         assert "Failed to create" in result
         assert "already used by experiment" in result
+        assert artifact is not None
         assert artifact.get("error") is not None
 
     async def test_create_experiment_default_parameters(self):
@@ -168,6 +173,7 @@ class TestCreateExperimentTool(APIBaseTest):
         assert "Successfully created" in result
 
         experiment = await Experiment.objects.aget(name="Parameter Test", team=self.team)
+        assert experiment.parameters is not None
         assert experiment.parameters["feature_flag_variants"] == [
             {"key": "control", "name": "Control", "rollout_percentage": 50},
             {"key": "test", "name": "Test", "rollout_percentage": 50},
@@ -186,6 +192,7 @@ class TestCreateExperimentTool(APIBaseTest):
 
         assert "Failed to create" in result
         assert "does not exist" in result
+        assert artifact is not None
         assert artifact.get("error") is not None
 
     async def test_create_experiment_flag_without_variants(self):
@@ -206,6 +213,7 @@ class TestCreateExperimentTool(APIBaseTest):
 
         assert "Failed to create" in result
         assert "must have multivariate variants" in result
+        assert artifact is not None
         assert artifact.get("error") is not None
 
     async def test_create_experiment_flag_with_one_variant(self):
@@ -224,6 +232,7 @@ class TestCreateExperimentTool(APIBaseTest):
 
         assert "Failed to create" in result
         assert "at least 2 variants" in result
+        assert artifact is not None
         assert artifact.get("error") is not None
 
     async def test_create_experiment_uses_flag_variants(self):
@@ -247,6 +256,7 @@ class TestCreateExperimentTool(APIBaseTest):
         assert "Successfully created" in result
 
         experiment = await Experiment.objects.aget(name="Custom Variants Test", team=self.team)
+        assert experiment.parameters is not None
         assert len(experiment.parameters["feature_flag_variants"]) == 3
         assert experiment.parameters["feature_flag_variants"][0]["key"] == "control"
         assert experiment.parameters["feature_flag_variants"][0]["name"] == "Control"
@@ -274,6 +284,7 @@ class TestCreateExperimentTool(APIBaseTest):
         assert "Failed to create" in result
         assert "must have 'control' as the first variant" in result
         assert "Found 'baseline' instead" in result
+        assert artifact is not None
         assert artifact.get("error") is not None
 
 
