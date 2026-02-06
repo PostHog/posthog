@@ -459,7 +459,7 @@ async def _notify_revenue_analytics_that_sync_has_completed(
 ) -> None:
     try:
 
-        @database_sync_to_async
+        @database_sync_to_async_pool
         def _check_and_notify():
             if (
                 schema.name == STRIPE_CHARGE_RESOURCE_NAME
