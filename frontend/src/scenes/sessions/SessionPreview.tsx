@@ -1,12 +1,12 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { IconOpenInNew } from '@posthog/icons'
 import { LemonButton, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { IconPlayCircle } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 

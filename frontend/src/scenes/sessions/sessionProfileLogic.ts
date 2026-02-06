@@ -95,7 +95,7 @@ export const sessionProfileLogic = kea<sessionProfileLogicType>([
             {
                 loadSessionData: async () => {
                     // Check the session table version to optimize the query
-                    const { currentTeam } = values
+                    const currentTeam = teamLogic.values.currentTeam
                     const sessionTableVersion =
                         currentTeam?.modifiers?.sessionTableVersion ??
                         currentTeam?.default_modifiers?.sessionTableVersion ??
