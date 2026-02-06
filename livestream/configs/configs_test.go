@@ -1,10 +1,10 @@
 package configs
 
 import (
-	"github.com/spf13/viper"
 	"os"
 	"testing"
 
+	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -18,7 +18,6 @@ func TestLoadConfig(t *testing.T) {
 		{
 			name: "load all config values",
 			setup: func() {
-				// Values already set in setupTestConfig
 				_ = os.Setenv("LIVESTREAM_JWT_SECRET", "token")
 				_ = os.Setenv("LIVESTREAM_POSTGRES_URL", "pg url")
 			},
@@ -64,6 +63,61 @@ func TestLoadConfig(t *testing.T) {
 			assert.Equal(t, tt.want, got)
 			assert.Equal(t, tt.want.Postgres.URL, viper.GetString("postgres.url"))
 			assert.Equal(t, tt.want.JWT.Secret, viper.GetString("jwt.secret"))
+		})
+	}
+}
+
+func TestSecurityProtocolDefaults(t *testing.T) {
+	tests := []struct {
+		name                             string
+		securityProtocol                 string
+		sessionRecordingSecurityProtocol string
+		debug                            bool
+		wantMain                         string
+		wantSessionRecording             string
+	}{
+		{
+			name:             "debug mode defaults main to PLAINTEXT, session recording to SSL",
+			debug:            true,
+			wantMain:         "PLAINTEXT",
+			wantSessionRecording: "SSL",
+		},
+		{
+			name:             "non-debug defaults both to SSL",
+			debug:            false,
+			wantMain:         "SSL",
+			wantSessionRecording: "SSL",
+		},
+		{
+			name:                             "explicit values are preserved",
+			securityProtocol:                 "PLAINTEXT",
+			sessionRecordingSecurityProtocol: "PLAINTEXT",
+			wantMain:                         "PLAINTEXT",
+			wantSessionRecording:             "PLAINTEXT",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			viper.Reset()
+			viper.Set("mmdb.path", "mmdb.db")
+			viper.Set("kafka.brokers", "localhost:9092")
+			viper.Set("kafka.topic", "events")
+			viper.Set("kafka.group_id", "test")
+			viper.Set("kafka.session_recording_enabled", true)
+			viper.Set("debug", tt.debug)
+
+			if tt.securityProtocol != "" {
+				viper.Set("kafka.security_protocol", tt.securityProtocol)
+			}
+			if tt.sessionRecordingSecurityProtocol != "" {
+				viper.Set("kafka.session_recording_security_protocol", tt.sessionRecordingSecurityProtocol)
+			}
+
+			config, err := LoadConfig()
+			assert.NoError(t, err)
+			assert.Equal(t, tt.wantMain, config.Kafka.SecurityProtocol)
+			assert.Equal(t, tt.wantSessionRecording, config.Kafka.SessionRecordingSecurityProtocol)
 		})
 	}
 }

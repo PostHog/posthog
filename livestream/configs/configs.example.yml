@@ -5,6 +5,8 @@ kafka:
     session_recording_enabled: true  # set to false to disable session recording stats
     session_recording_topic: 'session_recording_snapshot_item_events'  # defaults to this value when enabled
     # session_recording_brokers: 'localhost:9094'  # optional, defaults to brokers
+    # security_protocol: 'PLAINTEXT'  # optional, defaults to PLAINTEXT in debug mode, SSL otherwise
+    # session_recording_security_protocol: 'PLAINTEXT'  # optional, defaults to SSL when unset
     group_id: 'livestream-dev'
 mmdb:
     path: 'mmdb.db'
