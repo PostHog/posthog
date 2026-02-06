@@ -6,10 +6,12 @@ import { router } from 'kea-router'
 import { IconTrash } from '@posthog/icons'
 
 import { FallbackCoverImage } from 'lib/components/FallbackCoverImage/FallbackCoverImage'
+import { MemberSelect } from 'lib/components/MemberSelect'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { TZLabel } from 'lib/components/TZLabel'
 import { ReadingHog } from 'lib/components/hedgehogs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
+import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Spinner } from 'lib/lemon-ui/Spinner'
@@ -20,8 +22,9 @@ import { MessageTemplate, messageTemplatesLogic } from './messageTemplatesLogic'
 
 export function MessageTemplatesTable(): JSX.Element {
     useMountedLogic(messageTemplatesLogic)
-    const { templates, templatesLoading } = useValues(messageTemplatesLogic)
-    const { deleteTemplate, createTemplate, duplicateTemplate } = useActions(messageTemplatesLogic)
+    const { filteredTemplates, templates, templatesLoading, search, createdByFilter } = useValues(messageTemplatesLogic)
+    const { deleteTemplate, createTemplate, duplicateTemplate, setSearch, setCreatedByFilter } =
+        useActions(messageTemplatesLogic)
 
     const showProductIntroduction = !templatesLoading && templates.length === 0
 
@@ -49,11 +52,18 @@ export function MessageTemplatesTable(): JSX.Element {
             >
                 <div className="relative" />
             </MaxTool>
+            <div className="flex items-center gap-2 mb-4">
+                <LemonInput type="search" placeholder="Search templates" value={search} onChange={setSearch} />
+                <div className="flex items-center gap-2">
+                    <span className="text-secondary whitespace-nowrap">Created by:</span>
+                    <MemberSelect value={createdByFilter} onChange={(user) => setCreatedByFilter(user?.id ?? null)} />
+                </div>
+            </div>
             {templatesLoading ? (
                 <Spinner className="text-6xl" />
             ) : (
                 <div className="MessageTemplatesGrid">
-                    {templates.map((template, index) => (
+                    {filteredTemplates.map((template, index) => (
                         <MessageTemplateItem
                             key={template.id}
                             template={template}
