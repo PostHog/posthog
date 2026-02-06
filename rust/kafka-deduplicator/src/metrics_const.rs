@@ -190,6 +190,12 @@ pub const REBALANCE_RESUME_SKIPPED_NO_OWNED: &str = "rebalance_resume_skipped_no
 /// how many of these empty rebalances we short-circuit.
 pub const REBALANCE_EMPTY_SKIPPED: &str = "rebalance_empty_skipped_total";
 
+/// Histogram for partition directory cleanup duration at end of rebalance cycle.
+/// Measures total time for parallel scatter-gather deletion of unowned partition directories.
+/// Use to monitor cleanup performance and detect I/O bottlenecks blocking consumption resume.
+pub const REBALANCE_DIRECTORY_CLEANUP_DURATION_HISTOGRAM: &str =
+    "rebalance_directory_cleanup_duration_seconds";
+
 // ==== Partition Batch Processing Diagnostics ====
 /// Histogram for partition batch processing duration (in milliseconds)
 pub const PARTITION_BATCH_PROCESSING_DURATION_MS: &str = "partition_batch_processing_duration_ms";

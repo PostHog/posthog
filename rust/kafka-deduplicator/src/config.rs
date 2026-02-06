@@ -92,6 +92,10 @@ pub struct Config {
     // 15 minutes default - minimum staleness (no recent WAL activity) before orphan directories can be deleted
     pub orphan_cleanup_min_staleness_secs: u64,
 
+    #[envconfig(default = "16")]
+    // Max parallel directory deletions during rebalance cleanup (bounded scatter-gather)
+    pub rebalance_cleanup_parallelism: usize,
+
     // Consumer processing configuration
     #[envconfig(default = "100")]
     pub max_in_flight_messages: usize,

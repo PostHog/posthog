@@ -370,6 +370,7 @@ impl KafkaDeduplicatorService {
             router,
             offset_tracker.clone(),
             self.checkpoint_importer.clone(),
+            self.config.rebalance_cleanup_parallelism,
         ));
 
         // Create consumer config using the kafka module's builder
