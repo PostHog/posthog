@@ -241,11 +241,21 @@ export class PluginServer {
             }
 
             if (capabilities.cdpCyclotronShadowWorker) {
-                serviceLoaders.push(async () => {
-                    const worker = new CdpCyclotronShadowWorker(hub)
-                    await worker.start()
-                    return worker.service
-                })
+                // Only start the shadow worker if CYCLOTRON_SHADOW_DATABASE_URL is explicitly configured
+                // (not just using the default value). This prevents crashes in hobby/dev deployments
+                // that don't have the shadow database set up.
+                if (process.env.CYCLOTRON_SHADOW_DATABASE_URL) {
+                    serviceLoaders.push(async () => {
+                        const worker = new CdpCyclotronShadowWorker(hub)
+                        await worker.start()
+                        return worker.service
+                    })
+                } else {
+                    logger.info(
+                        '⏭️',
+                        'Skipping CdpCyclotronShadowWorker - CYCLOTRON_SHADOW_DATABASE_URL not configured'
+                    )
+                }
             }
 
             if (capabilities.cdpCyclotronWorkerHogFlow) {

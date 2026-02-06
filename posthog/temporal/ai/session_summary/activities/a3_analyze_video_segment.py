@@ -139,7 +139,7 @@ async def analyze_video_segment_activity(
                 ),
                 video_analysis_prompt,
             ],
-            config=types.GenerateContentConfig(max_output_tokens=4096),
+            config=types.GenerateContentConfig(),
             posthog_distinct_id=inputs.user_distinct_id_to_log,
             posthog_trace_id=trace_id,
             posthog_properties={
@@ -239,12 +239,17 @@ async def analyze_video_segment_activity(
         return segments
 
     except Exception as e:
-        temporalio.activity.logger.error(
+        temporalio.activity.logger.exception(
             f"Failed to analyze segment {segment.segment_index} for session {inputs.session_id}: {e}",
             extra={
                 "session_id": inputs.session_id,
                 "segment_index": segment.segment_index,
                 "signals_type": "session-summaries",
+                "segment_start_time": segment.start_time,
+                "segment_end_time": segment.end_time,
+                "video_file_uri": uploaded_video.file_uri,
+                "video_duration_seconds": uploaded_video.duration,
+                "model": inputs.model_to_use,
             },
         )
         raise

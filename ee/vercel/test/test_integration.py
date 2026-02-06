@@ -167,6 +167,40 @@ class TestVercelIntegration(TestCase):
         assert result["finalized"]
         assert not OrganizationIntegration.objects.filter(integration_id=self.installation_id).exists()
 
+    @patch("ee.vercel.integration.BillingManager")
+    @patch("ee.vercel.integration.get_cached_instance_license")
+    def test_delete_installation_calls_billing_deauthorize(self, mock_license, mock_billing_manager):
+        """Deleting installation should notify billing service to cancel subscription."""
+        from ee.billing.billing_types import BillingProvider
+
+        mock_license.return_value = Mock()
+        mock_manager_instance = Mock()
+        mock_billing_manager.return_value = mock_manager_instance
+
+        result = VercelIntegration.delete_installation(self.installation_id)
+
+        assert result["finalized"]
+        mock_billing_manager.assert_called_once_with(mock_license.return_value)
+        mock_manager_instance.deauthorize.assert_called_once_with(
+            self.organization, billing_provider=BillingProvider.VERCEL
+        )
+
+    @patch("ee.vercel.integration.capture_exception")
+    @patch("ee.vercel.integration.BillingManager")
+    @patch("ee.vercel.integration.get_cached_instance_license")
+    def test_delete_installation_continues_on_billing_failure(self, mock_license, mock_billing_manager, mock_capture):
+        """Deletion should complete even if billing deauthorization fails."""
+        mock_license.return_value = Mock()
+        mock_manager_instance = Mock()
+        mock_manager_instance.deauthorize.side_effect = Exception("Billing service error")
+        mock_billing_manager.return_value = mock_manager_instance
+
+        result = VercelIntegration.delete_installation(self.installation_id)
+
+        assert result["finalized"]
+        assert not OrganizationIntegration.objects.filter(integration_id=self.installation_id).exists()
+        mock_capture.assert_called_once()
+
     def test_delete_installation_not_found(self):
         with self.assertRaises(NotFound):
             VercelIntegration.delete_installation(self.NONEXISTENT_INSTALLATION_ID)

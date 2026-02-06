@@ -701,14 +701,13 @@ class TestChatAgentModeManagerSubagent(BaseTest):
                 self.assertNotIn(unexpected, mode_names)
 
     def test_subagent_product_analytics_toolkit_excludes_dangerous_tools(self):
-        from ee.hogai.tools import CreateDashboardTool, CreateInsightTool, UpsertDashboardTool
+        from ee.hogai.tools import CreateInsightTool, UpsertDashboardTool
 
         context_manager = AssistantContextManager(
             team=self.team, user=self.user, config=RunnableConfig(configurable={"is_subagent": True})
         )
         toolkit = ReadOnlyProductAnalyticsAgentToolkit(team=self.team, user=self.user, context_manager=context_manager)
         self.assertIn(CreateInsightTool, toolkit.tools)
-        self.assertNotIn(CreateDashboardTool, toolkit.tools)
         self.assertNotIn(UpsertDashboardTool, toolkit.tools)
 
     def test_subagent_survey_toolkit_excludes_dangerous_tools(self):
