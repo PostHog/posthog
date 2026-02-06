@@ -1,3 +1,4 @@
+import { JSONContent } from '@tiptap/core'
 import { Plugin, PluginKey } from '@tiptap/pm/state'
 import { Extension } from '@tiptap/react'
 import posthog from 'posthog-js'
@@ -5,6 +6,41 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { NotebookNodeType } from '../types'
+
+export function isTabularData(text: string): boolean {
+    const lines = text.replace(/\n+$/, '').split('\n')
+    if (lines.length < 2) {
+        return false
+    }
+    return lines.every((line) => line.includes('\t'))
+}
+
+export function parseTabularDataToTipTapTable(text: string): JSONContent {
+    const lines = text.replace(/\n+$/, '').split('\n')
+    const rows = lines.map((line) => line.split('\t'))
+
+    const maxCols = Math.max(...rows.map((row) => row.length))
+
+    const tableRows: JSONContent[] = rows.map((row, rowIndex) => {
+        const cellType = rowIndex === 0 ? 'tableHeader' : 'tableCell'
+        const cells: JSONContent[] = []
+        for (let col = 0; col < maxCols; col++) {
+            const value = (row[col] ?? '').trim()
+            cells.push({
+                type: cellType,
+                content: [
+                    {
+                        type: 'paragraph',
+                        content: value ? [{ type: 'text', text: value }] : [],
+                    },
+                ],
+            })
+        }
+        return { type: 'tableRow', content: cells }
+    })
+
+    return { type: 'table', content: tableRows }
+}
 
 export const DropAndPasteHandlerExtension = Extension.create({
     name: 'DropAndPasteHandlerExtension',
@@ -95,6 +131,28 @@ export const DropAndPasteHandlerExtension = Extension.create({
                     handlePaste: (_view, event) => {
                         if (!this.editor) {
                             return false
+                        }
+
+                        // Spreadsheet HTML pastes contain <table> elements that TipTap handles natively
+                        // via the table extension, so we only intercept plain-text TSV data
+                        const html = event.clipboardData?.getData('text/html')
+                        if (html && /<table[\s>]/i.test(html)) {
+                            return false
+                        }
+
+                        // Detect tab-separated values (from spreadsheets without HTML, or plain TSV)
+                        const text = event.clipboardData?.getData('text/plain')
+                        if (text && isTabularData(text)) {
+                            const tableContent = parseTabularDataToTipTapTable(text)
+                            const lines = text.replace(/\n+$/, '').split('\n')
+                            const rows = lines.map((line) => line.split('\t'))
+                            this.editor.chain().focus().insertContent(tableContent).run()
+                            posthog.capture('notebook table pasted', {
+                                rows: rows.length,
+                                cols: Math.max(...rows.map((r) => r.length)),
+                                source: 'tsv',
+                            })
+                            return true
                         }
 
                         // Special handling for pasting files such as images

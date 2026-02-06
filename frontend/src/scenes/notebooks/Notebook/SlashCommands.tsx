@@ -27,7 +27,7 @@ import { LemonButton, LemonDivider, lemonToast } from '@posthog/lemon-ui'
 import { EditorCommands, EditorRange } from 'lib/components/RichContentEditor/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Popover } from 'lib/lemon-ui/Popover'
-import { IconBold, IconItalic } from 'lib/lemon-ui/icons'
+import { IconBold, IconItalic, IconTableChart } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { selectFiles } from 'lib/utils/file-utils'
 
@@ -411,6 +411,41 @@ order by count() desc
             chain.insertContentAt(pos, {
                 type: NotebookNodeType.Latex,
                 attrs: { content: '' }, // Default empty content
+            }),
+    },
+    {
+        title: 'Table',
+        search: 'table grid spreadsheet',
+        icon: <IconTableChart />,
+        command: (chain, pos) =>
+            chain.insertContentAt(pos, {
+                type: 'table',
+                content: [
+                    {
+                        type: 'tableRow',
+                        content: [
+                            { type: 'tableHeader', content: [{ type: 'paragraph' }] },
+                            { type: 'tableHeader', content: [{ type: 'paragraph' }] },
+                            { type: 'tableHeader', content: [{ type: 'paragraph' }] },
+                        ],
+                    },
+                    {
+                        type: 'tableRow',
+                        content: [
+                            { type: 'tableCell', content: [{ type: 'paragraph' }] },
+                            { type: 'tableCell', content: [{ type: 'paragraph' }] },
+                            { type: 'tableCell', content: [{ type: 'paragraph' }] },
+                        ],
+                    },
+                    {
+                        type: 'tableRow',
+                        content: [
+                            { type: 'tableCell', content: [{ type: 'paragraph' }] },
+                            { type: 'tableCell', content: [{ type: 'paragraph' }] },
+                            { type: 'tableCell', content: [{ type: 'paragraph' }] },
+                        ],
+                    },
+                ],
             }),
     },
 ]

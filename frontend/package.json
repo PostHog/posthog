@@ -128,6 +128,7 @@
         "@tiptap/extension-link": "^3.14.0",
         "@tiptap/extension-list": "^3.11.1",
         "@tiptap/extension-placeholder": "^3.14.0",
+        "@tiptap/extension-table": "^3.19.0",
         "@tiptap/extension-table-of-contents": "^3.11.1",
         "@tiptap/extension-text-align": "^3.14.0",
         "@tiptap/extension-text-style": "^3.14.0",
