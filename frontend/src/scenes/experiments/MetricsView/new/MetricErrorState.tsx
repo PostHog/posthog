@@ -30,16 +30,18 @@ function parseErrorMessage(error: MetricErrorStateProps['error']): string {
     const errorDetail = error.detail
 
     if (typeof errorDetail === 'string') {
-        // Try to match list format: [ErrorDetail(string='...', code='...')]
-        const listMatch = errorDetail.match(/\[ErrorDetail\(string='([^']*)',\s*code='([^']*)'\)\]/)
+        // Try to match list format: [ErrorDetail(string="..." or '...', code='...')]
+        // DRF's ErrorDetail.__repr__ uses double quotes if the message contains single quotes
+        // Use backreference (\1) to match the same closing quote as the opening quote
+        const listMatch = errorDetail.match(/\[ErrorDetail\(string=(["'])(.+?)\1,\s*code='([^']*)'\)\]/)
         if (listMatch) {
-            return listMatch[1]
+            return listMatch[2] // Group 2 contains the message (group 1 is the quote character)
         }
 
-        // Try to match single format: ErrorDetail(string='...', code='...')
-        const singleMatch = errorDetail.match(/ErrorDetail\(string='([^']*)',\s*code='([^']*)'\)/)
+        // Try to match single format: ErrorDetail(string="..." or '...', code='...')
+        const singleMatch = errorDetail.match(/ErrorDetail\(string=(["'])(.+?)\1,\s*code='([^']*)'\)/)
         if (singleMatch) {
-            return singleMatch[1]
+            return singleMatch[2] // Group 2 contains the message (group 1 is the quote character)
         }
 
         return errorDetail
