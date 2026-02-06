@@ -30,7 +30,7 @@ def get_rss_mb() -> float:
     return rusage.ru_maxrss / 1024
 
 
-def get_pyarrow_pool_stats() -> dict[str, int]:
+def get_pyarrow_pool_stats() -> dict[str, int | str | None]:
     """Get PyArrow memory pool statistics."""
     pool = pa.default_memory_pool()
     return {
