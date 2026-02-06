@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconCheck, IconChevronRight, IconClock, IconEye, IconEyeHidden } from '@posthog/icons'
+import { IconArchive, IconCheck, IconChevronRight, IconClock, IconUndo } from '@posthog/icons'
 import { LemonButton, LemonTag, Spinner } from '@posthog/lemon-ui'
 
 import { humanFriendlyDetailedTime } from 'lib/utils'
@@ -124,11 +124,11 @@ function ReportDetail({ report }: { report: SignalReportApi }): JSX.Element {
 
             <div className="flex items-center gap-2">
                 {isDismissed ? (
-                    <LemonButton type="secondary" icon={<IconEye />} onClick={() => undoDismissReport(report.id)}>
+                    <LemonButton type="secondary" icon={<IconUndo />} onClick={() => undoDismissReport(report.id)}>
                         Move to active
                     </LemonButton>
                 ) : (
-                    <LemonButton type="secondary" icon={<IconEyeHidden />} onClick={() => dismissReport(report.id)}>
+                    <LemonButton type="secondary" icon={<IconArchive />} onClick={() => dismissReport(report.id)}>
                         Dismiss
                     </LemonButton>
                 )}
@@ -150,7 +150,7 @@ function EmptyState({ tab }: { tab: InboxTab }): JSX.Element {
                 </>
             ) : (
                 <>
-                    <IconEyeHidden className="size-12 text-muted mb-4" />
+                    <IconArchive className="size-12 text-muted mb-4" />
                     <h2 className="text-lg font-semibold text-primary mb-1">No dismissed reports</h2>
                     <p className="text-sm text-secondary max-w-sm">
                         Reports you dismiss will appear here so you can revisit them later.
