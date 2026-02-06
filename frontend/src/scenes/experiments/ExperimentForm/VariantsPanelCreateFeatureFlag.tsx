@@ -114,7 +114,7 @@ export const VariantsPanelCreateFeatureFlag = ({
 
     return (
         <div className="flex flex-col gap-4">
-            <LemonField.Pure label="Variant keys">
+            <LemonField.Pure label="Variants">
                 <div className="text-sm border border-primary rounded p-4">
                     <div className="grid grid-cols-18 gap-2 font-bold mb-2 items-center">
                         <div />
