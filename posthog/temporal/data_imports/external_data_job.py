@@ -314,29 +314,30 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 }
             )
 
-            pipeline_result = await workflow.execute_activity(
-                import_data_activity_sync,
-                job_inputs,
-                heartbeat_timeout=dt.timedelta(minutes=2),
-                **timeout_params,
-            )  # type: ignore
+            # TODO: Revert after testing
+            # pipeline_result = await workflow.execute_activity(
+            #     import_data_activity_sync,
+            #     job_inputs,
+            #     heartbeat_timeout=dt.timedelta(minutes=2),
+            #     **timeout_params,
+            # )  # type: ignore
 
-            if pipeline_result.get("should_trigger_cdp_producer", False):
-                await start_child_workflow(
-                    workflow="dwh-cdp-producer-job",
-                    arg=dataclasses.asdict(
-                        CDPProducerWorkflowInputs(
-                            team_id=inputs.team_id, schema_id=str(inputs.external_data_schema_id), job_id=job_id
-                        )
-                    ),
-                    id=f"dwh-cdp-producer-job-{job_id}",
-                    task_queue=str(settings.DATA_WAREHOUSE_CDP_PRODUCER_TASK_QUEUE),
-                    parent_close_policy=ParentClosePolicy.ABANDON,
-                    retry_policy=RetryPolicy(
-                        maximum_attempts=3,
-                        non_retryable_error_types=["NondeterminismError"],
-                    ),
-                )
+            # if pipeline_result.get("should_trigger_cdp_producer", False):
+            #     await start_child_workflow(
+            #         workflow="dwh-cdp-producer-job",
+            #         arg=dataclasses.asdict(
+            #             CDPProducerWorkflowInputs(
+            #                 team_id=inputs.team_id, schema_id=str(inputs.external_data_schema_id), job_id=job_id
+            #             )
+            #         ),
+            #         id=f"dwh-cdp-producer-job-{job_id}",
+            #         task_queue=str(settings.DATA_WAREHOUSE_CDP_PRODUCER_TASK_QUEUE),
+            #         parent_close_policy=ParentClosePolicy.ABANDON,
+            #         retry_policy=RetryPolicy(
+            #             maximum_attempts=3,
+            #             non_retryable_error_types=["NondeterminismError"],
+            #         ),
+            #     )
 
             # Emit signals for new records (if registered for this source type + schema)
             if source_type is not None and is_signal_emission_registered(source_type, schema_name):
