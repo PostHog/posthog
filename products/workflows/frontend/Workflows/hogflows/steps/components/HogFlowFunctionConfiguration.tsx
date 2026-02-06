@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 import { useEffect } from 'react'
 
 import { Spinner } from '@posthog/lemon-ui'
@@ -45,8 +45,7 @@ export function HogFlowFunctionConfiguration({
     errors?: Record<string, string>
 }): JSX.Element {
     const { workflow, hogFunctionTemplatesById, hogFunctionTemplatesByIdLoading } = useValues(workflowLogic)
-    const { allSurveys, surveysLoading } = useValues(surveyTriggerLogic)
-    const { loadSurveys } = useActions(surveyTriggerLogic)
+    const { allSurveys } = useValues(surveyTriggerLogic)
 
     const template = hogFunctionTemplatesById[templateId]
     useEffect(() => {
@@ -63,12 +62,7 @@ export function HogFlowFunctionConfiguration({
             ? (workflow.trigger.filters?.events ?? [])
             : []
     const isSurveyTrigger = triggerEvents.length === 1 && triggerEvents[0]?.id === SurveyEventName.SENT
-
-    useEffect(() => {
-        if (isSurveyTrigger && allSurveys.length === 0 && !surveysLoading) {
-            loadSurveys()
-        }
-    }, [isSurveyTrigger, allSurveys.length, surveysLoading, loadSurveys])
+    // Surveys are loaded by workflowLogic (ensureSurveysLoaded in loadWorkflowSuccess and setWorkflowActionConfig)
 
     if (hogFunctionTemplatesByIdLoading) {
         return (
