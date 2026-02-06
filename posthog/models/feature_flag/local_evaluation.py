@@ -651,8 +651,7 @@ def _get_both_flags_responses_for_local_evaluation(team: Team) -> tuple[dict[str
             # Build cohorts dict for with-cohorts response
             for cohort_id in cohort_ids:
                 if str(cohort_id) not in cohorts_dict:
-                    cohort = seen_cohorts_cache.get(cohort_id)
-                    if not cohort:
+                    if cohort_id not in seen_cohorts_cache:
                         logger.warning(
                             "Cohort not in seen_cohorts_cache, performing fallback query",
                             extra={"cohort_id": cohort_id, "team_id": team.id},
@@ -664,6 +663,7 @@ def _get_both_flags_responses_for_local_evaluation(team: Team) -> tuple[dict[str
                         )
                         seen_cohorts_cache[cohort_id] = cohort or ""
 
+                    cohort = seen_cohorts_cache[cohort_id]
                     if cohort and not cohort.is_static:
                         try:
                             cohorts_dict[str(cohort.pk)] = cohort.properties.to_dict()
