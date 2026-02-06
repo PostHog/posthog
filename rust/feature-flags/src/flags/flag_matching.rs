@@ -959,12 +959,17 @@ impl FeatureFlagMatcher {
         let mut highest_match = FeatureFlagMatchReason::NoConditionMatch;
         let mut highest_index = None;
 
+        // Pre-compute merged properties once per flag instead of once per condition.
+        // This avoids K HashMap clones, K override merges, and K populate_missing_initial_properties
+        // calls for a flag with K conditions (all producing the same result).
+        let merged_properties = self.get_properties_to_check(flag, property_overrides)?;
+
         // Evaluate any super conditions first
         if let Some(super_groups) = &flag.filters.super_groups {
             if !super_groups.is_empty() {
                 let super_condition_evaluation = self.is_super_condition_match(
                     flag,
-                    property_overrides,
+                    &merged_properties,
                     hash_key_overrides,
                     request_hash_key_override,
                 )?;
@@ -1016,7 +1021,7 @@ impl FeatureFlagMatcher {
             let (is_match, reason) = self.is_condition_match(
                 flag,
                 condition,
-                property_overrides,
+                &merged_properties,
                 hash_key_overrides,
                 request_hash_key_override,
             )?;
@@ -1104,13 +1109,16 @@ impl FeatureFlagMatcher {
     ///
     /// This function evaluates a specific condition of a feature flag to determine if it should be enabled.
     /// It first checks if the condition has any property filters. If not, it performs a rollout check.
-    /// Otherwise, it fetches the relevant properties and checks if they match the condition's filters.
+    /// Otherwise, it checks if the pre-computed merged properties match the condition's filters.
     /// The function returns a tuple indicating whether the condition matched and the reason for the match.
+    ///
+    /// Note: `merged_properties` should be pre-computed by the caller using `get_properties_to_check()`
+    /// to avoid redundant HashMap clones and merges when evaluating multiple conditions.
     pub(crate) fn is_condition_match(
         &self,
         feature_flag: &FeatureFlag,
         condition: &FlagPropertyGroup,
-        property_overrides: Option<&HashMap<String, Value>>,
+        merged_properties: &HashMap<String, Value>,
         hash_key_overrides: Option<&HashMap<String, String>>,
         request_hash_key_override: &Option<String>,
     ) -> Result<(bool, FeatureFlagMatchReason), FlagError> {
@@ -1149,12 +1157,8 @@ impl FeatureFlagMatcher {
                     .cloned()
                     .partition(|prop| prop.is_cohort());
 
-            // Get the properties we need to check for in this condition match from the flag + any overrides
-            let person_or_group_properties =
-                self.get_properties_to_check(feature_flag, property_overrides)?;
-
             // Evaluate non-cohort filters first, since they're cheaper to evaluate and we can return early if they don't match
-            if !all_properties_match(&non_cohort_filters, &person_or_group_properties) {
+            if !all_properties_match(&non_cohort_filters, merged_properties) {
                 return Ok((false, FeatureFlagMatchReason::NoConditionMatch));
             }
 
@@ -1164,11 +1168,7 @@ impl FeatureFlagMatcher {
                     Some(cohorts) => cohorts.clone(),
                     None => return Ok((false, FeatureFlagMatchReason::NoConditionMatch)),
                 };
-                if !self.evaluate_cohort_filters(
-                    &cohort_filters,
-                    &person_or_group_properties,
-                    cohorts,
-                )? {
+                if !self.evaluate_cohort_filters(&cohort_filters, merged_properties, cohorts)? {
                     return Ok((false, FeatureFlagMatchReason::NoConditionMatch));
                 }
             }
@@ -1289,13 +1289,16 @@ impl FeatureFlagMatcher {
     /// Check if a super condition matches for a feature flag.
     ///
     /// This function evaluates the super conditions of a feature flag to determine if any of them should be enabled.
-    /// It merges property overrides with cached DB properties, with overrides taking precedence.
+    /// It uses pre-computed merged properties (DB properties with overrides applied).
     /// The function returns a struct indicating whether a super condition should be evaluated,
     /// whether it matches if evaluated, and the reason for the match.
+    ///
+    /// Note: `merged_properties` should be pre-computed by the caller using `get_properties_to_check()`
+    /// to avoid redundant HashMap clones and merges.
     fn is_super_condition_match(
         &self,
         feature_flag: &FeatureFlag,
-        property_overrides: Option<&HashMap<String, Value>>,
+        merged_properties: &HashMap<String, Value>,
         hash_key_overrides: Option<&HashMap<String, String>>,
         request_hash_key_override: &Option<String>,
     ) -> Result<SuperConditionEvaluation, FlagError> {
@@ -1305,9 +1308,6 @@ impl FeatureFlagMatcher {
             .as_ref()
             .and_then(|sc| sc.first())
         {
-            // Merge DB properties with overrides (overrides take precedence)
-            let merged_properties = self.get_person_properties(property_overrides)?;
-
             let has_relevant_super_condition_properties =
                 super_condition.properties.as_ref().is_some_and(|props| {
                     props
@@ -1319,7 +1319,7 @@ impl FeatureFlagMatcher {
                 let (is_match, _) = self.is_condition_match(
                     feature_flag,
                     super_condition,
-                    Some(&merged_properties),
+                    merged_properties,
                     hash_key_overrides,
                     request_hash_key_override,
                 )?;
