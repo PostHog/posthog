@@ -10,7 +10,7 @@ from structlog.typing import FilteringBoundLogger
 from temporalio import activity
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
-from posthog.sync import database_sync_to_async
+from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.shutdown import ShutdownMonitor
@@ -53,14 +53,14 @@ class ImportDataActivityInputs:
         }
 
 
-@database_sync_to_async
+@database_sync_to_async_pool
 def _get_external_data_job(run_id: str) -> ExternalDataJob:
     return ExternalDataJob.objects.prefetch_related(
         "pipeline", Prefetch("schema", queryset=ExternalDataSchema.objects.prefetch_related("source"))
     ).get(id=run_id)
 
 
-@database_sync_to_async
+@database_sync_to_async_pool
 def _get_external_data_schema(schema_id: uuid.UUID, team_id: int) -> ExternalDataSchema:
     return (
         ExternalDataSchema.objects.prefetch_related("source", "table")
@@ -92,7 +92,7 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
             run_id=inputs.run_id,
             team_id=inputs.team_id,
             job_type=source_type,
-            dataset_name=await database_sync_to_async(model.folder_path)(),
+            dataset_name=await database_sync_to_async_pool(model.folder_path)(),
         )
 
         await trim_source_job_inputs(model.pipeline)
@@ -152,11 +152,11 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
             resumable_source_manager: ResumableSourceManager | None = None
             if isinstance(new_source, ResumableSource):
                 resumable_source_manager = new_source.get_resumable_source_manager(source_inputs)
-                source_response = await database_sync_to_async(new_source.source_for_pipeline)(
+                source_response = await database_sync_to_async_pool(new_source.source_for_pipeline)(
                     config, resumable_source_manager, source_inputs
                 )
             else:
-                source_response = await database_sync_to_async(new_source.source_for_pipeline)(config, source_inputs)
+                source_response = await database_sync_to_async_pool(new_source.source_for_pipeline)(config, source_inputs)
 
             return await _run(
                 job_inputs=job_inputs,
@@ -170,7 +170,7 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
             raise ValueError(f"Source type {model.pipeline.source_type} not supported")
 
 
-@database_sync_to_async
+@database_sync_to_async_pool
 def _get_models(
     job_id: str,
 ) -> tuple[ExternalDataJob, ExternalDataSchema, ExternalDataSource, DataWarehouseTable | None]:

@@ -14,7 +14,7 @@ from posthog.hogql.database.database import get_data_warehouse_table_name
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models.hog_functions import HogFunction
-from posthog.sync import database_sync_to_async
+from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.data_imports.pipelines.helpers import build_table_name
 
 from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
@@ -90,7 +90,7 @@ class CDPProducer:
         if self._should_produce_cache is not None:
             return self._should_produce_cache
 
-        @database_sync_to_async
+        @database_sync_to_async_pool
         def _check():
             schema = ExternalDataSchema.objects.get(id=self.schema_id, team_id=self.team_id)
 

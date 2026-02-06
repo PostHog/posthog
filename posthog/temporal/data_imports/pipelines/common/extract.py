@@ -10,7 +10,7 @@ from temporalio import activity
 
 from posthog.exceptions_capture import capture_exception
 from posthog.redis import get_async_client
-from posthog.sync import database_sync_to_async
+from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.data_imports.pipelines.pipeline.cdp_producer import CDPProducer
 from posthog.temporal.data_imports.util import NonRetryableException
 
@@ -55,7 +55,7 @@ async def trim_source_job_inputs(source: "ExternalDataSource") -> None:
                 did_update_inputs = True
 
     if did_update_inputs:
-        await database_sync_to_async(source.save)()
+        await database_sync_to_async_pool(source.save)()
 
 
 def report_heartbeat_timeout(inputs: "ImportDataActivityInputs", logger: FilteringBoundLogger) -> None:

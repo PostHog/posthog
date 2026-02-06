@@ -16,7 +16,7 @@ from posthog.models import Organization, Team
 from posthog.redis import get_async_client
 from posthog.settings import EE_AVAILABLE
 from posthog.settings.base_variables import TEST
-from posthog.sync import database_sync_to_async
+from posthog.sync import database_sync_to_async_pool
 
 from products.data_warehouse.backend.models import ExternalDataJob
 
@@ -144,7 +144,7 @@ async def will_hit_billing_limit(team_id: int, source: "ExternalDataSource", log
             )
             return False
 
-        @database_sync_to_async
+        @database_sync_to_async_pool
         def _get_billing_data():
             license = get_cached_instance_license()
             billing_manager = BillingManager(license)

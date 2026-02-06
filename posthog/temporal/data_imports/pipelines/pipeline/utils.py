@@ -24,7 +24,7 @@ from dlt.common.normalizers.naming.snake_case import NamingConvention
 from dlt.sources import DltResource
 from structlog.types import FilteringBoundLogger
 
-from posthog.sync import database_sync_to_async
+from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
 from posthog.temporal.data_imports.pipelines.pipeline.typings import PartitionFormat, PartitionMode, SourceResponse
 
@@ -350,7 +350,7 @@ async def setup_partitioning(
             logger.debug(
                 f"Setting partitioning_enabled on schema with: partition_keys={partition_keys}. partition_count={partition_count}. partition_mode={partition_mode}. partition_format={partition_format}"
             )
-            await database_sync_to_async(schema.set_partitioning_enabled)(
+            await database_sync_to_async_pool(schema.set_partitioning_enabled)(
                 updated_partition_keys, partition_count, partition_size, partition_mode, partition_format
             )
 

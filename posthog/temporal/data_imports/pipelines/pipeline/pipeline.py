@@ -9,7 +9,7 @@ import posthoganalytics
 from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions_capture import capture_exception
-from posthog.sync import database_sync_to_async
+from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.shutdown import ShutdownMonitor
 from posthog.temporal.data_imports.pipelines.common.extract import (
     cdp_producer_clear_chunks,
@@ -59,7 +59,7 @@ async def async_iterate(iterable: Iterable[T]) -> AsyncIterator[T]:
     """
     Wrap a sync iterable to be used with `async for`.
 
-    Each call to `next()` is run in a thread pool via `database_sync_to_async`,
+    Each call to `next()` is run in a thread pool via `database_sync_to_async_pool`,
     allowing lazy iterables that make Django/DB calls to work safely
     in an async context.
     """
@@ -77,12 +77,12 @@ async def async_iterate(iterable: Iterable[T]) -> AsyncIterator[T]:
 
     try:
         while True:
-            has_value, item = await database_sync_to_async(_next, thread_sensitive=False)()
+            has_value, item = await database_sync_to_async_pool(_next)()
             if not has_value:
                 break
             yield item  # type: ignore[misc]
     finally:
-        await database_sync_to_async(_close, thread_sensitive=False)()
+        await database_sync_to_async_pool(_close)()
 
 
 class PipelineNonDLT(Generic[ResumableData]):
@@ -159,7 +159,7 @@ class PipelineNonDLT(Generic[ResumableData]):
                 and not should_resume
             ):
                 self._job.rows_synced = 0
-                await database_sync_to_async(self._job.save)()
+                await database_sync_to_async_pool(self._job.save)()
 
             # Check for duplicate primary keys
             if self._is_incremental and self._resource.has_duplicate_primary_keys:
@@ -186,12 +186,12 @@ class PipelineNonDLT(Generic[ResumableData]):
             if self._reset_pipeline and not should_resume:
                 await self._logger.adebug("Deleting existing table due to reset_pipeline being set")
                 await self._delta_table_helper.reset_table()
-                await database_sync_to_async(self._schema.update_sync_type_config_for_reset_pipeline)()
+                await database_sync_to_async_pool(self._schema.update_sync_type_config_for_reset_pipeline)()
             elif self._schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH and not should_resume:
                 # Avoid schema mismatches from existing data about to be overwritten
                 await self._logger.adebug("Deleting existing table due to sync being full refresh")
                 await self._delta_table_helper.reset_table()
-                await database_sync_to_async(self._schema.update_sync_type_config_for_reset_pipeline)()
+                await database_sync_to_async_pool(self._schema.update_sync_type_config_for_reset_pipeline)()
 
             # If the schema has no DWH table, it's a first ever sync
             is_first_ever_sync: bool = self._table is None
@@ -314,7 +314,7 @@ class PipelineNonDLT(Generic[ResumableData]):
                 await self._logger.adebug(
                     f"Updating incremental_field_last_value with {self._last_incremental_field_value}"
                 )
-                await database_sync_to_async(self._schema.update_incremental_field_value)(
+                await database_sync_to_async_pool(self._schema.update_incremental_field_value)(
                     self._last_incremental_field_value
                 )
 
@@ -328,7 +328,7 @@ class PipelineNonDLT(Generic[ResumableData]):
                     self._earliest_incremental_field_value = earliest_value
 
                     await self._logger.adebug(f"Updating incremental_field_earliest_value with {earliest_value}")
-                    await database_sync_to_async(self._schema.update_incremental_field_value)(
+                    await database_sync_to_async_pool(self._schema.update_incremental_field_value)(
                         earliest_value, type="earliest"
                     )
 
@@ -375,7 +375,7 @@ class PipelineNonDLT(Generic[ResumableData]):
                 return
 
         await self._logger.adebug(f"Adding {len(new_file_uris)} S3 files to query folder")
-        folder_path = await database_sync_to_async(self._job.folder_path)()
+        folder_path = await database_sync_to_async_pool(self._job.folder_path)()
         queryable_folder = await prepare_s3_files_for_querying(
             folder_path=folder_path,
             table_name=self._resource_name,
@@ -413,7 +413,7 @@ class PipelineNonDLT(Generic[ResumableData]):
         file_uris = await self._delta_table_helper.get_file_uris()
         await self._logger.adebug(f"Preparing S3 files - total parquet files: {len(file_uris)}")
 
-        folder_path = await database_sync_to_async(self._job.folder_path)()
+        folder_path = await database_sync_to_async_pool(self._job.folder_path)()
         existing_queryable_folder = self._table.queryable_folder if self._table else None
         queryable_folder = await prepare_s3_files_for_querying(
             folder_path,
@@ -436,8 +436,8 @@ class PipelineNonDLT(Generic[ResumableData]):
             await self._logger.adebug(
                 f"Sort mode is 'desc' -> updating incremental_field_last_value with {self._last_incremental_field_value}"
             )
-            await database_sync_to_async(self._schema.refresh_from_db)()
-            await database_sync_to_async(self._schema.update_incremental_field_value)(
+            await database_sync_to_async_pool(self._schema.refresh_from_db)()
+            await database_sync_to_async_pool(self._schema.update_incremental_field_value)(
                 self._last_incremental_field_value
             )
 

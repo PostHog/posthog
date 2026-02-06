@@ -19,7 +19,7 @@ from clickhouse_driver.errors import ServerException
 from dlt.common.normalizers.naming.snake_case import NamingConvention
 
 from posthog.exceptions_capture import capture_exception
-from posthog.sync import database_sync_to_async
+from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.data_imports.pipelines.helpers import build_table_name
 
@@ -57,7 +57,7 @@ class PipelineInputs:
 
 
 async def update_last_synced_at(job_id: str, schema_id: str, team_id: int) -> None:
-    @database_sync_to_async
+    @database_sync_to_async_pool
     def _update():
         job = ExternalDataJob.objects.get(pk=job_id)
         schema = ExternalDataSchema.objects.exclude(deleted=True).get(id=schema_id, team_id=team_id)
@@ -96,7 +96,7 @@ async def validate_schema_and_update_table(
         await logger.awarn("Skipping `validate_schema_and_update_table` due to `row_count` being 0")
         return
 
-    @database_sync_to_async
+    @database_sync_to_async_pool
     def _validate_and_update():
         job = ExternalDataJob.objects.prefetch_related(
             "pipeline", Prefetch("schema", queryset=ExternalDataSchema.objects.prefetch_related("source"))
