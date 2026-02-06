@@ -114,6 +114,7 @@ class Integration(models.Model):
         AZURE_BLOB = "azure-blob"
         FIREBASE = "firebase"
         JIRA = "jira"
+        CURSOR = "cursor"
 
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
 
@@ -155,6 +156,8 @@ class Integration(models.Model):
         if self.kind == "gitlab":
             return self.integration_id or "unknown ID"
         if self.kind == "email":
+            return self.config.get("email", self.integration_id)
+        if self.kind == "cursor":
             return self.config.get("email", self.integration_id)
 
         return f"ID: {self.integration_id}"
@@ -2319,6 +2322,65 @@ class TwilioIntegration:
                 },
                 "sensitive_config": {
                     "auth_token": self.integration.sensitive_config["auth_token"],
+                },
+                "created_by": self.integration.created_by,
+            },
+        )
+        if integration.errors:
+            integration.errors = ""
+            integration.save()
+
+        return integration
+
+
+CURSOR_API_BASE_URL = "https://api.cursor.com"
+
+
+class CursorIntegration:
+    integration: Integration
+
+    def __init__(self, integration: Integration) -> None:
+        if integration.kind != "cursor":
+            raise Exception("CursorIntegration init called with Integration with wrong 'kind'")
+        self.integration = integration
+
+    def _auth(self) -> HTTPBasicAuth:
+        return HTTPBasicAuth(self.integration.sensitive_config["api_key"], "")
+
+    def _validate_api_key(self) -> dict:
+        response = requests.get(f"{CURSOR_API_BASE_URL}/v0/me", auth=self._auth(), timeout=10)
+        response.raise_for_status()
+        return response.json()
+
+    def list_repositories(self) -> list[dict]:
+        response = requests.get(f"{CURSOR_API_BASE_URL}/v0/repositories", auth=self._auth(), timeout=60)
+        response.raise_for_status()
+        return response.json().get("repositories", [])
+
+    def integration_from_keys(self) -> Integration:
+        try:
+            me_info = self._validate_api_key()
+        except requests.exceptions.RequestException:
+            raise ValidationError({"api_key": "Invalid Cursor API key"})
+
+        email = me_info.get("email", "")
+        key_name = me_info.get("name", "")
+        integration_id = email or key_name
+
+        if not integration_id:
+            raise ValidationError({"api_key": "Failed to validate Cursor API key"})
+
+        integration, created = Integration.objects.update_or_create(
+            team_id=self.integration.team_id,
+            kind="cursor",
+            integration_id=integration_id,
+            defaults={
+                "config": {
+                    "email": email,
+                    "key_name": key_name,
+                },
+                "sensitive_config": {
+                    "api_key": self.integration.sensitive_config["api_key"],
                 },
                 "created_by": self.integration.created_by,
             },

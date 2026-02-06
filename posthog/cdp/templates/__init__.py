@@ -15,6 +15,7 @@ from .aws_kinesis.template_aws_kinesis import template as aws_kinesis
 from .braze.template_braze import template as braze
 from .brevo.template_brevo import template as brevo
 from .clearbit.template_clearbit import template as clearbit
+from .cursor.template_cursor import template as cursor_agent
 from .customerio.template_customerio import (
     TemplateCustomerioMigrator,
     template as customerio,
@@ -100,6 +101,7 @@ HOG_FUNCTION_TEMPLATES = [
     braze,
     brevo,
     clearbit,
+    cursor_agent,
     customerio,
     discord,
     engage,
