@@ -379,24 +379,6 @@ order by count() desc
         },
     },
     {
-        title: 'Embedded iframe',
-        search: 'iframe embed',
-        icon: <IconCode />,
-        command: async (chain, pos) => {
-            return chain.insertContentAt(pos, buildNodeEmbed())
-        },
-    },
-    {
-        title: 'LaTeX',
-        search: 'latex math formula equation',
-        icon: <IconSquareRoot color="currentColor" />,
-        command: (chain, pos) =>
-            chain.insertContentAt(pos, {
-                type: NotebookNodeType.Latex,
-                attrs: { content: '' }, // Default empty content
-            }),
-    },
-    {
         title: 'Table',
         search: 'table grid spreadsheet',
         icon: <IconTableChart />,
@@ -429,6 +411,24 @@ order by count() desc
                         ],
                     },
                 ],
+            }),
+    },
+    {
+        title: 'Embedded iframe',
+        search: 'iframe embed',
+        icon: <IconCode />,
+        command: async (chain, pos) => {
+            return chain.insertContentAt(pos, buildNodeEmbed())
+        },
+    },
+    {
+        title: 'LaTeX',
+        search: 'latex math formula equation',
+        icon: <IconSquareRoot color="currentColor" />,
+        command: (chain, pos) =>
+            chain.insertContentAt(pos, {
+                type: NotebookNodeType.Latex,
+                attrs: { content: '' }, // Default empty content
             }),
     },
 ]
