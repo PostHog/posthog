@@ -139,15 +139,12 @@ class SurveyContext:
             return "completed"
         return "draft"
 
-    async def execute_and_format(self) -> str:
+    async def execute_and_format(self, survey: Survey) -> str:
         """
         Execute the context gathering and format results for AI consumption.
 
         Returns a formatted string with all survey context.
         """
-        survey = await self.aget_survey()
-        if survey is None:
-            return f"Survey with ID '{self._survey_id}' not found."
 
         survey_name = self._survey_name or survey.name or f"Survey {self._survey_id}"
         status = self._get_status(survey)

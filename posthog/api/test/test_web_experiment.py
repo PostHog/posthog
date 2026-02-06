@@ -72,6 +72,7 @@ class TestWebExperiment(APIBaseTest):
                 "aggregating_by_groups": False,
                 "payload_count": 0,
                 "creation_context": "web_experiments",
+                "source": "web",
             },
         )
 

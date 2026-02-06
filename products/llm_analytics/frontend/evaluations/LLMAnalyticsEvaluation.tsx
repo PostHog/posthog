@@ -225,6 +225,7 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
                                             { value: 'openai', label: LLM_PROVIDER_LABELS.openai },
                                             { value: 'anthropic', label: LLM_PROVIDER_LABELS.anthropic },
                                             { value: 'gemini', label: LLM_PROVIDER_LABELS.gemini },
+                                            { value: 'openrouter', label: LLM_PROVIDER_LABELS.openrouter },
                                         ]}
                                         fullWidth
                                     />
@@ -236,7 +237,7 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
                                         <div className="flex items-center gap-1">
                                             <span>API key</span>
                                             <span className="text-muted">-</span>
-                                            <Link to={urls.llmAnalyticsSettings()}>Manage</Link>
+                                            <Link to={`${urls.llmAnalyticsEvaluations()}?tab=settings`}>Manage</Link>
                                         </div>
                                     }
                                 >
