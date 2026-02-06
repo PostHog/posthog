@@ -632,9 +632,9 @@ export const batchExportConfigurationLogic = kea<batchExportConfigurationLogicTy
         return `NEW:${service}`
     }),
     path((key) => ['scenes', 'data-pipelines', 'batch-exports', 'batchExportConfigurationLogic', key]),
-    connect({
+    connect(() => ({
         values: [teamLogic, ['timezone as teamTimezone', 'weekStartDay as teamWeekStartDay']],
-    }),
+    })),
     actions({
         setSavedConfiguration: (configuration: Record<string, any>) => ({ configuration }),
         setSelectedModel: (model: string) => ({ model }),

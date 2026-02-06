@@ -24,18 +24,39 @@ MAX_TEXT_REPR_LENGTH = 2_000_000
 # Schedule configuration
 SCHEDULE_INTERVAL_HOURS = 1  # How often the coordinator runs
 
+# Coordinator concurrency settings
+DEFAULT_MAX_CONCURRENT_TEAMS = 3  # Max teams to process in parallel
+
 # Timeout configuration (in seconds)
 SAMPLE_TIMEOUT_SECONDS = 900  # 15 minutes for sampling query (buffer above QUERY_ASYNC 600s ClickHouse timeout)
 GENERATE_SUMMARY_TIMEOUT_SECONDS = 300  # 5 minutes per summary generation (increased for LLM API latency/rate limits)
 
+# Heartbeat timeouts - allows Temporal to detect dead workers faster than
+# waiting for the full start_to_close_timeout to expire. Activities must
+# send heartbeats within this interval or Temporal will consider them failed
+# and retry on another worker.
+SAMPLE_HEARTBEAT_TIMEOUT = timedelta(seconds=120)  # 2 minutes - sampling has long CH queries
+SUMMARIZE_HEARTBEAT_TIMEOUT = timedelta(seconds=60)  # 1 minute - LLM calls can be slow but should heartbeat regularly
+
+# Schedule-to-close timeouts - caps total time including all retry attempts,
+# backoff intervals, and queue time. Prevents runaway retries from blocking
+# the workflow indefinitely when something is fundamentally broken.
+SAMPLE_SCHEDULE_TO_CLOSE_TIMEOUT = timedelta(seconds=1800)  # 30 min total for sampling (3 attempts * 900s + backoff)
+SUMMARIZE_SCHEDULE_TO_CLOSE_TIMEOUT = timedelta(
+    seconds=900
+)  # 15 min total per summary (4 attempts * 300s + backoff, but cut off early)
+
 # Workflow-level timeouts (in minutes)
 WORKFLOW_EXECUTION_TIMEOUT_MINUTES = 120  # Max time for single team workflow (increased with longer activity timeouts)
 COORDINATOR_EXECUTION_TIMEOUT_MINUTES = (
-    55  # Max time for coordinator, must be less than schedule interval to avoid blocking
+    180  # 3 hours - 209 teams with 3 concurrent, most finish instantly but a few hit 120-min child timeout
 )
 
 # Retry policies
-SAMPLE_RETRY_POLICY = RetryPolicy(maximum_attempts=3)
+SAMPLE_RETRY_POLICY = RetryPolicy(
+    maximum_attempts=3,
+    non_retryable_error_types=["ValueError", "TypeError"],
+)
 # Summarize retries with exponential backoff for rate limit handling (429s)
 # 15s initial with 2x backoff handles most rate limit scenarios
 SUMMARIZE_RETRY_POLICY = RetryPolicy(
@@ -43,6 +64,7 @@ SUMMARIZE_RETRY_POLICY = RetryPolicy(
     initial_interval=timedelta(seconds=15),
     backoff_coefficient=2.0,
     maximum_interval=timedelta(seconds=60),
+    non_retryable_error_types=["ValueError", "TypeError"],
 )
 COORDINATOR_CHILD_WORKFLOW_RETRY_POLICY = RetryPolicy(maximum_attempts=2)
 

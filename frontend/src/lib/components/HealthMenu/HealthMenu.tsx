@@ -3,10 +3,8 @@ import { useActions, useValues } from 'kea'
 import { IconCloud, IconCode, IconDatabase, IconStethoscope, IconWarning } from '@posthog/icons'
 import { LemonTag } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { Link } from 'lib/lemon-ui/Link/Link'
 import { IconWithBadge } from 'lib/lemon-ui/icons'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
     DropdownMenu,
@@ -15,27 +13,23 @@ import {
     DropdownMenuItem,
     DropdownMenuTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
-import { capitalizeFirstLetter } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
 import { sidePanelHealthLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelHealthLogic'
 import { sidePanelSdkDoctorLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelSdkDoctorLogic'
-import { sidePanelStatusIncidentIoLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelStatusIncidentIoLogic'
-import { sidePanelStatusLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelStatusLogic'
 
 import { RenderKeybind } from '../AppShortcuts/AppShortcutMenu'
 import { keyBinds } from '../AppShortcuts/shortcuts'
 import { healthMenuLogic } from './healthMenuLogic'
 
 export function HealthMenu(): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
-    const useIncidentIo = !!featureFlags[FEATURE_FLAGS.INCIDENT_IO_STATUS_PAGE]
-
-    const { status: atlassianStatus, statusPage } = useValues(sidePanelStatusLogic)
-    const { status: incidentIoStatus, statusDescription: incidentIoDescription } =
-        useValues(sidePanelStatusIncidentIoLogic)
-
-    const { isHealthMenuOpen } = useValues(healthMenuLogic)
+    const {
+        isHealthMenuOpen,
+        postHogStatus,
+        postHogStatusTooltip,
+        postHogStatusBadgeContent,
+        postHogStatusBadgeStatus,
+    } = useValues(healthMenuLogic)
     const { setHealthMenuOpen } = useActions(healthMenuLogic)
     const { needsAttention, needsUpdatingCount, sdkHealth } = useValues(sidePanelSdkDoctorLogic)
     const { issueCount: pipelineIssueCount } = useValues(sidePanelHealthLogic)
@@ -53,19 +47,13 @@ export function HealthMenu(): JSX.Element {
             ? `${pipelineIssueCount} pipeline issue${pipelineIssueCount === 1 ? '' : 's'}`
             : 'All pipelines healthy'
 
-    const status = useIncidentIo ? incidentIoStatus : atlassianStatus
-
-    const posthogStatusTooltip = useIncidentIo
-        ? incidentIoDescription
-        : statusPage?.status.description
-          ? capitalizeFirstLetter(statusPage.status.description.toLowerCase())
-          : null
-
     // Cumulative badge content and status
     const triggerBadgeContent =
-        status !== 'operational' || needsAttention || needsUpdatingCount > 0 || pipelineIssueCount > 0 ? '!' : '✓'
+        postHogStatus !== 'operational' || needsAttention || needsUpdatingCount > 0 || pipelineIssueCount > 0
+            ? '!'
+            : '✓'
     const triggerBadgeStatus =
-        status !== 'operational' || needsAttention || needsUpdatingCount > 0 || pipelineIssueCount > 0
+        postHogStatus !== 'operational' || needsAttention || needsUpdatingCount > 0 || pipelineIssueCount > 0
             ? 'danger'
             : 'success'
 
@@ -129,20 +117,14 @@ export function HealthMenu(): JSX.Element {
                             target="_blank"
                             buttonProps={{ menuItem: true }}
                             to="https://posthogstatus.com"
-                            tooltip={posthogStatusTooltip}
+                            tooltip={postHogStatusTooltip}
                             tooltipPlacement="right"
                             tooltipCloseDelayMs={0}
                         >
                             <IconWithBadge
-                                content={status !== 'operational' ? '!' : '✓'}
+                                content={postHogStatusBadgeContent}
                                 size="xsmall"
-                                status={
-                                    status.includes('outage')
-                                        ? 'danger'
-                                        : status.includes('degraded') || status.includes('monitoring')
-                                          ? 'warning'
-                                          : 'success'
-                                }
+                                status={postHogStatusBadgeStatus}
                                 className="flex"
                             >
                                 <IconCloud />
