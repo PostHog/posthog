@@ -4860,12 +4860,13 @@ export interface HeatmapExportContext {
     common_filters?: CommonFilters
 }
 
-export type ExportContext =
+export type ExportContext = (
     | OnlineExportContext
     | LocalExportContext
     | QueryExportContext
     | ReplayExportContext
     | HeatmapExportContext
+) & { row_limit?: number } // Some exports have different row limits, e.g. logs
 
 export interface ExportedAssetType {
     id: number
@@ -5839,7 +5840,8 @@ export type AvailableOnboardingProducts = Record<
     | ProductKey.DATA_WAREHOUSE
     | ProductKey.WEB_ANALYTICS
     | ProductKey.ERROR_TRACKING
-    | ProductKey.LLM_ANALYTICS,
+    | ProductKey.LLM_ANALYTICS
+    | ProductKey.WORKFLOWS,
     OnboardingProduct
 >
 
