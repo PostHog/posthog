@@ -222,10 +222,6 @@ export function isBannerAnnouncement(tour: Pick<ProductTour, 'content'>): boolea
     return isAnnouncement(tour) && tour.content?.steps?.[0]?.type === 'banner'
 }
 
-export function isModalAnnouncement(tour: Pick<ProductTour, 'content'>): boolean {
-    return isAnnouncement(tour) && tour.content?.steps?.[0]?.type === 'modal'
-}
-
 export interface ProductToursFilters {
     archived: boolean
 }

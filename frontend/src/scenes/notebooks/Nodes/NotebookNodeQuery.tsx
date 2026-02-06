@@ -9,7 +9,6 @@ import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
-import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 import { urls } from 'scenes/urls'
 
 import { Query } from '~/queries/Query/Query'
@@ -47,7 +46,7 @@ const Component = ({
 }: NotebookNodeProps<NotebookNodeQueryAttributes>): JSX.Element | null => {
     const { query, nodeId } = attributes
     const nodeLogic = useMountedLogic(notebookNodeLogic)
-    const { expanded } = useValues(nodeLogic)
+    const { expanded, notebookLogic } = useValues(nodeLogic)
     const { setTitlePlaceholder } = useActions(nodeLogic)
     const summarizeInsight = useSummarizeInsight()
     const { canvasFiltersOverride } = useValues(notebookLogic)
@@ -128,6 +127,7 @@ const Component = ({
                         // use separate keys for the settings and visualization to avoid conflicts with insightProps
                         uniqueKey={nodeId + '-component'}
                         query={modifiedQuery}
+                        attachTo={notebookLogic}
                         setQuery={(t) => {
                             updateAttributes({
                                 query: {
@@ -157,6 +157,8 @@ export const Settings = ({
     updateAttributes,
 }: NotebookNodeAttributeProperties<NotebookNodeQueryAttributes>): JSX.Element => {
     const { query, isDefaultFilterApplied } = attributes
+    const nodeLogic = useMountedLogic(notebookNodeLogic)
+    const { notebookLogic } = useValues(nodeLogic)
     const { canvasFiltersOverride } = useValues(notebookLogic)
 
     const modifiedQuery = useMemo(() => {
@@ -252,6 +254,7 @@ export const Settings = ({
             <Query
                 // use separate keys for the settings and visualization to avoid conflicts with insightProps
                 uniqueKey={attributes.nodeId + '-settings'}
+                attachTo={notebookLogic}
                 query={modifiedQuery}
                 setQuery={(t) => {
                     updateAttributes({
