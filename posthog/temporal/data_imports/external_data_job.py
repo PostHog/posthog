@@ -340,6 +340,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
 
             # Emit signals for new records (if registered for this source type + schema)
             if source_type is not None and is_signal_emission_registered(source_type, schema_name):
+                # TODO: Decide if to change to "start", so it works as fire-and-forget
                 await workflow.execute_activity(
                     emit_data_import_signals_activity,
                     EmitSignalsActivityInputs(
@@ -352,6 +353,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                         incremental_field_last_value_before_sync=incremental_field_last_value_before_sync,
                     ),
                     # Should be a fast activity, so we don't block the workflow for too long
+                    # TODO: Could change if we add an LLM judge to decide on ticket's proactivity
                     start_to_close_timeout=dt.timedelta(minutes=10),
                     retry_policy=RetryPolicy(
                         # Don't retry as it should work every time, so retries won't help if it fails
