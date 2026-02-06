@@ -2,9 +2,9 @@ import { getContext } from 'kea'
 
 export const NEW_INTERNAL_TAB = 'NEW_INTERNAL_TAB'
 
-export function newInternalTab(path?: string): void {
+export function newInternalTab(path?: string, source: 'internal_link' | 'unknown' = 'internal_link'): void {
     getContext().store.dispatch({
         type: NEW_INTERNAL_TAB,
-        payload: { path },
+        payload: { path, source },
     })
 }

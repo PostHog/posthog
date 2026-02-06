@@ -70,10 +70,12 @@ pub const CHECKPOINT_WORKER_STATUS_COUNTER: &str = "checkpoint_worker_status";
 
 /// Histogram for checkpoint upload duration
 /// Tags: result=success|error|cancelled
+/// When result=cancelled, additional tag: cause=rebalance|shutdown|unknown
 pub const CHECKPOINT_UPLOAD_DURATION_HISTOGRAM: &str = "checkpoint_upload_duration_seconds";
 
 /// Counter for checkpoint upload outcome status
 /// Tags: result=success|error|cancelled|unavailable
+/// When result=cancelled, additional tag: cause=rebalance|shutdown|unknown
 pub const CHECKPOINT_UPLOADS_COUNTER: &str = "checkpoint_upload_status";
 
 /// Counter for checkpoint file downloads outcome status

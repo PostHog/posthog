@@ -161,8 +161,6 @@ export function DashboardHeader(): JSX.Element | null {
         setIsPinned(dashboard?.pinned)
     }, [dashboard?.pinned])
 
-    const hasUpsertDashboardFeatureFlag = useFeatureFlag('POSTHOG_AI_UPSERT_DASHBOARD')
-
     return dashboard || dashboardLoading ? (
         <>
             {dashboardMode === DashboardMode.Fullscreen && (
@@ -542,11 +540,7 @@ export function DashboardHeader(): JSX.Element | null {
                                             </AppShortcut>
                                         </AccessControlAction>
                                         <MaxTool
-                                            identifier={
-                                                hasUpsertDashboardFeatureFlag
-                                                    ? 'upsert_dashboard'
-                                                    : 'edit_current_dashboard'
-                                            }
+                                            identifier="upsert_dashboard"
                                             context={{
                                                 current_dashboard: dashboard
                                                     ? {

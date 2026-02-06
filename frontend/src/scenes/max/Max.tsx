@@ -313,7 +313,7 @@ export const MaxInstance = React.memo(function MaxInstance({
                                 sideIcon={<IconOpenSidebar />}
                                 onClick={() => {
                                     openSidePanelMax(conversationId ?? undefined)
-                                    closeTabId(tabId)
+                                    closeTabId(tabId, { source: 'open_in_side_panel' })
                                 }}
                             >
                                 Open in side panel
