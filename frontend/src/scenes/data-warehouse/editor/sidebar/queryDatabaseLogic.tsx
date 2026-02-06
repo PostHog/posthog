@@ -370,6 +370,7 @@ const createTraversedLazyTableNode = (
             field,
             table: tableName,
             referencedTable: traversedField.table,
+            traversedFieldType: 'lazy_table',
         },
         children,
     }
@@ -403,6 +404,7 @@ const createTraversedVirtualTableNode = (
             type: 'field-traverser',
             field,
             table: tableName,
+            traversedFieldType: 'virtual_table',
         },
         children,
     }
