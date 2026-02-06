@@ -16,7 +16,7 @@ from posthog.temporal.common.base import PostHogWorkflow
 from products.tasks.backend.temporal.create_snapshot.workflow import CreateSnapshotForRepositoryInput
 
 from .activities.cleanup_sandbox import CleanupSandboxInput, cleanup_sandbox
-from .activities.execute_task_in_sandbox import ExecuteTaskInput, ExecuteTaskOutput, execute_task_in_sandbox
+from .activities.execute_task_in_sandbox import ExecuteTaskOutput
 from .activities.get_sandbox_for_repository import (
     GetSandboxForRepositoryInput,
     GetSandboxForRepositoryOutput,
@@ -195,15 +195,6 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             cleanup_sandbox,
             cleanup_input,
             start_to_close_timeout=timedelta(minutes=5),
-            retry_policy=RetryPolicy(maximum_attempts=3),
-        )
-
-    async def _execute_task_in_sandbox(self, sandbox_id: str) -> ExecuteTaskOutput:
-        execute_input = ExecuteTaskInput(context=self.context, sandbox_id=sandbox_id)
-        return await workflow.execute_activity(
-            execute_task_in_sandbox,
-            execute_input,
-            start_to_close_timeout=timedelta(minutes=60),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
 

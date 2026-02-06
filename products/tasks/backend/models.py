@@ -114,9 +114,7 @@ class Task(DeletedMetaFields, models.Model):
         max_task_number = Task.objects.filter(team=self.team).aggregate(models.Max("task_number"))["task_number__max"]
         self.task_number = (max_task_number if max_task_number is not None else -1) + 1
 
-    def create_run(
-        self, environment: Optional["TaskRun.Environment"] = None, mode: str = "background"
-    ) -> "TaskRun":
+    def create_run(self, environment: Optional["TaskRun.Environment"] = None, mode: str = "background") -> "TaskRun":
         return TaskRun.objects.create(
             task=self,
             team=self.team,
