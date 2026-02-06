@@ -15685,7 +15685,8 @@
                 "Brevo",
                 "Postmark",
                 "Granola",
-                "BuildBetter"
+                "BuildBetter",
+                "Convex"
             ],
             "type": "string"
         },
