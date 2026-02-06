@@ -408,8 +408,6 @@ export type AssistantTool =
     | 'create_survey'
     | 'edit_survey'
     | 'analyze_survey_responses'
-    | 'create_dashboard'
-    | 'edit_current_dashboard'
     | 'read_taxonomy'
     | 'search'
     | 'read_data'
@@ -447,6 +445,8 @@ export enum AgentMode {
     Plan = 'plan',
     Execution = 'execution',
     Survey = 'survey',
+    Research = 'research',
+    Flags = 'flags',
 }
 
 export enum SlashCommandName {

@@ -12,7 +12,7 @@ import type { llmAnalyticsSessionsViewLogicType } from './llmAnalyticsSessionsVi
 
 export const llmAnalyticsSessionsViewLogic = kea<llmAnalyticsSessionsViewLogicType>([
     path(['products', 'llm_analytics', 'frontend', 'tabs', 'llmAnalyticsSessionsViewLogic']),
-    connect({
+    connect(() => ({
         values: [
             llmAnalyticsSharedLogic,
             ['dateFilter', 'shouldFilterTestAccounts', 'propertyFilters'],
@@ -20,7 +20,7 @@ export const llmAnalyticsSessionsViewLogic = kea<llmAnalyticsSessionsViewLogicTy
             ['groupsTaxonomicTypes'],
         ],
         actions: [llmAnalyticsSharedLogic, ['setDates', 'setPropertyFilters', 'setShouldFilterTestAccounts']],
-    }),
+    })),
 
     actions({
         setSessionsSort: (column: string, direction: SortDirection) => ({ column, direction }),

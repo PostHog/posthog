@@ -33,6 +33,7 @@ export interface CohortCalculationHistoryRecord {
     total_read_rows: number
     total_written_rows: number
     main_query: any
+    main_query_id: string | null
 }
 
 export interface CohortCalculationHistoryResponse {
@@ -47,9 +48,9 @@ export const cohortCalculationHistorySceneLogic = kea<cohortCalculationHistorySc
     key(({ cohortId }) => String(cohortId)),
     path((key) => ['scenes', 'cohorts', 'cohortCalculationHistorySceneLogic', key]),
 
-    connect({
+    connect(() => ({
         values: [featureFlagLogic, ['featureFlags']],
-    }),
+    })),
 
     actions({
         setPage: (page: number) => ({ page }),

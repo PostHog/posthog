@@ -10,7 +10,10 @@
                 "$ai_metric",
                 "$ai_feedback",
                 "$ai_evaluation",
-                "$ai_trace_summary"
+                "$ai_trace_summary",
+                "$ai_generation_summary",
+                "$ai_trace_clusters",
+                "$ai_generation_clusters"
             ],
             "type": "string"
         },
@@ -353,7 +356,17 @@
             "type": "object"
         },
         "AgentMode": {
-            "enum": ["product_analytics", "sql", "session_replay", "error_tracking", "plan", "execution", "survey"],
+            "enum": [
+                "product_analytics",
+                "sql",
+                "session_replay",
+                "error_tracking",
+                "plan",
+                "execution",
+                "survey",
+                "research",
+                "flags"
+            ],
             "type": "string"
         },
         "AggregationAxisFormat": {
@@ -577,6 +590,9 @@
                 },
                 {
                     "$ref": "#/definitions/TraceQuery"
+                },
+                {
+                    "$ref": "#/definitions/TraceNeighborsQuery"
                 },
                 {
                     "$ref": "#/definitions/VectorSearchQuery"
@@ -1953,8 +1969,6 @@
                 "create_survey",
                 "edit_survey",
                 "analyze_survey_responses",
-                "create_dashboard",
-                "edit_current_dashboard",
                 "read_taxonomy",
                 "search",
                 "read_data",
@@ -4324,9 +4338,6 @@
                     "description": "Generated HogQL query.",
                     "type": "string"
                 },
-                "isUdf": {
-                    "type": "boolean"
-                },
                 "is_cached": {
                     "type": "boolean"
                 },
@@ -6644,6 +6655,68 @@
                 "results",
                 "timezone"
             ],
+            "type": "object"
+        },
+        "CachedTraceNeighborsQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "cache_key": {
+                    "type": "string"
+                },
+                "cache_target_age": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "calculation_trigger": {
+                    "description": "What triggered the calculation of the query, leave empty if user/immediate",
+                    "type": "string"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "last_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "newerTimestamp": {
+                    "description": "Timestamp of the newer trace",
+                    "type": "string"
+                },
+                "newerTraceId": {
+                    "description": "ID of the newer trace (chronologically after current)",
+                    "type": "string"
+                },
+                "next_allowed_client_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "olderTimestamp": {
+                    "description": "Timestamp of the older trace",
+                    "type": "string"
+                },
+                "olderTraceId": {
+                    "description": "ID of the older trace (chronologically before current)",
+                    "type": "string"
+                },
+                "query_metadata": {
+                    "type": "object"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "timezone": {
+                    "type": "string"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["cache_key", "is_cached", "last_refresh", "next_allowed_client_refresh", "timezone"],
             "type": "object"
         },
         "CachedTraceQueryResponse": {
@@ -11841,6 +11914,10 @@
                 "sync_frequency": {
                     "$ref": "#/definitions/DataWarehouseSyncInterval",
                     "description": "How frequently should the underlying materialized view be updated"
+                },
+                "version": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Target a specific version for updates (optional, defaults to current version)"
                 }
             },
             "type": "object"
@@ -11859,18 +11936,18 @@
                 },
                 "filters_override": {
                     "$ref": "#/definitions/DashboardFilter",
-                    "description": "A map for overriding insight query filters.\n\nTip: Use to get data for a specific customer or user."
+                    "deprecated": "Use `variables` instead. Will be removed in a future release.\n\nOverride dashboard filters for insight endpoints (TrendsQuery, FunnelsQuery, etc.).\nNot allowed for HogQL endpoints.\n\nFor date filtering, use variables: `{\"date_from\": \"2024-01-01\", \"date_to\": \"2024-01-31\"}`"
                 },
-                "query_override": {
-                    "description": "Map of Insight query keys to be overridden at execution time. For example:   Assuming query = {\"kind\": \"TrendsQuery\", \"series\": [{\"kind\": \"EventsNode\",\"name\": \"$pageview\",\"event\": \"$pageview\",\"math\": \"total\"}]}   If query_override = {\"series\": [{\"kind\": \"EventsNode\",\"name\": \"$identify\",\"event\": \"$identify\",\"math\": \"total\"}]}   The query executed will return the count of $identify events, instead of $pageview's",
-                    "type": "object"
+                "limit": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Maximum number of results to return. If not provided, returns all results."
                 },
                 "refresh": {
                     "$ref": "#/definitions/EndpointRefreshMode",
                     "default": "cache"
                 },
                 "variables": {
-                    "description": "A map for overriding HogQL query variables, where the key is the variable name and the value is the variable value. Variable must be set on the endpoint's query between curly braces (i.e. {variable.from_date}) For example: {\"from_date\": \"1970-01-01\"}",
+                    "description": "Variables to parameterize the endpoint query. The key is the variable name and the value is the variable value.\n\nFor HogQL endpoints:   Keys must match a variable `code_name` defined in the query (referenced as `{variables.code_name}`).   Example: `{\"event_name\": \"$pageview\"}`\n\nFor non-materialized insight endpoints (e.g. TrendsQuery):   - `date_from` and `date_to` are built-in variables that filter the date range.     Example: `{\"date_from\": \"2024-01-01\", \"date_to\": \"2024-01-31\"}`\n\nFor materialized insight endpoints:   - Use the breakdown property name as the key to filter by breakdown value.     Example: `{\"$browser\": \"Chrome\"}`   - `date_from`/`date_to` are not supported on materialized insight endpoints.\n\nUnknown variable names will return a 400 error.",
                     "type": "object"
                 },
                 "version": {
@@ -15311,6 +15388,7 @@
                 "Vitally",
                 "BigQuery",
                 "Chargebee",
+                "Clerk",
                 "RevenueCat",
                 "Polar",
                 "GoogleAds",
@@ -15329,6 +15407,7 @@
                 "TikTokAds",
                 "BingAds",
                 "Shopify",
+                "Attio",
                 "SnapchatAds"
             ],
             "type": "string"
@@ -15584,7 +15663,15 @@
                 "folder_open",
                 "conversations",
                 "toolbar",
-                "settings"
+                "settings",
+                "health",
+                "sdk_doctor",
+                "pipeline_status",
+                "llm_evaluations",
+                "llm_datasets",
+                "llm_prompts",
+                "llm_clusters",
+                "exports"
             ],
             "type": "string"
         },
@@ -16276,6 +16363,10 @@
                 "breakdownAttributionValue": {
                     "$ref": "#/definitions/integer"
                 },
+                "breakdownSorting": {
+                    "description": "Breakdown table sorting. Format: 'column_key' or '-column_key' (descending)",
+                    "type": "string"
+                },
                 "exclusions": {
                     "default": [],
                     "items": {
@@ -16507,9 +16598,6 @@
                 "hogql": {
                     "description": "Generated HogQL query.",
                     "type": "string"
-                },
-                "isUdf": {
-                    "type": "boolean"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -17392,9 +17480,6 @@
                 },
                 "usePreaggregatedTableTransforms": {
                     "description": "Try to automatically convert HogQL queries to use preaggregated tables at the AST level *",
-                    "type": "boolean"
-                },
-                "usePresortedEventsTable": {
                     "type": "boolean"
                 },
                 "useWebAnalyticsPreAggregatedTables": {
@@ -19191,6 +19276,9 @@
                     "enum": ["latest", "earliest"],
                     "type": "string"
                 },
+                "resourceFingerprint": {
+                    "type": "string"
+                },
                 "response": {
                     "$ref": "#/definitions/LogsQueryResponse"
                 },
@@ -19851,7 +19939,7 @@
                             "type": "string"
                         },
                         "statsTableName": {
-                            "const": "campaign_stats",
+                            "const": "campaign_overview_stats",
                             "type": "string"
                         },
                         "tableExclusions": {
@@ -20408,7 +20496,7 @@
                     "type": ["string", "null"]
                 },
                 "id": {
-                    "type": "number"
+                    "$ref": "#/definitions/integer"
                 },
                 "name": {
                     "type": "string"
@@ -20687,7 +20775,7 @@
                     "$ref": "#/definitions/DashboardFilter"
                 },
                 "id": {
-                    "type": "number"
+                    "$ref": "#/definitions/integer"
                 },
                 "insights": {
                     "items": {
@@ -21544,6 +21632,7 @@
                 "ActorsPropertyTaxonomyQuery",
                 "TracesQuery",
                 "TraceQuery",
+                "TraceNeighborsQuery",
                 "VectorSearchQuery",
                 "DocumentSimilarityQuery",
                 "UsageMetricsQuery",
@@ -22308,6 +22397,12 @@
             "properties": {
                 "organization_name": {
                     "type": "string"
+                },
+                "skip_onboarding": {
+                    "type": "boolean"
+                },
+                "use_current_time": {
+                    "type": "boolean"
                 }
             },
             "type": "object"
@@ -22388,8 +22483,13 @@
                 "error_tracking_issue_explained",
                 "llm_analytics_viewed",
                 "llm_analytics_docs_viewed",
+                "llm_cluster_explored",
+                "llm_dataset_created",
+                "llm_evaluation_created",
+                "llm_prompt_created",
                 "logs_docs_viewed",
                 "logs_set_filters",
+                "logs_settings_opened",
                 "taxonomic filter empty state",
                 "create_experiment_from_funnel_button",
                 "web_analytics_insight",
@@ -22427,6 +22527,8 @@
                 "marketing_analytics_settings_updated",
                 "marketing_analytics_dashboard_interaction",
                 "marketing_analytics_ads_integration_visited",
+                "marketing_analytics_data_source_connected",
+                "marketing_analytics_onboarding_completed",
                 "customer_analytics_dashboard_business_mode_changed",
                 "customer_analytics_dashboard_configuration_button_clicked",
                 "customer_analytics_dashboard_filters_changed",
@@ -22499,6 +22601,10 @@
                 "links",
                 "live_debugger",
                 "llm_analytics",
+                "llm_clusters",
+                "llm_datasets",
+                "llm_evaluations",
+                "llm_prompts",
                 "logs",
                 "marketing_analytics",
                 "max",
@@ -26279,9 +26385,6 @@
                             "description": "Generated HogQL query.",
                             "type": "string"
                         },
-                        "isUdf": {
-                            "type": "boolean"
-                        },
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
@@ -26923,6 +27026,35 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "newerTimestamp": {
+                            "description": "Timestamp of the newer trace",
+                            "type": "string"
+                        },
+                        "newerTraceId": {
+                            "description": "ID of the newer trace (chronologically after current)",
+                            "type": "string"
+                        },
+                        "olderTimestamp": {
+                            "description": "Timestamp of the older trace",
+                            "type": "string"
+                        },
+                        "olderTraceId": {
+                            "description": "ID of the older trace (chronologically before current)",
+                            "type": "string"
+                        },
+                        "timings": {
+                            "description": "Measured timings for different parts of the query generation process",
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
                         "error": {
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
@@ -27333,6 +27465,9 @@
                 },
                 {
                     "$ref": "#/definitions/TraceQuery"
+                },
+                {
+                    "$ref": "#/definitions/TraceNeighborsQuery"
                 },
                 {
                     "$ref": "#/definitions/VectorSearchQuery"
@@ -27746,6 +27881,28 @@
             ],
             "type": "string"
         },
+        "ReplayInactivityPeriod": {
+            "additionalProperties": false,
+            "properties": {
+                "active": {
+                    "type": "boolean"
+                },
+                "recording_ts_from_s": {
+                    "type": "number"
+                },
+                "recording_ts_to_s": {
+                    "type": "number"
+                },
+                "ts_from_s": {
+                    "type": "number"
+                },
+                "ts_to_s": {
+                    "type": "number"
+                }
+            },
+            "required": ["ts_from_s", "active"],
+            "type": "object"
+        },
         "ResolvedDateRangeResponse": {
             "additionalProperties": false,
             "properties": {
@@ -27876,6 +28033,16 @@
         "RetentionFilter": {
             "additionalProperties": false,
             "properties": {
+                "aggregationProperty": {
+                    "description": "The property to aggregate when aggregationType is sum or avg",
+                    "type": "string"
+                },
+                "aggregationType": {
+                    "default": "count",
+                    "description": "The aggregation type to use for retention",
+                    "enum": ["count", "sum", "avg"],
+                    "type": "string"
+                },
                 "cumulative": {
                     "type": "boolean"
                 },
@@ -31644,6 +31811,84 @@
                 }
             },
             "required": ["events"],
+            "type": "object"
+        },
+        "TraceNeighborsQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange"
+                },
+                "filterSupportTraces": {
+                    "type": "boolean"
+                },
+                "filterTestAccounts": {
+                    "type": "boolean"
+                },
+                "kind": {
+                    "const": "TraceNeighborsQuery",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "properties": {
+                    "description": "Properties configurable in the interface",
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "response": {
+                    "$ref": "#/definitions/TraceNeighborsQueryResponse"
+                },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
+                },
+                "timestamp": {
+                    "description": "Timestamp of the current trace to find neighbors for",
+                    "type": "string"
+                },
+                "traceId": {
+                    "description": "ID of the current trace to find neighbors for",
+                    "type": "string"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                }
+            },
+            "required": ["kind", "timestamp", "traceId"],
+            "type": "object"
+        },
+        "TraceNeighborsQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "newerTimestamp": {
+                    "description": "Timestamp of the newer trace",
+                    "type": "string"
+                },
+                "newerTraceId": {
+                    "description": "ID of the newer trace (chronologically after current)",
+                    "type": "string"
+                },
+                "olderTimestamp": {
+                    "description": "Timestamp of the older trace",
+                    "type": "string"
+                },
+                "olderTraceId": {
+                    "description": "ID of the older trace (chronologically before current)",
+                    "type": "string"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                }
+            },
             "type": "object"
         },
         "TraceQuery": {

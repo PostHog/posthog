@@ -22,6 +22,7 @@ import {
 import { Experiment, InsightType } from '~/types'
 
 import { experimentLogic } from '../../experimentLogic'
+import { useColumnWidthSync } from '../hooks/useColumnWidthSync'
 import { ChartEmptyState } from '../shared/ChartEmptyState'
 import { ChartLoadingState } from '../shared/ChartLoadingState'
 import { MetricHeader } from '../shared/MetricHeader'
@@ -56,6 +57,34 @@ import {
 } from './constants'
 import { useAxisScale } from './useAxisScale'
 
+interface BreakdownErrorStateProps {
+    metric: ExperimentMetric
+    isAlternatingRow: boolean
+    onRemoveBreakdown: (index: number) => void
+}
+
+function BreakdownErrorState({ metric, isAlternatingRow, onRemoveBreakdown }: BreakdownErrorStateProps): JSX.Element {
+    return (
+        <tr data-breakdown-row className="hover:bg-bg-hover group [&:last-child>td]:border-b-0">
+            <td colSpan={7} className={`p-0 border-t border-b ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}>
+                <div className="p-1">
+                    <div className="flex items-center gap-2">
+                        {metric.breakdownFilter?.breakdowns?.map((breakdown, index) => (
+                            <BreakdownTag
+                                key={index}
+                                breakdown={breakdown.property}
+                                breakdownType={breakdown.type || 'event'}
+                                onClose={() => onRemoveBreakdown(index)}
+                                size="small"
+                            />
+                        ))}
+                    </div>
+                </div>
+            </td>
+        </tr>
+    )
+}
+
 interface CollapsibleBreakdownSectionProps {
     breakdownResults: any[]
     metric: ExperimentMetric
@@ -65,7 +94,6 @@ interface CollapsibleBreakdownSectionProps {
     isLastMetric: boolean
     isLoading?: boolean
     exposuresLoading?: boolean
-    error?: any
     colors: ReturnType<typeof useChartColors>
     scale: ReturnType<typeof useAxisScale>
     onRemoveBreakdown: (index: number) => void
@@ -82,7 +110,6 @@ function CollapsibleBreakdownSection({
     isAlternatingRow,
     isLoading,
     exposuresLoading,
-    error,
     colors,
     scale,
     onRemoveBreakdown,
@@ -90,11 +117,20 @@ function CollapsibleBreakdownSection({
     handleTooltipMouseLeave,
     handleTooltipMouseMove,
 }: CollapsibleBreakdownSectionProps): JSX.Element {
-    const [_, setIsExpanded] = useState(false)
+    const [isExpanded, setIsExpanded] = useState(false)
     const mainTableRef = useRef<HTMLTableRowElement>(null)
     const nestedTableRef = useRef<HTMLTableElement>(null)
 
     const totalRows = 1 + (breakdownResults[0]?.variants?.length || 0)
+
+    // Sync nested breakdown table column widths with parent table (only when expanded)
+    useColumnWidthSync(
+        {
+            parentRowRef: mainTableRef,
+            nestedTableRef,
+        },
+        [breakdownResults, axisRange, isExpanded]
+    )
 
     const ratioMetricLabel = (variant: ExperimentStatsBaseValidated, metric: ExperimentMetric): JSX.Element => {
         return (
@@ -179,7 +215,6 @@ function CollapsibleBreakdownSection({
                                                                         height={CELL_HEIGHT}
                                                                         experimentStarted={!!experiment.start_date}
                                                                         metric={metric}
-                                                                        error={error}
                                                                     />
                                                                 )}
                                                             </td>
@@ -613,51 +648,60 @@ export function MetricRowGroup({
 
     if (isLoading || error || !result || (!hasMinimumExposureForResults && !hasResultWithValidationFailures)) {
         return (
-            <tr
-                className="hover:bg-bg-hover group [&:last-child>td]:border-b-0"
-                style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
-            >
-                {/* Metric column - always visible */}
-                <td
-                    className={`w-1/5 border-r p-3 align-top text-left relative overflow-hidden ${
-                        !isLastMetric ? 'border-b' : ''
-                    } ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}
-                    style={{
-                        height: `${CELL_HEIGHT}px`,
-                        maxHeight: `${CELL_HEIGHT}px`,
-                    }}
-                >
-                    <MetricHeader
-                        displayOrder={displayOrder}
-                        metric={metric}
-                        metricType={metricType}
-                        isPrimaryMetric={!isSecondary}
-                        experiment={experiment}
-                        onDuplicateMetricClick={() => onDuplicateMetric?.()}
-                        onBreakdownChange={onBreakdownChange}
-                    />
-                </td>
-
-                {/* Combined columns for loading/error state */}
-                <td
-                    colSpan={6}
-                    className={`p-3 text-center ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'} ${
-                        !isLastMetric ? 'border-b' : ''
-                    }`}
+            <>
+                <tr
+                    className="hover:bg-bg-hover group [&:last-child>td]:border-b-0"
                     style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
                 >
-                    {isLoading || exposuresLoading ? (
-                        <ChartLoadingState height={CELL_HEIGHT} />
-                    ) : (
-                        <ChartEmptyState
-                            height={CELL_HEIGHT}
-                            experimentStarted={!!experiment.start_date}
+                    {/* Metric column - always visible */}
+                    <td
+                        className={`w-1/5 border-r p-3 align-top text-left relative overflow-hidden ${
+                            !isLastMetric ? 'border-b' : ''
+                        } ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}
+                        style={{
+                            height: `${CELL_HEIGHT}px`,
+                            maxHeight: `${CELL_HEIGHT}px`,
+                        }}
+                    >
+                        <MetricHeader
+                            displayOrder={displayOrder}
                             metric={metric}
-                            error={error}
+                            metricType={metricType}
+                            isPrimaryMetric={!isSecondary}
+                            experiment={experiment}
+                            onDuplicateMetricClick={() => onDuplicateMetric?.()}
+                            onBreakdownChange={onBreakdownChange}
                         />
-                    )}
-                </td>
-            </tr>
+                    </td>
+
+                    {/* Combined columns for loading/error state */}
+                    <td
+                        colSpan={6}
+                        className={`p-3 text-center ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'} ${
+                            !isLastMetric ? 'border-b' : ''
+                        }`}
+                        style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
+                    >
+                        {isLoading || exposuresLoading ? (
+                            <ChartLoadingState height={CELL_HEIGHT} />
+                        ) : (
+                            <ChartEmptyState
+                                height={CELL_HEIGHT}
+                                experimentStarted={!!experiment.start_date}
+                                metric={metric}
+                                error={error}
+                            />
+                        )}
+                    </td>
+                </tr>
+                {metric.breakdownFilter?.breakdowns && metric.breakdownFilter.breakdowns.length > 0 && (
+                    <BreakdownErrorState
+                        metric={metric}
+                        isAlternatingRow={isAlternatingRow}
+                        onRemoveBreakdown={onRemoveBreakdown}
+                    />
+                )}
+            </>
         )
     }
 
@@ -770,7 +814,7 @@ export function MetricRowGroup({
 
                 {/* Details column - with rowspan */}
                 <td
-                    className={`pt-3 align-top relative overflow-hidden border-b ${
+                    className={`w-20 pt-3 align-top relative overflow-hidden border-b ${
                         isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
                     }`}
                     rowSpan={totalRows}
@@ -943,7 +987,6 @@ export function MetricRowGroup({
                     isLastMetric={isLastMetric}
                     isLoading={isLoading}
                     exposuresLoading={exposuresLoading}
-                    error={error}
                     colors={colors}
                     scale={scale}
                     onRemoveBreakdown={onRemoveBreakdown}

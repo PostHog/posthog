@@ -44,9 +44,9 @@ function mergeChangeRequestsData(
 
 export const approvalsLogic = kea<approvalsLogicType>([
     path(['scenes', 'approvals', 'approvalsLogic']),
-    connect({
+    connect(() => ({
         values: [teamLogic, ['currentTeamId']],
-    }),
+    })),
     actions({
         setFilters: (filters: Partial<ApprovalsFilters>) => ({ filters }),
         loadChangeRequests: (url?: string) => ({ url }),

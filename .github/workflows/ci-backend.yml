@@ -109,6 +109,7 @@ jobs:
                         # changes to docker-compose.dev.yml e.g. dependency
                         # version changes
                         - docker-compose.dev.yml
+                        - docker-compose.profiles.yml
                         - docker-compose.base.yml
                         - frontend/public/email/*
                         - docker/clickhouse
@@ -133,6 +134,9 @@ jobs:
                         # Generation tooling - changes here could affect output
                         - 'frontend/bin/generate-openapi-types.mjs'
                         - 'frontend/src/lib/api-orval-mutator.ts'
+                        # Turbo config affects caching behavior
+                        - 'turbo.json'
+                        - 'common/hogli/manifest.yaml'
 
     detect-snapshot-mode:
         name: Detect snapshot mode
@@ -196,6 +200,7 @@ jobs:
               uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b # v7.2.0
               with:
                   enable-cache: true
+                  save-cache: ${{ github.ref == 'refs/heads/master' }}
                   version: 0.9.9
 
             - name: Install SAML (python3-saml) dependencies
@@ -212,7 +217,9 @@ jobs:
             - name: Cache Rust dependencies
               uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
               with:
+                  shared-key: 'v2-rust-backend'
                   workspaces: rust
+                  save-if: ${{ github.ref == 'refs/heads/master' }}
 
             - name: Install sqlx-cli
               run: |
@@ -494,7 +501,8 @@ jobs:
         timeout-minutes: 30
 
         name: Django tests – ${{ matrix.segment }} (persons-on-events ${{ matrix.person-on-events && 'on' || 'off' }}), Py ${{ matrix.python-version }}, ${{ matrix.clickhouse-server-image }} (${{matrix.group}}/${{ matrix.concurrency }})
-        runs-on: depot-ubuntu-latest
+        # Runner type is performance-critical — consult #team-devex before changing
+        runs-on: depot-ubuntu-latest-4
 
         strategy:
             fail-fast: false
@@ -504,7 +512,9 @@ jobs:
                 segment: ['Core']
                 person-on-events: [false]
                 # :NOTE: Keep concurrency and groups in sync
-                concurrency: [40]
+                # Shard counts are tuned to balance wall-clock time vs setup overhead (Amdahl's law).
+                # Consult #team-devex before changing.
+                concurrency: [38]
                 group:
                     [
                         1,
@@ -545,110 +555,78 @@ jobs:
                         36,
                         37,
                         38,
-                        39,
-                        40,
                     ]
                 include:
                     - segment: 'Core'
                       person-on-events: true
                       python-version: '3.12.12'
-                      concurrency: 10
+                      concurrency: 7
                       group: 1
                     - segment: 'Core'
                       person-on-events: true
                       python-version: '3.12.12'
-                      concurrency: 10
+                      concurrency: 7
                       group: 2
                     - segment: 'Core'
                       person-on-events: true
                       python-version: '3.12.12'
-                      concurrency: 10
+                      concurrency: 7
                       group: 3
                     - segment: 'Core'
                       person-on-events: true
                       python-version: '3.12.12'
-                      concurrency: 10
+                      concurrency: 7
                       group: 4
                     - segment: 'Core'
                       person-on-events: true
                       python-version: '3.12.12'
-                      concurrency: 10
+                      concurrency: 7
                       group: 5
                     - segment: 'Core'
                       person-on-events: true
                       python-version: '3.12.12'
-                      concurrency: 10
+                      concurrency: 7
                       group: 6
                     - segment: 'Core'
                       person-on-events: true
                       python-version: '3.12.12'
-                      concurrency: 10
+                      concurrency: 7
                       group: 7
-                    - segment: 'Core'
-                      person-on-events: true
-                      python-version: '3.12.12'
-                      concurrency: 10
-                      group: 8
-                    - segment: 'Core'
-                      person-on-events: true
-                      python-version: '3.12.12'
-                      concurrency: 10
-                      group: 9
-                    - segment: 'Core'
-                      person-on-events: true
-                      python-version: '3.12.12'
-                      concurrency: 10
-                      group: 10
                     - segment: 'Temporal'
                       person-on-events: false
                       python-version: '3.12.12'
-                      concurrency: 10
+                      concurrency: 7
                       group: 1
                     - segment: 'Temporal'
                       person-on-events: false
                       python-version: '3.12.12'
-                      concurrency: 10
+                      concurrency: 7
                       group: 2
                     - segment: 'Temporal'
                       person-on-events: false
                       python-version: '3.12.12'
-                      concurrency: 10
+                      concurrency: 7
                       group: 3
                     - segment: 'Temporal'
                       person-on-events: false
                       python-version: '3.12.12'
-                      concurrency: 10
+                      concurrency: 7
                       group: 4
                     - segment: 'Temporal'
                       person-on-events: false
                       python-version: '3.12.12'
-                      concurrency: 10
+                      concurrency: 7
                       group: 5
                     - segment: 'Temporal'
                       person-on-events: false
                       python-version: '3.12.12'
-                      concurrency: 10
+                      concurrency: 7
                       group: 6
                     - segment: 'Temporal'
                       person-on-events: false
                       python-version: '3.12.12'
-                      concurrency: 10
+                      concurrency: 7
                       group: 7
-                    - segment: 'Temporal'
-                      person-on-events: false
-                      python-version: '3.12.12'
-                      concurrency: 10
-                      group: 8
-                    - segment: 'Temporal'
-                      person-on-events: false
-                      python-version: '3.12.12'
-                      concurrency: 10
-                      group: 9
-                    - segment: 'Temporal'
-                      person-on-events: false
-                      python-version: '3.12.12'
-                      concurrency: 10
-                      group: 10
 
         steps:
             - uses: actions/checkout@v6
@@ -694,8 +672,9 @@ jobs:
                       while [ $attempt -le $max_attempts ]; do
                           echo "Attempt $attempt of $max_attempts to start stack..."
 
+                          # Docker profiles control which services start — consult #team-devex before changing
                           if docker compose -f docker-compose.dev.yml --profile '*' down && \
-                            docker compose -f docker-compose.dev.yml --profile batch-exports up -d; then
+                            docker compose -f docker-compose.dev.yml -f docker-compose.profiles.yml --profile temporal --profile azure up -d; then
                               echo "Stack started successfully"
                               exit 0
                           fi
@@ -729,6 +708,7 @@ jobs:
               uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b # v7.2.0
               with:
                   enable-cache: true
+                  save-cache: ${{ github.ref == 'refs/heads/master' }}
                   version: 0.9.9
 
             - name: Install SAML (python3-saml) dependencies
@@ -748,11 +728,9 @@ jobs:
               if: needs.changes.outputs.backend == 'true'
               uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
               with:
-                  # Add unique prefix per matrix job to avoid cache contention
-                  prefix-key: 'v1-rust-${{ matrix.segment }}-${{ matrix.group }}'
-                  # Add shared-key for cross-job cache reuse
-                  shared-key: 'v1-rust-shared'
+                  shared-key: 'v2-rust-backend'
                   workspaces: rust
+                  save-if: ${{ github.ref == 'refs/heads/master' }}
 
             - name: Install sqlx-cli
               if: needs.changes.outputs.backend == 'true'
@@ -841,6 +819,29 @@ jobs:
               run: echo "PYTEST_ARGS=--snapshot-update" >> $GITHUB_ENV
 
             # Tests
+            - name: Log test environment diagnostics
+              if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Core' }}
+              shell: bash
+              env:
+                  SHARD_GROUP: ${{ matrix.group }}
+                  SHARD_CONCURRENCY: ${{ matrix.concurrency }}
+                  CLICKHOUSE_IMAGE: ${{ matrix.clickhouse-server-image }}
+                  COMMIT_SHA: ${{ github.sha }}
+                  BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
+              run: |
+                  echo "=== Test Environment Diagnostics ==="
+                  echo "Shard: $SHARD_GROUP/$SHARD_CONCURRENCY"
+                  echo "Python version: $(python --version)"
+                  echo "ClickHouse version: $CLICKHOUSE_IMAGE"
+                  echo "Commit: $COMMIT_SHA"
+                  echo "Branch: $BRANCH_NAME"
+                  echo "Runner: $(uname -a)"
+                  echo "Memory: $(free -h | head -2)"
+                  echo "Disk: $(df -h / | tail -1)"
+                  echo "Docker containers:"
+                  docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" || true
+                  echo "==================================="
+
             - name: Run Core tests
               id: run-core-tests
               if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Core' }}
@@ -849,7 +850,7 @@ jobs:
               shell: bash
               run: | # async_migrations covered in ci-async-migrations.yml
                   set +e
-                  pytest ${{
+                  pytest -v --tb=short ${{
                       matrix.person-on-events
                       && './posthog/clickhouse/ ./posthog/queries/ ./posthog/api/test/test_insight* ./posthog/api/test/dashboards/test_dashboard.py'
                       || 'posthog products'
@@ -865,6 +866,7 @@ jobs:
                       --durations=1000 --durations-min=1.0 --store-durations \
                       --splitting-algorithm=duration_based_chunks \
                       --reruns 2 --reruns-delay 1 \
+                      -r fEsxX \
                       --junitxml=junit-core.xml \
                       $PYTEST_ARGS
                   exit_code=$?
@@ -882,6 +884,27 @@ jobs:
             #   if: failure()
             #   uses: mxschmitt/action-tmate@v3
 
+            - name: Log test environment diagnostics
+              if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Temporal' }}
+              shell: bash
+              env:
+                  SHARD_GROUP: ${{ matrix.group }}
+                  SHARD_CONCURRENCY: ${{ matrix.concurrency }}
+                  COMMIT_SHA: ${{ github.sha }}
+                  BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
+              run: |
+                  echo "=== Test Environment Diagnostics ==="
+                  echo "Shard: $SHARD_GROUP/$SHARD_CONCURRENCY"
+                  echo "Python version: $(python --version)"
+                  echo "Commit: $COMMIT_SHA"
+                  echo "Branch: $BRANCH_NAME"
+                  echo "Runner: $(uname -a)"
+                  echo "Memory: $(free -h | head -2)"
+                  echo "Disk: $(df -h / | tail -1)"
+                  echo "Docker containers:"
+                  docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" || true
+                  echo "==================================="
+
             - name: Run Temporal tests
               id: run-temporal-tests
               if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Temporal' }}
@@ -892,11 +915,12 @@ jobs:
                   MODAL_TOKEN_SECRET: ${{ needs.changes.outputs.tasks_temporal == 'true' && secrets.MODAL_TOKEN_SECRET || '' }}
               run: |
                   set +e
-                  pytest --timeout=300 --timeout-method=thread posthog/temporal products/batch_exports/backend/tests/temporal products/tasks/backend/temporal -m "not async_migrations" \
+                  pytest -v --tb=short --timeout=300 --timeout-method=thread posthog/temporal products/batch_exports/backend/tests/temporal products/tasks/backend/temporal -m "not async_migrations" \
                       --splits ${{ matrix.concurrency }} --group ${{ matrix.group }} \
                       --durations=100 --durations-min=1.0 --store-durations \
                       --splitting-algorithm=duration_based_chunks \
                       --reruns 2 --reruns-delay 1 \
+                      -r fEsxX \
                       --junitxml=junit-temporal.xml \
                       $PYTEST_ARGS
                   exit_code=$?
@@ -1196,6 +1220,7 @@ jobs:
               uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b # v7.2.0
               with:
                   enable-cache: true
+                  save-cache: ${{ github.ref == 'refs/heads/master' }}
                   version: 0.9.9
 
             - name: Install SAML (python3-saml) dependencies
@@ -1213,7 +1238,9 @@ jobs:
             - name: Cache Rust dependencies
               uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
               with:
+                  shared-key: 'v2-rust-backend'
                   workspaces: rust
+                  save-if: ${{ github.ref == 'refs/heads/master' }}
 
             - name: Install sqlx-cli
               run: |

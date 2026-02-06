@@ -3,7 +3,7 @@ import uuid
 import shutil
 import datetime as dt
 import tempfile
-from typing import Any
+from typing import Any, cast
 
 from django.db import close_old_connections
 
@@ -80,6 +80,7 @@ def build_export_context_activity(exported_asset_id: int) -> dict[str, Any]:
     fmt = asset.export_format
     tmp_ext = "mp4" if fmt == "video/mp4" else "gif" if fmt == "image/gif" else "webm"
     return {
+        "exported_asset_id": exported_asset_id,
         "url_to_render": url,
         "css_selector": css,
         "width": width,
@@ -98,7 +99,7 @@ def record_replay_video_activity(build: dict[str, Any]) -> dict[str, Any]:
     tmp_dir = tempfile.mkdtemp(prefix="ph-video-export-")
     tmp_path = os.path.join(tmp_dir, f"{uuid.uuid4()}.{build['tmp_ext']}")
     try:
-        record_replay_to_file(
+        inactivity_periods = record_replay_to_file(
             RecordReplayToFileOptions(
                 image_path=tmp_path,
                 url_to_render=build["url_to_render"],
@@ -107,9 +108,13 @@ def record_replay_video_activity(build: dict[str, Any]) -> dict[str, Any]:
                 screenshot_height=build.get("height"),  # None if not provided
                 recording_duration=build["duration"],
                 playback_speed=build.get("playback_speed", 1),  # default to 1 if not provided
-            )
+                use_puppeteer=build.get("use_puppeteer", False),
+            ),
         )
-        return {"tmp_path": tmp_path}
+        return {
+            "tmp_path": tmp_path,
+            "inactivity_periods": [x.model_dump() for x in inactivity_periods] if inactivity_periods else None,
+        }
     except Exception:
         # Clean up temp directory on failure
         shutil.rmtree(tmp_dir, ignore_errors=True)
@@ -121,7 +126,13 @@ def persist_exported_asset_activity(inputs: dict[str, Any]) -> None:
     close_old_connections()
     asset = ExportedAsset.objects.select_related("team").get(pk=inputs["exported_asset_id"])
     tmp_path = inputs["tmp_path"]
-
+    inactivity_periods = inputs.get("inactivity_periods")
+    if inactivity_periods:
+        if asset.export_context is None:
+            asset.export_context = {}
+        inactivity_periods = cast(list[dict[str, Any]], inactivity_periods)
+        asset.export_context["inactivity_periods"] = inactivity_periods
+        asset.save(update_fields=["export_context"])
     # Check file size first to prevent OOM
     file_size = os.path.getsize(tmp_path)
     MAX_FILE_SIZE = 100 * 1024 * 1024  # 100MB limit
@@ -129,17 +140,14 @@ def persist_exported_asset_activity(inputs: dict[str, Any]) -> None:
         raise RuntimeError(
             f"Video file too large: {file_size / (1024 * 1024):.1f}MB exceeds {MAX_FILE_SIZE // (1024 * 1024)}MB limit"
         )
-
     # Read in chunks to avoid loading entire file into memory at once
     chunk_size = 64 * 1024  # 64KB chunks for better I/O performance
     chunks = []
     with open(tmp_path, "rb") as f:
         while chunk := f.read(chunk_size):
             chunks.append(chunk)
-
     data = b"".join(chunks)
     save_content(asset, data)
-
     # Cleanup
     try:
         os.remove(tmp_path)

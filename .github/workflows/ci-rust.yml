@@ -18,6 +18,9 @@ jobs:
         timeout-minutes: 5
         if: github.repository == 'PostHog/posthog'
         name: Determine need to run Rust checks
+        permissions:
+            contents: read
+            pull-requests: read
         # Set job outputs to values from filter step
         outputs:
             rust: ${{ steps.filter.outputs.rust || 'true' }}
@@ -155,7 +158,23 @@ jobs:
             - name: Setup main repo and dependencies
               run: |
                   docker compose -f ../docker-compose.dev.yml down
-                  docker compose -f ../docker-compose.dev.yml up -d
+
+                  # Retry docker compose up with exponential backoff to handle transient registry errors
+                  for i in 1 2 3; do
+                    if docker compose -f ../docker-compose.dev.yml up -d; then
+                      echo "Docker compose up succeeded"
+                      break
+                    else
+                      if [ $i -lt 3 ]; then
+                        echo "Docker compose up failed (attempt $i/3), retrying in $((i * 10)) seconds..."
+                        sleep $((i * 10))
+                      else
+                        echo "Docker compose up failed after 3 attempts"
+                        exit 1
+                      fi
+                    fi
+                  done
+
                   echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts
 
             - name: Dump Kafka logs on failure
@@ -195,6 +214,7 @@ jobs:
               uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b # v7.2.0
               with:
                   enable-cache: true
+                  save-cache: ${{ github.ref == 'refs/heads/master' }}
                   version: 0.9.9
 
             - name: Install SAML (python3-saml) dependencies

@@ -1,4 +1,5 @@
-import { connect, kea, path, props, selectors } from 'kea'
+import { connect, kea, key, path, props, selectors } from 'kea'
+import { subscriptions } from 'kea-subscriptions'
 
 import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
@@ -84,10 +85,11 @@ function findEventWithParents(
 export const llmAnalyticsTraceDataLogic = kea<llmAnalyticsTraceDataLogicType>([
     path(['scenes', 'llm-analytics', 'llmAnalyticsTraceLogic']),
     props({} as TraceDataLogicProps),
+    key((props) => props.traceId),
     connect((props: TraceDataLogicProps) => ({
         values: [
             llmAnalyticsTraceLogic,
-            ['eventId', 'searchQuery'],
+            ['eventId', 'searchQuery', 'initialTab'],
             dataNodeLogic(getDataNodeLogicProps(props)),
             ['response', 'responseLoading', 'responseError'],
         ],
@@ -233,9 +235,12 @@ export const llmAnalyticsTraceDataLogic = kea<llmAnalyticsTraceDataLogicType>([
                 })),
         ],
         initialFocusEventId: [
-            (s) => [s.showableEvents, s.filteredTree],
-            (showableEvents: LLMTraceEvent[], filteredTree: TraceTreeNode[]): string | null =>
-                getInitialFocusEventId(showableEvents, filteredTree),
+            (s) => [s.showableEvents, s.filteredTree, s.initialTab],
+            (
+                showableEvents: LLMTraceEvent[],
+                filteredTree: TraceTreeNode[],
+                initialTab: string | null
+            ): string | null => getInitialFocusEventId(showableEvents, filteredTree, initialTab),
         ],
         effectiveEventId: [
             (s) => [s.eventId, s.initialFocusEventId],
@@ -289,6 +294,14 @@ export const llmAnalyticsTraceDataLogic = kea<llmAnalyticsTraceDataLogicType>([
             },
         ],
     }),
+
+    subscriptions(({ props }) => ({
+        trace: (trace: LLMTrace | undefined) => {
+            if (trace?.createdAt && props.traceId) {
+                llmAnalyticsTraceLogic.actions.loadNeighbors(props.traceId, trace.createdAt)
+            }
+        },
+    })),
 ])
 
 export interface TraceTreeNode {
@@ -394,12 +407,22 @@ function aggregateSpanMetrics(node: TraceTreeNode): SpanAggregation {
 // Export functions for testing
 export { findEventWithParents }
 
-export function getInitialFocusEventId(showableEvents: LLMTraceEvent[], filteredTree: TraceTreeNode[]): string | null {
+export function getInitialFocusEventId(
+    showableEvents: LLMTraceEvent[],
+    filteredTree: TraceTreeNode[],
+    initialTab: string | null
+): string | null {
     // First, look for an $ai_trace event
     const aiTraceEvent = showableEvents.find((event) => event.event === '$ai_trace')
 
     if (aiTraceEvent) {
         return aiTraceEvent.id
+    }
+
+    // If tab=summary is specified, user wants to stay at the trace level (e.g., from clusters view)
+    // Don't skip to first generation event in this case
+    if (initialTab === 'summary') {
+        return null
     }
 
     // If no $ai_trace event, look for the first $ai_generation event

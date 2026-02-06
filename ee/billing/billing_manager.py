@@ -85,12 +85,12 @@ def build_billing_token(
         if authorizer_actor != user:
             # We've done a privilege escalation
             report_user_action(
-                user,
+                authorizer_actor,
                 "$billing_privilege_escalation",
                 properties={
-                    "authorizer_actor_id": authorizer_actor.id,
-                    # NOTE(Marce): Hardcoded for now since it's the only place where it can happen
-                    # I have another PR with a better implementation of this.
+                    "target_user_id": user.id,
+                    "target_distinct_id": str(user.distinct_id),
+                    "target_email": user.email,
                     "action": "update_billing",
                 },
             )
@@ -404,6 +404,7 @@ class BillingManager:
                 ai_credits=usage_summary.get("ai_credits", {}),
                 workflow_emails=usage_summary.get("workflow_emails", {}),
                 workflow_destinations_dispatched=usage_summary.get("workflow_destinations_dispatched", {}),
+                logs_mb_ingested=usage_summary.get("logs_mb_ingested", {}),
                 period=[
                     data["billing_period"]["current_period_start"],
                     data["billing_period"]["current_period_end"],
@@ -559,6 +560,31 @@ class BillingManager:
             f"{BILLING_SERVICE_URL}/api/activate/authorize/status",
             headers=self.get_auth_headers(organization),
             json=data,
+        )
+
+        handle_billing_service_error(res)
+
+        return res.json()
+
+    def deauthorize(self, organization: Organization, billing_provider: BillingProvider) -> dict[str, Any]:
+        """
+        Deauthorize billing for an organization when a marketplace provider uninstalls.
+
+        This cancels the Stripe subscription and resets the billing provider to default,
+        effectively ending the customer's paid access through the marketplace.
+
+        Args:
+            organization: The organization to deauthorize billing for
+            billing_provider: The marketplace provider being uninstalled (e.g., "vercel")
+
+        Returns:
+            Response from billing service with success status
+        """
+        res = requests.post(
+            f"{BILLING_SERVICE_URL}/api/activate/authorize/uninstall",
+            headers=self.get_auth_headers(organization),
+            json={"billing_provider": billing_provider.value},
+            timeout=30,
         )
 
         handle_billing_service_error(res)

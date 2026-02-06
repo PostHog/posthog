@@ -39,9 +39,12 @@ util-linux = { pkg-path = "util-linux" } # flock
 cmake = { pkg-path = "cmake", version = "3.31.5", pkg-group = "cmake" }
 sqlx-cli = { pkg-path = "sqlx-cli", version = "0.8.3" } # sqlx
 postgresql = { pkg-path = "postgresql_14" } # psql
-ffmpeg.pkg-path = "ffmpeg"
+ffmpeg = { pkg-path = "ffmpeg_5", version = "5.1.4", pkg-group = "ffmpeg" }
 gh = { pkg-path = "gh" }
 protobuf = { pkg-path = "protobuf" } # protoc compiler for gRPC code generation
+ninja.pkg-path = "ninja"
+emscripten = { pkg-path = "emscripten", pkg-group = "emscripten", version = "4.0.23" }
+libpthread-stubs = { pkg-path = "libpthread-stubs", pkg-group = "emscripten" }
 watchman = { pkg-path = "watchman" } # Fast file watching for Django/Celery autoreload (uses pywatchman)
 
 # Set environment variables in the `[vars]` section. These variables may not
@@ -134,13 +137,17 @@ else
 fi
 
 echo -e "  \033[1;34m🔑 Environment variables\033[0m"
+if [ ! -f "$DOTENV_FILE" ] && [ -f ".env.example" ]; then
+  cp .env.example "$DOTENV_FILE"
+  echo -e "    \033[32m✅ Created '$DOTENV_FILE' from .env.example\033[0m"
+fi
 if [ -f "$DOTENV_FILE" ]; then
   set -o allexport
   source "$DOTENV_FILE"
   set +o allexport
   echo -e "    \033[32m✅ Environment variables loaded from '$DOTENV_FILE' file\033[0m"
 else
-  echo -e "    \033[31m❌ Environment variables file '$DOTENV_FILE' not found\033[0m"
+  echo -e "    \033[31m❌ Environment variables file '$DOTENV_FILE' not found (no .env.example available)\033[0m"
 fi
 
 # The block below only runs when in an interactive shell

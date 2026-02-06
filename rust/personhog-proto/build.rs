@@ -14,6 +14,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 format!("{proto_root}/personhog/types/v1/feature_flag.proto"),
                 // Services
                 format!("{proto_root}/personhog/replica/v1/replica.proto"),
+                format!("{proto_root}/personhog/service/v1/service.proto"),
             ],
             &[proto_root],
         )?;

@@ -102,7 +102,7 @@ def _compare_with_cpp_json(
     placeholders: dict[str, ast.Expr] | None = None,
 ) -> None:
     # Only compare a fraction of queries to avoid performance overhead
-    if random.random() > 0.1:
+    if random.random() > 0.25:
         return
 
     if backend == "cpp-json":
@@ -992,6 +992,9 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         object = self.visit(ctx.columnExpr())
         property = ast.Constant(value=self.visit(ctx.identifier()))
         return ast.ArrayAccess(array=object, property=property, nullish=True)
+
+    def visitColumnExprTypeCast(self, ctx: HogQLParser.ColumnExprTypeCastContext):
+        return ast.TypeCast(expr=self.visit(ctx.columnExpr()), type_name=self.visit(ctx.identifier()).lower())
 
     def visitColumnExprBetween(self, ctx: HogQLParser.ColumnExprBetweenContext):
         expr = self.visit(ctx.columnExpr(0))

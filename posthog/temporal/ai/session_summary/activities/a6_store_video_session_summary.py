@@ -16,6 +16,7 @@ from posthog.temporal.ai.session_summary.state import (
     get_redis_state_client,
 )
 from posthog.temporal.ai.session_summary.types.video import ConsolidatedVideoAnalysis, VideoSummarySingleSessionInputs
+from posthog.temporal.ai.session_summary.utils import parse_str_timestamp_to_ms
 
 from ee.hogai.session_summaries.session.summarize_session import SingleSessionSummaryLlmInputs
 from ee.hogai.session_summaries.utils import (
@@ -176,8 +177,8 @@ def _convert_video_segments_to_session_summary(
 
     for idx, segment in enumerate(segments):
         # Parse video segment timestamps to milliseconds
-        start_ms = _parse_timestamp_to_ms(segment.start_time)
-        end_ms = _parse_timestamp_to_ms(segment.end_time)
+        start_ms = parse_str_timestamp_to_ms(segment.start_time)
+        end_ms = parse_str_timestamp_to_ms(segment.end_time)
 
         # Find events within this segment's time range
         events_in_range = _find_events_in_time_range(
@@ -360,21 +361,6 @@ def _convert_video_segments_to_session_summary(
         "segment_outcomes": segment_outcomes,
         "session_outcome": session_outcome,
     }
-
-
-def _parse_timestamp_to_ms(timestamp_str: str) -> int:
-    """Parse MM:SS or HH:MM:SS timestamp string to milliseconds from session start"""
-    parts = timestamp_str.split(":")
-    if len(parts) == 2:
-        # MM:SS format
-        minutes, seconds = int(parts[0]), int(parts[1])
-        return (minutes * 60 + seconds) * 1000
-    elif len(parts) == 3:
-        # HH:MM:SS format
-        hours, minutes, seconds = int(parts[0]), int(parts[1]), int(parts[2])
-        return (hours * 3600 + minutes * 60 + seconds) * 1000
-    else:
-        raise ValueError(f"Invalid timestamp format: {timestamp_str}")
 
 
 def _find_closest_event(

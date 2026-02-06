@@ -10,14 +10,14 @@ import type { llmAnalyticsUsersLogicType } from './llmAnalyticsUsersLogicType'
 
 export const llmAnalyticsUsersLogic = kea<llmAnalyticsUsersLogicType>([
     path(['products', 'llm_analytics', 'frontend', 'tabs', 'llmAnalyticsUsersLogic']),
-    connect({
+    connect(() => ({
         values: [
             llmAnalyticsSharedLogic,
             ['dateFilter', 'shouldFilterTestAccounts', 'propertyFilters'],
             groupsModel,
             ['groupsTaxonomicTypes'],
         ],
-    }),
+    })),
 
     actions({
         setUsersSort: (column: string, direction: SortDirection) => ({ column, direction }),
@@ -47,7 +47,7 @@ export const llmAnalyticsUsersLogic = kea<llmAnalyticsUsersLogicType>([
                     kind: NodeKind.HogQLQuery,
                     query: `
                 SELECT
-                    argMax(user_tuple, timestamp) as user,
+                    argMax(user_tuple, timestamp) as __llm_person,
                     countDistinctIf(ai_trace_id, notEmpty(ai_trace_id)) as traces,
                     count() as generations,
                     countIf(notEmpty(ai_error) OR ai_is_error = 'true') as errors,
@@ -83,7 +83,7 @@ export const llmAnalyticsUsersLogic = kea<llmAnalyticsUsersLogicType>([
                         properties: propertyFilters,
                     },
                 },
-                columns: ['user', 'traces', 'generations', 'errors', 'total_cost', 'first_seen', 'last_seen'],
+                columns: ['__llm_person', 'traces', 'generations', 'errors', 'total_cost', 'first_seen', 'last_seen'],
                 showDateRange: true,
                 showReload: true,
                 showSearch: true,

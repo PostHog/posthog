@@ -1,7 +1,4 @@
-import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
-import { loaders } from 'kea-loaders'
-
-import api from 'lib/api'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 
 import { DataModelingNode } from '~/types'
 
@@ -10,23 +7,37 @@ import { dataModelingEditorLogic } from './modeling/dataModelingEditorLogic'
 
 export const PAGE_SIZE = 10
 
+export type SearchMode = 'search' | 'upstream' | 'downstream' | 'all'
+
+export interface ParsedSearch {
+    mode: SearchMode
+    baseName: string
+}
+
+/** Parse search term for +name (upstream), name+ (downstream), or +name+ (both) syntax */
+export function parseSearchTerm(searchTerm: string): ParsedSearch {
+    const trimmed = searchTerm.trim()
+    if (trimmed.startsWith('+') && trimmed.endsWith('+') && trimmed.length > 2) {
+        return { mode: 'all', baseName: trimmed.slice(1, -1) }
+    }
+    if (trimmed.startsWith('+') && trimmed.length > 1) {
+        return { mode: 'upstream', baseName: trimmed.slice(1) }
+    }
+    if (trimmed.endsWith('+') && trimmed.length > 1) {
+        return { mode: 'downstream', baseName: trimmed.slice(0, -1) }
+    }
+    return { mode: 'search', baseName: trimmed }
+}
+
 export const dataModelingNodesLogic = kea<dataModelingNodesLogicType>([
     path(['scenes', 'data-warehouse', 'scene', 'dataModelingNodesLogic']),
+    connect(() => ({
+        values: [dataModelingEditorLogic, ['dataModelingNodes as nodes', 'dataModelingNodesLoading as nodesLoading']],
+    })),
     actions({
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
         setDebouncedSearchTerm: (debouncedSearchTerm: string) => ({ debouncedSearchTerm }),
         setCurrentPage: (page: number) => ({ page }),
-    }),
-    loaders({
-        nodes: [
-            [] as DataModelingNode[],
-            {
-                loadNodes: async () => {
-                    const response = await api.dataModelingNodes.list()
-                    return response.results
-                },
-            },
-        ],
     }),
     reducers({
         searchTerm: [
@@ -50,13 +61,18 @@ export const dataModelingNodesLogic = kea<dataModelingNodesLogicType>([
         ],
     }),
     selectors({
+        parsedSearch: [
+            (s) => [s.debouncedSearchTerm],
+            (debouncedSearchTerm: string): ParsedSearch => parseSearchTerm(debouncedSearchTerm),
+        ],
         filteredNodes: [
             (s) => [s.nodes, s.searchTerm],
             (nodes: DataModelingNode[], searchTerm: string): DataModelingNode[] => {
                 if (!searchTerm) {
                     return nodes
                 }
-                return nodes.filter((n) => n.name.toLowerCase().includes(searchTerm.toLowerCase()))
+                const { baseName } = parseSearchTerm(searchTerm)
+                return nodes.filter((n) => n.name.toLowerCase().includes(baseName.toLowerCase()))
             },
         ],
         viewNodes: [
@@ -83,7 +99,4 @@ export const dataModelingNodesLogic = kea<dataModelingNodesLogicType>([
             actions.setDebouncedSearchTerm(searchTerm)
         },
     })),
-    afterMount(({ actions }) => {
-        actions.loadNodes()
-    }),
 ])

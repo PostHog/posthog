@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, key, listeners, path, props, reducers } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
@@ -6,7 +6,6 @@ import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { groupsModel } from '~/models/groupsModel'
-import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { DataTableNode } from '~/queries/schema/schema-general'
 import { GroupPropertyFilter, GroupTypeIndex } from '~/types'
@@ -19,6 +18,26 @@ export interface GroupsListLogicProps {
 
 const INITIAL_SORTING = [] as string[]
 const INITIAL_GROUPS_FILTER = [] as GroupPropertyFilter[]
+
+export const GROUPS_LIST_DEFAULT_COLUMNS = ['group_name', 'key', 'created_at']
+
+export const GROUPS_LIST_DEFAULT_QUERY = (groupTypeIndex: GroupTypeIndex | number): DataTableNode =>
+    ({
+        kind: NodeKind.DataTableNode,
+
+        source: {
+            kind: NodeKind.GroupsQuery,
+            select: GROUPS_LIST_DEFAULT_COLUMNS,
+            orderBy: [],
+            properties: [],
+            group_type_index: groupTypeIndex,
+        },
+
+        full: true,
+        showEventFilter: false,
+        propertiesViaUrl: true,
+        contextKey: `group-${groupTypeIndex}-list`,
+    }) as DataTableNode
 
 export const groupsListLogic = kea<groupsListLogicType>([
     props({} as GroupsListLogicProps),
@@ -41,21 +60,7 @@ export const groupsListLogic = kea<groupsListLogicType>([
     })),
     reducers(() => ({
         query: [
-            (_: any, props: GroupsListLogicProps) =>
-                ({
-                    kind: NodeKind.DataTableNode,
-
-                    source: {
-                        kind: NodeKind.GroupsQuery,
-                        select: undefined,
-                        group_type_index: props.groupTypeIndex,
-                    },
-
-                    full: true,
-                    showEventFilter: false,
-                    showPersistentColumnConfigurator: true,
-                    propertiesViaUrl: true,
-                }) as DataTableNode,
+            (_: any, props: GroupsListLogicProps) => GROUPS_LIST_DEFAULT_QUERY(props.groupTypeIndex),
             { setQuery: (_, { query }) => query },
         ],
         groupFilters: [
@@ -172,19 +177,4 @@ export const groupsListLogic = kea<groupsListLogicType>([
             }
         },
     })),
-    afterMount(({ actions, values }) => {
-        if (values.query.source.kind === NodeKind.GroupsQuery && values.query.source.select === undefined) {
-            const defaultColumns = values.groupTypes.get(
-                values.query.source.group_type_index as GroupTypeIndex
-            )?.default_columns
-            actions.setQuery({
-                ...values.query,
-                source: {
-                    ...values.query.source,
-                    select: defaultColumns ?? defaultDataTableColumns(NodeKind.GroupsQuery),
-                },
-            })
-            actions.setQueryWasModified(false)
-        }
-    }),
 ])

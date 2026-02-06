@@ -1,10 +1,11 @@
 from typing import Any, Literal, Optional, cast
 
 from django.core.cache import cache
-from django.db.models import Manager
+from django.db.models import Manager, Q
 
 import orjson
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, extend_schema
 from loginas.utils import is_impersonated_session
 from rest_framework import mixins, request, response, serializers, status, viewsets
 
@@ -423,6 +424,51 @@ class EventDefinitionViewSet(
                 "query_usage_30_day": query_usage_30_day,
             }
         )
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "name",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=True,
+                description="The exact event name to look up",
+            ),
+        ],
+        responses={200: EventDefinitionSerializer},
+    )
+    @action(detail=False, methods=["GET"], url_path="by_name", required_scopes=["event_definition:read"])
+    def by_name(self, request, *args, **kwargs):
+        """Get event definition by exact name"""
+        event_name = request.query_params.get("name")
+
+        if not event_name:
+            return response.Response(
+                {"detail": "Query parameter 'name' is required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        event_definition_object_manager: Manager
+        if EE_AVAILABLE:
+            from ee.models.event_definition import EnterpriseEventDefinition
+
+            event_definition_object_manager = EnterpriseEventDefinition.objects
+        else:
+            event_definition_object_manager = EventDefinition.objects
+
+        event_def = event_definition_object_manager.filter(
+            Q(project_id=self.project_id) | Q(project_id__isnull=True, team_id=self.project_id),
+            name=event_name,
+        ).first()
+
+        if not event_def:
+            return response.Response(
+                {"detail": f"Event definition with name '{event_name}' not found"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        serializer = self.get_serializer(event_def)
+        return response.Response(serializer.data)
 
 
 def fetch_30day_event_queries(

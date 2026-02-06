@@ -17,6 +17,14 @@ export const manifest: ProductManifest = {
                 'Manage your data warehouse sources and queries. New source syncs are always free for the first 7 days',
             iconType: 'data_warehouse',
         },
+        Models: {
+            name: 'Models',
+            import: () => import('../../frontend/src/scenes/models/ModelsScene'),
+            projectBased: true,
+            defaultDocsPath: '/docs/data-warehouse',
+            description: 'Create and manage views and materialized views for transforming and organizing your data.',
+            iconType: 'sql_editor',
+        },
         SQLEditor: {
             projectBased: true,
             name: 'SQL editor',
@@ -28,9 +36,11 @@ export const manifest: ProductManifest = {
     },
     routes: {
         '/data-warehouse': ['DataWarehouse', 'dataWarehouse'],
+        '/models': ['Models', 'models'],
     },
     urls: {
         dataWarehouse: (): string => '/data-warehouse',
+        models: (): string => '/models',
     },
     treeItemsProducts: [
         {
@@ -61,9 +71,19 @@ export const manifest: ProductManifest = {
             category: 'Pipeline',
             type: 'hog_function/source',
             iconType: 'data_pipeline_metadata',
-            href: urls.dataPipelines('sources'),
-            sceneKey: 'DataPipelines',
-            sceneKeys: ['DataPipelines'],
+            href: urls.sources(),
+            sceneKey: 'Sources',
+            sceneKeys: ['Sources'],
+        },
+        {
+            path: 'Models',
+            category: 'Tools',
+            type: 'sql',
+            iconType: 'sql_editor',
+            iconColor: ['var(--color-product-data-warehouse-light)'],
+            href: urls.models(),
+            sceneKey: 'Models',
+            sceneKeys: ['Models'],
         },
         {
             path: 'Managed viewsets',

@@ -2,11 +2,13 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, reducer
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+import isEqual from 'lodash.isequal'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { NEW_FLAG } from 'scenes/feature-flags/featureFlagLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
@@ -16,15 +18,24 @@ import {
     Breadcrumb,
     FeatureFlagBasicType,
     FeatureFlagFilters,
+    FeatureFlagType,
     ProductTour,
     ProductTourBannerConfig,
     ProductTourContent,
+    ProductTourStep,
     ProductTourStepButton,
 } from '~/types'
 
+import { DEFAULT_APPEARANCE } from './constants'
 import { prepareStepsForRender } from './editor/generateStepHtml'
 import type { productTourLogicType } from './productTourLogicType'
 import { isAnnouncement, productToursLogic } from './productToursLogic'
+import { hasIncompleteTargeting } from './stepUtils'
+
+export const DEFAULT_TARGETING_FILTERS: FeatureFlagType['filters'] = {
+    ...NEW_FLAG.filters,
+    groups: [{ ...NEW_FLAG.filters.groups[0], rollout_percentage: 100 }],
+}
 
 /**
  * Builds a HogQL date filter clause from a DateRange.
@@ -132,7 +143,7 @@ export interface ProductTourForm {
 const NEW_PRODUCT_TOUR: ProductTourForm = {
     name: '',
     description: '',
-    content: { steps: [] },
+    content: { steps: [], appearance: DEFAULT_APPEARANCE },
     auto_launch: false,
     targeting_flag_filters: null,
     linked_flag: null,
@@ -150,6 +161,8 @@ export const productTourLogic = kea<productTourLogicType>([
         editingProductTour: (editing: boolean) => ({ editing }),
         setDateRange: (dateRange: DateRange) => ({ dateRange }),
         setEditTab: (tab: ProductTourEditTab) => ({ tab }),
+        setSelectedStepIndex: (index: number) => ({ index }),
+        updateSelectedStep: (updates: Partial<ProductTourStep>) => ({ updates }),
         launchProductTour: true,
         stopProductTour: true,
         resumeProductTour: true,
@@ -326,12 +339,28 @@ export const productTourLogic = kea<productTourLogicType>([
                     return undefined
                 }
 
-                for (const step of content.steps || []) {
-                    const error =
-                        step.type === 'banner'
-                            ? validateBannerAction(step.bannerConfig?.action, 'Banner click action')
-                            : validateButton(step.buttons?.primary, 'Primary button') ||
-                              validateButton(step.buttons?.secondary, 'Secondary button')
+                for (const [index, step] of (content.steps || []).entries()) {
+                    let error: string | undefined
+
+                    if (step.type === 'banner') {
+                        if (step.bannerConfig?.behavior === 'custom' && !step.bannerConfig?.selector?.trim()) {
+                            error = 'Custom banner position requires a CSS selector'
+                        } else {
+                            error = validateBannerAction(step.bannerConfig?.action, 'Banner click action')
+                        }
+                    } else {
+                        const errorPrefix = content.steps.length > 1 ? `Step ${index + 1} ` : ''
+
+                        error =
+                            validateButton(step.buttons?.primary, `${errorPrefix}Primary button`) ||
+                            validateButton(step.buttons?.secondary, `${errorPrefix}Secondary button`)
+                    }
+
+                    if (hasIncompleteTargeting(step)) {
+                        error = step.useManualSelector
+                            ? `Step ${index + 1} missing element selector`
+                            : `Select an element for step ${index + 1}`
+                    }
 
                     if (error) {
                         errors._form = error
@@ -391,6 +420,12 @@ export const productTourLogic = kea<productTourLogicType>([
                 setDateRange: (_, { dateRange }) => dateRange,
             },
         ],
+        selectedStepIndex: [
+            0,
+            {
+                setSelectedStepIndex: (_, { index }) => index,
+            },
+        ],
         pendingToolbarOpen: [
             false,
             {
@@ -409,16 +444,34 @@ export const productTourLogic = kea<productTourLogicType>([
         ],
     }),
     listeners(({ actions, values }) => ({
+        updateSelectedStep: ({ updates }) => {
+            const steps = values.productTourForm.content?.steps ?? []
+            const index = values.selectedStepIndex
+            if (index >= 0 && index < steps.length) {
+                const newSteps = [...steps]
+                newSteps[index] = { ...newSteps[index], ...updates }
+                actions.setProductTourFormValue('content', {
+                    ...values.productTourForm.content,
+                    steps: newSteps,
+                })
+            }
+        },
         submitAndOpenToolbar: () => {
             actions.submitProductTourForm()
         },
         submitProductTourFormSuccess: () => {
             if (values.pendingToolbarOpen) {
                 actions.openToolbarModal()
+            } else {
+                actions.editingProductTour(false)
             }
         },
         submitProductTourFormFailure: () => {
-            lemonToast.error('Failed to save product tour')
+            const errorMessage =
+                values.productTourFormAllErrors._form ||
+                values.productTourFormAllErrors.name ||
+                'Failed to save product tour'
+            lemonToast.error(errorMessage)
         },
         launchProductTour: async () => {
             if (values.productTour) {
@@ -528,6 +581,12 @@ export const productTourLogic = kea<productTourLogicType>([
                 return undefined
             },
         ],
+        hasCustomTargeting: [
+            (s) => [s.targetingFlagFilters],
+            (targetingFlagFilters: FeatureFlagFilters | undefined): boolean => {
+                return !!targetingFlagFilters && !isEqual(targetingFlagFilters, DEFAULT_TARGETING_FILTERS)
+            },
+        ],
         entityKeyword: [
             (s) => [s.productTour],
             (productTour: ProductTour | null): string => {
@@ -537,9 +596,7 @@ export const productTourLogic = kea<productTourLogicType>([
     }),
     urlToAction(({ actions, props }) => ({
         [urls.productTour(props.id)]: (_, searchParams) => {
-            if (searchParams.edit) {
-                actions.editingProductTour(true)
-            }
+            actions.editingProductTour(!!searchParams.edit)
             if (searchParams.tab) {
                 actions.setEditTab(searchParams.tab as ProductTourEditTab)
             }

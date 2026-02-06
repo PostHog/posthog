@@ -5,10 +5,11 @@ import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { browserNotificationLogic } from './browserNotificationLogic'
 import { supportTicketsSceneLogic } from './scenes/tickets/supportTicketsSceneLogic'
 import type { supportTicketCounterLogicType } from './supportTicketCounterLogicType'
 
-const POLL_INTERVAL = 15 * 1000 // 15 seconds - backend is cached so frequent polling is cheap
+const POLL_INTERVAL = 5 * 1000 // 5 seconds - backend is cached so frequent polling is cheap
 
 export interface UnreadCountResponse {
     count: number
@@ -16,9 +17,10 @@ export interface UnreadCountResponse {
 
 export const supportTicketCounterLogic = kea<supportTicketCounterLogicType>([
     path(['products', 'conversations', 'frontend', 'supportTicketCounterLogic']),
-    connect({
-        values: [teamLogic, ['currentTeam']],
-    }),
+    connect(() => ({
+        values: [teamLogic, ['currentTeam'], browserNotificationLogic, ['canShowNotifications']],
+        actions: [browserNotificationLogic, ['showNotification']],
+    })),
     actions({
         togglePolling: (pageIsVisible: boolean) => ({ pageIsVisible }),
         incrementErrorCount: true,
@@ -84,7 +86,6 @@ export const supportTicketCounterLogic = kea<supportTicketCounterLogicType>([
     })),
     selectors({
         isSupportEnabled: [(s) => [s.currentTeam], (currentTeam): boolean => !!currentTeam?.conversations_enabled],
-        hasUnread: [(s) => [s.unreadCount], (unreadCount) => unreadCount > 0],
     }),
     listeners(({ actions, values, cache }) => ({
         togglePolling: ({ pageIsVisible }) => {
@@ -99,12 +100,8 @@ export const supportTicketCounterLogic = kea<supportTicketCounterLogicType>([
             cache.disposables.dispose('pollTimeout')
             actions.loadUnreadCount()
         },
-        resetCount: () => {
-            // Stop polling when count is reset (team change/logout)
-            // Note: pollTimeout is already disposed in subscriptions
-        },
     })),
-    subscriptions(({ actions, cache }) => ({
+    subscriptions(({ actions, values, cache }) => ({
         // React to team changes - reset and re-fetch for new team
         currentTeam: (currentTeam, oldTeam) => {
             // Skip initial mount (oldTeam is undefined)
@@ -130,6 +127,10 @@ export const supportTicketCounterLogic = kea<supportTicketCounterLogicType>([
             // Refresh tickets list if scene is mounted
             if (unreadCount !== oldUnreadCount) {
                 supportTicketsSceneLogic.findMounted()?.actions.loadTickets()
+            }
+            // Show browser notification when count increases
+            if (unreadCount > oldUnreadCount && values.canShowNotifications) {
+                actions.showNotification(unreadCount)
             }
         },
     })),

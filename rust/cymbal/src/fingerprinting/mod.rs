@@ -4,7 +4,7 @@ use crate::{
     app_context::AppContext,
     assignment_rules::NewAssignment,
     error::UnhandledError,
-    types::{ExceptionList, RawErrProps},
+    types::{Exception, ExceptionList, RawErrProps},
 };
 use common_types::TeamId;
 use grouping_rules::{try_grouping_rules, GroupingRule};

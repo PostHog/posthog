@@ -20,9 +20,9 @@ export interface SourceData {
 export const framesCodeSourceLogic = kea<framesCodeSourceLogicType>([
     path(['components', 'Errors', 'framesCodeSourceLogic']),
 
-    connect({
+    connect(() => ({
         values: [stackFrameLogic, ['stackFrameRecords']],
-    }),
+    })),
 
     actions({
         setSourceData: (data: Record<string, SourceData | null>) => ({ data }),
