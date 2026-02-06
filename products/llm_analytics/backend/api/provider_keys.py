@@ -14,6 +14,8 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
 from posthog.models import User
+from posthog.permissions import AccessControlPermission
+from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 
 from ..llm.client import Client
 from ..models.evaluation_config import EvaluationConfig
@@ -115,9 +117,9 @@ class LLMProviderKeySerializer(serializers.ModelSerializer):
         return super().update(instance, validated_data)
 
 
-class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     scope_object = "llm_provider_key"
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, AccessControlPermission]
     serializer_class = LLMProviderKeySerializer
     queryset = LLMProviderKey.objects.all()
 
@@ -292,7 +294,7 @@ class LLMProviderKeyValidationViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     """Validate LLM provider API keys without persisting them"""
 
     scope_object = "llm_provider_key"
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, AccessControlPermission]
 
     @monitor(feature=None, endpoint="llma_provider_key_validations_create", method="POST")
     def create(self, request: Request, **_kwargs) -> Response:
