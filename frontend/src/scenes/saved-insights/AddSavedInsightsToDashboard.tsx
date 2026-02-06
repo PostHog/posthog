@@ -4,7 +4,7 @@ import { SavedInsightsTable } from './SavedInsightsTable'
 import { DashboardActionButton } from './components/DashboardActionButton'
 
 export function AddSavedInsightsToDashboard(): JSX.Element {
-    const isExperimentEnabled = useFeatureFlag('ADD_INSIGHT_TO_DASHBOARD_MODAL_EXPERIMENT')
+    const isExperimentEnabled = useFeatureFlag('PRODUCT_ANALYTICS_ADD_INSIGHT_TO_DASHBOARD_MODAL', 'test')
 
     if (isExperimentEnabled) {
         return <SavedInsightsTable />

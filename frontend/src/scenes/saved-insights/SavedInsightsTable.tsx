@@ -32,7 +32,7 @@ interface SavedInsightsTableProps {
 }
 
 export function SavedInsightsTable({ renderActionColumn }: SavedInsightsTableProps): JSX.Element {
-    const isExperimentEnabled = useFeatureFlag('ADD_INSIGHT_TO_DASHBOARD_MODAL_EXPERIMENT')
+    const isExperimentEnabled = useFeatureFlag('PRODUCT_ANALYTICS_ADD_INSIGHT_TO_DASHBOARD_MODAL', 'test')
     const { modalPage, insights, count, insightsLoading, filters, sorting, insightsPerPage } =
         useValues(addSavedInsightsModalLogic)
     const { setModalPage, setModalFilters } = useActions(addSavedInsightsModalLogic)
@@ -84,14 +84,15 @@ export function SavedInsightsTable({ renderActionColumn }: SavedInsightsTablePro
             title: 'Name',
             dataIndex: 'name',
             key: 'name',
+            width: 300,
             render: function renderName(name: string, insight) {
                 const displayName = name || summarizeInsight(insight.query)
                 return (
-                    <div className="flex flex-col gap-1 min-w-0 max-w-sm">
-                        <div className="flex min-w-0">
+                    <div className="flex flex-col gap-1 min-w-0 max-w-[300px] overflow-hidden">
+                        <div className="flex min-w-0 overflow-hidden">
                             {isExperimentEnabled ? (
                                 <Tooltip title={displayName}>
-                                    <span className="block truncate">{name || <i>{displayName}</i>}</span>
+                                    <span className="block truncate max-w-full">{name || <i>{displayName}</i>}</span>
                                 </Tooltip>
                             ) : (
                                 <Tooltip title={displayName}>
@@ -166,7 +167,7 @@ export function SavedInsightsTable({ renderActionColumn }: SavedInsightsTablePro
     ]
 
     return (
-        <div className="saved-insights overflow-hidden">
+        <div className="saved-insights">
             {isExperimentEnabled ? (
                 <>
                     <SavedInsightsFilters filters={filters} setFilters={setModalFilters} showQuickFilters={false} />
@@ -195,48 +196,50 @@ export function SavedInsightsTable({ renderActionColumn }: SavedInsightsTablePro
             {!insightsLoading && insights.count < 1 ? (
                 <SavedInsightsEmptyState filters={filters} usingFilters />
             ) : (
-                <LemonTable
-                    dataSource={insights.results}
-                    columns={columns}
-                    loading={insightsLoading}
-                    pagination={{
-                        controlled: true,
-                        currentPage: modalPage,
-                        pageSize: insightsPerPage,
-                        entryCount: count,
-                        onForward: () => setModalPage(modalPage + 1),
-                        onBackward: () => setModalPage(modalPage - 1),
-                    }}
-                    sorting={sorting}
-                    onSort={(newSorting) =>
-                        setModalFilters({
-                            order: newSorting
-                                ? `${newSorting.order === -1 ? '-' : ''}${newSorting.columnKey}`
-                                : undefined,
-                        })
-                    }
-                    rowKey="id"
-                    loadingSkeletonRows={insightsPerPage}
-                    nouns={['insight', 'insights']}
-                    rowClassName={
-                        isExperimentEnabled
-                            ? (insight) =>
-                                  isInsightInDashboard(insight, dashboard?.tiles)
-                                      ? 'bg-success-highlight border-l-2 border-l-success cursor-pointer hover:bg-success-highlight/70'
-                                      : 'cursor-pointer hover:bg-success-highlight/30 border-l-2 border-l-transparent hover:border-l-success/50'
-                            : undefined
-                    }
-                    onRow={
-                        isExperimentEnabled
-                            ? (insight) => ({
-                                  onClick: () => handleRowClick(insight),
-                                  title: isInsightInDashboard(insight, dashboard?.tiles)
-                                      ? 'Click to remove from dashboard'
-                                      : 'Click to add to dashboard',
-                              })
-                            : undefined
-                    }
-                />
+                <div className="overflow-x-hidden">
+                    <LemonTable
+                        dataSource={insights.results}
+                        columns={columns}
+                        loading={insightsLoading}
+                        pagination={{
+                            controlled: true,
+                            currentPage: modalPage,
+                            pageSize: insightsPerPage,
+                            entryCount: count,
+                            onForward: () => setModalPage(modalPage + 1),
+                            onBackward: () => setModalPage(modalPage - 1),
+                        }}
+                        sorting={sorting}
+                        onSort={(newSorting) =>
+                            setModalFilters({
+                                order: newSorting
+                                    ? `${newSorting.order === -1 ? '-' : ''}${newSorting.columnKey}`
+                                    : undefined,
+                            })
+                        }
+                        rowKey="id"
+                        loadingSkeletonRows={insightsPerPage}
+                        nouns={['insight', 'insights']}
+                        rowClassName={
+                            isExperimentEnabled
+                                ? (insight) =>
+                                      isInsightInDashboard(insight, dashboard?.tiles)
+                                          ? 'bg-success-highlight border-l-2 border-l-success cursor-pointer hover:bg-success-highlight/70'
+                                          : 'cursor-pointer hover:bg-success-highlight/30 border-l-2 border-l-transparent hover:border-l-success/50'
+                                : undefined
+                        }
+                        onRow={
+                            isExperimentEnabled
+                                ? (insight) => ({
+                                      onClick: () => handleRowClick(insight),
+                                      title: isInsightInDashboard(insight, dashboard?.tiles)
+                                          ? 'Click to remove from dashboard'
+                                          : 'Click to add to dashboard',
+                                  })
+                                : undefined
+                        }
+                    />
+                </div>
             )}
         </div>
     )

@@ -129,7 +129,7 @@ export const addSavedInsightsModalLogic = kea<addSavedInsightsModalLogicType>([
         insightsPerPage: [
             (s) => [s.featureFlags],
             (featureFlags): number =>
-                featureFlags[FEATURE_FLAGS.ADD_INSIGHT_TO_DASHBOARD_MODAL_EXPERIMENT] === 'test'
+                featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_ADD_INSIGHT_TO_DASHBOARD_MODAL] === 'test'
                     ? INSIGHTS_PER_PAGE_EXPERIMENT
                     : INSIGHTS_PER_PAGE,
         ],
