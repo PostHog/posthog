@@ -68,6 +68,7 @@ export function validateSurveyAppearance(
         }),
         submitButtonColor: validateCSSProperty('background-color', appearance.submitButtonColor),
         submitButtonTextColor: validateCSSProperty('color', appearance.submitButtonTextColor),
+        closeButtonColor: validateCSSProperty('color', appearance.closeButtonColor),
         maxWidth: validateCSSProperty('width', appearance.maxWidth),
         boxPadding: validateCSSProperty('padding', appearance.boxPadding),
         boxShadow: validateCSSProperty('box-shadow', appearance.boxShadow),
