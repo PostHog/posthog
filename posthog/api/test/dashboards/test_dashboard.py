@@ -20,6 +20,7 @@ from posthog.helpers.dashboard_templates import create_group_type_mapping_detail
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 from posthog.models import Dashboard, DashboardTile, Filter, Insight, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.dashboard_tile import Text
 from posthog.models.file_system.file_system_view_log import FileSystemViewLog
 from posthog.models.insight_variable import InsightVariable
 from posthog.models.organization import Organization
@@ -1468,6 +1469,26 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         dashboard = self.dashboard_api.get_dashboard(dashboard_id)
         assert len(dashboard["tiles"]) == 1
+
+    def test_update_text_tile_cannot_hijack_other_teams_tile(self) -> None:
+        other_org, _, other_team = Organization.objects.bootstrap(self.user, name="other org")
+        other_dashboard = Dashboard.objects.create(team=other_team, name="other dashboard")
+        other_text = Text.objects.create(team=other_team, body="secret text", created_by=self.user)
+        other_tile = DashboardTile.objects.create(dashboard=other_dashboard, text=other_text)
+
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "my dashboard"})
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}",
+            {"tiles": [{"id": other_tile.id, "text": {"id": other_text.id, "body": "hijacked"}}]},
+        )
+        assert response.status_code != status.HTTP_200_OK
+
+        other_text.refresh_from_db()
+        assert other_text.body == "secret text"
+
+        other_tile.refresh_from_db()
+        assert other_tile.dashboard_id == other_dashboard.id
 
     def test_relations_on_insights_when_dashboards_were_deleted(self) -> None:
         filter_dict = {

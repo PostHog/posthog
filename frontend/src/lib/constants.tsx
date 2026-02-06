@@ -268,7 +268,6 @@ export const FEATURE_FLAGS = {
     ERROR_TRACKING_SPIKE_ALERTING: 'error-tracking-spike-alerting', // owner: #team-error-tracking
     EXPERIMENT_AI_SUMMARY: 'experiment-ai-summary', // owner: @jurajmajerik #team-experiments
     EXPERIMENTS_FF_CROSS_SELL: 'experiments-ff-cross-sell', // owner: @rodrigoi #team-experiments
-    EXPERIMENTS_NEW_CALCULATOR: 'experiments-new-calculator', // owner: @jurajmajerik #team-experiments
     EXPERIMENTS_SHOW_SQL: 'experiments-show-sql', // owner: @jurajmajerik #team-experiments
     FEATURE_FLAG_COHORT_CREATION: 'feature-flag-cohort-creation', // owner: #team-feature-flags
     FEATURE_FLAGS_V2: 'feature-flags-v2', // owner: @dmarticus #team-feature-flags
@@ -348,7 +347,6 @@ export const FEATURE_FLAGS = {
     POSTHOG_AI_CONVERSATION_FEEDBACK_LLMA_SESSIONS: 'posthog-ai-conversation-feedback-llma-sessions', // owner: #team-posthog-ai
     POSTHOG_AI_QUEUE_MESSAGES_SYSTEM: 'posthog-ai-queue-messages-system', // owner: #team-posthog-ai
     POSTHOG_AI_FLAGS_MODE: 'posthog-ai-flags-mode', // owner: #team-posthog-ai
-    POSTHOG_AI_UPSERT_DASHBOARD: 'phai-upsert-dashboards', // owner: #team-posthog-ai
     RBAC_UI_REDESIGN: 'rbac-ui-redesign', // owner: @reece #team-platform-features
     RECORDINGS_PLAYER_EVENT_PROPERTY_EXPANSION: 'recordings-player-event-property-expansion', // owner: @pauldambra #team-replay
     REMOTE_CONFIG: 'remote-config', // owner: #team-platform-features

@@ -15,6 +15,7 @@ overrides:
   cipher-base: '>=1.0.5'
   sha.js: '>=2.4.12'
   form-data: '>=4.0.4'
+  '@modelcontextprotocol/sdk': ^1.26.0
 
 patchedDependencies:
   chartjs-plugin-crosshair@2.0.0:
@@ -861,8 +862,8 @@ importers:
         specifier: ^2.11.0
         version: 2.11.0
       posthog-js:
-        specifier: 1.341.0
-        version: 1.341.0
+        specifier: 1.341.2
+        version: 1.341.2
       posthog-js-lite:
         specifier: 4.2.2
         version: 4.2.2
@@ -1707,8 +1708,8 @@ importers:
         specifier: ^3.0.1
         version: 3.0.1(kea@3.1.7(react@18.3.1))
       posthog-js:
-        specifier: 1.341.0
-        version: 1.341.0
+        specifier: 1.341.2
+        version: 1.341.2
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -1901,8 +1902,8 @@ importers:
         specifier: ^3.0.1
         version: 3.0.1(kea@3.1.7(react@18.3.1))
       posthog-js:
-        specifier: 1.341.0
-        version: 1.341.0
+        specifier: 1.341.2
+        version: 1.341.2
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2142,8 +2143,8 @@ importers:
         specifier: ^3.0.1
         version: 3.0.1(kea@3.1.7(react@18.3.1))
       posthog-js:
-        specifier: 1.341.0
-        version: 1.341.0
+        specifier: 1.341.2
+        version: 1.341.2
       prettier:
         specifier: '*'
         version: 3.6.2
@@ -2224,8 +2225,8 @@ importers:
         specifier: '*'
         version: 5.4.1
       posthog-js:
-        specifier: 1.341.0
-        version: 1.341.0
+        specifier: 1.341.2
+        version: 1.341.2
       prettier:
         specifier: '*'
         version: 3.4.2
@@ -2545,8 +2546,8 @@ importers:
         specifier: ^3.4.1
         version: 3.4.1(kea@3.1.7(react@18.3.1))
       posthog-js:
-        specifier: 1.341.0
-        version: 1.341.0
+        specifier: 1.341.2
+        version: 1.341.2
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2617,8 +2618,8 @@ importers:
         specifier: ^3.0.1
         version: 3.0.1(kea@3.1.7(react@18.3.1))
       posthog-js:
-        specifier: 1.341.0
-        version: 1.341.0
+        specifier: 1.341.2
+        version: 1.341.2
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2658,7 +2659,7 @@ importers:
         version: 2.1.0
       agents:
         specifier: ^0.3.6
-        version: 0.3.6(@cloudflare/ai-chat@0.0.4)(@cloudflare/codemode@0.0.5)(@cloudflare/workers-types@4.20260131.0)(ai@6.0.67(zod@3.25.76))(hono@4.11.7)(react@18.3.1)(zod@3.25.76)
+        version: 0.3.6(@cloudflare/ai-chat@0.0.4)(@cloudflare/codemode@0.0.5)(@cloudflare/workers-types@4.20260131.0)(ai@6.0.67(zod@3.25.76))(react@18.3.1)(zod@3.25.76)
       ai:
         specifier: ^6.0.0
         version: 6.0.67(zod@3.25.76)
@@ -5828,7 +5829,7 @@ packages:
   '@modelcontextprotocol/ext-apps@1.0.1':
     resolution: {integrity: sha512-rAPzBbB5GNgYk216paQjGKUgbNXSy/yeR95c0ni6Y4uvhWI2AeF+ztEOqQFLBMQy/MPM+02pbVK1HaQmQjMwYQ==}
     peerDependencies:
-      '@modelcontextprotocol/sdk': ^1.24.0
+      '@modelcontextprotocol/sdk': ^1.26.0
       react: 18.3.1
       react-dom: 18.3.1
       zod: ^3.25.0 || ^4.0.0
@@ -5836,16 +5837,6 @@ packages:
       react:
         optional: true
       react-dom:
-        optional: true
-
-  '@modelcontextprotocol/sdk@1.25.2':
-    resolution: {integrity: sha512-LZFeo4F9M5qOhC/Uc1aQSrBHxMrvxett+9KLHt7OhcExtoiRN9DKgbZffMP/nxjutWDQpfMDfP3nkHI4X9ijww==}
-    engines: {node: '>=18'}
-    peerDependencies:
-      '@cfworker/json-schema': ^4.1.1
-      zod: ^3.25 || ^4.0
-    peerDependenciesMeta:
-      '@cfworker/json-schema':
         optional: true
 
   '@modelcontextprotocol/sdk@1.26.0':
@@ -7239,8 +7230,8 @@ packages:
   '@posthog/siphash@1.1.1':
     resolution: {integrity: sha512-JUFk57H89fOnHpF62FDyFGw4uXeHAX20OPfkLL8/iqg/xrVp5Q21LvJUDijmS5wt0avgUwXF2bxYgaZ5iWRmAg==}
 
-  '@posthog/types@1.341.0':
-    resolution: {integrity: sha512-lIQzaPzfxdhonj2nXI2Nh3z45wyfb/e48cyy/+GawNDeRnkzqyhifpyAimVafBJIP7RR1lQqEnM8Xk55H7SRgQ==}
+  '@posthog/types@1.341.2':
+    resolution: {integrity: sha512-Dwxi5OkxS54Pl1lUw2Zmc9fHKdGQCCFzKoWF/EYgdTj8zCnw/58XIAzqJknfmhYD9K8ivt9WETP96pBM5jMR9g==}
 
   '@protobufjs/aspromise@1.1.2':
     resolution: {integrity: sha512-j+gKExEuLmKwvz3OgROXtrJ2UG2x8Ch2YZUxahh+s1F2HZ+wAceUNLkvy6zKCPVRkU++ZWQrdxsUeQXmcg4uoQ==}
@@ -13237,12 +13228,6 @@ packages:
   expr-eval@2.0.2:
     resolution: {integrity: sha512-4EMSHGOPSwAfBiibw3ndnP0AvjDWLsMvGOvWEZ2F96IGk0bIVdjQisOHxReSkE13mHcfbuCiXw+G4y0zv6N8Eg==}
 
-  express-rate-limit@7.5.1:
-    resolution: {integrity: sha512-7iN8iPMDzOMHPUYllBEsQdWVB6fPDMPqwjBaFrgr4Jgr/+okjvzAy+UHlYYL/Vs0OsOrMkwS6PJDkFlJwoxUnw==}
-    engines: {node: '>= 16'}
-    peerDependencies:
-      express: '>= 4.11'
-
   express-rate-limit@8.2.1:
     resolution: {integrity: sha512-PCZEIEIxqwhzw4KF0n7QF4QqruVTcF73O5kFKUnGOyjbCCgizBBiFaYpd/fnBLUMPw/BWw9OsiN7GgrNYr7j6g==}
     engines: {node: '>= 16'}
@@ -17371,8 +17356,8 @@ packages:
   posthog-js-lite@4.2.2:
     resolution: {integrity: sha512-fFCoGtMICWwoW0tsEdyFS7OFFgwe7bTTha/SKEtUdyJ56UyJ8wi6VghxyPkO2GVWpco5Za/edT1z1ovGYPCyLQ==}
 
-  posthog-js@1.341.0:
-    resolution: {integrity: sha512-sWa/84yi93ar/SJrG0do5QshCGWqUH39cNLrngN/GqC8kA5JLxyUEBmFaK65aAxrSKJ1muGP11ofIKDCwQn98Q==}
+  posthog-js@1.341.2:
+    resolution: {integrity: sha512-86C1igiCnqX1z46CCOkEUUxWf9YxqaoPZ1KY5bGT5tNq3C1HpZN1xyORJXLzvGJzRlDAqoVpjPKLu1b7gFkrGg==}
 
   posthog-node@5.10.4:
     resolution: {integrity: sha512-sy020/Q4mt18eCkVo/cGEJD+wgdxeg5DTgNUaA85awBCbuEP43BOdCTOOw/K2Tvgw2oZfag3PFyhkVuQ6nJfBg==}
@@ -19934,8 +19919,8 @@ packages:
     resolution: {integrity: sha512-hAZsKq7Yy11Zu1DE0OzWjw7nnLZmJZYTDZZyEFHZdUhV8FkH5MCfoU1XMaxXovpyW5nq5scPqq0ZDP9Zyl04oQ==}
     engines: {node: '>= 10.0.0'}
 
-  unlayer-types@1.365.0:
-    resolution: {integrity: sha512-OIY6+isxDkyYrxzO/XPQgb1V5Vv+4vqHMZ1MhP7VuRU6z5CeNCSEVo7uzsOUj5cMGwhJjXziHFMKsWKRSd8STA==}
+  unlayer-types@1.367.0:
+    resolution: {integrity: sha512-FieNYyUg8CGTuhiRyzrOhobX+jIpXzVgOS1kvr8E7PescuOIsbDHlpmWV+TdPZ4ZJoFHZz1cFzQ4E28E8FZdtQ==}
 
   unpipe@1.0.0:
     resolution: {integrity: sha512-pjy2bYhSsufwWlKwPc+l3cN7+wuJlK6uz0YdJEOlQDbl6jo/YlPi4mb8agUkVC8BF7V8NuzeyPNqRksA3hztKQ==}
@@ -23561,14 +23546,14 @@ snapshots:
 
   '@cloudflare/ai-chat@0.0.4(agents@0.3.6)(ai@6.0.67(zod@3.25.76))(react@18.3.1)(zod@3.25.76)':
     dependencies:
-      agents: 0.3.6(@cloudflare/ai-chat@0.0.4)(@cloudflare/codemode@0.0.5)(@cloudflare/workers-types@4.20260131.0)(ai@6.0.67(zod@3.25.76))(hono@4.11.7)(react@18.3.1)(zod@3.25.76)
+      agents: 0.3.6(@cloudflare/ai-chat@0.0.4)(@cloudflare/codemode@0.0.5)(@cloudflare/workers-types@4.20260131.0)(ai@6.0.67(zod@3.25.76))(react@18.3.1)(zod@3.25.76)
       ai: 6.0.67(zod@3.25.76)
       react: 18.3.1
       zod: 3.25.76
 
   '@cloudflare/codemode@0.0.5(agents@0.3.6)(ai@6.0.67(zod@3.25.76))(typescript@5.4.5)(zod@3.25.76)':
     dependencies:
-      agents: 0.3.6(@cloudflare/ai-chat@0.0.4)(@cloudflare/codemode@0.0.5)(@cloudflare/workers-types@4.20260131.0)(ai@6.0.67(zod@3.25.76))(hono@4.11.7)(react@18.3.1)(zod@3.25.76)
+      agents: 0.3.6(@cloudflare/ai-chat@0.0.4)(@cloudflare/codemode@0.0.5)(@cloudflare/workers-types@4.20260131.0)(ai@6.0.67(zod@3.25.76))(react@18.3.1)(zod@3.25.76)
       ai: 6.0.67(zod@3.25.76)
       zod: 3.25.76
       zod-to-ts: 2.0.0(typescript@5.4.5)(zod@3.25.76)
@@ -25211,30 +25196,6 @@ snapshots:
       '@rollup/rollup-win32-x64-msvc': 4.57.1
       react: 18.3.1
       react-dom: 18.3.1(react@18.3.1)
-
-  '@modelcontextprotocol/sdk@1.25.2(@cfworker/json-schema@4.1.1)(hono@4.11.7)(zod@3.25.76)':
-    dependencies:
-      '@hono/node-server': 1.19.9(hono@4.11.7)
-      ajv: 8.17.1
-      ajv-formats: 3.0.1(ajv@8.17.1)
-      content-type: 1.0.5
-      cors: 2.8.5
-      cross-spawn: 7.0.6
-      eventsource: 3.0.7
-      eventsource-parser: 3.0.6
-      express: 5.2.1
-      express-rate-limit: 7.5.1(express@5.2.1)
-      jose: 6.1.3
-      json-schema-typed: 8.0.2
-      pkce-challenge: 5.0.0
-      raw-body: 3.0.1
-      zod: 3.25.76
-      zod-to-json-schema: 3.25.1(zod@3.25.76)
-    optionalDependencies:
-      '@cfworker/json-schema': 4.1.1
-    transitivePeerDependencies:
-      - hono
-      - supports-color
 
   '@modelcontextprotocol/sdk@1.26.0(@cfworker/json-schema@4.1.1)(zod@3.25.76)':
     dependencies:
@@ -27211,7 +27172,7 @@ snapshots:
 
   '@posthog/siphash@1.1.1': {}
 
-  '@posthog/types@1.341.0': {}
+  '@posthog/types@1.341.2': {}
 
   '@protobufjs/aspromise@1.1.2': {}
 
@@ -29957,7 +29918,7 @@ snapshots:
       commander: 9.4.1
       expect-playwright: 0.8.0
       glob: 10.4.5
-      jest: 29.7.0(@types/node@22.15.17)(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.15.17)(typescript@5.4.5))
+      jest: 29.7.0
       jest-circus: 29.7.0
       jest-environment-node: 29.7.0
       jest-junit: 16.0.0
@@ -31769,12 +31730,12 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  agents@0.3.6(@cloudflare/ai-chat@0.0.4)(@cloudflare/codemode@0.0.5)(@cloudflare/workers-types@4.20260131.0)(ai@6.0.67(zod@3.25.76))(hono@4.11.7)(react@18.3.1)(zod@3.25.76):
+  agents@0.3.6(@cloudflare/ai-chat@0.0.4)(@cloudflare/codemode@0.0.5)(@cloudflare/workers-types@4.20260131.0)(ai@6.0.67(zod@3.25.76))(react@18.3.1)(zod@3.25.76):
     dependencies:
       '@cfworker/json-schema': 4.1.1
       '@cloudflare/ai-chat': 0.0.4(agents@0.3.6)(ai@6.0.67(zod@3.25.76))(react@18.3.1)(zod@3.25.76)
       '@cloudflare/codemode': 0.0.5(agents@0.3.6)(ai@6.0.67(zod@3.25.76))(typescript@5.4.5)(zod@3.25.76)
-      '@modelcontextprotocol/sdk': 1.25.2(@cfworker/json-schema@4.1.1)(hono@4.11.7)(zod@3.25.76)
+      '@modelcontextprotocol/sdk': 1.26.0(@cfworker/json-schema@4.1.1)(zod@3.25.76)
       ai: 6.0.67(zod@3.25.76)
       cron-schedule: 6.0.0
       json-schema: 0.4.0
@@ -31788,7 +31749,6 @@ snapshots:
       zod: 3.25.76
     transitivePeerDependencies:
       - '@cloudflare/workers-types'
-      - hono
       - supports-color
 
   aggregate-error@3.1.0:
@@ -34672,10 +34632,6 @@ snapshots:
 
   expr-eval@2.0.2: {}
 
-  express-rate-limit@7.5.1(express@5.2.1):
-    dependencies:
-      express: 5.2.1
-
   express-rate-limit@8.2.1(express@5.2.1):
     dependencies:
       express: 5.2.1
@@ -36413,6 +36369,25 @@ snapshots:
       - babel-plugin-macros
       - supports-color
 
+  jest-cli@29.7.0:
+    dependencies:
+      '@jest/core': 29.7.0(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.15.17)(typescript@5.4.5))
+      '@jest/test-result': 29.7.0
+      '@jest/types': 29.6.3
+      chalk: 4.1.2
+      create-jest: 29.7.0(@types/node@25.0.10)(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@25.0.10)(typescript@5.4.5))
+      exit: 0.1.2
+      import-local: 3.1.0
+      jest-config: 29.7.0(@types/node@25.0.10)(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@25.0.10)(typescript@5.4.5))
+      jest-util: 29.7.0
+      jest-validate: 29.7.0
+      yargs: 17.7.2
+    transitivePeerDependencies:
+      - '@types/node'
+      - babel-plugin-macros
+      - supports-color
+      - ts-node
+
   jest-cli@29.7.0(@types/node@22.15.17)(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.15.17)(typescript@5.4.5)):
     dependencies:
       '@jest/core': 29.7.0(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.15.17)(typescript@5.4.5))
@@ -36850,7 +36825,7 @@ snapshots:
   jest-playwright-preset@4.0.0(jest-circus@29.7.0)(jest-environment-node@29.7.0)(jest-runner@29.7.0)(jest@29.7.0):
     dependencies:
       expect-playwright: 0.8.0
-      jest: 29.7.0(@types/node@22.15.17)(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.15.17)(typescript@5.4.5))
+      jest: 29.7.0
       jest-circus: 29.7.0
       jest-environment-node: 29.7.0
       jest-process-manager: 0.4.0
@@ -37130,7 +37105,7 @@ snapshots:
     dependencies:
       ansi-escapes: 6.0.0
       chalk: 5.6.2
-      jest: 29.7.0(@types/node@22.15.17)(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.15.17)(typescript@5.4.5))
+      jest: 29.7.0
       jest-regex-util: 29.6.3
       jest-watcher: 29.7.0
       slash: 5.1.0
@@ -37179,6 +37154,18 @@ snapshots:
       jest-util: 30.0.5
       merge-stream: 2.0.0
       supports-color: 8.1.1
+
+  jest@29.7.0:
+    dependencies:
+      '@jest/core': 29.7.0(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.15.17)(typescript@5.4.5))
+      '@jest/types': 29.6.3
+      import-local: 3.1.0
+      jest-cli: 29.7.0
+    transitivePeerDependencies:
+      - '@types/node'
+      - babel-plugin-macros
+      - supports-color
+      - ts-node
 
   jest@29.7.0(@types/node@22.15.17)(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.15.17)(typescript@5.4.5)):
     dependencies:
@@ -40111,7 +40098,7 @@ snapshots:
     dependencies:
       '@posthog/core': 1.7.1
 
-  posthog-js@1.341.0:
+  posthog-js@1.341.2:
     dependencies:
       '@opentelemetry/api': 1.9.0
       '@opentelemetry/api-logs': 0.208.0
@@ -40119,7 +40106,7 @@ snapshots:
       '@opentelemetry/resources': 2.5.0(@opentelemetry/api@1.9.0)
       '@opentelemetry/sdk-logs': 0.208.0(@opentelemetry/api@1.9.0)
       '@posthog/core': 1.20.0
-      '@posthog/types': 1.341.0
+      '@posthog/types': 1.341.2
       core-js: 3.40.0
       dompurify: 3.3.1
       fflate: 0.4.8
@@ -40993,7 +40980,7 @@ snapshots:
   react-email-editor@1.7.11(react@18.3.1):
     dependencies:
       react: 18.3.1
-      unlayer-types: 1.365.0
+      unlayer-types: 1.367.0
 
   react-error-overlay@6.0.9: {}
 
@@ -43163,7 +43150,7 @@ snapshots:
 
   universalify@2.0.0: {}
 
-  unlayer-types@1.365.0: {}
+  unlayer-types@1.367.0: {}
 
   unpipe@1.0.0: {}
 

@@ -142,7 +142,7 @@ function buildGeneralTooltip(description: string, defaultTools: ToolDefinition[]
 
 interface GetModeOptionsParams {
     planModeEnabled: boolean
-    deepResearchEnabled: boolean
+    researchEnabled: boolean
     webSearchEnabled: boolean
     errorTrackingModeEnabled: boolean
     surveyModeEnabled: boolean
@@ -152,7 +152,7 @@ interface GetModeOptionsParams {
 
 function getModeOptions({
     planModeEnabled,
-    deepResearchEnabled,
+    researchEnabled,
     webSearchEnabled,
     errorTrackingModeEnabled,
     surveyModeEnabled,
@@ -185,21 +185,21 @@ function getModeOptions({
         })
     }
 
-    if (deepResearchEnabled && !hasExistingMessages) {
+    if (researchEnabled && !hasExistingMessages) {
         specialOptions.push({
-            value: 'deep_research' as ModeValue,
+            value: 'research' as ModeValue,
             label: (
                 <span className="flex items-center gap-1">
-                    {SPECIAL_MODES.deep_research.name}
-                    {SPECIAL_MODES.deep_research.beta && (
+                    {SPECIAL_MODES.research.name}
+                    {SPECIAL_MODES.research.beta && (
                         <LemonTag size="small" type="warning">
                             BETA
                         </LemonTag>
                     )}
                 </span>
             ),
-            icon: SPECIAL_MODES.deep_research.icon,
-            tooltip: <div>{SPECIAL_MODES.deep_research.description}</div>,
+            icon: SPECIAL_MODES.research.icon,
+            tooltip: <div>{SPECIAL_MODES.research.description}</div>,
         })
     }
 
@@ -241,22 +241,19 @@ function getModeOptions({
 export function ModeSelector(): JSX.Element | null {
     const { agentMode, contextDisabledReason, conversation, threadMessageCount } = useValues(maxThreadLogic)
     const { setAgentMode } = useActions(maxThreadLogic)
-    const deepResearchEnabled = useFeatureFlag('MAX_DEEP_RESEARCH')
+    const researchEnabled = useFeatureFlag('MAX_DEEP_RESEARCH')
     const planModeEnabled = useFeatureFlag('PHAI_PLAN_MODE')
     const webSearchEnabled = useFeatureFlag('PHAI_WEB_SEARCH')
     const errorTrackingModeEnabled = useFeatureFlag('PHAI_ERROR_TRACKING_MODE')
     const surveyModeEnabled = useFeatureFlag('PHAI_SURVEY_MODE')
     const flagsModeEnabled = useFeatureFlag('POSTHOG_AI_FLAGS_MODE')
 
-    const currentValue: ModeValue =
-        agentMode === AgentMode.Research ? 'deep_research' : agentMode === AgentMode.Plan ? 'plan' : agentMode
-
     const hasExistingMessages = threadMessageCount > 0
     const modeOptions = useMemo(
         () =>
             getModeOptions({
                 planModeEnabled,
-                deepResearchEnabled,
+                researchEnabled,
                 webSearchEnabled,
                 errorTrackingModeEnabled,
                 flagsModeEnabled,
@@ -265,7 +262,7 @@ export function ModeSelector(): JSX.Element | null {
             }),
         [
             planModeEnabled,
-            deepResearchEnabled,
+            researchEnabled,
             webSearchEnabled,
             errorTrackingModeEnabled,
             surveyModeEnabled,
@@ -278,26 +275,19 @@ export function ModeSelector(): JSX.Element | null {
     const handleChange = useCallback(
         (value: ModeValue): void => {
             posthog.capture('phai mode switched', {
-                previous_mode: currentValue,
+                previous_mode: agentMode,
                 new_mode: value,
             })
-
-            if (value === 'deep_research') {
-                setAgentMode(AgentMode.Research)
-            } else if (value === 'plan') {
-                setAgentMode(AgentMode.Plan)
-            } else {
-                setAgentMode(value as AgentMode | null)
-            }
+            setAgentMode(value as AgentMode | null)
         },
-        [currentValue, setAgentMode]
+        [agentMode, setAgentMode]
     )
 
     const isDeepResearch = conversation?.type === ConversationType.DeepResearch
 
     return (
         <LemonSelect
-            value={isDeepResearch ? 'deep_research' : currentValue}
+            value={isDeepResearch ? 'research' : agentMode}
             onChange={handleChange}
             options={modeOptions}
             size="xxsmall"

@@ -76,15 +76,10 @@ def _get_feature_flags_for_service(team: Team) -> dict[str, Any]:
     wrapped in a dict that HyperCache can serialize. The actual flag data is in the
     "flags" key as a list of flag dictionaries.
 
-    Remote config flags (is_remote_configuration=True) are excluded since they
-    are served via a separate API.
-
     Returns:
         dict: {"flags": [...]} where flags is a list of flag dictionaries
     """
     flags = get_feature_flags(team=team)
-    # Exclude remote config flags - they are served via a separate API
-    flags = [f for f in flags if not f.is_remote_configuration]
     flags_data = serialize_feature_flags(flags)
 
     logger.info(
@@ -105,9 +100,6 @@ def _get_feature_flags_for_teams_batch(teams: list[Team]) -> dict[int, dict[str,
     This avoids N+1 queries by loading all flags for all teams at once,
     then grouping them by team_id.
 
-    Remote config flags (is_remote_configuration=True) are excluded since they
-    are served via a separate API.
-
     Args:
         teams: List of Team objects to load flags for
 
@@ -120,12 +112,11 @@ def _get_feature_flags_for_teams_batch(teams: list[Team]) -> dict[int, dict[str,
     # Load all flags for all teams in one query with evaluation tags pre-loaded.
     # Include disabled flags (active=False) so flag dependencies can reference them
     # and evaluate them as false, rather than raising DependencyNotFound errors.
-    # Exclude remote config flags - they are served via a separate API.
     # Note: We intentionally don't select_related("team") here because we only need
     # team_id (already on the model) for grouping, and the Team objects are already
     # loaded by the caller. Avoiding the join saves memory.
     all_flags = list(
-        FeatureFlag.objects.filter(~Q(is_remote_configuration=True), team__in=teams, deleted=False).annotate(
+        FeatureFlag.objects.filter(team__in=teams, deleted=False).annotate(
             evaluation_tag_names_agg=ArrayAgg(
                 "evaluation_tags__tag__name",
                 filter=Q(evaluation_tags__isnull=False),
