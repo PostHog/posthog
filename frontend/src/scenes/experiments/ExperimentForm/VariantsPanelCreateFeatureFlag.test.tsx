@@ -78,7 +78,7 @@ describe('VariantsPanelCreateFeatureFlag', () => {
         it('renders variant keys section', () => {
             renderComponent(defaultExperiment)
 
-            expect(screen.getByText('Variant keys')).toBeInTheDocument()
+            expect(screen.getByText('Variant key')).toBeInTheDocument()
         })
 
         it('renders default variants (control and test)', () => {
@@ -263,8 +263,8 @@ describe('VariantsPanelCreateFeatureFlag', () => {
                 <VariantsPanelCreateFeatureFlag experiment={experimentWithThreeVariants} onChange={mockOnChange} />
             )
 
-            const rows = container.querySelectorAll('.grid.grid-cols-18')
-            const controlRow = rows[1] // First row after header
+            const rows = container.querySelectorAll('tbody tr')
+            const controlRow = rows[0] // First row (control variant)
 
             // Control variant should not have a delete button
             const deleteButton = controlRow.querySelector('[data-attr^="delete-prop-filter"]')
