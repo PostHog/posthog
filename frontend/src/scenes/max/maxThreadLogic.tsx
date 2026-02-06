@@ -1825,7 +1825,7 @@ export async function onEventImplementation(
                 }
             }
         } else if (isAssistantToolCallMessage(parsedResponse)) {
-            if (parsedResponse.ui_payload !== null) {
+            if (parsedResponse.ui_payload != null) {
                 for (const [toolName, toolResult] of Object.entries(parsedResponse.ui_payload)) {
                     if (values.availableStaticTools.some((tool) => tool.identifier === toolName)) {
                         continue // Static tools (mode-level) don't operate via ui_payload
