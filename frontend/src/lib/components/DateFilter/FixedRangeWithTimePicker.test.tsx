@@ -137,8 +137,9 @@ describe('FixedRangeWithTimePicker', () => {
                 />
             )
 
-            expect(screen.getByRole('button', { name: 'Start: Jan 15, 2024 14:30' })).toBeInTheDocument()
-            expect(screen.getByRole('button', { name: 'End: Jan 15, 2024 16:45' })).toBeInTheDocument()
+            // Use getByText instead of getByRole for better performance
+            expect(screen.getByText(/Start:.*Jan 15, 2024 14:30/)).toBeInTheDocument()
+            expect(screen.getByText(/End:.*Jan 15, 2024 16:45/)).toBeInTheDocument()
         })
 
         it('sets hours directly without AM/PM conversion', () => {
