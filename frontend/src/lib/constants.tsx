@@ -536,6 +536,7 @@ export const SDK_KEY_TO_SNIPPET_LANGUAGE: Partial<Record<SDKKey, string>> = {
     [SDKKey.PYTHON]: 'python',
     [SDKKey.PHP]: 'php',
     [SDKKey.RUBY]: 'ruby',
+    [SDKKey.RUBY_RAILS]: 'ruby',
     [SDKKey.GO]: 'go',
     [SDKKey.ANDROID]: 'android',
     [SDKKey.IOS]: 'ios',

@@ -518,6 +518,13 @@ export const ALL_SDKS: SDK[] = [
         docsLink: 'https://posthog.com/docs/libraries/ruby',
     },
     {
+        name: 'Ruby on Rails',
+        key: SDKKey.RUBY_RAILS,
+        tags: [SDKTag.SERVER],
+        image: rubyImage,
+        docsLink: 'https://posthog.com/docs/libraries/ruby',
+    },
+    {
         name: 'Rust',
         key: SDKKey.RUST,
         tags: [SDKTag.SERVER],
