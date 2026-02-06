@@ -6,6 +6,7 @@ import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event
 from unittest.mock import MagicMock, patch
 
+from django.db import IntegrityError
 from django.utils import timezone as django_timezone
 
 from clickhouse_driver.errors import ServerException
@@ -1395,6 +1396,101 @@ class TestPreaggregationExecutorWaiting(BaseTest):
         assert result is not None
         assert len(result.errors) == 1
         assert "Failed to create preaggregation for" in result.errors[0]
+
+    # --- IntegrityError race handling ---
+
+    def test_execute_waits_for_existing_pending_job_on_integrity_error(self):
+        query = self._make_preaggregation_query()
+        query_info = QueryInfo(query=query, table=PreaggregationTable.PREAGGREGATION_RESULTS, timezone="UTC")
+        query_hash = compute_query_hash(query_info)
+
+        executor = PreaggregationExecutor(
+            wait_timeout_seconds=2.0,
+            poll_interval_seconds=0.05,
+        )
+
+        # Executor A already created a PENDING job for this range.
+        # Our find_existing_jobs missed it (race window), then our
+        # create_preaggregation_job hits the unique constraint.
+        existing_pending = PreaggregationJob.objects.create(
+            team=self.team,
+            query_hash=query_hash,
+            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+            time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
+            status=PreaggregationJob.Status.PENDING,
+            expires_at=django_timezone.now() + timedelta(days=7),
+        )
+
+        poll_count = [0]
+        original_filter = PreaggregationJob.objects.filter
+
+        def mock_filter(*args, **kwargs):
+            result = original_filter(*args, **kwargs)
+            if "id__in" in kwargs and poll_count[0] == 0:
+                poll_count[0] += 1
+                existing_pending.status = PreaggregationJob.Status.READY
+                existing_pending.computed_at = django_timezone.now()
+                existing_pending.save()
+            return result
+
+        with (
+            patch(
+                "products.analytics_platform.backend.lazy_preaggregation.lazy_preaggregation_executor.find_existing_jobs",
+                return_value=[],
+            ),
+            patch(
+                "products.analytics_platform.backend.lazy_preaggregation.lazy_preaggregation_executor.create_preaggregation_job",
+                side_effect=IntegrityError("duplicate key value violates unique constraint"),
+            ),
+            patch.object(PreaggregationJob.objects, "filter", side_effect=mock_filter),
+        ):
+            result = executor.execute(
+                team=self.team,
+                query_info=query_info,
+                start=datetime(2024, 1, 1, tzinfo=UTC),
+                end=datetime(2024, 1, 2, tzinfo=UTC),
+                run_insert=lambda t, j: None,
+            )
+
+        # Should succeed by waiting for the existing job, not error
+        assert result.ready is True
+        assert existing_pending.id in result.job_ids
+        assert len(result.errors) == 0
+
+    # --- Missing job handling ---
+
+    def test_wait_treats_deleted_job_as_failed(self):
+        executor = PreaggregationExecutor(
+            wait_timeout_seconds=0.5,
+            poll_interval_seconds=0.05,
+            max_attempts=2,
+        )
+
+        pending_job = PreaggregationJob.objects.create(
+            team=self.team,
+            query_hash="test_hash",
+            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+            time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
+            status=PreaggregationJob.Status.PENDING,
+            expires_at=django_timezone.now() + timedelta(days=7),
+        )
+
+        poll_count = [0]
+        original_filter = PreaggregationJob.objects.filter
+
+        def mock_filter(*args, **kwargs):
+            result = original_filter(*args, **kwargs)
+            if "id__in" in kwargs and poll_count[0] == 0:
+                poll_count[0] += 1
+                PreaggregationJob.objects.filter(id=pending_job.id).delete()
+            return result
+
+        with patch.object(PreaggregationJob.objects, "filter", side_effect=mock_filter):
+            result = executor._wait_for_pending_jobs(self.team, [pending_job], lambda t, j: None)
+
+        assert result.success is False
+        assert len(result.failed_jobs) == 1
+        assert result.timed_out is False
 
     # --- Stale job handling ---
 

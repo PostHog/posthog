@@ -126,7 +126,7 @@ Each waiter tracks their own attempt count locally. After a configurable number 
 
 ### Stale pending jobs
 
-If an executor crashes while a job is PENDING, other waiters detect this via the `updated_at` timestamp. When a PENDING job hasn't been updated for longer than the stale threshold (default: `HOGQL_INCREASED_MAX_EXECUTION_TIME` = 10 minutes), waiters mark it as FAILED and trigger the normal replacement flow. This ensures the system recovers from executor crashes without manual intervention.
+If an executor crashes while a job is PENDING, other waiters detect this via the `updated_at` timestamp. A heartbeat thread updates `updated_at` every 30 seconds during INSERT execution. When a PENDING job hasn't been updated for longer than the stale threshold (default 120 seconds / 2 minutes, i.e. 4 missed heartbeats), waiters mark it as FAILED and trigger the normal replacement flow. This ensures the system recovers from executor crashes without manual intervention.
 
 ## Limitations
 
