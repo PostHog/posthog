@@ -203,3 +203,7 @@ common/hogli/ @PostHog/team-devex
 bin/ @PostHog/team-devex
 CODEOWNERS-soft @PostHog/team-devex
 CODEOWNERS @PostHog/team-devex
+CLAUDE.md @PostHog/team-devex
+AGENTS.md @PostHog/team-devex
+.claude/ @PostHog/team-devex
+greptile.json @PostHog/team-devex

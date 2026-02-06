@@ -18,9 +18,9 @@ export const customerProfileConfigLogic = kea<customerProfileConfigLogicType>([
     props({} as CustomerProfileConfigLogicProps),
     key((props) => props.scope || 'all'),
 
-    connect({
+    connect(() => ({
         values: [teamLogic, ['currentTeamId']],
-    }),
+    })),
 
     actions({
         loadConfigs: true,
