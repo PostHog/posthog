@@ -11,7 +11,6 @@ from posthog.test.base import (
     flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
-from unittest.mock import patch
 
 from posthog.schema import (
     CachedEventsQueryResponse,
@@ -135,7 +134,7 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         flush_persons_and_events()
         person = Person.objects.filter(team_id=self.team.pk).first()
-        query = EventsQuery(kind="EventsQuery", select=["*"], personId=str(person.pk))  # type: ignore
+        query = EventsQuery(kind="EventsQuery", select=["*"], personId=str(person.pk), orderBy=[])  # type: ignore
 
         # matching team
         query_ast = EventsQueryRunner(query=query, team=self.team).to_query()
@@ -162,7 +161,7 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             }
         ]
         self.team.save()
-        query = EventsQuery(kind="EventsQuery", select=["*"], filterTestAccounts=True)
+        query = EventsQuery(kind="EventsQuery", select=["*"], filterTestAccounts=True, orderBy=[])
         query_ast = EventsQueryRunner(query=query, team=self.team).to_query()
         where_expr = cast(ast.CompareOperation, cast(ast.And, query_ast.where).exprs[0])
         right_expr = cast(ast.Constant, where_expr.right)
@@ -450,8 +449,7 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     @snapshot_clickhouse_queries
     @freeze_time("2021-01-21")
-    @patch("posthog.hogql_queries.events_query_runner.use_presorted_events_query", return_value=True)
-    def test_presorted_events_table(self, mock_flag):
+    def test_presorted_events_table(self):
         self._create_events(
             data=[
                 (
@@ -500,8 +498,7 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     @snapshot_clickhouse_queries
     @freeze_time("2021-01-21")
-    @patch("posthog.hogql_queries.events_query_runner.use_presorted_events_query", return_value=True)
-    def test_presorted_events_table_order_by_event(self, mock_flag):
+    def test_presorted_events_table_order_by_event(self):
         """Test presorted optimization when ordering by event column."""
         self._create_events(data=[("p2", "2021-01-20T12:00:14Z", {})], event="beta_event")
         self._create_events(data=[("p3", "2021-01-20T12:00:24Z", {})], event="gamma_event")
@@ -528,8 +525,7 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     @snapshot_clickhouse_queries
     @freeze_time("2021-01-21")
-    @patch("posthog.hogql_queries.events_query_runner.use_presorted_events_query", return_value=True)
-    def test_presorted_events_table_order_by_property(self, mock_flag):
+    def test_presorted_events_table_order_by_property(self):
         """Test presorted optimization when ordering by property."""
         self._create_events(
             data=[
@@ -561,8 +557,7 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     @snapshot_clickhouse_queries
     @freeze_time("2021-01-21")
-    @patch("posthog.hogql_queries.events_query_runner.use_presorted_events_query", return_value=True)
-    def test_presorted_events_table_multiple_order_by(self, mock_flag):
+    def test_presorted_events_table_multiple_order_by(self):
         """Test presorted optimization with multiple ORDER BY clauses."""
         self._create_events(
             data=[
