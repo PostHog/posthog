@@ -42,7 +42,7 @@ export function PersonIcon({
     Omit<ProfilePictureProps, 'user' | 'name' | 'email'> & { displayName?: string }): JSX.Element {
     const display = displayName || asDisplay(person)
 
-    const email = useMemo(() => getPersonEmail(person), [person?.properties?.email, person])
+    const email = useMemo(() => getPersonEmail(person), [person])
 
     // Generate a stable color index from the person's distinct_id (or display name) if not explicitly provided
     const identifier = person?.distinct_id || person?.distinct_ids?.[0] || displayName
