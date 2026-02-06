@@ -457,7 +457,9 @@ class EventDefinitionViewSet(
             event_definition_object_manager = EventDefinition.objects
 
         event_def = event_definition_object_manager.filter(
-            Q(project_id=self.project_id) | Q(project_id__isnull=True, team_id=self.project_id),
+            Q(project_id=self.project_id)
+            | Q(project_id__isnull=True, team_id=self.project_id)
+            | Q(team_id=self.team_id),
             name=event_name,
         ).first()
 
