@@ -18,4 +18,12 @@ class Migration(migrations.Migration):
                 max_length=10,
             ),
         ),
+        migrations.AddIndex(
+            model_name="eventschema",
+            index=models.Index(
+                fields=["enforcement_mode"],
+                name="posthog_eve_enforce_idx",
+                condition=models.Q(enforcement_mode="reject"),
+            ),
+        ),
     ]
