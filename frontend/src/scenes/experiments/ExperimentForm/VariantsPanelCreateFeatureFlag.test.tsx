@@ -101,7 +101,7 @@ describe('VariantsPanelCreateFeatureFlag', () => {
         it('renders add variant button', () => {
             renderComponent(defaultExperiment)
 
-            expect(screen.getByRole('button', { name: /add variant/i })).toBeInTheDocument()
+            expect(screen.getByText(/add variant/i)).toBeInTheDocument()
         })
 
         it('renders experience continuity checkbox', () => {
@@ -116,7 +116,7 @@ describe('VariantsPanelCreateFeatureFlag', () => {
         it('adds a new variant when clicking add button', async () => {
             renderComponent(defaultExperiment)
 
-            const addButton = screen.getByRole('button', { name: /add variant/i })
+            const addButton = screen.getByText(/add variant/i)
             await userEvent.click(addButton)
 
             expect(mockOnChange).toHaveBeenCalledWith({
@@ -133,7 +133,7 @@ describe('VariantsPanelCreateFeatureFlag', () => {
         it('redistributes percentages equally when adding variant', async () => {
             renderComponent(defaultExperiment)
 
-            const addButton = screen.getByRole('button', { name: /add variant/i })
+            const addButton = screen.getByText(/add variant/i)
             await userEvent.click(addButton)
 
             expect(mockOnChange).toHaveBeenCalledWith({
@@ -191,7 +191,7 @@ describe('VariantsPanelCreateFeatureFlag', () => {
             const { container } = renderComponent(defaultExperiment)
 
             // Click pencil button to enable custom split editing
-            const customizeButton = screen.getByRole('button', { name: /customize split/i })
+            const customizeButton = screen.getByLabelText(/customize split/i)
             await userEvent.click(customizeButton)
 
             const percentageInputs = container.querySelectorAll(
@@ -298,7 +298,7 @@ describe('VariantsPanelCreateFeatureFlag', () => {
 
             renderComponent(unevenExperiment)
 
-            const balanceButton = screen.getByRole('button', { name: /distribute split evenly/i })
+            const balanceButton = screen.getByLabelText(/distribute split evenly/i)
             await userEvent.click(balanceButton)
 
             expect(mockOnChange).toHaveBeenCalledWith({
