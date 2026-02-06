@@ -213,20 +213,6 @@ jobs:
             - name: Seed test data
               run: python manage.py generate_demo_data --n-clusters 10 --days-past 7 --days-future 0 --skip-materialization --skip-flag-sync --skip-user-product-list
 
-            - name: Debug - list event definitions
-              run: |
-                  python -c "
-                  import django, os
-                  os.environ['DJANGO_SETTINGS_MODULE'] = 'posthog.settings'
-                  django.setup()
-                  from posthog.models import EventDefinition, Team
-                  for team in Team.objects.all():
-                      print(f'Team {team.id} (project_id={team.project_id}):')
-                      for ed in EventDefinition.objects.filter(team_id=team.id).order_by('name'):
-                          print(f'  name={ed.name} team_id={ed.team_id} project_id={ed.project_id}')
-                      print(f'  Total: {EventDefinition.objects.filter(team_id=team.id).count()}')
-                  "
-
             - name: Create API key and extract test IDs
               run: |
                   python -c "

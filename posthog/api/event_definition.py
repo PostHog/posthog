@@ -1,7 +1,7 @@
 from typing import Any, Literal, Optional, cast
 
 from django.core.cache import cache
-from django.db.models import Manager, Q
+from django.db.models import Manager
 
 import orjson
 from drf_spectacular.types import OpenApiTypes
@@ -448,21 +448,7 @@ class EventDefinitionViewSet(
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        event_definition_object_manager: Manager
-        if EE_AVAILABLE:
-            from ee.models.event_definition import EnterpriseEventDefinition
-
-            event_definition_object_manager = EnterpriseEventDefinition.objects
-        else:
-            event_definition_object_manager = EventDefinition.objects
-
-        event_def = event_definition_object_manager.filter(
-            Q(project_id=self.project_id)
-            | Q(project_id__isnull=True, team_id=self.project_id)
-            | Q(team_id=self.team_id),
-            name=event_name,
-        ).first()
-
+        event_def = self.get_queryset().filter(name=event_name).first()
         if not event_def:
             return response.Response(
                 {"detail": f"Event definition with name '{event_name}' not found"},
