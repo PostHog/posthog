@@ -97,9 +97,10 @@ class AlertCheckSerializer(serializers.ModelSerializer):
             return None
 
         # Get the current insight query hash
-        insight = instance.alert_configuration.insight
+        alert_config = instance.alert_configuration
+        insight = alert_config.insight
         with upgrade_query(insight):
-            current_hash = compute_insight_query_hash(insight.query)
+            current_hash = compute_insight_query_hash(insight.query, alert_config.team)
 
         return instance.insight_query_hash != current_hash
 
@@ -229,7 +230,7 @@ class AlertSerializer(serializers.ModelSerializer):
 
             # Compute insight query hash for the snooze check
             with upgrade_query(instance.insight):
-                insight_query_hash = compute_insight_query_hash(instance.insight.query)
+                insight_query_hash = compute_insight_query_hash(instance.insight.query, instance.team)
 
             AlertCheck.objects.create(
                 alert_configuration=instance,

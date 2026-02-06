@@ -426,7 +426,7 @@ def add_alert_check(
     # Compute insight query hash for change detection
     # Use upgrade_query to ensure consistent hash even if query schema evolves
     with upgrade_query(alert.insight):
-        insight_query_hash = compute_insight_query_hash(alert.insight.query)
+        insight_query_hash = compute_insight_query_hash(alert.insight.query, alert.team)
 
     alert_check = AlertCheck.objects.create(
         alert_configuration=alert,

@@ -1,6 +1,6 @@
 from datetime import UTC, datetime, timedelta
 from enum import Enum
-from typing import Any, Optional, Union
+from typing import TYPE_CHECKING, Any, Optional, Union
 
 import posthoganalytics
 from dateutil.parser import isoparse, parser
@@ -11,12 +11,59 @@ from posthog.models.filters.filter import Filter
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
-from posthog.models.team.team import Team
+from posthog.models.team.team import Team, WeekStartDay
 from posthog.redis import get_client
+
+if TYPE_CHECKING:
+    from posthog.schema import HogQLQueryModifiers
 
 RECENTLY_ACCESSED_TEAMS_REDIS_KEY = "INSIGHT_CACHE_UPDATE_RECENTLY_ACCESSED_TEAMS"
 
 IN_A_DAY = 86_400
+
+
+def generate_query_cache_payload(
+    team: Team,
+    query: dict,
+    modifiers: Optional["HogQLQueryModifiers"] = None,
+    extra: Optional[dict] = None,
+) -> dict:
+    """
+    Generate a cache payload dict for a query.
+
+    This contains all the context that affects query results:
+    - The query itself
+    - Team settings (timezone, week_start_day, product configs)
+    - HogQL modifiers (if provided)
+
+    The `extra` dict can be used to add additional fields like query_runner and limit_context.
+    """
+    from posthog.schema_helpers import to_dict
+
+    # Clean the query - remove tags which are used in query log comments but shouldn't affect caching
+    clean_query = dict(query)
+    clean_query.pop("tags", None)
+
+    payload: dict = {
+        "query": clean_query,
+        "team_id": team.pk,
+        "products_modifiers": {
+            "revenue_analytics": team.revenue_analytics_config.to_cache_key_dict(),
+            "marketing_analytics": team.marketing_analytics_config.to_cache_key_dict(),
+            "customer_analytics": team.customer_analytics_config.to_cache_key_dict(),
+        },
+        "timezone": team.timezone,
+        "week_start_day": team.week_start_day or WeekStartDay.SUNDAY,
+        "version": 2,
+    }
+
+    if modifiers is not None:
+        payload["hogql_modifiers"] = to_dict(modifiers)
+
+    if extra:
+        payload.update(extra)
+
+    return payload
 
 
 def ensure_is_date(candidate: Optional[Union[str, datetime]]) -> Optional[datetime]:
