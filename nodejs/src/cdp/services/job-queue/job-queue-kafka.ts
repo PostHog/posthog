@@ -60,6 +60,27 @@ export class CyclotronJobQueueKafka {
             const { backgroundTask } = await this.consumeKafkaBatch(messages)
             return { backgroundTask }
         })
+
+        // Initialize seek test consumer if enabled
+        if (this.config.CDP_CYCLOTRON_TEST_SEEK_LATENCY) {
+            this.seekTestConsumer = new RdKafkaConsumer(
+                {
+                    'client.id': `${hostname()}-seek-test`,
+                    'metadata.broker.list': this.config.KAFKA_HOSTS,
+                    ...getKafkaConfigFromEnv('CONSUMER'),
+                    // Unique group.id - we only use assign(), never subscribe(), so no group coordination
+                    'group.id': `cdp-seek-test-${hostname()}-${Date.now()}`,
+                    'enable.auto.commit': false,
+                    'enable.auto.offset.store': false,
+                },
+                { 'auto.offset.reset': 'earliest' }
+            )
+            this.seekTestConsumer.setDefaultConsumeTimeout(5000)
+            await new Promise((resolve, reject) =>
+                this.seekTestConsumer!.connect({}, (error, data) => (error ? reject(error) : resolve(data)))
+            )
+            logger.info('🔄', 'Seek test consumer connected')
+        }
     }
 
     public async stopConsumer() {
@@ -189,35 +210,11 @@ export class CyclotronJobQueueKafka {
         return await this.consumeBatch(invocations)
     }
 
-    private async ensureSeekTestConsumer(): Promise<RdKafkaConsumer> {
-        if (this.seekTestConsumer?.isConnected()) {
-            return this.seekTestConsumer
+    private async testSeekLatency(message: Message): Promise<void> {
+        if (!this.seekTestConsumer) {
+            return
         }
 
-        const consumer = new RdKafkaConsumer(
-            {
-                'client.id': `${hostname()}-seek-test`,
-                'metadata.broker.list': this.config.KAFKA_HOSTS,
-                ...getKafkaConfigFromEnv('CONSUMER'),
-                // Unique group.id - we only use assign(), never subscribe(), so no group coordination
-                'group.id': `cdp-seek-test-${hostname()}-${Date.now()}`,
-                'enable.auto.commit': false,
-                'enable.auto.offset.store': false,
-            },
-            { 'auto.offset.reset': 'earliest' }
-        )
-
-        consumer.setDefaultConsumeTimeout(5000)
-
-        await new Promise((resolve, reject) =>
-            consumer.connect({}, (error, data) => (error ? reject(error) : resolve(data)))
-        )
-
-        this.seekTestConsumer = consumer
-        return consumer
-    }
-
-    private async testSeekLatency(message: Message): Promise<void> {
         const { topic, partition, offset } = message
         const maxSeekBack = Math.min(this.config.CDP_CYCLOTRON_TEST_SEEK_MAX_OFFSET, offset)
         if (maxSeekBack <= 0) {
@@ -228,14 +225,12 @@ export class CyclotronJobQueueKafka {
         const targetOffset = offset - seekBack
 
         try {
-            const consumer = await this.ensureSeekTestConsumer()
-
-            consumer.assign([{ topic, partition, offset: targetOffset }])
+            this.seekTestConsumer.assign([{ topic, partition, offset: targetOffset }])
 
             const start = performance.now()
 
             const consumed = await new Promise<Message[]>((resolve, reject) => {
-                consumer.consume(1, (error, messages) => (error ? reject(error) : resolve(messages)))
+                this.seekTestConsumer!.consume(1, (error, messages) => (error ? reject(error) : resolve(messages)))
             })
 
             const latencyMs = performance.now() - start
