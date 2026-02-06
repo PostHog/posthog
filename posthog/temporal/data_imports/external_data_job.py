@@ -121,7 +121,9 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
 
         internal_error_normalized = re.sub("[\n\r\t]", " ", inputs.internal_error)
 
-        source: ExternalDataSource = await database_sync_to_async_pool(ExternalDataSource.objects.get)(pk=inputs.source_id)
+        source: ExternalDataSource = await database_sync_to_async_pool(ExternalDataSource.objects.get)(
+            pk=inputs.source_id
+        )
         source_cls = SourceRegistry.get_source(ExternalDataSourceType(source.source_type))
         non_retryable_errors = source_cls.get_non_retryable_errors()
 

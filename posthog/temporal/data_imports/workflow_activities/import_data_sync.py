@@ -156,7 +156,9 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
                     config, resumable_source_manager, source_inputs
                 )
             else:
-                source_response = await database_sync_to_async_pool(new_source.source_for_pipeline)(config, source_inputs)
+                source_response = await database_sync_to_async_pool(new_source.source_for_pipeline)(
+                    config, source_inputs
+                )
 
             return await _run(
                 job_inputs=job_inputs,
