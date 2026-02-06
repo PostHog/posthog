@@ -4,12 +4,11 @@ from typing import Any, Optional
 
 import requests
 from dateutil import parser
-from dlt.sources.helpers.requests import Request, Response
-from dlt.sources.helpers.rest_client.paginators import BasePaginator
 from requests import JSONDecodeError
 from structlog.types import FilteringBoundLogger
 
 from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resources
+from posthog.temporal.data_imports.sources.common.rest_source.pagination import BasePaginator
 from posthog.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
 
 
@@ -284,7 +283,7 @@ class VitallyPaginator(BasePaginator):
 
         super().__init__()
 
-    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+    def update_state(self, response: requests.Response, data: Optional[list[Any]] = None) -> None:
         res = response.json()
 
         self._cursor = None
@@ -313,7 +312,7 @@ class VitallyPaginator(BasePaginator):
         else:
             self._has_next_page = False
 
-    def update_request(self, request: Request) -> None:
+    def update_request(self, request: requests.Request) -> None:
         if request.params is None:
             request.params = {}
 
@@ -452,8 +451,8 @@ def vitally_source(
         "resources": [get_resource(endpoint, should_use_incremental_field)],
     }
 
-    dlt_resources = rest_api_resources(config, team_id, job_id, db_incremental_field_last_value)
-    yield from dlt_resources[0]
+    resource = rest_api_resources(config, team_id, job_id, db_incremental_field_last_value)
+    yield from resource
 
 
 def validate_credentials(secret_token: str, region: str, subdomain: Optional[str]) -> bool:

@@ -4,10 +4,10 @@ import collections.abc
 from dataclasses import dataclass
 
 import structlog
-from dlt.common.normalizers.naming.snake_case import NamingConvention
 
 from posthog.settings import integrations
 from posthog.temporal.data_imports.pipelines.helpers import initial_datetime
+from posthog.temporal.data_imports.pipelines.pipeline.naming import normalize_identifier
 from posthog.temporal.data_imports.pipelines.pipeline.typings import PartitionFormat, PartitionMode, SourceResponse
 
 from products.data_warehouse.backend.types import IncrementalFieldType
@@ -70,7 +70,7 @@ def bing_ads_source(
     incremental_field: str | None = None,
     incremental_field_type: IncrementalFieldType | None = None,
 ) -> SourceResponse:
-    name = NamingConvention().normalize_identifier(resource_name)
+    name = normalize_identifier(resource_name)
     schema = get_schemas()[resource_name]
 
     # Define generator function for lazy evaluation - dlt will call this when ready to fetch data

@@ -1,6 +1,6 @@
 """Hubspot source settings and constants"""
 
-from dlt.common import pendulum
+import pendulum
 
 STARTDATE = pendulum.datetime(year=2000, month=1, day=1)
 

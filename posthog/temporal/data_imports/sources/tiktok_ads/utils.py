@@ -3,16 +3,15 @@ from collections.abc import Iterable
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
 
+# TSecretStrValue removed - using str
+import requests
 import structlog
 from dateutil import parser
-from dlt.common.configuration import configspec
-from dlt.common.typing import TSecretStrValue
-from dlt.sources.helpers.requests import Request, Response
-from dlt.sources.helpers.rest_client.auth import AuthConfigBase
-from dlt.sources.helpers.rest_client.paginators import BasePaginator
-from requests import PreparedRequest
+from requests import PreparedRequest, Response
 from requests.exceptions import HTTPError, RequestException, Timeout
 
+from posthog.temporal.data_imports.sources.common.rest_source.auth import AuthBase as AuthConfigBase
+from posthog.temporal.data_imports.sources.common.rest_source.pagination import BasePaginator
 from posthog.temporal.data_imports.sources.tiktok_ads.settings import (
     MAX_TIKTOK_DAYS_FOR_REPORT_ENDPOINTS,
     MAX_TIKTOK_DAYS_TO_QUERY,
@@ -338,7 +337,7 @@ class TikTokAdsPaginator(BasePaginator):
         self.total_number = 0
         self.page_size = 0
 
-    def update_state(self, response: Response, data: Optional[Any] = None) -> None:
+    def update_state(self, response: requests.Response, data: Optional[Any] = None) -> None:
         """Update pagination state from TikTok API response."""
         try:
             json_data = response.json()
@@ -397,14 +396,13 @@ class TikTokAdsPaginator(BasePaginator):
             logger.exception("tiktok_ads_paginator_error", error=str(e))
             raise TikTokAdsAPIError(f"Failed to parse TikTok API response: {str(e)}", response=response)
 
-    def update_request(self, request: Request) -> None:
+    def update_request(self, request: requests.Request) -> None:
         """Update the request with pagination parameters."""
         if request.params is None:
             request.params = {}
         request.params["page"] = self.current_page
 
 
-@configspec
 class TikTokAdsAuth(AuthConfigBase):
     """
     TikTok Ads API authentication handler for dlt REST client.
@@ -413,7 +411,8 @@ class TikTokAdsAuth(AuthConfigBase):
     'Authorization: Bearer' pattern, so we can't use dlt's built-in BearerTokenAuth.
     """
 
-    access_token: TSecretStrValue = None
+    def __init__(self, access_token: str):
+        self.access_token = access_token
 
     def parse_native_representation(self, value: Any) -> None:
         if isinstance(value, str):
