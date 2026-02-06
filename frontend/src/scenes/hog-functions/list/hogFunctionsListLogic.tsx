@@ -152,11 +152,7 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
                     const response = await api.hogFunctions.update(hogFunction.id, { group_id: groupId })
                     const { hogFunctions } = values
                     const index = hogFunctions.findIndex((hf) => hf.id === hogFunction.id)
-                    return [
-                        ...hogFunctions.slice(0, index),
-                        response,
-                        ...hogFunctions.slice(index + 1),
-                    ]
+                    return [...hogFunctions.slice(0, index), response, ...hogFunctions.slice(index + 1)]
                 },
                 toggleEnabled: async ({ hogFunction, enabled }) => {
                     const { hogFunctions } = values
@@ -230,18 +226,18 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
             (s) => [s.filteredHogFunctions, s.hogFunctionGroups],
             (hogFunctions, groups): Record<string, { group: any | null; items: HogFunctionType[] }> => {
                 const groupsMap: Record<string, { group: any | null; items: HogFunctionType[] }> = {}
-                
+
                 // Initialize known groups
                 for (const group of groups) {
                     groupsMap[group.id] = { group, items: [] }
                 }
                 // Default group for unclassified
                 groupsMap['unclassified'] = { group: null, items: [] }
-                
+
                 for (const func of hogFunctions) {
                     // Use 'group' if it exists, otherwise 'unclassified'
                     // Note: API returns group ID as 'group' field currently
-                    const groupId = (func as any).group || 'unclassified'
+                    const groupId = func.group?.id || 'unclassified'
                     if (groupsMap[groupId]) {
                         groupsMap[groupId].items.push(func)
                     } else {
