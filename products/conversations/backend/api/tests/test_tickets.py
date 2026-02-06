@@ -7,6 +7,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import ActivityLog, Comment, Organization, User
+from posthog.models.person import Person
 
 from products.conversations.backend.models import Ticket, TicketAssignment
 from products.conversations.backend.models.constants import Channel, Priority, Status
@@ -96,6 +97,99 @@ class TestTicketAPI(BaseConversationsAPITest):
 
         self.ticket.refresh_from_db()
         self.assertEqual(self.ticket.unread_team_count, 0)
+
+    def test_retrieve_ticket_includes_person_data(self, mock_on_commit):
+        """Test that retrieve includes person data when person exists."""
+        person = Person.objects.create(
+            team=self.team,
+            distinct_ids=["user-123", "user@example.com", "another-id"],
+            properties={"email": "test@example.com", "name": "Test User"},
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("person", response.json())
+        self.assertIsNotNone(response.json()["person"])
+        self.assertEqual(response.json()["person"]["id"], str(person.uuid))
+        self.assertEqual(response.json()["person"]["properties"]["email"], "test@example.com")
+        # Verify all distinct_ids are returned, not just the ticket's
+        self.assertCountEqual(
+            response.json()["person"]["distinct_ids"],
+            ["user-123", "user@example.com", "another-id"],
+        )
+
+    def test_retrieve_ticket_person_null_when_no_person(self, mock_on_commit):
+        """Test that person is null when no person exists for distinct_id."""
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("person", response.json())
+        self.assertIsNone(response.json()["person"])
+
+    def test_list_tickets_includes_person_data(self, mock_on_commit):
+        """Test that list includes person data for tickets with persons."""
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["user-123", "user@example.com"],
+            properties={"email": "test@example.com"},
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 1)
+        self.assertIn("person", response.json()["results"][0])
+        self.assertIsNotNone(response.json()["results"][0]["person"])
+        self.assertEqual(response.json()["results"][0]["person"]["properties"]["email"], "test@example.com")
+        # Verify all distinct_ids are returned, not just the ticket's
+        self.assertCountEqual(
+            response.json()["results"][0]["person"]["distinct_ids"],
+            ["user-123", "user@example.com"],
+        )
+
+    def test_list_tickets_person_null_when_no_person(self, mock_on_commit):
+        """Test that person is null in list when no person exists."""
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 1)
+        self.assertIn("person", response.json()["results"][0])
+        self.assertIsNone(response.json()["results"][0]["person"])
+
+    def test_retrieve_ticket_includes_anonymous_traits(self, mock_on_commit):
+        """Test that retrieve includes anonymous_traits."""
+        self.ticket.anonymous_traits = {"name": "John Doe", "email": "john@example.com"}
+        self.ticket.save()
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("anonymous_traits", response.json())
+        self.assertEqual(response.json()["anonymous_traits"]["name"], "John Doe")
+        self.assertEqual(response.json()["anonymous_traits"]["email"], "john@example.com")
+
+    def test_list_tickets_includes_anonymous_traits(self, mock_on_commit):
+        """Test that list includes anonymous_traits."""
+        self.ticket.anonymous_traits = {"name": "Jane Doe", "company": "ACME"}
+        self.ticket.save()
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 1)
+        self.assertIn("anonymous_traits", response.json()["results"][0])
+        self.assertEqual(response.json()["results"][0]["anonymous_traits"]["name"], "Jane Doe")
+        self.assertEqual(response.json()["results"][0]["anonymous_traits"]["company"], "ACME")
+
+    def test_person_data_scoped_to_team(self, mock_on_commit):
+        """Test that person lookup is scoped to team (no cross-team leakage)."""
+        # Create person in different team
+        other_team = self.organization.teams.create(name="Other Team")
+        Person.objects.create(
+            team=other_team,
+            distinct_ids=["user-123"],  # Same distinct_id as ticket
+            properties={"email": "other@example.com"},
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        # Should be null because person is in different team
+        self.assertIsNone(response.json()["person"])
 
     @parameterized.expand(
         [
@@ -387,17 +481,24 @@ class TestTicketAPI(BaseConversationsAPITest):
                 self.assertEqual(response.json()[field_name], expected_value)
 
     def test_list_tickets_no_n_plus_one_queries(self, mock_on_commit):
-        """Verify ticket list doesn't trigger N+1 queries for assigned users.
+        """Verify ticket list doesn't trigger N+1 queries for assigned users or persons.
         Message stats (message_count, last_message_at, last_message_text) are now
         denormalized on the Ticket model, so no subqueries needed.
+        Person data is batch-fetched in a single query.
         """
-        # Create 10 tickets with messages and assignments
+        # Create 10 tickets with messages, assignments, and persons
         for i in range(10):
             ticket = Ticket.objects.create_with_number(
                 team=self.team,
                 channel_source=Channel.WIDGET,
                 widget_session_id=f"session-{i}",
                 distinct_id=f"user-{i}",
+            )
+            # Create person for this ticket
+            Person.objects.create(
+                team=self.team,
+                distinct_ids=[f"user-{i}"],
+                properties={"email": f"user{i}@example.com"},
             )
             # Assign user to ticket
             TicketAssignment.objects.create(ticket=ticket, user=self.user)
@@ -418,9 +519,10 @@ class TestTicketAPI(BaseConversationsAPITest):
             )
 
         # Query count should be constant regardless of number of tickets
-        # Includes: session, user, org, team, permissions, feature flag check, count query, tickets query
+        # Includes: session, user, org, team, permissions, feature flag check, count query, tickets query,
+        # person distinct_id query (batch), person prefetch, all distinct_ids query (batch)
         # Note: message stats are denormalized, no subqueries needed
-        with self.assertNumQueries(11):
+        with self.assertNumQueries(14):
             response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             # Should have original ticket + 10 new tickets = 11 total
@@ -431,6 +533,7 @@ class TestTicketAPI(BaseConversationsAPITest):
                 self.assertIn("last_message_at", ticket_data)
                 self.assertIn("last_message_text", ticket_data)
                 self.assertIn("assignee", ticket_data)
+                self.assertIn("person", ticket_data)
 
     def test_feature_flag_required(self, mock_on_commit):
         """Verify that product-support feature flag is required for API access."""

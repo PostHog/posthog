@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
-import { IconCheck, IconCursorClick, IconExternal, IconPlay, IconPlus, IconX } from '@posthog/icons'
+import { IconCheck, IconCursorClick, IconExternal, IconPlay, IconPlus, IconSidebarClose, IconX } from '@posthog/icons'
 import { LemonButton, LemonInput, Link } from '@posthog/lemon-ui'
 
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
@@ -33,6 +33,7 @@ export function ProductToursSidebar(): JSX.Element | null {
         isPreviewing,
         pendingEditInPostHog,
         sessionRecordingConsent,
+        sidebarPosition,
     } = useValues(productToursLogic)
     const {
         selectTour,
@@ -46,6 +47,7 @@ export function ProductToursSidebar(): JSX.Element | null {
         updateRects,
         setSidebarTransitioning,
         setSessionRecordingConsent,
+        toggleSidebarPosition,
     } = useActions(productToursLogic)
 
     const steps = tourForm?.steps || []
@@ -111,8 +113,9 @@ export function ProductToursSidebar(): JSX.Element | null {
 
     useEffect(() => {
         if (selectedTourId !== null) {
-            document.body.style.transition = `margin-right ${PRODUCT_TOURS_SIDEBAR_TRANSITION_MS}ms ease-out`
-            document.body.style.marginRight = `${SIDEBAR_WIDTH}px`
+            document.body.style.transition = `margin ${PRODUCT_TOURS_SIDEBAR_TRANSITION_MS}ms ease-out`
+            document.body.style.marginLeft = sidebarPosition === 'left' ? `${SIDEBAR_WIDTH}px` : ''
+            document.body.style.marginRight = sidebarPosition === 'right' ? `${SIDEBAR_WIDTH}px` : ''
 
             const timer = setTimeout(() => {
                 setSidebarTransitioning(false)
@@ -121,10 +124,12 @@ export function ProductToursSidebar(): JSX.Element | null {
 
             return () => {
                 clearTimeout(timer)
+                document.body.style.marginLeft = ''
                 document.body.style.marginRight = ''
+                document.body.style.transition = ''
             }
         }
-    }, [selectedTourId, updateRects, setSidebarTransitioning])
+    }, [selectedTourId, sidebarPosition, updateRects, setSidebarTransitioning])
 
     if (selectedTourId === null) {
         return null
@@ -141,12 +146,16 @@ export function ProductToursSidebar(): JSX.Element | null {
                 style={{
                     position: 'fixed',
                     top: 0,
-                    right: 0,
+                    [sidebarPosition]: 0,
                     bottom: 0,
                     width: SIDEBAR_WIDTH,
                     backgroundColor: 'var(--color-bg-3000)',
-                    borderLeft: '1px solid var(--border-bold-3000)',
-                    boxShadow: '-4px 0 24px rgba(0, 0, 0, 0.4)',
+                    borderLeft: sidebarPosition === 'right' ? '1px solid var(--border-bold-3000)' : 'none',
+                    borderRight: sidebarPosition === 'left' ? '1px solid var(--border-bold-3000)' : 'none',
+                    boxShadow:
+                        sidebarPosition === 'right'
+                            ? '-4px 0 24px rgba(0, 0, 0, 0.4)'
+                            : '4px 0 24px rgba(0, 0, 0, 0.4)',
                     zIndex: 2147483019,
                     pointerEvents: 'auto',
                     color: 'var(--text-3000)',
@@ -156,13 +165,26 @@ export function ProductToursSidebar(): JSX.Element | null {
                 <div className="p-4 border-b border-border-bold-3000 bg-bg-light">
                     <div className="flex items-center justify-between mb-3">
                         <h2 className="m-0 text-sm font-semibold">{isNewTour ? 'New tour' : 'Edit tour'}</h2>
-                        <button
-                            type="button"
-                            onClick={() => selectTour(null)}
-                            className="p-1 rounded border-none bg-transparent cursor-pointer text-muted-3000 hover:text-text-3000 flex items-center justify-center"
-                        >
-                            <IconX className="w-4 h-4" />
-                        </button>
+                        <div className="flex items-center gap-1">
+                            <button
+                                type="button"
+                                onClick={toggleSidebarPosition}
+                                className="p-1 rounded border-none bg-transparent cursor-pointer text-muted-3000 hover:text-text-3000 flex items-center justify-center"
+                                title={`Move to ${sidebarPosition === 'right' ? 'left' : 'right'}`}
+                            >
+                                <IconSidebarClose
+                                    className="w-4 h-4"
+                                    style={{ transform: sidebarPosition === 'right' ? 'scaleX(-1)' : undefined }}
+                                />
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => selectTour(null)}
+                                className="p-1 rounded border-none bg-transparent cursor-pointer text-muted-3000 hover:text-text-3000 flex items-center justify-center"
+                            >
+                                <IconX className="w-4 h-4" />
+                            </button>
+                        </div>
                     </div>
 
                     <LemonInput
