@@ -10,7 +10,8 @@ from products.llm_analytics.backend.summarization.models import OpenAIModel, Sum
 DEFAULT_MAX_ITEMS_PER_WINDOW = (
     15  # Max items to process per window (targets ~2500 summaries in 7-day clustering window)
 )
-DEFAULT_BATCH_SIZE = 5  # Number of traces to process in parallel
+DEFAULT_BATCH_SIZE = 5  # Number of generations to process in parallel
+DEFAULT_TRACE_BATCH_SIZE = 1  # Traces processed sequentially - formatting is CPU-intensive and holds the GIL
 DEFAULT_MODE = SummarizationMode.DETAILED
 DEFAULT_WINDOW_MINUTES = 60  # Process traces from last N minutes (matches schedule frequency)
 DEFAULT_WINDOW_OFFSET_MINUTES = 30  # Offset window into the past so traces have time to fully complete
