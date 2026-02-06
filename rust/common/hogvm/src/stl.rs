@@ -347,6 +347,40 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                 construct_free_standing(res, 0)
             })),
         ),
+        (
+            "multiSearchAnyCaseInsensitive",
+            native_func(|vm, args| {
+                if args.len() != 2 {
+                    return Err(VmError::NativeCallFailed(
+                        "multiSearchAnyCaseInsensitive takes exactly 2 arguments".to_string(),
+                    ));
+                }
+                
+                let haystack = args[0].deref(&vm.heap)?;
+                let needles = args[1].deref(&vm.heap)?;
+                
+                let haystack_str = match haystack {
+                    HogLiteral::String(s) => s.to_lowercase(),
+                    _ => return Ok(HogLiteral::Boolean(false).into()),
+                };
+                
+                let needles_array = match needles {
+                    HogLiteral::Array(arr) => arr,
+                    _ => return Ok(HogLiteral::Boolean(false).into()),
+                };
+                
+                for needle_value in needles_array {
+                    let needle = needle_value.deref(&vm.heap)?;
+                    if let HogLiteral::String(needle_str) = needle {
+                        if haystack_str.contains(&needle_str.to_lowercase()) {
+                            return Ok(HogLiteral::Boolean(true).into());
+                        }
+                    }
+                }
+                
+                Ok(HogLiteral::Boolean(false).into())
+            }),
+        ),
     ]
     .into_iter()
     .map(|(name, func)| (name.to_string(), func))

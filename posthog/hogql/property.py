@@ -321,17 +321,47 @@ def _expr_to_compare_op(
             right=ast.Constant(value=None),
         )
     elif operator == PropertyOperator.ICONTAINS:
-        return ast.CompareOperation(
-            op=ast.CompareOperationOp.ILike,
-            left=ast.Call(name="toString", args=[expr]),
-            right=ast.Constant(value=f"%{value}%"),
-        )
+        if isinstance(value, list):
+            # Multiple values: use ClickHouse's multiSearchAnyCaseInsensitive for efficient searching
+            return ast.CompareOperation(
+                op=ast.CompareOperationOp.Gt,
+                left=ast.Call(
+                    name="multiSearchAnyCaseInsensitive",
+                    args=[
+                        ast.Call(name="toString", args=[expr]),
+                        ast.Array(exprs=[ast.Constant(value=str(v)) for v in value]),
+                    ],
+                ),
+                right=ast.Constant(value=0),
+            )
+        else:
+            # Single value: keep existing ILIKE logic for backward compatibility
+            return ast.CompareOperation(
+                op=ast.CompareOperationOp.ILike,
+                left=ast.Call(name="toString", args=[expr]),
+                right=ast.Constant(value=f"%{value}%"),
+            )
     elif operator == PropertyOperator.NOT_ICONTAINS:
-        return ast.CompareOperation(
-            op=ast.CompareOperationOp.NotILike,
-            left=ast.Call(name="toString", args=[expr]),
-            right=ast.Constant(value=f"%{value}%"),
-        )
+        if isinstance(value, list):
+            # Multiple values: use ClickHouse's multiSearchAnyCaseInsensitive with negation
+            return ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq,
+                left=ast.Call(
+                    name="multiSearchAnyCaseInsensitive",
+                    args=[
+                        ast.Call(name="toString", args=[expr]),
+                        ast.Array(exprs=[ast.Constant(value=str(v)) for v in value]),
+                    ],
+                ),
+                right=ast.Constant(value=0),
+            )
+        else:
+            # Single value: keep existing NOT ILIKE logic for backward compatibility
+            return ast.CompareOperation(
+                op=ast.CompareOperationOp.NotILike,
+                left=ast.Call(name="toString", args=[expr]),
+                right=ast.Constant(value=f"%{value}%"),
+            )
     elif operator == PropertyOperator.REGEX:
         return ast.Call(
             name="ifNull",
@@ -777,6 +807,9 @@ def property_to_expr(
                         )
                     else:
                         return compare_op
+                elif operator in (PropertyOperator.ICONTAINS, PropertyOperator.NOT_ICONTAINS):
+                    # For contains operators, delegate to _expr_to_compare_op which handles multiple values efficiently
+                    return _expr_to_compare_op(expr, value, operator, property, property.type != "session", team)
 
                 exprs = [
                     property_to_expr(

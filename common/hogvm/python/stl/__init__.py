@@ -1093,4 +1093,13 @@ STL: dict[str, STLFunction] = {
     # only in python, async function in nodejs
     "sleep": STLFunction(fn=sleep, minArgs=1, maxArgs=1),
     "run": STLFunction(fn=run, minArgs=1, maxArgs=1),
+    "multiSearchAnyCaseInsensitive": STLFunction(
+        fn=lambda args, team, stdout, timeout: any(
+            str(needle).lower() in str(args[0]).lower() for needle in (args[1] if isinstance(args[1], list) else [])
+        )
+        if args[0] is not None and args[1] is not None
+        else False,
+        minArgs=2,
+        maxArgs=2,
+    ),
 }
