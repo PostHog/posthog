@@ -210,17 +210,30 @@ if (this.seekTestConsumer) {
             invocations.push(invocation)
         }
 
+        const result = await this.consumeBatch(invocations)
+
         // Seek-back latency test: for a sample of messages, seek to a random older offset
-        // on the same partition and measure how long the read takes (for WarpStream evaluation)
+        // on the same partition and measure how long the read takes (for WarpStream evaluation).
+        // Runs as background task so it doesn't block batch processing.
         if (this.seekTestConsumer) {
-            for (const message of messages) {
-                if (Math.random() < this.config.CDP_CYCLOTRON_TEST_SEEK_SAMPLE_RATE) {
-                    await this.testSeekLatency(message)
+            const seekTestMessages = messages.filter(
+                () => Math.random() < this.config.CDP_CYCLOTRON_TEST_SEEK_SAMPLE_RATE
+            )
+
+            if (seekTestMessages.length > 0) {
+                const seekTestTask = (async () => {
+                    for (const message of seekTestMessages) {
+                        await this.testSeekLatency(message)
+                    }
+                })()
+
+                return {
+                    backgroundTask: Promise.all([result.backgroundTask, seekTestTask]),
                 }
             }
         }
 
-        return await this.consumeBatch(invocations)
+        return result
     }
 
     private async testSeekLatency(message: Message): Promise<void> {
