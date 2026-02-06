@@ -25,7 +25,7 @@ class HealthIssue(UUIDModel):
         related_name="health_issues",
     )
 
-    type = models.CharField(max_length=100, db_index=True)
+    kind = models.CharField(max_length=100)
 
     severity = models.CharField(
         max_length=20,
@@ -44,52 +44,44 @@ class HealthIssue(UUIDModel):
     updated_at = models.DateTimeField(auto_now=True)
     resolved_at = models.DateTimeField(null=True, blank=True)
 
-    unique_hash = models.CharField(max_length=64, null=True, blank=True)
+    unique_hash = models.CharField(max_length=64)
 
     class Meta:
-        indexes = [
-            models.Index(
-                name="idx_health_team_type_active",
-                fields=["team_id", "type"],
-                condition=models.Q(status="active"),
-            ),
-        ]
-
         constraints = [
             models.UniqueConstraint(
                 name="unique_active_health_issue",
-                fields=["team_id", "type", "unique_hash"],
+                fields=["team_id", "kind", "unique_hash"],
                 condition=models.Q(status="active"),
             ),
         ]
 
     def __str__(self) -> str:
-        return f"HealthIssue: {self.team_id}, {self.type}, {self.severity}, {self.status}"
+        return f"HealthIssue: {self.team_id}, {self.kind}, {self.severity}, {self.status}"
 
     @staticmethod
-    def compute_unique_hash(type: str, payload: dict[str, Any], hash_keys: Optional[list[str]] = None) -> str:
+    def compute_unique_hash(kind: str, payload: dict[str, Any], hash_keys: Optional[list[str]] = None) -> str:
         if hash_keys:
-            hash_data = {k: payload.get(k) for k in hash_keys}
+            hash_data = {k: payload.get(k) for k in sorted(hash_keys)}
         else:
             hash_data = payload
 
-        content = f"{type}:{json.dumps(hash_data, sort_keys=True)}"
+        content = f"{kind}:{json.dumps(hash_data, sort_keys=True)}"
         return hashlib.sha256(content.encode()).hexdigest()
 
     @classmethod
     def upsert_issue(
         cls,
         team_id: int,
-        type: str,
+        kind: str,
         severity: str,
         payload: dict[str, Any],
         hash_keys: Optional[list[str]] = None,
     ) -> tuple["HealthIssue", bool]:
-        unique_hash = cls.compute_unique_hash(type, payload, hash_keys)
+        unique_hash = cls.compute_unique_hash(kind, payload, hash_keys)
 
         issue, created = cls.objects.update_or_create(
             team_id=team_id,
-            type=type,
+            kind=kind,
             unique_hash=unique_hash,
             status=cls.Status.ACTIVE,
             defaults={

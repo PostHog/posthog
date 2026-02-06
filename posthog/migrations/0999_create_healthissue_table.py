@@ -25,7 +25,7 @@ class Migration(migrations.Migration):
                         serialize=False,
                     ),
                 ),
-                ("type", models.CharField(db_index=True, max_length=100)),
+                ("kind", models.CharField(max_length=100)),
                 (
                     "severity",
                     models.CharField(
@@ -53,7 +53,7 @@ class Migration(migrations.Migration):
                 ("created_at", models.DateTimeField(default=django.utils.timezone.now)),
                 ("updated_at", models.DateTimeField(auto_now=True)),
                 ("resolved_at", models.DateTimeField(blank=True, null=True)),
-                ("unique_hash", models.CharField(blank=True, max_length=64, null=True)),
+                ("unique_hash", models.CharField(max_length=64)),
                 (
                     "team",
                     models.ForeignKey(
@@ -63,21 +63,12 @@ class Migration(migrations.Migration):
                     ),
                 ),
             ],
-            options={
-                "indexes": [
-                    models.Index(
-                        condition=models.Q(("status", "active")),
-                        fields=["team_id", "type"],
-                        name="idx_health_team_type_active",
-                    )
-                ],
-            },
         ),
         migrations.AddConstraint(
             model_name="healthissue",
             constraint=models.UniqueConstraint(
                 condition=models.Q(("status", "active")),
-                fields=("team_id", "type", "unique_hash"),
+                fields=("team_id", "kind", "unique_hash"),
                 name="unique_active_health_issue",
             ),
         ),
