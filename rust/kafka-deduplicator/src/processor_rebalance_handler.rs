@@ -414,7 +414,7 @@ where
         })
     }
 
-    /// Finalize the rebalance cycle when all rebalances are complete (counter == 0).
+    /// Finalize the rebalance cycle when all rebalances are complete (counter == 0) or we're the last (count == 1).
     ///
     /// This method:
     /// 1. Awaits all pending import tasks (always - cleans up JoinHandles)
@@ -423,11 +423,13 @@ where
     /// 4. Cleans up unowned partition directories
     /// 5. Resumes consumption
     ///
-    /// The early return check (step 2) happens before creating fallback stores to avoid
-    /// wasted work when a new rebalance has already started.
+    /// When `we_are_finalizing_last` is true, we were invoked before decrementing (count still 1).
+    /// We proceed if count == 1 (no new rebalance) and skip if count > 1. This keeps is_rebalancing()
+    /// true for the whole finalize so orphan/capacity cleanup skips and doesn't delete dirs we're setting up.
     async fn finalize_rebalance_cycle(
         &self,
         consumer_command_tx: &ConsumerCommandSender,
+        we_are_finalizing_last: bool,
     ) -> Result<()> {
         info!("Finalizing rebalance cycle - awaiting import tasks");
 
@@ -447,8 +449,15 @@ where
         }
 
         // Step 2: Check if a new rebalance started while we were awaiting
-        // If so, skip fallback stores, cleanup and resume - the new cycle will handle them
-        if self.rebalance_tracker.is_rebalancing() {
+        // When we_are_finalizing_last, count is still 1 (we haven't decremented); proceed only if count == 1.
+        // Otherwise we already decremented; proceed only if count == 0.
+        let count = self.rebalance_tracker.rebalancing_count();
+        let should_skip = if we_are_finalizing_last {
+            count != 1
+        } else {
+            count != 0
+        };
+        if should_skip {
             info!("New rebalance started during finalize - skipping fallback stores, cleanup and resume");
             return Ok(());
         }
@@ -670,17 +679,23 @@ where
             // If claim failed, either a store exists or a task is still running
         }
 
-        // Decrement rebalancing counter
-        self.rebalance_tracker.finish_rebalancing();
-
-        // Only finalize (await tasks, cleanup, resume) if this is the LAST rebalance
-        // This ensures all events in the cycle are processed before blocking on I/O
-        if !self.rebalance_tracker.is_rebalancing() {
-            self.finalize_rebalance_cycle(consumer_command_tx).await?;
+        // If we're the last rebalance (count == 1), run finalize BEFORE decrementing so is_rebalancing()
+        // stays true during finalize. That prevents orphan/capacity cleanup from deleting dirs we're setting up.
+        let is_last = self.rebalance_tracker.rebalancing_count() == 1;
+        if is_last {
+            self.finalize_rebalance_cycle(consumer_command_tx, true)
+                .await?;
+            self.rebalance_tracker.finish_rebalancing();
         } else {
-            debug!(
-                "Rebalance async setup complete, but other rebalances still in progress - deferring finalize"
-            );
+            self.rebalance_tracker.finish_rebalancing();
+            if !self.rebalance_tracker.is_rebalancing() {
+                self.finalize_rebalance_cycle(consumer_command_tx, false)
+                    .await?;
+            } else {
+                debug!(
+                    "Rebalance async setup complete, but other rebalances still in progress - deferring finalize"
+                );
+            }
         }
 
         Ok(())

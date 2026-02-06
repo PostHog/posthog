@@ -293,8 +293,11 @@ impl RebalanceTracker {
         self.owned_partitions.len()
     }
 
-    /// Get the current rebalancing count (for testing/debugging).
-    #[cfg(test)]
+    /// Get the current rebalancing count.
+    ///
+    /// Used by ProcessorRebalanceHandler to decide whether to run finalize before or after
+    /// decrementing (so is_rebalancing() stays true during finalize and orphan cleanup skips).
+    /// Also useful for observability.
     pub fn rebalancing_count(&self) -> usize {
         self.rebalancing_count.load(Ordering::SeqCst)
     }
