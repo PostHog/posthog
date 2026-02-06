@@ -17,6 +17,7 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -24,6 +25,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
 import { urls } from '~/scenes/urls'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { LLMProvider, LLM_PROVIDER_LABELS } from '../settings/llmProviderKeysLogic'
 import { EvaluationPromptEditor } from './components/EvaluationPromptEditor'
@@ -119,14 +121,19 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
                     <LemonButton type="secondary" icon={<IconArrowLeft />} onClick={handleCancel}>
                         {hasUnsavedChanges ? 'Cancel' : 'Back'}
                     </LemonButton>
-                    <LemonButton
-                        type="primary"
-                        onClick={handleSave}
-                        disabled={saveButtonDisabled}
-                        loading={evaluationFormSubmitting}
+                    <AccessControlAction
+                        resourceType={AccessControlResourceType.LlmAnalytics}
+                        minAccessLevel={AccessControlLevel.Editor}
                     >
-                        {isNewEvaluation ? 'Create Evaluation' : 'Save Changes'}
-                    </LemonButton>
+                        <LemonButton
+                            type="primary"
+                            onClick={handleSave}
+                            disabled={saveButtonDisabled}
+                            loading={evaluationFormSubmitting}
+                        >
+                            {isNewEvaluation ? 'Create Evaluation' : 'Save Changes'}
+                        </LemonButton>
+                    </AccessControlAction>
                 </div>
             </div>
 
@@ -218,6 +225,7 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
                                             { value: 'openai', label: LLM_PROVIDER_LABELS.openai },
                                             { value: 'anthropic', label: LLM_PROVIDER_LABELS.anthropic },
                                             { value: 'gemini', label: LLM_PROVIDER_LABELS.gemini },
+                                            { value: 'openrouter', label: LLM_PROVIDER_LABELS.openrouter },
                                         ]}
                                         fullWidth
                                     />
@@ -229,7 +237,7 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
                                         <div className="flex items-center gap-1">
                                             <span>API key</span>
                                             <span className="text-muted">-</span>
-                                            <Link to={urls.llmAnalyticsSettings()}>Manage</Link>
+                                            <Link to={`${urls.llmAnalyticsEvaluations()}?tab=settings`}>Manage</Link>
                                         </div>
                                     }
                                 >

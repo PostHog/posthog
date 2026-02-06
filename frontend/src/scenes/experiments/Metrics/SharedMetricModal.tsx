@@ -146,27 +146,47 @@ export function SharedMetricModal({
                                     } already in use with this experiment.`}
                                 </LemonBanner>
                             )}
-                            {availableTags.length > 0 && (
-                                <div className="flex flex-wrap gap-2">
-                                    <LemonLabel>Quick select:</LemonLabel>
-                                    {availableTags.map((tag: string, index: number) => (
-                                        <LemonButton
-                                            key={index}
-                                            size="xsmall"
-                                            type="secondary"
-                                            onClick={() => {
-                                                setSelectedMetricIds(
-                                                    availableSharedMetrics
-                                                        .filter((metric: SharedMetric) => metric.tags?.includes(tag))
-                                                        .map((metric: SharedMetric) => metric.id)
-                                                )
-                                            }}
-                                        >
-                                            {tag}
-                                        </LemonButton>
-                                    ))}
-                                </div>
-                            )}
+                            <div className="flex flex-wrap gap-2">
+                                <LemonLabel>Quick select:</LemonLabel>
+                                <LemonButton
+                                    size="xsmall"
+                                    type="secondary"
+                                    onClick={() => {
+                                        setSelectedMetricIds(
+                                            availableSharedMetrics.map((metric: SharedMetric) => metric.id)
+                                        )
+                                    }}
+                                >
+                                    All
+                                </LemonButton>
+                                {selectedMetricIds.length > 0 && (
+                                    <LemonButton
+                                        size="xsmall"
+                                        type="secondary"
+                                        onClick={() => {
+                                            setSelectedMetricIds([])
+                                        }}
+                                    >
+                                        Clear
+                                    </LemonButton>
+                                )}
+                                {availableTags.map((tag: string, index: number) => (
+                                    <LemonButton
+                                        key={index}
+                                        size="xsmall"
+                                        type="secondary"
+                                        onClick={() => {
+                                            setSelectedMetricIds(
+                                                availableSharedMetrics
+                                                    .filter((metric: SharedMetric) => metric.tags?.includes(tag))
+                                                    .map((metric: SharedMetric) => metric.id)
+                                            )
+                                        }}
+                                    >
+                                        {tag}
+                                    </LemonButton>
+                                ))}
+                            </div>
                             <LemonTable
                                 dataSource={availableSharedMetrics}
                                 columns={[

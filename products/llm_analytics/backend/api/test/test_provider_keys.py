@@ -297,6 +297,32 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
         response = self.client.post(f"/api/environments/{self.team.id}/llm_analytics/provider_keys/{key.id}/validate/")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    @patch("products.llm_analytics.backend.api.provider_keys.validate_provider_key")
+    def test_can_create_openrouter_provider_key(self, mock_validate):
+        mock_validate.return_value = (LLMProviderKey.State.OK, None)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/provider_keys/",
+            {"provider": "openrouter", "name": "OpenRouter Key", "api_key": "sk-or-v1-test-key-12345"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        key = LLMProviderKey.objects.first()
+        assert key is not None
+        self.assertEqual(key.provider, "openrouter")
+        self.assertEqual(key.state, LLMProviderKey.State.OK)
+        mock_validate.assert_called_once_with("openrouter", "sk-or-v1-test-key-12345")
+
+    @patch("products.llm_analytics.backend.api.provider_keys.validate_provider_key")
+    def test_openrouter_key_accepts_any_format(self, mock_validate):
+        mock_validate.return_value = (LLMProviderKey.State.OK, None)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/provider_keys/",
+            {"provider": "openrouter", "name": "OpenRouter Key", "api_key": "any-format-key"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
     def test_keys_ordered_by_created_at_descending(self):
         key1 = LLMProviderKey.objects.create(
             team=self.team,
@@ -354,6 +380,18 @@ class TestLLMProviderKeyValidationViewSet(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["state"], "invalid")
         self.assertEqual(response.data["error_message"], "Invalid API key")
+
+    @patch("products.llm_analytics.backend.api.provider_keys.validate_provider_key")
+    def test_can_pre_validate_openrouter_key(self, mock_validate):
+        mock_validate.return_value = (LLMProviderKey.State.OK, None)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/provider_key_validations/",
+            {"api_key": "sk-or-v1-test-key", "provider": "openrouter"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["state"], "ok")
+        mock_validate.assert_called_once_with("openrouter", "sk-or-v1-test-key")
 
     def test_pre_validate_requires_api_key(self):
         response = self.client.post(

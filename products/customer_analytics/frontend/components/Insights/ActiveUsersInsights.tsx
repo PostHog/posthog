@@ -53,7 +53,8 @@ export function ActiveUsersInsights(): JSX.Element {
 }
 
 function PowerUsersTable(): JSX.Element {
-    const { businessType, customerLabel, dauSeries, selectedGroupType, tabId } = useValues(customerAnalyticsSceneLogic)
+    const { businessType, customerLabel, dauSeries, selectedGroupType, tabId, filterTestAccounts } =
+        useValues(customerAnalyticsSceneLogic)
     const { isRevenueAnalyticsEnabled, baseCurrency } = useValues(revenueAnalyticsLogic)
     const revenueFieldsEnabled = useFeatureFlag('REVENUE_FIELDS_IN_POWER_USERS_TABLE')
     const uniqueKey = `power-users-${tabId}`
@@ -88,6 +89,7 @@ function PowerUsersTable(): JSX.Element {
                     trendsFilter: {
                         display: ChartDisplayType.ActionsTable,
                     },
+                    filterTestAccounts,
                     ...(isB2c ? {} : { aggregation_group_type_index: selectedGroupType }),
                 },
                 series: 0,

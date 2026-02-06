@@ -8,6 +8,7 @@ import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardSh
 
 import { LogsOrderBy } from 'products/logs/frontend/types'
 
+import { LogsExportMenu } from './LogsExportMenu'
 import { TimezoneSelect } from './TimezoneSelect'
 import { logsViewerLogic } from './logsViewerLogic'
 
@@ -15,12 +16,14 @@ export interface LogsViewerToolbarProps {
     totalLogsCount?: number
     orderBy: LogsOrderBy
     onChangeOrderBy: (orderBy: LogsOrderBy) => void
+    maxExportableLogs: number
 }
 
 export const LogsViewerToolbar = ({
     totalLogsCount,
     orderBy,
     onChangeOrderBy,
+    maxExportableLogs,
 }: LogsViewerToolbarProps): JSX.Element => {
     const { wrapBody, prettifyJson, timezone } = useValues(logsViewerLogic)
     const { setWrapBody, setPrettifyJson, setTimezone } = useActions(logsViewerLogic)
@@ -52,6 +55,11 @@ export const LogsViewerToolbar = ({
                     size="small"
                 />
                 <TimezoneSelect value={timezone} onChange={setTimezone} size="small" />
+                <LogsExportMenu
+                    totalLogsCount={totalLogsCount}
+                    orderBy={orderBy}
+                    maxExportableLogs={maxExportableLogs}
+                />
             </div>
             <div className="flex items-center gap-4 flex-wrap">
                 {totalLogsCount !== undefined && totalLogsCount > 0 && (

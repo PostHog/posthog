@@ -1,5 +1,6 @@
 """Activity for generating summaries of individual $ai_generation events using LLM."""
 
+import time
 from uuid import uuid4
 
 import structlog
@@ -227,16 +228,21 @@ async def generate_and_save_generation_summary_activity(
             product="llm-analytics",
         )
 
+    activity_start = time.monotonic()
+    log = logger.bind(generation_id=generation_id, trace_id=trace_id, team_id=team_id)
+
     async with Heartbeater():
-        # Fetch generation data
+        # Step 1: Fetch generation data
+        t0 = time.monotonic()
         result = await database_sync_to_async(_fetch_generation_data, thread_sensitive=False)(
             generation_id, team_id, window_start, window_end
         )
+        fetch_duration_s = time.monotonic() - t0
 
         if result is None:
-            logger.warning(
+            log.warning(
                 "Skipping generation - not found in time window",
-                generation_id=generation_id,
+                fetch_duration_s=round(fetch_duration_s, 2),
                 window_start=window_start,
                 window_end=window_end,
             )
@@ -257,10 +263,17 @@ async def generate_and_save_generation_summary_activity(
         if max_length and len(text_repr) > max_length:
             text_repr = text_repr[:max_length] + "\n... [truncated]"
 
-        # Generate summary using LLM via gateway
+        log.info(
+            "Generation fetched and formatted",
+            fetch_duration_s=round(fetch_duration_s, 2),
+            text_repr_length=len(text_repr),
+        )
+
+        # Step 2: Generate summary using LLM via gateway
         mode_enum = SummarizationMode(mode)
         model_enum = OpenAIModel(model) if model else None
 
+        t0 = time.monotonic()
         summary_result = await database_sync_to_async(summarize, thread_sensitive=False)(
             text_repr=text_repr,
             team_id=team_id,
@@ -268,23 +281,45 @@ async def generate_and_save_generation_summary_activity(
             model=model_enum,
             user_id=f"temporal-workflow-team-{team_id}",
         )
+        llm_duration_s = time.monotonic() - t0
+        log.info(
+            "LLM summary generated",
+            llm_duration_s=round(llm_duration_s, 2),
+            text_repr_length=len(text_repr),
+            model=model,
+        )
 
-        # Save event to ClickHouse
+        # Step 3: Save event to ClickHouse
+        t0 = time.monotonic()
         await database_sync_to_async(_save_summary_event, thread_sensitive=False)(summary_result, text_repr, team)
+        save_duration_s = time.monotonic() - t0
 
-        # Request embedding
+        # Step 4: Request embedding
         embedding_requested = False
         embedding_request_error = None
+        t0 = time.monotonic()
         try:
             await database_sync_to_async(_embed_summary, thread_sensitive=False)(summary_result, team)
             embedding_requested = True
         except Exception as e:
             embedding_request_error = str(e)
-            logger.exception(
+            log.exception(
                 "Failed to request embedding for generation summary",
-                generation_id=generation_id,
                 error=embedding_request_error,
             )
+        embed_duration_s = time.monotonic() - t0
+
+        total_duration_s = time.monotonic() - activity_start
+        log.info(
+            "Activity completed",
+            total_duration_s=round(total_duration_s, 2),
+            fetch_duration_s=round(fetch_duration_s, 2),
+            llm_duration_s=round(llm_duration_s, 2),
+            save_duration_s=round(save_duration_s, 2),
+            embed_duration_s=round(embed_duration_s, 2),
+            text_repr_length=len(text_repr),
+            embedding_requested=embedding_requested,
+        )
 
     return SummarizationActivityResult(
         trace_id=trace_id,

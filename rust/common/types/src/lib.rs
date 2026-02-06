@@ -1,3 +1,4 @@
+pub mod collections;
 mod embeddings;
 mod event;
 mod formats;

@@ -217,7 +217,7 @@ const queryMock: MockSignature = async (req, res, ctx) => {
 
     const results = logs.slice(offset, offset + limit)
 
-    return res(ctx.json({ results: results }))
+    return res(ctx.json({ results: results, maxExportableLogs: 5000 }))
 }
 
 const sparklineMock: MockSignature = async (req, res, ctx) => {

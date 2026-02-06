@@ -6,7 +6,6 @@ import { recordingMetaJson } from 'scenes/session-recordings/__mocks__/recording
 import { snapshotsAsJSONLines } from 'scenes/session-recordings/__mocks__/recording_snapshots'
 import { urls } from 'scenes/urls'
 
-import { FEATURE_FLAGS } from '~/lib/constants'
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 import { ActivityTab } from '~/types'
 
@@ -19,7 +18,6 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-01-28',
-        featureFlags: [FEATURE_FLAGS.SESSIONS_EXPLORER],
         testOptions: {
             loaderTimeout: 15000,
         },

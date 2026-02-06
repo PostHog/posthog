@@ -22,6 +22,7 @@ schedules = [
     web_preaggregated.web_pre_aggregate_historical_schedule,
     web_preaggregated.web_pre_aggregate_current_day_schedule,
     cache_warming.web_analytics_cache_warming_schedule,
+    cache_favicons.cache_authorized_domain_favicons_schedule,
 ]
 
 # Only include the backfill schedule when not in TEST mode
@@ -43,6 +44,7 @@ defs = dagster.Definitions(
         web_preaggregated.web_pre_aggregated_stats,
         web_pre_aggregated_accuracy.web_pre_aggregated_accuracy,
         cache_favicons.cache_favicons,
+        cache_favicons.cache_authorized_domain_favicons,
     ],
     asset_checks=[
         web_preaggregated_asset_checks.web_analytics_accuracy_check,
@@ -53,6 +55,7 @@ defs = dagster.Definitions(
         web_preaggregated_daily.web_pre_aggregate_daily_job,
         web_preaggregated.web_pre_aggregate_job,
         cache_warming.web_analytics_cache_warming_job,
+        cache_favicons.cache_authorized_domain_favicons_job,
     ],
     schedules=schedules,
     resources=resources,
