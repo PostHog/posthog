@@ -52,8 +52,8 @@ import { userLogic } from './userLogic'
 const TAB_STATE_KEY = 'scene-tabs-state'
 const PINNED_TAB_STATE_KEY = 'scene-tabs-pinned-state'
 
-type TabOpenSource = 'internal_link' | 'keyboard_shortcut' | 'new_tab_button' | 'unknown'
-type TabCloseSource =
+export type TabOpenSource = 'internal_link' | 'keyboard_shortcut' | 'new_tab_button' | 'unknown'
+export type TabCloseSource =
     | 'close_button'
     | 'context_menu'
     | 'keyboard_shortcut'
