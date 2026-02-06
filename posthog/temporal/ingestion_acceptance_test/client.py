@@ -209,19 +209,40 @@ class PostHogClient:
         self._posthog.shutdown()
         self._session.close()
 
+    # Polling configuration
+    POLL_BACKOFF_FACTOR = 1.5
+
     def _poll_until_found(
         self,
         fetch_fn: Callable[[], T | None],
         description: str,
     ) -> T | None:
-        """Poll until fetch_fn returns a non-None result or timeout."""
+        """Poll until fetch_fn returns a non-None result or timeout.
+
+        Sleeps before each request with exponential backoff to reduce query pressure
+        and increase likelihood of success on first call. Transient connection errors
+        are caught and logged, allowing polling to continue.
+        """
         start_time = time.time()
+        current_interval = self.config.poll_interval_seconds
 
         while time.time() - start_time < self.config.event_timeout_seconds:
-            result = fetch_fn()
-            if result is not None:
-                return result
-            time.sleep(self.config.poll_interval_seconds)
+            time.sleep(current_interval)
+            try:
+                result = fetch_fn()
+                if result is not None:
+                    return result
+            except requests.exceptions.RequestException as e:
+                logger.warning(
+                    "Transient error during polling, will retry",
+                    error=str(e),
+                    error_type=type(e).__name__,
+                    description=description,
+                )
+            current_interval = min(
+                current_interval * self.POLL_BACKOFF_FACTOR,
+                self.config.event_timeout_seconds - (time.time() - start_time),
+            )
 
         logger.warning("Polling timed out", description=description, timeout_seconds=self.config.event_timeout_seconds)
         return None
