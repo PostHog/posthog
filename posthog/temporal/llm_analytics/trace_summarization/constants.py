@@ -38,7 +38,9 @@ GENERATE_SUMMARY_TIMEOUT_SECONDS = (
 # send heartbeats within this interval or Temporal will consider them failed
 # and retry on another worker.
 SAMPLE_HEARTBEAT_TIMEOUT = timedelta(seconds=120)  # 2 minutes - sampling has long CH queries
-SUMMARIZE_HEARTBEAT_TIMEOUT = timedelta(seconds=60)  # 1 minute - LLM calls can be slow but should heartbeat regularly
+SUMMARIZE_HEARTBEAT_TIMEOUT = timedelta(
+    seconds=120
+)  # 2 minutes - trace fetch + LLM calls can exceed 60s for large traces
 
 # Schedule-to-close timeouts - caps total time including all retry attempts,
 # backoff intervals, and queue time. Prevents runaway retries from blocking
