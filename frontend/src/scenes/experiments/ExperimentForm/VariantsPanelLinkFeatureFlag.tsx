@@ -104,6 +104,7 @@ export const VariantsPanelLinkFeatureFlag = ({
                 <div className="flex flex-row gap-4">
                     <div className="flex items-center gap-2 min-w-0 flex-1">
                         <div className="font-semibold text-base truncate">{linkedFeatureFlag.key}</div>
+                        {!linkedFeatureFlag.active && <LemonTag type="default">Inactive</LemonTag>}
                         <Link
                             to={urls.featureFlag(linkedFeatureFlag.id as number)}
                             target="_blank"
@@ -125,15 +126,6 @@ export const VariantsPanelLinkFeatureFlag = ({
                     >
                         Change
                     </LemonButton>
-                </div>
-
-                {/* Status */}
-                <div className="flex items-center gap-2">
-                    <div
-                        className={`w-2 h-2 rounded-full ${linkedFeatureFlag.active ? 'bg-success' : 'bg-muted'}`}
-                        title={linkedFeatureFlag.active ? 'Active' : 'Inactive'}
-                    />
-                    <span className="text-sm font-medium">{linkedFeatureFlag.active ? 'Active' : 'Inactive'}</span>
                 </div>
 
                 {/* Description */}
