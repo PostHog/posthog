@@ -395,9 +395,11 @@ class TeamAdmin(admin.ModelAdmin):
         team = Team.objects.get(pk=object_id)
         hypercache = RemoteConfig.get_hypercache()
         cache_key = hypercache.get_cache_key(team.api_token)
-        cached_data = hypercache.get_from_cache(team.api_token)
+        cached_data, source = hypercache.get_from_cache_with_source(team.api_token)
 
         if cached_data is None:
+            if source in ("redis", "s3"):
+                return JsonResponse({"cached": True, "cache_key": cache_key, "message": "Team cached as missing"})
             return JsonResponse({"cached": False, "message": "No cached config found"})
 
         return JsonResponse(

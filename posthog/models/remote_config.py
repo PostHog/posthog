@@ -358,13 +358,19 @@ class RemoteConfig(UUIDTModel):
 
     @classmethod
     def _get_config_via_cache(cls, token: str) -> dict:
-        data = cls.get_hypercache().get_from_cache(token)
+        data, source = cls.get_hypercache().get_from_cache_with_source(token)
 
         if data is None:
-            REMOTE_CONFIG_CACHE_COUNTER.labels(result="miss_but_missing").inc()
+            if source in ("redis", "s3"):
+                REMOTE_CONFIG_CACHE_COUNTER.labels(result="hit_but_missing").inc()
+            else:
+                REMOTE_CONFIG_CACHE_COUNTER.labels(result="miss_but_missing").inc()
             raise cls.DoesNotExist()
 
-        REMOTE_CONFIG_CACHE_COUNTER.labels(result="hit").inc()
+        if source in ("redis", "s3"):
+            REMOTE_CONFIG_CACHE_COUNTER.labels(result="hit").inc()
+        else:
+            REMOTE_CONFIG_CACHE_COUNTER.labels(result="miss").inc()
         return data
 
     @classmethod
