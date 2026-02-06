@@ -23,7 +23,7 @@ import { urls } from 'scenes/urls'
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { getDefaultQuery } from '~/queries/nodes/InsightViz/utils'
 import { DashboardFilter, FileSystemIconType, HogQLVariable, Node, TileFilters } from '~/queries/schema/schema-general'
-import { checkLatestVersionsOnQuery } from '~/queries/utils'
+import { checkLatestVersionsOnQuery, convertDataTableNodeToDataVisualizationNode } from '~/queries/utils'
 import {
     ActivityScope,
     Breadcrumb,
@@ -398,6 +398,8 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             } else {
                 upgradedQuery = query
             }
+
+            upgradedQuery = convertDataTableNodeToDataVisualizationNode(upgradedQuery)
 
             values.insightLogicRef?.logic.actions.setInsight(
                 {

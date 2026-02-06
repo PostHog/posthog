@@ -151,6 +151,18 @@ export function isDataVisualizationNode(node?: Record<string, any> | null): node
     return node?.kind === NodeKind.DataVisualizationNode
 }
 
+export function convertDataTableNodeToDataVisualizationNode(node: Node | null): Node | null {
+    if (!isDataTableNodeWithHogQLQuery(node)) {
+        return node
+    }
+
+    return {
+        kind: NodeKind.DataVisualizationNode,
+        source: node.source as HogQLQuery,
+        display: ChartDisplayType.ActionsTable,
+    } as DataVisualizationNode
+}
+
 export function isSavedInsightNode(node?: Record<string, any> | null): node is SavedInsightNode {
     return node?.kind === NodeKind.SavedInsightNode
 }
