@@ -63,23 +63,30 @@ export class CyclotronJobQueueKafka {
 
         // Initialize seek test consumer if enabled
         if (this.config.CDP_CYCLOTRON_TEST_SEEK_LATENCY) {
-            this.seekTestConsumer = new RdKafkaConsumer(
-                {
-                    'client.id': `${hostname()}-seek-test`,
-                    'metadata.broker.list': this.config.KAFKA_HOSTS,
-                    ...getKafkaConfigFromEnv('CONSUMER'),
-                    // Unique group.id - we only use assign(), never subscribe(), so no group coordination
-                    'group.id': `cdp-seek-test-${hostname()}-${Date.now()}`,
-                    'enable.auto.commit': false,
-                    'enable.auto.offset.store': false,
-                },
-                { 'auto.offset.reset': 'earliest' }
-            )
-            this.seekTestConsumer.setDefaultConsumeTimeout(5000)
-            await new Promise((resolve, reject) =>
-                this.seekTestConsumer!.connect({}, (error, data) => (error ? reject(error) : resolve(data)))
-            )
-            logger.info('🔄', 'Seek test consumer connected')
+            try {
+                this.seekTestConsumer = new RdKafkaConsumer(
+                    {
+                        'client.id': `${hostname()}-seek-test`,
+                        'metadata.broker.list': this.config.KAFKA_HOSTS,
+                        ...getKafkaConfigFromEnv('CONSUMER'),
+                        // Unique group.id - we only use assign(), never subscribe(), so no group coordination
+                        'group.id': `cdp-seek-test-${hostname()}-${Date.now()}`,
+                        'enable.auto.commit': false,
+                        'enable.auto.offset.store': false,
+                    },
+                    { 'auto.offset.reset': 'earliest' }
+                )
+                this.seekTestConsumer.setDefaultConsumeTimeout(5000)
+                await new Promise((resolve, reject) =>
+                    this.seekTestConsumer!.connect({}, (error, data) => (error ? reject(error) : resolve(data)))
+                )
+                logger.info('🔄', 'Seek test consumer connected')
+            } catch (error) {
+                logger.warn('🔄', 'Failed to initialize seek test consumer, seek tests will be skipped', {
+                    error: String(error),
+                })
+                this.seekTestConsumer = undefined
+            }
         }
     }
 
@@ -194,7 +201,7 @@ export class CyclotronJobQueueKafka {
 
         // Seek-back latency test: for a sample of messages, seek to a random older offset
         // on the same partition and measure how long the read takes (for WarpStream evaluation)
-        if (this.config.CDP_CYCLOTRON_TEST_SEEK_LATENCY) {
+        if (this.seekTestConsumer) {
             logger.info('seek_test_enabled', {
                 batchSize: messages.length,
                 sampleRate: this.config.CDP_CYCLOTRON_TEST_SEEK_SAMPLE_RATE,
