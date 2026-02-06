@@ -70,7 +70,7 @@ class SignalReportViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet)
     scope_object = "task"  # Using task scope as signal_report doesn't have its own scope yet
     queryset = SignalReport.objects.all()
     posthog_feature_flag = {
-        "tasks": [
+        "product-autonomy": [
             "list",
             "retrieve",
             "artefacts",

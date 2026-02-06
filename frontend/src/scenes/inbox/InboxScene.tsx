@@ -4,6 +4,7 @@ import { IconChevronRight, IconExpand } from '@posthog/icons'
 import { LemonBadge, LemonButton, LemonSkeleton, LemonTag, Spinner } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import { SceneExport } from 'scenes/sceneTypes'
 
@@ -109,9 +110,7 @@ function ReportRow({ report }: { report: SignalReport }): JSX.Element {
                             {report.title || 'Untitled report'}
                         </h3>
                     </div>
-                    {report.summary && (
-                        <p className="text-sm text-secondary m-0 mt-1 line-clamp-2">{report.summary}</p>
-                    )}
+                    {report.summary && <p className="text-sm text-secondary m-0 mt-1 line-clamp-2">{report.summary}</p>}
                 </div>
 
                 <div className="flex items-center gap-4 flex-shrink-0 text-xs text-tertiary">
@@ -150,9 +149,7 @@ function ReportRow({ report }: { report: SignalReport }): JSX.Element {
                     )}
 
                     <div>
-                        <h4 className="text-xs font-semibold text-tertiary uppercase tracking-wide mb-2">
-                            Artefacts
-                        </h4>
+                        <h4 className="text-xs font-semibold text-tertiary uppercase tracking-wide mb-2">Artefacts</h4>
                         {artefactsLoading && !reportArtefacts ? (
                             <div className="flex items-center gap-2 text-sm text-tertiary py-2">
                                 <Spinner className="size-4" />
@@ -209,12 +206,18 @@ function InboxSkeleton(): JSX.Element {
 export function InboxScene(): JSX.Element {
     const { reports, reportsLoading } = useValues(inboxSceneLogic)
     const { loadReports } = useActions(inboxSceneLogic)
+    const isProductAutonomyEnabled = useFeatureFlag('PRODUCT_AUTONOMY')
+
+    if (!isProductAutonomyEnabled) {
+        return <></>
+    }
 
     return (
         <SceneContent>
             <SceneTitleSection
                 name="Inbox"
                 description="Actionable reports surfaced from automatic analysis of your product."
+                resourceType={{ type: 'inbox' }}
                 actions={
                     <LemonButton type="secondary" onClick={() => loadReports()} loading={reportsLoading} size="small">
                         Refresh
