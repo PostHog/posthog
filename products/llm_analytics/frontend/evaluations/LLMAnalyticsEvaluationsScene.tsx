@@ -27,7 +27,6 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-import { llmAnalyticsSharedLogic } from '../llmAnalyticsSharedLogic'
 import { LLMProviderKeysSettings } from '../settings/LLMProviderKeysSettings'
 import { TrialUsageMeter } from '../settings/TrialUsageMeter'
 import { EvaluationTemplatesEmptyState } from './EvaluationTemplates'
@@ -47,12 +46,11 @@ export const scene: SceneExport = {
 }
 
 function LLMAnalyticsEvaluationsContent(): JSX.Element {
-    const { evaluations, filteredEvaluations, evaluationsLoading, evaluationsFilter } = useValues(llmEvaluationsLogic)
-    const { setEvaluationsFilter, toggleEvaluationEnabled, duplicateEvaluation, loadEvaluations } =
+    const { evaluations, filteredEvaluations, evaluationsLoading, evaluationsFilter, dateFilter } =
+        useValues(llmEvaluationsLogic)
+    const { setEvaluationsFilter, toggleEvaluationEnabled, duplicateEvaluation, loadEvaluations, setDates } =
         useActions(llmEvaluationsLogic)
     const { evaluationsWithMetrics } = useValues(evaluationMetricsLogic)
-    const { dateFilter } = useValues(llmAnalyticsSharedLogic)
-    const { setDates } = useActions(llmAnalyticsSharedLogic)
     const { currentTeamId } = useValues(teamLogic)
     const { push } = useActions(router)
 
