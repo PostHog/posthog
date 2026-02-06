@@ -5,15 +5,16 @@ use axum::{
     response::IntoResponse,
 };
 
-use common_types::ClickHouseEvent;
 use reqwest::StatusCode;
 
 use serde_json::json;
 use tracing::warn;
 
 use crate::{
-    app_context::AppContext, error::UnhandledError, stages::pipeline::ExceptionEventPipeline,
-    types::batch::Batch,
+    app_context::AppContext,
+    error::UnhandledError,
+    stages::pipeline::ExceptionEventPipeline,
+    types::{batch::Batch, event::AnyEvent},
 };
 
 impl IntoResponse for UnhandledError {
@@ -29,7 +30,7 @@ impl IntoResponse for UnhandledError {
     }
 }
 
-impl IntoResponse for Batch<ClickHouseEvent> {
+impl IntoResponse for Batch<AnyEvent> {
     fn into_response(self) -> axum::response::Response {
         match serde_json::to_value(Vec::from(self)) {
             Ok(value) => (StatusCode::OK, Json(value)).into_response(),
@@ -48,10 +49,11 @@ impl IntoResponse for Batch<ClickHouseEvent> {
     }
 }
 
+#[axum::debug_handler]
 pub async fn process_events(
     State(ctx): State<Arc<AppContext>>,
-    Json(events): Json<Vec<ClickHouseEvent>>,
-) -> Result<Batch<ClickHouseEvent>, UnhandledError> {
+    Json(events): Json<Vec<AnyEvent>>,
+) -> Result<Batch<AnyEvent>, UnhandledError> {
     let pipeline = ExceptionEventPipeline::new(ctx);
     let input = Batch::from(events);
     let output = input.apply_stage(pipeline).await?;

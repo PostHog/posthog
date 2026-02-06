@@ -12,13 +12,15 @@ use uuid::Uuid;
 use crate::{
     app_context::AppContext,
     error::{EventError, UnhandledError},
-    metric_consts::EXCEPTION_PROPERTIES_PIPELINE,
+    metric_consts::EXCEPTION_PROCESSING_PIPELINE,
     stages::{
         alerting::AlertingStage, grouping::GroupingStage, linking::LinkingStage,
         post_processing::PostProcessingStage, pre_processing::PreProcessingStage,
         resolution::ResolutionStage,
     },
-    types::{batch::Batch, exception_properties::ExceptionProperties, stage::Stage},
+    types::{
+        batch::Batch, event::AnyEvent, exception_properties::ExceptionProperties, stage::Stage,
+    },
 };
 
 pub struct ExceptionEventPipeline {
@@ -54,19 +56,19 @@ impl Display for ExceptionEventHandledError {
 pub type ExceptionEventPipelineItem = Result<ExceptionProperties, ExceptionEventHandledError>;
 
 impl Stage for ExceptionEventPipeline {
-    type Input = ClickHouseEvent;
-    type Output = ClickHouseEvent;
+    type Input = AnyEvent;
+    type Output = AnyEvent;
     type Error = UnhandledError;
 
     fn name(&self) -> &'static str {
-        EXCEPTION_PROPERTIES_PIPELINE
+        EXCEPTION_PROCESSING_PIPELINE
     }
 
     async fn process(
         self,
         batch: Batch<Self::Input>,
     ) -> Result<Batch<Self::Output>, UnhandledError> {
-        let events_by_id = Arc::new(Mutex::new(HashMap::<Uuid, ClickHouseEvent>::new()));
+        let events_by_id = Arc::new(Mutex::new(HashMap::<Uuid, AnyEvent>::new()));
         batch
             // Parse event
             .apply_stage(PreProcessingStage::new(events_by_id.clone()))

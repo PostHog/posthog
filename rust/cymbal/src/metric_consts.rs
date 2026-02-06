@@ -87,7 +87,7 @@ pub const SPIKE_ISSUES_BLOCKED_BY_COOLDOWN: &str = "cymbal_spike_issues_blocked_
 
 // Stages Name.
 // We want to keep previous value for comparison, can be changed later on
-pub const EXCEPTION_PROPERTIES_PIPELINE: &str = EXCEPTION_PROCESSING_TIME;
+pub const EXCEPTION_PROCESSING_PIPELINE: &str = EXCEPTION_PROCESSING_TIME;
 pub const PRE_PROCESSING_STAGE: &str = "cymbal_exception_pre_processing_stage";
 pub const POST_PROCESSING_STAGE: &str = "cymbal_exception_post_processing_stage";
 pub const RESOLUTION_STAGE: &str = STACK_PROCESSING_TIME;

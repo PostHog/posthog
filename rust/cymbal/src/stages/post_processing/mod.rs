@@ -1,6 +1,6 @@
 use std::{collections::HashMap, sync::Arc};
 
-use common_types::ClickHouseEvent;
+use serde_json::Value;
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
@@ -10,6 +10,7 @@ use crate::{
     stages::pipeline::{ExceptionEventHandledError, ExceptionEventPipelineItem},
     types::{
         batch::Batch,
+        event::AnyEvent,
         exception_properties::ExceptionProperties,
         stage::{Stage, StageResult},
     },
@@ -17,11 +18,11 @@ use crate::{
 
 #[derive(Clone)]
 pub struct PostProcessingStage {
-    events_by_id: Arc<Mutex<HashMap<Uuid, ClickHouseEvent>>>,
+    events_by_id: Arc<Mutex<HashMap<Uuid, AnyEvent>>>,
 }
 
 impl PostProcessingStage {
-    pub fn new(events_by_id: Arc<Mutex<HashMap<Uuid, ClickHouseEvent>>>) -> Self {
+    pub fn new(events_by_id: Arc<Mutex<HashMap<Uuid, AnyEvent>>>) -> Self {
         Self { events_by_id }
     }
 
@@ -29,39 +30,38 @@ impl PostProcessingStage {
     // We could maybe change ClickhouseEvent to only do serde at the edges
     fn add_error_to_event(
         &self,
-        event: &mut ClickHouseEvent,
+        mut event: AnyEvent,
         e: impl ToString,
-    ) -> Result<(), UnhandledError> {
-        let mut props = event.take_raw_properties()?;
+    ) -> Result<AnyEvent, UnhandledError> {
+        let mut props: HashMap<String, Value> = serde_json::from_value(event.properties)?;
         let mut errors = match props.remove("$cymbal_errors") {
             Some(serde_json::Value::Array(errors)) => errors,
             _ => Vec::new(),
         };
-
         errors.push(serde_json::Value::String(e.to_string()));
         props.insert(
             "$cymbal_errors".to_string(),
             serde_json::Value::Array(errors),
         );
-        event.set_raw_properties(props)?;
-        Ok(())
+        event.properties = serde_json::to_value(props)?;
+        Ok(event)
     }
 
     async fn handle_error(
         &self,
         error: ExceptionEventHandledError,
-    ) -> Result<Option<ClickHouseEvent>, UnhandledError> {
+    ) -> Result<Option<AnyEvent>, UnhandledError> {
         let (uuid, error) = (error.uuid, error.error);
         match error {
             EventError::Suppressed(_) => Ok(None),
             err => {
-                let mut event = self
+                let event = self
                     .events_by_id
                     .lock()
                     .await
                     .remove(&uuid)
                     .ok_or(UnhandledError::Other("Missing event".into()))?;
-                self.add_error_to_event(&mut event, err)?;
+                let event = self.add_error_to_event(event, err)?;
                 Ok(Some(event))
             }
         }
@@ -70,21 +70,21 @@ impl PostProcessingStage {
     async fn handle_value(
         &self,
         props: ExceptionProperties,
-    ) -> Result<Option<ClickHouseEvent>, UnhandledError> {
+    ) -> Result<Option<AnyEvent>, UnhandledError> {
         let mut evt = self
             .events_by_id
             .lock()
             .await
             .remove(&props.uuid)
             .ok_or(UnhandledError::Other("Missing event".into()))?;
-        evt.properties = Some(serde_json::to_string(&props)?);
+        evt.properties = serde_json::to_value(&props)?;
         Ok(Some(evt))
     }
 }
 
 impl Stage for PostProcessingStage {
     type Input = ExceptionEventPipelineItem;
-    type Output = ClickHouseEvent;
+    type Output = AnyEvent;
     type Error = UnhandledError;
 
     fn name(&self) -> &'static str {

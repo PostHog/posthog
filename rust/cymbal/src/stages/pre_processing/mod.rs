@@ -1,6 +1,5 @@
 use std::{collections::HashMap, sync::Arc};
 
-use common_types::ClickHouseEvent;
 use serde_json::Value;
 
 use tokio::sync::Mutex;
@@ -13,6 +12,7 @@ use crate::{
     stages::pipeline::{ExceptionEventHandledError, ExceptionEventPipelineItem},
     types::{
         batch::Batch,
+        event::AnyEvent,
         exception_properties::ExceptionProperties,
         stage::{Stage, StageResult},
     },
@@ -20,23 +20,20 @@ use crate::{
 
 #[derive(Clone)]
 pub struct PreProcessingStage {
-    events_by_id: Arc<Mutex<HashMap<Uuid, ClickHouseEvent>>>,
+    events_by_id: Arc<Mutex<HashMap<Uuid, AnyEvent>>>,
 }
 
 impl PreProcessingStage {
-    pub fn new(events_by_id: Arc<Mutex<HashMap<Uuid, ClickHouseEvent>>>) -> Self {
+    pub fn new(events_by_id: Arc<Mutex<HashMap<Uuid, AnyEvent>>>) -> Self {
         Self { events_by_id }
     }
 
-    fn parse_event(&self, event: &ClickHouseEvent) -> Result<ExceptionProperties, EventError> {
-        // fix this there will be an issue with properties
+    fn parse_event(&self, event: AnyEvent) -> Result<ExceptionProperties, EventError> {
         if event.event != "$exception" {
             return Err(EventError::WrongEventType(event.event.clone(), event.uuid));
         }
-        let Some(properties) = &event.properties else {
-            return Err(EventError::NoProperties(event.uuid));
-        };
-        let mut properties: Value = match serde_json::from_str(properties) {
+
+        let mut properties: Value = match serde_json::from_value(event.properties) {
             Ok(r) => r,
             Err(e) => {
                 return Err(EventError::InvalidProperties(event.uuid, e.to_string()));
@@ -69,7 +66,7 @@ impl PreProcessingStage {
 }
 
 impl Stage for PreProcessingStage {
-    type Input = ClickHouseEvent;
+    type Input = AnyEvent;
     type Output = ExceptionEventPipelineItem;
     type Error = UnhandledError;
 
@@ -89,7 +86,7 @@ impl Stage for PreProcessingStage {
                         events_by_id.lock().await.insert(uuid, event.clone());
 
                         // Parse event into intermediate representation
-                        let result = match ctx.parse_event(&event) {
+                        let result = match ctx.parse_event(event) {
                             Ok(evt) => Ok(evt),
                             Err(err) => Err(ExceptionEventHandledError::new(uuid, err)),
                         };
