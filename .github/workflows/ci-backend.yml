@@ -184,7 +184,7 @@ jobs:
         if: needs.changes.outputs.backend == 'true'
         runs-on: ubuntu-latest
         timeout-minutes: 5
-        name: Turbo discover
+        name: Discover product tests
         outputs:
             run_legacy: ${{ steps.contract-check.outputs.run_legacy }}
             matrix: ${{ steps.discover.outputs.matrix }}
@@ -193,7 +193,7 @@ jobs:
             - uses: actions/checkout@v4
 
             - name: Setup pnpm
-              uses: pnpm/action-setup@v4
+              uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
 
             - name: Setup Node.js
               uses: actions/setup-node@v4
@@ -228,9 +228,8 @@ jobs:
                     exit 0
                   fi
 
-                  # Use turbo dry-run to detect contract changes without executing tasks
-                  # Strip non-JSON lines (pnpm/turbo may prepend warnings to stdout)
-                  CACHE_STATUS=$(pnpm turbo run backend:contract-check --dry-run=json 2>/dev/null | sed -n '/^{/,$p' | jq -r '
+                  # Call turbo directly to avoid pnpm wrapper noise on stdout
+                  CACHE_STATUS=$(./node_modules/.bin/turbo run backend:contract-check --dry-run=json 2>/dev/null | jq -r '
                     [.tasks[] | select(.command | test("NONEXISTENT") | not) | .cache.status] |
                     if length == 0 then "NO_TASKS"
                     elif any(. == "MISS") then "MISS"
@@ -250,65 +249,10 @@ jobs:
 
             - name: Discover products to test
               id: discover
+              env:
+                  LEGACY_CHANGED: ${{ needs.changes.outputs.legacy }}
               run: |
-                  # Build dynamic matrix of products that need testing.
-                  # Products depend on legacy code (ee/, posthog/, common/) at runtime,
-                  # so legacy changes must trigger ALL product tests.
-                  # For product-only changes, use turbo cache to test only affected products.
-                  #
-                  # Products with < THRESHOLD tests get grouped into one matrix entry
-                  # to avoid spinning up a full Docker stack for a handful of tests.
-
-                  LEGACY_CHANGED="${{ needs.changes.outputs.legacy }}"
-                  THRESHOLD=50
-
-                  if [[ "$LEGACY_CHANGED" == "true" ]]; then
-                    PRODUCTS=$(pnpm turbo run backend:test --dry-run=json 2>/dev/null \
-                      | sed -n '/^{/,$p' \
-                      | jq -c '[.tasks[] | select(.command | test("NONEXISTENT") | not) | .package | sub("@posthog/products-"; "")] | unique' \
-                      || echo '[]')
-                  else
-                    PRODUCTS=$(pnpm turbo run backend:test --dry-run=json 2>/dev/null \
-                      | sed -n '/^{/,$p' \
-                      | jq -c '[.tasks[] | select(.command | test("NONEXISTENT") | not) | select(.cache.status == "MISS") | .package | sub("@posthog/products-"; "")] | unique' \
-                      || echo '[]')
-                  fi
-
-                  echo "Products to test: $PRODUCTS"
-
-                  # Count tests per product and split into big (own job) vs small (grouped)
-                  MATRIX="[]"
-                  SMALL_PRODUCTS="[]"
-
-                  for product in $(echo "$PRODUCTS" | jq -r '.[]'); do
-                    test_dir="products/$product/backend/tests"
-                    if [ -d "$test_dir" ]; then
-                      count=$(grep -r "def test_" "$test_dir" 2>/dev/null | wc -l | tr -d ' ')
-                    else
-                      count=0
-                    fi
-                    echo "  $product: $count tests"
-
-                    if [ "$count" -ge "$THRESHOLD" ]; then
-                      MATRIX=$(echo "$MATRIX" | jq -c \
-                        --arg g "$product" \
-                        --arg f "--filter=@posthog/products-$product" \
-                        '. + [{"group": $g, "filters": $f}]')
-                    else
-                      SMALL_PRODUCTS=$(echo "$SMALL_PRODUCTS" | jq -c --arg p "$product" '. + [$p]')
-                    fi
-                  done
-
-                  SMALL_COUNT=$(echo "$SMALL_PRODUCTS" | jq 'length')
-                  if [ "$SMALL_COUNT" -gt 0 ]; then
-                    GROUP_NAME=$(echo "$SMALL_PRODUCTS" | jq -r 'join(", ")')
-                    FILTERS=$(echo "$SMALL_PRODUCTS" | jq -r '[.[] | "--filter=@posthog/products-" + .] | join(" ")')
-                    MATRIX=$(echo "$MATRIX" | jq -c \
-                      --arg g "$GROUP_NAME" \
-                      --arg f "$FILTERS" \
-                      '. + [{"group": $g, "filters": $f}]')
-                  fi
-
+                  MATRIX=$(node .github/scripts/turbo-discover.js)
                   echo "Matrix: $MATRIX"
                   echo "matrix=$MATRIX" >> $GITHUB_OUTPUT
 
@@ -324,7 +268,7 @@ jobs:
             needs.turbo-discover.outputs.matrix != ''
         runs-on: depot-ubuntu-latest
         timeout-minutes: 30
-        name: Turbo tests (${{ matrix.group }})
+        name: Product tests (${{ matrix.group }})
         strategy:
             fail-fast: false
             matrix:
@@ -334,7 +278,7 @@ jobs:
             - uses: actions/checkout@v4
 
             - name: Setup pnpm
-              uses: pnpm/action-setup@v4
+              uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
 
             - name: Setup Node.js
               uses: actions/setup-node@v4
@@ -405,7 +349,10 @@ jobs:
                   bin/check_postgres_up
 
             - name: Run product tests
-              run: pnpm turbo run backend:test ${{ matrix.filters }} --concurrency=1 --output-logs=new-only
+              # --force: discover already decided this product needs testing, skip turbo cache
+              # --log-order=stream: stream pytest output live instead of buffering until completion
+              # pytest_args: optional pytest-split flags for sharded products (e.g. "-- --splits 3 --group 1")
+              run: pnpm turbo run backend:test ${{ matrix.filters }} --concurrency=1 --output-logs=full --force --log-order=stream ${{ matrix.pytest_args }}
 
     check-migrations:
         needs: [changes]
