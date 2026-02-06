@@ -129,7 +129,9 @@ export const VariantsPanelLinkFeatureFlag = ({
                 </div>
 
                 {/* Description */}
-                {linkedFeatureFlag.name && <div className="text-sm text-muted-alt">{linkedFeatureFlag.name}</div>}
+                {linkedFeatureFlag.name && (
+                    <div className="text-sm text-muted-alt -mt-2 mb-3">{linkedFeatureFlag.name}</div>
+                )}
 
                 <div className="flex gap-10">
                     {/* Variants */}
