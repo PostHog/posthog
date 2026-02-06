@@ -644,7 +644,7 @@ const createTableLookup = ({
                     : [view.name, createSavedQueryLookupEntry(view)]
             }),
             ...managedViews.map((view) => [view.name, { name: view.name, fields: view.fields }]),
-        ].map(([name, entry]) => [normalizeTableLookupKey(name) ?? name, entry])
+        ].map(([name, entry]) => [normalizeTableLookupKey(name ? String(name) : null) ?? name, entry])
     )
 }
 
