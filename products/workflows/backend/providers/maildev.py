@@ -1,5 +1,5 @@
 MAILDEV_MOCK_DNS_RECORDS = [
-    # Mock TXT records for domain verification when using local maildev
+    # Mock DNS records for email domain setup when using local maildev
     {
         "type": "verification",
         "recordType": "TXT",
