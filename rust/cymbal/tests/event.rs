@@ -245,8 +245,7 @@ impl TestHarness {
 // Helper to load static event files
 fn load_static_event(filename: &str) -> AnyEvent {
     let path = format!("tests/static/events/{}.json", filename);
-    let content =
-        fs::read_to_string(&path).unwrap_or_else(|_| panic!("Failed to read {}", path));
+    let content = fs::read_to_string(&path).unwrap_or_else(|_| panic!("Failed to read {}", path));
     serde_json::from_str(&content).unwrap_or_else(|_| panic!("Failed to parse {}", path))
 }
 
