@@ -146,7 +146,7 @@ class OpenAIAdapter:
             raise ModelPermissionError(request.model)
         except openai.RateLimitError as e:
             error_body = getattr(e, "body", {}) or {}
-            error_code = error_body.get("error", {}).get("code", "")
+            error_code = error_body.get("code", "") or error_body.get("error", {}).get("code", "")
             if error_code == "insufficient_quota":
                 raise QuotaExceededError(str(e))
             raise RateLimitError(str(e))
