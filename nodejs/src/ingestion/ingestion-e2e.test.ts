@@ -667,6 +667,10 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
                         utm_source: 'facebook',
                         $geoip_city_name: 'San Francisco',
                     })
+                    // last_seen_at should be set
+                    expect(person!.last_seen_at).toBeDefined()
+                    expect(person!.last_seen_at!.minute).toBe(0)
+                    expect(person!.last_seen_at!.second).toBe(0)
                 })
             }
         )
@@ -727,6 +731,10 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
                         utm_source: 'twitter',
                         $geoip_country_code: 'US',
                     })
+                    // last_seen_at should be set to hour-rounded timestamp
+                    expect(person!.last_seen_at).toBeDefined()
+                    expect(person!.last_seen_at!.minute).toBe(0)
+                    expect(person!.last_seen_at!.second).toBe(0)
                 })
             }
         )

@@ -16,6 +16,7 @@ export function unparsePersonPartial(person: Partial<InternalPerson>): Partial<R
     return {
         ...(person as BasePerson),
         ...(person.created_at ? { created_at: person.created_at.toISO() ?? undefined } : {}),
+        ...(person.last_seen_at !== undefined ? { last_seen_at: person.last_seen_at?.toISO() ?? null } : {}),
     }
 }
 

@@ -161,6 +161,7 @@ export class PostgresPersonRepository
             id: String(row.id),
             created_at: DateTime.fromISO(row.created_at).toUTC(),
             version: Number(row.version || 0),
+            last_seen_at: row.last_seen_at ? DateTime.fromISO(row.last_seen_at).toUTC() : null,
         }
     }
 
@@ -234,7 +235,8 @@ export class PostgresPersonRepository
                 posthog_person.properties_last_operation,
                 posthog_person.is_user_id,
                 posthog_person.version,
-                posthog_person.is_identified
+                posthog_person.is_identified,
+                posthog_person.last_seen_at
             FROM posthog_person
             JOIN posthog_persondistinctid ON (
                 posthog_persondistinctid.person_id = posthog_person.id
@@ -298,6 +300,7 @@ export class PostgresPersonRepository
                 posthog_person.is_user_id,
                 posthog_person.version,
                 posthog_person.is_identified,
+                posthog_person.last_seen_at,
                 posthog_persondistinctid.distinct_id
             FROM posthog_person
             JOIN posthog_persondistinctid ON (
@@ -494,6 +497,7 @@ export class PostgresPersonRepository
                 posthog_person.properties_last_operation,
                 posthog_person.is_user_id,
                 posthog_person.is_identified,
+                posthog_person.last_seen_at,
                 posthog_persondistinctid.distinct_id
             FROM posthog_person
             JOIN posthog_persondistinctid ON (
@@ -551,6 +555,7 @@ export class PostgresPersonRepository
                 'is_identified',
                 'uuid',
                 'version',
+                'last_seen_at',
             ]
             const valuePlaceholders = columns.map((_, i) => `$${i + 1}`).join(', ')
 
@@ -576,6 +581,9 @@ export class PostgresPersonRepository
                     .observe(sanitizedPropertiesLastOperation.length)
             }
 
+            // For new persons, set last_seen_at to the hour-rounded createdAt
+            const lastSeenAt = createdAt.startOf('hour')
+
             const personParams = [
                 createdAt.toISO(),
                 sanitizedProperties,
@@ -586,6 +594,7 @@ export class PostgresPersonRepository
                 isIdentified,
                 uuid,
                 personVersion,
+                lastSeenAt.toISO(),
             ]
 
             // Find the actual index of team_id in the personParams array (1-indexed for SQL)
@@ -1144,8 +1153,9 @@ export class PostgresPersonRepository
                     properties_last_updated_at = $2,
                     properties_last_operation = $3,
                     is_identified = $4,
+                    last_seen_at = $5,
                     version = COALESCE(version, 0)::numeric + 1
-                WHERE team_id = $5 AND uuid = $6 AND version = $7
+                WHERE team_id = $6 AND uuid = $7 AND version = $8
                 RETURNING *
                 `,
                 [
@@ -1153,6 +1163,7 @@ export class PostgresPersonRepository
                     JSON.stringify(personUpdate.properties_last_updated_at),
                     JSON.stringify(personUpdate.properties_last_operation),
                     personUpdate.is_identified,
+                    personUpdate.last_seen_at?.toISO() ?? null,
                     personUpdate.team_id,
                     personUpdate.uuid,
                     personUpdate.version,
@@ -1222,6 +1233,7 @@ export class PostgresPersonRepository
         const propertiesLastOperation: string[] = []
         const isIdentified: boolean[] = []
         const createdAt: string[] = []
+        const lastSeenAt: (string | null)[] = []
 
         for (const update of personUpdates) {
             uuids.push(update.uuid)
@@ -1242,6 +1254,7 @@ export class PostgresPersonRepository
             propertiesLastOperation.push(sanitizeJsonbValue(update.properties_last_operation))
             isIdentified.push(update.is_identified)
             createdAt.push(update.created_at.toISO()!)
+            lastSeenAt.push(update.last_seen_at?.toISO() ?? null)
         }
 
         try {
@@ -1256,6 +1269,7 @@ export class PostgresPersonRepository
                     properties_last_operation = batch.new_properties_last_operation::jsonb,
                     is_identified = batch.new_is_identified,
                     created_at = batch.new_created_at::timestamp with time zone,
+                    last_seen_at = batch.new_last_seen_at::timestamp with time zone,
                     version = COALESCE(p.version, 0)::numeric + 1
                 FROM UNNEST(
                     $1::uuid[],
@@ -1264,12 +1278,22 @@ export class PostgresPersonRepository
                     $4::text[],
                     $5::text[],
                     $6::boolean[],
-                    $7::text[]
-                ) AS batch(batch_uuid, batch_team_id, new_properties, new_properties_last_updated_at, new_properties_last_operation, new_is_identified, new_created_at)
+                    $7::text[],
+                    $8::text[]
+                ) AS batch(batch_uuid, batch_team_id, new_properties, new_properties_last_updated_at, new_properties_last_operation, new_is_identified, new_created_at, new_last_seen_at)
                 WHERE p.uuid = batch.batch_uuid AND p.team_id = batch.batch_team_id
                 RETURNING p.*
                 `,
-                [uuids, teamIds, properties, propertiesLastUpdatedAt, propertiesLastOperation, isIdentified, createdAt],
+                [
+                    uuids,
+                    teamIds,
+                    properties,
+                    propertiesLastUpdatedAt,
+                    propertiesLastOperation,
+                    isIdentified,
+                    createdAt,
+                    lastSeenAt,
+                ],
                 'updatePersonsBatch'
             )
 
