@@ -41,9 +41,9 @@ export const changeRequestsLogic = kea<changeRequestsLogicType>([
     props({} as ChangeRequestsLogicProps),
     key((props) => `${props.resourceType}-${props.resourceId}`),
 
-    connect({
+    connect(() => ({
         values: [teamLogic, ['currentTeamId']],
-    }),
+    })),
 
     actions({
         loadChangeRequests: true,

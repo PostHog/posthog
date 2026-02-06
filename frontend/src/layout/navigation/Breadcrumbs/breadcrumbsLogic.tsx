@@ -96,7 +96,7 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
                 },
             ],
             (crumbs): Breadcrumb[] => crumbs,
-            { equalityCheck: objectsEqual },
+            { resultEqualityCheck: objectsEqual },
         ],
         projectTreeRef: [
             (s) => [
@@ -119,7 +119,7 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
                 },
             ],
             (ref: ProjectTreeRef | null): ProjectTreeRef | null => ref,
-            { equalityCheck: objectsEqual },
+            { resultEqualityCheck: objectsEqual },
         ],
         appBreadcrumbs: [
             (s) => [s.preflight, s.sceneConfig, s.activeSceneId, s.user, s.currentProject, s.currentTeam],

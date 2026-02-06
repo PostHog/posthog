@@ -6,6 +6,7 @@ import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 import { NotFound } from 'lib/components/NotFound'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { preflightLogicType } from 'scenes/PreflightCheck/preflightLogicType'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
 
@@ -24,7 +25,7 @@ export const scene: SceneExport = {
 
 export function TaskTracker(): JSX.Element {
     const isEnabled = useFeatureFlag('TASKS')
-    const { isDev } = useValues(preflightLogic)
+    const { isDev } = useValues<preflightLogicType>(preflightLogic)
     const { devOnlyIsRunningClustering } = useValues(taskTrackerSceneLogic)
     const { devOnlyInferTasks } = useActions(taskTrackerSceneLogic)
 

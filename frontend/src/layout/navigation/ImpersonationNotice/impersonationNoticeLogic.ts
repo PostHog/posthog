@@ -9,10 +9,10 @@ import type { impersonationNoticeLogicType } from './impersonationNoticeLogicTyp
 export const impersonationNoticeLogic = kea<impersonationNoticeLogicType>([
     path(['layout', 'navigation', 'ImpersonationNotice', 'impersonationNoticeLogic']),
 
-    connect({
+    connect(() => ({
         values: [userLogic, ['user', 'isImpersonationUpgradeInProgress']],
         actions: [userLogic, ['upgradeImpersonation', 'upgradeImpersonationSuccess']],
-    }),
+    })),
 
     actions({
         minimize: true,

@@ -7,9 +7,9 @@ import type { superpowersLogicType } from './superpowersLogicType'
 
 export const superpowersLogic = kea<superpowersLogicType>([
     path(['lib', 'components', 'Superpowers', 'superpowersLogic']),
-    connect({
+    connect(() => ({
         values: [userLogic, ['user'], preflightLogic, ['preflight']],
-    }),
+    })),
     actions({
         openSuperpowers: true,
         closeSuperpowers: true,

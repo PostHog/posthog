@@ -10,10 +10,10 @@ import type { supportSettingsLogicType } from './supportSettingsLogicType'
 
 export const supportSettingsLogic = kea<supportSettingsLogicType>([
     path(['products', 'conversations', 'frontend', 'scenes', 'settings', 'supportSettingsLogic']),
-    connect({
+    connect(() => ({
         values: [teamLogic, ['currentTeam']],
         actions: [teamLogic, ['updateCurrentTeam', 'updateCurrentTeamSuccess']],
-    }),
+    })),
     actions({
         generateNewToken: true,
         setConversationsEnabledLoading: (loading: boolean) => ({ loading }),
