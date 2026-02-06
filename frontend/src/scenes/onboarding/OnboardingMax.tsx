@@ -22,6 +22,7 @@ import { TOOL_DEFINITIONS, ToolRegistration } from 'scenes/max/max-constants'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { maxLogic } from 'scenes/max/maxLogic'
 import { MaxThreadLogicProps, maxThreadLogic } from 'scenes/max/maxThreadLogic'
+import { MessageTemplate } from 'scenes/max/messages/MessageTemplate'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 
 import { AgentMode } from '~/queries/schema/schema-assistant-messages'
@@ -118,24 +119,6 @@ const TOOL_PRODUCT_TO_PRODUCT_KEY: Record<string, ProductKey> = {
     error_tracking: ProductKey.ERROR_TRACKING,
     data_warehouse: ProductKey.DATA_WAREHOUSE,
     llm_observability: ProductKey.LLM_ANALYTICS,
-}
-
-function OnboardingIntro(): JSX.Element {
-    return (
-        <>
-            <div className="flex *:h-full *:w-12 p-2">
-                <Logomark />
-            </div>
-            <div className="text-center mb-1">
-                <h2 className="text-xl font-bold mb-2 text-balance">
-                    What are you building and what do you need help with?
-                </h2>
-                <div className="text-sm italic text-tertiary text-pretty py-0.5">
-                    I'll recommend the best PostHog products for your needs.
-                </div>
-            </div>
-        </>
-    )
 }
 
 interface ProductRecommendationsProps {
@@ -307,25 +290,42 @@ function OnboardingWelcome(): JSX.Element {
     }, [setAgentMode])
 
     return (
-        <div className="flex flex-col items-center px-4 py-8">
-            <OnboardingIntro />
-            <div className="w-full max-w-xl flex flex-col gap-2 mt-4">
-                {QUICK_OPTIONS.map((option) => (
-                    <button
-                        key={option.label}
-                        onClick={() => askMax(option.prompt)}
-                        className="flex items-center gap-3 p-3 border rounded-lg text-left transition-all bg-surface-primary hover:bg-fill-highlight-100 hover:border-primary"
-                    >
-                        <div className="text-2xl">{option.icon}</div>
-                        <div className="flex-1">
-                            <div className="font-semibold">{option.label}</div>
-                            <div className="text-sm text-muted">{option.description}</div>
-                        </div>
-                        <IconArrowRight className="text-muted" />
-                    </button>
-                ))}
-                <div className="text-center text-xs text-tertiary mt-2">or describe what you need below</div>
+        <div className="@container/thread flex flex-col items-stretch w-full max-w-180 self-center gap-1.5 grow mx-auto p-3">
+            <div className="flex items-center gap-2 mb-2">
+                <div className="flex *:h-full *:w-8">
+                    <Logomark />
+                </div>
+                <span className="font-semibold text-sm">Max</span>
             </div>
+            <MessageTemplate type="ai">
+                <div className="flex flex-col gap-3">
+                    <div>
+                        <div className="font-bold text-base mb-1">
+                            What are you building and what do you need help with?
+                        </div>
+                        <div className="text-sm text-muted">
+                            I'll recommend the best PostHog products for your needs. Pick an option or describe what you
+                            need:
+                        </div>
+                    </div>
+                    <div className="flex flex-col gap-2">
+                        {QUICK_OPTIONS.map((option) => (
+                            <button
+                                key={option.label}
+                                onClick={() => askMax(option.prompt)}
+                                className="flex items-center gap-3 p-3 border rounded-lg text-left transition-all hover:bg-fill-highlight-100 hover:border-primary"
+                            >
+                                <div className="text-2xl">{option.icon}</div>
+                                <div className="flex-1">
+                                    <div className="font-semibold">{option.label}</div>
+                                    <div className="text-sm text-muted">{option.description}</div>
+                                </div>
+                                <IconArrowRight className="text-muted" />
+                            </button>
+                        ))}
+                    </div>
+                </div>
+            </MessageTemplate>
         </div>
     )
 }
