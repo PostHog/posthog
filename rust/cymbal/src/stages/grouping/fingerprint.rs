@@ -40,8 +40,10 @@ impl ValueOperator for FingerprintGenerator {
                 None => Fingerprint::from_exception_list(&input.exception_list),
             };
 
+        // Always set proposed_fingerprint to the computed value
         input.proposed_fingerprint = Some(fingerprint.value.clone());
 
+        // User sent us a custom fingerprint, let's use it.
         if let Some(fp) = &input.fingerprint {
             input.fingerprint_record = Some(vec![FingerprintRecordPart::Manual]);
             if fp.len() > 64 {
@@ -49,6 +51,9 @@ impl ValueOperator for FingerprintGenerator {
                 hasher.update(fp);
                 input.fingerprint = Some(format!("{:x}", hasher.finalize()));
             }
+        } else {
+            input.fingerprint = Some(fingerprint.value);
+            input.fingerprint_record = Some(fingerprint.record);
         }
 
         Ok(Ok(input))

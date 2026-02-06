@@ -83,6 +83,7 @@ impl ValueOperator for IssueLinker {
             .map_err(|e: Arc<UnhandledError>| UnhandledError::Other(e.to_string()))?;
 
         input.issue_id = Some(issue.id);
+        input.issue = Some(issue);
 
         Ok(Ok(input))
     }

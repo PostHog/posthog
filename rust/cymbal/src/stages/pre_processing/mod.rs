@@ -49,8 +49,7 @@ impl PreProcessingStage {
             recursively_sanitize_properties(event.uuid, v, 0)?;
         }
 
-        // WARN: Wont work here
-        let evt: ExceptionProperties = match serde_json::from_value(properties) {
+        let mut evt: ExceptionProperties = match serde_json::from_value(properties) {
             Ok(r) => r,
             Err(e) => {
                 return Err(EventError::InvalidProperties(event.uuid, e.to_string()));
@@ -60,6 +59,11 @@ impl PreProcessingStage {
         if evt.exception_list.is_empty() {
             return Err(EventError::EmptyExceptionList(event.uuid));
         }
+
+        // Set metadata fields that are skipped during deserialization
+        evt.uuid = event.uuid;
+        evt.timestamp = event.timestamp;
+        evt.team_id = event.team_id;
 
         Ok(evt)
     }

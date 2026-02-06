@@ -68,9 +68,47 @@ pub struct ExceptionProperties {
 
 impl ExceptionProperties {
     pub fn to_output(&self, issue_id: Uuid) -> Result<OutputErrProps, UnhandledError> {
-        let mut cloned_props = self.clone();
-        cloned_props.issue_id.replace(issue_id);
-        let json_value = serde_json::to_value(cloned_props)?;
-        serde_json::from_value(json_value).map_err(|e| e.into())
+        // Extract metadata from exception list
+        let types = self
+            .exception_types
+            .clone()
+            .unwrap_or_else(|| self.exception_list.get_unique_types());
+        let values = self
+            .exception_messages
+            .clone()
+            .unwrap_or_else(|| self.exception_list.get_unique_messages());
+        let sources = self
+            .exception_sources
+            .clone()
+            .unwrap_or_else(|| self.exception_list.get_unique_sources());
+        let functions = self
+            .exception_functions
+            .clone()
+            .unwrap_or_else(|| self.exception_list.get_unique_functions());
+        let releases = self.exception_list.get_release_map();
+        let handled = self
+            .exception_handled
+            .unwrap_or_else(|| self.exception_list.get_is_handled());
+
+        Ok(OutputErrProps {
+            exception_list: self.exception_list.clone(),
+            fingerprint: self
+                .fingerprint
+                .clone()
+                .ok_or_else(|| UnhandledError::Other("Missing fingerprint".into()))?,
+            proposed_fingerprint: self
+                .proposed_fingerprint
+                .clone()
+                .ok_or_else(|| UnhandledError::Other("Missing proposed_fingerprint".into()))?,
+            fingerprint_record: self.fingerprint_record.clone().unwrap_or_default(),
+            issue_id,
+            other: self.props.clone(),
+            handled,
+            releases,
+            types,
+            values,
+            sources,
+            functions,
+        })
     }
 }
