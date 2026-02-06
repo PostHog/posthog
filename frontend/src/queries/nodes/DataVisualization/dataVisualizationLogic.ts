@@ -1,5 +1,6 @@
 import {
     actions,
+    afterMount,
     connect,
     kea,
     key,
@@ -291,6 +292,12 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             ['loadData'],
         ],
     })),
+    afterMount(({ actions, props }) => {
+        if (props.query) {
+            // populate fields like tabularColumnSettings, etc
+            actions._setQuery(props.query)
+        }
+    }),
     propsChanged(({ actions, values, props }) => {
         if (props.query && !objectsEqual(props.query, values.query)) {
             actions._setQuery(props.query)
