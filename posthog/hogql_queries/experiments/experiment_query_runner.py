@@ -160,8 +160,9 @@ class ExperimentQueryRunner(QueryRunner):
         """
         query_string, placeholders = builder.get_exposure_query_for_preaggregation()
 
-        # Get datetime objects for the time range
-        # Use experiment dates directly since date_range contains ISO strings
+        if not self.experiment.start_date:
+            raise ValidationError("Experiment must have a start date for preaggregation")
+
         date_from = self.experiment.start_date
         date_to = self.override_end_date or self.experiment.end_date or datetime.now(UTC)
 

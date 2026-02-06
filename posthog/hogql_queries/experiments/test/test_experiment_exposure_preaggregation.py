@@ -6,6 +6,7 @@ from django.test import override_settings
 from django.utils import timezone
 
 from posthog.schema import (
+    DateRange,
     EventsNode,
     ExperimentEventExposureConfig,
     ExperimentMeanMetric,
@@ -105,7 +106,7 @@ class TestExperimentExposurePreaggregation(ClickhouseTestMixin, APIBaseTest):
     def _create_query_builder(self, feature_flag) -> ExperimentQueryBuilder:
         """Create a query builder for testing."""
         date_range_query = QueryDateRange(
-            date_range={"date_from": "2024-01-01", "date_to": "2024-01-05"},
+            date_range=DateRange(date_from="2024-01-01", date_to="2024-01-05"),
             team=self.team,
             interval=IntervalType.DAY,
             now=datetime.now(),
