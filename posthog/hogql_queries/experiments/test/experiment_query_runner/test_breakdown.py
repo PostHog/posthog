@@ -26,7 +26,7 @@ from posthog.schema import (
     StepOrderValue,
 )
 
-from posthog.hogql_queries.experiments.experiment_query_builder import BREAKDOWN_NULL_STRING_LABEL
+from posthog.hogql_queries.experiments.breakdown_injector import BREAKDOWN_NULL_STRING_LABEL
 from posthog.hogql_queries.experiments.experiment_query_runner import ExperimentQueryRunner
 from posthog.hogql_queries.experiments.test.experiment_query_runner.base import ExperimentQueryRunnerBaseTest
 

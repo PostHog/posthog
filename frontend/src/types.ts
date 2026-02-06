@@ -402,6 +402,7 @@ export interface NotificationSettings {
     discussions_mentioned: boolean
     data_pipeline_error_threshold?: number
     project_api_key_exposed?: boolean
+    materialized_view_sync_failed?: boolean
 }
 
 export interface PluginAccess {
@@ -3355,6 +3356,8 @@ export interface ProductTourSurveyQuestion {
 
 export type ProductTourProgressionTriggerType = 'button' | 'click'
 
+// 'element' is deprecated in favor of all 'modal' steps having the option
+// to be positioned near a given element.
 export type ProductTourStepType = 'element' | 'modal' | 'survey' | 'banner'
 
 export interface ProductTourBannerConfig {

@@ -251,11 +251,6 @@ export const clustersLogic = kea<clustersLogicType>([
             () => [],
             (): Breadcrumb[] => [
                 {
-                    key: 'LLMAnalytics',
-                    name: 'LLM analytics',
-                    path: urls.llmAnalyticsDashboard(),
-                },
-                {
                     key: 'LLMAnalyticsClusters',
                     name: 'Clusters',
                     path: urls.llmAnalyticsClusters(),

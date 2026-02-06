@@ -267,6 +267,8 @@ const pathPrefixesOnboardingNotRequiredFor = [
     urls.debugQuery(),
     urls.activity(),
     urls.oauthAuthorize(),
+    '/startups',
+    '/coupons',
 ]
 
 const DelayedLoadingSpinner = (): JSX.Element => {

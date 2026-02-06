@@ -407,9 +407,19 @@ impl Job {
             next_part, parsed.consumed
         );
 
-        // If this is the last chunk, and we didn't consume all of it, or we didn't manage to
-        // consume any of this chunk, we've got a bad chunk, and should pause the job with an error.
-        if parsed.consumed < chunk_bytes && is_last_chunk || parsed.data.is_empty() {
+        // If this is the last chunk and we didn't consume all of it, we have leftover unparseable data.
+        if parsed.consumed < chunk_bytes && is_last_chunk {
+            return Err(Error::msg(format!(
+                "Failed to parse data from part {} at offset {} - {} bytes left unconsumed",
+                next_part.key,
+                next_part.current_offset,
+                chunk_bytes - parsed.consumed
+            )));
+        }
+
+        // If we consumed no bytes and have no parsed data but there was data to consume, something went wrong.
+        // Note: don't error if we have no parsed data but have consumed bytes - invalid events may have been all filtered out
+        if parsed.consumed == 0 && parsed.data.is_empty() && chunk_bytes > 0 {
             return Err(Error::msg(format!(
                 "Failed to parse any data from part {} at offset {}",
                 next_part.key, next_part.current_offset

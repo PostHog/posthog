@@ -17,6 +17,7 @@ const NOTIFICATION_DEFAULTS: BooleanNotificationSettings = {
     discussions_mentioned: true,
     all_weekly_digest_disabled: false,
     project_api_key_exposed: true,
+    materialized_view_sync_failed: false,
 }
 
 export function UpdateEmailPreferences(): JSX.Element {
@@ -214,6 +215,15 @@ export function UpdateEmailPreferences(): JSX.Element {
                             label="Project API key exposure"
                             description="Get notified when project API keys are publicly exposed"
                             dataAttr="project_api_key_exposure_enabled"
+                        />
+                    </div>
+
+                    <div className="border rounded p-4">
+                        <SimpleSwitch
+                            setting="materialized_view_sync_failed"
+                            label="Materialized view sync failures"
+                            description="Get notified when a materialized view fails to sync"
+                            dataAttr="materialized_view_sync_failed_enabled"
                         />
                     </div>
                 </div>
