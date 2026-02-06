@@ -15,6 +15,7 @@ import {
 } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -26,6 +27,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { llmAnalyticsSharedLogic } from '../llmAnalyticsSharedLogic'
 import { LLMProviderKeysSettings } from '../settings/LLMProviderKeysSettings'
 import { TrialUsageMeter } from '../settings/TrialUsageMeter'
 import { EvaluationTemplatesEmptyState } from './EvaluationTemplates'
@@ -49,6 +51,8 @@ function LLMAnalyticsEvaluationsContent(): JSX.Element {
     const { setEvaluationsFilter, toggleEvaluationEnabled, duplicateEvaluation, loadEvaluations } =
         useActions(llmEvaluationsLogic)
     const { evaluationsWithMetrics } = useValues(evaluationMetricsLogic)
+    const { dateFilter } = useValues(llmAnalyticsSharedLogic)
+    const { setDates } = useActions(llmAnalyticsSharedLogic)
     const { currentTeamId } = useValues(teamLogic)
     const { push } = useActions(router)
 
@@ -230,6 +234,8 @@ function LLMAnalyticsEvaluationsContent(): JSX.Element {
                     </LemonButton>
                 </AccessControlAction>
             </div>
+
+            <DateFilter dateFrom={dateFilter.dateFrom} dateTo={dateFilter.dateTo} onChange={setDates} />
 
             <EvaluationMetrics />
 
