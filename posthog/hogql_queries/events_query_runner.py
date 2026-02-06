@@ -297,7 +297,7 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                     assert isinstance(inner_query, ast.SelectQuery)
                     inner_query.where = where
                     inner_query.order_by = order_by
-                    self.paginator.paginate(inner_query)
+                    inner_query.limit = ast.Constant(value=self.paginator.limit + self.paginator.offset + 1)
 
                     prefilter_sorted = parse_expr("uuid in ({inner_query})", {"inner_query": inner_query})
 
