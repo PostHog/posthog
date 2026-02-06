@@ -17,13 +17,13 @@ import { logger } from '../../../utils/logger'
 import { CyclotronJobInvocation, CyclotronJobInvocationResult, CyclotronJobQueueKind } from '../../types'
 import { cdpJobSizeKb } from './shared'
 
-const cdpSeekLatencyMs = new Histogram({
+export const cdpSeekLatencyMs = new Histogram({
     name: 'cdp_seek_latency_ms',
     help: 'Latency in ms of seeking back to a specific offset to re-read a message',
     buckets: [1, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000],
 })
 
-const cdpSeekResult = new Counter({
+export const cdpSeekResult = new Counter({
     name: 'cdp_seek_result_total',
     help: 'Count of seek test results by outcome',
     labelNames: ['result'],
