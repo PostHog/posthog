@@ -1,7 +1,5 @@
 import { useState } from 'react'
 
-import { IconToggle } from '@posthog/icons'
-
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
@@ -84,10 +82,7 @@ export const VariantsPanelLinkFeatureFlag = ({
             <div>
                 <label className="text-sm font-semibold">Selected Feature Flag</label>
                 <div className="mt-2 p-8 border border-dashed rounded-lg bg-bg-light flex flex-col items-center gap-3">
-                    <div className="flex items-center gap-2">
-                        <IconToggle className="text-muted text-2xl" />
-                        <div className="text-base font-semibold">No feature flag selected</div>
-                    </div>
+                    <div className="text-base font-semibold">No feature flag selected</div>
                     <div className="text-sm text-muted-alt text-center">
                         Select an existing multivariate feature flag to use with this experiment
                     </div>
@@ -108,7 +103,6 @@ export const VariantsPanelLinkFeatureFlag = ({
                 {/* Header: Flag key + link + change button */}
                 <div className="flex flex-row gap-4">
                     <div className="flex items-center gap-2 min-w-0 flex-1">
-                        <IconToggle className="text-lg flex-shrink-0" />
                         <div className="font-semibold text-base truncate">{linkedFeatureFlag.key}</div>
                         <Link
                             to={urls.featureFlag(linkedFeatureFlag.id as number)}
