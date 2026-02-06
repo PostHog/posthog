@@ -145,6 +145,49 @@ class TestDockerSandboxUnit:
         assert result.stdout == "hello world"
         assert result.stderr == ""
 
+    @pytest.mark.parametrize(
+        "task_id,run_id,repo_path,expected_quoted",
+        [
+            ("task-123", "run-456", "/tmp/workspace/repos/org/repo", True),
+            ("task; echo hacked", "run-789", "/tmp/workspace/repos/org/repo", True),
+            ("task-abc", "run; rm -rf /", "/tmp/workspace/repos/org/repo", True),
+            ("task-xyz", "run-123", "/tmp/workspace/repos/org'; echo hacked; echo '/repo", True),
+        ],
+    )
+    def test_task_command_shell_injection_prevention(self, task_id, run_id, repo_path, expected_quoted):
+        sandbox = DockerSandbox.__new__(DockerSandbox)
+        sandbox._container_id = "abc123"
+        sandbox.id = "abc123"
+        sandbox.config = SandboxConfig(name="test")
+
+        command = sandbox._get_task_command(task_id, run_id, repo_path, create_pr=True)
+
+        if ";" in task_id or ";" in run_id or "'" in repo_path:
+            assert "'" in command
+            assert task_id in command or task_id.replace("'", "'\\''") in command
+
+    @pytest.mark.parametrize(
+        "repository,expected_org,expected_repo",
+        [
+            ("PostHog/posthog", "posthog", "posthog"),
+            ("org/repo-name", "org", "repo-name"),
+        ],
+    )
+    def test_clone_repository_command_escaping(self, repository, expected_org, expected_repo):
+        sandbox = DockerSandbox.__new__(DockerSandbox)
+        sandbox._container_id = "abc123"
+        sandbox.id = "abc123"
+        sandbox.config = SandboxConfig(name="test")
+
+        with patch.object(sandbox, "is_running", return_value=True):
+            with patch.object(sandbox, "execute") as mock_execute:
+                sandbox.clone_repository(repository, github_token="test-token")
+                call_args = mock_execute.call_args
+                command = call_args[0][0]
+
+                assert expected_org in command
+                assert expected_repo in command
+
 
 @pytest.mark.skipif(is_ci() or not docker_available(), reason="Docker sandbox tests only run locally, not in CI")
 class TestDockerSandboxIntegration:
