@@ -1038,7 +1038,7 @@ jobs:
 
     clickhouse-compat:
         name: ClickHouse compat tests - ${{ matrix.clickhouse-server-image }}
-        needs: [changes, get_clickhouse_versions, detect-snapshot-mode]
+        needs: [changes, get_clickhouse_versions]
         if: needs.changes.outputs.backend == 'true'
         runs-on: depot-ubuntu-latest
         strategy:
@@ -1068,11 +1068,10 @@ jobs:
                   oldest_supported_clickhouse_image: ${{ needs.get_clickhouse_versions.outputs.oldest_supported_image }}
                   # Skip plugin transpiler build - these tests don't need it and it causes esbuild deadlocks
                   skip-plugin-transpiler: 'true'
-                  # Compat tests run a subset of snapshot tests, so unused snapshots are expected
-                  # This makes unused snapshots non-fatal (warning only) instead of failing the build
+                  # Compat tests run a subset and don't own snapshots (main django tests do).
+                  # This flag makes unused snapshots non-fatal and always updates snapshot
+                  # content so compat tests never fail due to CH version query differences.
                   snapshot-warn-unused: 'true'
-                  # Use the same snapshot mode as Django tests (update on PRs, check on master)
-                  snapshot-mode: ${{ needs.detect-snapshot-mode.outputs.mode }}
 
     # Aggregate and commit snapshot changes from all matrix jobs
     handle-snapshots:
