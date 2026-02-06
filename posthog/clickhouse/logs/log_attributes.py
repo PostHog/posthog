@@ -2,7 +2,7 @@ from django.conf import settings
 
 TABLE_NAME = "log_attributes"
 
-STORAGE_POLICY = lambda: "hot" if settings.CLICKHOUSE_ENABLE_STORAGE_POLICY else "default"
+STORAGE_POLICY = lambda: "hot" if settings.CLICKHOUSE_LOGS_ENABLE_STORAGE_POLICY else "default"
 
 
 LOG_ATTRIBUTES_TABLE_SQL = f"""
