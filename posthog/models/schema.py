@@ -127,6 +127,13 @@ class EventSchema(UUIDTModel):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
+        indexes = [
+            models.Index(
+                fields=["enforcement_mode"],
+                name="posthog_eve_enforce_idx",
+                condition=models.Q(enforcement_mode="reject"),
+            ),
+        ]
         constraints = [
             models.UniqueConstraint(
                 fields=["event_definition", "property_group"],
