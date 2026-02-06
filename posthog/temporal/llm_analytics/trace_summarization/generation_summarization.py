@@ -12,6 +12,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.models.event.util import create_event
 from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
+from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.llm_analytics.trace_summarization import constants
 from posthog.temporal.llm_analytics.trace_summarization.models import SummarizationActivityResult
 from posthog.temporal.llm_analytics.trace_summarization.utils import format_datetime_for_clickhouse
@@ -226,63 +227,64 @@ async def generate_and_save_generation_summary_activity(
             product="llm-analytics",
         )
 
-    # Fetch generation data
-    result = await database_sync_to_async(_fetch_generation_data, thread_sensitive=False)(
-        generation_id, team_id, window_start, window_end
-    )
-
-    if result is None:
-        logger.warning(
-            "Skipping generation - not found in time window",
-            generation_id=generation_id,
-            window_start=window_start,
-            window_end=window_end,
-        )
-        return SummarizationActivityResult(
-            trace_id=trace_id,
-            success=False,
-            generation_id=generation_id,
-            skipped=True,
-            skip_reason="generation_not_found",
+    async with Heartbeater():
+        # Fetch generation data
+        result = await database_sync_to_async(_fetch_generation_data, thread_sensitive=False)(
+            generation_id, team_id, window_start, window_end
         )
 
-    generation_dict, team = result
+        if result is None:
+            logger.warning(
+                "Skipping generation - not found in time window",
+                generation_id=generation_id,
+                window_start=window_start,
+                window_end=window_end,
+            )
+            return SummarizationActivityResult(
+                trace_id=trace_id,
+                success=False,
+                generation_id=generation_id,
+                skipped=True,
+                skip_reason="generation_not_found",
+            )
 
-    # Format text representation
-    text_repr = _format_generation_text_repr(generation_dict)
+        generation_dict, team = result
 
-    # Apply max_length truncation if needed
-    if max_length and len(text_repr) > max_length:
-        text_repr = text_repr[:max_length] + "\n... [truncated]"
+        # Format text representation
+        text_repr = _format_generation_text_repr(generation_dict)
 
-    # Generate summary using LLM via gateway
-    mode_enum = SummarizationMode(mode)
-    model_enum = OpenAIModel(model) if model else None
+        # Apply max_length truncation if needed
+        if max_length and len(text_repr) > max_length:
+            text_repr = text_repr[:max_length] + "\n... [truncated]"
 
-    summary_result = await database_sync_to_async(summarize, thread_sensitive=False)(
-        text_repr=text_repr,
-        team_id=team_id,
-        mode=mode_enum,
-        model=model_enum,
-        user_id=f"temporal-workflow-team-{team_id}",
-    )
+        # Generate summary using LLM via gateway
+        mode_enum = SummarizationMode(mode)
+        model_enum = OpenAIModel(model) if model else None
 
-    # Save event to ClickHouse
-    await database_sync_to_async(_save_summary_event, thread_sensitive=False)(summary_result, text_repr, team)
-
-    # Request embedding
-    embedding_requested = False
-    embedding_request_error = None
-    try:
-        await database_sync_to_async(_embed_summary, thread_sensitive=False)(summary_result, team)
-        embedding_requested = True
-    except Exception as e:
-        embedding_request_error = str(e)
-        logger.exception(
-            "Failed to request embedding for generation summary",
-            generation_id=generation_id,
-            error=embedding_request_error,
+        summary_result = await database_sync_to_async(summarize, thread_sensitive=False)(
+            text_repr=text_repr,
+            team_id=team_id,
+            mode=mode_enum,
+            model=model_enum,
+            user_id=f"temporal-workflow-team-{team_id}",
         )
+
+        # Save event to ClickHouse
+        await database_sync_to_async(_save_summary_event, thread_sensitive=False)(summary_result, text_repr, team)
+
+        # Request embedding
+        embedding_requested = False
+        embedding_request_error = None
+        try:
+            await database_sync_to_async(_embed_summary, thread_sensitive=False)(summary_result, team)
+            embedding_requested = True
+        except Exception as e:
+            embedding_request_error = str(e)
+            logger.exception(
+                "Failed to request embedding for generation summary",
+                generation_id=generation_id,
+                error=embedding_request_error,
+            )
 
     return SummarizationActivityResult(
         trace_id=trace_id,
