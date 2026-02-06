@@ -168,22 +168,6 @@ def web_analytics_team_selection_v2(
     return _web_analytics_team_selection_impl(context, cluster)
 
 
-def _get_team_pageview_estimates_sql(team_ids: list[int]) -> str:
-    team_ids_str = ", ".join(str(tid) for tid in team_ids)
-    return f"""
-SELECT
-    team_id,
-    count() AS daily_events
-FROM events
-WHERE event IN ('$pageview', '$screen')
-  AND timestamp >= today() - INTERVAL 1 DAY
-  AND timestamp < today()
-  AND team_id IN ({team_ids_str})
-GROUP BY team_id
-ORDER BY daily_events DESC
-"""
-
-
 @dagster.asset(
     name="web_analytics_high_volume_team_candidates",
     group_name="web_analytics_v2",
@@ -197,10 +181,14 @@ def web_analytics_high_volume_team_candidates(
 
     Teams qualify if they had more than 500k average weekly pageviews over the last 4 complete
     weeks, with data in all 4 weeks (ensuring constant traffic, not spikes).
-
-    Also estimates daily event volume to assess pre-aggregation feasibility.
     """
-    threshold = int(os.getenv("WEB_ANALYTICS_WEEKLY_PAGEVIEWS_THRESHOLD", str(DEFAULT_WEEKLY_PAGEVIEWS_THRESHOLD)))
+    try:
+        threshold = int(os.getenv("WEB_ANALYTICS_WEEKLY_PAGEVIEWS_THRESHOLD", str(DEFAULT_WEEKLY_PAGEVIEWS_THRESHOLD)))
+    except ValueError:
+        context.log.warning(
+            f"Invalid WEB_ANALYTICS_WEEKLY_PAGEVIEWS_THRESHOLD, using default {DEFAULT_WEEKLY_PAGEVIEWS_THRESHOLD}"
+        )
+        threshold = DEFAULT_WEEKLY_PAGEVIEWS_THRESHOLD
 
     sql = get_teams_by_weekly_pageviews_sql(threshold)
     context.log.info(f"Querying for teams with >{threshold:,} avg weekly pageviews over last 4 weeks")
@@ -230,27 +218,11 @@ def web_analytics_high_volume_team_candidates(
         )
     context.log.info(f"Total estimated weekly pageviews across all candidates: {total_avg_weekly_pageviews:,}")
 
-    # Estimate daily event volume for pre-aggregation feasibility
-    estimated_daily_events = 0
-    if team_ids:
-        try:
-            estimate_sql = _get_team_pageview_estimates_sql(team_ids)
-            estimate_result = sync_execute(estimate_sql)
-            for row in estimate_result:
-                tid, daily_events = int(row[0]), int(row[1])
-                estimated_daily_events += daily_events
-                context.log.info(f"  Team {tid}: ~{daily_events:,} events/day (yesterday)")
-
-            context.log.info(f"Total estimated daily events for pre-aggregation: {estimated_daily_events:,}")
-        except Exception as e:
-            context.log.warning(f"Failed to estimate daily event volume: {e}")
-
     metadata = {
         "team_count": len(team_candidates),
         "team_ids": str(team_ids),
         "threshold": threshold,
         "total_avg_weekly_pageviews": total_avg_weekly_pageviews,
-        "estimated_daily_events": estimated_daily_events,
         "team_details": str(team_candidates),
     }
 

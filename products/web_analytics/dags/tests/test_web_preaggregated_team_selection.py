@@ -613,17 +613,9 @@ class TestWeeklyHighVolumeStrategy:
 class TestHighVolumeTeamCandidatesAsset:
     @patch("products.web_analytics.dags.web_preaggregated_team_selection.sync_execute")
     def test_materializes_team_candidates(self, mock_execute):
-        mock_execute.side_effect = [
-            # Weekly pageviews query result
-            [
-                (100, 600_000, 550_000, 650_000),
-                (200, 750_000, 700_000, 800_000),
-            ],
-            # Daily estimation query result
-            [
-                (100, 85_000),
-                (200, 107_000),
-            ],
+        mock_execute.return_value = [
+            (100, 600_000, 550_000, 650_000),
+            (200, 750_000, 700_000, 800_000),
         ]
 
         context = dagster.build_asset_context()
@@ -635,7 +627,6 @@ class TestHighVolumeTeamCandidatesAsset:
         assert metadata["team_count"] == 2
         assert metadata["threshold"] == DEFAULT_WEEKLY_PAGEVIEWS_THRESHOLD
         assert metadata["total_avg_weekly_pageviews"] == 1_350_000
-        assert metadata["estimated_daily_events"] == 192_000
 
     @patch("products.web_analytics.dags.web_preaggregated_team_selection.sync_execute")
     def test_handles_no_qualifying_teams(self, mock_execute):
@@ -649,23 +640,6 @@ class TestHighVolumeTeamCandidatesAsset:
         assert metadata is not None
         assert metadata["team_count"] == 0
         assert metadata["total_avg_weekly_pageviews"] == 0
-        assert metadata["estimated_daily_events"] == 0
-
-    @patch("products.web_analytics.dags.web_preaggregated_team_selection.sync_execute")
-    def test_handles_estimation_failure_gracefully(self, mock_execute):
-        mock_execute.side_effect = [
-            [(100, 600_000, 550_000, 650_000)],
-            Exception("Estimation query failed"),
-        ]
-
-        context = dagster.build_asset_context()
-        result = web_analytics_high_volume_team_candidates(context)
-
-        assert isinstance(result, dagster.MaterializeResult)
-        metadata = result.metadata
-        assert metadata is not None
-        assert metadata["team_count"] == 1
-        assert metadata["estimated_daily_events"] == 0
 
     @patch("products.web_analytics.dags.web_preaggregated_team_selection.sync_execute")
     def test_respects_custom_threshold(self, mock_execute):
@@ -680,11 +654,20 @@ class TestHighVolumeTeamCandidatesAsset:
         assert metadata["threshold"] == 1_000_000
 
     @patch("products.web_analytics.dags.web_preaggregated_team_selection.sync_execute")
+    def test_handles_invalid_threshold_env_var(self, mock_execute):
+        mock_execute.return_value = [(100, 600_000, 550_000, 650_000)]
+
+        with patch.dict(os.environ, {"WEB_ANALYTICS_WEEKLY_PAGEVIEWS_THRESHOLD": "not_a_number"}):
+            context = dagster.build_asset_context()
+            result = web_analytics_high_volume_team_candidates(context)
+
+        metadata = result.metadata
+        assert metadata is not None
+        assert metadata["threshold"] == DEFAULT_WEEKLY_PAGEVIEWS_THRESHOLD
+
+    @patch("products.web_analytics.dags.web_preaggregated_team_selection.sync_execute")
     def test_team_details_include_all_stats(self, mock_execute):
-        mock_execute.side_effect = [
-            [(42, 800_000, 700_000, 900_000)],
-            [(42, 115_000)],
-        ]
+        mock_execute.return_value = [(42, 800_000, 700_000, 900_000)]
 
         context = dagster.build_asset_context()
         result = web_analytics_high_volume_team_candidates(context)
