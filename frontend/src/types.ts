@@ -279,6 +279,7 @@ export enum AccessControlResourceType {
     FeatureFlag = 'feature_flag',
     Insight = 'insight',
     Dashboard = 'dashboard',
+    LlmAnalytics = 'llm_analytics',
     Notebook = 'notebook',
     SessionRecording = 'session_recording',
     RevenueAnalytics = 'revenue_analytics',
@@ -3356,6 +3357,8 @@ export interface ProductTourSurveyQuestion {
 
 export type ProductTourProgressionTriggerType = 'button' | 'click'
 
+// 'element' is deprecated in favor of all 'modal' steps having the option
+// to be positioned near a given element.
 export type ProductTourStepType = 'element' | 'modal' | 'survey' | 'banner'
 
 export interface ProductTourBannerConfig {
@@ -4938,6 +4941,7 @@ export type APIScopeObject =
     | 'insight_variable'
     | 'integration'
     | 'live_debugger'
+    | 'llm_analytics'
     | 'llm_gateway'
     | 'llm_prompt'
     | 'llm_provider_key'

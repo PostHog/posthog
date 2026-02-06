@@ -164,6 +164,7 @@ export const FeatureFlagSchema = z.object({
     filters: z.any().nullish(),
     active: z.boolean(),
     tags: z.array(z.string()).optional(),
+    updated_at: z.string().nullish(),
 })
 
 export type FeatureFlag = z.infer<typeof FeatureFlagSchema>

@@ -14,9 +14,16 @@ from posthog.temporal.llm_analytics.trace_clustering.activities import (
 from posthog.temporal.llm_analytics.trace_clustering.constants import (
     COMPUTE_ACTIVITY_RETRY_POLICY,
     COMPUTE_ACTIVITY_TIMEOUT,
+    COMPUTE_HEARTBEAT_TIMEOUT,
+    COMPUTE_SCHEDULE_TO_CLOSE_TIMEOUT,
     EMIT_ACTIVITY_RETRY_POLICY,
     EMIT_ACTIVITY_TIMEOUT,
+    EMIT_HEARTBEAT_TIMEOUT,
+    EMIT_SCHEDULE_TO_CLOSE_TIMEOUT,
     LLM_ACTIVITY_RETRY_POLICY,
+    LLM_ACTIVITY_TIMEOUT,
+    LLM_HEARTBEAT_TIMEOUT,
+    LLM_SCHEDULE_TO_CLOSE_TIMEOUT,
     NOISE_CLUSTER_ID,
     WORKFLOW_NAME,
 )
@@ -166,6 +173,8 @@ class DailyTraceClusteringWorkflow(PostHogWorkflow):
                 )
             ],
             start_to_close_timeout=COMPUTE_ACTIVITY_TIMEOUT,
+            schedule_to_close_timeout=COMPUTE_SCHEDULE_TO_CLOSE_TIMEOUT,
+            heartbeat_timeout=COMPUTE_HEARTBEAT_TIMEOUT,
             retry_policy=COMPUTE_ACTIVITY_RETRY_POLICY,
         )
 
@@ -188,7 +197,9 @@ class DailyTraceClusteringWorkflow(PostHogWorkflow):
                     batch_run_ids=compute_result.batch_run_ids,
                 )
             ],
-            start_to_close_timeout=timedelta(seconds=600),  # 10 minutes for agent run
+            start_to_close_timeout=LLM_ACTIVITY_TIMEOUT,
+            schedule_to_close_timeout=LLM_SCHEDULE_TO_CLOSE_TIMEOUT,
+            heartbeat_timeout=LLM_HEARTBEAT_TIMEOUT,
             retry_policy=LLM_ACTIVITY_RETRY_POLICY,
         )
 
@@ -222,6 +233,8 @@ class DailyTraceClusteringWorkflow(PostHogWorkflow):
                 )
             ],
             start_to_close_timeout=EMIT_ACTIVITY_TIMEOUT,
+            schedule_to_close_timeout=EMIT_SCHEDULE_TO_CLOSE_TIMEOUT,
+            heartbeat_timeout=EMIT_HEARTBEAT_TIMEOUT,
             retry_policy=EMIT_ACTIVITY_RETRY_POLICY,
         )
 
