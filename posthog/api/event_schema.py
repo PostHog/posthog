@@ -28,7 +28,6 @@ class EventSchemaSerializer(serializers.ModelSerializer):
             "event_definition",
             "property_group",
             "property_group_id",
-            "enforcement_mode",
             "created_at",
             "updated_at",
         )

@@ -131,6 +131,7 @@ function PropertyGroupCard({
 export function EventDefinitionSchema({ definition }: { definition: EventDefinition }): JSX.Element {
     const logic = eventDefinitionSchemaLogic({
         eventDefinitionId: definition.id,
+        enforcementMode: definition.enforcement_mode ?? SchemaEnforcementMode.Allow,
     })
     const { eventSchemas, eventSchemasLoading, schemaEnforcementMode, schemaEnforcementModeUpdating } = useValues(logic)
     const { addPropertyGroup, removePropertyGroup, loadAllPropertyGroups, updateSchemaEnforcementMode } =
