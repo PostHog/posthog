@@ -2411,6 +2411,14 @@ export interface RetentionQueryResponseApi {
     timings?: QueryTimingApi[] | null
 }
 
+export type AggregationTypeApi = (typeof AggregationTypeApi)[keyof typeof AggregationTypeApi]
+
+export const AggregationTypeApi = {
+    count: 'count',
+    sum: 'sum',
+    avg: 'avg',
+} as const
+
 export type RetentionDashboardDisplayTypeApi =
     (typeof RetentionDashboardDisplayTypeApi)[keyof typeof RetentionDashboardDisplayTypeApi]
 
@@ -2517,6 +2525,13 @@ export const TimeWindowModeApi = {
 } as const
 
 export interface RetentionFilterApi {
+    /**
+     * The property to aggregate when aggregationType is sum or avg
+     * @nullable
+     */
+    aggregationProperty?: string | null
+    /** The aggregation type to use for retention */
+    aggregationType?: AggregationTypeApi | null
     /** @nullable */
     cumulative?: boolean | null
     dashboardDisplay?: RetentionDashboardDisplayTypeApi | null

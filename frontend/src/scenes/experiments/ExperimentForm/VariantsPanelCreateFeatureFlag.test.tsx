@@ -91,14 +91,11 @@ describe('VariantsPanelCreateFeatureFlag', () => {
             expect(testInput).toBeInTheDocument()
         })
 
-        it('renders rollout percentages for each variant', () => {
-            const { container } = renderComponent(defaultExperiment)
+        it('renders variant split labels by default', () => {
+            renderComponent(defaultExperiment)
 
-            const percentageInputs = container.querySelectorAll(
-                '[data-attr="experiment-variant-rollout-percentage-input"]'
-            )
-
-            expect(percentageInputs).toHaveLength(2)
+            const splitLabels = screen.getAllByText('50%')
+            expect(splitLabels).toHaveLength(2)
         })
 
         it('renders add variant button', () => {
@@ -190,8 +187,12 @@ describe('VariantsPanelCreateFeatureFlag', () => {
             expect(hasVariantUpdate).toBe(true)
         })
 
-        it('updates rollout percentage', async () => {
+        it('updates rollout percentage after enabling custom split', async () => {
             const { container } = renderComponent(defaultExperiment)
+
+            // Click pencil button to enable custom split editing
+            const customizeButton = screen.getByRole('button', { name: /customize split/i })
+            await userEvent.click(customizeButton)
 
             const percentageInputs = container.querySelectorAll(
                 '[data-attr="experiment-variant-rollout-percentage-input"]'
@@ -297,7 +298,7 @@ describe('VariantsPanelCreateFeatureFlag', () => {
 
             renderComponent(unevenExperiment)
 
-            const balanceButton = screen.getByRole('button', { name: /normalize variant rollout/i })
+            const balanceButton = screen.getByRole('button', { name: /distribute split evenly/i })
             await userEvent.click(balanceButton)
 
             expect(mockOnChange).toHaveBeenCalledWith({

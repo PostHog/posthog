@@ -1525,6 +1525,11 @@ export type RetentionFilter = {
     timeWindowMode?: 'strict_calendar_dates' | '24_hour_windows'
     /** @description Custom brackets for retention calculations */
     retentionCustomBrackets?: number[]
+    /** @description The aggregation type to use for retention
+     * @default count */
+    aggregationType?: 'count' | 'sum' | 'avg'
+    /** @description The property to aggregate when aggregationType is sum or avg */
+    aggregationProperty?: string
 
     //frontend only
     meanRetentionCalculation?: RetentionFilterLegacy['mean_retention_calculation']
@@ -2907,6 +2912,7 @@ export type FileSystemIconType =
     | 'llm_datasets'
     | 'llm_prompts'
     | 'llm_clusters'
+    | 'exports'
 
 export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     id?: string
@@ -5354,6 +5360,8 @@ export enum ProductIntentContext {
     MARKETING_ANALYTICS_SETTINGS_UPDATED = 'marketing_analytics_settings_updated',
     MARKETING_ANALYTICS_DASHBOARD_INTERACTION = 'marketing_analytics_dashboard_interaction',
     MARKETING_ANALYTICS_ADS_INTEGRATION_VISITED = 'marketing_analytics_ads_integration_visited',
+    MARKETING_ANALYTICS_DATA_SOURCE_CONNECTED = 'marketing_analytics_data_source_connected',
+    MARKETING_ANALYTICS_ONBOARDING_COMPLETED = 'marketing_analytics_onboarding_completed',
 
     // Customer Analytics
     CUSTOMER_ANALYTICS_DASHBOARD_BUSINESS_MODE_CHANGED = 'customer_analytics_dashboard_business_mode_changed',

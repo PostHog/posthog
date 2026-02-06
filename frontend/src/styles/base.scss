@@ -1843,7 +1843,8 @@
     }
 
     .animate-logomark-jump {
-        --logomark-jump-magnitude: 1;
+        --logomark-jump-height-base: 12px;
+        --logomark-jump-magnitude: 1; // Overidden in code when someone wants a bigger jump
         --logomark-airtime: 0.4s; // Sync with LOGOMARK_AIRTIME_MS in Intro.tsx
 
         svg {
@@ -1874,7 +1875,7 @@
             }
 
             2% {
-                transform: translateY(calc(-200px * var(--logomark-jump-magnitude)));
+                transform: translateY(calc(var(--logomark-jump-height-base) * var(--logomark-jump-magnitude) * -1));
             }
 
             4% {
@@ -1891,7 +1892,7 @@
             }
 
             22% {
-                transform: translateY(calc(-200px * var(--logomark-jump-magnitude)));
+                transform: translateY(calc(var(--logomark-jump-height-base) * var(--logomark-jump-magnitude) * -1));
             }
         }
 

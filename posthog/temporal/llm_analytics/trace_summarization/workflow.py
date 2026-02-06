@@ -81,6 +81,7 @@ class BatchTraceSummarizationWorkflow(PostHogWorkflow):
     async def _process_item(
         semaphore: asyncio.Semaphore,
         item: SampledItem,
+        idx: int,
         team_id: int,
         window_start: str,
         window_end: str,
@@ -107,8 +108,8 @@ class BatchTraceSummarizationWorkflow(PostHogWorkflow):
                         model,
                         max_length,
                     ],
-                    activity_id=f"summarize-gen-{item.generation_id}",
-                    schedule_to_close_timeout=timedelta(seconds=GENERATE_SUMMARY_TIMEOUT_SECONDS),
+                    activity_id=f"summarize-gen-{item.generation_id}-{idx}",
+                    start_to_close_timeout=timedelta(seconds=GENERATE_SUMMARY_TIMEOUT_SECONDS),
                     retry_policy=constants.SUMMARIZE_RETRY_POLICY,
                 )
             else:
@@ -126,8 +127,8 @@ class BatchTraceSummarizationWorkflow(PostHogWorkflow):
                         model,
                         max_length,
                     ],
-                    activity_id=f"summarize-{item.trace_id}",
-                    schedule_to_close_timeout=timedelta(seconds=GENERATE_SUMMARY_TIMEOUT_SECONDS),
+                    activity_id=f"summarize-{item.trace_id}-{idx}",
+                    start_to_close_timeout=timedelta(seconds=GENERATE_SUMMARY_TIMEOUT_SECONDS),
                     retry_policy=constants.SUMMARIZE_RETRY_POLICY,
                 )
 
@@ -186,6 +187,7 @@ class BatchTraceSummarizationWorkflow(PostHogWorkflow):
             self._process_item(
                 semaphore=semaphore,
                 item=item,
+                idx=idx,
                 team_id=inputs.team_id,
                 window_start=window_start,
                 window_end=window_end,
@@ -194,7 +196,7 @@ class BatchTraceSummarizationWorkflow(PostHogWorkflow):
                 model=inputs.model,
                 max_length=MAX_TEXT_REPR_LENGTH,
             )
-            for item in items
+            for idx, item in enumerate(items)
         ]
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
