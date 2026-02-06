@@ -33,6 +33,7 @@ from products.llm_analytics.backend.llm.errors import (
     ModelPermissionError,
     QuotaExceededError,
     RateLimitError,
+    StructuredOutputParseError,
 )
 from products.llm_analytics.backend.models.evaluation_config import EvaluationConfig
 from products.llm_analytics.backend.models.evaluations import Evaluation
@@ -415,7 +416,7 @@ Output: {output_data}"""
             f"Model '{model}' not found.",
             non_retryable=True,
         )
-    except ValueError as e:
+    except StructuredOutputParseError as e:
         increment_errors("parse_error")
         raise ApplicationError(
             str(e),

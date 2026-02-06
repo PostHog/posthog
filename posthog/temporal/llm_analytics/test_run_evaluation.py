@@ -11,6 +11,7 @@ from temporalio.exceptions import ApplicationError
 
 from posthog.models import Organization, Team
 
+from products.llm_analytics.backend.llm.errors import StructuredOutputParseError
 from products.llm_analytics.backend.models.evaluations import Evaluation
 
 from .run_evaluation import (
@@ -415,7 +416,7 @@ class TestRunEvaluationWorkflow:
         with patch("posthog.temporal.llm_analytics.run_evaluation.Client") as mock_client_class:
             mock_client = MagicMock()
             mock_client_class.return_value = mock_client
-            mock_client.complete.side_effect = ValueError(
+            mock_client.complete.side_effect = StructuredOutputParseError(
                 "Failed to parse structured output: I need to fetch your bundles..."
             )
 
