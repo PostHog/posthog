@@ -239,7 +239,6 @@ describe('EventPipelineRunner', () => {
             await runner.runEventPipeline(pluginEvent, team)
 
             expect(runner.steps).toEqual([
-                'dropOldEventsStep',
                 'transformEventStep',
                 'normalizeEventStep',
                 'processPersonsStep',
@@ -256,7 +255,7 @@ describe('EventPipelineRunner', () => {
             if (isOkResult(result)) {
                 expect(result.value.error).toBeUndefined()
             }
-            expect(pipelineStepMsSummarySpy).toHaveBeenCalledTimes(5)
+            expect(pipelineStepMsSummarySpy).toHaveBeenCalledTimes(4)
             expect(pipelineStepErrorCounterSpy).not.toHaveBeenCalled()
         })
 
