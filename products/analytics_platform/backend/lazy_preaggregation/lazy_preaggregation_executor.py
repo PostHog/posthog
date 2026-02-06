@@ -90,6 +90,8 @@ def heartbeat_while_running(
     """
     Update job.updated_at periodically while the wrapped code runs.
 
+    TODO let's try to delete this in the future, and use the progress argument to the clickhouse client
+
     This prevents the job from being marked as stale while a long INSERT
     is still executing. The heartbeat stops when the context exits
     (whether success or failure).
