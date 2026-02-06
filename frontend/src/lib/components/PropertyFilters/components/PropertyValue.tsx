@@ -86,6 +86,9 @@ export function PropertyValue({
     // This will require detecting isOperatorSemver(operator) and validating the input
     // matches semver format (e.g., "1.2.3", "1.2.3-alpha", etc.)
 
+    // we first load a set of suggested values when there is no user input yet to avoid
+    // options jumping around as the user types, we keep the initially loaded options
+    // in state and show those first, then any new options based on user input after
     const [initialSuggestedValues, setInitialSuggestedValues] = useState<{
         set: Set<string>
         orderedKeys: string[]
@@ -123,7 +126,8 @@ export function PropertyValue({
         }
     }, [propertyKey, isDateTimeProperty, load, propertyOptions?.status])
 
-    // set initial suggested values when options are loaded, but only if there is no search input (to avoid overwriting suggestions based on search input)
+    // set initial suggested values when options are loaded, but only if there is no search input
+    // (to avoid overwriting suggestions based on search input)
     useEffect(() => {
         if (propertyOptions?.status === 'loaded' && propertyOptions?.values && currentSearchInput.current === '') {
             const orderedKeys = propertyOptions.values.map((v) => toString(v.name))
