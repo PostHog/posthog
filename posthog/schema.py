@@ -2354,6 +2354,23 @@ class MarketingIntegrationConfig6(BaseModel):
     tableKeywords: list[str] = Field(..., max_length=1, min_length=1)
 
 
+class MarketingIntegrationConfig7(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    campaignTableName: Literal["campaigns"] = "campaigns"
+    conversionFields: list[str] = Field(..., max_length=3, min_length=3)
+    conversionValueFields: list[str] = Field(..., max_length=3, min_length=3)
+    defaultSources: list[str] = Field(..., max_length=1, min_length=1)
+    idField: Literal["id"] = "id"
+    nameField: Literal["name"] = "name"
+    primarySource: Literal["snapchat"] = "snapchat"
+    sourceType: Literal["SnapchatAds"] = "SnapchatAds"
+    statsTableName: Literal["campaign_stats_daily"] = "campaign_stats_daily"
+    tableExclusions: list[str] = Field(..., max_length=1, min_length=1)
+    tableKeywords: list[str] = Field(..., max_length=1, min_length=1)
+
+
 class MarketingIntegrationConfig(
     RootModel[
         MarketingIntegrationConfig1
@@ -2362,6 +2379,7 @@ class MarketingIntegrationConfig(
         | MarketingIntegrationConfig4
         | MarketingIntegrationConfig5
         | MarketingIntegrationConfig6
+        | MarketingIntegrationConfig7
     ]
 ):
     root: (
@@ -2371,6 +2389,7 @@ class MarketingIntegrationConfig(
         | MarketingIntegrationConfig4
         | MarketingIntegrationConfig5
         | MarketingIntegrationConfig6
+        | MarketingIntegrationConfig7
     )
 
 
@@ -2633,6 +2652,7 @@ class NativeMarketingSource(StrEnum):
     TIK_TOK_ADS = "TikTokAds"
     REDDIT_ADS = "RedditAds"
     BING_ADS = "BingAds"
+    SNAPCHAT_ADS = "SnapchatAds"
 
 
 class NodeKind(StrEnum):
@@ -3477,6 +3497,30 @@ class SlashCommandName(StrEnum):
     FIELD_USAGE = "/usage"
     FIELD_FEEDBACK = "/feedback"
     FIELD_TICKET = "/ticket"
+
+
+class SnapchatAdsConversionFields(StrEnum):
+    CONVERSION_PURCHASES = "conversion_purchases"
+    CONVERSION_SIGN_UPS = "conversion_sign_ups"
+    CONVERSION_SUBSCRIBE = "conversion_subscribe"
+
+
+class SnapchatAdsConversionValueFields(StrEnum):
+    CONVERSION_PURCHASES_VALUE = "conversion_purchases_value"
+    CONVERSION_SIGN_UPS_VALUE = "conversion_sign_ups_value"
+    CONVERSION_SUBSCRIBE_VALUE = "conversion_subscribe_value"
+
+
+class SnapchatAdsDefaultSources(StrEnum):
+    SNAPCHAT = "snapchat"
+
+
+class SnapchatAdsTableExclusions(StrEnum):
+    STATS_DAILY = "stats_daily"
+
+
+class SnapchatAdsTableKeywords(StrEnum):
+    CAMPAIGNS = "campaigns"
 
 
 class SourceFieldFileUploadJsonFormatConfig(BaseModel):

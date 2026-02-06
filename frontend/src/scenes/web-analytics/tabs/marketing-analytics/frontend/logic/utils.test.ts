@@ -13,17 +13,31 @@ import {
 describe('marketing analytics utils', () => {
     describe('getEnabledNativeMarketingSources', () => {
         it.each([
-            ['filters out BingAds when flag is disabled', { [FEATURE_FLAGS.BING_ADS_SOURCE]: false }, false],
-            ['includes BingAds when flag is enabled', { [FEATURE_FLAGS.BING_ADS_SOURCE]: true }, true],
-            ['filters out BingAds with empty feature flags', {}, false],
-            ['filters out BingAds with undefined feature flags', undefined as any, false],
-        ])('%s', (_name, featureFlags, shouldIncludeBingAds) => {
+            ['filters out BingAds when flag is disabled', { [FEATURE_FLAGS.BING_ADS_SOURCE]: false }, 'BingAds', false],
+            ['includes BingAds when flag is enabled', { [FEATURE_FLAGS.BING_ADS_SOURCE]: true }, 'BingAds', true],
+            ['filters out BingAds with empty feature flags', {}, 'BingAds', false],
+            [
+                'filters out SnapchatAds when flag is disabled',
+                { [FEATURE_FLAGS.SNAPCHAT_ADS_SOURCE]: false },
+                'SnapchatAds',
+                false,
+            ],
+            [
+                'includes SnapchatAds when flag is enabled',
+                { [FEATURE_FLAGS.SNAPCHAT_ADS_SOURCE]: true },
+                'SnapchatAds',
+                true,
+            ],
+            ['filters out SnapchatAds with empty feature flags', {}, 'SnapchatAds', false],
+        ])('%s', (_name, featureFlags, source, shouldInclude) => {
             const result = getEnabledNativeMarketingSources(featureFlags ?? {})
-            expect(result.includes('BingAds')).toBe(shouldIncludeBingAds)
+            expect(result.includes(source as any)).toBe(shouldInclude)
         })
 
         it('always includes sources without feature flag requirements', () => {
-            const sourcesWithoutFlags = VALID_NATIVE_MARKETING_SOURCES.filter((s) => s !== 'BingAds')
+            const sourcesWithoutFlags = VALID_NATIVE_MARKETING_SOURCES.filter(
+                (s) => s !== 'BingAds' && s !== 'SnapchatAds'
+            )
             const result = getEnabledNativeMarketingSources({})
             sourcesWithoutFlags.forEach((source) => {
                 expect(result).toContain(source)

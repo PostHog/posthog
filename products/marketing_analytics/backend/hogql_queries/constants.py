@@ -26,6 +26,7 @@ from posthog.schema import (
     MarketingIntegrationConfig4,
     MarketingIntegrationConfig5,
     MarketingIntegrationConfig6,
+    MarketingIntegrationConfig7,
     MetaAdsDefaultSources,
     MetaAdsTableExclusions,
     MetaAdsTableKeywords,
@@ -33,6 +34,11 @@ from posthog.schema import (
     RedditAdsDefaultSources,
     RedditAdsTableExclusions,
     RedditAdsTableKeywords,
+    SnapchatAdsConversionFields,
+    SnapchatAdsConversionValueFields,
+    SnapchatAdsDefaultSources,
+    SnapchatAdsTableExclusions,
+    SnapchatAdsTableKeywords,
     TikTokAdsDefaultSources,
     TikTokAdsTableExclusions,
     TikTokAdsTableKeywords,
@@ -241,6 +247,7 @@ _ALL_CONFIG_MODELS = [
     MarketingIntegrationConfig4,
     MarketingIntegrationConfig5,
     MarketingIntegrationConfig6,
+    MarketingIntegrationConfig7,
 ]
 
 
@@ -276,6 +283,7 @@ _DEFAULT_SOURCES_ENUMS = {
     NativeMarketingSource.TIK_TOK_ADS: TikTokAdsDefaultSources,
     NativeMarketingSource.REDDIT_ADS: RedditAdsDefaultSources,
     NativeMarketingSource.BING_ADS: BingAdsDefaultSources,
+    NativeMarketingSource.SNAPCHAT_ADS: SnapchatAdsDefaultSources,
 }
 
 _TABLE_KEYWORDS_ENUMS = {
@@ -285,6 +293,7 @@ _TABLE_KEYWORDS_ENUMS = {
     NativeMarketingSource.TIK_TOK_ADS: TikTokAdsTableKeywords,
     NativeMarketingSource.REDDIT_ADS: RedditAdsTableKeywords,
     NativeMarketingSource.BING_ADS: BingAdsTableKeywords,
+    NativeMarketingSource.SNAPCHAT_ADS: SnapchatAdsTableKeywords,
 }
 
 _TABLE_EXCLUSIONS_ENUMS = {
@@ -294,6 +303,7 @@ _TABLE_EXCLUSIONS_ENUMS = {
     NativeMarketingSource.TIK_TOK_ADS: TikTokAdsTableExclusions,
     NativeMarketingSource.REDDIT_ADS: RedditAdsTableExclusions,
     NativeMarketingSource.BING_ADS: BingAdsTableExclusions,
+    NativeMarketingSource.SNAPCHAT_ADS: SnapchatAdsTableExclusions,
 }
 
 # Derived constants from generated types
@@ -329,6 +339,10 @@ INTEGRATION_PRIMARY_SOURCE = {
 INTEGRATION_DEFAULT_SOURCES = {
     source: _get_enum_values(_DEFAULT_SOURCES_ENUMS[source]) for source in NativeMarketingSource
 }
+
+# Snapchat Ads conversion fields - derived from generated enums
+SNAPCHAT_CONVERSION_FIELDS = [e.value for e in SnapchatAdsConversionFields]
+SNAPCHAT_CONVERSION_VALUE_FIELDS = [e.value for e in SnapchatAdsConversionValueFields]
 
 # Column kind mapping for WebAnalyticsItemBase
 COLUMN_KIND_MAPPING = {
