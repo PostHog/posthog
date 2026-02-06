@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
+import { useMemo } from 'react'
 
-import { IconGear } from '@posthog/icons'
+import { IconFilter } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import {
@@ -18,18 +19,66 @@ import { quickFiltersSectionLogic } from './quickFiltersSectionLogic'
 export interface QuickFiltersSectionProps {
     context: QuickFilterContext
     logicKey?: string
+    /** Key to scope modal logic instance (e.g. per dashboard) */
+    modalKey?: string | number
+    /** Callback fired when a new quick filter is created while the modal is open */
+    onNewFilterCreated?: (filter: QuickFilter) => void
+    /**
+     * Controls which filters to show:
+     * - `undefined` or `null`: show all filters (default/unset behavior)
+     * - `[]` (empty array): show no filters (user explicitly selected none)
+     * - `['id1', 'id2']`: show only filters with matching IDs
+     */
+    filterIds?: string[] | null
 }
 
-export function QuickFiltersSection({ context, logicKey }: QuickFiltersSectionProps): JSX.Element {
-    const { quickFilters } = useValues(quickFiltersLogic({ context }))
-    const { selectedQuickFilters } = useValues(quickFiltersSectionLogic({ context, logicKey }))
-    const { setQuickFilterValue, clearQuickFilter } = useActions(quickFiltersSectionLogic({ context, logicKey }))
-    const { openModal } = useActions(quickFiltersModalLogic({ context }))
+export function QuickFiltersButton({
+    context,
+    modalKey,
+    onNewFilterCreated,
+}: Pick<QuickFiltersSectionProps, 'context' | 'modalKey' | 'onNewFilterCreated'>): JSX.Element {
+    const logicProps = { context, modalKey, onNewFilterCreated }
+    const { openModal } = useActions(quickFiltersModalLogic(logicProps))
 
     return (
         <>
-            {quickFilters.map((filter: QuickFilter) => {
-                const selectedFilter = selectedQuickFilters[filter.property_name]
+            <LemonButton
+                size="small"
+                icon={<IconFilter />}
+                onClick={openModal}
+                tooltip="Configure quick filters"
+                aria-label="Configure quick filters"
+            />
+            <QuickFiltersModal {...logicProps} />
+        </>
+    )
+}
+
+// Display selected quick filters
+export function QuickFiltersSelectors({
+    context,
+    logicKey,
+    filterIds,
+}: Pick<QuickFiltersSectionProps, 'context' | 'logicKey' | 'filterIds'>): JSX.Element | null {
+    const { quickFilters } = useValues(quickFiltersLogic({ context }))
+    const { selectedQuickFilters } = useValues(quickFiltersSectionLogic({ context, logicKey }))
+    const { setQuickFilterValue, clearQuickFilter } = useActions(quickFiltersSectionLogic({ context, logicKey }))
+
+    const filtersToShow = useMemo(() => {
+        if (filterIds === null || filterIds === undefined) {
+            return quickFilters
+        }
+        return quickFilters.filter((filter: QuickFilter) => filterIds.includes(filter.id))
+    }, [quickFilters, filterIds])
+
+    if (filtersToShow.length === 0) {
+        return null
+    }
+
+    return (
+        <>
+            {filtersToShow.map((filter: QuickFilter) => {
+                const selectedFilter = selectedQuickFilters[filter.id]
 
                 return (
                     <QuickFilterSelector
@@ -39,18 +88,29 @@ export function QuickFiltersSection({ context, logicKey }: QuickFiltersSectionPr
                         selectedOptionId={selectedFilter?.optionId || null}
                         onChange={(option) => {
                             if (option === null) {
-                                clearQuickFilter(filter.property_name)
+                                clearQuickFilter(filter.id)
                             } else {
-                                setQuickFilterValue(filter.property_name, option)
+                                setQuickFilterValue(filter.id, filter.property_name, option)
                             }
                         }}
                     />
                 )
             })}
-            <LemonButton size="small" icon={<IconGear />} onClick={openModal}>
-                Configure quick filters
-            </LemonButton>
-            <QuickFiltersModal context={context} />
+        </>
+    )
+}
+
+export function QuickFiltersSection({
+    context,
+    logicKey,
+    modalKey,
+    onNewFilterCreated,
+    filterIds,
+}: QuickFiltersSectionProps): JSX.Element {
+    return (
+        <>
+            <QuickFiltersSelectors context={context} logicKey={logicKey} filterIds={filterIds} />
+            <QuickFiltersButton context={context} modalKey={modalKey} onNewFilterCreated={onNewFilterCreated} />
         </>
     )
 }
