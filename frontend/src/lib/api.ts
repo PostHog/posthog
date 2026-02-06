@@ -210,6 +210,7 @@ import type {
     SessionGroupSummaryType,
 } from 'products/session_summaries/frontend/types'
 import { Task, TaskRun, TaskUpsertProps } from 'products/tasks/frontend/types'
+import { SignalReport, SignalReportArtefactResponse } from 'scenes/inbox/types'
 import { OptOutEntry } from 'products/workflows/frontend/OptOuts/optOutListLogic'
 import { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/messageTemplatesLogic'
 import { HogflowTestResult } from 'products/workflows/frontend/Workflows/hogflows/steps/types'
@@ -1092,6 +1093,15 @@ export class ApiRequest {
             return this.addPathComponent('users').withQueryString({ email })
         }
         return this.addPathComponent('users')
+    }
+
+    // # Signal Reports
+    public signalReports(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('signal_reports')
+    }
+
+    public signalReport(id: SignalReport['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.signalReports(teamId).addPathComponent(id)
     }
 
     // # Tasks
@@ -4124,6 +4134,18 @@ const api = {
     users: {
         async list(email?: string): Promise<PaginatedResponse<UserType>> {
             return await new ApiRequest().users(email).get()
+        },
+    },
+
+    signalReports: {
+        async list(): Promise<PaginatedResponse<SignalReport>> {
+            return await new ApiRequest().signalReports().get()
+        },
+        async get(id: SignalReport['id']): Promise<SignalReport> {
+            return await new ApiRequest().signalReport(id).get()
+        },
+        async artefacts(id: SignalReport['id']): Promise<SignalReportArtefactResponse> {
+            return await new ApiRequest().signalReport(id).withAction('artefacts').get()
         },
     },
 
