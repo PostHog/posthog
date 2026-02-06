@@ -1489,7 +1489,7 @@ class TestStaleJobHandling(BaseTest):
         assert result is True
         pending_job.refresh_from_db()
         assert pending_job.status == PreaggregationJob.Status.FAILED
-        assert "stale" in pending_job.error.lower()
+        assert pending_job.error is not None and "stale" in pending_job.error.lower()
 
     def test_stale_job_triggers_replacement_flow(self):
         """Test that after marking a stale job as FAILED, a replacement is created."""
@@ -1609,7 +1609,7 @@ class TestHeartbeat(BaseTest):
         """Verify that heartbeat calls update during INSERT execution."""
         import time
 
-        from unittest.mock import patch
+        from unittest.mock import MagicMock, patch
 
         from django.utils import timezone as django_timezone
 
@@ -1623,28 +1623,17 @@ class TestHeartbeat(BaseTest):
             expires_at=django_timezone.now() + timedelta(days=7),
         )
 
-        # Track update calls
-        update_call_count = [0]
-        original_filter = PreaggregationJob.objects.filter
-
-        def counting_filter(*args, **kwargs):
-            qs = original_filter(*args, **kwargs)
-            original_update = qs.update
-
-            def counting_update(*update_args, **update_kwargs):
-                update_call_count[0] += 1
-                return original_update(*update_args, **update_kwargs)
-
-            qs.update = counting_update
-            return qs
+        # Track update calls using a mock
+        mock_qs = MagicMock()
+        mock_qs.update.return_value = 1
 
         # Use heartbeat with very short interval for testing
-        with patch.object(PreaggregationJob.objects, "filter", side_effect=counting_filter):
+        with patch.object(PreaggregationJob.objects, "filter", return_value=mock_qs):
             with heartbeat_while_running(job, interval_seconds=0.05):
                 time.sleep(0.25)
 
         # Should have called update multiple times
-        assert update_call_count[0] >= 2
+        assert mock_qs.update.call_count >= 2
 
     def test_heartbeat_stops_on_success(self):
         """Verify that the heartbeat thread stops when the context exits successfully."""
