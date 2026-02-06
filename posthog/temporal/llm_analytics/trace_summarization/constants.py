@@ -28,6 +28,11 @@ MAX_TEXT_REPR_LENGTH = 2_000_000
 # sum(len(str(properties))) per event before entering the formatter.
 MAX_RAW_TRACE_SIZE = 5_000_000
 
+# Max events per trace for sampling. Traces with more events than this are
+# excluded at the ClickHouse query level during sampling, preventing them
+# from ever reaching the CPU-intensive formatting activity.
+MAX_TRACE_EVENTS_LIMIT = 50
+
 # Schedule configuration
 SCHEDULE_INTERVAL_HOURS = 1  # How often the coordinator runs
 
