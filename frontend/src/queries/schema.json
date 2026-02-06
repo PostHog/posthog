@@ -10,7 +10,10 @@
                 "$ai_metric",
                 "$ai_feedback",
                 "$ai_evaluation",
-                "$ai_trace_summary"
+                "$ai_trace_summary",
+                "$ai_generation_summary",
+                "$ai_trace_clusters",
+                "$ai_generation_clusters"
             ],
             "type": "string"
         },
@@ -361,7 +364,8 @@
                 "plan",
                 "execution",
                 "survey",
-                "research"
+                "research",
+                "flags"
             ],
             "type": "string"
         },
@@ -1965,8 +1969,6 @@
                 "create_survey",
                 "edit_survey",
                 "analyze_survey_responses",
-                "create_dashboard",
-                "edit_current_dashboard",
                 "read_taxonomy",
                 "search",
                 "read_data",
@@ -15668,7 +15670,8 @@
                 "llm_evaluations",
                 "llm_datasets",
                 "llm_prompts",
-                "llm_clusters"
+                "llm_clusters",
+                "exports"
             ],
             "type": "string"
         },
@@ -22524,6 +22527,8 @@
                 "marketing_analytics_settings_updated",
                 "marketing_analytics_dashboard_interaction",
                 "marketing_analytics_ads_integration_visited",
+                "marketing_analytics_data_source_connected",
+                "marketing_analytics_onboarding_completed",
                 "customer_analytics_dashboard_business_mode_changed",
                 "customer_analytics_dashboard_configuration_button_clicked",
                 "customer_analytics_dashboard_filters_changed",
@@ -28028,6 +28033,16 @@
         "RetentionFilter": {
             "additionalProperties": false,
             "properties": {
+                "aggregationProperty": {
+                    "description": "The property to aggregate when aggregationType is sum or avg",
+                    "type": "string"
+                },
+                "aggregationType": {
+                    "default": "count",
+                    "description": "The aggregation type to use for retention",
+                    "enum": ["count", "sum", "avg"],
+                    "type": "string"
+                },
                 "cumulative": {
                     "type": "boolean"
                 },

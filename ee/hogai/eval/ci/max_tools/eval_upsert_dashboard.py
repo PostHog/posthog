@@ -127,9 +127,6 @@ class DashboardOperationAccuracy(LLMClassifier):
 def call_agent_for_dashboard(demo_org_team_user):
     """Run full agent graph with natural language dashboard requests."""
     with (
-        patch(
-            "ee.hogai.core.agent_modes.presets.product_analytics.has_upsert_dashboard_feature_flag", return_value=True
-        ),
         patch("ee.hogai.tools.upsert_dashboard.tool.UpsertDashboardTool.is_dangerous_operation", return_value=False),
     ):
         _, team, user = demo_org_team_user
