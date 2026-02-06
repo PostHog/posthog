@@ -1265,7 +1265,7 @@ class TestPreaggregationExecutorWaiting(BaseTest):
         assert result.success is False
         assert len(result.ready_jobs) == 0
         assert len(result.failed_jobs) == 1
-        assert "ClickHouse error" in result.failed_jobs[0].error
+        assert result.failed_jobs[0].error is not None and "ClickHouse error" in result.failed_jobs[0].error
 
     def test_multiple_pending_jobs_with_mixed_outcomes(self):
         executor = PreaggregationExecutor(
