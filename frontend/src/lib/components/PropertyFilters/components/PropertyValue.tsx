@@ -109,18 +109,21 @@ export function PropertyValue({
 
     const setValue = (newValue: PropertyValueProps['value']): void => onSet(newValue)
 
+    // preload values if preloadValues prop is set
     useEffect(() => {
         if (preloadValues && propertyOptions?.status !== 'loading' && propertyOptions?.status !== 'loaded') {
             load('')
         }
     }, [preloadValues, load, propertyOptions?.status])
 
+    // load options when propertyKey changes, unless it's a date/time property (since those don't have options to load)
     useEffect(() => {
         if (!isDateTimeProperty && propertyOptions?.status !== 'loading' && propertyOptions?.status !== 'loaded') {
             load('')
         }
     }, [propertyKey, isDateTimeProperty, load, propertyOptions?.status])
 
+    // set initial suggested values when options are loaded, but only if there is no search input (to avoid overwriting suggestions based on search input)
     useEffect(() => {
         if (propertyOptions?.status === 'loaded' && propertyOptions?.values && currentSearchInput.current === '') {
             const orderedKeys = propertyOptions.values.map((v) => toString(v.name))
@@ -131,16 +134,19 @@ export function PropertyValue({
         }
     }, [propertyOptions?.status, propertyOptions?.values])
 
+    // reset initial suggested values when propertyKey changes
     useEffect(() => {
         setInitialSuggestedValues({ set: new Set(), orderedKeys: [] })
     }, [propertyKey])
 
+    // show suggested values first, then any other available options that aren't in the suggested list
     const displayOptions = useMemo(() => {
         const options = propertyOptions?.values || []
         if (initialSuggestedValues.set.size === 0) {
             return options
         }
 
+        // map options by name
         const allOptionsMap = new Map<string, (typeof options)[0]>()
         for (const option of options) {
             allOptionsMap.set(toString(option.name), option)
@@ -149,6 +155,7 @@ export function PropertyValue({
         const suggestedOptions: typeof options = []
         const otherOptions: typeof options = []
 
+        // build suggested options in order of their name, and remove them from the all options map
         for (const key of initialSuggestedValues.orderedKeys) {
             const existingOption = allOptionsMap.get(key)
             if (existingOption) {
@@ -159,6 +166,7 @@ export function PropertyValue({
             }
         }
 
+        // built other options from what's left in the all options map
         for (const option of allOptionsMap.values()) {
             otherOptions.push(option)
         }
