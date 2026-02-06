@@ -459,6 +459,12 @@ where
             self.complete_setup_task(partition);
         }
 
+        // Capture owned BEFORE the count check so we don't use a snapshot from after a new rebalance.
+        // A new rebalance can start between count check and get_owned_partitions(); capturing first
+        // ensures we only run steps 3–5 with the set that was valid when we decided to proceed.
+        // Steps 3–5 still use this single snapshot (no TOCTOU between those steps).
+        let owned = self.rebalance_tracker.get_owned_partitions();
+
         // Step 2: Check if a new rebalance started while we were awaiting
         // When we_are_finalizing_last, count is still 1 (we haven't decremented); proceed only if count == 1.
         // Otherwise we already decremented; proceed only if count == 0.
@@ -472,10 +478,6 @@ where
             info!("New rebalance started during finalize - skipping fallback stores, cleanup and resume");
             return Ok(());
         }
-
-        // Capture owned once after the check so steps 3–5 use a consistent snapshot.
-        // Avoids TOCTOU: a new rebalance could change ownership between steps otherwise.
-        let owned = self.rebalance_tracker.get_owned_partitions();
 
         // Step 3: Create fallback stores for any owned partitions that don't have a registered store
         // This handles cases where checkpoint import failed, was cancelled, or was disabled
