@@ -67,6 +67,7 @@ class Cluster:
     segment_ids: list[str]  # document_ids of segments in this cluster
     centroid: list[float]  # 3072-dim embedding centroid
     size: int
+    intra_cluster_distance_p95: float | None = None
 
 
 @dataclass
@@ -77,6 +78,7 @@ class ClusteringResult:
     noise_segment_ids: list[str]  # Segments that didn't fit any cluster (label=-1)
     labels: list[int]  # Cluster assignment for each segment
     segment_to_cluster: dict[str, int]  # document_id -> cluster_id
+    algorithm: str = "unknown"
 
 
 @dataclass
@@ -241,6 +243,8 @@ class PersistReportsActivityInputs:
     labels: dict[int, ClusterLabel]
     segments: list[VideoSegmentMetadata]
     segment_to_cluster: dict[str, int]
+    algorithm: str = "unknown"
+    cluster_intra_distances: dict[int, float | None] | None = None  # cluster_id -> p95 distance
 
 
 @dataclass

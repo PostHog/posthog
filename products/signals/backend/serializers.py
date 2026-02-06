@@ -15,14 +15,29 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "title",
             "summary",
             "status",
-            "total_weight",  # Used for priority scoring
-            "signal_count",  # Used for occurrence count
+            "total_weight",
+            "signal_count",
             "relevant_user_count",
             "created_at",
             "updated_at",
             "artefact_count",
         ]
         read_only_fields = fields
+
+
+class SignalReportDebugSerializer(serializers.Serializer):
+    id = serializers.UUIDField()
+    title = serializers.CharField(allow_null=True)
+    summary = serializers.CharField(allow_null=True)
+    status = serializers.CharField()
+    total_weight = serializers.FloatField()
+    signal_count = serializers.IntegerField()
+    relevant_user_count = serializers.IntegerField(allow_null=True)
+    created_at = serializers.DateTimeField()
+    updated_at = serializers.DateTimeField()
+    pipeline_metadata = serializers.JSONField(allow_null=True)
+    segments = serializers.ListField(child=serializers.DictField())
+    sessions = serializers.ListField(child=serializers.DictField())
 
 
 class SignalReportArtefactSerializer(serializers.ModelSerializer):

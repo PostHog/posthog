@@ -40,6 +40,7 @@ class SignalReport(UUIDModel):
         help_text="Embedding centroid for this report's video segment cluster",
     )
     cluster_centroid_updated_at = models.DateTimeField(blank=True, null=True)
+    pipeline_metadata = models.JSONField(null=True, blank=True)
 
     class Meta:
         indexes = [

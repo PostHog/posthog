@@ -10,6 +10,7 @@ import { humanFriendlyDuration, objectClean, toParams } from 'lib/utils'
 import { CohortCalculationHistoryResponse } from 'scenes/cohorts/cohortCalculationHistorySceneLogic'
 import { EventSchema } from 'scenes/data-management/events/eventDefinitionSchemaLogic'
 import { SchemaPropertyGroup } from 'scenes/data-management/schema/schemaManagementLogic'
+import { SignalReport, SignalReportArtefactResponse, SignalReportDebugResponse } from 'scenes/inbox/types'
 import { MaxBillingContext } from 'scenes/max/maxBillingContextLogic'
 import { NotebookListItemType, NotebookNodeResource, NotebookType } from 'scenes/notebooks/types'
 import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
@@ -210,7 +211,6 @@ import type {
     SessionGroupSummaryType,
 } from 'products/session_summaries/frontend/types'
 import { Task, TaskRun, TaskUpsertProps } from 'products/tasks/frontend/types'
-import { SignalReport, SignalReportArtefactResponse } from 'scenes/inbox/types'
 import { OptOutEntry } from 'products/workflows/frontend/OptOuts/optOutListLogic'
 import { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/messageTemplatesLogic'
 import { HogflowTestResult } from 'products/workflows/frontend/Workflows/hogflows/steps/types'
@@ -4140,6 +4140,9 @@ const api = {
         },
         async artefacts(id: SignalReport['id']): Promise<SignalReportArtefactResponse> {
             return await new ApiRequest().signalReport(id).withAction('artefacts').get()
+        },
+        async debug(id: SignalReport['id']): Promise<SignalReportDebugResponse> {
+            return await new ApiRequest().signalReport(id).withAction('debug').get()
         },
     },
 
