@@ -140,7 +140,7 @@ The workflow uses **three separate activities** with independent timeouts and re
 
 **Activity 2 (Label)** - LangGraph agent:
 
-- Runs a multi-turn LangGraph agent powered by OpenAI GPT-5.1 (`gpt-5.1`)
+- Runs a multi-turn LangGraph agent powered by OpenAI GPT-5.1 (`gpt-5.2`)
 - Agent explores clusters using tools (overview, trace titles, trace details)
 - Iteratively generates distinctive labels for each cluster
 - Ensures labels differentiate clusters from each other
@@ -341,7 +341,7 @@ Key constants in `constants.py`:
 | `MIN_TRACES_FOR_CLUSTERING`         | 20                                | Minimum traces required for workflow          |
 | `COMPUTE_ACTIVITY_TIMEOUT`          | 120s                              | Clustering compute timeout                    |
 | `EMIT_ACTIVITY_TIMEOUT`             | 60s                               | Event emission timeout                        |
-| `LABELING_AGENT_MODEL`              | gpt-5.1                           | OpenAI model for labeling agent               |
+| `LABELING_AGENT_MODEL`              | gpt-5.2                           | OpenAI model for labeling agent               |
 | `LABELING_AGENT_MAX_ITERATIONS`     | 50                                | Max agent iterations before finalization      |
 | `LABELING_AGENT_RECURSION_LIMIT`    | 150                               | LangGraph recursion limit                     |
 | `LABELING_AGENT_TIMEOUT`            | 600.0                             | Full agent run timeout (seconds)              |
