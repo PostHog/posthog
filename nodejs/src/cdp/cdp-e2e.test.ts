@@ -328,26 +328,31 @@ describe.each(['postgres' as const, 'kafka' as const, 'hybrid' as const])('CDP C
                 cdpSeekLatencyMs.reset()
                 cdpSeekResult.reset()
 
-                // Process an event which will produce a Kafka message and trigger consumption
-                const { invocations } = await eventsConsumer.processBatch([globals])
-                expect(invocations).toHaveLength(1)
-
-                // Wait for the worker to process the message
+                // Process first event to create offset 0
+                await eventsConsumer.processBatch([globals])
                 await waitForExpect(() => {
-                    expect(mockProducerObserver.getProducedKafkaMessagesForTopic('log_entries_test')).toHaveLength(2)
+                    expect(
+                        mockProducerObserver.getProducedKafkaMessagesForTopic('log_entries_test').length
+                    ).toBeGreaterThanOrEqual(2)
                 }, 5000)
 
-                // Verify seek metrics were recorded (if there were prior messages to seek back to)
+                // Process second event - this message will have offset >= 1, allowing seek back
+                await eventsConsumer.processBatch([globals])
+                await waitForExpect(() => {
+                    expect(
+                        mockProducerObserver.getProducedKafkaMessagesForTopic('log_entries_test').length
+                    ).toBeGreaterThanOrEqual(4)
+                }, 5000)
+
+                // Verify seek metrics were recorded
                 const resultMetric = await cdpSeekResult.get()
                 const latencyMetric = await cdpSeekLatencyMs.get()
 
-                // The test may or may not have seekable offsets depending on prior state,
-                // but if it did seek, we should have success metrics
-                if (resultMetric.values.length > 0) {
-                    const successCount = resultMetric.values.find((v) => v.labels.result === 'success')
-                    expect(successCount?.value).toBeGreaterThanOrEqual(0)
-                    expect(latencyMetric.values.length).toBeGreaterThan(0)
-                }
+                // With offset >= 1, sample_rate = 1.0, and max_offset = 1, we must have seek metrics
+                expect(resultMetric.values.length).toBeGreaterThan(0)
+                const successCount = resultMetric.values.find((v) => v.labels.result === 'success')
+                expect(successCount?.value).toBeGreaterThanOrEqual(1)
+                expect(latencyMetric.values.length).toBeGreaterThan(0)
             })
         }
     })
