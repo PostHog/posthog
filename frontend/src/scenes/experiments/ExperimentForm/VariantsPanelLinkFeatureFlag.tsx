@@ -131,20 +131,24 @@ export const VariantsPanelLinkFeatureFlag = ({
                 {/* Description */}
                 {linkedFeatureFlag.name && <div className="text-sm text-muted-alt">{linkedFeatureFlag.name}</div>}
 
-                {/* Variants */}
-                <div className="space-y-2">
-                    <div className="text-xs uppercase tracking-wide font-semibold text-muted">Variants</div>
-                    <div className="flex flex-wrap gap-1.5">
-                        {variants.map(({ key }) => (
-                            <LemonTag key={key} type={key === 'control' ? 'primary' : 'default'}>
-                                {key}
-                            </LemonTag>
-                        ))}
+                <div className="flex gap-10">
+                    {/* Variants */}
+                    <div className="space-y-2">
+                        <div className="text-xs uppercase tracking-wide font-semibold text-muted">Variants</div>
+                        <div className="flex flex-wrap gap-1.5">
+                            {variants.map(({ key }) => (
+                                <LemonTag key={key} type={key === 'control' ? 'primary' : 'default'}>
+                                    {key}
+                                </LemonTag>
+                            ))}
+                        </div>
+                    </div>
+
+                    {/* Targeting */}
+                    <div className="flex-1">
+                        <TargetingSummary flag={linkedFeatureFlag} />
                     </div>
                 </div>
-
-                {/* Targeting */}
-                <TargetingSummary flag={linkedFeatureFlag} />
             </div>
         </div>
     )
