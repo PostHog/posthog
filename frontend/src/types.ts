@@ -6363,7 +6363,7 @@ export interface EmailSenderDomainStatus {
               recordHostname: string
               recordValue: string
               status: 'pending' | 'success'
-              priority: number
+              priority?: number
           }
     )[]
 }
