@@ -29,7 +29,11 @@ from posthog.temporal.llm_analytics.trace_summarization.constants import (
     DEFAULT_WINDOW_OFFSET_MINUTES,
     GENERATE_SUMMARY_TIMEOUT_SECONDS,
     MAX_TEXT_REPR_LENGTH,
+    SAMPLE_HEARTBEAT_TIMEOUT,
+    SAMPLE_SCHEDULE_TO_CLOSE_TIMEOUT,
     SAMPLE_TIMEOUT_SECONDS,
+    SUMMARIZE_HEARTBEAT_TIMEOUT,
+    SUMMARIZE_SCHEDULE_TO_CLOSE_TIMEOUT,
     WORKFLOW_NAME,
 )
 from posthog.temporal.llm_analytics.trace_summarization.generation_summarization import (
@@ -110,6 +114,8 @@ class BatchTraceSummarizationWorkflow(PostHogWorkflow):
                     ],
                     activity_id=f"summarize-gen-{item.generation_id}-{idx}",
                     start_to_close_timeout=timedelta(seconds=GENERATE_SUMMARY_TIMEOUT_SECONDS),
+                    schedule_to_close_timeout=SUMMARIZE_SCHEDULE_TO_CLOSE_TIMEOUT,
+                    heartbeat_timeout=SUMMARIZE_HEARTBEAT_TIMEOUT,
                     retry_policy=constants.SUMMARIZE_RETRY_POLICY,
                 )
             else:
@@ -129,6 +135,8 @@ class BatchTraceSummarizationWorkflow(PostHogWorkflow):
                     ],
                     activity_id=f"summarize-{item.trace_id}-{idx}",
                     start_to_close_timeout=timedelta(seconds=GENERATE_SUMMARY_TIMEOUT_SECONDS),
+                    schedule_to_close_timeout=SUMMARIZE_SCHEDULE_TO_CLOSE_TIMEOUT,
+                    heartbeat_timeout=SUMMARIZE_HEARTBEAT_TIMEOUT,
                     retry_policy=constants.SUMMARIZE_RETRY_POLICY,
                 )
 
@@ -178,6 +186,8 @@ class BatchTraceSummarizationWorkflow(PostHogWorkflow):
             sample_items_in_window_activity,
             inputs_with_window,
             start_to_close_timeout=timedelta(seconds=SAMPLE_TIMEOUT_SECONDS),
+            schedule_to_close_timeout=SAMPLE_SCHEDULE_TO_CLOSE_TIMEOUT,
+            heartbeat_timeout=SAMPLE_HEARTBEAT_TIMEOUT,
             retry_policy=constants.SAMPLE_RETRY_POLICY,
         )
         metrics.items_queried = len(items)

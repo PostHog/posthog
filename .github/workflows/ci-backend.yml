@@ -109,6 +109,7 @@ jobs:
                         # changes to docker-compose.dev.yml e.g. dependency
                         # version changes
                         - docker-compose.dev.yml
+                        - docker-compose.profiles.yml
                         - docker-compose.base.yml
                         - frontend/public/email/*
                         - docker/clickhouse
@@ -133,9 +134,6 @@ jobs:
                         # Generation tooling - changes here could affect output
                         - 'frontend/bin/generate-openapi-types.mjs'
                         - 'frontend/src/lib/api-orval-mutator.ts'
-                        # Turbo config affects caching behavior
-                        - 'turbo.json'
-                        - 'common/hogli/manifest.yaml'
 
     detect-snapshot-mode:
         name: Detect snapshot mode
@@ -500,7 +498,8 @@ jobs:
         timeout-minutes: 30
 
         name: Django tests – ${{ matrix.segment }} (persons-on-events ${{ matrix.person-on-events && 'on' || 'off' }}), Py ${{ matrix.python-version }}, ${{ matrix.clickhouse-server-image }} (${{matrix.group}}/${{ matrix.concurrency }})
-        runs-on: depot-ubuntu-latest
+        # Runner type is performance-critical — consult #team-devex before changing
+        runs-on: depot-ubuntu-latest-4
 
         strategy:
             fail-fast: false
@@ -510,7 +509,9 @@ jobs:
                 segment: ['Core']
                 person-on-events: [false]
                 # :NOTE: Keep concurrency and groups in sync
-                concurrency: [40]
+                # Shard counts are tuned to balance wall-clock time vs setup overhead (Amdahl's law).
+                # Consult #team-devex before changing.
+                concurrency: [38]
                 group:
                     [
                         1,
@@ -551,110 +552,78 @@ jobs:
                         36,
                         37,
                         38,
-                        39,
-                        40,
                     ]
                 include:
                     - segment: 'Core'
                       person-on-events: true
                       python-version: '3.12.12'
-                      concurrency: 10
+                      concurrency: 7
                       group: 1
                     - segment: 'Core'
                       person-on-events: true
                       python-version: '3.12.12'
-                      concurrency: 10
+                      concurrency: 7
                       group: 2
                     - segment: 'Core'
                       person-on-events: true
                       python-version: '3.12.12'
-                      concurrency: 10
+                      concurrency: 7
                       group: 3
                     - segment: 'Core'
                       person-on-events: true
                       python-version: '3.12.12'
-                      concurrency: 10
+                      concurrency: 7
                       group: 4
                     - segment: 'Core'
                       person-on-events: true
                       python-version: '3.12.12'
-                      concurrency: 10
+                      concurrency: 7
                       group: 5
                     - segment: 'Core'
                       person-on-events: true
                       python-version: '3.12.12'
-                      concurrency: 10
+                      concurrency: 7
                       group: 6
                     - segment: 'Core'
                       person-on-events: true
                       python-version: '3.12.12'
-                      concurrency: 10
+                      concurrency: 7
                       group: 7
-                    - segment: 'Core'
-                      person-on-events: true
-                      python-version: '3.12.12'
-                      concurrency: 10
-                      group: 8
-                    - segment: 'Core'
-                      person-on-events: true
-                      python-version: '3.12.12'
-                      concurrency: 10
-                      group: 9
-                    - segment: 'Core'
-                      person-on-events: true
-                      python-version: '3.12.12'
-                      concurrency: 10
-                      group: 10
                     - segment: 'Temporal'
                       person-on-events: false
                       python-version: '3.12.12'
-                      concurrency: 10
+                      concurrency: 7
                       group: 1
                     - segment: 'Temporal'
                       person-on-events: false
                       python-version: '3.12.12'
-                      concurrency: 10
+                      concurrency: 7
                       group: 2
                     - segment: 'Temporal'
                       person-on-events: false
                       python-version: '3.12.12'
-                      concurrency: 10
+                      concurrency: 7
                       group: 3
                     - segment: 'Temporal'
                       person-on-events: false
                       python-version: '3.12.12'
-                      concurrency: 10
+                      concurrency: 7
                       group: 4
                     - segment: 'Temporal'
                       person-on-events: false
                       python-version: '3.12.12'
-                      concurrency: 10
+                      concurrency: 7
                       group: 5
                     - segment: 'Temporal'
                       person-on-events: false
                       python-version: '3.12.12'
-                      concurrency: 10
+                      concurrency: 7
                       group: 6
                     - segment: 'Temporal'
                       person-on-events: false
                       python-version: '3.12.12'
-                      concurrency: 10
+                      concurrency: 7
                       group: 7
-                    - segment: 'Temporal'
-                      person-on-events: false
-                      python-version: '3.12.12'
-                      concurrency: 10
-                      group: 8
-                    - segment: 'Temporal'
-                      person-on-events: false
-                      python-version: '3.12.12'
-                      concurrency: 10
-                      group: 9
-                    - segment: 'Temporal'
-                      person-on-events: false
-                      python-version: '3.12.12'
-                      concurrency: 10
-                      group: 10
 
         steps:
             - uses: actions/checkout@v6
@@ -700,8 +669,9 @@ jobs:
                       while [ $attempt -le $max_attempts ]; do
                           echo "Attempt $attempt of $max_attempts to start stack..."
 
+                          # Docker profiles control which services start — consult #team-devex before changing
                           if docker compose -f docker-compose.dev.yml --profile '*' down && \
-                            docker compose -f docker-compose.dev.yml --profile batch-exports up -d; then
+                            docker compose -f docker-compose.dev.yml -f docker-compose.profiles.yml --profile temporal --profile azure up -d; then
                               echo "Stack started successfully"
                               exit 0
                           fi
@@ -1095,8 +1065,9 @@ jobs:
                   oldest_supported_clickhouse_image: ${{ needs.get_clickhouse_versions.outputs.oldest_supported_image }}
                   # Skip plugin transpiler build - these tests don't need it and it causes esbuild deadlocks
                   skip-plugin-transpiler: 'true'
-                  # Compat tests run a subset of snapshot tests, so unused snapshots are expected
-                  # This makes unused snapshots non-fatal (warning only) instead of failing the build
+                  # Compat tests run a subset and don't own snapshots (main django tests do).
+                  # This flag makes unused snapshots non-fatal and always updates snapshot
+                  # content so compat tests never fail due to CH version query differences.
                   snapshot-warn-unused: 'true'
 
     # Aggregate and commit snapshot changes from all matrix jobs

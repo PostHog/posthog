@@ -389,10 +389,14 @@ def _get_flags_for_local_evaluation(team: Team, include_cohorts: bool = True) ->
         using=DATABASE_FOR_LOCAL_EVALUATION,
     )
 
+    # Exclude encrypted remote config flags since they can only be accessed via the
+    # dedicated /remote_config endpoint which handles decryption. Including them in
+    # local evaluation would return unusable encrypted ciphertext. Unencrypted remote
+    # config flags are included since they work with useFeatureFlagPayload.
     feature_flags = (
         FeatureFlag.objects.db_manager(DATABASE_FOR_LOCAL_EVALUATION)
         .filter(
-            ~Q(is_remote_configuration=True),
+            ~Q(is_remote_configuration=True, has_encrypted_payloads=True),
             team_id=team.id,
             deleted=False,
         )
