@@ -5,6 +5,7 @@ import { getSeriesColorPalette } from 'lib/colors'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { GoalLine } from '~/queries/schema/schema-general'
 
@@ -78,27 +79,57 @@ export function GoalLinesList({ goalLines, updateGoalLine, removeGoalLine }: Goa
                                         },
                                         {
                                             key: 'label-placement',
-                                            label: () => (
-                                                <div className="flex gap-1 mx-2 mb-2">
-                                                    <LemonLabel className="font-medium mr-1">Label position</LemonLabel>
-                                                    <LemonSegmentedButton
-                                                        value={position ?? 'end'}
-                                                        onChange={(value) =>
-                                                            updateGoalLine(
-                                                                goalLineIndex,
-                                                                'position',
-                                                                value as 'start' | 'end'
-                                                            )
+                                            label: () => {
+                                                const disabledReason = displayLabel
+                                                    ? undefined
+                                                    : 'Enable the label to change its position first.'
+
+                                                const label = (
+                                                    <LemonLabel
+                                                        className={`font-medium mr-1 ${displayLabel ? 'cursor-pointer' : 'cursor-not-allowed opacity-65'}`}
+                                                        onClick={() =>
+                                                            displayLabel
+                                                                ? updateGoalLine(
+                                                                      goalLineIndex,
+                                                                      'position',
+                                                                      position === 'start' ? 'end' : 'start'
+                                                                  )
+                                                                : undefined
                                                         }
-                                                        options={[
-                                                            { value: 'start', label: 'Start' },
-                                                            { value: 'end', label: 'End' },
-                                                        ]}
-                                                        size="xsmall"
-                                                        data-attr="goal-line-position-selector"
-                                                    />
-                                                </div>
-                                            ),
+                                                    >
+                                                        Label position
+                                                    </LemonLabel>
+                                                )
+
+                                                return (
+                                                    <div className="flex gap-1 mx-2 mb-2">
+                                                        {disabledReason ? (
+                                                            <Tooltip title={disabledReason}>
+                                                                <span>{label}</span>
+                                                            </Tooltip>
+                                                        ) : (
+                                                            label
+                                                        )}
+                                                        <LemonSegmentedButton
+                                                            value={position ?? 'end'}
+                                                            onChange={(value) =>
+                                                                updateGoalLine(
+                                                                    goalLineIndex,
+                                                                    'position',
+                                                                    value as 'start' | 'end'
+                                                                )
+                                                            }
+                                                            options={[
+                                                                { value: 'start', label: 'Start' },
+                                                                { value: 'end', label: 'End' },
+                                                            ]}
+                                                            size="xsmall"
+                                                            data-attr="goal-line-position-selector"
+                                                            disabledReason={disabledReason}
+                                                        />
+                                                    </div>
+                                                )
+                                            },
                                         },
                                     ],
                                 },
