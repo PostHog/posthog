@@ -19,7 +19,7 @@ from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KE
 from posthog.temporal.data_imports.pipelines.pipeline.utils import conditional_lru_cache_async, normalize_column_name
 
 from products.data_warehouse.backend.models import ExternalDataJob
-from products.data_warehouse.backend.s3 import ensure_bucket_exists, get_s3_client
+from products.data_warehouse.backend.s3 import aget_s3_client, ensure_bucket_exists
 
 
 class DeltaTableHelper:
@@ -104,8 +104,8 @@ class DeltaTableHelper:
                 # Temp fix for bugged tables
                 capture_exception(e)
                 if "parse decimal overflow" in "".join(e.args):
-                    s3 = get_s3_client()
-                    await s3._rm(delta_uri, recursive=True)
+                    async with aget_s3_client() as s3:
+                        await s3._rm(delta_uri, recursive=True)
                 else:
                     raise
 
@@ -116,11 +116,11 @@ class DeltaTableHelper:
     async def reset_table(self):
         delta_uri = await self._get_delta_table_uri()
 
-        s3 = get_s3_client()
-        try:
-            await s3._rm(delta_uri, recursive=True)
-        except FileNotFoundError:
-            pass
+        async with aget_s3_client() as s3:
+            try:
+                await s3._rm(delta_uri, recursive=True)
+            except FileNotFoundError:
+                pass
 
         self.get_delta_table.cache_clear()
 

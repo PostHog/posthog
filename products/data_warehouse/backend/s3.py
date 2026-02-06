@@ -1,3 +1,4 @@
+import contextlib
 from typing import Optional
 from urllib.parse import urlparse
 
@@ -23,6 +24,27 @@ def get_s3_client():
         )
 
     return s3fs.S3FileSystem()
+
+
+@contextlib.asynccontextmanager
+async def aget_s3_client():
+    # Defaults for localhost dev and test suites
+    if settings.USE_LOCAL_SETUP:
+        s3 = s3fs.S3FileSystem(
+            key=settings.DATAWAREHOUSE_LOCAL_ACCESS_KEY,
+            secret=settings.DATAWAREHOUSE_LOCAL_ACCESS_SECRET,
+            endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
+            skip_instance_cache=True,
+            asynchronous=True,
+        )
+    else:
+        s3 = s3fs.S3FileSystem(asynchronous=True)
+
+    session = await s3.set_session()
+
+    yield s3
+
+    session.close()
 
 
 def get_size_of_folder(path: str) -> float:

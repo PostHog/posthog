@@ -42,7 +42,7 @@ from posthog.temporal.data_imports.pipelines.pipeline_sync import (
 from posthog.temporal.data_imports.row_tracking import decrement_rows, increment_rows, will_hit_billing_limit
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.stripe.constants import CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME
-from posthog.temporal.data_imports.util import prepare_s3_files_for_querying_async
+from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
 
 from products.data_warehouse.backend.models import (
     DataWarehouseTable,
@@ -377,7 +377,7 @@ class PipelineNonDLT(Generic[ResumableData]):
 
         await self._logger.adebug(f"Adding {len(new_file_uris)} S3 files to query folder")
         folder_path = await database_sync_to_async(self._job.folder_path)()
-        queryable_folder = await prepare_s3_files_for_querying_async(
+        queryable_folder = await prepare_s3_files_for_querying(
             folder_path=folder_path,
             table_name=self._resource_name,
             file_uris=new_file_uris,
@@ -416,7 +416,7 @@ class PipelineNonDLT(Generic[ResumableData]):
 
         folder_path = await database_sync_to_async(self._job.folder_path)()
         existing_queryable_folder = self._table.queryable_folder if self._table else None
-        queryable_folder = await prepare_s3_files_for_querying_async(
+        queryable_folder = await prepare_s3_files_for_querying(
             folder_path,
             self._resource_name,
             file_uris,

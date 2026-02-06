@@ -18,7 +18,7 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.data_imports.pipelines.helpers import build_table_name
 
 from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
-from products.data_warehouse.backend.s3 import ensure_bucket_exists, get_s3_client
+from products.data_warehouse.backend.s3 import aget_s3_client, ensure_bucket_exists
 
 
 class FakeKafka:
@@ -64,16 +64,14 @@ class CDPProducer:
         return f"{settings.DATAWAREHOUSE_BUCKET}/cdp_producer/{self.team_id}/{self.schema_id}/{self.job_id}"
 
     async def _list_files_to_produce(self) -> list[str]:
-        s3_client = get_s3_client()
-
-        try:
-            ls_res = await s3_client._ls(f"s3://{self._get_path_prefix()}/", detail=True)
-            ls_values = ls_res.values() if isinstance(ls_res, dict) else ls_res
-            files = [f["Key"] for f in ls_values if f["type"] != "directory"]
-        except FileNotFoundError:
-            return []
-
-        return files
+        async with aget_s3_client() as s3_client:
+            try:
+                ls_res = await s3_client._ls(f"s3://{self._get_path_prefix()}/", detail=True)
+                ls_values = ls_res.values() if isinstance(ls_res, dict) else ls_res
+                files = [f["Key"] for f in ls_values if f["type"] != "directory"]
+                return files
+            except FileNotFoundError:
+                return []
 
     def _serialize_json(self, record: object) -> bytes:
         try:
@@ -117,14 +115,14 @@ class CDPProducer:
         return self._should_produce_cache
 
     async def clear_s3_chunks(self):
-        s3_client = get_s3_client()
-        await self.logger.adebug(f"Clearing S3 chunks at path prefix {self._get_path_prefix()}")
+        async with aget_s3_client() as s3_client:
+            await self.logger.adebug(f"Clearing S3 chunks at path prefix {self._get_path_prefix()}")
 
-        if len(await self._list_files_to_produce()) > 0:
-            try:
-                await s3_client._rm(f"s3://{self._get_path_prefix()}/", recursive=True)
-            except FileNotFoundError:
-                pass
+            if len(await self._list_files_to_produce()) > 0:
+                try:
+                    await s3_client._rm(f"s3://{self._get_path_prefix()}/", recursive=True)
+                except FileNotFoundError:
+                    pass
 
     async def write_chunk_for_cdp_producer(self, chunk: int, table: pa.Table) -> None:
         await self.logger.adebug(f"Writing chunk {chunk} for CDP producer to S3 path prefix {self._get_path_prefix()}")

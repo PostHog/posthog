@@ -1,4 +1,3 @@
-import asyncio
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, NoReturn
 
@@ -10,7 +9,7 @@ from structlog.typing import FilteringBoundLogger
 from temporalio import activity
 
 from posthog.exceptions_capture import capture_exception
-from posthog.redis import get_client
+from posthog.redis import get_async_client
 from posthog.sync import database_sync_to_async
 from posthog.temporal.data_imports.pipelines.pipeline.cdp_producer import CDPProducer
 from posthog.temporal.data_imports.util import NonRetryableException
@@ -23,26 +22,21 @@ if TYPE_CHECKING:
 
 
 @asynccontextmanager
-async def get_redis_client():
-    """Async version that wraps sync Redis operations in thread pool."""
-    redis_client = None
+async def _get_redis():
+    """Returns an async Redis client for row tracking operations."""
     try:
         if not settings.DATA_WAREHOUSE_REDIS_HOST or not settings.DATA_WAREHOUSE_REDIS_PORT:
             raise Exception(
                 "Missing env vars for dwh row tracking: DATA_WAREHOUSE_REDIS_HOST or DATA_WAREHOUSE_REDIS_PORT"
             )
 
-        redis_client = await asyncio.to_thread(
-            get_client, f"redis://{settings.DATA_WAREHOUSE_REDIS_HOST}:{settings.DATA_WAREHOUSE_REDIS_PORT}/"
-        )
-        await asyncio.to_thread(redis_client.ping)
+        redis = get_async_client(f"redis://{settings.DATA_WAREHOUSE_REDIS_HOST}:{settings.DATA_WAREHOUSE_REDIS_PORT}/")
+        await redis.ping()
+
+        yield redis
     except Exception as e:
         capture_exception(e)
-
-    try:
-        yield redis_client
-    finally:
-        pass
+        yield None
 
 
 def build_non_retryable_errors_redis_key(team_id: int, source_id: str, run_id: str) -> str:
@@ -155,7 +149,7 @@ async def handle_non_retryable_error(
     logger: FilteringBoundLogger,
     error: Exception,
 ) -> NoReturn:
-    async with get_redis_client() as redis_client:
+    async with _get_redis() as redis_client:
         if redis_client is None:
             await logger.adebug(f"Failed to get Redis client for non-retryable error tracking. error={error_msg}")
             raise NonRetryableException() from error
@@ -163,10 +157,10 @@ async def handle_non_retryable_error(
         retry_key = build_non_retryable_errors_redis_key(
             job_inputs.team_id, str(job_inputs.source_id), job_inputs.run_id
         )
-        attempts = await asyncio.to_thread(redis_client.incr, retry_key)
+        attempts = await redis_client.incr(retry_key)
 
         if attempts <= 3:
-            await asyncio.to_thread(redis_client.expire, retry_key, 86400)  # Expire after 24 hours
+            await redis_client.expire(retry_key, 86400)  # Expire after 24 hours
             await logger.adebug(f"Non-retryable error attempt {attempts}/3, retrying. error={error_msg}")
             raise error
 
