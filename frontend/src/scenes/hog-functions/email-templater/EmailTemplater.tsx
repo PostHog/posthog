@@ -3,7 +3,7 @@ import 'products/workflows/frontend/TemplateLibrary/MessageTemplatesGrid.scss'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import EmailEditor from 'react-email-editor'
 
 import { IconChevronDown, IconChevronLeft, IconChevronRight, IconExternal } from '@posthog/icons'
@@ -260,7 +260,8 @@ function LiquidSupportedText({
     )
 }
 
-const PAGE_SIZE = 5
+const CARD_WIDTH = 192 // w-48
+const CARD_GAP = 12 // gap-3
 
 function TemplateSlider({
     templates,
@@ -273,9 +274,32 @@ function TemplateSlider({
 }): JSX.Element {
     const [expanded, setExpanded] = useState(false)
     const [page, setPage] = useState(0)
+    const [pageSize, setPageSize] = useState(5)
+    const containerRef = useRef<HTMLDivElement>(null)
 
-    const totalPages = Math.ceil(templates.length / PAGE_SIZE)
-    const visibleTemplates = templates.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
+    const updatePageSize = useCallback(() => {
+        if (containerRef.current) {
+            const width = containerRef.current.offsetWidth
+            const count = Math.max(1, Math.floor((width + CARD_GAP) / (CARD_WIDTH + CARD_GAP)))
+            setPageSize(count)
+        }
+    }, [])
+
+    useEffect(() => {
+        if (!expanded) {
+            return
+        }
+        updatePageSize()
+        const observer = new ResizeObserver(updatePageSize)
+        if (containerRef.current) {
+            observer.observe(containerRef.current)
+        }
+        return () => observer.disconnect()
+    }, [expanded, updatePageSize])
+
+    const totalPages = Math.ceil(templates.length / pageSize)
+    const clampedPage = Math.min(page, totalPages - 1)
+    const visibleTemplates = templates.slice(clampedPage * pageSize, (clampedPage + 1) * pageSize)
 
     return (
         <div className="border-b">
@@ -299,14 +323,14 @@ function TemplateSlider({
                 )}
             </div>
             {expanded && (
-                <div className="flex items-center gap-1 px-1 pb-2">
+                <div ref={containerRef} className="flex items-center gap-1 px-1 pb-2">
                     <LemonButton
                         size="small"
                         icon={<IconChevronLeft />}
-                        disabled={page === 0}
-                        onClick={() => setPage(page - 1)}
+                        disabled={clampedPage === 0}
+                        onClick={() => setPage(clampedPage - 1)}
                     />
-                    <div className="flex gap-3 flex-1 overflow-hidden" key={page}>
+                    <div className="flex gap-3 flex-1 overflow-hidden" key={clampedPage}>
                         {visibleTemplates.map((template, index) => (
                             <div
                                 key={template.id}
@@ -315,7 +339,7 @@ function TemplateSlider({
                             >
                                 <MessageTemplateCard
                                     template={template}
-                                    index={page * PAGE_SIZE + index}
+                                    index={clampedPage * pageSize + index}
                                     onClick={() => onSelect(template)}
                                 />
                             </div>
@@ -324,8 +348,8 @@ function TemplateSlider({
                     <LemonButton
                         size="small"
                         icon={<IconChevronRight />}
-                        disabled={page >= totalPages - 1}
-                        onClick={() => setPage(page + 1)}
+                        disabled={clampedPage >= totalPages - 1}
+                        onClick={() => setPage(clampedPage + 1)}
                     />
                 </div>
             )}
