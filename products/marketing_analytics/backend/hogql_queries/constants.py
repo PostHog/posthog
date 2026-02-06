@@ -26,6 +26,8 @@ from posthog.schema import (
     MarketingIntegrationConfig4,
     MarketingIntegrationConfig5,
     MarketingIntegrationConfig6,
+    MetaAdsConversionFallbackActionTypes,
+    MetaAdsConversionOmniActionTypes,
     MetaAdsDefaultSources,
     MetaAdsTableExclusions,
     MetaAdsTableKeywords,
@@ -328,6 +330,12 @@ INTEGRATION_PRIMARY_SOURCE = {
 
 INTEGRATION_DEFAULT_SOURCES = {
     source: _get_enum_values(_DEFAULT_SOURCES_ENUMS[source]) for source in NativeMarketingSource
+}
+
+# Meta Ads conversion action types - derived from generated enums
+META_CONVERSION_ACTION_TYPES = {
+    "omni": [e.value for e in MetaAdsConversionOmniActionTypes],
+    "fallback": [e.value for e in MetaAdsConversionFallbackActionTypes],
 }
 
 # Column kind mapping for WebAnalyticsItemBase
