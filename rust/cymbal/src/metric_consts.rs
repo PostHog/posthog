@@ -92,7 +92,7 @@ pub const PRE_PROCESSING_STAGE: &str = "cymbal_exception_pre_processing_stage";
 pub const POST_PROCESSING_STAGE: &str = "cymbal_exception_post_processing_stage";
 pub const RESOLUTION_STAGE: &str = STACK_PROCESSING_TIME;
 pub const LINKING_STAGE: &str = ISSUE_PROCESSING_TIME;
-pub const GROUPING_STAGE: &str = "cymbal_exception_post_processing_stage";
+pub const GROUPING_STAGE: &str = "cymbal_exception_grouping_stage";
 pub const ALERTING_STAGE: &str = "cymbal_exception_alerting_stage";
 pub const SPIKE_ALERT_STAGE: &str = SPIKE_DETECTION_TIME;
 
