@@ -68,7 +68,7 @@ class ReplaceVariables(CloningVisitor):
         return QueryError(f"Variable {variable_code_name} is missing from query")
 
     def _get_variable_suggestions(self, variable_code_name: str) -> list[str]:
-        available_variables: list[str] = [variable.code_name for variable in self.insight_variables if variable]
+        available_variables: list[str] = [str(variable.code_name) for variable in self.insight_variables if variable]
         if not available_variables:
             return []
         return get_close_matches(variable_code_name, available_variables, n=3, cutoff=0.6)
