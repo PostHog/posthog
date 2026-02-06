@@ -3,6 +3,7 @@ import csv
 import json
 import datetime
 import tempfile
+import functools
 from collections import OrderedDict
 from collections.abc import Generator, Iterator
 from contextlib import contextmanager
@@ -441,9 +442,13 @@ def get_from_insights_api(exported_asset: ExportedAsset, limit: int, resource: d
         next_url = data.get("next")
 
 
-def _query_supports_limit(query: dict) -> bool:
+@functools.lru_cache(maxsize=128)
+def _query_kind_supports_limit(kind: str | None) -> bool:
+    """Check if query kind supports limit parameter. Cached by kind."""
+    if not kind:
+        return False
     try:
-        QuerySchemaRoot.model_validate({**query, "limit": 1})
+        QuerySchemaRoot.model_validate({"kind": kind, "limit": 1})
         return True
     except ValidationError:
         return False
@@ -454,7 +459,7 @@ def get_from_query(exported_asset: ExportedAsset, limit: int, resource: dict) ->
     assert query is not None
 
     breakdown_filter = query.get("breakdownFilter") if query else None
-    supports_limit = _query_supports_limit(query)
+    supports_limit = _query_kind_supports_limit(query.get("kind"))
 
     total = 0
     cursor: str | None = None
