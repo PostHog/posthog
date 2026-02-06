@@ -7,6 +7,7 @@ import { convertPropertyGroupToProperties } from 'lib/components/PropertyFilters
 import { EVENT_DEFINITIONS_PER_PAGE, PROPERTY_DEFINITIONS_PER_EVENT } from 'lib/constants'
 import { objectsEqual, parseTagsFilter } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 
 import { AnyPropertyFilter, EventDefinition, EventDefinitionType, PropertyDefinition } from '~/types'
 
@@ -369,4 +370,5 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
     actionToUrl(({ values }) => ({
         setFilters: () => [router.values.location.pathname, values.filters],
     })),
+    permanentlyMount(),
 ])

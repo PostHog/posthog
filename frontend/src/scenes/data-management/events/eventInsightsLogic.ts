@@ -5,6 +5,7 @@ import api from 'lib/api'
 import { Sorting } from 'lib/lemon-ui/LemonTable'
 import { objectsEqual, toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 import { InsightsResult, SavedInsightFilters, cleanFilters } from 'scenes/saved-insights/savedInsightsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -113,4 +114,5 @@ export const eventInsightsLogic = kea<eventInsightsLogicType>([
             actions.loadInsights()
         },
     })),
+    permanentlyMount(),
 ])

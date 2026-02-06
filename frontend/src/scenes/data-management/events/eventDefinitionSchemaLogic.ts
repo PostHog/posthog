@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 
 import { type SchemaPropertyGroup, schemaManagementLogic } from '../schema/schemaManagementLogic'
 import type { eventDefinitionSchemaLogicType } from './eventDefinitionSchemaLogicType'
@@ -136,4 +137,5 @@ export const eventDefinitionSchemaLogic = kea<eventDefinitionSchemaLogicType>([
         actions.loadEventSchemas()
         actions.loadAllPropertyGroups()
     }),
+    permanentlyMount(),
 ])
