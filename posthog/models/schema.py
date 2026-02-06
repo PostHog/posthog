@@ -95,11 +95,6 @@ class SchemaPropertyGroupProperty(UUIDTModel):
         return f"{self.name} ({self.property_type}){required_str} / {self.property_group.name}"
 
 
-class SchemaEnforcementMode(models.TextChoices):
-    ALLOW = "allow", "Allow"
-    REJECT = "reject", "Reject"
-
-
 class EventSchema(UUIDTModel):
     """
     Associates a property group with an event definition.
@@ -118,22 +113,10 @@ class EventSchema(UUIDTModel):
         related_name="event_schemas",
         related_query_name="event_schema",
     )
-    enforcement_mode = models.CharField(
-        max_length=10,
-        choices=SchemaEnforcementMode.choices,
-        default=SchemaEnforcementMode.ALLOW,
-    )
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        indexes = [
-            models.Index(
-                fields=["enforcement_mode"],
-                name="posthog_eve_enforce_idx",
-                condition=models.Q(enforcement_mode="reject"),
-            ),
-        ]
         constraints = [
             models.UniqueConstraint(
                 fields=["event_definition", "property_group"],
