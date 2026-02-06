@@ -71,6 +71,7 @@ export const clusterDetailLogic = kea<clusterDetailLogicType>([
         setTraceSummariesLoading: (loading: boolean) => ({ loading }),
         setClusterMetrics: (metrics: ClusterMetrics | null) => ({ metrics }),
         setClusterMetricsLoading: (loading: boolean) => ({ loading }),
+        loadClusterMetricsForCluster: true,
     }),
 
     reducers({
@@ -318,30 +319,30 @@ export const clusterDetailLogic = kea<clusterDetailLogicType>([
 
     listeners(({ actions, values, props }) => ({
         loadClusterDataSuccess: () => {
-            // Load summaries for the first page of traces
             actions.setPage(1)
+            actions.loadClusterMetricsForCluster()
 
-            // Load cluster metrics
-            const { cluster, windowStart, windowEnd, clusteringLevel } = values
-            if (cluster && windowStart && windowEnd) {
-                void (async () => {
-                    actions.setClusterMetricsLoading(true)
-                    try {
-                        const metricsMap = await loadClusterMetrics([cluster], windowStart, windowEnd, clusteringLevel)
-                        actions.setClusterMetrics(metricsMap[cluster.cluster_id] || null)
-                    } catch (error) {
-                        console.error('Failed to load cluster metrics:', error)
-                    } finally {
-                        actions.setClusterMetricsLoading(false)
-                    }
-                })()
-            }
-
-            // Track product intent when user explores a cluster
             void actions.addProductIntent({
                 product_type: ProductKey.LLM_CLUSTERS,
                 intent_context: ProductIntentContext.LLM_CLUSTER_EXPLORED,
             })
+        },
+
+        loadClusterMetricsForCluster: async () => {
+            const { cluster, windowStart, windowEnd, clusteringLevel } = values
+            if (!cluster || !windowStart || !windowEnd) {
+                return
+            }
+
+            actions.setClusterMetricsLoading(true)
+            try {
+                const metricsMap = await loadClusterMetrics([cluster], windowStart, windowEnd, clusteringLevel)
+                actions.setClusterMetrics(metricsMap[cluster.cluster_id] || null)
+            } catch (error) {
+                console.error('Failed to load cluster metrics:', error)
+            } finally {
+                actions.setClusterMetricsLoading(false)
+            }
         },
 
         setPage: async ({ page }) => {
