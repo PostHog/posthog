@@ -1052,18 +1052,11 @@ class TestSSOEnforcement(APILicensedTest):
     def test_saml_auth_flow_blocked_when_google_oauth2_enforced(self):
         """Integration test: Verify SAML auth flow is blocked when Google OAuth2 is enforced"""
 
-        OrganizationDomain.objects.create(
+        org_domain_saml = OrganizationDomain.objects.create(
             domain="posthog.com",
             organization=self.organization,
             verified_at=timezone.now(),
             sso_enforcement="google-oauth2",
-        )
-
-        # Create SAML configuration for the same organization (needed for RelayState)
-        org_domain_saml = OrganizationDomain.objects.create(
-            domain="saml-posthog.com",  # Different domain for SAML config
-            organization=self.organization,
-            verified_at=timezone.now(),
             saml_entity_id="http://www.okta.com/exk1ijlhixJxpyEBZ5d7",
             saml_acs_url="https://my.posthog.app/complete/saml/",
             saml_x509_cert="""MIIDqDCCApCgAwIBAgIGAXtoc3o9MA0GCSqGSIb3DQEBCwUAMIGUMQswCQYDVQQGEwJVUzETMBEG
