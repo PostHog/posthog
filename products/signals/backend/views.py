@@ -63,7 +63,7 @@ class SignalReportViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet)
         summary="List report artefacts",
         description="Get list of artefacts for a signal report.",
     )
-    @action(detail=True, methods=["get"], url_path="artefacts", required_scopes=["signal_report:read"])
+    @action(detail=True, methods=["get"], url_path="artefacts", required_scopes=["task:read"])
     def artefacts(self, request, pk=None, **kwargs):
         report = cast(SignalReport, self.get_object())
         artefacts = report.artefacts.filter(type="video_segment").order_by("-created_at")
@@ -84,7 +84,7 @@ class SignalReportViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet)
         summary="Debug trace for a report",
         description="Staff-only endpoint returning pipeline metadata, segment embeddings, and session export info.",
     )
-    @action(detail=True, methods=["get"], url_path="debug", required_scopes=["signal_report:read"])
+    @action(detail=True, methods=["get"], url_path="debug", required_scopes=["task:read"])
     def debug(self, request, pk=None, **kwargs):
         if not (request.user.is_staff or getattr(request.user, "is_impersonated", False)):
             raise PermissionDenied("Staff access required.")
