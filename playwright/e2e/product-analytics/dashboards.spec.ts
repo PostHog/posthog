@@ -46,12 +46,13 @@ test.describe('Dashboards', () => {
 
         await test.step('edit the insight name', async () => {
             await insight.editName(updatedName)
-            await insight.save()
+            // Name is saved on blur via metadata API (not the full Save button),
+            // so wait for the API call to complete before navigating back
+            await page.waitForLoadState('networkidle')
             await expect(insight.topBarName).toContainText(updatedName)
         })
 
         await test.step('navigate back and verify the updated insight on the dashboard', async () => {
-            await page.goBack()
             await page.goBack()
 
             await expect(page).toHaveURL(/\/dashboard\//)
