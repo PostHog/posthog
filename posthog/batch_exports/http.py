@@ -1135,6 +1135,8 @@ def create_backfill(
     Returns:
         The backfill workflow ID
     """
+    # Currently, backfills from the beginning of time usually fail due to us hitting ClickHouse memory limits.
+    # Therefore, this feature is behind a feature flag while we improve backfilling behavior.
     if start_at_input is None:
         if not posthoganalytics.feature_enabled(
             "batch-export-earliest-backfill",
