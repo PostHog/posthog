@@ -145,6 +145,7 @@ describe('survey utils', () => {
             const input: SurveyAppearance = {
                 backgroundColor: 'ff0000',
                 borderColor: '00ff00',
+                closeButtonColor: 'aabbcc',
                 ratingButtonActiveColor: '0000ff',
                 ratingButtonColor: 'ffffff',
                 submitButtonColor: '000000',
@@ -156,6 +157,7 @@ describe('survey utils', () => {
 
             expect(result?.backgroundColor).toBe('#ff0000')
             expect(result?.borderColor).toBe('#00ff00')
+            expect(result?.closeButtonColor).toBe('#aabbcc')
             expect(result?.ratingButtonActiveColor).toBe('#0000ff')
             expect(result?.ratingButtonColor).toBe('#ffffff')
             expect(result?.submitButtonColor).toBe('#000000')

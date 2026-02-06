@@ -174,6 +174,7 @@ export function sanitizeSurveyAppearance(
         shuffleQuestions: isPartialResponsesEnabled ? false : appearance.shuffleQuestions,
         backgroundColor: sanitizeColor(appearance.backgroundColor),
         borderColor: sanitizeColor(appearance.borderColor),
+        closeButtonColor: sanitizeColor(appearance.closeButtonColor),
         ratingButtonActiveColor: sanitizeColor(appearance.ratingButtonActiveColor),
         ratingButtonColor: sanitizeColor(appearance.ratingButtonColor),
         submitButtonColor: sanitizeColor(appearance.submitButtonColor),

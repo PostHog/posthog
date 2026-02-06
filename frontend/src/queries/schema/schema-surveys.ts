@@ -89,6 +89,7 @@ export interface SurveyDisplayConditionsSchema {
 export interface SurveyAppearanceSchema {
     backgroundColor?: string
     borderColor?: string
+    closeButtonColor?: string
     position?: SurveyPosition
     tabPosition?: SurveyTabPosition
     whiteLabel?: boolean

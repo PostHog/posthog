@@ -245,6 +245,13 @@ export function SurveyColorsAppearance({
                     placeholder="Leave empty for auto-contrast"
                 />
                 <SurveyAppearanceInput
+                    value={appearance.closeButtonColor}
+                    onChange={(closeButtonColor) => onAppearanceChange({ closeButtonColor })}
+                    error={validationErrors?.closeButtonColor}
+                    label="Close button color"
+                    placeholder="Leave empty for auto-contrast"
+                />
+                <SurveyAppearanceInput
                     value={appearance.borderColor}
                     onChange={(borderColor) => onAppearanceChange({ borderColor })}
                     error={validationErrors?.borderColor}

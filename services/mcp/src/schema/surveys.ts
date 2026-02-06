@@ -338,6 +338,7 @@ const SurveyAppearance = z.object({
     backgroundColor: z.string().optional(),
     submitButtonColor: z.string().optional(),
     textColor: z.string().optional(), // deprecated, use auto contrast text color instead
+    closeButtonColor: z.string().optional(), // Optional override for close button (X) color
     submitButtonText: z.string().optional(),
     submitButtonTextColor: z.string().optional(),
     descriptionTextColor: z.string().optional(),
