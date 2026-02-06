@@ -122,6 +122,7 @@ class TestSurvey(APIBaseTest):
                 "aggregating_by_groups": False,
                 "payload_count": 0,
                 "creation_context": "surveys",
+                "source": "web",
             },
         )
 

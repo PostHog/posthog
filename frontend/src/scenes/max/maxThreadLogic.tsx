@@ -1578,14 +1578,14 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             if (typeof options === 'string' && options.startsWith('mode=')) {
                 const colonIndex = options.indexOf(':', 5)
                 const modeValue = colonIndex === -1 ? options.slice(5) : options.slice(5, colonIndex)
-                // Parse the mode value
+                // Parse the mode value (gated modes fall back to null if their feature flags are off)
                 let parsedMode: AgentMode | null = null
                 if (modeValue === 'auto') {
                     parsedMode = null
                 } else if (modeValue === 'research') {
-                    parsedMode = AgentMode.Research
+                    parsedMode = values.featureFlags[FEATURE_FLAGS.MAX_DEEP_RESEARCH] ? AgentMode.Research : null
                 } else if (modeValue === 'plan') {
-                    parsedMode = AgentMode.Plan
+                    parsedMode = values.featureFlags[FEATURE_FLAGS.PHAI_PLAN_MODE] ? AgentMode.Plan : null
                 } else if ((Object.values(AgentMode) as string[]).includes(modeValue)) {
                     parsedMode = modeValue as AgentMode
                 }

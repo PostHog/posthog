@@ -1,10 +1,12 @@
 import { useActions, useValues } from 'kea'
 
-import { IconCode, IconDatabase, IconStethoscope, IconWarning } from '@posthog/icons'
+import { IconCloud, IconCode, IconDatabase, IconStethoscope, IconWarning } from '@posthog/icons'
 import { LemonTag } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { Link } from 'lib/lemon-ui/Link/Link'
 import { IconWithBadge } from 'lib/lemon-ui/icons'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
     DropdownMenu,
@@ -13,16 +15,26 @@ import {
     DropdownMenuItem,
     DropdownMenuTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
+import { capitalizeFirstLetter } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
 import { sidePanelHealthLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelHealthLogic'
 import { sidePanelSdkDoctorLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelSdkDoctorLogic'
+import { sidePanelStatusIncidentIoLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelStatusIncidentIoLogic'
+import { sidePanelStatusLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelStatusLogic'
 
 import { RenderKeybind } from '../AppShortcuts/AppShortcutMenu'
 import { keyBinds } from '../AppShortcuts/shortcuts'
 import { healthMenuLogic } from './healthMenuLogic'
 
 export function HealthMenu(): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const useIncidentIo = !!featureFlags[FEATURE_FLAGS.INCIDENT_IO_STATUS_PAGE]
+
+    const { status: atlassianStatus, statusPage } = useValues(sidePanelStatusLogic)
+    const { status: incidentIoStatus, statusDescription: incidentIoDescription } =
+        useValues(sidePanelStatusIncidentIoLogic)
+
     const { isHealthMenuOpen } = useValues(healthMenuLogic)
     const { setHealthMenuOpen } = useActions(healthMenuLogic)
     const { needsAttention, needsUpdatingCount, sdkHealth } = useValues(sidePanelSdkDoctorLogic)
@@ -41,8 +53,21 @@ export function HealthMenu(): JSX.Element {
             ? `${pipelineIssueCount} pipeline issue${pipelineIssueCount === 1 ? '' : 's'}`
             : 'All pipelines healthy'
 
-    const triggerBadgeContent = needsAttention || needsUpdatingCount > 0 || pipelineIssueCount > 0 ? '!' : '✓'
-    const triggerBadgeStatus = needsAttention || needsUpdatingCount > 0 || pipelineIssueCount > 0 ? 'danger' : 'success'
+    const status = useIncidentIo ? incidentIoStatus : atlassianStatus
+
+    const posthogStatusTooltip = useIncidentIo
+        ? incidentIoDescription
+        : statusPage?.status.description
+          ? capitalizeFirstLetter(statusPage.status.description.toLowerCase())
+          : null
+
+    // Cumulative badge content and status
+    const triggerBadgeContent =
+        status !== 'operational' || needsAttention || needsUpdatingCount > 0 || pipelineIssueCount > 0 ? '!' : '✓'
+    const triggerBadgeStatus =
+        status !== 'operational' || needsAttention || needsUpdatingCount > 0 || pipelineIssueCount > 0
+            ? 'danger'
+            : 'success'
 
     return (
         <DropdownMenu open={isHealthMenuOpen} onOpenChange={setHealthMenuOpen}>
@@ -99,11 +124,33 @@ export function HealthMenu(): JSX.Element {
                 </DropdownMenuGroup>
                 <DropdownMenuGroup className="flex flex-col gap-px pt-0">
                     <DropdownMenuItem asChild>
-                        <Link to={urls.ingestionWarnings()} buttonProps={{ menuItem: true }}>
-                            <IconWarning className="size-5" />
-                            Ingestion warnings
+                        <Link
+                            targetBlankIcon
+                            target="_blank"
+                            buttonProps={{ menuItem: true }}
+                            to="https://posthogstatus.com"
+                            tooltip={posthogStatusTooltip}
+                            tooltipPlacement="right"
+                            tooltipCloseDelayMs={0}
+                        >
+                            <IconWithBadge
+                                content={status !== 'operational' ? '!' : '✓'}
+                                size="xsmall"
+                                status={
+                                    status.includes('outage')
+                                        ? 'danger'
+                                        : status.includes('degraded') || status.includes('monitoring')
+                                          ? 'warning'
+                                          : 'success'
+                                }
+                                className="flex"
+                            >
+                                <IconCloud />
+                            </IconWithBadge>
+                            PostHog status
                         </Link>
                     </DropdownMenuItem>
+
                     <DropdownMenuItem asChild>
                         <Link
                             to={urls.sdkDoctor()}
@@ -138,6 +185,12 @@ export function HealthMenu(): JSX.Element {
                                 <IconDatabase className="size-5" />
                             </IconWithBadge>
                             Pipeline status
+                        </Link>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem asChild>
+                        <Link to={urls.ingestionWarnings()} buttonProps={{ menuItem: true }}>
+                            <IconWarning className="size-5" />
+                            Ingestion warnings
                         </Link>
                     </DropdownMenuItem>
                 </DropdownMenuGroup>
