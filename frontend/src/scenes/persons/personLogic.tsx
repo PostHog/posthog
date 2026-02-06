@@ -6,7 +6,6 @@ import api from 'lib/api'
 import { Scene } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
 
-import { hogqlQuery } from '~/queries/query'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
 import { Breadcrumb, PersonType } from '~/types'
@@ -70,10 +69,14 @@ export const personLogic = kea<personLogicType>([
                     if (props.id == null) {
                         return null
                     }
-                    const queryResponse = await hogqlQuery(
-                        getHogqlQueryStringForPersonId(),
-                        { id: props.id, tags: CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS },
-                        'blocking'
+                    const queryResponse = await api.query(
+                        {
+                            kind: NodeKind.HogQLQuery,
+                            query: getHogqlQueryStringForPersonId(),
+                            values: { id: props.id },
+                            tags: CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS,
+                        },
+                        { refresh: 'blocking' }
                     )
                     const row = queryResponse?.results?.[0]
                     if (row == null) {
