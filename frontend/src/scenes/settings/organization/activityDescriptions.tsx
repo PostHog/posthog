@@ -134,8 +134,8 @@ function organizationMembershipActivityDescriber(logItem: ActivityLogItem, asNot
                         <strong>
                             {userName} ({userEmail})
                         </strong>
-                        's role from <strong>{beforeLevel}</strong> to <strong>{afterLevel}</strong> in organization{' '}
-                        {nameOrLinkToOrganization(organizationName)}
+                        's role from <strong>{String(beforeLevel)}</strong> to <strong>{String(afterLevel)}</strong> in
+                        organization {nameOrLinkToOrganization(organizationName)}
                     </>
                 ),
             }

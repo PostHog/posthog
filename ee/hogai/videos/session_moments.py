@@ -26,7 +26,6 @@ from products.llm_analytics.backend.providers.gemini import GeminiProvider
 from ee.hogai.session_summaries.constants import (
     DEFAULT_VIDEO_EXPORT_MIME_TYPE,
     DEFAULT_VIDEO_UNDERSTANDING_MODEL,
-    SESSION_VIDEO_RENDERING_DELAY,
     SHORT_VALIDATION_VIDEO_PLAYBACK_SPEED,
     VALIDATION_VIDEO_DURATION,
 )
@@ -168,11 +167,14 @@ class SessionMomentsLLMAnalyzer:
             client = await async_connect()
             await client.execute_workflow(
                 VideoExportWorkflow.run,
-                VideoExportInputs(exported_asset_id=exported_asset.id),
+                # TODO: Enable Puppeteer for the previous video analysis flow after testing
+                VideoExportInputs(exported_asset_id=exported_asset.id, use_puppeteer=False),
                 id=f"session-moment-video-export_{self.session_id}_{moment.moment_id}_{uuid.uuid4()}",
                 task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
                 retry_policy=RetryPolicy(maximum_attempts=int(TEMPORAL_WORKFLOW_MAX_ATTEMPTS)),
                 id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
+                # Keep hard limit to avoid hanging workflows
+                execution_timeout=timedelta(hours=3),
             )
             # Return the asset ID for later retrieval
             return exported_asset.id
@@ -225,11 +227,7 @@ class SessionMomentsLLMAnalyzer:
                 total_video_duration = get_video_duration_s(video_bytes=video_bytes)
             except ValueError:
                 total_video_duration = None
-            start_offset_s = (
-                total_video_duration - VALIDATION_VIDEO_DURATION + SESSION_VIDEO_RENDERING_DELAY
-                if total_video_duration
-                else None
-            )
+            start_offset_s = total_video_duration - VALIDATION_VIDEO_DURATION if total_video_duration else None
             # Analyze the video with LLM
             content = await self._provider.understand_video(
                 video_bytes=video_bytes,

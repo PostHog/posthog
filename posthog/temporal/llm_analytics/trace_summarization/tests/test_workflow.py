@@ -75,8 +75,7 @@ class TestSampleItemsInWindowActivity:
 
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.asyncio
-    async def test_sample_items_success(self, mock_team):
-        """Test successful item sampling from window."""
+    async def test_sample_traces_success(self, mock_team):
         inputs = BatchSummarizationInputs(
             team_id=mock_team.id,
             max_items=100,
@@ -85,36 +84,46 @@ class TestSampleItemsInWindowActivity:
             window_end="2025-01-15T12:00:00",
         )
 
-        with patch(
-            "posthog.temporal.llm_analytics.trace_summarization.sampling.TracesQueryRunner"
-        ) as mock_runner_class:
-            from posthog.schema import LLMTrace, LLMTracePerson
+        mock_results = [[f"trace_{i}", f"2025-01-15T11:{i:02d}:00+00:00"] for i in range(50)]
 
-            mock_person = LLMTracePerson(
-                uuid=str(uuid.uuid4()),
-                distinct_id="test_user",
-                created_at=datetime.now(UTC).isoformat(),
-                properties={},
-            )
-
-            mock_runner = mock_runner_class.return_value
-            mock_traces = [
-                LLMTrace(id=f"trace_{i}", createdAt=datetime.now(UTC).isoformat(), events=[], person=mock_person)
-                for i in range(50)
-            ]
-            mock_runner.calculate.return_value.results = mock_traces
+        with patch("posthog.temporal.llm_analytics.trace_summarization.sampling.execute_hogql_query") as mock_execute:
+            mock_execute.return_value.results = mock_results
 
             result = await sample_items_in_window_activity(inputs)
 
             assert len(result) == 50
             assert isinstance(result[0], SampledItem)
             assert result[0].trace_id == "trace_0"
+            assert result[0].generation_id is None
             assert result[49].trace_id == "trace_49"
 
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.asyncio
+    async def test_sample_generations_success(self, mock_team):
+        inputs = BatchSummarizationInputs(
+            team_id=mock_team.id,
+            max_items=50,
+            analysis_level="generation",
+            window_minutes=60,
+            window_start="2025-01-15T11:00:00",
+            window_end="2025-01-15T12:00:00",
+        )
+
+        mock_results = [[f"trace_{i}", f"gen-uuid-{i}", f"2025-01-15T11:{i:02d}:00+00:00"] for i in range(10)]
+
+        with patch("posthog.temporal.llm_analytics.trace_summarization.sampling.execute_hogql_query") as mock_execute:
+            mock_execute.return_value.results = mock_results
+
+            result = await sample_items_in_window_activity(inputs)
+
+            assert len(result) == 10
+            assert isinstance(result[0], SampledItem)
+            assert result[0].trace_id == "trace_0"
+            assert result[0].generation_id == "gen-uuid-0"
+
+    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.asyncio
     async def test_sample_items_empty(self, mock_team):
-        """Test sampling when no traces found in window."""
         inputs = BatchSummarizationInputs(
             team_id=mock_team.id,
             max_items=100,
@@ -123,11 +132,8 @@ class TestSampleItemsInWindowActivity:
             window_end="2025-01-15T12:00:00",
         )
 
-        with patch(
-            "posthog.temporal.llm_analytics.trace_summarization.sampling.TracesQueryRunner"
-        ) as mock_runner_class:
-            mock_runner = mock_runner_class.return_value
-            mock_runner.calculate.return_value.results = []
+        with patch("posthog.temporal.llm_analytics.trace_summarization.sampling.execute_hogql_query") as mock_execute:
+            mock_execute.return_value.results = []
 
             result = await sample_items_in_window_activity(inputs)
 
@@ -196,7 +202,7 @@ class TestGenerateSummaryActivity:
                 "2025-01-01T01:00:00Z",  # window_end
                 "minimal",
                 "test_batch_run_id",
-                "openai",
+                "gpt-4.1-nano",
             )
 
             assert result.success is True
@@ -256,7 +262,7 @@ class TestGenerateSummaryActivity:
                 "2025-01-01T01:00:00Z",
                 "minimal",
                 "batch_123",
-                "openai",
+                "gpt-4.1-nano",
             )
 
             assert result.embedding_requested is True
@@ -311,7 +317,7 @@ class TestGenerateSummaryActivity:
                 "2025-01-01T01:00:00Z",
                 "minimal",
                 "batch_123",
-                "openai",
+                "gpt-4.1-nano",
             )
 
             assert result.success is True  # Summary saved successfully
@@ -328,7 +334,7 @@ class TestBatchTraceSummarizationWorkflow:
 
         assert inputs.team_id == 123
         assert inputs.analysis_level == "trace"
-        assert inputs.max_items == 10
+        assert inputs.max_items == 15
         assert inputs.batch_size == 3
         assert inputs.mode == "detailed"
         assert inputs.window_minutes == 60

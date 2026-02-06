@@ -18,12 +18,7 @@ from posthog.temporal.llm_analytics.trace_summarization.utils import format_date
 
 from products.llm_analytics.backend.summarization.llm import summarize
 from products.llm_analytics.backend.summarization.llm.schema import SummarizationResponse
-from products.llm_analytics.backend.summarization.models import (
-    GeminiModel,
-    OpenAIModel,
-    SummarizationMode,
-    SummarizationProvider,
-)
+from products.llm_analytics.backend.summarization.models import OpenAIModel, SummarizationMode
 
 from ee.hogai.llm_traces_summaries.tools.embed_summaries import LLMTracesSummarizerEmbedder
 
@@ -100,7 +95,6 @@ async def generate_and_save_generation_summary_activity(
     window_end: str,
     mode: str,
     batch_run_id: str,
-    provider: str,
     model: str | None = None,
     max_length: int | None = None,
 ) -> SummarizationActivityResult:
@@ -261,22 +255,16 @@ async def generate_and_save_generation_summary_activity(
     if max_length and len(text_repr) > max_length:
         text_repr = text_repr[:max_length] + "\n... [truncated]"
 
-    # Generate summary using LLM
+    # Generate summary using LLM via gateway
     mode_enum = SummarizationMode(mode)
-    provider_enum = SummarizationProvider(provider)
-    model_enum: OpenAIModel | GeminiModel | None = None
-    if model:
-        if provider_enum == SummarizationProvider.GEMINI:
-            model_enum = GeminiModel(model)
-        else:
-            model_enum = OpenAIModel(model)
+    model_enum = OpenAIModel(model) if model else None
 
-    summary_result = await summarize(
+    summary_result = await database_sync_to_async(summarize, thread_sensitive=False)(
         text_repr=text_repr,
         team_id=team_id,
         mode=mode_enum,
-        provider=provider_enum,
         model=model_enum,
+        user_id=f"temporal-workflow-team-{team_id}",
     )
 
     # Save event to ClickHouse

@@ -25,6 +25,7 @@ from urllib.parse import urlparse
 from posthog.ducklake.common import (
     escape as ducklake_escape,
     get_config,
+    get_team_config,
 )
 
 if TYPE_CHECKING:
@@ -139,7 +140,12 @@ class DuckLakeStorageConfig:
     is_local: bool
 
     @classmethod
-    def from_runtime(cls, *, use_local_setup: bool | None = None) -> DuckLakeStorageConfig:
+    def from_runtime(
+        cls,
+        *,
+        use_local_setup: bool | None = None,
+        team_id: int | None = None,
+    ) -> DuckLakeStorageConfig:
         """Create storage config from current runtime environment.
 
         This factory method encapsulates the USE_LOCAL_SETUP branching logic,
@@ -149,11 +155,15 @@ class DuckLakeStorageConfig:
         Args:
             use_local_setup: Override for USE_LOCAL_SETUP setting. If None,
                 reads from Django settings or defaults to True for CLI tools.
+            team_id: Optional team ID to look up team-specific configuration.
 
         Returns:
             DuckLakeStorageConfig instance with appropriate credentials.
         """
-        config = get_config()
+        if team_id is not None:
+            config = get_team_config(team_id)
+        else:
+            config = get_config()
         settings = _get_django_settings()
 
         if use_local_setup is None:
@@ -403,6 +413,8 @@ def configure_cross_account_connection(
 def ensure_ducklake_bucket_exists(
     storage_config: DuckLakeStorageConfig | None = None,
     config: dict[str, str] | None = None,
+    *,
+    team_id: int | None = None,
 ) -> None:
     """Ensure the DuckLake bucket exists (local dev only).
 
@@ -411,16 +423,20 @@ def ensure_ducklake_bucket_exists(
 
     Args:
         storage_config: Storage config to use. If None, creates one from runtime.
-        config: DuckLake config dict. If None, uses get_config().
+        config: DuckLake config dict. If None, resolved from team_id or get_config().
+        team_id: Optional team ID to look up team-specific configuration.
     """
     if storage_config is None:
-        storage_config = DuckLakeStorageConfig.from_runtime()
+        storage_config = DuckLakeStorageConfig.from_runtime(team_id=team_id)
 
     if not storage_config.is_local:
         return
 
     if config is None:
-        config = get_config()
+        if team_id is not None:
+            config = get_team_config(team_id)
+        else:
+            config = get_config()
 
     from products.data_warehouse.backend.s3 import ensure_bucket_exists
 
@@ -435,19 +451,24 @@ def ensure_ducklake_bucket_exists(
     )
 
 
-def get_deltalake_storage_options(storage_config: DuckLakeStorageConfig | None = None) -> dict[str, str]:
+def get_deltalake_storage_options(
+    storage_config: DuckLakeStorageConfig | None = None,
+    *,
+    team_id: int | None = None,
+) -> dict[str, str]:
     """Get storage options for deltalake library.
 
     Convenience function that creates a storage config from runtime if not provided.
 
     Args:
         storage_config: Storage config to use. If None, creates one from runtime.
+        team_id: Optional team ID to look up team-specific configuration.
 
     Returns:
         Dict of storage options to pass to deltalake.DeltaTable.
     """
     if storage_config is None:
-        storage_config = DuckLakeStorageConfig.from_runtime()
+        storage_config = DuckLakeStorageConfig.from_runtime(team_id=team_id)
     return storage_config.to_deltalake_options()
 
 

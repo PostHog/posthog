@@ -262,16 +262,16 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
             },
         ],
 
-        // Derived height - automatically uses full page height when data is available
+        // Derived height - maximum of calculated height from events and viewport height
         heightOverride: [
-            (s) => [s.maxYFromEvents],
-            (maxYFromEvents: number): number => {
+            (s) => [s.maxYFromEvents, s.windowHeight],
+            (maxYFromEvents: number, windowHeight: number): number => {
                 const MAX_HEATMAP_HEIGHT = 40000
                 if (maxYFromEvents > 0) {
                     const calculatedHeight = Math.ceil((maxYFromEvents + 100) / 100) * 100
-                    return Math.min(calculatedHeight, MAX_HEATMAP_HEIGHT)
+                    return Math.min(Math.max(calculatedHeight, windowHeight), MAX_HEATMAP_HEIGHT)
                 }
-                return DEFAULT_HEATMAP_HEIGHT
+                return Math.max(DEFAULT_HEATMAP_HEIGHT, windowHeight)
             },
         ],
 
@@ -333,12 +333,6 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
             if (filters.type) {
                 actions.resetHeatmapData()
             }
-            actions.loadHeatmap()
-        },
-        setHeatmapFixedPositionMode: () => {
-            actions.loadHeatmap()
-        },
-        setHeatmapColorPalette: () => {
             actions.loadHeatmap()
         },
         setHref: () => {

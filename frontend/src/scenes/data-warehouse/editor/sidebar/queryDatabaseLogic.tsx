@@ -99,6 +99,14 @@ const draftsFuse = new Fuse<DataWarehouseSavedQueryDraft>([], FUSE_OPTIONS)
 // Factory functions for creating tree nodes
 type TableLookup = Record<string, DatabaseSchemaTable | DatabaseSchemaDataWarehouseTable>
 
+const normalizeTableLookupKey = (tableName?: string | null): string | null => {
+    if (!tableName) {
+        return null
+    }
+
+    return tableName.replaceAll('`', '')
+}
+
 const getPrimaryKeyName = (tableName: string, fields: DatabaseSchemaField[]): string | null => {
     const fieldNames = new Set(fields.map((field) => field.name))
     const baseTableName = tableName.split('.').pop() ?? tableName
@@ -282,10 +290,48 @@ const createLazyTableChildren = (
     tableLookup: TableLookup | undefined,
     expandedLazyNodeIds: Set<string>
 ): TreeDataItem[] => {
-    const referencedTable = field.table ? tableLookup?.[field.table] : undefined
+    const normalizedTableName = normalizeTableLookupKey(field.table)
+    const referencedTable = field.table
+        ? (tableLookup?.[field.table] ?? (normalizedTableName ? tableLookup?.[normalizedTableName] : undefined))
+        : undefined
 
     if (!referencedTable || !('fields' in referencedTable)) {
-        return []
+        if (!field.fields) {
+            return []
+        }
+
+        return field.fields.map((childFieldName) =>
+            createFieldNode(
+                tableName,
+                {
+                    name: childFieldName,
+                    hogql_value: childFieldName,
+                    type: 'unknown',
+                    schema_valid: true,
+                },
+                isSearch,
+                `${columnPath}.${childFieldName}`,
+                tableLookup,
+                { expandedLazyNodeIds }
+            )
+        )
+    }
+
+    if (field.fields?.length) {
+        return field.fields.map((childFieldName) => {
+            const childField =
+                referencedTable.fields[childFieldName] ??
+                ({
+                    name: childFieldName,
+                    hogql_value: childFieldName,
+                    type: 'unknown',
+                    schema_valid: true,
+                } as DatabaseSchemaField)
+
+            return createFieldNode(tableName, childField, isSearch, `${columnPath}.${childField.name}`, tableLookup, {
+                expandedLazyNodeIds,
+            })
+        })
     }
 
     return Object.values(referencedTable.fields).map((childField) =>
@@ -1172,10 +1218,17 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                     searchResults.push(createTopLevelFolderNode('drafts', draftsChildren, true))
                 }
 
-                // Auto-expand only parent folders, not the matching nodes themselves
-                setTimeout(() => {
-                    actions.setExpandedSearchFolders(expandedIds)
-                }, 0)
+                const expandedIdSet = new Set(expandedSearchFolders)
+                const missingRequiredExpansion = expandedIds.some((id) => !expandedIdSet.has(id))
+
+                if (missingRequiredExpansion) {
+                    // Auto-expand only parent folders, not the matching nodes themselves.
+                    setTimeout(() => {
+                        actions.setExpandedSearchFolders(
+                            Array.from(new Set([...expandedSearchFolders, ...expandedIds]))
+                        )
+                    }, 0)
+                }
 
                 return searchResults
             },

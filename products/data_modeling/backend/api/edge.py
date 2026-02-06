@@ -31,7 +31,7 @@ class EdgeSerializer(serializers.ModelSerializer):
 
 
 class EdgePagination(PageNumberPagination):
-    page_size = 500
+    page_size = 5000
 
 
 class EdgeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
@@ -47,4 +47,4 @@ class EdgeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return super().get_serializer_context()
 
     def safely_get_queryset(self, queryset):
-        return queryset.filter(team_id=self.team_id).order_by(self.ordering)
+        return queryset.filter(team_id=self.team_id, dag_id=f"posthog_{self.team_id}").order_by(self.ordering)

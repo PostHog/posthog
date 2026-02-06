@@ -267,7 +267,6 @@
         id: 'SITE_DESTINATION_ID',
         init: function(config) { return     (function() {
           function toString (value) { return __STLToString(value) }
-          function match (str, pattern) { return !str || !pattern ? false : new RegExp(pattern).test(str) }
           function ilike (str, pattern) { return __like(str, pattern, true) }
           function __like(str, pattern, caseInsensitive = false) {
               if (caseInsensitive) {
@@ -382,7 +381,7 @@
                       const inputs = buildInputs(globals);
                       const filterGlobals = { ...globals.groups, ...globals.event, person: globals.person, inputs, pdi: { distinct_id: globals.event.distinct_id, person: globals.person } };
                       let __getGlobal = (key) => filterGlobals[key];
-                      const filterMatches = !!(!ilike(toString(__getProperty(__getProperty(__getGlobal("person"), "properties", true), "email", true)), "%@posthog.com%") && ((!match(toString(__getProperty(__getGlobal("properties"), "$host", true)), "^(localhost|127\\.0\\.0\\.1)($|:)")) ?? 1) && (__getGlobal("event") == "$pageview"));
+                      const filterMatches = !!(!ilike(toString(__getProperty(__getProperty(__getGlobal("person"), "properties", true), "email", true)), "%@posthog.com%") && (__getGlobal("event") == "$pageview"));
                       if (!filterMatches) { return; }
                       ;
                   }

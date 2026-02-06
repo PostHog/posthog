@@ -1822,6 +1822,61 @@ class GitHubIntegration:
         )
         return []
 
+    def get_top_starred_repository(self) -> str | None:
+        """Get the repository with the most stars from the GitHub integration.
+
+        Returns the full repository name in format 'org/repo', or None if no repos available.
+        """
+        try:
+            if self.access_token_expired():
+                self.refresh_access_token()
+        except Exception:
+            logger.warning("GitHubIntegration: token refresh pre-check failed", exc_info=True)
+
+        def fetch(page: int = 1) -> requests.Response:
+            access_token = self.integration.sensitive_config.get("access_token")
+            return requests.get(
+                f"https://api.github.com/installation/repositories?page={page}&per_page=100",
+                headers={
+                    "Accept": "application/vnd.github+json",
+                    "Authorization": f"Bearer {access_token}",
+                    "X-GitHub-Api-Version": "2022-11-28",
+                },
+            )
+
+        response = fetch()
+
+        if response.status_code == 401:
+            try:
+                self.refresh_access_token()
+            except Exception:
+                logger.warning("GitHubIntegration: token refresh after 401 failed", exc_info=True)
+            else:
+                response = fetch()
+
+        try:
+            body = response.json()
+        except Exception:
+            logger.warning(
+                "GitHubIntegration: get_top_starred_repository non-JSON response",
+                status_code=response.status_code,
+            )
+            return None
+
+        repositories = body.get("repositories")
+        if response.status_code != 200 or not isinstance(repositories, list) or not repositories:
+            return None
+
+        top_repo = max(repositories, key=lambda r: r.get("stargazers_count", 0) if isinstance(r, dict) else 0)
+        if not isinstance(top_repo, dict):
+            return None
+
+        full_name = top_repo.get("full_name")
+        if isinstance(full_name, str):
+            return full_name.lower()
+
+        return None
+
     def create_issue(self, config: dict[str, str]):
         title: str = config.pop("title")
         body: str = config.pop("body")

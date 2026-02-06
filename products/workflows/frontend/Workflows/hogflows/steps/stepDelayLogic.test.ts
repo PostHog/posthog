@@ -11,6 +11,7 @@ import { getDelayDescription, stepDelayLogic } from './stepDelayLogic'
 
 describe('stepDelayLogic', () => {
     let sdLogic: ReturnType<typeof stepDelayLogic.build>
+    let wfLogic: ReturnType<typeof workflowLogic.build>
 
     beforeEach(() => {
         initKeaTests()
@@ -19,9 +20,10 @@ describe('stepDelayLogic', () => {
             plugins: [testUtilsPlugin],
         })
 
-        workflowLogic.mount()
+        wfLogic = workflowLogic({ id: 'new', tabId: 'default' })
+        wfLogic.mount()
 
-        sdLogic = stepDelayLogic({ workflowLogicProps: workflowLogic.props })
+        sdLogic = stepDelayLogic({ workflowLogicProps: wfLogic.props })
         sdLogic.mount()
     })
 
@@ -36,13 +38,13 @@ describe('stepDelayLogic', () => {
             updated_at: Date.now(),
         } as HogFlowAction
 
-        await expectLogic(workflowLogic, () => {
-            workflowLogic.actions.setWorkflowInfo({
-                actions: [...workflowLogic.values.workflow.actions, delayAction],
+        await expectLogic(wfLogic, () => {
+            wfLogic.actions.setWorkflowInfo({
+                actions: [...wfLogic.values.workflow.actions, delayAction],
             })
         }).toDispatchActions(['setWorkflowInfo'])
 
-        await expectLogic(workflowLogic).toMatchValues({
+        await expectLogic(wfLogic).toMatchValues({
             workflow: partial({
                 actions: expect.arrayContaining([expect.objectContaining({ description: initialDescription })]),
             }),

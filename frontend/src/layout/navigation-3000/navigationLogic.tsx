@@ -615,11 +615,11 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             tooltipDocLink: 'https://posthog.com/docs/data-warehouse/query#querying-sources-with-sql',
                         },
                         {
-                            identifier: Scene.DataPipelines,
-                            label: 'Data pipelines',
+                            identifier: Scene.Apps,
+                            label: 'Apps',
                             icon: <IconPlug />,
-                            to: urls.dataPipelines('overview'),
-                            tooltipDocLink: 'https://posthog.com/docs/cdp',
+                            to: urls.apps(),
+                            tooltipDocLink: 'https://posthog.com/docs/cdp/apps',
                         },
                         {
                             identifier: Scene.Heatmaps,

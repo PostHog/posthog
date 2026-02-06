@@ -24,8 +24,11 @@ import { Link } from '@posthog/lemon-ui'
 import { AccountMenu } from 'lib/components/Account/AccountMenu'
 import { NewAccountMenu } from 'lib/components/Account/NewAccountMenu'
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
+import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
+import { useAppShortcut } from 'lib/components/AppShortcuts/useAppShortcut'
 import { commandLogic } from 'lib/components/Command/commandLogic'
 import { DebugNotice } from 'lib/components/DebugNotice'
+import { HealthMenu } from 'lib/components/HealthMenu/HealthMenu'
 import { HelpMenu } from 'lib/components/HelpMenu/HelpMenu'
 import { NavPanelAdvertisement } from 'lib/components/NavPanelAdvertisement/NavPanelAdvertisement'
 import { Resizer } from 'lib/components/Resizer/Resizer'
@@ -146,6 +149,14 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
 
         return false
     }
+
+    useAppShortcut({
+        name: 'ToggleLeftNav',
+        keybind: [keyBinds.toggleLeftNav],
+        intent: 'Toggle collapse left navigation',
+        interaction: 'function',
+        callback: toggleLayoutNavCollapsed,
+    })
 
     const navItems: {
         identifier: string
@@ -319,7 +330,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                     />
                                     <ProjectMenu
                                         buttonProps={{
-                                            className: 'max-w-[175px]',
+                                            className: 'max-w-full flex-1',
                                             variant: 'panel',
                                             tooltipCloseDelayMs: 0,
                                             iconOnly: isLayoutNavCollapsed,
@@ -524,7 +535,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                         tooltip={isLayoutNavCollapsed ? 'Toolbar' : undefined}
                                         tooltipDocLink="https://posthog.com/docs/toolbar"
                                         tooltipPlacement="right"
-                                        data-attr="menu-item-toolbar"
+                                        data-attr="navbar-toolbar"
                                     >
                                         <span className="flex text-tertiary group-hover:text-primary">
                                             <IconToolbar />
@@ -586,7 +597,14 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                     />
                                 </>
                             ) : (
-                                <HelpMenu />
+                                <div
+                                    className={cn('flex gap-1', {
+                                        'items-center flex-col-reverse': isLayoutNavCollapsed,
+                                    })}
+                                >
+                                    <HelpMenu />
+                                    <HealthMenu />
+                                </div>
                             )}
                         </div>
                     </div>

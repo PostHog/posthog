@@ -106,6 +106,8 @@ from posthog.utils import (
     variables_override_requested_by_client,
 )
 
+from common.hogvm.python.utils import HogVMException
+
 logger = structlog.get_logger(__name__)
 
 LEGACY_INSIGHT_ENDPOINTS_BLOCKED_FLAG = "legacy-insight-endpoints-disabled"
@@ -862,7 +864,7 @@ class InsightSerializer(InsightBasicSerializer):
                     variables_override=variables_override,
                     tile_filters_override=tile_filters_override,
                 )
-            except (ExposedHogQLError, ExposedCHQueryError) as e:
+            except (ExposedHogQLError, ExposedCHQueryError, HogVMException) as e:
                 raise ValidationError(str(e), getattr(e, "code_name", None))
             except ConcurrencyLimitExceeded as e:
                 logger.warn(
@@ -947,7 +949,7 @@ class InsightViewSet(
     ]
     renderer_classes = (*tuple(api_settings.DEFAULT_RENDERER_CLASSES), csvrenderers.CSVRenderer)
     filter_backends = [DjangoFilterBackend]
-    filterset_fields = ["short_id", "created_by"]
+    filterset_fields = ["short_id"]
     sharing_enabled_actions = ["retrieve", "list"]
     queryset = Insight.objects_including_soft_deleted.all()
 
@@ -1115,6 +1117,9 @@ class InsightViewSet(
                 if insight == "JSON":
                     queryset = queryset.filter(query__isnull=False)
                     queryset = queryset.exclude(query__kind__in=WRAPPER_NODE_KINDS, query__source__kind="HogQLQuery")
+                    queryset = queryset.exclude(
+                        query__kind__in=WRAPPER_NODE_KINDS, query__source__kind__in=legacy_to_hogql_mapping.values()
+                    )
                 elif insight == "SQL":
                     queryset = queryset.filter(query__isnull=False)
                     queryset = queryset.filter(query__kind__in=WRAPPER_NODE_KINDS, query__source__kind="HogQLQuery")
@@ -1145,6 +1150,36 @@ class InsightViewSet(
                             .values_list("insight__id", flat=True)
                             .all()
                         )
+            elif key == "tags":
+                tags_filter = request.GET["tags"]
+                if tags_filter:
+                    tags_list = json.loads(tags_filter)
+                    if tags_list:
+                        queryset = queryset.filter(tagged_items__tag__name__in=tags_list).distinct()
+            elif key == "created_by":
+                created_by_filter = request.GET["created_by"]
+                if created_by_filter:
+                    created_by_ids = json.loads(created_by_filter)
+                    if created_by_ids:
+                        queryset = queryset.filter(created_by__id__in=created_by_ids)
+            elif key == "created_date_from":
+                queryset = queryset.filter(
+                    created_at__gt=relative_date_parse(request.GET["created_date_from"], self.team.timezone_info)
+                )
+            elif key == "created_date_to":
+                queryset = queryset.filter(
+                    created_at__lt=relative_date_parse(request.GET["created_date_to"], self.team.timezone_info)
+                )
+            elif key == "last_viewed_date_from":
+                queryset = queryset.filter(
+                    last_viewed_at__gt=relative_date_parse(
+                        request.GET["last_viewed_date_from"], self.team.timezone_info
+                    )
+                )
+            elif key == "last_viewed_date_to":
+                queryset = queryset.filter(
+                    last_viewed_at__lt=relative_date_parse(request.GET["last_viewed_date_to"], self.team.timezone_info)
+                )
 
         return queryset
 
@@ -1194,7 +1229,7 @@ When set, the specified dashboard's filters and date range override will be appl
 
         try:
             serialized_data = self.get_serializer(instance, context=serializer_context).data
-        except (ExposedHogQLError, ExposedCHQueryError) as e:
+        except (ExposedHogQLError, ExposedCHQueryError, HogVMException) as e:
             raise ValidationError(str(e), getattr(e, "code_name", None))
 
         if dashboard_tile is not None:
@@ -1304,7 +1339,7 @@ When set, the specified dashboard's filters and date range override will be appl
                     result = self.calculate_trends_hogql(request)
                 else:
                     result = self.calculate_trends(request)
-        except (ExposedHogQLError, ExposedCHQueryError) as e:
+        except (ExposedHogQLError, ExposedCHQueryError, HogVMException) as e:
             raise ValidationError(str(e), getattr(e, "code_name", None))
         except UserAccessControlError as e:
             raise ValidationError(str(e))
@@ -1400,7 +1435,7 @@ When set, the specified dashboard's filters and date range override will be appl
                 else:
                     funnel = self.calculate_funnel(request)
 
-        except (ExposedHogQLError, ExposedCHQueryError) as e:
+        except (ExposedHogQLError, ExposedCHQueryError, HogVMException) as e:
             raise ValidationError(str(e), getattr(e, "code_name", None))
 
         if isinstance(funnel["result"], BaseModel):

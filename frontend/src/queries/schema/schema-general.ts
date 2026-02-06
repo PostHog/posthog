@@ -165,6 +165,7 @@ export enum NodeKind {
     ActorsPropertyTaxonomyQuery = 'ActorsPropertyTaxonomyQuery',
     TracesQuery = 'TracesQuery',
     TraceQuery = 'TraceQuery',
+    TraceNeighborsQuery = 'TraceNeighborsQuery',
     VectorSearchQuery = 'VectorSearchQuery',
     DocumentSimilarityQuery = 'DocumentSimilarityQuery',
 
@@ -225,6 +226,7 @@ export type AnyDataNode =
     | RecordingsQuery
     | TracesQuery
     | TraceQuery
+    | TraceNeighborsQuery
     | VectorSearchQuery
     | UsageMetricsQuery
     | EndpointsUsageOverviewQuery
@@ -317,6 +319,7 @@ export type QuerySchema =
     | ActorsPropertyTaxonomyQuery
     | TracesQuery
     | TraceQuery
+    | TraceNeighborsQuery
     | VectorSearchQuery
 
     // Customer analytics
@@ -404,7 +407,6 @@ export interface HogQLQueryModifiers {
     propertyGroupsMode?: 'enabled' | 'disabled' | 'optimized'
     useMaterializedViews?: boolean
     customChannelTypeRules?: CustomChannelRule[]
-    usePresortedEventsTable?: boolean
     useWebAnalyticsPreAggregatedTables?: boolean
     formatCsvAllowDoubleQuotes?: boolean
     convertToProjectTimezone?: boolean
@@ -1472,6 +1474,8 @@ export type FunnelsFilter = {
     goalLines?: GoalLine[]
     /** @default false */
     showValuesOnSeries?: boolean
+    /** Breakdown table sorting. Format: 'column_key' or '-column_key' (descending) */
+    breakdownSorting?: string
 }
 
 export interface FunnelsQuery extends InsightsQueryBase<FunnelsQueryResponse> {
@@ -1499,7 +1503,6 @@ export interface FunnelsQueryResponse extends AnalyticsQueryResponseBase {
     // This is properly FunnelStepsResults | FunnelStepsBreakdownResults | FunnelTimeToConvertResults | FunnelTrendsResults
     // but this large of a union doesn't provide any type-safety and causes python mypy issues, so represented as any.
     results: any
-    isUdf?: boolean
 }
 
 export type CachedFunnelsQueryResponse = CachedQueryResponse<FunnelsQueryResponse>
@@ -1522,6 +1525,11 @@ export type RetentionFilter = {
     timeWindowMode?: 'strict_calendar_dates' | '24_hour_windows'
     /** @description Custom brackets for retention calculations */
     retentionCustomBrackets?: number[]
+    /** @description The aggregation type to use for retention
+     * @default count */
+    aggregationType?: 'count' | 'sum' | 'avg'
+    /** @description The property to aggregate when aggregationType is sum or avg */
+    aggregationProperty?: string
 
     //frontend only
     meanRetentionCalculation?: RetentionFilterLegacy['mean_retention_calculation']
@@ -1725,6 +1733,8 @@ export interface EndpointRequest {
     /** How frequently should the underlying materialized view be updated */
     sync_frequency?: DataWarehouseSyncInterval
     derived_from_insight?: string
+    /** Target a specific version for updates (optional, defaults to current version) */
+    version?: integer
 }
 
 /**
@@ -1742,25 +1752,33 @@ export interface EndpointRunRequest {
     /** @default 'cache' */
     refresh?: EndpointRefreshMode
     /**
-     * A map for overriding insight query filters.
+     * Variables to parameterize the endpoint query. The key is the variable name and the value is the variable value.
      *
-     * Tip: Use to get data for a specific customer or user.
-     */
-    filters_override?: DashboardFilter
-    /**
-     * A map for overriding HogQL query variables, where the key is the variable name and the value is the variable value.
-     * Variable must be set on the endpoint's query between curly braces (i.e. {variable.from_date})
-     * For example: {"from_date": "1970-01-01"}
+     * For HogQL endpoints:
+     *   Keys must match a variable `code_name` defined in the query (referenced as `{variables.code_name}`).
+     *   Example: `{"event_name": "$pageview"}`
+     *
+     * For non-materialized insight endpoints (e.g. TrendsQuery):
+     *   - `date_from` and `date_to` are built-in variables that filter the date range.
+     *     Example: `{"date_from": "2024-01-01", "date_to": "2024-01-31"}`
+     *
+     * For materialized insight endpoints:
+     *   - Use the breakdown property name as the key to filter by breakdown value.
+     *     Example: `{"$browser": "Chrome"}`
+     *   - `date_from`/`date_to` are not supported on materialized insight endpoints.
+     *
+     * Unknown variable names will return a 400 error.
      */
     variables?: Record<string, any>
     /**
-     * Map of Insight query keys to be overridden at execution time.
-     * For example:
-     *   Assuming query = {"kind": "TrendsQuery", "series": [{"kind": "EventsNode","name": "$pageview","event": "$pageview","math": "total"}]}
-     *   If query_override = {"series": [{"kind": "EventsNode","name": "$identify","event": "$identify","math": "total"}]}
-     *   The query executed will return the count of $identify events, instead of $pageview's
+     * @deprecated Use `variables` instead. Will be removed in a future release.
+     *
+     * Override dashboard filters for insight endpoints (TrendsQuery, FunnelsQuery, etc.).
+     * Not allowed for HogQL endpoints.
+     *
+     * For date filtering, use variables: `{"date_from": "2024-01-01", "date_to": "2024-01-31"}`
      */
-    query_override?: Record<string, any>
+    filters_override?: DashboardFilter
     /** Specific endpoint version to execute. If not provided, the latest version is used. */
     version?: integer
     /**
@@ -1768,6 +1786,8 @@ export interface EndpointRunRequest {
      * @default false
      */
     debug?: boolean
+    /** Maximum number of results to return. If not provided, returns all results. */
+    limit?: integer
 }
 
 export interface EndpointLastExecutionTimesRequest {
@@ -2696,6 +2716,7 @@ export interface LogsQuery extends DataNode<LogsQueryResponse> {
     after?: string
     /** Field to break down sparkline data by (used only by sparkline endpoint) */
     sparklineBreakdownBy?: LogsSparklineBreakdownBy
+    resourceFingerprint?: string
 }
 
 export interface LogsQueryResponse extends AnalyticsQueryResponseBase {
@@ -2884,6 +2905,14 @@ export type FileSystemIconType =
     | 'conversations'
     | 'toolbar'
     | 'settings'
+    | 'health'
+    | 'sdk_doctor'
+    | 'pipeline_status'
+    | 'llm_evaluations'
+    | 'llm_datasets'
+    | 'llm_prompts'
+    | 'llm_clusters'
+    | 'exports'
 
 export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     id?: string
@@ -3939,6 +3968,9 @@ export type AIEventType =
     | '$ai_feedback'
     | '$ai_evaluation'
     | '$ai_trace_summary'
+    | '$ai_generation_summary'
+    | '$ai_trace_clusters'
+    | '$ai_generation_clusters'
 
 export interface LLMTraceEvent {
     id: string
@@ -4016,8 +4048,35 @@ export interface TraceQuery extends DataNode<TraceQueryResponse> {
     properties?: AnyPropertyFilter[]
 }
 
+export interface TraceNeighborsQueryResponse {
+    /** ID of the newer trace (chronologically after current) */
+    newerTraceId?: string
+    /** Timestamp of the newer trace */
+    newerTimestamp?: string
+    /** ID of the older trace (chronologically before current) */
+    olderTraceId?: string
+    /** Timestamp of the older trace */
+    olderTimestamp?: string
+    /** Measured timings for different parts of the query generation process */
+    timings?: QueryTiming[]
+}
+
+export interface TraceNeighborsQuery extends DataNode<TraceNeighborsQueryResponse> {
+    kind: NodeKind.TraceNeighborsQuery
+    /** ID of the current trace to find neighbors for */
+    traceId: string
+    /** Timestamp of the current trace to find neighbors for */
+    timestamp: string
+    dateRange?: DateRange
+    filterTestAccounts?: boolean
+    filterSupportTraces?: boolean
+    /** Properties configurable in the interface */
+    properties?: AnyPropertyFilter[]
+}
+
 export type CachedTracesQueryResponse = CachedQueryResponse<TracesQueryResponse>
 export type CachedTraceQueryResponse = CachedQueryResponse<TraceQueryResponse>
+export type CachedTraceNeighborsQueryResponse = CachedQueryResponse<TraceNeighborsQueryResponse>
 
 // NOTE: Keep in sync with posthog/models/exchange_rate/currencies.py
 // to provide proper type safety for the baseCurrency field
@@ -4755,6 +4814,7 @@ export const externalDataSources = [
     'Vitally',
     'BigQuery',
     'Chargebee',
+    'Clerk',
     'RevenueCat',
     'Polar',
     'GoogleAds',
@@ -4773,6 +4833,7 @@ export const externalDataSources = [
     'TikTokAds',
     'BingAds',
     'Shopify',
+    'Attio',
     'SnapchatAds',
 ] as const
 
@@ -4795,7 +4856,7 @@ export const MARKETING_INTEGRATION_CONFIGS = {
         nameField: 'campaign_name',
         idField: 'campaign_id',
         campaignTableName: 'campaign',
-        statsTableName: 'campaign_stats',
+        statsTableName: 'campaign_overview_stats',
         tableKeywords: ['campaign'] as const,
         tableExclusions: ['stats'] as const,
         defaultSources: [
@@ -4959,6 +5020,8 @@ export interface TestSetupResponse {
 
 export interface PlaywrightWorkspaceSetupData {
     organization_name?: string
+    use_current_time?: boolean
+    skip_onboarding?: boolean
 }
 
 export interface PlaywrightWorkspaceSetupResult {
@@ -5173,6 +5236,10 @@ export enum ProductKey {
     LINKS = 'links',
     LIVE_DEBUGGER = 'live_debugger',
     LLM_ANALYTICS = 'llm_analytics',
+    LLM_CLUSTERS = 'llm_clusters',
+    LLM_DATASETS = 'llm_datasets',
+    LLM_EVALUATIONS = 'llm_evaluations',
+    LLM_PROMPTS = 'llm_prompts',
     LOGS = 'logs',
     MARKETING_ANALYTICS = 'marketing_analytics',
     MAX = 'max',
@@ -5227,10 +5294,15 @@ export enum ProductIntentContext {
     // LLM Analytics
     LLM_ANALYTICS_VIEWED = 'llm_analytics_viewed',
     LLM_ANALYTICS_DOCS_VIEWED = 'llm_analytics_docs_viewed',
+    LLM_CLUSTER_EXPLORED = 'llm_cluster_explored',
+    LLM_DATASET_CREATED = 'llm_dataset_created',
+    LLM_EVALUATION_CREATED = 'llm_evaluation_created',
+    LLM_PROMPT_CREATED = 'llm_prompt_created',
 
     // Logs
     LOGS_DOCS_VIEWED = 'logs_docs_viewed',
     LOGS_SET_FILTERS = 'logs_set_filters',
+    LOGS_SETTINGS_OPENED = 'logs_settings_opened',
 
     // Product Analytics
     TAXONOMIC_FILTER_EMPTY_STATE = 'taxonomic filter empty state',
@@ -5288,6 +5360,8 @@ export enum ProductIntentContext {
     MARKETING_ANALYTICS_SETTINGS_UPDATED = 'marketing_analytics_settings_updated',
     MARKETING_ANALYTICS_DASHBOARD_INTERACTION = 'marketing_analytics_dashboard_interaction',
     MARKETING_ANALYTICS_ADS_INTEGRATION_VISITED = 'marketing_analytics_ads_integration_visited',
+    MARKETING_ANALYTICS_DATA_SOURCE_CONNECTED = 'marketing_analytics_data_source_connected',
+    MARKETING_ANALYTICS_ONBOARDING_COMPLETED = 'marketing_analytics_onboarding_completed',
 
     // Customer Analytics
     CUSTOMER_ANALYTICS_DASHBOARD_BUSINESS_MODE_CHANGED = 'customer_analytics_dashboard_business_mode_changed',
@@ -5346,3 +5420,11 @@ export type WebsiteBrowsingHistoryProdInterest =
     | 'workflows'
     | 'logs'
     | 'endpoints'
+
+export interface ReplayInactivityPeriod {
+    ts_from_s: number
+    ts_to_s?: number
+    active: boolean
+    recording_ts_from_s?: number
+    recording_ts_to_s?: number
+}

@@ -279,11 +279,14 @@ build:
         services:
             - frontend
     build:schema-json:
-        cmd: pnpm --filter=@posthog/frontend run schema:build:json
+        cmd: bin/turbo --filter=@posthog/frontend schema:build:json
         description: Generate schema.json from frontend
     build:schema-python:
-        bin_script: build-schema-python.sh
+        cmd: bin/turbo --filter=@posthog/frontend schema:build:python
         description: Generate Pydantic schema.py from schema.json with datamodel-codegen
+    internal:schema-python-script:
+        bin_script: build-schema-python.sh
+        hidden: true
     build:schema-latest-versions:
         bin_script: build-schema-latest-versions.py
         description: Extract latest schema versions and generate frontend JSON config
@@ -309,7 +312,7 @@ build:
             - clickhouse
             - django
     build:openapi-types:
-        cmd: pnpm --filter=@posthog/frontend run openapi:types
+        cmd: bin/turbo --filter=@posthog/frontend openapi:types
         description: Generate TypeScript API types from the backend OpenAPI schema
     build:openapi:
         steps:
@@ -323,15 +326,7 @@ build:
         cmd: pnpm --filter=@posthog/frontend run build:products
         description: Build products manifest from TypeScript/JSX files
 docker:
-    docker:services:up:
-        cmd: docker compose -f docker-compose.dev.yml up -d
-        description: Start Docker infrastructure services
-        services:
-            - docker
-            - postgresql
-            - clickhouse
-            - redis
-            - kafka
+    # docker:services:up is a Python command in common/hogli/devenv/cli.py that respects intent config
     docker:services:down:
         cmd: docker compose -f docker-compose.dev.yml down
         description: Stop Docker infrastructure services
@@ -468,6 +463,11 @@ db:
                   gunzip -c .postgres-backups/schema-latest.sql.gz | docker compose exec -T db psql -q -U posthog posthog
                   echo "✅ Schema restored"
             - db:migrate
+            - name: ensure-migration-defaults
+              cmd: |
+                  set -e
+                  echo "Ensuring default migration data..."
+                  python manage.py ensure_migration_defaults
         description: Fetch pre-migrated schema from CI, restore it, and run any pending migrations (creates backup first)
         prompt: true
         services:

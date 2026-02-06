@@ -14,7 +14,7 @@ use kafka_deduplicator::kafka::{
     test_utils::TestRebalanceHandler,
     types::Partition,
 };
-use kafka_deduplicator::test_utils::create_test_coordinator;
+use kafka_deduplicator::test_utils::create_test_tracker;
 
 use common_types::CapturedEvent;
 
@@ -80,7 +80,7 @@ fn create_batch_kafka_consumer(
     }
 
     // Create offset tracker with coordinator
-    let coordinator = create_test_coordinator();
+    let coordinator = create_test_tracker();
     let processor = Arc::new(TestProcessor { sender: chan_tx });
     let offset_tracker = Arc::new(OffsetTracker::new(coordinator));
 
@@ -445,7 +445,7 @@ async fn test_offset_commits_with_routing_processor() -> Result<()> {
     let processor = Arc::new(CountingProcessor::new());
 
     // Create offset tracker with coordinator
-    let coordinator = create_test_coordinator();
+    let coordinator = create_test_tracker();
     let offset_tracker = Arc::new(OffsetTracker::new(coordinator));
 
     // Create router with partition workers

@@ -1,8 +1,7 @@
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use anyhow::Result;
 use async_trait::async_trait;
-use futures::future::join_all;
 use rdkafka::TopicPartitionList;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
@@ -15,15 +14,16 @@ use crate::kafka::partition_router::{shutdown_workers, PartitionRouter};
 use crate::kafka::rebalance_handler::RebalanceHandler;
 use crate::kafka::types::Partition;
 use crate::metrics_const::{
-    PARTITION_STORE_FALLBACK_EMPTY, PARTITION_STORE_SETUP_SKIPPED, REBALANCE_ASYNC_SETUP_CANCELLED,
-    REBALANCE_CHECKPOINT_IMPORT_COUNTER, REBALANCE_RESUME_SKIPPED_NO_OWNED,
+    CHECKPOINT_IMPORT_CANCELLED_CLEANUP_COUNTER, PARTITION_STORE_FALLBACK_EMPTY,
+    PARTITION_STORE_SETUP_SKIPPED, REBALANCE_CHECKPOINT_IMPORT_COUNTER,
+    REBALANCE_PARTITION_STATE_CHANGE, REBALANCE_RESUME_SKIPPED_NO_OWNED,
 };
-use crate::rebalance_coordinator::RebalanceCoordinator;
+use crate::rebalance_tracker::RebalanceTracker;
 use crate::store_manager::StoreManager;
 
 /// Rebalance handler that coordinates store cleanup and partition workers.
 ///
-/// Partition ownership is tracked in RebalanceCoordinator (the single source of truth).
+/// Partition ownership is tracked in RebalanceTracker (the single source of truth).
 /// This handler updates ownership and uses it to determine which partitions to
 /// resume and which to cleanup.
 pub struct ProcessorRebalanceHandler<T, P>
@@ -32,14 +32,10 @@ where
     P: BatchConsumerProcessor<T> + 'static,
 {
     store_manager: Arc<StoreManager>,
-    rebalance_coordinator: Arc<RebalanceCoordinator>,
+    rebalance_tracker: Arc<RebalanceTracker>,
     router: Option<Arc<PartitionRouter<T, P>>>,
     offset_tracker: Arc<OffsetTracker>,
     checkpoint_importer: Option<Arc<CheckpointImporter>>,
-    /// Cancellation token for the current rebalance's async work.
-    /// When a new rebalance starts, the old token is cancelled and a new one is created.
-    /// This allows cancelling inflight checkpoint imports when partitions are reassigned.
-    current_rebalance_token: Mutex<CancellationToken>,
 }
 
 impl<T, P> ProcessorRebalanceHandler<T, P>
@@ -49,239 +45,213 @@ where
 {
     pub fn new(
         store_manager: Arc<StoreManager>,
-        rebalance_coordinator: Arc<RebalanceCoordinator>,
+        rebalance_tracker: Arc<RebalanceTracker>,
         offset_tracker: Arc<OffsetTracker>,
         checkpoint_importer: Option<Arc<CheckpointImporter>>,
     ) -> Self {
         Self {
             store_manager,
-            rebalance_coordinator,
+            rebalance_tracker,
             router: None,
             offset_tracker,
             checkpoint_importer,
-            current_rebalance_token: Mutex::new(CancellationToken::new()),
         }
     }
 
     pub fn with_router(
         store_manager: Arc<StoreManager>,
-        rebalance_coordinator: Arc<RebalanceCoordinator>,
+        rebalance_tracker: Arc<RebalanceTracker>,
         router: Arc<PartitionRouter<T, P>>,
         offset_tracker: Arc<OffsetTracker>,
         checkpoint_importer: Option<Arc<CheckpointImporter>>,
     ) -> Self {
         Self {
             store_manager,
-            rebalance_coordinator,
+            rebalance_tracker,
             router: Some(router),
             offset_tracker,
             checkpoint_importer,
-            current_rebalance_token: Mutex::new(CancellationToken::new()),
         }
     }
 
-    /// Set up a single partition: import checkpoint and create store.
-    /// This is called concurrently for all assigned partitions.
+    /// Spawn a task to attempt checkpoint import for a single partition.
     ///
-    /// The cancellation token is checked before expensive operations.
-    /// If cancelled (due to a new rebalance), the function returns early.
-    async fn async_setup_single_partition(
+    /// Uses PER-PARTITION cancellation token to stop S3 downloads on revoke.
+    /// Also checks is_partition_owned() as defense-in-depth.
+    ///
+    /// This task only attempts checkpoint import - fallback empty store creation
+    /// is handled centrally in async_setup_assigned_partitions after all tasks complete.
+    ///
+    /// Cleanup of partial/orphaned files is handled by:
+    /// 1. Checkpoint importer deletes existing dir at import start (handles prior attempts)
+    /// 2. Orphan directory cleaner (periodic, handles cancelled downloads)
+    fn spawn_partition_setup_task(
         &self,
-        partition: &Partition,
-        cancel_token: &CancellationToken,
-    ) {
-        // Check if cancelled before starting
-        if cancel_token.is_cancelled() {
-            metrics::counter!(
-                PARTITION_STORE_SETUP_SKIPPED,
-                "reason" => "cancelled",
-            )
-            .increment(1);
-            return;
-        }
+        partition: Partition,
+        cancel_token: CancellationToken,
+    ) -> tokio::task::JoinHandle<()> {
+        let store_manager = self.store_manager.clone();
+        let coordinator = self.rebalance_tracker.clone();
+        let importer = self.checkpoint_importer.clone();
 
-        // Skip if partition is no longer owned (was revoked during async setup)
-        if !self.rebalance_coordinator.is_partition_owned(partition) {
-            info!(
-                topic = partition.topic(),
-                partition = partition.partition_number(),
-                "Skipping store creation - partition no longer owned"
-            );
-            metrics::counter!(
-                PARTITION_STORE_SETUP_SKIPPED,
-                "reason" => "not_owned",
-            )
-            .increment(1);
-            return;
-        }
-
-        // Skip if store already exists
-        if self
-            .store_manager
-            .get(partition.topic(), partition.partition_number())
-            .is_some()
-        {
-            metrics::counter!(
-                REBALANCE_CHECKPOINT_IMPORT_COUNTER,
-                "result" => "skipped",
-                "reason" => "store_exists",
-            )
-            .increment(1);
-            return;
-        }
-
-        // Track if checkpoint import was attempted and failed (for fallback metric)
-        let mut checkpoint_failure_reason: Option<&str> = None;
-
-        // Try to import checkpoint from S3 directly into store directory
-        if let Some(ref importer) = self.checkpoint_importer {
-            // Check cancellation before starting potentially long S3 download
-            if cancel_token.is_cancelled() {
+        tokio::spawn(async move {
+            // === CHECKPOINT 1: Before starting ===
+            if cancel_token.is_cancelled() || !coordinator.is_partition_owned(&partition) {
                 metrics::counter!(
                     PARTITION_STORE_SETUP_SKIPPED,
-                    "reason" => "cancelled",
+                    "reason" => if cancel_token.is_cancelled() { "cancelled" } else { "not_owned" },
                 )
                 .increment(1);
                 return;
             }
 
-            match importer
-                .import_checkpoint_for_topic_partition_cancellable(
-                    partition.topic(),
-                    partition.partition_number(),
-                    Some(cancel_token),
-                )
-                .await
+            // Skip if store already exists (handles rapid revoke→assign race)
+            if store_manager
+                .get(partition.topic(), partition.partition_number())
+                .is_some()
             {
-                Ok(path) => {
-                    // Check cancellation after S3 download completes
-                    if cancel_token.is_cancelled() {
-                        metrics::counter!(
-                            PARTITION_STORE_SETUP_SKIPPED,
-                            "reason" => "cancelled",
-                        )
-                        .increment(1);
-                        // Clean up the downloaded files since we won't use them
-                        match tokio::fs::remove_dir_all(&path).await {
-                            Ok(_) => {}
-                            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-                            Err(e) => {
-                                warn!(
-                                    "Failed to clean up cancelled checkpoint download at {}: {}",
-                                    path.display(),
-                                    e
-                                );
-                            }
-                        }
-                        return;
-                    }
+                metrics::counter!(
+                    REBALANCE_CHECKPOINT_IMPORT_COUNTER,
+                    "result" => "skipped",
+                    "reason" => "store_exists",
+                )
+                .increment(1);
+                return;
+            }
 
-                    // OK now we need to register the new store with the manager
-                    match self.store_manager.restore_imported_store(
+            // Try checkpoint import WITH per-partition cancellation token
+            // RAII cleanup guard handles partial downloads on failure/timeout/cancel
+            // Fallback empty store creation is handled centrally at resume time.
+            if let Some(ref importer) = importer {
+                match importer
+                    .import_checkpoint_for_topic_partition_cancellable(
                         partition.topic(),
                         partition.partition_number(),
-                        &path,
-                    ) {
-                        Ok(_) => {
+                        Some(&cancel_token), // Per-partition token - stops S3 download on revoke
+                    )
+                    .await
+                {
+                    Ok(path) => {
+                        // === CHECKPOINT 2: After download completes ===
+                        // Check if we should skip registration (token cancelled or ownership lost)
+                        let is_cancelled = cancel_token.is_cancelled();
+                        let is_owned = coordinator.is_partition_owned(&partition);
+
+                        if is_cancelled || !is_owned {
+                            let reason = if is_cancelled {
+                                "cancelled"
+                            } else {
+                                "not_owned"
+                            };
                             metrics::counter!(
-                                REBALANCE_CHECKPOINT_IMPORT_COUNTER,
-                                "result" => "success",
+                                PARTITION_STORE_SETUP_SKIPPED,
+                                "reason" => reason,
                             )
                             .increment(1);
-                            info!(
-                                topic = partition.topic(),
-                                partition = partition.partition_number(),
-                                path = %path.display(),
-                                "Imported checkpoint for partition"
-                            );
 
-                            // Checkpoint restored successfully - no need for fallback
+                            // Clean up the successfully imported directory since we can't use it.
+                            // With unique Utc::now() timestamps, each import attempt creates a new path,
+                            // so there's no collision risk with a new task - it will create its own directory.
+                            if path.exists() {
+                                match std::fs::remove_dir_all(&path) {
+                                    Ok(_) => {
+                                        metrics::counter!(
+                                            CHECKPOINT_IMPORT_CANCELLED_CLEANUP_COUNTER,
+                                            "result" => "success",
+                                        )
+                                        .increment(1);
+                                        info!(
+                                            topic = partition.topic(),
+                                            partition = partition.partition_number(),
+                                            path = %path.display(),
+                                            reason = reason,
+                                            "Cleaned up unused checkpoint import"
+                                        );
+                                    }
+                                    Err(e) => {
+                                        metrics::counter!(
+                                            CHECKPOINT_IMPORT_CANCELLED_CLEANUP_COUNTER,
+                                            "result" => "failed",
+                                        )
+                                        .increment(1);
+                                        warn!(
+                                            topic = partition.topic(),
+                                            partition = partition.partition_number(),
+                                            path = %path.display(),
+                                            error = %e,
+                                            "Failed to clean up checkpoint import, orphan cleaner will handle it"
+                                        );
+                                    }
+                                }
+                            }
                             return;
                         }
-                        Err(e) => {
+
+                        // Register imported store
+                        match store_manager.restore_imported_store(
+                            partition.topic(),
+                            partition.partition_number(),
+                            &path,
+                        ) {
+                            Ok(_) => {
+                                metrics::counter!(
+                                    REBALANCE_CHECKPOINT_IMPORT_COUNTER,
+                                    "result" => "success",
+                                )
+                                .increment(1);
+                                info!(
+                                    topic = partition.topic(),
+                                    partition = partition.partition_number(),
+                                    path = %path.display(),
+                                    "Imported checkpoint for partition"
+                                );
+                            }
+                            Err(e) => {
+                                metrics::counter!(
+                                    REBALANCE_CHECKPOINT_IMPORT_COUNTER,
+                                    "result" => "failed",
+                                    "reason" => "restore",
+                                )
+                                .increment(1);
+                                error!(
+                                    topic = partition.topic(),
+                                    partition = partition.partition_number(),
+                                    error = %e,
+                                    "Failed to restore checkpoint"
+                                );
+                                // Fallback store will be created at resume time
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        // Only log if not cancelled (expected during revoke)
+                        if !cancel_token.is_cancelled() {
                             metrics::counter!(
                                 REBALANCE_CHECKPOINT_IMPORT_COUNTER,
                                 "result" => "failed",
-                                "reason" => "restore",
+                                "reason" => "import",
                             )
                             .increment(1);
-                            error!(
+                            warn!(
                                 topic = partition.topic(),
                                 partition = partition.partition_number(),
                                 error = %e,
-                                "Failed to restore checkpoint - will create empty store",
+                                "Failed to import checkpoint"
                             );
-                            checkpoint_failure_reason = Some("restore");
+                            // Fallback store will be created at resume time
                         }
                     }
                 }
-                Err(e) => {
-                    metrics::counter!(
-                        REBALANCE_CHECKPOINT_IMPORT_COUNTER,
-                        "result" => "failed",
-                        "reason" => "import",
-                    )
-                    .increment(1);
-                    warn!(
-                        topic = partition.topic(),
-                        partition = partition.partition_number(),
-                        error = %e,
-                        "Failed to import checkpoint - will create empty store"
-                    );
-                    checkpoint_failure_reason = Some("import");
-                }
+            } else {
+                metrics::counter!(
+                    REBALANCE_CHECKPOINT_IMPORT_COUNTER,
+                    "result" => "skipped",
+                    "reason" => "disabled",
+                )
+                .increment(1);
+                // Fallback store will be created at resume time
             }
-        } else {
-            metrics::counter!(
-                REBALANCE_CHECKPOINT_IMPORT_COUNTER,
-                "result" => "skipped",
-                "reason" => "disabled",
-            )
-            .increment(1);
-        }
-
-        // Check cancellation before creating store
-        if cancel_token.is_cancelled() {
-            metrics::counter!(
-                PARTITION_STORE_SETUP_SKIPPED,
-                "reason" => "cancelled",
-            )
-            .increment(1);
-            return;
-        }
-
-        // Create the store (empty if checkpoint import failed)
-        match self
-            .store_manager
-            .get_or_create_for_rebalance(partition.topic(), partition.partition_number())
-            .await
-        {
-            Ok(_) => {
-                // Track if this is a fallback to empty store after checkpoint failure
-                if let Some(reason) = checkpoint_failure_reason {
-                    metrics::counter!(
-                        PARTITION_STORE_FALLBACK_EMPTY,
-                        "checkpoint_failure_reason" => reason,
-                    )
-                    .increment(1);
-                    warn!(
-                        topic = partition.topic(),
-                        partition = partition.partition_number(),
-                        checkpoint_failure_reason = reason,
-                        "Created empty store after checkpoint failure - deduplication quality degraded"
-                    );
-                }
-            }
-            Err(e) => {
-                error!(
-                    topic = partition.topic(),
-                    partition = partition.partition_number(),
-                    error = %e,
-                    "Failed to create store - processor will retry on first message"
-                );
-                // Don't fail - the processor will retry on first message
-            }
-        }
+        })
     }
 }
 
@@ -309,18 +279,20 @@ where
             "Setting up assigned partitions (sync)"
         );
 
-        // Cancel any inflight async work from a previous rebalance.
-        // This prevents wasted work when partitions are rapidly reassigned.
-        {
-            let mut token = self.current_rebalance_token.lock().unwrap();
-            token.cancel();
-            // Create a new token for this rebalance
-            *token = CancellationToken::new();
+        // Record per-partition assignment metrics for observability
+        for partition in &partition_infos {
+            metrics::counter!(
+                REBALANCE_PARTITION_STATE_CHANGE,
+                "topic" => partition.topic().to_string(),
+                "partition" => partition.partition_number().to_string(),
+                "op" => "assign",
+            )
+            .increment(1);
         }
 
-        // Add to owned partitions (coordinator is the source of truth)
+        // Add to owned partitions FIRST (coordinator is the source of truth)
         // If partition was revoked then re-assigned, this adds it back
-        self.rebalance_coordinator
+        self.rebalance_tracker
             .add_owned_partitions(&partition_infos);
 
         // Create partition workers BEFORE messages can arrive
@@ -336,7 +308,10 @@ where
 
         // Increment rebalancing counter SYNCHRONOUSLY before async work is queued
         // This ensures no gap where orphan cleanup could run
-        self.rebalance_coordinator.start_rebalancing();
+        self.rebalance_tracker.start_rebalancing();
+
+        // NOTE: Per-partition setup tasks are spawned in async_setup_assigned_partitions,
+        // not here (sync callback can't do async work like checkpoint import)
     }
 
     fn setup_revoked_partitions(&self, partitions: &TopicPartitionList) {
@@ -352,10 +327,26 @@ where
             "Setting up revoked partitions (sync)"
         );
 
+        // Record per-partition revocation metrics for observability
+        for partition in &partition_infos {
+            metrics::counter!(
+                REBALANCE_PARTITION_STATE_CHANGE,
+                "topic" => partition.topic().to_string(),
+                "partition" => partition.partition_number().to_string(),
+                "op" => "revoke",
+            )
+            .increment(1);
+        }
+
         // Remove from owned partitions (coordinator is the source of truth)
         // This happens BEFORE async cleanup, so cleanup can check ownership
-        self.rebalance_coordinator
+        self.rebalance_tracker
             .remove_owned_partitions(&partition_infos);
+
+        // CANCEL and remove setup tasks for revoked partitions
+        // This immediately cancels any in-flight S3 downloads to save cost/time
+        // Tasks will also check is_partition_owned() as a backup
+        self.rebalance_tracker.cancel_setup_tasks(&partition_infos);
 
         // Unregister stores from DashMap BEFORE revocation completes
         // This prevents new store creation during shutdown (Step 1 of two-step cleanup)
@@ -379,86 +370,112 @@ where
 
     async fn async_setup_assigned_partitions(
         &self,
-        partitions: &TopicPartitionList,
+        _partitions: &TopicPartitionList, // Ignored - we use owned_partitions from coordinator
         consumer_command_tx: &ConsumerCommandSender,
     ) -> Result<()> {
-        // Create guard that will decrement rebalancing counter on drop (even on panic)
-        // This ensures cleanup happens even if this function panics or is cancelled
-        let _rebalancing_guard = self.rebalance_coordinator.rebalancing_guard();
-
-        // Get a clone of the cancellation token for this rebalance.
-        // If a new rebalance starts, this token will be cancelled.
-        let cancel_token = {
-            let token = self.current_rebalance_token.lock().unwrap();
-            token.clone()
-        };
-
-        let partition_infos: Vec<Partition> = partitions
-            .elements()
-            .into_iter()
-            .map(Partition::from)
-            .collect();
+        // Get ALL owned partitions (not just incremental from this rebalance)
+        // This handles retained partitions across overlapping rebalances
+        let owned_partitions = self.rebalance_tracker.get_owned_partitions();
 
         debug!(
-            incremental_partitions = partition_infos.len(),
-            current_owned = self.rebalance_coordinator.get_owned_partitions().len(),
-            is_cancelled = cancel_token.is_cancelled(),
-            "Async setup starting"
-        );
-
-        // If cancelled before starting, return early - new rebalance will handle everything
-        // This is safe because:
-        // 1. New rebalance's sync callback already updated ownership
-        // 2. New rebalance's async_setup will resume ALL owned partitions
-        if cancel_token.is_cancelled() {
-            info!("Async setup cancelled before starting - new rebalance will handle resume");
-            metrics::counter!(REBALANCE_ASYNC_SETUP_CANCELLED).increment(1);
-            return Ok(());
-        }
-
-        // Pre-create stores for assigned partitions in parallel (scatter)
-        // Partitions are paused, so no messages will be delivered until we resume
-        let setup_futures = partition_infos
-            .iter()
-            .map(|p| self.async_setup_single_partition(p, &cancel_token));
-        join_all(setup_futures).await;
-
-        // Check if cancelled during setup
-        if cancel_token.is_cancelled() {
-            info!("Async setup cancelled during execution - new rebalance will handle resume");
-            metrics::counter!(REBALANCE_ASYNC_SETUP_CANCELLED).increment(1);
-            return Ok(());
-        }
-
-        // Get ALL currently owned partitions from the coordinator
-        // This includes partitions from previous rebalances that weren't revoked
-        // (the key fix for retained partitions across rebalances)
-        let owned_partitions = self.rebalance_coordinator.get_owned_partitions();
-
-        // If no owned partitions, skip sending Resume
-        if owned_partitions.is_empty() {
-            info!("No owned partitions to resume");
-            metrics::counter!(REBALANCE_RESUME_SKIPPED_NO_OWNED).increment(1);
-            return Ok(());
-        }
-
-        // Build TopicPartitionList from ALL owned partitions
-        let mut resume_tpl = TopicPartitionList::new();
-        for p in &owned_partitions {
-            resume_tpl.add_partition(p.topic(), p.partition_number());
-        }
-
-        info!(
             owned_count = owned_partitions.len(),
-            "Resuming all owned partitions"
+            "Async setup starting - spawning tasks for owned partitions"
         );
 
-        if let Err(e) = consumer_command_tx.send(ConsumerCommand::Resume(resume_tpl)) {
-            error!("Failed to send resume command after store setup: {}", e);
-            return Err(anyhow::anyhow!("Failed to send resume command: {}", e));
+        // Spawn setup tasks for partitions that don't have one yet.
+        // Uses atomic two-phase registration to prevent race conditions where overlapping
+        // rebalances could both spawn tasks for the same partition.
+        for partition in &owned_partitions {
+            let cancel_token = CancellationToken::new();
+            // Atomically claim the partition - if another rebalance already claimed it, skip
+            if self
+                .rebalance_tracker
+                .try_claim_partition_setup(partition, cancel_token.clone())
+            {
+                // We claimed it - now spawn the task and finalize registration
+                let handle =
+                    self.spawn_partition_setup_task(partition.clone(), cancel_token.clone());
+                self.rebalance_tracker
+                    .finalize_partition_setup(partition, handle);
+            }
+            // If claim failed, another rebalance already owns this partition's setup
         }
 
-        // Guard automatically decrements rebalancing counter when dropped here
+        // Wait for ALL owned partition tasks to complete
+        // This ensures stores are ready before we resume
+        for partition in &owned_partitions {
+            if let Some(handle) = self.rebalance_tracker.get_setup_task(partition) {
+                let _ = handle.await; // Ignore panic result - task handles its own errors
+                self.rebalance_tracker.complete_setup_task(partition);
+            }
+        }
+
+        // Create fallback stores for any owned partitions that don't have a registered store.
+        // This handles cases where checkpoint import failed, was cancelled, or was disabled.
+        // Centralizing this here ensures consistent logging/metrics and catches edge cases.
+        let current_owned = self.rebalance_tracker.get_owned_partitions();
+        for partition in &current_owned {
+            if self
+                .store_manager
+                .get(partition.topic(), partition.partition_number())
+                .is_none()
+            {
+                match self
+                    .store_manager
+                    .get_or_create_for_rebalance(partition.topic(), partition.partition_number())
+                    .await
+                {
+                    Ok(_) => {
+                        metrics::counter!(PARTITION_STORE_FALLBACK_EMPTY, "reason" => "missing_at_resume")
+                            .increment(1);
+                        warn!(
+                            topic = partition.topic(),
+                            partition = partition.partition_number(),
+                            "Created fallback empty store - deduplication quality may be degraded"
+                        );
+                    }
+                    Err(e) => {
+                        error!(
+                            topic = partition.topic(),
+                            partition = partition.partition_number(),
+                            error = %e,
+                            "Failed to create fallback store - processor will retry on first message"
+                        );
+                    }
+                }
+            }
+        }
+
+        // Decrement rebalancing counter
+        self.rebalance_tracker.finish_rebalancing();
+
+        // Only send Resume if this is the LAST rebalance (counter == 0)
+        // This ensures all overlapping rebalances complete before resuming
+        if !self.rebalance_tracker.is_rebalancing() {
+            let owned = self.rebalance_tracker.get_owned_partitions();
+            if owned.is_empty() {
+                info!("No owned partitions to resume");
+                metrics::counter!(REBALANCE_RESUME_SKIPPED_NO_OWNED).increment(1);
+            } else {
+                let mut resume_tpl = TopicPartitionList::new();
+                for p in &owned {
+                    resume_tpl.add_partition(p.topic(), p.partition_number());
+                }
+                info!(
+                    owned_count = owned.len(),
+                    "Resuming all owned partitions (all rebalances complete)"
+                );
+                if let Err(e) = consumer_command_tx.send(ConsumerCommand::Resume(resume_tpl)) {
+                    error!("Failed to send resume command after store setup: {}", e);
+                    return Err(anyhow::anyhow!("Failed to send resume command: {}", e));
+                }
+            }
+        } else {
+            debug!(
+                "Rebalance async setup complete, but other rebalances still in progress - skipping Resume"
+            );
+        }
+
         Ok(())
     }
 
@@ -472,7 +489,7 @@ where
         // Only clean up partitions that are NOT currently owned
         // If a partition was re-assigned, it's now owned and shouldn't be cleaned up
         let partitions_to_cleanup = self
-            .rebalance_coordinator
+            .rebalance_tracker
             .get_unowned_partitions(&partition_infos);
 
         let skipped_count = partition_infos.len() - partitions_to_cleanup.len();
@@ -510,41 +527,29 @@ where
             self.offset_tracker.clear_partition(partition);
         }
 
-        // Now safe to delete files - workers are shut down (Step 2 of two-step cleanup)
-        for partition in &partitions_to_cleanup {
-            if let Err(e) = self
-                .store_manager
-                .cleanup_store_files(partition.topic(), partition.partition_number())
-            {
-                error!(
-                    topic = partition.topic(),
-                    partition = partition.partition_number(),
-                    error = %e,
-                    "Failed to cleanup files for revoked partition"
-                );
-            }
-        }
+        // File cleanup is handled by the orphan directory cleaner, not here.
+        // This simplifies the cleanup flow and avoids race conditions with rapid revoke→assign.
 
         info!(
             cleaned_count = partitions_to_cleanup.len(),
-            "Revoked partition cleanup completed"
+            "Revoked partition cleanup completed (files will be cleaned by orphan cleaner)"
         );
 
         Ok(())
     }
 
     async fn on_pre_rebalance(&self) -> Result<()> {
-        // Note: rebalance_coordinator.start_rebalancing() is called in setup_assigned_partitions()
+        // Note: rebalance_tracker.start_rebalancing() is called in setup_assigned_partitions()
         // (sync callback) to ensure no gap before async work is queued.
-        // The rebalance_coordinator's counter is the single source of truth.
+        // The rebalance_tracker's counter is the single source of truth.
         Ok(())
     }
 
     async fn on_post_rebalance(&self) -> Result<()> {
         info!("Post-rebalance: Sync callbacks complete, async cleanup may continue");
-        // Note: rebalance_coordinator counter is decremented via RebalancingGuard
+        // Note: rebalance_tracker counter is decremented via RebalancingGuard
         // at the end of async_setup_assigned_partitions (ensures panic safety).
-        // The rebalance_coordinator's rebalancing counter is the single source of truth.
+        // The rebalance_tracker's rebalancing counter is the single source of truth.
 
         // Log current stats
         let store_count = self.store_manager.stores().len();
@@ -565,7 +570,7 @@ mod tests {
     use crate::kafka::offset_tracker::OffsetTracker;
     use crate::kafka::partition_router::PartitionRouterConfig;
     use crate::store::DeduplicationStoreConfig;
-    use crate::test_utils::create_test_coordinator;
+    use crate::test_utils::create_test_tracker;
     use rdkafka::Offset;
     use tempfile::TempDir;
 
@@ -585,7 +590,7 @@ mod tests {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1000,
         };
-        let coordinator = create_test_coordinator();
+        let coordinator = create_test_tracker();
         let store_manager = Arc::new(StoreManager::new(store_config, coordinator.clone()));
         let offset_tracker = Arc::new(OffsetTracker::new(coordinator.clone()));
 
@@ -623,7 +628,7 @@ mod tests {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1000,
         };
-        let coordinator = create_test_coordinator();
+        let coordinator = create_test_tracker();
         let store_manager = Arc::new(StoreManager::new(store_config, coordinator.clone()));
         let processor = Arc::new(TestProcessor);
         let offset_tracker = Arc::new(OffsetTracker::new(coordinator.clone()));
@@ -673,21 +678,18 @@ mod tests {
 
     #[tokio::test]
     async fn test_rebalance_removes_stores_before_workers_shutdown() {
-        // This test verifies the fix for the race condition where:
-        // 1. Worker is processing messages during shutdown
-        // 2. Worker calls store_manager.get_or_create() which would create a new store
-        // 3. store_manager.remove() deletes the directory
-        // 4. Worker's write fails with "No such file or directory"
-        //
-        // The fix ensures stores are removed from the map (in setup_revoked_partitions)
+        // This test verifies that stores are removed from the map (in setup_revoked_partitions)
         // BEFORE workers are shut down (in cleanup_revoked_partitions).
+        //
+        // Note: File cleanup is now handled by the orphan directory cleaner, NOT during revoke.
+        // This prevents race conditions and simplifies the cleanup flow.
 
         let temp_dir = TempDir::new().unwrap();
         let store_config = DeduplicationStoreConfig {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1000,
         };
-        let coordinator = create_test_coordinator();
+        let coordinator = create_test_tracker();
         let store_manager = Arc::new(StoreManager::new(store_config, coordinator.clone()));
         let processor = Arc::new(TestProcessor);
         let offset_tracker = Arc::new(OffsetTracker::new(coordinator.clone()));
@@ -724,7 +726,7 @@ mod tests {
         // Worker still exists at this point
         assert_eq!(router.worker_count(), 1);
 
-        // Async cleanup shuts down workers and deletes files
+        // Async cleanup shuts down workers (but does NOT delete files - orphan cleaner handles that)
         handler
             .cleanup_revoked_partitions(&partitions)
             .await
@@ -732,14 +734,15 @@ mod tests {
 
         // After cleanup:
         // - Worker should be shut down
-        // - Files should be deleted
+        // - Store should be unregistered from map
+        // - Files still exist (will be cleaned by orphan cleaner)
         assert_eq!(router.worker_count(), 0);
 
-        // Verify files are deleted
+        // Files are NOT immediately deleted - orphan cleaner handles this
         let partition_dir = temp_dir.path().join("test-topic_0");
         assert!(
-            !partition_dir.exists(),
-            "Partition directory should be deleted after revocation"
+            partition_dir.exists(),
+            "Partition directory still exists (orphan cleaner will handle cleanup)"
         );
     }
 
@@ -754,7 +757,7 @@ mod tests {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1000,
         };
-        let coordinator = create_test_coordinator();
+        let coordinator = create_test_tracker();
         let store_manager = Arc::new(StoreManager::new(store_config, coordinator));
 
         // Create a store
@@ -790,7 +793,7 @@ mod tests {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1000,
         };
-        let coordinator = create_test_coordinator();
+        let coordinator = create_test_tracker();
         let store_manager = Arc::new(StoreManager::new(store_config, coordinator.clone()));
         let processor = Arc::new(TestProcessor);
         let offset_tracker = Arc::new(OffsetTracker::new(coordinator.clone()));
@@ -854,7 +857,7 @@ mod tests {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1000,
         };
-        let coordinator = create_test_coordinator();
+        let coordinator = create_test_tracker();
         let store_manager = Arc::new(StoreManager::new(store_config, coordinator));
 
         // Create a store (this creates the directory)
@@ -884,29 +887,24 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_cancellation_token_cancelled_on_new_rebalance() {
-        // Test that calling setup_assigned_partitions cancels the previous token
+    async fn test_per_partition_task_cancellation() {
+        // Test that revoke cancels the per-partition setup task
         let temp_dir = TempDir::new().unwrap();
         let store_config = DeduplicationStoreConfig {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1000,
         };
-        let coordinator = create_test_coordinator();
+        let coordinator = create_test_tracker();
         let store_manager = Arc::new(StoreManager::new(store_config, coordinator.clone()));
         let offset_tracker = Arc::new(OffsetTracker::new(coordinator.clone()));
 
         let handler: ProcessorRebalanceHandler<String, TestProcessor> =
-            ProcessorRebalanceHandler::new(store_manager, coordinator, offset_tracker, None);
-
-        // Get initial token
-        let initial_token = {
-            let token = handler.current_rebalance_token.lock().unwrap();
-            token.clone()
-        };
-        assert!(
-            !initial_token.is_cancelled(),
-            "Initial token should not be cancelled"
-        );
+            ProcessorRebalanceHandler::new(
+                store_manager,
+                coordinator.clone(),
+                offset_tracker,
+                None,
+            );
 
         // First assignment
         let mut partitions = rdkafka::TopicPartitionList::new();
@@ -916,27 +914,20 @@ mod tests {
 
         handler.setup_assigned_partitions(&partitions);
 
-        // Initial token should now be cancelled
+        // Verify partition is owned
+        let p0 = Partition::new("test-topic".to_string(), 0);
         assert!(
-            initial_token.is_cancelled(),
-            "Initial token should be cancelled after new rebalance"
+            coordinator.is_partition_owned(&p0),
+            "Partition should be owned after assign"
         );
 
-        // Get new token
-        let new_token = {
-            let token = handler.current_rebalance_token.lock().unwrap();
-            token.clone()
-        };
-        assert!(
-            !new_token.is_cancelled(),
-            "New token should not be cancelled"
-        );
+        // Revoke should remove ownership and cancel any setup tasks
+        handler.setup_revoked_partitions(&partitions);
 
-        // Another rebalance should cancel the new token
-        handler.setup_assigned_partitions(&partitions);
+        // Verify partition is no longer owned
         assert!(
-            new_token.is_cancelled(),
-            "New token should be cancelled after another rebalance"
+            !coordinator.is_partition_owned(&p0),
+            "Partition should not be owned after revoke"
         );
     }
 
@@ -948,7 +939,7 @@ mod tests {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1000,
         };
-        let coordinator = create_test_coordinator();
+        let coordinator = create_test_tracker();
         let store_manager = Arc::new(StoreManager::new(store_config, coordinator.clone()));
         let offset_tracker = Arc::new(OffsetTracker::new(coordinator.clone()));
 
@@ -1001,50 +992,81 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_cancelled_async_setup_does_not_resume() {
-        // Test that async_setup_assigned_partitions does NOT send Resume when cancelled.
-        // The new rebalance will handle resuming all owned partitions.
+    async fn test_overlapping_rebalances_only_last_sends_resume() {
+        // Test that when multiple rebalances overlap, only the last one sends Resume.
+        // This tests the counter-based coordination.
         let temp_dir = TempDir::new().unwrap();
         let store_config = DeduplicationStoreConfig {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1000,
         };
-        let coordinator = create_test_coordinator();
+        let coordinator = create_test_tracker();
         let store_manager = Arc::new(StoreManager::new(store_config, coordinator.clone()));
         let offset_tracker = Arc::new(OffsetTracker::new(coordinator.clone()));
 
         let handler: ProcessorRebalanceHandler<String, TestProcessor> =
-            ProcessorRebalanceHandler::new(store_manager, coordinator, offset_tracker, None);
+            ProcessorRebalanceHandler::new(
+                store_manager,
+                coordinator.clone(),
+                offset_tracker,
+                None,
+            );
 
         // Create command channel
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
 
-        // First do sync setup
-        let mut partitions = rdkafka::TopicPartitionList::new();
-        partitions
+        // First rebalance - assign partition 0
+        let mut partitions_a = rdkafka::TopicPartitionList::new();
+        partitions_a
             .add_partition_offset("test-topic", 0, Offset::Beginning)
             .unwrap();
+        handler.setup_assigned_partitions(&partitions_a);
 
-        handler.setup_assigned_partitions(&partitions);
+        // Second rebalance - assign partition 1 (overlapping, before A's async completes)
+        let mut partitions_b = rdkafka::TopicPartitionList::new();
+        partitions_b
+            .add_partition_offset("test-topic", 1, Offset::Beginning)
+            .unwrap();
+        handler.setup_assigned_partitions(&partitions_b);
 
-        // Cancel the token (simulating a new rebalance starting)
-        let current_token = {
-            let token = handler.current_rebalance_token.lock().unwrap();
-            token.clone()
-        };
-        current_token.cancel();
+        // Counter should be 2 (two rebalances in progress)
+        assert!(
+            coordinator.is_rebalancing(),
+            "Should be rebalancing with counter > 0"
+        );
 
-        // Async setup should return early without sending Resume
-        // The new rebalance will handle resuming all owned partitions
+        // First async setup completes - should NOT send Resume (counter still > 0)
         handler
-            .async_setup_assigned_partitions(&partitions, &tx)
+            .async_setup_assigned_partitions(&partitions_a, &tx)
             .await
             .unwrap();
 
-        // Should NOT have received a Resume command (cancelled setup defers to new rebalance)
+        // No Resume yet (counter is still 1)
+        // Give a moment for any potential Resume to be sent
+        tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+
+        // Counter should be 1 now
+        assert!(
+            coordinator.is_rebalancing(),
+            "Should still be rebalancing (one more to go)"
+        );
+
+        // Second async setup completes - should send Resume (counter == 0)
+        handler
+            .async_setup_assigned_partitions(&partitions_b, &tx)
+            .await
+            .unwrap();
+
+        // Should have received exactly one Resume command (from the last rebalance)
+        let cmd = rx.try_recv().expect("Should have received Resume command");
+        let ConsumerCommand::Resume(tpl) = cmd;
+        // Should resume both partitions
+        assert_eq!(tpl.count(), 2, "Should resume all owned partitions");
+
+        // No more commands
         assert!(
             rx.try_recv().is_err(),
-            "Cancelled setup should NOT send Resume - new rebalance handles it"
+            "Should only receive one Resume command"
         );
     }
 
@@ -1059,7 +1081,7 @@ mod tests {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1000,
         };
-        let coordinator = create_test_coordinator();
+        let coordinator = create_test_tracker();
         let store_manager = Arc::new(StoreManager::new(store_config, coordinator.clone()));
         let offset_tracker = Arc::new(OffsetTracker::new(coordinator.clone()));
 
@@ -1158,7 +1180,7 @@ mod tests {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1000,
         };
-        let coordinator = create_test_coordinator();
+        let coordinator = create_test_tracker();
         let store_manager = Arc::new(StoreManager::new(store_config, coordinator.clone()));
         let offset_tracker = Arc::new(OffsetTracker::new(coordinator.clone()));
 
@@ -1208,7 +1230,7 @@ mod tests {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1000,
         };
-        let coordinator = create_test_coordinator();
+        let coordinator = create_test_tracker();
         let store_manager = Arc::new(StoreManager::new(store_config, coordinator.clone()));
         let offset_tracker = Arc::new(OffsetTracker::new(coordinator.clone()));
 
@@ -1287,7 +1309,7 @@ mod tests {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1000,
         };
-        let coordinator = create_test_coordinator();
+        let coordinator = create_test_tracker();
         let store_manager = Arc::new(StoreManager::new(store_config, coordinator.clone()));
         let offset_tracker = Arc::new(OffsetTracker::new(coordinator.clone()));
 
@@ -1394,7 +1416,7 @@ mod tests {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1000,
         };
-        let coordinator = create_test_coordinator();
+        let coordinator = create_test_tracker();
         let store_manager = Arc::new(StoreManager::new(store_config, coordinator.clone()));
         let offset_tracker = Arc::new(OffsetTracker::new(coordinator.clone()));
 

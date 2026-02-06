@@ -193,9 +193,9 @@ export const OutputTypeEnumApi = {
  * `anthropic` - Anthropic
  * `gemini` - Gemini
  */
-export type Provider53dEnumApi = (typeof Provider53dEnumApi)[keyof typeof Provider53dEnumApi]
+export type ProviderEnumApi = (typeof ProviderEnumApi)[keyof typeof ProviderEnumApi]
 
-export const Provider53dEnumApi = {
+export const ProviderEnumApi = {
     openai: 'openai',
     anthropic: 'anthropic',
     gemini: 'gemini',
@@ -205,7 +205,7 @@ export const Provider53dEnumApi = {
  * Nested serializer for model configuration.
  */
 export interface ModelConfigurationApi {
-    provider: Provider53dEnumApi
+    provider: ProviderEnumApi
     /** @maxLength 100 */
     model: string
     /** @nullable */
@@ -371,6 +371,67 @@ export interface ClusteringRunRequestApi {
 }
 
 /**
+ * * `all` - all
+ * `pass` - pass
+ * `fail` - fail
+ * `na` - na
+ */
+export type FilterEnumApi = (typeof FilterEnumApi)[keyof typeof FilterEnumApi]
+
+export const FilterEnumApi = {
+    all: 'all',
+    pass: 'pass',
+    fail: 'fail',
+    na: 'na',
+} as const
+
+/**
+ * Request serializer for evaluation summary - accepts IDs only, fetches data server-side.
+ */
+export interface EvaluationSummaryRequestApi {
+    /** UUID of the evaluation config to summarize */
+    evaluation_id: string
+    /** Filter type to apply ('all', 'pass', 'fail', or 'na')
+
+* `all` - all
+* `pass` - pass
+* `fail` - fail
+* `na` - na */
+    filter?: FilterEnumApi
+    /**
+     * Optional: specific generation IDs to include in summary (max 250)
+     * @maxItems 250
+     */
+    generation_ids?: string[]
+    /** If true, bypass cache and generate a fresh summary */
+    force_refresh?: boolean
+}
+
+export interface EvaluationPatternApi {
+    title: string
+    description: string
+    frequency: string
+    example_reasoning: string
+    example_generation_ids: string[]
+}
+
+export interface EvaluationSummaryStatisticsApi {
+    total_analyzed: number
+    pass_count: number
+    fail_count: number
+    na_count: number
+}
+
+export interface EvaluationSummaryResponseApi {
+    overall_assessment: string
+    pass_patterns: EvaluationPatternApi[]
+    fail_patterns: EvaluationPatternApi[]
+    na_patterns: EvaluationPatternApi[]
+    recommendations: string[]
+    statistics: EvaluationSummaryStatisticsApi
+}
+
+/**
  * * `unknown` - Unknown
  * `ok` - Ok
  * `invalid` - Invalid
@@ -387,7 +448,7 @@ export const LLMProviderKeyStateEnumApi = {
 
 export interface LLMProviderKeyApi {
     readonly id: string
-    provider: Provider53dEnumApi
+    provider: ProviderEnumApi
     /** @maxLength 255 */
     name: string
     readonly state: LLMProviderKeyStateEnumApi
@@ -413,7 +474,7 @@ export interface PaginatedLLMProviderKeyListApi {
 
 export interface PatchedLLMProviderKeyApi {
     readonly id?: string
-    provider?: Provider53dEnumApi
+    provider?: ProviderEnumApi
     /** @maxLength 255 */
     name?: string
     readonly state?: LLMProviderKeyStateEnumApi
@@ -450,17 +511,6 @@ export const ModeEnumApi = {
     detailed: 'detailed',
 } as const
 
-/**
- * * `openai` - openai
- * `gemini` - gemini
- */
-export type Provider1b4EnumApi = (typeof Provider1b4EnumApi)[keyof typeof Provider1b4EnumApi]
-
-export const Provider1b4EnumApi = {
-    openai: 'openai',
-    gemini: 'gemini',
-} as const
-
 export interface SummarizeRequestApi {
     /** Type of entity to summarize
 
@@ -476,11 +526,6 @@ export interface SummarizeRequestApi {
     data: unknown
     /** Force regenerate summary, bypassing cache */
     force_refresh?: boolean
-    /** LLM provider to use (defaults to 'openai')
-
-* `openai` - openai
-* `gemini` - gemini */
-    provider?: Provider1b4EnumApi | NullEnumApi | null
     /**
      * LLM model to use (defaults based on provider)
      * @nullable
@@ -529,13 +574,8 @@ export interface BatchCheckRequestApi {
 * `minimal` - minimal
 * `detailed` - detailed */
     mode?: ModeEnumApi
-    /** LLM provider to check for (defaults to 'openai')
-
-* `openai` - openai
-* `gemini` - gemini */
-    provider?: Provider1b4EnumApi | NullEnumApi | null
     /**
-     * LLM model to check for (defaults based on provider)
+     * LLM model used for cached summaries
      * @nullable
      */
     model?: string | null
@@ -716,6 +756,14 @@ export const EvaluationsListOrderByItem = {
     name: 'name',
     updated_at: 'updated_at',
 } as const
+
+export type LlmAnalyticsEvaluationSummaryCreate400 = { [key: string]: unknown }
+
+export type LlmAnalyticsEvaluationSummaryCreate403 = { [key: string]: unknown }
+
+export type LlmAnalyticsEvaluationSummaryCreate404 = { [key: string]: unknown }
+
+export type LlmAnalyticsEvaluationSummaryCreate500 = { [key: string]: unknown }
 
 export type LlmAnalyticsProviderKeysListParams = {
     /**

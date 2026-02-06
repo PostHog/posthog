@@ -9,6 +9,11 @@ import { cn } from 'lib/utils/css-classes'
 import { ScrollDepthCanvas } from './ScrollDepthCanvas'
 import { useMousePosition } from './useMousePosition'
 
+const HEATMAP_CONFIG = {
+    minOpacity: 0,
+    maxOpacity: 0.8,
+}
+
 function HeatmapMouseInfo({
     heatmapJsRef,
     containerRef,
@@ -66,9 +71,16 @@ export function HeatmapCanvas({
     context: 'in-app' | 'toolbar'
     exportToken?: string
 }): JSX.Element | null {
-    const { heatmapJsData, heatmapFilters, windowWidth, windowHeight, heatmapColorPalette, isReady } = useValues(
-        heatmapDataLogic({ context, exportToken })
-    )
+    const {
+        heatmapJsData,
+        heatmapFilters,
+        windowWidth,
+        windowHeight,
+        heatmapColorPalette,
+        isReady,
+        heightOverride,
+        heatmapFixedPositionMode,
+    } = useValues(heatmapDataLogic({ context, exportToken }))
 
     const heatmapsJsRef = useRef<HeatmapJS<'value', 'x', 'y'>>()
     const heatmapsJsContainerRef = useRef<HTMLDivElement | null>()
@@ -88,11 +100,6 @@ export function HeatmapCanvas({
         }
     }, [heatmapColorPalette])
 
-    const heatmapConfig = {
-        minOpacity: 0,
-        maxOpacity: 0.8,
-    }
-
     const updateHeatmapData = useCallback((): void => {
         try {
             heatmapsJsRef.current?.setData(heatmapJsData)
@@ -101,20 +108,23 @@ export function HeatmapCanvas({
         }
     }, [heatmapJsData])
 
-    const setHeatmapContainer = useCallback((container: HTMLDivElement | null): void => {
-        heatmapsJsContainerRef.current = container
-        if (!container) {
-            return
-        }
+    const setHeatmapContainer = useCallback(
+        (container: HTMLDivElement | null): void => {
+            heatmapsJsContainerRef.current = container
+            if (!container) {
+                return
+            }
 
-        heatmapsJsRef.current = heatmapsJs.create({
-            ...heatmapConfig,
-            container,
-            gradient: heatmapJSColorGradient,
-        })
+            heatmapsJsRef.current = heatmapsJs.create({
+                ...HEATMAP_CONFIG,
+                container,
+                gradient: heatmapJSColorGradient,
+            })
 
-        updateHeatmapData()
-    }, []) // oxlint-disable-line react-hooks/exhaustive-deps
+            updateHeatmapData()
+        },
+        [updateHeatmapData, heatmapJSColorGradient] // oxlint-disable-line react-hooks/exhaustive-deps
+    )
 
     useEffect(() => {
         updateHeatmapData()
@@ -126,7 +136,7 @@ export function HeatmapCanvas({
         }
 
         heatmapsJsRef.current?.configure({
-            ...heatmapConfig, // oxlint-disable-line react-hooks/exhaustive-deps
+            ...HEATMAP_CONFIG,
             container: heatmapsJsContainerRef.current,
             gradient: heatmapJSColorGradient,
         })
@@ -156,9 +166,13 @@ export function HeatmapCanvas({
             )}
             data-attr="heatmap-canvas"
         >
-            {/* NOTE: We key on the window dimensions which triggers a recreation of the canvas except when it's an export */}
+            {/* NOTE: We key on the window dimensions and fixed position mode which triggers a recreation of the canvas */}
             <div
-                key={exportToken ? 'export-heatmap' : `${widthOverride ?? windowWidth}x${windowHeight}`}
+                key={
+                    exportToken
+                        ? 'export-heatmap'
+                        : `${widthOverride ?? windowWidth}x${windowHeight}x${heightOverride}x${heatmapFixedPositionMode}`
+                }
                 className="absolute inset-0"
                 ref={setHeatmapContainer}
             />

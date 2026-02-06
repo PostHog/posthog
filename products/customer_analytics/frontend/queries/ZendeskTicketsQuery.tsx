@@ -107,7 +107,10 @@ export const zendeskGroupTicketsQuery = ({
 export const useZendeskTicketsQueryContext = (): QueryContext => {
     return {
         columns: {
-            id: { ...DEFAULT_COLUMN_CONFIG, render: ({ value }) => <span className="ph-no-capture">{value}</span> },
+            id: {
+                ...DEFAULT_COLUMN_CONFIG,
+                render: ({ value }) => <span className="ph-no-capture">{String(value)}</span>,
+            },
             status: DEFAULT_COLUMN_CONFIG,
             priority: DEFAULT_COLUMN_CONFIG,
             created_at: { ...DEFAULT_COLUMN_CONFIG, title: 'created' },

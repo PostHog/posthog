@@ -5,7 +5,10 @@ import { useDebouncedCallback } from 'use-debounce'
 import { IconEllipsis, IconPencil, IconX } from '@posthog/icons'
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
+import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
+import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { ProductSetupButton } from 'lib/components/ProductSetup'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { ButtonPrimitive, buttonPrimitiveVariants } from 'lib/ui/Button/ButtonPrimitives'
 import { TextareaPrimitive } from 'lib/ui/TextareaPrimitive/TextareaPrimitive'
@@ -13,9 +16,10 @@ import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/Wrapping
 import { cn } from 'lib/utils/css-classes'
 
 import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { FileSystemIconType } from '~/queries/schema/schema-general'
-import { Breadcrumb, FileSystemIconColor } from '~/types'
+import { Breadcrumb, FileSystemIconColor, SidePanelTab } from '~/types'
 
 import '../../panel-layout/ProjectTree/defaultTree'
 import { ProductIconWrapper, iconForType } from '../../panel-layout/ProjectTree/defaultTree'
@@ -26,9 +30,49 @@ import { SceneDivider } from './SceneDivider'
 export function SceneTitlePanelButton({ inPanel = false }: { inPanel?: boolean }): JSX.Element | null {
     const { scenePanelOpenManual, scenePanelIsPresent } = useValues(sceneLayoutLogic)
     const { setScenePanelOpen } = useActions(sceneLayoutLogic)
+    const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
+    const { openSidePanel, closeSidePanel } = useActions(sidePanelStateLogic)
+    const { sidePanelOpen } = useValues(sidePanelStateLogic)
 
-    // Show "Open" button when panel is closed, show "Close" button when panel is open
-    // Both should never render simultaneously to avoid Playwright strict mode violations
+    if (isRemovingSidePanelFlag) {
+        // Open Info tab if scene has panel content, otherwise default to Discussion
+        const defaultTab = scenePanelIsPresent ? SidePanelTab.Info : SidePanelTab.Discussion
+        return (
+            <AppShortcut
+                name="OpenSidePanel"
+                keybind={[keyBinds.toggleRightNav]}
+                intent="Open side panel"
+                interaction="click"
+            >
+                {/* Size to mimic lemon button small */}
+                <ButtonPrimitive
+                    className="size-[33px] group -mr-[2px]"
+                    onClick={(e) => {
+                        e.stopPropagation()
+                        e.preventDefault()
+                        if (sidePanelOpen) {
+                            closeSidePanel()
+                        } else {
+                            openSidePanel(defaultTab)
+                        }
+                    }}
+                    tooltip={sidePanelOpen ? 'Close side panel' : 'Open side panel'}
+                    tooltipPlacement="bottom-end"
+                    tooltipCloseDelayMs={0}
+                    iconOnly
+                    active={sidePanelOpen}
+                >
+                    {sidePanelOpen ? (
+                        <IconX className="text-primary size-3 group-hover:text-primary z-10" />
+                    ) : (
+                        <IconEllipsis className="text-primary group-hover:text-primary z-10" />
+                    )}
+                </ButtonPrimitive>
+            </AppShortcut>
+        )
+    }
+
+    // Old behavior: only show when scene panel is present
     if (!scenePanelIsPresent || inPanel !== scenePanelOpenManual) {
         return null
     }
@@ -138,7 +182,7 @@ export function SceneTitleSection({
     const { zenMode } = useValues(navigation3000Logic)
     const willShowBreadcrumbs = forceBackTo || breadcrumbs.length > 2
     const [isScrolled, setIsScrolled] = useState(false)
-
+    const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
     const effectiveDescription = description
 
     // Always include ProductSetupButton alongside other actions
@@ -192,6 +236,7 @@ export function SceneTitleSection({
                     'bg-primary @2xl/main-content:sticky -top-[calc(var(--spacing)*4)] z-30 -mx-4 px-4 -mt-4 duration-300',
                     noBorder ? '' : 'border-b border-transparent transition-border',
                     isScrolled && '@2xl/main-content:border-primary [body.storybook-test-runner_&]:border-transparent',
+                    isRemovingSidePanelFlag && 'pl-4 pr-2',
                     className
                 )}
             >
@@ -232,7 +277,12 @@ export function SceneTitleSection({
                         )}
                     </div>
                     {effectiveActions && (
-                        <div className="flex gap-1.5 justify-end items-end @2xl/main-content:items-start ml-4 @max-2xl:order-first">
+                        <div
+                            className={cn(
+                                'flex gap-1.5 justify-end items-end @2xl/main-content:items-start ml-4 @max-2xl:order-first',
+                                isRemovingSidePanelFlag && 'gap-1 self-end'
+                            )}
+                        >
                             {effectiveActions}
                             <SceneTitlePanelButton />
                         </div>

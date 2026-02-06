@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { IconDatabase, IconPiggyBank, IconTrending } from '@posthog/icons'
+import { IconTrending } from '@posthog/icons'
 import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
@@ -22,28 +22,9 @@ import { CurrencyCode, NodeKind } from '~/queries/schema/schema-general'
 import { Group, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { NotebookNodeProps, NotebookNodeType } from '../types'
+import { DataSourceIcon } from './components/DataSourceIcon'
 import { notebookNodeLogic } from './notebookNodeLogic'
 import { calculateMRRData, getPaidProducts } from './utils'
-
-export function DataSourceIcon({ source }: { source: 'revenue-analytics' | 'properties' | null }): JSX.Element | null {
-    if (!source) {
-        return null
-    }
-
-    if (source === 'revenue-analytics') {
-        return (
-            <Tooltip title="From Revenue analytics">
-                <IconPiggyBank className="w-3 h-3 text-muted" data-attr="piggybank-icon" />
-            </Tooltip>
-        )
-    }
-
-    return (
-        <Tooltip title="From group properties">
-            <IconDatabase className="w-3 h-3 text-muted" data-attr="database-icon" />
-        </Tooltip>
-    )
-}
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeGroupAttributes>): JSX.Element => {
     const { id, groupTypeIndex, tabId, title } = attributes

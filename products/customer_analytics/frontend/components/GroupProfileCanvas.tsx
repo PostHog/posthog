@@ -69,6 +69,7 @@ export const GroupProfileCanvas = ({ group, tabId }: GroupProfileCanvasProps): J
                         editable={false}
                         shortId={shortId}
                         mode={mode}
+                        className="NotebookProfileCanvas"
                         canvasFiltersOverride={groupFilter}
                         initialContent={{
                             type: 'doc',

@@ -66,8 +66,12 @@ export function ActionsLineGraph({
         (indexedResults[0] && indexedResults[0].labels) ||
         []
 
-    const shortenLifecycleLabels = (s: string | undefined): string =>
-        capitalizeFirstLetter(s?.split(' - ')?.[1] ?? s ?? 'None')
+    const shortenLifecycleLabels = (s: string | undefined): string => {
+        const labelParts = s?.split(' - ')
+        const label = labelParts?.[labelParts.length - 1]
+
+        return capitalizeFirstLetter(label ?? s ?? 'None')
+    }
 
     const legend: DeepPartial<LegendOptions<ChartType>> = {
         display: false,

@@ -15,7 +15,6 @@ from typing import cast
 from django.core.cache import cache
 
 import structlog
-from asgiref.sync import async_to_sync
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiExample, extend_schema
 from rest_framework import exceptions, serializers, status, viewsets
@@ -35,7 +34,7 @@ from posthog.rate_limit import (
 
 from products.llm_analytics.backend.api.metrics import llma_track_latency
 from products.llm_analytics.backend.summarization.llm import summarize
-from products.llm_analytics.backend.summarization.models import SummarizationMode, SummarizationProvider
+from products.llm_analytics.backend.summarization.models import SummarizationMode
 from products.llm_analytics.backend.text_repr.formatters import (
     FormatterOptions,
     format_event_text_repr,
@@ -63,13 +62,6 @@ class SummarizeRequestSerializer(serializers.Serializer):
         default=False,
         required=False,
         help_text="Force regenerate summary, bypassing cache",
-    )
-    provider = serializers.ChoiceField(
-        choices=[p.value for p in SummarizationProvider],
-        default=None,
-        required=False,
-        allow_null=True,
-        help_text="LLM provider to use (defaults to 'openai')",
     )
     model = serializers.CharField(
         default=None,
@@ -123,19 +115,12 @@ class BatchCheckRequestSerializer(serializers.Serializer):
         default=SummarizationMode.MINIMAL.value,
         help_text="Summary detail level to check for",
     )
-    provider = serializers.ChoiceField(
-        choices=[p.value for p in SummarizationProvider],
-        default=None,
-        required=False,
-        allow_null=True,
-        help_text="LLM provider to check for (defaults to 'openai')",
-    )
     model = serializers.CharField(
         default=None,
         required=False,
         allow_null=True,
         allow_blank=True,
-        help_text="LLM model to check for (defaults based on provider)",
+        help_text="LLM model used for cached summaries",
     )
 
 
@@ -181,7 +166,6 @@ class LLMAnalyticsSummarizationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericV
         summarize_type: str,
         entity_id: str,
         mode: str,
-        provider: str | None = None,
         model: str | None = None,
     ) -> str:
         """Generate cache key for summary results.
@@ -190,12 +174,10 @@ class LLMAnalyticsSummarizationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericV
             summarize_type: 'trace' or 'event'
             entity_id: Unique identifier for the entity being summarized
             mode: Summary detail level ('minimal' or 'detailed')
-            provider: LLM provider (defaults to 'openai')
-            model: LLM model (defaults based on provider)
+            model: LLM model
         """
-        provider_key = provider or "default"
         model_key = model or "default"
-        return f"llm_summary:{self.team_id}:{summarize_type}:{entity_id}:{mode}:{provider_key}:{model_key}"
+        return f"llm_summary:{self.team_id}:{summarize_type}:{entity_id}:{mode}:{model_key}"
 
     def _extract_entity_id(self, summarize_type: str, data: dict) -> tuple[str, dict]:
         """Extract entity ID and validated entity data based on summarize type.
@@ -387,7 +369,6 @@ The response includes the summary text and optional metadata.
             mode = serializer.validated_data["mode"]
             data = serializer.validated_data["data"]
             force_refresh = serializer.validated_data["force_refresh"]
-            provider = serializer.validated_data.get("provider")
             model = serializer.validated_data.get("model")
             # Treat empty string as None for model
             if model == "":
@@ -395,7 +376,7 @@ The response includes the summary text and optional metadata.
 
             entity_id, entity_data = self._extract_entity_id(summarize_type, data)
 
-            cache_key = self._get_cache_key(summarize_type, entity_id, mode, provider, model)
+            cache_key = self._get_cache_key(summarize_type, entity_id, mode, model)
             if not force_refresh:
                 cached_result = cache.get(cache_key)
                 if cached_result is not None:
@@ -411,12 +392,13 @@ The response includes the summary text and optional metadata.
             text_repr = self._generate_text_repr(summarize_type, entity_data)
 
             start_time = time.time()
-            summary = async_to_sync(summarize)(
+            user_distinct_id = getattr(request.user, "distinct_id", None)
+            summary = summarize(
                 text_repr=text_repr,
                 team_id=self.team_id,
                 mode=mode,
-                provider=provider,
                 model=model,
+                user_id=user_distinct_id,
             )
 
             duration_seconds = time.time() - start_time
@@ -502,7 +484,6 @@ with their titles.
 
         trace_ids = serializer.validated_data["trace_ids"]
         mode = serializer.validated_data["mode"]
-        provider = serializer.validated_data.get("provider")
         model = serializer.validated_data.get("model")
         # Treat empty string as None for model
         if model == "":
@@ -510,7 +491,7 @@ with their titles.
 
         summaries = []
         for trace_id in trace_ids:
-            cache_key = self._get_cache_key("trace", trace_id, mode, provider, model)
+            cache_key = self._get_cache_key("trace", trace_id, mode, model)
             cached_result = cache.get(cache_key)
             if cached_result is not None:
                 summary_data = cached_result.get("summary", {})
