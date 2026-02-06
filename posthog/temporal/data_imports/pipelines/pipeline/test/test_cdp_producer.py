@@ -178,7 +178,7 @@ async def test_should_produce_table_with_leading_underscore_source_prefix(team):
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 @patch("posthog.temporal.data_imports.pipelines.pipeline.cdp_producer.FakeKafka")
-@patch("posthog.temporal.data_imports.pipelines.pipeline.cdp_producer.get_s3_client")
+@patch("posthog.temporal.data_imports.pipelines.pipeline.cdp_producer.aget_s3_client")
 async def test_produce_to_kafka_from_s3_success(mock_get_s3_client, mock_kafka_producer_class, team):
     source = await sync_to_async(ExternalDataSource.objects.create)(
         team=team, source_type=ExternalDataSourceType.POSTGRES
@@ -195,7 +195,8 @@ async def test_produce_to_kafka_from_s3_success(mock_get_s3_client, mock_kafka_p
         {"Key": "path/chunk_0.parquet", "type": "file"},
         {"Key": "path/chunk_1.parquet", "type": "file"},
     ]
-    mock_get_s3_client.return_value = mock_s3_client
+    mock_get_s3_client.return_value.__aenter__ = mock.AsyncMock(return_value=mock_s3_client)
+    mock_get_s3_client.return_value.__aexit__ = mock.AsyncMock(return_value=False)
 
     mock_kafka_producer = MagicMock()
     mock_kafka_producer_class.return_value = mock_kafka_producer
@@ -230,7 +231,7 @@ async def test_produce_to_kafka_from_s3_success(mock_get_s3_client, mock_kafka_p
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 @patch("posthog.temporal.data_imports.pipelines.pipeline.cdp_producer.FakeKafka")
-@patch("posthog.temporal.data_imports.pipelines.pipeline.cdp_producer.get_s3_client")
+@patch("posthog.temporal.data_imports.pipelines.pipeline.cdp_producer.aget_s3_client")
 async def test_produce_to_kafka_from_s3_with_no_files(mock_get_s3_client, mock_kafka_producer_class, team):
     source = await sync_to_async(ExternalDataSource.objects.create)(
         team=team, source_type=ExternalDataSourceType.POSTGRES
@@ -244,7 +245,8 @@ async def test_produce_to_kafka_from_s3_with_no_files(mock_get_s3_client, mock_k
 
     mock_s3_client = mock.AsyncMock()
     mock_s3_client._ls.side_effect = FileNotFoundError()
-    mock_get_s3_client.return_value = mock_s3_client
+    mock_get_s3_client.return_value.__aenter__ = mock.AsyncMock(return_value=mock_s3_client)
+    mock_get_s3_client.return_value.__aexit__ = mock.AsyncMock(return_value=False)
 
     mock_kafka_producer = MagicMock()
     mock_kafka_producer_class.return_value = mock_kafka_producer
@@ -261,7 +263,7 @@ async def test_produce_to_kafka_from_s3_with_no_files(mock_get_s3_client, mock_k
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 @patch("posthog.temporal.data_imports.pipelines.pipeline.cdp_producer.FakeKafka")
-@patch("posthog.temporal.data_imports.pipelines.pipeline.cdp_producer.get_s3_client")
+@patch("posthog.temporal.data_imports.pipelines.pipeline.cdp_producer.aget_s3_client")
 @patch("posthog.temporal.data_imports.pipelines.pipeline.cdp_producer.capture_exception")
 async def test_produce_to_kafka_from_s3_kafka_failure(
     mock_capture_exception, mock_get_s3_client, mock_kafka_producer_class, team
@@ -278,7 +280,8 @@ async def test_produce_to_kafka_from_s3_kafka_failure(
 
     mock_s3_client = mock.AsyncMock()
     mock_s3_client._ls.return_value = [{"Key": "path/chunk_0.parquet", "type": "file"}]
-    mock_get_s3_client.return_value = mock_s3_client
+    mock_get_s3_client.return_value.__aenter__ = mock.AsyncMock(return_value=mock_s3_client)
+    mock_get_s3_client.return_value.__aexit__ = mock.AsyncMock(return_value=False)
 
     mock_kafka_producer = MagicMock()
     mock_kafka_producer.produce.side_effect = KafkaError("Kafka connection failed")
@@ -308,7 +311,7 @@ async def test_produce_to_kafka_from_s3_kafka_failure(
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 @patch("posthog.temporal.data_imports.pipelines.pipeline.cdp_producer.FakeKafka")
-@patch("posthog.temporal.data_imports.pipelines.pipeline.cdp_producer.get_s3_client")
+@patch("posthog.temporal.data_imports.pipelines.pipeline.cdp_producer.aget_s3_client")
 @patch("posthog.temporal.data_imports.pipelines.pipeline.cdp_producer.capture_exception")
 async def test_produce_to_kafka_from_s3_s3_read_failure(
     mock_capture_exception, mock_get_s3_client, mock_kafka_producer_class, team
@@ -325,7 +328,8 @@ async def test_produce_to_kafka_from_s3_s3_read_failure(
 
     mock_s3_client = mock.AsyncMock()
     mock_s3_client._ls.return_value = [{"Key": "path/chunk_0.parquet", "type": "file"}]
-    mock_get_s3_client.return_value = mock_s3_client
+    mock_get_s3_client.return_value.__aenter__ = mock.AsyncMock(return_value=mock_s3_client)
+    mock_get_s3_client.return_value.__aexit__ = mock.AsyncMock(return_value=False)
 
     mock_kafka_producer = MagicMock()
     mock_kafka_producer_class.return_value = mock_kafka_producer
@@ -347,7 +351,7 @@ async def test_produce_to_kafka_from_s3_s3_read_failure(
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 @patch("posthog.temporal.data_imports.pipelines.pipeline.cdp_producer.FakeKafka")
-@patch("posthog.temporal.data_imports.pipelines.pipeline.cdp_producer.get_s3_client")
+@patch("posthog.temporal.data_imports.pipelines.pipeline.cdp_producer.aget_s3_client")
 async def test_produce_to_kafka_from_s3_with_large_batch(mock_get_s3_client, mock_kafka_producer_class, team):
     source = await sync_to_async(ExternalDataSource.objects.create)(
         team=team, source_type=ExternalDataSourceType.POSTGRES
@@ -361,7 +365,8 @@ async def test_produce_to_kafka_from_s3_with_large_batch(mock_get_s3_client, moc
 
     mock_s3_client = mock.AsyncMock()
     mock_s3_client._ls.return_value = [{"Key": "path/chunk_0.parquet", "type": "file"}]
-    mock_get_s3_client.return_value = mock_s3_client
+    mock_get_s3_client.return_value.__aenter__ = mock.AsyncMock(return_value=mock_s3_client)
+    mock_get_s3_client.return_value.__aexit__ = mock.AsyncMock(return_value=False)
 
     mock_kafka_producer = MagicMock()
     mock_kafka_producer_class.return_value = mock_kafka_producer
@@ -446,7 +451,7 @@ async def test_write_chunk_for_cdp_producer_with_empty_table(team):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-@patch("posthog.temporal.data_imports.pipelines.pipeline.cdp_producer.get_s3_client")
+@patch("posthog.temporal.data_imports.pipelines.pipeline.cdp_producer.aget_s3_client")
 async def test_clear_s3_chunks_with_files(mock_get_s3_client, team):
     source = await sync_to_async(ExternalDataSource.objects.create)(
         team=team, source_type=ExternalDataSourceType.POSTGRES
@@ -463,7 +468,8 @@ async def test_clear_s3_chunks_with_files(mock_get_s3_client, team):
         {"Key": "path/chunk_0.parquet", "type": "file"},
         {"Key": "path/chunk_1.parquet", "type": "file"},
     ]
-    mock_get_s3_client.return_value = mock_s3_client
+    mock_get_s3_client.return_value.__aenter__ = mock.AsyncMock(return_value=mock_s3_client)
+    mock_get_s3_client.return_value.__aexit__ = mock.AsyncMock(return_value=False)
 
     producer = CDPProducer(team_id=team.id, schema_id=str(schema.id), job_id="test_job", logger=mock.AsyncMock())
 
@@ -474,7 +480,7 @@ async def test_clear_s3_chunks_with_files(mock_get_s3_client, team):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-@patch("posthog.temporal.data_imports.pipelines.pipeline.cdp_producer.get_s3_client")
+@patch("posthog.temporal.data_imports.pipelines.pipeline.cdp_producer.aget_s3_client")
 async def test_clear_s3_chunks_with_no_files(mock_get_s3_client, team):
     source = await sync_to_async(ExternalDataSource.objects.create)(
         team=team, source_type=ExternalDataSourceType.POSTGRES
@@ -488,7 +494,8 @@ async def test_clear_s3_chunks_with_no_files(mock_get_s3_client, team):
 
     mock_s3_client = mock.AsyncMock()
     mock_s3_client._ls.side_effect = FileNotFoundError()
-    mock_get_s3_client.return_value = mock_s3_client
+    mock_get_s3_client.return_value.__aenter__ = mock.AsyncMock(return_value=mock_s3_client)
+    mock_get_s3_client.return_value.__aexit__ = mock.AsyncMock(return_value=False)
 
     producer = CDPProducer(team_id=team.id, schema_id=str(schema.id), job_id="test_job", logger=mock.AsyncMock())
 
@@ -499,7 +506,7 @@ async def test_clear_s3_chunks_with_no_files(mock_get_s3_client, team):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-@patch("posthog.temporal.data_imports.pipelines.pipeline.cdp_producer.get_s3_client")
+@patch("posthog.temporal.data_imports.pipelines.pipeline.cdp_producer.aget_s3_client")
 async def test_clear_s3_chunks_handles_file_not_found_on_delete(mock_get_s3_client, team):
     source = await sync_to_async(ExternalDataSource.objects.create)(
         team=team, source_type=ExternalDataSourceType.POSTGRES
@@ -513,7 +520,8 @@ async def test_clear_s3_chunks_handles_file_not_found_on_delete(mock_get_s3_clie
 
     mock_s3_client = mock.AsyncMock()
     mock_s3_client._ls.return_value = [{"Key": "path/chunk_0.parquet", "type": "file"}]
-    mock_get_s3_client.return_value = mock_s3_client
+    mock_get_s3_client.return_value.__aenter__ = mock.AsyncMock(return_value=mock_s3_client)
+    mock_get_s3_client.return_value.__aexit__ = mock.AsyncMock(return_value=False)
 
     mock_fs = MagicMock()
     mock_fs.delete_dir.side_effect = FileNotFoundError()
