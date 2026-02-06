@@ -11,6 +11,7 @@ import posthoganalytics
 from structlog.contextvars import bind_contextvars
 from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
+from temporalio.workflow import ParentClosePolicy, start_child_workflow
 
 # TODO: remove dependency
 from posthog.exceptions_capture import capture_exception
@@ -40,7 +41,10 @@ from posthog.temporal.data_imports.workflow_activities.emit_signals import (
     EmitSignalsActivityInputs,
     emit_data_import_signals_activity,
 )
-from posthog.temporal.data_imports.workflow_activities.import_data_sync import ImportDataActivityInputs
+from posthog.temporal.data_imports.workflow_activities.import_data_sync import (
+    ImportDataActivityInputs,
+    import_data_activity_sync,
+)
 from posthog.temporal.data_imports.workflow_activities.sync_new_schemas import (
     SyncNewSchemasActivityInputs,
     sync_new_schemas_activity,
@@ -49,7 +53,7 @@ from posthog.temporal.ducklake.ducklake_copy_data_imports_workflow import (
     DataImportsDuckLakeCopyInputs,
     DuckLakeCopyDataImportsWorkflow,
 )
-from posthog.temporal.utils import ExternalDataWorkflowInputs
+from posthog.temporal.utils import CDPProducerWorkflowInputs, ExternalDataWorkflowInputs
 from posthog.utils import get_machine_id
 
 from products.data_warehouse.backend.data_load.source_templates import create_warehouse_templates_for_source
