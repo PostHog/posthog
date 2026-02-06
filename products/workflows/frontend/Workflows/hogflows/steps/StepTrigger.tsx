@@ -10,7 +10,9 @@ import {
     IconLeave,
     IconMessage,
     IconPeople,
+    IconPlus,
     IconPlusSmall,
+    IconRefresh,
     IconTarget,
     IconWebhooks,
 } from '@posthog/icons'
@@ -388,24 +390,9 @@ function StepTriggerConfigurationSurvey({
     // Search state for filtering surveys
     const [searchTerm, setSearchTerm] = useState('')
 
-    // Store selected survey name so it persists even when survey list hasn't loaded
-    const [selectedSurveyName, setSelectedSurveyName] = useState<string | null>(null)
-
     useEffect(() => {
         loadSurveys()
     }, [loadSurveys])
-
-    // Update stored name when survey is found in the list
-    useEffect(() => {
-        if (selectedSurveyId) {
-            const survey = allSurveys.find((s) => s.id === selectedSurveyId)
-            if (survey) {
-                setSelectedSurveyName(survey.name)
-            }
-        } else {
-            setSelectedSurveyName(null)
-        }
-    }, [selectedSurveyId, allSurveys])
 
     // Filter surveys based on search term
     const filteredSurveys = useMemo(() => {
@@ -416,8 +403,20 @@ function StepTriggerConfigurationSurvey({
         return allSurveys.filter((s) => s.name.toLowerCase().includes(lower))
     }, [allSurveys, searchTerm])
 
-    // Determine the label to show for the selected survey
-    const selectedSurveyLabel = selectedSurveyName ?? (selectedSurveyId ? 'Loading...' : null)
+    // Label for selected survey; fallback when not in list so we never show raw UUID (reset effect clears selection)
+    const selectedSurveyLabel = (() => {
+        if (!selectedSurveyId) {
+            return null
+        }
+        const survey = allSurveys.find((s) => s.id === selectedSurveyId)
+        if (survey) {
+            return survey.name
+        }
+        if (surveysLoading) {
+            return 'Loading...'
+        }
+        return 'Survey not found'
+    })()
 
     // Build options - always include a fallback for the selected survey at the start
     const surveyOptions = [
@@ -535,33 +534,55 @@ function StepTriggerConfigurationSurvey({
             : []),
     ]
 
+    const noSurveys = !surveysLoading && allSurveys.length === 0
+
     return (
         <>
             <LemonField.Pure label="Select a survey" error={validationResult?.errors?.filters}>
-                <LemonSelect
-                    options={surveyOptions}
-                    value={selectedSurveyId}
-                    loading={surveysLoading}
-                    onChange={(surveyId) => {
-                        if (surveyId === '__search__' || surveyId === '__create__') {
-                            return // Ignore non-selectable options
-                        }
-                        if (surveyId === '__load_more__') {
-                            loadMoreSurveys()
-                            return
-                        }
-                        setSearchTerm('') // Clear search on selection
-                        setWorkflowActionConfig(action.id, {
-                            type: 'event',
-                            filters: {
-                                events: [{ id: SurveyEventName.SENT, type: 'events', name: 'Survey sent' }],
-                                properties: buildProperties(surveyId, completedOnly),
-                                filter_test_accounts: filterTestAccounts,
-                            },
-                        })
-                    }}
-                    placeholder="Select a survey"
-                />
+                {noSurveys ? (
+                    <div className="flex items-center gap-2">
+                        <LemonButton
+                            type="secondary"
+                            icon={<IconPlus />}
+                            onClick={() => window.open(urls.surveyTemplates(), '_blank')}
+                        >
+                            Create survey
+                        </LemonButton>
+                        <LemonButton
+                            type="secondary"
+                            icon={surveysLoading ? <Spinner className="size-4" /> : <IconRefresh />}
+                            onClick={() => loadSurveys()}
+                            disabled={surveysLoading}
+                        >
+                            Refresh
+                        </LemonButton>
+                    </div>
+                ) : (
+                    <LemonSelect
+                        options={surveyOptions}
+                        value={selectedSurveyId}
+                        loading={surveysLoading}
+                        onChange={(surveyId) => {
+                            if (surveyId === '__search__' || surveyId === '__create__') {
+                                return // Ignore non-selectable options
+                            }
+                            if (surveyId === '__load_more__') {
+                                loadMoreSurveys()
+                                return
+                            }
+                            setSearchTerm('') // Clear search on selection
+                            setWorkflowActionConfig(action.id, {
+                                type: 'event',
+                                filters: {
+                                    events: [{ id: SurveyEventName.SENT, type: 'events', name: 'Survey sent' }],
+                                    properties: buildProperties(surveyId, completedOnly),
+                                    filter_test_accounts: filterTestAccounts,
+                                },
+                            })
+                        }}
+                        placeholder="Select a survey"
+                    />
+                )}
             </LemonField.Pure>
 
             <LemonField.Pure label="Trigger on">

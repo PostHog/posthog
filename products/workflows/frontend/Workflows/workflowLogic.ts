@@ -18,8 +18,9 @@ import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { HogFunctionTemplateType } from '~/types'
+import { HogFunctionTemplateType, SurveyEventName } from '~/types'
 
+import { surveyTriggerLogic } from './hogflows/steps/surveyTriggerLogic'
 import { HogFlowActionSchema, isFunctionAction, isTriggerFunction } from './hogflows/steps/types'
 import { type HogFlow, type HogFlowAction, HogFlowActionValidationResult, type HogFlowEdge } from './hogflows/types'
 import type { workflowLogicType } from './workflowLogicType'
@@ -117,7 +118,14 @@ export const workflowLogic = kea<workflowLogicType>([
     props({ id: 'new', tabId: 'default' } as WorkflowLogicProps),
     key((props) => `workflow-${props.id || 'new'}-${props.tabId}`),
     connect(() => ({
-        values: [userLogic, ['user'], projectLogic, ['currentProjectId']],
+        values: [
+            userLogic,
+            ['user'],
+            projectLogic,
+            ['currentProjectId'],
+            surveyTriggerLogic,
+            ['allSurveys', 'surveysLoading'],
+        ],
         actions: [workflowsLogic, ['archiveWorkflow']],
     })),
     actions({
@@ -273,11 +281,19 @@ export const workflowLogic = kea<workflowLogicType>([
         ],
 
         actionValidationErrorsById: [
-            (s) => [s.workflow, s.hogFunctionTemplatesById, s.hogFunctionTemplatesByIdLoading],
+            (s) => [
+                s.workflow,
+                s.hogFunctionTemplatesById,
+                s.hogFunctionTemplatesByIdLoading,
+                s.allSurveys,
+                s.surveysLoading,
+            ],
             (
                 workflow,
                 hogFunctionTemplatesById,
-                hogFunctionTemplatesByIdLoading
+                hogFunctionTemplatesByIdLoading,
+                allSurveys,
+                surveysLoading
             ): Record<string, HogFlowActionValidationResult | null> => {
                 return workflow.actions.reduce(
                     (acc, action) => {
@@ -356,7 +372,14 @@ export const workflowLogic = kea<workflowLogicType>([
                                     const surveyIdProp = action.config.filters?.properties?.find(
                                         (p: any) => p.key === '$survey_id'
                                     )
-                                    if (!surveyIdProp) {
+                                    const noSurveys =
+                                        surveysLoading === false && Array.isArray(allSurveys) && allSurveys.length === 0
+                                    if (noSurveys) {
+                                        result.valid = false
+                                        result.errors = {
+                                            filters: 'Create a survey to use this trigger',
+                                        }
+                                    } else if (!surveyIdProp) {
                                         result.valid = false
                                         result.errors = {
                                             filters: 'Please select a survey',
@@ -410,7 +433,33 @@ export const workflowLogic = kea<workflowLogicType>([
             },
         ],
     }),
-    listeners(({ actions, values, props }) => ({
+    listeners(({ actions, values }) => ({
+        [surveyTriggerLogic.actionTypes.loadSurveysSuccess]: ({ surveys }: { surveys: { id: string }[] }) => {
+            const trigger = values.workflow.actions.find((a) => a.type === 'trigger')
+            if (!trigger || trigger.config.type !== 'event') {
+                return
+            }
+            const events = trigger.config.filters?.events ?? []
+            if (events.length !== 1 || events[0]?.id !== SurveyEventName.SENT) {
+                return
+            }
+            const surveyIdProp = trigger.config.filters?.properties?.find((p: any) => p.key === '$survey_id')
+            if (!surveyIdProp || surveyIdProp.operator === 'is_set') {
+                return
+            }
+            const surveyId = surveyIdProp.value
+            if (surveys.some((s) => s.id === surveyId)) {
+                return
+            }
+            const properties = (trigger.config.filters?.properties ?? []).filter((p: any) => p.key !== '$survey_id')
+            actions.setWorkflowActionConfig(trigger.id, {
+                type: 'event',
+                filters: {
+                    ...trigger.config.filters,
+                    properties,
+                },
+            })
+        },
         saveWorkflowPartial: async ({ workflow }) => {
             actions.saveWorkflow({
                 ...values.workflow,
