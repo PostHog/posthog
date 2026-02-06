@@ -161,10 +161,13 @@ export const QueryDatabase = (): JSX.Element => {
                     case 'batch_export':
                         return 'batch export'
                     case 'data_warehouse':
+                        // Return "" to not clutter the interface
                         return ''
                     case 'posthog':
+                        // Return "" to not clutter the interface
                         return ''
                     case 'system':
+                        // Return "" to not clutter the interface
                         return ''
                     default:
                         return null
