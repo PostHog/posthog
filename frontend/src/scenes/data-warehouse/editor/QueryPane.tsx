@@ -21,6 +21,7 @@ interface QueryPaneProps {
     sourceQuery: HogQLQuery
     originalValue?: string
     onRun?: () => void
+    editorVimModeEnabled?: boolean
 }
 
 export function QueryPane(props: QueryPaneProps): JSX.Element {
@@ -55,6 +56,7 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
                                         height={height}
                                         width={width}
                                         originalValue={props.originalValue}
+                                        enableVimMode={props.editorVimModeEnabled}
                                         {...props.codeEditorProps}
                                         autoFocus={true}
                                         options={{
@@ -75,7 +77,7 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
                             }
                         />
                     </div>
-                    <div className="absolute bottom-6 right-4">
+                    <div className={`absolute right-4 ${props.editorVimModeEnabled ? 'bottom-12' : 'bottom-6'}`}>
                         <MaxTool
                             identifier="execute_sql"
                             context={{
