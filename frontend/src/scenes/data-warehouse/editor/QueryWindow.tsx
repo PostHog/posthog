@@ -253,7 +253,6 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
                         onChange={setEditorVimModeEnabled}
                         label="Vim"
                         size="small"
-                        bordered
                         data-attr="sql-editor-vim-toggle"
                     />
                 )}

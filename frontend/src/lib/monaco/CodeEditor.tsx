@@ -410,22 +410,20 @@ export function CodeEditor({
     }
 
     return (
-        <div className="CodeEditor flex flex-col h-full w-full">
-            <div className="flex-1 min-h-0">
-                <MonacoEditor // eslint-disable-line react/forbid-elements
-                    key={queryKey}
-                    theme={isDarkModeOn ? 'vs-dark' : 'vs-light'}
-                    loading={<Spinner />}
-                    value={value}
-                    options={editorOptions}
-                    onMount={editorOnMount}
-                    {...editorProps}
-                />
-            </div>
+        <div className="CodeEditor relative h-full w-full">
+            <MonacoEditor // eslint-disable-line react/forbid-elements
+                key={queryKey}
+                theme={isDarkModeOn ? 'vs-dark' : 'vs-light'}
+                loading={<Spinner />}
+                value={value}
+                options={editorOptions}
+                onMount={editorOnMount}
+                {...editorProps}
+            />
             {enableVimMode && (
                 <div
                     ref={vimStatusBarRef}
-                    className="CodeEditor__vim-status-bar font-mono text-xs px-2 py-0.5 bg-bg-light border-t"
+                    className="CodeEditor__vim-status-bar absolute bottom-0 left-0 right-0 font-mono text-xs px-2 py-0.5 bg-bg-light border-t z-10"
                 />
             )}
         </div>
