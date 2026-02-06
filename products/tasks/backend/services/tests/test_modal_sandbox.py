@@ -144,7 +144,7 @@ class TestModalSandboxAgentServer:
         assert result.token == "test-connect-token-abc123"
         assert mock_sandbox.sandbox_url == "https://test-sandbox.modal.run"
 
-        mock_sandbox._sandbox.create_connect_token.assert_called_once_with(timeout=mock_sandbox.config.ttl_seconds)
+        mock_sandbox._sandbox.create_connect_token.assert_called_once_with()
 
     def test_get_connect_credentials_raises_when_not_running(self, mock_sandbox: ModalSandbox):
         mock_sandbox._sandbox.poll.return_value = 0
