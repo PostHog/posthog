@@ -263,6 +263,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         setLoadingTime: (seconds: number) => ({ seconds }),
         resetLoadingTimer: true,
         setQueryLogQueryId: (queryId: string) => ({ queryId }),
+        loadFilteredCount: true,
     }),
     loaders(({ actions, cache, values, props }) => ({
         response: [
