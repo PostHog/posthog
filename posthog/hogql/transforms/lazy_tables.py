@@ -10,7 +10,7 @@ from posthog.hogql.errors import ResolutionError
 from posthog.hogql.resolver import resolve_types
 from posthog.hogql.resolver_utils import get_long_table_name
 from posthog.hogql.transforms.property_types import PropertySwapper
-from posthog.hogql.visitor import TraversingVisitor, clone_expr
+from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
 
 # This mutates the nodes
@@ -31,7 +31,7 @@ class ConstraintOverride:
 
 
 class FieldChainReplacer(TraversingVisitor):
-    overrides: list[ConstraintOverride] = {}
+    overrides: list[ConstraintOverride] = []
 
     def __init__(self, overrides: list[ConstraintOverride]) -> None:
         super().__init__()
@@ -52,6 +52,101 @@ class FieldFinder(TraversingVisitor):
 
     def visit_field(self, node: ast.Field):
         self.field_chains.append(node.chain)
+
+
+def find_field_chains(node: ast.AST | None) -> list[list[str | int]]:
+    if node is None:
+        return []
+    finder = FieldFinder()
+    finder.visit(node)
+    return finder.field_chains
+
+
+def references_table(node: ast.AST | None, table_alias: str) -> bool:
+    return any(chain and chain[0] == table_alias for chain in find_field_chains(node))
+
+
+def collect_fields_from_table(node: ast.AST, table_alias: str) -> set[str]:
+    return {
+        chain[1]
+        for chain in find_field_chains(node)
+        if len(chain) >= 2 and chain[0] == table_alias and isinstance(chain[1], str)
+    }
+
+
+def collect_bare_fields(node: ast.AST) -> set[str]:
+    return {chain[0] for chain in find_field_chains(node) if len(chain) == 1 and isinstance(chain[0], str)}
+
+
+def get_table_alias_for_lazy_join(lazy_join_type: ast.LazyJoinType) -> str | None:
+    table_type = lazy_join_type.table_type
+    while table_type:
+        if isinstance(table_type, ast.TableAliasType):
+            return table_type.alias
+        if isinstance(table_type, ast.TableType):
+            # No alias, use the table name directly
+            return table_type.table.to_printed_hogql()
+        if isinstance(table_type, (ast.VirtualTableType, ast.LazyJoinType)):
+            table_type = table_type.table_type
+        else:
+            break
+    return None
+
+
+def get_lazy_join_type_from_field(node: ast.Field) -> ast.LazyJoinType | None:
+    if not isinstance(node.type, ast.FieldType):
+        return None
+    table_type = node.type.table_type
+    while isinstance(table_type, ast.VirtualTableType):
+        table_type = table_type.table_type
+    return table_type if isinstance(table_type, ast.LazyJoinType) else None
+
+
+class LazyJoinTypeCollector(TraversingVisitor):
+    def __init__(self, lazy_join_names: set[str], table_alias: str) -> None:
+        super().__init__()
+        self.lazy_join_names = lazy_join_names
+        self.table_alias = table_alias
+        self.lazy_join_type_ids: set[int] = set()
+
+    def visit_field(self, node: ast.Field):
+        if node.chain and node.chain[0] in self.lazy_join_names:
+            lazy_join_type = get_lazy_join_type_from_field(node)
+            if lazy_join_type and get_table_alias_for_lazy_join(lazy_join_type) == self.table_alias:
+                self.lazy_join_type_ids.add(id(lazy_join_type))
+
+
+class LazyJoinFieldFinder(TraversingVisitor):
+    def __init__(self, lazy_join_type_ids: set[int]) -> None:
+        super().__init__()
+        self.lazy_join_type_ids = lazy_join_type_ids
+        self.found: list[ast.Field] = []
+
+    def visit_field(self, node: ast.Field):
+        lazy_join_type = get_lazy_join_type_from_field(node)
+        if lazy_join_type and id(lazy_join_type) in self.lazy_join_type_ids:
+            self.found.append(node)
+
+
+class LazyJoinExpressionReplacer(CloningVisitor):
+    def __init__(self, table_alias: str, subquery_type: ast.SelectQueryAliasType, lazy_join_type_ids: set[int]) -> None:
+        super().__init__(clear_types=False, clear_locations=False)
+        self.table_alias = table_alias
+        self.subquery_type = subquery_type
+        self.lazy_join_type_ids = lazy_join_type_ids
+
+    def visit_call(self, node: ast.Call):
+        if node.name == "if" and len(node.args) >= 2:
+            finder = LazyJoinFieldFinder(self.lazy_join_type_ids)
+            finder.visit(node.args[1])
+            for field in finder.found:
+                assert len(field.chain) == 2, f"Expected lazy join field chain of length 2, got {field.chain}"
+                field_name = str(field.chain[1])
+                return ast.Field(
+                    chain=[self.table_alias, field_name],
+                    type=ast.FieldType(name=field_name, table_type=self.subquery_type),
+                )
+        return super().visit_call(node)
 
 
 class LazyFinder(TraversingVisitor):
@@ -89,6 +184,87 @@ class LazyTableResolver(TraversingVisitor):
         self.context = context
         self.dialect: HogQLDialect = dialect
 
+    def _find_tables_needing_lazy_preresolution(
+        self,
+        node: ast.SelectQuery,
+        joins_to_add: dict[str, LazyJoinToAdd],
+    ) -> set[str]:
+        tables_to_wrap: set[str] = set()
+
+        join_ptr = node.select_from
+        while join_ptr:
+            if join_ptr.constraint is not None and isinstance(join_ptr.table, ast.Field):
+                table_alias = join_ptr.alias or str(join_ptr.table.chain[0])
+
+                for join_to_add in joins_to_add.values():
+                    if join_to_add.from_table == table_alias:
+                        lazy_field_name = join_to_add.lazy_join_type.field if join_to_add.lazy_join_type else None
+                        if lazy_field_name and references_table(join_ptr.constraint, lazy_field_name):
+                            tables_to_wrap.add(table_alias)
+                            break
+
+            join_ptr = join_ptr.next_join
+
+        return tables_to_wrap
+
+    def _wrap_table_for_lazy_resolution(
+        self,
+        node: ast.SelectQuery,
+        table_alias: str,
+        joins_to_add: dict[str, LazyJoinToAdd],
+        select_type: ast.SelectQueryType,
+    ) -> None:
+        join_ptr = node.select_from
+        while join_ptr:
+            current_alias = join_ptr.alias or (
+                str(join_ptr.table.chain[0]) if isinstance(join_ptr.table, ast.Field) else None
+            )
+            if current_alias == table_alias and isinstance(join_ptr.table, ast.Field):
+                break
+            join_ptr = join_ptr.next_join
+
+        assert join_ptr is not None and isinstance(join_ptr.table, ast.Field), f"Table {table_alias} not found"
+
+        used_fields = collect_fields_from_table(node, table_alias)
+        for join_to_add in joins_to_add.values():
+            if join_to_add.from_table == table_alias:
+                used_fields.update(str(f) for f in join_to_add.lazy_join.from_field)
+                used_fields.update(join_to_add.fields_accessed.keys())
+        if join_ptr.constraint:
+            used_fields.update(collect_bare_fields(join_ptr.constraint))
+
+        select_fields: list[ast.Expr] = [
+            ast.Alias(alias=field, expr=ast.Field(chain=[table_alias, field])) for field in sorted(used_fields)
+        ]
+        subquery = ast.SelectQuery(
+            select=select_fields,
+            select_from=ast.JoinExpr(table=ast.Field(chain=list(join_ptr.table.chain)), alias=table_alias),
+        )
+
+        # Resolve types and lazy tables within the subquery
+        subquery = cast(ast.SelectQuery, resolve_types(subquery, self.context, self.dialect, []))
+        resolve_lazy_tables(subquery, self.dialect, [subquery], self.context)
+        assert subquery.type is not None
+
+        # Replace the table with the subquery
+        join_ptr.table = subquery
+        join_ptr.alias = table_alias
+        join_ptr.type = ast.SelectQueryAliasType(alias=table_alias, select_query_type=subquery.type)
+        select_type.tables[table_alias] = join_ptr.type
+
+        # Collect LazyJoinType IDs for this table's lazy joins, filtered by table_alias for self-joins
+        lazy_join_field_names = {
+            v.lazy_join_type.field for v in joins_to_add.values() if v.from_table == table_alias and v.lazy_join_type
+        }
+        collector = LazyJoinTypeCollector(lazy_join_field_names, table_alias)
+        collector.visit(join_ptr.constraint)
+        join_ptr.constraint = cast(
+            ast.JoinConstraint,
+            LazyJoinExpressionReplacer(table_alias, join_ptr.type, collector.lazy_join_type_ids).visit(
+                join_ptr.constraint
+            ),
+        )
+
     def visit_property_type(self, node: ast.PropertyType):
         if node.joined_subquery is not None:
             # we have already visited this property
@@ -123,9 +299,6 @@ class LazyTableResolver(TraversingVisitor):
         select_type = node.type
         if not select_type:
             raise ResolutionError("Select query must have a type")
-
-        assert node.type is not None
-        assert select_type is not None
 
         # Collect each `ast.Field` with `ast.LazyJoinType`
         field_collector: list[ast.FieldType | ast.PropertyType] = []
@@ -343,11 +516,21 @@ class LazyTableResolver(TraversingVisitor):
                 new_join.to_table in joins_to_add or new_join.to_table in tables_to_add
             ):
                 create_override(new_join.to_table, new_join.lazy_join.to_field)
+
+        # Pre-wrap tables whose JOIN constraints reference their own lazy joins.
+        # This must happen BEFORE we add lazy joins to avoid forward reference issues.
+        tables_to_wrap = self._find_tables_needing_lazy_preresolution(node, joins_to_add)
+        for table_alias in tables_to_wrap:
+            self._wrap_table_for_lazy_resolution(node, table_alias, joins_to_add, select_type)
+
+        # Remove lazy joins that are now resolved inside wrapped subqueries
+        joins_to_add = {k: v for k, v in joins_to_add.items() if v.from_table not in tables_to_wrap}
+
         # For all the collected tables, create the subqueries, and add them to the table.
         for table_name, table_to_add in tables_to_add.items():
             subquery = table_to_add.lazy_table.lazy_select(table_to_add, self.context, node=node)
             subquery = cast(ast.SelectQuery, clone_expr(subquery, clear_locations=True))
-            subquery = cast(ast.SelectQuery, resolve_types(subquery, self.context, self.dialect, [node.type]))
+            subquery = cast(ast.SelectQuery, resolve_types(subquery, self.context, self.dialect, [select_type]))
             if self.context.property_swapper is not None:
                 subquery = PropertySwapper(
                     timezone=self.context.property_swapper.timezone,
@@ -390,7 +573,7 @@ class LazyTableResolver(TraversingVisitor):
                 FieldChainReplacer(overrides).visit(join_to_add)
 
             join_to_add = cast(ast.JoinExpr, clone_expr(join_to_add, clear_locations=True, clear_types=True))
-            join_to_add = cast(ast.JoinExpr, resolve_types(join_to_add, self.context, self.dialect, [node.type]))
+            join_to_add = cast(ast.JoinExpr, resolve_types(join_to_add, self.context, self.dialect, [select_type]))
             if self.context.property_swapper is not None:
                 join_to_add = PropertySwapper(
                     timezone=self.context.property_swapper.timezone,
@@ -404,8 +587,7 @@ class LazyTableResolver(TraversingVisitor):
             if join_to_add.type is not None:
                 select_type.tables[to_table] = join_to_add.type
 
-            field_chain_finder = FieldFinder()
-            field_chain_finder.visit(join_to_add.constraint)
+            constraint_field_chains = find_field_chains(join_to_add.constraint)
 
             select_from_alias: str | int | None = None
             if node.select_from and node.select_from.alias:
@@ -416,7 +598,7 @@ class LazyTableResolver(TraversingVisitor):
 
             # Store all the constraint tables we've seen for this join to decide where in the order of joins the next join should be added
             constraint_tables: list[str | int] = []
-            for field_chain in field_chain_finder.field_chains:
+            for field_chain in constraint_field_chains:
                 if field_chain[0] == select_from_alias:
                     continue
 
