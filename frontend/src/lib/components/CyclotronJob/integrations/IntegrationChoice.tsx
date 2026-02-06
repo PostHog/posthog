@@ -15,6 +15,7 @@ import { urls } from 'scenes/urls'
 import { CyclotronJobInputSchemaType } from '~/types'
 
 import { ChannelSetupModal } from 'products/workflows/frontend/Channels/ChannelSetupModal'
+import { CursorSetupModal } from 'products/workflows/frontend/Channels/CursorSetup/CursorSetupModal'
 
 export type IntegrationConfigureProps = {
     value?: number
@@ -123,48 +124,57 @@ export function IntegrationChoice({
                                   },
                               ],
                           }
-                        : ['databricks'].includes(kind)
+                        : ['cursor'].includes(kind)
                           ? {
                                 items: [
                                     {
-                                        label: 'Configure new Databricks account',
-                                        onClick: () => openNewIntegrationModal('databricks'),
+                                        label: 'Configure new Cursor account',
+                                        onClick: () => openNewIntegrationModal('cursor'),
                                     },
                                 ],
                             }
-                          : ['gitlab'].includes(kind)
+                          : ['databricks'].includes(kind)
                             ? {
                                   items: [
                                       {
-                                          label: 'Configure new GitLab account',
-                                          onClick: () => openNewIntegrationModal('gitlab'),
+                                          label: 'Configure new Databricks account',
+                                          onClick: () => openNewIntegrationModal('databricks'),
                                       },
                                   ],
                               }
-                            : ['azure-blob'].includes(kind)
+                            : ['gitlab'].includes(kind)
                               ? {
                                     items: [
                                         {
-                                            label: 'Configure new Azure Blob Storage connection',
-                                            onClick: () => openNewIntegrationModal('azure-blob'),
+                                            label: 'Configure new GitLab account',
+                                            onClick: () => openNewIntegrationModal('gitlab'),
                                         },
                                     ],
                                 }
-                              : {
-                                    items: [
-                                        {
-                                            to: api.integrations.authorizeUrl({
-                                                kind,
-                                                next: redirectUrl,
-                                            }),
-                                            disableClientSideRouting: true,
-                                            onClick: beforeRedirect,
-                                            label: integrationsOfKind?.length
-                                                ? `Connect to a different integration for ${kindName}`
-                                                : `Connect to ${kindName}`,
-                                        },
-                                    ],
-                                },
+                              : ['azure-blob'].includes(kind)
+                                ? {
+                                      items: [
+                                          {
+                                              label: 'Configure new Azure Blob Storage connection',
+                                              onClick: () => openNewIntegrationModal('azure-blob'),
+                                          },
+                                      ],
+                                  }
+                                : {
+                                      items: [
+                                          {
+                                              to: api.integrations.authorizeUrl({
+                                                  kind,
+                                                  next: redirectUrl,
+                                              }),
+                                              disableClientSideRouting: true,
+                                              onClick: beforeRedirect,
+                                              label: integrationsOfKind?.length
+                                                  ? `Connect to a different integration for ${kindName}`
+                                                  : `Connect to ${kindName}`,
+                                          },
+                                      ],
+                                  },
                 {
                     items: [
                         {
@@ -216,6 +226,16 @@ export function IntegrationChoice({
                 isOpen={newIntegrationModalKind === 'azure-blob'}
                 integration={integrationKind || undefined}
                 onComplete={handleNewAzureBlobIntegration}
+            />
+            <CursorSetupModal
+                isOpen={newIntegrationModalKind === 'cursor'}
+                integration={integrationKind || undefined}
+                onComplete={(integrationId) => {
+                    if (integrationId) {
+                        onChange?.(integrationId)
+                    }
+                    closeNewIntegrationModal()
+                }}
             />
         </>
     )
