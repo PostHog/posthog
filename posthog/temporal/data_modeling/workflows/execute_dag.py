@@ -129,7 +129,7 @@ def _dag_execution_levels(
     in_degree = {}
     for node_id in node_set:
         # the intersection filters out nodes which may not be in the user requested node set
-        in_degree[node_id] = len(edge_lookup.get(node_id, {}) & node_set)
+        in_degree[node_id] = len(edge_lookup.get(node_id, set()) & node_set)
     dependents = _get_dependent_lookup(edge_lookup)
     levels: list[list[str]] = []
     remaining = nodes.copy()
