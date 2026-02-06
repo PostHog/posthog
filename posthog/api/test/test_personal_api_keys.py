@@ -465,7 +465,7 @@ class TestPersonalAPIKeysWithScopeAPIAuthentication(PersonalAPIKeysBaseTest):
         self.key.save()
         response = self._do_request(f"/api/projects/{self.team.id}/search")
         assert response.status_code == status.HTTP_403_FORBIDDEN
-        assert response.json()["detail"] == "This action does not support Personal API Key access"
+        assert response.json()["detail"] == "This action does not support API Key access"
 
     def test_special_handling_for_teams_still_forbids(self):
         response = self._do_request(f"/api/projects/{self.team.id}/")
@@ -512,7 +512,7 @@ class TestPersonalAPIKeysWithScopeAPIAuthentication(PersonalAPIKeysBaseTest):
     def test_errors_for_action_without_required_scopes(self):
         response = self._do_request(f"/api/projects/{self.team.id}/feature_flags/evaluation_reasons")
         assert response.status_code == status.HTTP_403_FORBIDDEN
-        assert response.json()["detail"] == "This action does not support Personal API Key access"
+        assert response.json()["detail"] == "This action does not support API Key access"
 
     def test_forbids_action_with_other_scope(self):
         response = self._do_request(f"/api/projects/{self.team.id}/feature_flags/activity")
