@@ -3,7 +3,6 @@ import csv
 import json
 import datetime
 import tempfile
-import functools
 from collections import OrderedDict
 from collections.abc import Generator, Iterator
 from contextlib import contextmanager
@@ -442,9 +441,7 @@ def get_from_insights_api(exported_asset: ExportedAsset, limit: int, resource: d
         next_url = data.get("next")
 
 
-@functools.lru_cache(maxsize=128)
 def _query_kind_supports_limit(kind: str | None) -> bool:
-    """Check if query kind supports limit parameter. Cached by kind."""
     if not kind:
         return False
     try:
