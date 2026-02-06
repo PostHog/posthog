@@ -17,7 +17,7 @@ const NOTIFICATION_DEFAULTS: BooleanNotificationSettings = {
     discussions_mentioned: true,
     all_weekly_digest_disabled: false,
     project_api_key_exposed: true,
-    materialized_view_sync_failed: true,
+    materialized_view_sync_failed: false,
 }
 
 export function UpdateEmailPreferences(): JSX.Element {
