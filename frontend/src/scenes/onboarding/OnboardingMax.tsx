@@ -14,7 +14,6 @@ import {
 } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { Logomark } from 'lib/brand/Logomark'
 import { Thread } from 'scenes/max/Thread'
 import { SidebarQuestionInput } from 'scenes/max/components/SidebarQuestionInput'
 import { ThreadAutoScroller } from 'scenes/max/components/ThreadAutoScroller'
@@ -135,8 +134,8 @@ function ProductRecommendations({
     onContinue,
 }: ProductRecommendationsProps): JSX.Element {
     return (
-        <div className="flex flex-col gap-px w-full break-words items-start p-3">
-            <div className="flex flex-col gap-2 mt-3 w-full">
+        <div className="flex flex-col w-full max-w-180 self-center break-words items-start p-3">
+            <div className="flex flex-col gap-3 mt-3 w-full">
                 <div className="text-sm font-medium text-muted mb-1">Recommended for you (click to select):</div>
                 {products.map((productKey: ProductKey, index: number) => {
                     const info = PRODUCT_INFO[productKey]
@@ -256,24 +255,24 @@ export function OnboardingMax(): JSX.Element {
             <BindLogic logic={maxThreadLogic} props={threadProps}>
                 <AIConsentPopoverWrapper>
                     <div className="flex flex-col h-full min-h-[calc(100vh-var(--scene-layout-header-height))]">
-                        <ThreadAutoScroller>
-                            {!threadVisible ? (
+                        {!threadVisible ? (
+                            <div className="flex flex-col flex-1 justify-center items-center px-3">
                                 <OnboardingWelcome />
-                            ) : (
-                                <>
-                                    <Thread className="p-3" />
-                                    {recommendedProducts.length > 0 && (
-                                        <ProductRecommendations
-                                            products={recommendedProducts}
-                                            selectedProducts={selectedProducts}
-                                            onToggleProduct={handleToggleProduct}
-                                            onContinue={handleContinueToSetup}
-                                        />
-                                    )}
-                                </>
-                            )}
-                            <SidebarQuestionInput isSticky />
-                        </ThreadAutoScroller>
+                            </div>
+                        ) : (
+                            <ThreadAutoScroller>
+                                <Thread className="p-3" />
+                                {recommendedProducts.length > 0 && (
+                                    <ProductRecommendations
+                                        products={recommendedProducts}
+                                        selectedProducts={selectedProducts}
+                                        onToggleProduct={handleToggleProduct}
+                                        onContinue={handleContinueToSetup}
+                                    />
+                                )}
+                                <SidebarQuestionInput isSticky />
+                            </ThreadAutoScroller>
+                        )}
                     </div>
                 </AIConsentPopoverWrapper>
             </BindLogic>
@@ -290,16 +289,10 @@ function OnboardingWelcome(): JSX.Element {
     }, [setAgentMode])
 
     return (
-        <div className="@container/thread flex flex-col items-stretch w-full max-w-180 self-center gap-1.5 grow mx-auto p-3">
-            <div className="flex items-center gap-2 mb-2">
-                <div className="flex *:h-full *:w-8">
-                    <Logomark />
-                </div>
-                <span className="font-semibold text-sm">Max</span>
-            </div>
-            <MessageTemplate type="ai">
+        <div className="flex flex-col items-stretch w-full max-w-180 gap-4">
+            <MessageTemplate type="ai" className="items-stretch" wrapperClassName="w-full">
                 <div className="flex flex-col gap-3">
-                    <div>
+                    <div className="text-center">
                         <div className="font-bold text-base mb-1">
                             What are you building and what do you need help with?
                         </div>
@@ -326,6 +319,7 @@ function OnboardingWelcome(): JSX.Element {
                     </div>
                 </div>
             </MessageTemplate>
+            <SidebarQuestionInput />
         </div>
     )
 }
