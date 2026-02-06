@@ -10,7 +10,7 @@ import ctypes
 import resource
 import tracemalloc
 from contextlib import contextmanager
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypedDict
 
 import pyarrow as pa
 
@@ -22,6 +22,22 @@ if TYPE_CHECKING:
 LOGGER = get_write_only_logger(__name__)
 
 
+class PyArrowPoolStats(TypedDict):
+    bytes_allocated: int
+    max_memory: int | None
+    backend_name: str
+
+
+class CleanupStats(TypedDict):
+    rss_before_mb: float
+    rss_after_mb: float
+    rss_freed_mb: float
+    pa_bytes_before: int
+    pa_bytes_after: int
+    pa_bytes_freed: int
+    malloc_trimmed: bool
+
+
 def get_rss_mb() -> float:
     """Get current RSS (Resident Set Size) in MB."""
     rusage = resource.getrusage(resource.RUSAGE_SELF)
@@ -30,7 +46,7 @@ def get_rss_mb() -> float:
     return rusage.ru_maxrss / 1024
 
 
-def get_pyarrow_pool_stats() -> dict[str, int | str | None]:
+def get_pyarrow_pool_stats() -> PyArrowPoolStats:
     """Get PyArrow memory pool statistics."""
     pool = pa.default_memory_pool()
     return {
@@ -57,7 +73,7 @@ def try_malloc_trim() -> bool:
         return False
 
 
-def aggressive_cleanup() -> dict[str, float | int | bool]:
+def aggressive_cleanup() -> CleanupStats:
     """Perform aggressive memory cleanup and return stats.
 
     Returns:
@@ -152,7 +168,7 @@ def memory_profile_context(name: str, log_top_n: int = 10) -> "Generator[None, N
             rss_growth_mb=rss_after - rss_before,
             pa_before_mb=pa_stats_before["bytes_allocated"] / 1024 / 1024,
             pa_after_mb=pa_stats_after["bytes_allocated"] / 1024 / 1024,
-            pa_peak_mb=pa_stats_after["max_memory"] / 1024 / 1024,
+            pa_peak_mb=pa_stats_after["max_memory"] / 1024 / 1024 if pa_stats_after["max_memory"] is not None else None,
             cleanup_rss_freed_mb=cleanup_stats["rss_freed_mb"],
             cleanup_pa_freed_mb=cleanup_stats["pa_bytes_freed"] / 1024 / 1024,
             top_allocations=top_allocations,
@@ -170,7 +186,7 @@ def log_memory_status(label: str) -> None:
         label=label,
         rss_mb=rss,
         pa_allocated_mb=pa_stats["bytes_allocated"] / 1024 / 1024,
-        pa_max_mb=pa_stats["max_memory"] / 1024 / 1024,
+        pa_max_mb=pa_stats["max_memory"] / 1024 / 1024 if pa_stats["max_memory"] is not None else None,
         pa_backend=pa_stats["backend_name"],
         gc_gen0_collected=gc_stats[0].get("collected", 0) if gc_stats else 0,
         gc_gen1_collected=gc_stats[1].get("collected", 0) if len(gc_stats) > 1 else 0,
