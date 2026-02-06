@@ -476,12 +476,15 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                         active={maxToolActive}
                     >
                         <div
-                            className={clsx('flex flex-row flex-wrap gap-8 bg-surface-primary', {
+                            className={clsx('@container/editor flex flex-row flex-wrap gap-8 bg-surface-primary', {
                                 'p-4 rounded border': !embedded,
                             })}
                         >
                             {filterGroupsGroups.map(({ title, editorFilterGroups }) => (
-                                <div key={title} className="flex-1 flex flex-col gap-4 max-w-full">
+                                <div
+                                    key={title}
+                                    className="flex-1 flex flex-col gap-4 max-w-full @[600px]/editor:min-w-0"
+                                >
                                     {editorFilterGroups.map((editorFilterGroup) => (
                                         <EditorFilterGroup
                                             key={editorFilterGroup.title}
