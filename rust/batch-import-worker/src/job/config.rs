@@ -17,6 +17,7 @@ use crate::{
         date_range_export::{AuthConfig, DateRangeExportSource},
         folder::FolderSource,
         s3::S3Source,
+        s3_gzip::GzipS3Source,
         url_list::UrlList,
         DataSource,
     },
@@ -45,6 +46,7 @@ pub enum SourceConfig {
     Folder(FolderSourceConfig),
     UrlList(UrlListConfig),
     S3(S3SourceConfig),
+    S3Gzip(S3SourceConfig),
     DateRangeExport(DateRangeExportSourceConfig),
 }
 
@@ -187,6 +189,7 @@ impl SourceConfig {
                 config.create_source(secrets, !is_restarting).await?,
             )),
             SourceConfig::S3(config) => Ok(Box::new(config.create_source(secrets).await?)),
+            SourceConfig::S3Gzip(config) => Ok(Box::new(config.create_gzip_source(secrets).await?)),
             SourceConfig::DateRangeExport(config) => {
                 Ok(Box::new(config.create_source(secrets).await?))
             }
@@ -322,6 +325,62 @@ impl S3SourceConfig {
             client,
             self.bucket.clone(),
             self.prefix.clone(),
+        ))
+    }
+
+    pub async fn create_gzip_source(&self, secrets: &JobSecrets) -> Result<GzipS3Source, Error> {
+        let access_key_id = secrets
+            .secrets
+            .get(&self.access_key_id_key)
+            .ok_or(Error::msg(format!(
+                "Missing access key id as key {}",
+                self.access_key_id_key
+            )))?
+            .as_str()
+            .ok_or(Error::msg(format!(
+                "Access key id as key {} is not a string",
+                self.access_key_id_key
+            )))?;
+
+        let secret_access_key = secrets
+            .secrets
+            .get(&self.secret_access_key_key)
+            .ok_or(Error::msg(format!(
+                "Missing secret access key as key {}",
+                self.secret_access_key_key
+            )))?
+            .as_str()
+            .ok_or(Error::msg(format!(
+                "Secret access key as key {} is not a string",
+                self.secret_access_key_key
+            )))?;
+
+        let aws_credentials = aws_sdk_s3::config::Credentials::new(
+            access_key_id,
+            secret_access_key,
+            None,
+            None,
+            "job_config",
+        );
+
+        let aws_conf = aws_sdk_s3::config::Builder::new()
+            .region(Region::new(self.region.clone()))
+            .credentials_provider(aws_credentials)
+            .behavior_version(BehaviorVersion::latest())
+            .timeout_config(
+                TimeoutConfig::builder()
+                    .operation_timeout(Duration::from_secs(30))
+                    .build(),
+            )
+            .retry_config(RetryConfig::standard())
+            .build();
+        let client = aws_sdk_s3::Client::from_conf(aws_conf);
+
+        Ok(GzipS3Source::new(
+            client,
+            self.bucket.clone(),
+            self.prefix.clone(),
+            ExtractorType::PlainGzip.create_extractor(),
         ))
     }
 }
