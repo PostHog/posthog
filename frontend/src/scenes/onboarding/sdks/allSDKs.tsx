@@ -367,7 +367,7 @@ export const ALL_SDKS: SDK[] = [
         name: 'Semantic Kernel',
         key: SDKKey.SEMANTIC_KERNEL,
         tags: [SDKTag.FRAMEWORK],
-        image: 'https://res.cloudinary.com/dmukukwp6/image/upload/semantic_kernel_07a9ab4646.svg',
+        image: 'https://res.cloudinary.com/dmukukwp6/image/upload/w_200,c_limit,q_auto,f_auto/semantic_kernel_5102489978.png',
         docsLink: 'https://posthog.com/docs/llm-analytics/installation/semantic-kernel',
     },
     {
