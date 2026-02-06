@@ -22,6 +22,12 @@ DEFAULT_MODEL = OpenAIModel.GPT_4_1_NANO
 # 2M chars = ~800K tokens, leaving room for system prompt and output.
 MAX_TEXT_REPR_LENGTH = 2_000_000
 
+# Max estimated raw trace size (in characters) before formatting.
+# Traces exceeding this are skipped — formatting huge traces is CPU-intensive
+# and can block the worker for 10+ minutes. Estimated cheaply from
+# sum(len(str(properties))) per event before entering the formatter.
+MAX_RAW_TRACE_SIZE = 5_000_000
+
 # Schedule configuration
 SCHEDULE_INTERVAL_HOURS = 1  # How often the coordinator runs
 
