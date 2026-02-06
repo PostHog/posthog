@@ -14,7 +14,6 @@ from structlog import get_logger
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.user import User
-from posthog.renderers import SafeJSONRenderer
 
 from ee.hogai.mcp_tool import mcp_tool_registry
 from ee.hogai.tool_errors import MaxToolError
@@ -25,7 +24,7 @@ logger = get_logger(__name__)
 class MCPToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     scope_object = "project"
 
-    renderer_classes = [SafeJSONRenderer]
+    # renderer_classes = [SafeJSONRenderer]
 
     def dangerously_get_required_scopes(self, request: Request, view: View) -> list[str] | None:
         if self.action == "invoke_tool":
