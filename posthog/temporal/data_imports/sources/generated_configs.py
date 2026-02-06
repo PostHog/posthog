@@ -107,8 +107,8 @@ class DoItSourceConfig(config.Config):
 
 @config.config
 class GithubSourceConfig(config.Config):
-    personal_access_token: str
     repository: str
+    github_integration_id: int = config.value(converter=config.str_to_int)
 
 
 @config.config
@@ -230,6 +230,11 @@ class ShopifySourceConfig(config.Config):
 
 
 @config.config
+class SnapchatAdsSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class SnowflakeSourceConfig(config.Config):
     account_id: str
     database: str
@@ -275,11 +280,6 @@ class TikTokAdsSourceConfig(config.Config):
 
 
 @config.config
-class SnapchatAdsSourceConfig(config.Config):
-    pass
-
-
-@config.config
 class VitallySourceConfig(config.Config):
     secret_token: str
     region: VitallyRegionConfig
@@ -321,12 +321,12 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.REVENUECAT: RevenueCatSourceConfig,
         ExternalDataSourceType.SALESFORCE: SalesforceSourceConfig,
         ExternalDataSourceType.SHOPIFY: ShopifySourceConfig,
+        ExternalDataSourceType.SNAPCHATADS: SnapchatAdsSourceConfig,
         ExternalDataSourceType.SNOWFLAKE: SnowflakeSourceConfig,
         ExternalDataSourceType.STRIPE: StripeSourceConfig,
         ExternalDataSourceType.SUPABASE: SupabaseSourceConfig,
         ExternalDataSourceType.TEMPORALIO: TemporalIOSourceConfig,
         ExternalDataSourceType.TIKTOKADS: TikTokAdsSourceConfig,
-        ExternalDataSourceType.SNAPCHATADS: SnapchatAdsSourceConfig,
         ExternalDataSourceType.VITALLY: VitallySourceConfig,
         ExternalDataSourceType.ZENDESK: ZendeskSourceConfig,
     }[source]
