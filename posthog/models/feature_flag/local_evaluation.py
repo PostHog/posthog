@@ -375,6 +375,9 @@ def update_flag_caches(team: Team):
         CACHE_SYNC_DURATION_HISTOGRAM.labels(
             result=result, namespace="feature_flags", value="flags_with_cohorts.json"
         ).observe(duration)
+        CACHE_SYNC_DURATION_HISTOGRAM.labels(
+            result=result, namespace="feature_flags", value="flags_without_cohorts.json"
+        ).observe(duration)
         CACHE_SYNC_COUNTER.labels(result=result, namespace="feature_flags", value="flags_with_cohorts.json").inc()
         CACHE_SYNC_COUNTER.labels(result=result, namespace="feature_flags", value="flags_without_cohorts.json").inc()
 
@@ -558,6 +561,10 @@ def _get_flags_for_local_evaluation(team: Team, include_cohorts: bool = True) ->
                         if id in seen_cohorts_cache:
                             cohort = seen_cohorts_cache[id]
                         else:
+                            logger.warning(
+                                "Cohort not in seen_cohorts_cache, performing fallback query",
+                                extra={"cohort_id": id, "team_id": team.id},
+                            )
                             cohort = (
                                 Cohort.objects.db_manager(DATABASE_FOR_LOCAL_EVALUATION)
                                 .filter(id=id, team__project_id=team.project_id, deleted=False)
@@ -648,6 +655,10 @@ def _get_both_flags_responses_for_local_evaluation(team: Team) -> tuple[dict[str
                 if cohort_id not in cohorts_dict:
                     cohort = seen_cohorts_cache.get(cohort_id)
                     if not cohort:
+                        logger.warning(
+                            "Cohort not in seen_cohorts_cache, performing fallback query",
+                            extra={"cohort_id": cohort_id, "team_id": team.id},
+                        )
                         cohort = (
                             Cohort.objects.db_manager(DATABASE_FOR_LOCAL_EVALUATION)
                             .filter(id=cohort_id, team__project_id=team.project_id, deleted=False)
