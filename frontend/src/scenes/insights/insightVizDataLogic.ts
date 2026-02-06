@@ -336,6 +336,25 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             },
         ],
 
+        // Whether there's only one event/action series defined in the query
+        // (ignores breakdowns which create multiple visual lines from the same series)
+        hasOnlyOneSeries: [
+            (s) => [s.isTrends, s.formula, s.formulas, s.formulaNodes, s.series],
+            (
+                isTrends: boolean,
+                formula: string | undefined,
+                formulas: string[] | undefined,
+                formulaNodes: TrendsFormulaNode[] | undefined,
+                series: any[]
+            ): boolean => {
+                const hasSingleFormula =
+                    (formula && !formulas) ||
+                    (formulas && formulas.length === 1) ||
+                    (formulaNodes && formulaNodes.length === 1)
+                return (isTrends && hasSingleFormula) || (series || []).length <= 1
+            },
+        ],
+
         hasDataWarehouseSeries: [
             (s) => [s.isTrends, s.isFunnels, s.series],
             (isTrends, isFunnels, series): boolean => {

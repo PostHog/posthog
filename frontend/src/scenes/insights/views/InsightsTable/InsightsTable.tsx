@@ -83,7 +83,7 @@ export function InsightsTable({
         interval,
         breakdownFilter,
         trendsFilter,
-        isSingleSeries,
+        hasOnlyOneSeries,
         getTrendsColor,
         getTrendsHidden,
         insightData,
@@ -140,7 +140,7 @@ export function InsightsTable({
                     canEditSeriesNameInline={canEditSeriesNameInline}
                     seriesNameTooltip={seriesNameTooltip}
                     handleEditClick={handleSeriesEditClick}
-                    hasMultipleSeries={!isSingleSeries}
+                    hasMultipleSeries={!hasOnlyOneSeries}
                     hasBreakdown={isValidBreakdown(breakdownFilter)}
                 />
             )
