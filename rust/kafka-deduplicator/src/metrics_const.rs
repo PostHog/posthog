@@ -165,7 +165,7 @@ pub const REBALANCE_ASYNC_SETUP_CANCELLED: &str = "rebalance_async_setup_cancell
 pub const PARTITION_STORE_SETUP_SKIPPED: &str = "partition_store_setup_skipped_total";
 
 /// Counter for partitions where checkpoint import failed and we fell back to empty store
-/// Labels: checkpoint_failure_reason (import, restore)
+/// Labels: reason (no_importer | import_failed | import_cancelled | unknown)
 /// This is an important metric for alerting - indicates degraded deduplication quality
 pub const PARTITION_STORE_FALLBACK_EMPTY: &str = "partition_store_fallback_empty_total";
 

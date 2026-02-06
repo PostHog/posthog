@@ -67,6 +67,9 @@ where
     /// - Await them before resuming (ensure stores ready)
     /// - Detect stale entries and allow re-claim
     partition_setup_tasks: DashMap<Partition, PartitionSetupTask>,
+    /// Reason per partition when setup task exited without registering a store.
+    /// Used to tag PARTITION_STORE_FALLBACK_EMPTY with no_importer | import_failed | import_cancelled.
+    partition_fallback_reasons: Arc<DashMap<Partition, &'static str>>,
 }
 
 impl<T, P> ProcessorRebalanceHandler<T, P>
@@ -89,6 +92,7 @@ where
             checkpoint_importer,
             rebalance_cleanup_parallelism,
             partition_setup_tasks: DashMap::new(),
+            partition_fallback_reasons: Arc::new(DashMap::new()),
         }
     }
 
@@ -108,6 +112,7 @@ where
             checkpoint_importer,
             rebalance_cleanup_parallelism,
             partition_setup_tasks: DashMap::new(),
+            partition_fallback_reasons: Arc::new(DashMap::new()),
         }
     }
 
@@ -220,6 +225,7 @@ where
                 task.cancel_token.cancel();
                 // Handle is dropped, task continues but we won't wait for it
             }
+            self.partition_fallback_reasons.remove(partition);
         }
     }
 
@@ -253,6 +259,7 @@ where
         let store_manager = self.store_manager.clone();
         let coordinator = self.rebalance_tracker.clone();
         let importer = self.checkpoint_importer.clone();
+        let fallback_reasons = Arc::clone(&self.partition_fallback_reasons);
 
         tokio::spawn(async move {
             // === CHECKPOINT 1: Before starting ===
@@ -262,6 +269,7 @@ where
                     "reason" => if cancel_token.is_cancelled() { "cancelled" } else { "not_owned" },
                 )
                 .increment(1);
+                fallback_reasons.insert(partition.clone(), "import_cancelled");
                 return;
             }
 
@@ -308,6 +316,7 @@ where
                                 "reason" => reason,
                             )
                             .increment(1);
+                            fallback_reasons.insert(partition.clone(), "import_cancelled");
 
                             // Clean up the successfully imported directory since we can't use it.
                             // With unique Utc::now() timestamps, each import attempt creates a new path,
@@ -379,7 +388,7 @@ where
                                     error = %e,
                                     "Failed to restore checkpoint"
                                 );
-                                // Fallback store will be created at resume time
+                                fallback_reasons.insert(partition.clone(), "import_failed");
                             }
                         }
                     }
@@ -398,7 +407,9 @@ where
                                 error = %e,
                                 "Failed to import checkpoint"
                             );
-                            // Fallback store will be created at resume time
+                            fallback_reasons.insert(partition.clone(), "import_failed");
+                        } else {
+                            fallback_reasons.insert(partition.clone(), "import_cancelled");
                         }
                     }
                 }
@@ -409,7 +420,7 @@ where
                     "reason" => "disabled",
                 )
                 .increment(1);
-                // Fallback store will be created at resume time
+                fallback_reasons.insert(partition.clone(), "no_importer");
             }
         })
     }
@@ -474,17 +485,23 @@ where
                 .get(partition.topic(), partition.partition_number())
                 .is_none()
             {
+                let reason = self
+                    .partition_fallback_reasons
+                    .remove(partition)
+                    .map(|(_, r)| r)
+                    .unwrap_or("unknown");
                 match self
                     .store_manager
                     .get_or_create_for_rebalance(partition.topic(), partition.partition_number())
                     .await
                 {
                     Ok(_) => {
-                        metrics::counter!(PARTITION_STORE_FALLBACK_EMPTY, "reason" => "missing_at_resume")
+                        metrics::counter!(PARTITION_STORE_FALLBACK_EMPTY, "reason" => reason)
                             .increment(1);
                         warn!(
                             topic = partition.topic(),
                             partition = partition.partition_number(),
+                            reason = reason,
                             "Created fallback empty store - deduplication quality may be degraded"
                         );
                     }
