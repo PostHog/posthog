@@ -86,7 +86,8 @@ const getSavedQuerySchemaTable = (
     view: DataWarehouseSavedQuery,
     allTablesMap: Record<string, DatabaseSchemaTable>
 ): DatabaseSchemaTable | undefined => {
-    const schemaTable = allTablesMap[view.name]
+    const lookupKey = normalizeTableLookupKey(view.name)
+    const schemaTable = lookupKey ? allTablesMap[lookupKey] : undefined
 
     if (schemaTable?.type === 'view' || schemaTable?.type === 'materialized_view') {
         return schemaTable
