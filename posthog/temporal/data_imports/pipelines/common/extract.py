@@ -24,6 +24,7 @@ if TYPE_CHECKING:
 @asynccontextmanager
 async def _get_redis():
     """Returns an async Redis client for row tracking operations."""
+    redis = None
     try:
         if not settings.DATA_WAREHOUSE_REDIS_HOST or not settings.DATA_WAREHOUSE_REDIS_PORT:
             raise Exception(
@@ -32,11 +33,10 @@ async def _get_redis():
 
         redis = get_async_client(f"redis://{settings.DATA_WAREHOUSE_REDIS_HOST}:{settings.DATA_WAREHOUSE_REDIS_PORT}/")
         await redis.ping()
-
-        yield redis
     except Exception as e:
         capture_exception(e)
-        yield None
+
+    yield redis
 
 
 def build_non_retryable_errors_redis_key(team_id: int, source_id: str, run_id: str) -> str:

@@ -31,6 +31,7 @@ def _get_hash_key(team_id: int) -> str:
 @asynccontextmanager
 async def _get_redis():
     """Returns an async Redis client for row tracking operations."""
+    redis = None
     try:
         if not settings.DATA_WAREHOUSE_REDIS_HOST or not settings.DATA_WAREHOUSE_REDIS_PORT:
             raise Exception(
@@ -39,11 +40,10 @@ async def _get_redis():
 
         redis = get_async_client(f"redis://{settings.DATA_WAREHOUSE_REDIS_HOST}:{settings.DATA_WAREHOUSE_REDIS_PORT}/")
         await redis.ping()
-
-        yield redis
     except Exception as e:
         capture_exception(e)
-        yield None
+
+    yield redis
 
 
 async def setup_row_tracking(team_id: int, schema_id: uuid.UUID | str) -> None:
