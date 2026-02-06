@@ -2,7 +2,7 @@ import clsx from 'clsx'
 import { BuiltLogic, LogicWrapper, useActions, useValues } from 'kea'
 import { useCallback, useMemo } from 'react'
 
-import { IconChevronDown, IconTrending, IconWarning } from '@posthog/icons'
+import { IconChevronDown, IconExternal, IconTrending, IconWarning } from '@posthog/icons'
 import { LemonSegmentedButton, LemonSelect, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { getColorVar } from 'lib/colors'
@@ -60,7 +60,6 @@ import { NewActionButton } from 'products/actions/frontend/components/NewActionB
 import { CreateSurveyButton } from '../CrossSellButtons/CreateSurveyButton'
 import { ErrorTrackingButton } from '../CrossSellButtons/ErrorTrackingButton'
 import { HeatmapButton } from '../CrossSellButtons/HeatmapButton'
-import { OpenURLButton } from '../CrossSellButtons/OpenURLButton'
 import { ReplayButton } from '../CrossSellButtons/ReplayButton'
 import { pageReportsLogic } from '../pageReportsLogic'
 import { MarketingAnalyticsTable } from '../tabs/marketing-analytics/frontend/components/MarketingAnalyticsTable/MarketingAnalyticsTable'
@@ -107,29 +106,43 @@ const buildOpenUrl = (breakdownBy: WebStatsBreakdown, value: string, effectiveDo
         return null
     }
 
-    // Remove protocol if present, then reconstruct with path
-    const domain = effectiveDomain.replace(/^https?:\/\//, '').replace(/\/$/, '')
-    const path = value.startsWith('/') ? value.slice(1) : value
-    return `https://${domain}/${path}`
+    // Parse the effectiveDomain to preserve its protocol (http vs https)
+    const domainUrl = new URL(effectiveDomain)
+    const path = value.startsWith('/') ? value : `/${value}`
+    return `${domainUrl.origin}${path}`
 }
 
-const OpenURLButtonWithLogic = ({
+const PathValueWithHoverLink = ({
+    children,
     breakdownBy,
     value,
 }: {
+    children: React.ReactNode
     breakdownBy: WebStatsBreakdown
     value: string
 }): JSX.Element => {
     const { effectiveDomain } = useValues(webAnalyticsFilterLogic)
+    const url = buildOpenUrl(breakdownBy, value, effectiveDomain)
 
-    if (!PAGE_LIKE_BREAKDOWNS.has(breakdownBy)) {
-        return <></>
+    if (!url) {
+        return <>{children}</>
     }
 
-    const url = buildOpenUrl(breakdownBy, value, effectiveDomain)
-    const needsDomain = breakdownBy !== WebStatsBreakdown.ExitClick && !effectiveDomain
-
-    return <OpenURLButton url={url} disabledReason={needsDomain ? 'Select a domain to open this URL' : undefined} />
+    return (
+        <span className="inline-flex items-center gap-1">
+            {children}
+            <Link
+                to={url}
+                target="_blank"
+                onClick={(e: React.MouseEvent) => e.stopPropagation()}
+                className="opacity-0 transition-opacity text-muted hover:text-primary [[data-row-key]:hover_&]:opacity-100"
+            >
+                <Tooltip title="Open URL">
+                    <IconExternal className="text-base" />
+                </Tooltip>
+            </Link>
+        </span>
+    )
 }
 
 type VariationCellProps = { isPercentage?: boolean; reverseColors?: boolean; isDuration?: boolean }
@@ -293,7 +306,22 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
                 return <>{value}</>
             }
             const decoded = tryDecodeURIComponent(value)
-            return <>{source.doPathCleaning ? parseAliasToReadable(decoded) : decoded}</>
+            const displayValue = source.doPathCleaning ? parseAliasToReadable(decoded) : decoded
+            return (
+                <PathValueWithHoverLink breakdownBy={breakdownBy} value={value}>
+                    {displayValue}
+                </PathValueWithHoverLink>
+            )
+        }
+        case WebStatsBreakdown.ExitClick: {
+            if (typeof value !== 'string') {
+                return <>{value}</>
+            }
+            return (
+                <PathValueWithHoverLink breakdownBy={breakdownBy} value={value}>
+                    {value}
+                </PathValueWithHoverLink>
+            )
         }
         case WebStatsBreakdown.Viewport:
             if (Array.isArray(value)) {
@@ -527,7 +555,6 @@ export const webAnalyticsDataTableQueryContext: QueryContext = {
 
                 return (
                     <div className="flex flex-row items-center justify-end">
-                        <OpenURLButtonWithLogic breakdownBy={breakdownBy} value={value} />
                         <ReplayButton
                             date_from={dateRange?.date_from}
                             date_to={dateRange?.date_to}
