@@ -394,11 +394,12 @@ def _extract_cohort_ids_from_filters(filters: dict) -> set[int]:
     """
     cohort_ids: set[int] = set()
     for prop in _get_properties_from_filters(filters, "cohort"):
+        value = prop.get("value")
         # Skip list values to align with other cohort-processing code paths
-        if isinstance(prop.get("value"), list):
+        if value is None or isinstance(value, list):
             continue
         try:
-            cohort_ids.add(int(prop.get("value")))
+            cohort_ids.add(int(value))
         except (TypeError, ValueError):
             continue
     return cohort_ids
@@ -438,7 +439,7 @@ def _load_cohorts_with_dependencies(
         nested_ids: set[int] = set()
         for cohort_id in ids_to_load:
             cohort = seen_cohorts_cache.get(cohort_id)
-            if cohort and cohort != "":
+            if isinstance(cohort, Cohort):
                 for prop in cohort.properties.flat:
                     if prop.type == "cohort" and not isinstance(prop.value, list):
                         try:
@@ -557,7 +558,7 @@ def _get_flags_for_local_evaluation(team: Team, include_cohorts: bool = True) ->
             if include_cohorts:
                 for id in cohort_ids:
                     # don't duplicate queries for already added cohorts
-                    if id not in cohorts:
+                    if str(id) not in cohorts:
                         if id in seen_cohorts_cache:
                             cohort = seen_cohorts_cache[id]
                         else:
@@ -652,7 +653,7 @@ def _get_both_flags_responses_for_local_evaluation(team: Team) -> tuple[dict[str
 
             # Build cohorts dict for with-cohorts response
             for cohort_id in cohort_ids:
-                if cohort_id not in cohorts_dict:
+                if str(cohort_id) not in cohorts_dict:
                     cohort = seen_cohorts_cache.get(cohort_id)
                     if not cohort:
                         logger.warning(
