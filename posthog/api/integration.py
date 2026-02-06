@@ -24,6 +24,7 @@ from posthog.models.integration import (
     AzureBlobIntegration,
     AzureBlobIntegrationError,
     ClickUpIntegration,
+    CursorIntegration,
     DatabricksIntegration,
     DatabricksIntegrationError,
     EmailIntegration,
@@ -190,6 +191,30 @@ class IntegrationSerializer(serializers.ModelSerializer):
                 raise ValidationError(str(e))
             return instance
 
+        elif validated_data["kind"] == "cursor":
+            config = validated_data.get("config", {})
+            api_key = config.get("api_key")
+
+            if not api_key:
+                raise ValidationError("API key must be provided")
+
+            if not isinstance(api_key, str):
+                raise ValidationError("API key must be a string")
+
+            cursor = CursorIntegration(
+                Integration(
+                    team_id=team_id,
+                    created_by=request.user,
+                    kind="cursor",
+                    sensitive_config={
+                        "api_key": api_key,
+                    },
+                ),
+            )
+
+            instance = cursor.integration_from_keys()
+            return instance
+
         elif validated_data["kind"] in OauthIntegration.supported_kinds:
             try:
                 instance = OauthIntegration.integration_from_oauth_response(
@@ -331,6 +356,37 @@ class IntegrationViewSet(
         }
 
         cache.set(key, response, 60 * 60)  # one hour
+        return Response(response)
+
+    @action(methods=["GET"], detail=True, url_path="cursor_repositories")
+    def cursor_repositories(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        instance = self.get_object()
+        cursor_integration = CursorIntegration(instance)
+        force_refresh: bool = request.query_params.get("force_refresh", "false").lower() == "true"
+
+        key = f"cursor/{instance.integration_id}/repositories"
+        data = cache.get(key)
+
+        if data is not None and not force_refresh:
+            return Response(data)
+
+        try:
+            repositories = cursor_integration.list_repositories()
+        except Exception:
+            raise ValidationError("Failed to fetch repositories from Cursor")
+
+        response = {
+            "repositories": [
+                {
+                    "name": f"{repo.get('owner', '')}/{repo.get('name', '')}",
+                    "url": repo.get("url", ""),
+                }
+                for repo in repositories
+            ],
+            "lastRefreshedAt": timezone.now().isoformat(),
+        }
+
+        cache.set(key, response, 60 * 60)  # 1 hour (Cursor rate-limits to 1 req/user/min)
         return Response(response)
 
     @action(methods=["GET"], detail=True, url_path="google_conversion_actions")

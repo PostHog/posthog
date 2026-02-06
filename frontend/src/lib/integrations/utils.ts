@@ -5,6 +5,7 @@ import { IntegrationKind } from '~/types'
 import IconAzureBlob from 'public/services/azure-blob-storage.png'
 import IconBingAds from 'public/services/bing-ads.svg'
 import IconClickUp from 'public/services/clickup.svg'
+import IconCursor from 'public/services/cursor.png'
 import IconDatabricks from 'public/services/databricks.png'
 import IconFirebase from 'public/services/firebase.png'
 import IconGitHub from 'public/services/github.png'
@@ -54,6 +55,7 @@ export const ICONS: Record<IntegrationKind, any> = {
     'azure-blob': IconAzureBlob,
     firebase: IconFirebase,
     jira: IconJira,
+    cursor: IconCursor,
 }
 
 export const getIntegrationNameFromKind = (kind: string): string => {

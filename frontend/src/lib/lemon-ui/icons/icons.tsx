@@ -760,6 +760,22 @@ export function IconTwilio(props: LemonIconProps): JSX.Element {
     )
 }
 
+export function IconCursorAI(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase viewBox="0 0 100 100" {...props}>
+            <rect width="100" height="100" rx="20" fill="#000000" />
+            <path
+                d="M30 25L70 50L30 75V25Z"
+                fill="none"
+                stroke="#FFFFFF"
+                strokeWidth="6"
+                strokeLinejoin="round"
+                strokeLinecap="round"
+            />
+        </LemonIconBase>
+    )
+}
+
 export function IconDatabricks(props: LemonIconProps): JSX.Element {
     return (
         <LemonIconBase viewBox="0 0 300 325" {...props}>
