@@ -1,3 +1,4 @@
+import type { TopHogPipeOptions } from '../../tophog/tophog'
 import { BranchDecisionFn, BranchingPipeline } from '../branching-pipeline'
 import { Pipeline } from '../pipeline.interface'
 import { RetryingPipeline, RetryingPipelineOptions } from '../retrying-pipeline'
@@ -6,8 +7,8 @@ import { StepPipeline } from '../step-pipeline'
 import { ProcessingStep } from '../steps'
 
 export class StartPipelineBuilder<T, C> {
-    pipe<U>(step: ProcessingStep<T, U>): PipelineBuilder<T, U, C> {
-        return new PipelineBuilder(new StepPipeline(step, new StartPipeline<T, C>()))
+    pipe<U>(step: ProcessingStep<T, U>, options?: { topHog?: TopHogPipeOptions<T> }): PipelineBuilder<T, U, C> {
+        return new PipelineBuilder(new StepPipeline(step, new StartPipeline<T, C>(), options?.topHog))
     }
 
     retry<U>(
@@ -34,8 +35,11 @@ export class StartPipelineBuilder<T, C> {
 export class PipelineBuilder<TInput, TOutput, C> {
     constructor(protected pipeline: Pipeline<TInput, TOutput, C>) {}
 
-    pipe<U>(step: ProcessingStep<TOutput, U>): PipelineBuilder<TInput, U, C> {
-        return new PipelineBuilder(new StepPipeline(step, this.pipeline))
+    pipe<U>(
+        step: ProcessingStep<TOutput, U>,
+        options?: { topHog?: TopHogPipeOptions<TOutput> }
+    ): PipelineBuilder<TInput, U, C> {
+        return new PipelineBuilder(new StepPipeline(step, this.pipeline, options?.topHog))
     }
 
     branching<TBranch extends string, U>(

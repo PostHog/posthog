@@ -9,6 +9,10 @@ export interface PipelineWarning {
     alwaysSend?: boolean
 }
 
+export interface TopHogTracker {
+    increment(metric: string, key: string, value?: number): void
+}
+
 /**
  * Processing context that carries message through pipeline transformations
  */
@@ -16,6 +20,7 @@ export type PipelineContext<C = { message: Message }> = C & {
     lastStep?: string
     sideEffects: Promise<unknown>[]
     warnings: PipelineWarning[]
+    topHog?: TopHogTracker
 }
 
 /**

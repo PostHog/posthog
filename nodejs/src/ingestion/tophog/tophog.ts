@@ -15,8 +15,6 @@ export interface TopHogPipeOptions<T> {
     metric?: string
     trackCount?: boolean
     trackTime?: boolean
-    topN?: number
-    labels?: Record<string, string>
 }
 
 interface TopHogConfig {
