@@ -74,6 +74,8 @@ pub struct S3SourceConfig {
     bucket: String,
     prefix: String,
     region: String,
+    #[serde(default)]
+    endpoint_url: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -308,7 +310,7 @@ impl S3SourceConfig {
             "job_config",
         );
 
-        let aws_conf = aws_sdk_s3::config::Builder::new()
+        let mut builder = aws_sdk_s3::config::Builder::new()
             .region(Region::new(self.region.clone()))
             .credentials_provider(aws_credentials)
             .behavior_version(BehaviorVersion::latest())
@@ -317,9 +319,11 @@ impl S3SourceConfig {
                     .operation_timeout(Duration::from_secs(30))
                     .build(),
             )
-            .retry_config(RetryConfig::standard())
-            .build();
-        let client = aws_sdk_s3::Client::from_conf(aws_conf);
+            .retry_config(RetryConfig::standard());
+        if let Some(ref url) = self.endpoint_url {
+            builder = builder.endpoint_url(url).force_path_style(true);
+        }
+        let client = aws_sdk_s3::Client::from_conf(builder.build());
 
         Ok(S3Source::new(
             client,
@@ -363,7 +367,7 @@ impl S3SourceConfig {
             "job_config",
         );
 
-        let aws_conf = aws_sdk_s3::config::Builder::new()
+        let mut builder = aws_sdk_s3::config::Builder::new()
             .region(Region::new(self.region.clone()))
             .credentials_provider(aws_credentials)
             .behavior_version(BehaviorVersion::latest())
@@ -372,9 +376,11 @@ impl S3SourceConfig {
                     .operation_timeout(Duration::from_secs(30))
                     .build(),
             )
-            .retry_config(RetryConfig::standard())
-            .build();
-        let client = aws_sdk_s3::Client::from_conf(aws_conf);
+            .retry_config(RetryConfig::standard());
+        if let Some(ref url) = self.endpoint_url {
+            builder = builder.endpoint_url(url).force_path_style(true);
+        }
+        let client = aws_sdk_s3::Client::from_conf(builder.build());
 
         Ok(GzipS3Source::new(
             client,
