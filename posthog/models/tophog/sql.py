@@ -23,10 +23,8 @@ CREATE TABLE IF NOT EXISTS {table_name}
 (
     timestamp DateTime64(6, 'UTC'),
     metric LowCardinality(String),
-    type LowCardinality(String) DEFAULT 'sum',
-    key Map(LowCardinality(String), String),
+    key String,
     value Float64,
-    count UInt64 DEFAULT 0,
     pipeline LowCardinality(String),
     lane LowCardinality(String),
     labels Map(LowCardinality(String), String)
@@ -55,7 +53,7 @@ def WRITABLE_TOPHOG_TABLE_SQL():
         table_name=WRITABLE_TABLE_NAME,
         engine=Distributed(
             data_table=DATA_TABLE_NAME,
-            sharding_key="sipHash64(toString(key))",
+            sharding_key="sipHash64(key)",
         ),
     )
 
@@ -65,7 +63,7 @@ def DISTRIBUTED_TOPHOG_TABLE_SQL():
         table_name=TABLE_BASE_NAME,
         engine=Distributed(
             data_table=DATA_TABLE_NAME,
-            sharding_key="sipHash64(toString(key))",
+            sharding_key="sipHash64(key)",
         ),
     )
 
@@ -75,15 +73,12 @@ CREATE TABLE IF NOT EXISTS {table_name}
 (
     timestamp DateTime64(6, 'UTC'),
     metric LowCardinality(String),
-    type LowCardinality(String),
-    key Map(LowCardinality(String), String),
+    key String,
     value Float64,
-    count UInt64,
     pipeline LowCardinality(String),
     lane LowCardinality(String),
     labels Map(LowCardinality(String), String)
 ) ENGINE = {engine}
-SETTINGS date_time_input_format = 'best_effort', kafka_skip_broken_messages = 100
 """
 
 
@@ -101,10 +96,8 @@ TO {target_table}
 AS SELECT
     timestamp,
     metric,
-    type,
     key,
     value,
-    count,
     pipeline,
     lane,
     labels

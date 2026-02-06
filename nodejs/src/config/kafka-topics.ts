@@ -65,3 +65,6 @@ export const KAFKA_LOGS_INGESTION = `${prefix}logs_ingestion${suffix}`
 export const KAFKA_LOGS_INGESTION_DLQ = `${prefix}logs_ingestion_dlq${suffix}`
 export const KAFKA_LOGS_INGESTION_OVERFLOW = `${prefix}logs_ingestion_overflow${suffix}`
 export const KAFKA_LOGS_CLICKHOUSE = `${prefix}clickhouse_logs${suffix}`
+
+// TopHog metrics
+export const KAFKA_CLICKHOUSE_TOPHOG = `${prefix}clickhouse_tophog${suffix}`
