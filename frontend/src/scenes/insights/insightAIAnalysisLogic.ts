@@ -102,11 +102,12 @@ export const insightAIAnalysisLogic = kea<insightAIAnalysisLogicType>([
                 startAnalysis: () => null,
                 startAnalysisFailure: (_, { error }) => {
                     // Extract error message from API response
-                    if (error?.detail) {
-                        return error.detail
+                    const err = error as any
+                    if (err?.detail) {
+                        return err.detail
                     }
-                    if (error?.message) {
-                        return error.message
+                    if (err?.message) {
+                        return err.message
                     }
                     return 'Failed to generate analysis'
                 },
