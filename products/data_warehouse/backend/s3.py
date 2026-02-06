@@ -44,7 +44,7 @@ async def aget_s3_client():
 
     yield s3
 
-    session.close()
+    await session.close()
 
 
 def get_size_of_folder(path: str) -> float:
