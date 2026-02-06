@@ -10,7 +10,7 @@ from posthog.models import MessageTemplate
 
 
 class EmailTemplateSerializer(serializers.Serializer):
-    subject = serializers.CharField(required=False)
+    subject = serializers.CharField(required=True)
     text = serializers.CharField(required=False)
     html = serializers.CharField(required=False)
     design = serializers.JSONField(required=False)
