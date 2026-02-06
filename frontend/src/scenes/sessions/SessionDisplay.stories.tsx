@@ -30,15 +30,22 @@ const mockSessionRow = [
     'https://external.example.com/promo',
 ]
 
-function mockQueryResponse(row: any[] | null): [number, any] {
-    return [
-        200,
-        {
-            columns: [],
-            results: row ? [row] : [],
-            hasMore: false,
-        },
-    ]
+const mockPersonProperties = JSON.stringify({
+    email: 'test@example.com',
+    name: 'Test User',
+    $os: 'Mac OS X',
+    $browser: 'Chrome',
+})
+
+function handleQueryRequest(req: any): [number, any] {
+    const queryString = (req.body as any)?.query?.query as string | undefined
+    if (queryString?.includes('FROM sessions')) {
+        return [200, { columns: [], results: [mockSessionRow], hasMore: false }]
+    }
+    if (queryString?.includes('FROM persons')) {
+        return [200, { columns: [], results: [[mockPersonProperties]], hasMore: false }]
+    }
+    return [200, { columns: [], results: [], hasMore: false }]
 }
 
 const meta: Meta<typeof SessionDisplay> = {
@@ -47,14 +54,12 @@ const meta: Meta<typeof SessionDisplay> = {
     decorators: [
         mswDecorator({
             post: {
-                '/api/environments/:team_id/query/': () => mockQueryResponse(mockSessionRow),
+                '/api/environments/:team_id/query/': handleQueryRequest,
             },
             get: {
                 '/api/environments/:team_id/session_recordings/': () => [
                     200,
-                    {
-                        results: [{ id: MOCK_SESSION_ID }],
-                    },
+                    { results: [{ id: MOCK_SESSION_ID }] },
                 ],
             },
         }),
