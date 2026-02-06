@@ -77,7 +77,7 @@ const MarketingAnalyticsDashboard = (): JSX.Element => {
         if (!loading && !hasSources && !showOnboarding) {
             resetOnboarding()
         }
-    }, [loading, hasSources, showOnboarding])
+    }, [loading, hasSources, showOnboarding, resetOnboarding])
 
     const feedbackBanner = (
         <LemonBanner type="info" action={{ children: 'Send feedback', id: 'marketing-analytics-feedback-button' }}>
