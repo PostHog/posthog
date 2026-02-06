@@ -14,7 +14,7 @@ from anthropic.types import MessageParam, TextBlockParam, ThinkingConfigEnabledP
 from posthoganalytics.ai.anthropic import Anthropic
 from pydantic import BaseModel
 
-from products.llm_analytics.backend.llm.errors import AuthenticationError
+from products.llm_analytics.backend.llm.errors import AuthenticationError, QuotaExceededError, RateLimitError
 from products.llm_analytics.backend.llm.types import (
     AnalyticsContext,
     CompletionRequest,
@@ -142,10 +142,13 @@ Return ONLY the JSON object, no other text or markdown formatting."""
                 usage=usage,
                 parsed=parsed,
             )
-        except Exception as e:
-            if "authentication" in str(e).lower() or "invalid api key" in str(e).lower():
-                raise AuthenticationError(str(e))
-            raise
+        except anthropic.AuthenticationError as e:
+            raise AuthenticationError(str(e))
+        except anthropic.RateLimitError as e:
+            error_message = str(e).lower()
+            if "quota" in error_message or "credit" in error_message or "billing" in error_message:
+                raise QuotaExceededError(str(e))
+            raise RateLimitError(str(e))
 
     def stream(
         self,

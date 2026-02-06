@@ -4,6 +4,7 @@ import { Suspense, lazy } from 'react'
 import { IconChevronDown, IconChevronRight } from '@posthog/icons'
 import { LemonButton, LemonTag, Spinner, SpinnerOverlay, Tooltip } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Link } from 'lib/lemon-ui/Link'
@@ -15,6 +16,7 @@ import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentP
 import { urls } from 'scenes/urls'
 
 import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { LLMAnalyticsTraceEvents } from './components/LLMAnalyticsTraceEvents'
 import { TraceSummary, llmAnalyticsSessionDataLogic } from './llmAnalyticsSessionDataLogic'
@@ -120,26 +122,36 @@ function SessionSceneWrapper(): JSX.Element {
                                         onApprove={summarizeAllTraces}
                                         hidden={summariesLoading}
                                     >
+                                        <AccessControlAction
+                                            resourceType={AccessControlResourceType.LlmAnalytics}
+                                            minAccessLevel={AccessControlLevel.Editor}
+                                        >
+                                            <LemonButton
+                                                type="primary"
+                                                size="small"
+                                                loading={summariesLoading}
+                                                disabledReason="AI data processing must be approved to summarize traces"
+                                                data-attr="llm-session-summarize-all"
+                                            >
+                                                Summarize all traces
+                                            </LemonButton>
+                                        </AccessControlAction>
+                                    </AIConsentPopoverWrapper>
+                                ) : (
+                                    <AccessControlAction
+                                        resourceType={AccessControlResourceType.LlmAnalytics}
+                                        minAccessLevel={AccessControlLevel.Editor}
+                                    >
                                         <LemonButton
                                             type="primary"
                                             size="small"
+                                            onClick={summarizeAllTraces}
                                             loading={summariesLoading}
-                                            disabledReason="AI data processing must be approved to summarize traces"
                                             data-attr="llm-session-summarize-all"
                                         >
                                             Summarize all traces
                                         </LemonButton>
-                                    </AIConsentPopoverWrapper>
-                                ) : (
-                                    <LemonButton
-                                        type="primary"
-                                        size="small"
-                                        onClick={summarizeAllTraces}
-                                        loading={summariesLoading}
-                                        data-attr="llm-session-summarize-all"
-                                    >
-                                        Summarize all traces
-                                    </LemonButton>
+                                    </AccessControlAction>
                                 )}
                             </div>
                         )}
