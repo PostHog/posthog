@@ -1267,6 +1267,72 @@ class TestPreaggregationExecutorWaiting(BaseTest):
         assert len(result.failed_jobs) == 1
         assert "ClickHouse error" in result.failed_jobs[0].error
 
+    def test_multiple_pending_jobs_with_mixed_outcomes(self):
+        executor = PreaggregationExecutor(
+            wait_timeout_seconds=5.0,
+            poll_interval_seconds=0.05,
+            max_attempts=2,
+        )
+
+        # Three pending jobs for different ranges
+        job_a = PreaggregationJob.objects.create(
+            team=self.team,
+            query_hash="test_hash_a",
+            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+            time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
+            status=PreaggregationJob.Status.PENDING,
+            expires_at=django_timezone.now() + timedelta(days=7),
+        )
+        job_b = PreaggregationJob.objects.create(
+            team=self.team,
+            query_hash="test_hash_b",
+            time_range_start=datetime(2024, 1, 2, tzinfo=UTC),
+            time_range_end=datetime(2024, 1, 3, tzinfo=UTC),
+            status=PreaggregationJob.Status.PENDING,
+            expires_at=django_timezone.now() + timedelta(days=7),
+        )
+        job_c = PreaggregationJob.objects.create(
+            team=self.team,
+            query_hash="test_hash_c",
+            time_range_start=datetime(2024, 1, 3, tzinfo=UTC),
+            time_range_end=datetime(2024, 1, 4, tzinfo=UTC),
+            status=PreaggregationJob.Status.PENDING,
+            expires_at=django_timezone.now() + timedelta(days=7),
+        )
+
+        poll_count = [0]
+        original_filter = PreaggregationJob.objects.filter
+
+        def mock_filter(*args, **kwargs):
+            result = original_filter(*args, **kwargs)
+            if "id__in" in kwargs and poll_count[0] == 0:
+                poll_count[0] += 1
+                # Job A becomes READY
+                job_a.status = PreaggregationJob.Status.READY
+                job_a.computed_at = django_timezone.now()
+                job_a.save()
+                # Job B fails
+                job_b.status = PreaggregationJob.Status.FAILED
+                job_b.error = "Memory limit exceeded"
+                job_b.save()
+                # Job C becomes READY
+                job_c.status = PreaggregationJob.Status.READY
+                job_c.computed_at = django_timezone.now()
+                job_c.save()
+            return result
+
+        def failing_insert(team, job):
+            raise ServerException(message="Syntax error", code=62)
+
+        with patch.object(PreaggregationJob.objects, "filter", side_effect=mock_filter):
+            result = executor._wait_for_pending_jobs(self.team, [job_a, job_b, job_c], failing_insert)
+
+        assert result.success is False
+        ready_ids = {j.id for j in result.ready_jobs}
+        assert job_a.id in ready_ids
+        assert job_c.id in ready_ids
+        assert len(result.failed_jobs) == 1
+
     # --- Execute with waiting ---
 
     def test_uses_existing_ready_job_without_clickhouse(self):
@@ -1302,7 +1368,7 @@ class TestPreaggregationExecutorWaiting(BaseTest):
         ).count()
         assert total_jobs == 1
 
-    def test_skips_waiting_when_disabled(self):
+    def test_does_not_wait_for_pending_jobs_when_waiting_disabled(self):
         query = self._make_preaggregation_query()
         query_info = QueryInfo(query=query, table=PreaggregationTable.PREAGGREGATION_RESULTS, timezone="UTC")
         query_hash = compute_query_hash(query_info)
@@ -1584,18 +1650,33 @@ class TestPreaggregationExecutorWaiting(BaseTest):
             wait_timeout_seconds=10.0,
             poll_interval_seconds=0.5,
             max_poll_interval_seconds=8.0,
-            max_attempts=3,
+            max_attempts=4,
         )
 
-        failed_job = PreaggregationJob.objects.create(
+        # Start PENDING so we build up backoff, then fail, then replacement also
+        # fails (retryable) forcing another poll — which should use reset interval.
+        pending_job = PreaggregationJob.objects.create(
             team=self.team,
             query_hash="test_hash",
             time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
             time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
-            status=PreaggregationJob.Status.FAILED,
-            error="Previous error",
+            status=PreaggregationJob.Status.PENDING,
             expires_at=django_timezone.now() + timedelta(days=7),
         )
+
+        poll_count = [0]
+        original_filter = PreaggregationJob.objects.filter
+
+        def mock_filter(*args, **kwargs):
+            result = original_filter(*args, **kwargs)
+            if "id__in" in kwargs:
+                poll_count[0] += 1
+                if poll_count[0] == 4:
+                    # After 4 polls (backoff: 0.5→1.0→2.0→4.0), job fails
+                    pending_job.status = PreaggregationJob.Status.FAILED
+                    pending_job.error = "Some error"
+                    pending_job.save()
+            return result
 
         insert_attempt_count = [0]
 
@@ -1603,24 +1684,35 @@ class TestPreaggregationExecutorWaiting(BaseTest):
             insert_attempt_count[0] += 1
             if insert_attempt_count[0] == 1:
                 raise ConnectionError("Connection refused")
-            # Second attempt succeeds
 
         sleep_durations: list[float] = []
 
         def mock_sleep(duration):
             sleep_durations.append(duration)
 
-        with patch(
-            "products.analytics_platform.backend.lazy_preaggregation.lazy_preaggregation_executor.time.sleep",
-            side_effect=mock_sleep,
+        with (
+            patch.object(PreaggregationJob.objects, "filter", side_effect=mock_filter),
+            patch(
+                "products.analytics_platform.backend.lazy_preaggregation.lazy_preaggregation_executor.time.sleep",
+                side_effect=mock_sleep,
+            ),
         ):
-            result = executor._wait_for_pending_jobs(self.team, [failed_job], mock_insert)
+            result = executor._wait_for_pending_jobs(self.team, [pending_job], mock_insert)
 
         assert result.success is True
-        # After a failed INSERT creates a new job, backoff should reset.
-        # The first sleep after the reset should be back to poll_interval_seconds.
-        if len(sleep_durations) >= 2:
-            assert sleep_durations[-1] == pytest.approx(0.5, abs=0.1)
+        # Sequence:
+        #   Poll 1: PENDING → sleep(0.5)
+        #   Poll 2: PENDING → sleep(1.0)
+        #   Poll 3: PENDING → sleep(2.0)
+        #   Poll 4: FAILED → reset backoff → create replacement → insert fails
+        #            (retryable) → sleep(0.5) ← reset, NOT 4.0
+        #   Poll 5: replacement FAILED → create replacement2 → insert succeeds → done
+        assert len(sleep_durations) == 4, f"Expected 4 sleeps, got {sleep_durations}"
+        assert sleep_durations[0] == pytest.approx(0.5, abs=0.01)
+        assert sleep_durations[1] == pytest.approx(1.0, abs=0.01)
+        assert sleep_durations[2] == pytest.approx(2.0, abs=0.01)
+        # Without reset this would be 4.0 — the reset to 0.5 proves it works
+        assert sleep_durations[3] == pytest.approx(0.5, abs=0.01)
 
 
 class TestHeartbeat(BaseTest):
