@@ -7,5 +7,20 @@
     .MessageTemplateItem {
         width: 340px;
         height: 360px;
+        padding: 4px;
+
+        .MessageTemplateItemInner {
+            width: 100%;
+            height: 100%;
+            transition:
+                transform 0.2s ease,
+                box-shadow 0.2s ease;
+        }
+
+        &:hover .MessageTemplateItemInner {
+            z-index: 1;
+            box-shadow: 0 8px 24px rgb(0 0 0 / 12%);
+            transform: scale(1.05);
+        }
     }
 }

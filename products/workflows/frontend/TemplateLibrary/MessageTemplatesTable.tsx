@@ -95,54 +95,51 @@ function MessageTemplateItem({
     const emailHtml = template.content?.email?.html
 
     return (
-        <div
-            className="cursor-pointer border rounded MessageTemplateItem flex flex-col relative"
-            onClick={onClick}
-            data-attr="message-template-item"
-        >
-            <div className="absolute top-2 right-2 z-10" onClick={(e) => e.stopPropagation()}>
-                <More
-                    size="small"
-                    className="bg-white/20 dark:bg-white/10 backdrop-blur-sm hover:bg-white/40 dark:hover:bg-white/20 transition-colors"
-                    overlay={
-                        <LemonMenuOverlay
-                            items={[
-                                {
-                                    label: 'Duplicate',
-                                    onClick: onDuplicate,
-                                },
-                                {
-                                    label: 'Delete',
-                                    status: 'danger' as const,
-                                    icon: <IconTrash />,
-                                    onClick: onDelete,
-                                },
-                            ]}
-                        />
-                    }
-                />
-            </div>
-            <div className="w-full overflow-hidden grow">
-                {emailHtml ? (
-                    <iframe
-                        srcDoc={emailHtml}
-                        sandbox=""
-                        className="w-full h-full border-0 bg-white pointer-events-none"
+        <div className="cursor-pointer MessageTemplateItem" onClick={onClick} data-attr="message-template-item">
+            <div className="MessageTemplateItemInner border rounded flex flex-col relative overflow-hidden">
+                <div className="absolute top-2 right-2 z-10" onClick={(e) => e.stopPropagation()}>
+                    <More
+                        size="small"
+                        overlay={
+                            <LemonMenuOverlay
+                                items={[
+                                    {
+                                        label: 'Duplicate',
+                                        onClick: onDuplicate,
+                                    },
+                                    {
+                                        label: 'Delete',
+                                        status: 'danger' as const,
+                                        icon: <IconTrash />,
+                                        onClick: onDelete,
+                                    },
+                                ]}
+                            />
+                        }
                     />
-                ) : (
-                    <FallbackCoverImage src={undefined} alt="cover photo" index={index} className="h-full" />
-                )}
-            </div>
+                </div>
+                <div className="w-full overflow-hidden grow">
+                    {emailHtml ? (
+                        <iframe
+                            srcDoc={emailHtml}
+                            sandbox=""
+                            className="w-full h-full border-0 bg-white pointer-events-none"
+                        />
+                    ) : (
+                        <FallbackCoverImage src={undefined} alt="cover photo" index={index} className="h-full" />
+                    )}
+                </div>
 
-            <div className="px-2 py-2 border-t">
-                <h5 className="mb-0.5">{template.name || 'Unnamed template'}</h5>
-                {template.description && (
-                    <p className="text-secondary text-xs line-clamp-1 mb-1">{template.description}</p>
-                )}
-                <div className="flex items-center gap-2 text-xs text-secondary">
-                    {template.created_by && <ProfilePicture user={template.created_by} size="sm" showName />}
-                    {template.created_by && template.created_at && <span>·</span>}
-                    {template.created_at && <TZLabel time={template.created_at} />}
+                <div className="px-2 py-2 border-t">
+                    <h5 className="mb-0.5">{template.name || 'Unnamed template'}</h5>
+                    {template.description && (
+                        <p className="text-secondary text-xs line-clamp-1 mb-1">{template.description}</p>
+                    )}
+                    <div className="flex items-center gap-2 text-xs text-secondary">
+                        {template.created_by && <ProfilePicture user={template.created_by} size="sm" showName />}
+                        {template.created_by && template.created_at && <span>·</span>}
+                        {template.created_at && <TZLabel time={template.created_at} />}
+                    </div>
                 </div>
             </div>
         </div>

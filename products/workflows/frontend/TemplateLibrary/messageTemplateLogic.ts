@@ -96,7 +96,8 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
         },
     })),
     listeners(({ actions, values }) => ({
-        submitTemplateFailure: ({ errors }) => {
+        submitTemplateFailure: () => {
+            const errors = values.templateAllErrors
             if (errors?.content?.email?.subject) {
                 lemonToast.error('Subject is required')
             }
