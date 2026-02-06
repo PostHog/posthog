@@ -322,7 +322,6 @@ def _create_multi_search_call(expr: ast.Expr, value: list) -> ast.Call:
     """Create a multiSearchAnyCaseInsensitive call for the given expression and values."""
     logger.debug(
         "Using multiSearchAnyCaseInsensitive optimization",
-        field_expression=str(expr),
         values_count=len(value),
         optimization="multi_search_contains",
     )
@@ -356,9 +355,7 @@ def _expr_to_compare_op(
             return _multi_search_found(_create_multi_search_call(expr, value))
         else:
             # Single value: keep existing ILIKE logic for backward compatibility
-            logger.debug(
-                "Using legacy ILIKE for single value contains", field_expression=str(expr), optimization="legacy_ilike"
-            )
+            logger.debug("Using legacy ILIKE for single value contains", optimization="legacy_ilike")
             return ast.CompareOperation(
                 op=ast.CompareOperationOp.ILike,
                 left=ast.Call(name="toString", args=[expr]),
@@ -370,11 +367,7 @@ def _expr_to_compare_op(
             return _multi_search_not_found(_create_multi_search_call(expr, value))
         else:
             # Single value: keep existing NOT ILIKE logic for backward compatibility
-            logger.debug(
-                "Using legacy NOT ILIKE for single value not_contains",
-                field_expression=str(expr),
-                optimization="legacy_not_ilike",
-            )
+            logger.debug("Using legacy NOT ILIKE for single value not_contains", optimization="legacy_not_ilike")
             return ast.CompareOperation(
                 op=ast.CompareOperationOp.NotILike,
                 left=ast.Call(name="toString", args=[expr]),

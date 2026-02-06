@@ -355,26 +355,27 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                         "multiSearchAnyCaseInsensitive takes exactly 2 arguments".to_string(),
                     ));
                 }
-                let haystack = args[0].deref(&vm.heap)?;
-                let needles = args[1].deref(&vm.heap)?;
 
-                let haystack_str = match haystack {
-                    HogLiteral::String(s) => s.to_lowercase(),
-                    _ => return Ok(HogLiteral::Boolean(false).into()),
-                };
+                // Coerce the haystack to a string (to align with TS/Python and ClickHouse behavior)
+                let haystack_str = to_string(&vm.heap, &args[0], 0)?.to_lowercase();
+
+                // The second argument must be an array of needles; otherwise, treat as no match (0)
+                let needles = args[1].deref(&vm.heap)?;
                 let needles_array = match needles {
                     HogLiteral::Array(arr) => arr,
-                    _ => return Ok(HogLiteral::Boolean(false).into()),
+                    _ => return Ok(HogLiteral::Number(0.into()).into()),
                 };
+
                 for needle_value in needles_array {
-                    let needle = needle_value.deref(&vm.heap)?;
-                    if let HogLiteral::String(needle_str) = needle {
-                        if haystack_str.contains(&needle_str.to_lowercase()) {
-                            return Ok(HogLiteral::Boolean(true).into());
-                        }
+                    // Coerce each needle to a string, regardless of its underlying literal type
+                    let needle_str = to_string(&vm.heap, needle_value, 0)?.to_lowercase();
+                    if haystack_str.contains(&needle_str) {
+                        // Return 1 (numeric) to match ClickHouse-style predicate semantics
+                        return Ok(HogLiteral::Number(1.into()).into());
                     }
                 }
-                Ok(HogLiteral::Boolean(false).into())
+                // No needles matched: return 0 (numeric)
+                Ok(HogLiteral::Number(0.into()).into())
             }),
         ),
     ]

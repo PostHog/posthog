@@ -1697,13 +1697,13 @@ export const STL: Record<string, STLFunction> = {
     multiSearchAnyCaseInsensitive: {
         fn: (args) => {
             if (args[0] == null || args[1] == null) {
-                return false
+                return 0
             }
             if (!Array.isArray(args[1])) {
-                return false
+                return 0
             }
             const haystack = String(args[0]).toLowerCase()
-            return args[1].some((needle) => haystack.includes(String(needle).toLowerCase()))
+            return args[1].some((needle) => haystack.includes(String(needle).toLowerCase())) ? 1 : 0
         },
         description: 'Searches for any of the provided needles in the haystack (case insensitive)',
         example: 'multiSearchAnyCaseInsensitive($1, $2)',
