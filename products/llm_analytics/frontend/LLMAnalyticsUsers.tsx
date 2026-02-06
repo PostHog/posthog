@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
@@ -10,7 +10,15 @@ import { llmAnalyticsColumnRenderers } from './llmAnalyticsColumnRenderers'
 import { llmAnalyticsSharedLogic } from './llmAnalyticsSharedLogic'
 import { llmAnalyticsUsersLogic } from './tabs/llmAnalyticsUsersLogic'
 
-export function LLMAnalyticsUsers(): JSX.Element {
+export function LLMAnalyticsUsers({ tabId }: { tabId?: string } = {}): JSX.Element {
+    return (
+        <BindLogic logic={llmAnalyticsUsersLogic} props={{ tabId }}>
+            <LLMAnalyticsUsersContent />
+        </BindLogic>
+    )
+}
+
+function LLMAnalyticsUsersContent(): JSX.Element {
     const { setDates, setShouldFilterTestAccounts, setPropertyFilters } = useActions(llmAnalyticsSharedLogic)
     const { setUsersSort } = useActions(llmAnalyticsUsersLogic)
     const { usersQuery, usersSort } = useValues(llmAnalyticsUsersLogic)

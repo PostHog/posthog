@@ -12,6 +12,7 @@ import { llmAnalyticsSharedLogic } from '../llmAnalyticsSharedLogic'
 import type { llmAnalyticsTracesTabLogicType } from './llmAnalyticsTracesTabLogicType'
 
 export interface LLMAnalyticsTracesTabLogicProps {
+    tabId?: string
     personId?: string
     group?: {
         groupKey: string
@@ -21,7 +22,7 @@ export interface LLMAnalyticsTracesTabLogicProps {
 
 export const llmAnalyticsTracesTabLogic = kea<llmAnalyticsTracesTabLogicType>([
     path(['products', 'llm_analytics', 'frontend', 'tabs', 'llmAnalyticsTracesTabLogic']),
-    key((props: LLMAnalyticsTracesTabLogicProps) => props?.personId || 'llmAnalyticsScene'),
+    key((props: LLMAnalyticsTracesTabLogicProps) => props?.personId || props?.tabId || 'llmAnalyticsScene'),
     props({} as LLMAnalyticsTracesTabLogicProps),
     connect((props: LLMAnalyticsTracesTabLogicProps) => ({
         values: [
