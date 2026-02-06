@@ -1,4 +1,4 @@
-import { actions, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -7,6 +7,7 @@ import { NodeKind } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
 import { SessionEventType } from '~/types'
 
+import { teamLogic } from '../teamLogic'
 import type { sessionProfileLogicType } from './sessionProfileLogicType'
 
 export interface SessionProfileLogicProps {
@@ -42,6 +43,9 @@ export const sessionProfileLogic = kea<sessionProfileLogicType>([
     path(['scenes', 'sessions', 'sessionProfileLogic']),
     props({} as SessionProfileLogicProps),
     key((props) => props.sessionId),
+    connect({
+        values: [teamLogic, ['currentTeam']],
+    }),
     actions({
         loadSessionData: true,
         loadSessionEvents: true,
@@ -90,8 +94,45 @@ export const sessionProfileLogic = kea<sessionProfileLogicType>([
             null as SessionData | null,
             {
                 loadSessionData: async () => {
-                    // First get the session data
-                    const sessionQuery = hogql`
+                    // Check the session table version to optimize the query
+                    const currentTeam = teamLogic.values.currentTeam
+                    const sessionTableVersion =
+                        currentTeam?.modifiers?.sessionTableVersion ??
+                        currentTeam?.default_modifiers?.sessionTableVersion ??
+                        'auto'
+
+                    // V3 uses session_id directly for a point lookup (converted to session_timestamp = exact)
+                    // V2/AUTO needs timestamp hints due to cityHash64 in the ordering key
+                    const sessionQuery =
+                        sessionTableVersion === 'v3'
+                            ? hogql`
+                        SELECT
+                            session_id,
+                            distinct_id,
+                            $start_timestamp,
+                            $end_timestamp,
+                            $entry_current_url,
+                            $end_current_url,
+                            $urls,
+                            $num_uniq_urls,
+                            $pageview_count,
+                            $autocapture_count,
+                            $screen_count,
+                            $session_duration,
+                            $channel_type,
+                            $is_bounce,
+                            $entry_hostname,
+                            $entry_pathname,
+                            $entry_utm_source,
+                            $entry_utm_campaign,
+                            $entry_utm_medium,
+                            $entry_referring_domain,
+                            $last_external_click_url
+                        FROM sessions
+                        WHERE session_id = ${props.sessionId}
+                        LIMIT 1
+                    `
+                            : hogql`
                         SELECT
                             session_id,
                             distinct_id,
@@ -585,6 +626,44 @@ export const sessionProfileLogic = kea<sessionProfileLogicType>([
             (s) => [s.sessionEventsLoading, s.sessionEvents],
             (sessionEventsLoading: boolean, sessionEvents: SessionEventType[] | null): boolean =>
                 sessionEventsLoading && sessionEvents !== null,
+        ],
+        sessionProperties: [
+            (s) => [s.sessionData],
+            (sessionData: SessionData | null): Record<string, any> | null => {
+                if (!sessionData) {
+                    return null
+                }
+
+                const props: Record<string, any> = {}
+                const mappings: [string, any][] = [
+                    ['$session_duration', sessionData.session_duration],
+                    ['$start_timestamp', sessionData.start_timestamp],
+                    ['$end_timestamp', sessionData.end_timestamp],
+                    ['$entry_current_url', sessionData.entry_current_url],
+                    ['$end_current_url', sessionData.end_current_url],
+                    ['$urls', sessionData.urls?.length ? sessionData.urls : null],
+                    ['$pageview_count', sessionData.pageview_count],
+                    ['$autocapture_count', sessionData.autocapture_count],
+                    ['$screen_count', sessionData.screen_count],
+                    ['$channel_type', sessionData.channel_type],
+                    ['$is_bounce', sessionData.is_bounce],
+                    ['$entry_hostname', sessionData.entry_hostname],
+                    ['$entry_pathname', sessionData.entry_pathname],
+                    ['$entry_utm_source', sessionData.entry_utm_source],
+                    ['$entry_utm_campaign', sessionData.entry_utm_campaign],
+                    ['$entry_utm_medium', sessionData.entry_utm_medium],
+                    ['$entry_referring_domain', sessionData.entry_referring_domain],
+                    ['$last_external_click_url', sessionData.last_external_click_url],
+                ]
+
+                for (const [key, value] of mappings) {
+                    if (value != null) {
+                        props[key] = value
+                    }
+                }
+
+                return props
+            },
         ],
     }),
     listeners(({ actions, values }) => ({

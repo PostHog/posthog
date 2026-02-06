@@ -82,16 +82,13 @@
         "cost": {
             "default": {
                 "prompt_token": 9e-8,
-                "completion_token": 4e-7
+                "completion_token": 4.5e-7,
+                "cache_read_token": 9e-8
             },
             "atlas-cloud-fp8": {
                 "prompt_token": 9e-8,
                 "completion_token": 4.5e-7,
                 "cache_read_token": 9e-8
-            },
-            "ncompass-bf16": {
-                "prompt_token": 9e-8,
-                "completion_token": 4e-7
             }
         }
     },
@@ -568,6 +565,32 @@
                 "web_search": 0.01
             },
             "google-vertex": {
+                "prompt_token": 0.000005,
+                "completion_token": 0.000025,
+                "cache_read_token": 5e-7,
+                "cache_write_token": 0.00000625,
+                "web_search": 0.01
+            }
+        }
+    },
+    {
+        "model": "anthropic/claude-opus-4.6",
+        "cost": {
+            "default": {
+                "prompt_token": 0.000005,
+                "completion_token": 0.000025,
+                "cache_read_token": 5e-7,
+                "cache_write_token": 0.00000625,
+                "web_search": 0.01
+            },
+            "amazon-bedrock": {
+                "prompt_token": 0.000005,
+                "completion_token": 0.000025,
+                "cache_read_token": 5e-7,
+                "cache_write_token": 0.00000625,
+                "web_search": 0.01
+            },
+            "anthropic": {
                 "prompt_token": 0.000005,
                 "completion_token": 0.000025,
                 "cache_read_token": 5e-7,
@@ -1960,10 +1983,6 @@
                 "prompt_token": 9e-8,
                 "completion_token": 1.6e-7
             },
-            "ncompass-fp8": {
-                "prompt_token": 9e-8,
-                "completion_token": 1.6e-7
-            },
             "nebius-fp8": {
                 "prompt_token": 1e-7,
                 "completion_token": 3e-7
@@ -2314,8 +2333,8 @@
         "model": "meta-llama/llama-3.1-405b-instruct",
         "cost": {
             "default": {
-                "prompt_token": 0.0000035,
-                "completion_token": 0.0000035
+                "prompt_token": 0.000004,
+                "completion_token": 0.000004
             },
             "google-vertex": {
                 "prompt_token": 0.000005,
@@ -2324,10 +2343,6 @@
             "hyperbolic-bf16": {
                 "prompt_token": 0.000004,
                 "completion_token": 0.000004
-            },
-            "together-fp8": {
-                "prompt_token": 0.0000035,
-                "completion_token": 0.0000035
             }
         }
     },
@@ -2646,10 +2661,6 @@
                 "completion_token": 3.4e-7
             },
             "novita-bf16": {
-                "prompt_token": 1.8e-7,
-                "completion_token": 5.9e-7
-            },
-            "together": {
                 "prompt_token": 1.8e-7,
                 "completion_token": 5.9e-7
             }
@@ -3511,10 +3522,6 @@
                 "prompt_token": 4.7e-7,
                 "completion_token": 0.000002,
                 "cache_read_token": 1.41e-7
-            },
-            "gmicloud-int4": {
-                "prompt_token": 8e-7,
-                "completion_token": 0.0000012
             },
             "google-vertex": {
                 "prompt_token": 6e-7,
@@ -4686,10 +4693,6 @@
                 "completion_token": 6e-7,
                 "cache_read_token": 7.5e-8
             },
-            "ncompass": {
-                "prompt_token": 5e-8,
-                "completion_token": 2.8e-7
-            },
             "nebius-fp4": {
                 "prompt_token": 1.5e-7,
                 "completion_token": 6e-7
@@ -4799,10 +4802,6 @@
                 "completion_token": 3e-7,
                 "cache_read_token": 3.75e-8
             },
-            "ncompass": {
-                "prompt_token": 4e-8,
-                "completion_token": 1.5e-7
-            },
             "nebius-fp4": {
                 "prompt_token": 5e-8,
                 "completion_token": 2e-7
@@ -4818,14 +4817,6 @@
             "parasail-fp4": {
                 "prompt_token": 4e-8,
                 "completion_token": 2e-7
-            },
-            "phala": {
-                "prompt_token": 4e-8,
-                "completion_token": 1.5e-7
-            },
-            "siliconflow-fp8": {
-                "prompt_token": 4e-8,
-                "completion_token": 1.8e-7
             },
             "together": {
                 "prompt_token": 5e-8,
@@ -5586,10 +5577,6 @@
                 "prompt_token": 1.5e-7,
                 "completion_token": 6e-7
             },
-            "ncompass-fp8": {
-                "prompt_token": 8e-8,
-                "completion_token": 2.8e-7
-            },
             "nextbit-fp8": {
                 "prompt_token": 1.4e-7,
                 "completion_token": 5.5e-7
@@ -5694,10 +5681,6 @@
                 "completion_token": 5.9e-7,
                 "cache_read_token": 1.45e-7
             },
-            "ncompass-fp8": {
-                "prompt_token": 1e-7,
-                "completion_token": 2.8e-7
-            },
             "nebius-base": {
                 "prompt_token": 1e-7,
                 "completion_token": 3e-7
@@ -5745,11 +5728,6 @@
                 "prompt_token": 5e-8,
                 "completion_token": 4e-7,
                 "cache_read_token": 5e-8
-            },
-            "fireworks": {
-                "prompt_token": 2.0000000000000002e-7,
-                "completion_token": 2.0000000000000002e-7,
-                "cache_read_token": 1.0000000000000001e-7
             }
         }
     },
@@ -5914,10 +5892,6 @@
                 "prompt_token": 2.2e-7,
                 "completion_token": 0.0000018,
                 "cache_read_token": 2.2e-8
-            },
-            "baseten-fp8": {
-                "prompt_token": 3.8e-7,
-                "completion_token": 0.00000153
             },
             "google-vertex": {
                 "prompt_token": 2.2e-7,

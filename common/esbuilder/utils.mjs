@@ -176,6 +176,22 @@ export const commonConfig = {
     // no hashes in dev mode for faster reloads --> we save the old hash in index.html otherwise
     entryNames: isDev ? '[dir]/[name]' : '[dir]/[name]-[hash]',
     plugins: [
+        // monaco-vim imports monaco-editor internals without .js extensions (e.g. monaco-editor/esm/vs/editor/editor.api)
+        // which esbuild can't resolve through monaco-editor's package.json exports map
+        {
+            name: 'resolve-monaco-esm',
+            setup(build) {
+                build.onResolve({ filter: /^monaco-editor\/esm\// }, (args) => {
+                    if (args.path.endsWith('.js')) {
+                        return
+                    }
+                    return build.resolve(args.path + '.js', {
+                        kind: args.kind,
+                        resolveDir: args.resolveDir,
+                    })
+                })
+            },
+        },
         sassPlugin({
             async transform(source, resolveDir, filePath) {
                 const plugins = [autoprefixer, postcssPresetEnv({ stage: 0 })]

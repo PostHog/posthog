@@ -1269,6 +1269,9 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
 
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
+        self.user.partial_notification_settings = {"materialized_view_sync_failed": True}
+        self.user.save()
+
         saved_query = DataWarehouseSavedQuery.objects.create(
             team=self.team,
             name="test_materialized_view",
@@ -1282,6 +1285,22 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert mocked_email_messages[0].send.call_count == 1
         assert mocked_email_messages[0].html_body
         assert "test_materialized_view" in mocked_email_messages[0].html_body
+
+    def test_send_saved_query_materialization_failure_not_sent_by_default(self, MockEmailMessage: MagicMock) -> None:
+        from products.data_warehouse.backend.models import DataWarehouseSavedQuery
+
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="test_materialized_view",
+            query={"query": "SELECT 1"},
+            status=DataWarehouseSavedQuery.Status.FAILED,
+        )
+
+        send_saved_query_materialization_failure(str(saved_query.id))
+
+        assert len(mocked_email_messages) == 0
 
     def test_send_saved_query_materialization_failure_respects_notification_settings(
         self, MockEmailMessage: MagicMock
@@ -1298,17 +1317,17 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         )
 
         user2 = self._create_user("test2@posthog.com")
-        self.user.partial_notification_settings = {"materialized_view_sync_failed": False}
-        self.user.save()
+        user2.partial_notification_settings = {"materialized_view_sync_failed": True}
+        user2.save()
 
         send_saved_query_materialization_failure(str(saved_query.id))
 
-        # Should only be sent to user2 who has notifications enabled (default)
+        # Should only be sent to user2 who has explicitly opted in
         assert mocked_email_messages[0].to == [
             {"recipient": "test2@posthog.com", "raw_email": "test2@posthog.com", "distinct_id": str(user2.distinct_id)}
         ]
 
-        # Re-enable notifications for self.user
+        # Opt in self.user too
         self.user.partial_notification_settings = {"materialized_view_sync_failed": True}
         self.user.save()
 

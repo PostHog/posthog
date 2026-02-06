@@ -15,6 +15,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
+from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.llm_analytics.trace_summarization.models import BatchSummarizationInputs, SampledItem
 from posthog.temporal.llm_analytics.trace_summarization.utils import format_datetime_for_clickhouse
 
@@ -153,13 +154,14 @@ async def sample_items_in_window_activity(inputs: BatchSummarizationInputs) -> l
                 if row[0]
             ]
 
-    items = await database_sync_to_async(_sample_items, thread_sensitive=False)(
-        inputs.team_id,
-        inputs.window_start,
-        inputs.window_end,
-        inputs.max_items,
-        inputs.analysis_level,
-    )
+    async with Heartbeater():
+        items = await database_sync_to_async(_sample_items, thread_sensitive=False)(
+            inputs.team_id,
+            inputs.window_start,
+            inputs.window_end,
+            inputs.max_items,
+            inputs.analysis_level,
+        )
 
     logger.debug(
         "sample_items_in_window_result",
