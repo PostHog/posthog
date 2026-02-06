@@ -107,9 +107,14 @@ const buildOpenUrl = (breakdownBy: WebStatsBreakdown, value: string, effectiveDo
     }
 
     // Parse the effectiveDomain to preserve its protocol (http vs https)
-    const domainUrl = new URL(effectiveDomain)
-    const path = value.startsWith('/') ? value : `/${value}`
-    return `${domainUrl.origin}${path}`
+    // Wrap in try/catch since domainFilter can be invalid (e.g., from URL params)
+    try {
+        const domainUrl = new URL(effectiveDomain)
+        const path = value.startsWith('/') ? value : `/${value}`
+        return `${domainUrl.origin}${path}`
+    } catch {
+        return null
+    }
 }
 
 const PathValueWithHoverLink = ({
