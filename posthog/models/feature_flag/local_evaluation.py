@@ -391,6 +391,9 @@ def _extract_cohort_ids_from_filters(filters: dict) -> set[int]:
     """
     cohort_ids: set[int] = set()
     for prop in _get_properties_from_filters(filters, "cohort"):
+        # Skip list values to align with other cohort-processing code paths
+        if isinstance(prop.get("value"), list):
+            continue
         try:
             cohort_ids.add(int(prop.get("value")))
         except (TypeError, ValueError):
