@@ -556,15 +556,20 @@ export function LLMProviderKeysSettings(): JSX.Element {
             render: (_, key) => (
                 <div className="flex gap-1">
                     {key.state !== 'ok' && (
-                        <LemonButton
-                            size="small"
-                            type="secondary"
-                            icon={<IconRefresh />}
-                            loading={validatingKeyId === key.id}
-                            onClick={() => validateProviderKey({ id: key.id })}
+                        <AccessControlAction
+                            resourceType={AccessControlResourceType.LlmAnalytics}
+                            minAccessLevel={AccessControlLevel.Editor}
                         >
-                            Validate
-                        </LemonButton>
+                            <LemonButton
+                                size="small"
+                                type="secondary"
+                                icon={<IconRefresh />}
+                                loading={validatingKeyId === key.id}
+                                onClick={() => validateProviderKey({ id: key.id })}
+                            >
+                                Validate
+                            </LemonButton>
+                        </AccessControlAction>
                     )}
                     <AccessControlAction
                         resourceType={AccessControlResourceType.LlmAnalytics}
