@@ -156,10 +156,20 @@ export function convertDataTableNodeToDataVisualizationNode(node: Node | null): 
         return node
     }
 
+    const tableSettingsColumns = node.columns?.length ? node.columns.map((column) => ({ column })) : undefined
+    const tableSettings =
+        tableSettingsColumns || node.pinnedColumns?.length
+            ? {
+                  ...(tableSettingsColumns ? { columns: tableSettingsColumns } : {}),
+                  ...(node.pinnedColumns?.length ? { pinnedColumns: node.pinnedColumns } : {}),
+              }
+            : undefined
+
     return {
         kind: NodeKind.DataVisualizationNode,
         source: node.source as HogQLQuery,
         display: ChartDisplayType.ActionsTable,
+        ...(tableSettings ? { tableSettings } : {}),
     } as DataVisualizationNode
 }
 
