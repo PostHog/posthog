@@ -71,6 +71,18 @@ NON_RETRYABLE_CLICKHOUSE_ERROR_CODES = frozenset(
 )
 
 
+RESERVED_PLACEHOLDERS = {"time_window_min", "time_window_max"}
+
+
+def _validate_no_reserved_placeholders(placeholders: dict[str, ast.Expr]) -> None:
+    conflicting = RESERVED_PLACEHOLDERS & set(placeholders.keys())
+    if conflicting:
+        raise ValueError(
+            f"Cannot use reserved placeholder names: {conflicting}. "
+            "time_window_min and time_window_max are automatically added per-job."
+        )
+
+
 def is_non_retryable_error(error: Exception) -> bool:
     """
     Check if an error should NOT be retried.
@@ -80,15 +92,14 @@ def is_non_retryable_error(error: Exception) -> bool:
 
     Transient errors (network issues, connection drops) are retryable since
     the server may recover.
+
+    Walks the exception __cause__ chain to check wrapped errors (e.g., from wrap_query_error).
     """
-    # ClickHouse server errors with non-retryable codes
-    if isinstance(error, ServerException) and error.code in NON_RETRYABLE_CLICKHOUSE_ERROR_CODES:
-        return True
-
-    # Check wrapped errors (e.g., from wrap_query_error)
-    if error.__cause__ is not None and isinstance(error.__cause__, Exception):
-        return is_non_retryable_error(error.__cause__)
-
+    current: BaseException | None = error
+    while current is not None:
+        if isinstance(current, ServerException) and current.code in NON_RETRYABLE_CLICKHOUSE_ERROR_CODES:
+            return True
+        current = current.__cause__
     return False
 
 
@@ -613,18 +624,28 @@ class PreaggregationExecutor:
             # Another waiter created a replacement first - this is expected
             return None
 
-    def _find_pending_replacement(
+    def _find_replacement_job(
         self,
         failed_job: PreaggregationJob,
     ) -> PreaggregationJob | None:
-        """Find the pending replacement job for a failed job."""
-        return PreaggregationJob.objects.filter(
-            team=failed_job.team,
-            query_hash=failed_job.query_hash,
-            time_range_start=failed_job.time_range_start,
-            time_range_end=failed_job.time_range_end,
-            status=PreaggregationJob.Status.PENDING,
-        ).first()
+        """
+        Find the replacement job for a failed job.
+
+        The replacement may already be READY if the winning waiter finished
+        before we got here, so we search for both PENDING and READY.
+        """
+        return (
+            PreaggregationJob.objects.filter(
+                team=failed_job.team,
+                query_hash=failed_job.query_hash,
+                time_range_start=failed_job.time_range_start,
+                time_range_end=failed_job.time_range_end,
+                status__in=[PreaggregationJob.Status.PENDING, PreaggregationJob.Status.READY],
+                created_at__gt=failed_job.created_at,
+            )
+            .order_by("-created_at")
+            .first()
+        )
 
     def _try_mark_stale_job_as_failed(self, job: PreaggregationJob) -> bool:
         """
@@ -697,7 +718,9 @@ class PreaggregationExecutor:
                         failed_jobs.append(job)
                         del waiting_for[tracking_key]
                     else:
-                        # Reset backoff when starting to work on a replacement
+                        # Reset backoff when starting to work on a replacement.
+                        # Note: this is shared across all waiting jobs — a replacement
+                        # for one job resets the poll interval for all of them.
                         current_poll_interval = self.poll_interval_seconds
 
                         replacement = self._try_create_replacement_job(job)
@@ -721,7 +744,7 @@ class PreaggregationExecutor:
                                     entry["job"] = replacement
                         else:
                             # Another waiter created a replacement - find it and wait for it
-                            existing_replacement = self._find_pending_replacement(job)
+                            existing_replacement = self._find_replacement_job(job)
                             if existing_replacement is not None:
                                 entry["job"] = existing_replacement
 
@@ -811,14 +834,7 @@ def ensure_preaggregated(
         # Use result.job_ids to query from preaggregation_results
     """
     base_placeholders = placeholders or {}
-
-    reserved_placeholders = {"time_window_min", "time_window_max"}
-    conflicting = reserved_placeholders & set(base_placeholders.keys())
-    if conflicting:
-        raise ValueError(
-            f"Cannot use reserved placeholder names: {conflicting}. "
-            "time_window_min and time_window_max are automatically added per-job."
-        )
+    _validate_no_reserved_placeholders(base_placeholders)
 
     # Parse the query template with sentinel time placeholders for stable hashing
     hash_placeholders = {
@@ -866,15 +882,8 @@ def _build_manual_insert_sql(
     The query should use {time_window_min} and {time_window_max} placeholders
     for time filtering - these are substituted with the job's time range.
     """
-    # Validate that reserved placeholders are not provided
     if base_placeholders:
-        reserved_placeholders = {"time_window_min", "time_window_max"}
-        conflicting = reserved_placeholders & set(base_placeholders.keys())
-        if conflicting:
-            raise ValueError(
-                f"Cannot use reserved placeholder names: {conflicting}. "
-                "time_window_min and time_window_max are automatically added per-job."
-            )
+        _validate_no_reserved_placeholders(base_placeholders)
 
     # Build placeholders with job-specific time values
     all_placeholders = {
@@ -883,12 +892,9 @@ def _build_manual_insert_sql(
         "time_window_max": ast.Constant(value=job.time_range_end),
     }
 
-    # Parse the query with all placeholders
-    parsed = parse_select(insert_query, placeholders=all_placeholders)
-    assert isinstance(parsed, ast.SelectQuery)
-
-    # Deep copy to avoid issues
-    query = copy.deepcopy(parsed)
+    # Parse the query with all placeholders — returns a fresh AST we can mutate
+    query = parse_select(insert_query, placeholders=all_placeholders)
+    assert isinstance(query, ast.SelectQuery)
     assert query.select is not None, "SelectQuery must have select expressions"
 
     # Add team_id as the first column
