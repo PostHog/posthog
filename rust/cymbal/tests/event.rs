@@ -320,13 +320,9 @@ async fn empty_exception_list_returns_event_with_error(db: PgPool) {
     assert!(status.is_success());
     assert_eq!(body.0.len(), 1);
     let event = &body.0[0];
-    let errors: Vec<String> = serde_json::from_value(
-        event.properties.get("$cymbal_errors").unwrap().clone(),
-    )
-    .unwrap();
-    assert!(errors
-        .iter()
-        .any(|e| e.contains("Empty exception list")));
+    let errors: Vec<String> =
+        serde_json::from_value(event.properties.get("$cymbal_errors").unwrap().clone()).unwrap();
+    assert!(errors.iter().any(|e| e.contains("Empty exception list")));
 }
 
 #[sqlx::test(migrations = "./tests/test_migrations")]
