@@ -177,17 +177,120 @@ jobs:
                     fi
                   fi
 
-    # Turbo tests for isolated products
-    # Uses Turborepo for fast caching and test execution
-    # Checks contract changes via turbo cache to decide if Django tests should also run
-    turbo-tests:
+    # Fast pre-job: determines which products need testing and if Django should run
+    # Only needs pnpm + node — no Python, Docker, or services
+    turbo-discover:
         needs: changes
-        if: needs.changes.outputs.products == 'true'
-        runs-on: depot-ubuntu-latest
-        timeout-minutes: 30
-        name: Turbo tests (products)
+        if: needs.changes.outputs.backend == 'true'
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        name: Turbo discover
         outputs:
             run_legacy: ${{ steps.contract-check.outputs.run_legacy }}
+            products: ${{ steps.discover.outputs.products }}
+
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: Setup pnpm
+              uses: pnpm/action-setup@v4
+
+            - name: Setup Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version: 20
+                  cache: pnpm
+
+            - name: Install pnpm dependencies
+              run: pnpm install --frozen-lockfile
+
+            - name: Check contract changes
+              id: contract-check
+              run: |
+                  # Determines if Django needs to run based on contract changes.
+                  #
+                  # Logic:
+                  # - Push to master: run Django (full CI)
+                  # - Legacy (posthog/ee/common) changed: run Django
+                  # - Any contract-check cache miss: run Django
+                  # - All cache hits: skip Django (isolated impl-only changes)
+
+                  if [[ "${{ github.event_name }}" != "pull_request" ]]; then
+                    echo "Push to master - Django will run"
+                    echo "run_legacy=true" >> $GITHUB_OUTPUT
+                    exit 0
+                  fi
+
+                  LEGACY_CHANGED="${{ needs.changes.outputs.legacy }}"
+                  if [[ "$LEGACY_CHANGED" == "true" ]]; then
+                    echo "Legacy code changed - Django will run"
+                    echo "run_legacy=true" >> $GITHUB_OUTPUT
+                    exit 0
+                  fi
+
+                  # Use turbo dry-run to detect contract changes without executing tasks
+                  # Strip non-JSON lines (pnpm/turbo may prepend warnings to stdout)
+                  CACHE_STATUS=$(pnpm turbo run backend:contract-check --dry-run=json 2>/dev/null | sed -n '/^{/,$p' | jq -r '
+                    [.tasks[] | select(.command | test("NONEXISTENT") | not) | .cache.status] |
+                    if length == 0 then "NO_TASKS"
+                    elif any(. == "MISS") then "MISS"
+                    else "HIT"
+                    end
+                  ' || echo "PARSE_ERROR")
+
+                  echo "Contract check cache status: $CACHE_STATUS"
+
+                  if [[ "$CACHE_STATUS" == "HIT" || "$CACHE_STATUS" == "NO_TASKS" ]]; then
+                    echo "Contracts unchanged (cache $CACHE_STATUS) - Django can be skipped"
+                    echo "run_legacy=false" >> $GITHUB_OUTPUT
+                  else
+                    echo "Contract files changed ($CACHE_STATUS) - Django will run"
+                    echo "run_legacy=true" >> $GITHUB_OUTPUT
+                  fi
+
+            - name: Discover products to test
+              id: discover
+              run: |
+                  # Build dynamic matrix of products that need testing.
+                  # Products depend on legacy code (ee/, posthog/, common/) at runtime,
+                  # so legacy changes must trigger ALL product tests.
+                  # For product-only changes, use turbo cache to test only affected products.
+
+                  LEGACY_CHANGED="${{ needs.changes.outputs.legacy }}"
+
+                  if [[ "$LEGACY_CHANGED" == "true" ]]; then
+                    # Legacy changed — all products must be tested
+                    PRODUCTS=$(pnpm turbo run backend:test --dry-run=json 2>/dev/null \
+                      | sed -n '/^{/,$p' \
+                      | jq -c '[.tasks[] | select(.command | test("NONEXISTENT") | not) | .package | sub("@posthog/products-"; "")] | unique' \
+                      || echo '[]')
+                  else
+                    # Only product files changed — test only affected products (cache MISS)
+                    PRODUCTS=$(pnpm turbo run backend:test --dry-run=json 2>/dev/null \
+                      | sed -n '/^{/,$p' \
+                      | jq -c '[.tasks[] | select(.command | test("NONEXISTENT") | not) | select(.cache.status == "MISS") | .package | sub("@posthog/products-"; "")] | unique' \
+                      || echo '[]')
+                  fi
+
+                  echo "Products to test: $PRODUCTS"
+                  echo "products=$PRODUCTS" >> $GITHUB_OUTPUT
+
+    # Runs product tests in parallel — one matrix job per affected product
+    # Each job gets its own runner + Docker stack, so no shared DB conflicts
+    turbo-tests:
+        needs: [changes, turbo-discover]
+        if: >-
+            always() &&
+            needs.turbo-discover.result == 'success' &&
+            needs.turbo-discover.outputs.products != '[]' &&
+            needs.turbo-discover.outputs.products != ''
+        runs-on: depot-ubuntu-latest
+        timeout-minutes: 30
+        name: Turbo tests (${{ matrix.product }})
+        strategy:
+            fail-fast: false
+            matrix:
+                product: ${{ fromJson(needs.turbo-discover.outputs.products) }}
 
         steps:
             - uses: actions/checkout@v4
@@ -258,68 +361,13 @@ jobs:
                   touch frontend/dist/index.html frontend/dist/layout.html frontend/dist/exporter.html
                   ./bin/download-mmdb
 
-            - name: Check contract changes
-              id: contract-check
-              run: |
-                  # Turbo runs ALL product tests. Django runs posthog/ee tests.
-                  # This step determines if Django needs to run based on contract changes.
-                  #
-                  # Logic:
-                  # - Push to master: run Django (full CI)
-                  # - Legacy (posthog/ee) changed: run Django
-                  # - Any contract-check cache miss: run Django
-                  #   - Isolated product contract changed → might affect legacy
-                  #   - Non-isolated product changed → always triggers Django (inputs: **/*)
-                  # - All cache hits: skip Django (isolated impl-only changes)
-
-                  # On push to master, always run Django
-                  if [[ "${{ github.event_name }}" != "pull_request" ]]; then
-                    echo "Push to master - Django will run"
-                    echo "run_legacy=true" >> $GITHUB_OUTPUT
-                    exit 0
-                  fi
-
-                  # Cheap routing: legacy changes → run Django
-                  LEGACY_CHANGED="${{ needs.changes.outputs.legacy }}"
-                  if [[ "$LEGACY_CHANGED" == "true" ]]; then
-                    echo "Legacy code changed - Django will run"
-                    echo "run_legacy=true" >> $GITHUB_OUTPUT
-                    exit 0
-                  fi
-
-                  # Use turbo's dry-run JSON output to detect contract changes
-                  # - Isolated products: contract-check inputs are specific contract files
-                  # - Non-isolated products: contract-check inputs are **/*.py (always miss on change)
-                  #
-                  # --dry-run=json returns structured output without executing tasks
-                  # We filter out tasks with no script (command=<NONEXISTENT>) and check cache status
-                  # Strip non-JSON lines (pnpm/turbo may prepend warnings to stdout in CI)
-                  CACHE_STATUS=$(pnpm turbo run backend:contract-check --dry-run=json 2>/dev/null | sed -n '/^{/,$p' | jq -r '
-                    [.tasks[] | select(.command | test("NONEXISTENT") | not) | .cache.status] |
-                    if length == 0 then "NO_TASKS"
-                    elif any(. == "MISS") then "MISS"
-                    else "HIT"
-                    end
-                  ' || echo "PARSE_ERROR")
-
-                  echo "Contract check cache status: $CACHE_STATUS"
-
-                  if [[ "$CACHE_STATUS" == "HIT" || "$CACHE_STATUS" == "NO_TASKS" ]]; then
-                    echo "Contracts unchanged (cache $CACHE_STATUS) - Django can be skipped"
-                    echo "run_legacy=false" >> $GITHUB_OUTPUT
-                  else
-                    echo "Contract files changed ($CACHE_STATUS) - Django will run"
-                    echo "run_legacy=true" >> $GITHUB_OUTPUT
-                  fi
-
             - name: Wait for services
               run: |
                   bin/check_kafka_clickhouse_up
                   bin/check_postgres_up
 
             - name: Run product tests
-              # Sequential execution to avoid parallel tests fighting over shared DB
-              run: pnpm turbo run backend:test --output-logs=new-only --concurrency=1
+              run: pnpm turbo run backend:test --filter=@posthog/products-${{ matrix.product }} --output-logs=new-only
 
     check-migrations:
         needs: [changes]
@@ -652,14 +700,14 @@ jobs:
                   fi
 
     django:
-        needs: [changes, turbo-tests, detect-snapshot-mode, get_clickhouse_versions]
+        needs: [changes, turbo-discover, detect-snapshot-mode, get_clickhouse_versions]
         # Run legacy pytest if:
         # 1. Legacy code directly changed (ee/, posthog/)
-        # 2. OR product changes affect legacy code (turbo-tests outputs run_legacy=true)
+        # 2. OR product changes affect legacy code (turbo-discover outputs run_legacy=true)
         if: |
             always() &&
             needs.changes.outputs.backend == 'true' &&
-            (needs.changes.outputs.legacy == 'true' || needs.turbo-tests.outputs.run_legacy == 'true')
+            (needs.changes.outputs.legacy == 'true' || needs.turbo-discover.outputs.run_legacy == 'true')
         # increase for tmate testing
         timeout-minutes: 30
 
@@ -1202,12 +1250,12 @@ jobs:
 
     clickhouse-compat:
         name: ClickHouse compat tests - ${{ matrix.clickhouse-server-image }}
-        needs: [changes, turbo-tests, get_clickhouse_versions]
+        needs: [changes, turbo-discover, get_clickhouse_versions]
         # Run if legacy code changed or product changes affect legacy
         if: |
             always() &&
             needs.changes.outputs.backend == 'true' &&
-            (needs.changes.outputs.legacy == 'true' || needs.turbo-tests.outputs.run_legacy == 'true')
+            (needs.changes.outputs.legacy == 'true' || needs.turbo-discover.outputs.run_legacy == 'true')
         runs-on: depot-ubuntu-latest
         strategy:
             fail-fast: false
@@ -1313,7 +1361,16 @@ jobs:
     # Job just to collate the status of the matrix jobs for requiring passing status
     # Must depend on handle-snapshots to prevent auto-merge before commits complete
     django_tests:
-        needs: [django, clickhouse-compat, check-migrations, async-migrations, turbo-tests, handle-snapshots]
+        needs:
+            [
+                django,
+                clickhouse-compat,
+                check-migrations,
+                async-migrations,
+                turbo-discover,
+                turbo-tests,
+                handle-snapshots,
+            ]
         name: Django Tests Pass
         runs-on: ubuntu-latest
         if: always()
@@ -1344,6 +1401,12 @@ jobs:
                     exit 1
                   fi
 
+                  # Check Turbo discover - must pass for Django Tests to be green
+                  if [[ "${{ needs.turbo-discover.result }}" != "success" && "${{ needs.turbo-discover.result }}" != "skipped" ]]; then
+                    echo "Turbo discover failed."
+                    exit 1
+                  fi
+
                   # Check Turbo tests (products) - must pass for Django Tests to be green
                   if [[ "${{ needs.turbo-tests.result }}" != "success" && "${{ needs.turbo-tests.result }}" != "skipped" ]]; then
                     echo "Turbo tests failed."
@@ -1360,7 +1423,7 @@ jobs:
 
     async-migrations:
         name: Async migrations tests -  ${{ matrix.clickhouse-server-image }}
-        needs: [changes, turbo-tests, get_clickhouse_versions]
+        needs: [changes, turbo-discover, get_clickhouse_versions]
         strategy:
             fail-fast: false
             matrix:
@@ -1369,7 +1432,7 @@ jobs:
         if: |
             always() &&
             needs.changes.outputs.backend == 'true' &&
-            (needs.changes.outputs.legacy == 'true' || needs.turbo-tests.outputs.run_legacy == 'true')
+            (needs.changes.outputs.legacy == 'true' || needs.turbo-discover.outputs.run_legacy == 'true')
         runs-on: depot-ubuntu-latest
         steps:
             - name: 'Checkout repo'
