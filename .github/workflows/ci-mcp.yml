@@ -116,6 +116,7 @@ jobs:
             SKIP_SERVICE_VERSION_REQUIREMENTS: 1
             NO_RESTART_LOOP: 1
             DISABLE_SECURE_SSL_REDIRECT: 'True'
+            CLICKHOUSE_LOGS_CLUSTER_SECURE: 'False'
 
         steps:
             - uses: actions/checkout@v6
@@ -190,6 +191,24 @@ jobs:
               run: |
                   python manage.py migrate --noinput
                   python manage.py migrate_clickhouse
+
+            - name: Create logs tables in ClickHouse
+              run: |
+                  python -c "
+                  import django, os
+                  os.environ['DJANGO_SETTINGS_MODULE'] = 'posthog.settings'
+                  django.setup()
+                  from posthog.clickhouse.client import sync_execute
+                  with open('products/logs/backend/test/test_logs_schema.sql') as f:
+                      schema_sql = f.read()
+                  schema_sql = schema_sql.replace('use database posthog_test;', '')
+                  for sql in schema_sql.split(';'):
+                      sql = sql.strip()
+                      if not sql:
+                          continue
+                      sync_execute(sql)
+                  print('Logs tables created successfully')
+                  "
 
             - name: Seed test data
               run: python manage.py setup_dev --no-data
