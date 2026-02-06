@@ -240,5 +240,4 @@ async def persist_reports_activity(inputs: PersistReportsActivityInputs) -> Pers
         )
     finally:
         # Cleanup centroid cache regardless of success or failure
-        if inputs.new_clusters:
-            await delete_centroids(workflow_id)
+        await delete_centroids(workflow_id)
