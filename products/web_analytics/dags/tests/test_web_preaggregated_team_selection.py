@@ -649,9 +649,9 @@ class TestHighVolumeTeamCandidatesAsset:
             context = dagster.build_asset_context()
             result = web_analytics_high_volume_team_candidates(context)
 
-        metadata = result.metadata
-        assert metadata is not None
-        assert metadata["threshold"] == 1_000_000
+        assert isinstance(result, dagster.MaterializeResult)
+        assert result.metadata is not None
+        assert result.metadata["threshold"] == 1_000_000
 
     @patch("products.web_analytics.dags.web_preaggregated_team_selection.sync_execute")
     def test_handles_invalid_threshold_env_var(self, mock_execute):
@@ -661,9 +661,9 @@ class TestHighVolumeTeamCandidatesAsset:
             context = dagster.build_asset_context()
             result = web_analytics_high_volume_team_candidates(context)
 
-        metadata = result.metadata
-        assert metadata is not None
-        assert metadata["threshold"] == DEFAULT_WEEKLY_PAGEVIEWS_THRESHOLD
+        assert isinstance(result, dagster.MaterializeResult)
+        assert result.metadata is not None
+        assert result.metadata["threshold"] == DEFAULT_WEEKLY_PAGEVIEWS_THRESHOLD
 
     @patch("products.web_analytics.dags.web_preaggregated_team_selection.sync_execute")
     def test_team_details_include_all_stats(self, mock_execute):

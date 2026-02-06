@@ -218,7 +218,7 @@ def web_analytics_high_volume_team_candidates(
         )
     context.log.info(f"Total estimated weekly pageviews across all candidates: {total_avg_weekly_pageviews:,}")
 
-    metadata = {
+    metadata: dict[str, str | int] = {
         "team_count": len(team_candidates),
         "team_ids": str(team_ids),
         "threshold": threshold,
