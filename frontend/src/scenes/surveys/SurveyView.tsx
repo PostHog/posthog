@@ -438,7 +438,7 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
                                     Thumbs {value == '1' ? 'up' : 'down'}
                                 </span>
                             ) : (
-                                value
+                                String(value)
                             )}
                         </span>
                     )

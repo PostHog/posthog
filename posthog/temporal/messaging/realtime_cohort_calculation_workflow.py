@@ -223,6 +223,7 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
 
                 with tags_context(
                     team_id=cohort.team_id,
+                    cohort_id=cohort.id,
                     feature=Feature.BEHAVIORAL_COHORTS,
                     product=Product.MESSAGING,
                     query_type="realtime_cohort_calculation",

@@ -153,11 +153,11 @@ jobs:
                   install-script: 'pnpm --filter=@posthog/frontend... install'
                   compression: 'none'
                   # Check all JS bundles in the dist folder
-                  pattern: 'frontend/dist/*.js'
+                  pattern: 'frontend/dist/**/*.js'
                   # Exclude source maps and chunk files (chunk hashes change every build)
                   exclude: |
-                      frontend/dist/*.js.map
-                      frontend/dist/chunk*.js
+                      **/*.js.map
+                      **/chunk*.js
                   # Only show large changes
                   minimum-change-threshold: 1000
                   order-by: 'Size:desc'
@@ -220,8 +220,8 @@ jobs:
                   pnpm --filter=@posthog/playwright... install --frozen-lockfile
                   bin/turbo --filter=@posthog/frontend prepare
 
-            - name: Cache .typegen
-              uses: actions/cache@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
+            - name: Restore .typegen cache
+              uses: actions/cache/restore@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
               with:
                   path: .typegen
                   key: ${{ runner.os }}-typegen-${{ hashFiles('pnpm-lock.yaml') }}
@@ -235,6 +235,13 @@ jobs:
 
             - name: Kea typegen
               run: pnpm --filter=@posthog/frontend typegen:write
+
+            - name: Save .typegen cache
+              if: github.ref == 'refs/heads/master'
+              uses: actions/cache/save@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
+              with:
+                  path: .typegen
+                  key: ${{ runner.os }}-typegen-${{ hashFiles('pnpm-lock.yaml') }}
 
             - name: Run typescript with strict
               run: pnpm --filter=@posthog/frontend typescript:check
@@ -302,6 +309,7 @@ jobs:
         needs: [jest, frontend-typescript-checks, frontend-format, frontend-bundle-size, changes]
         runs-on: ubuntu-latest
         if: # Run on pull requests to PostHog/posthog + on PostHog/posthog outside of PRs - but never on forks
+            always() &&
             needs.changes.outputs.frontend == 'true' && (
             (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog') ||
             (github.event_name != 'pull_request' && github.repository == 'PostHog/posthog'))

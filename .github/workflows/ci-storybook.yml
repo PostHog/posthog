@@ -77,8 +77,8 @@ jobs:
             - name: Install dependencies
               run: pnpm --filter=@posthog/storybook... install --frozen-lockfile
 
-            - name: Cache webpack build
-              uses: actions/cache@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
+            - name: Restore webpack build cache
+              uses: actions/cache/restore@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
               with:
                   path: common/storybook/node_modules/.cache/
                   key: ${{ runner.os }}-webpack-storybook-${{ hashFiles('pnpm-lock.yaml') }}
@@ -90,6 +90,13 @@ jobs:
               run: |
                   bin/turbo --filter=@posthog/storybook prepare
                   pnpm --filter=@posthog/storybook build --test
+
+            - name: Save webpack build cache
+              if: github.ref == 'refs/heads/master'
+              uses: actions/cache/save@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
+              with:
+                  path: common/storybook/node_modules/.cache/
+                  key: ${{ runner.os }}-webpack-storybook-${{ hashFiles('pnpm-lock.yaml') }}
 
             - name: Upload Storybook build artifact
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
@@ -135,6 +142,8 @@ jobs:
         strategy:
             fail-fast: false
             matrix:
+                # Shard counts and worker config (maxWorkers in common/storybook/package.json)
+                # are tuned for runner CPU — consult #team-devex before changing
                 include:
                     - browser: chromium
                       shard_count: 16
@@ -184,16 +193,18 @@ jobs:
                     - browser: chromium
                       shard_count: 16
                       shard: 16
-                    # WebKit is much faster, so we run with only 3 shards
                     - browser: webkit
-                      shard_count: 3
+                      shard_count: 4
                       shard: 1
                     - browser: webkit
-                      shard_count: 3
+                      shard_count: 4
                       shard: 2
                     - browser: webkit
-                      shard_count: 3
+                      shard_count: 4
                       shard: 3
+                    - browser: webkit
+                      shard_count: 4
+                      shard: 4
         env:
             NODE_OPTIONS: --max-old-space-size=16384
             OPT_OUT_CAPTURE: 1
@@ -501,6 +512,7 @@ jobs:
         needs: [visual-regression, changes]
         runs-on: ubuntu-latest
         if: # Run on pull requests to PostHog/posthog + on PostHog/posthog outside of PRs - but never on forks
+            always() &&
             needs.changes.outputs.frontend == 'true' && (
             (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog') ||
             (github.event_name != 'pull_request' && github.repository == 'PostHog/posthog'))
@@ -513,3 +525,4 @@ jobs:
                   capture-run-duration: true
                   capture-job-durations: true
                   github-token: ${{ secrets.GITHUB_TOKEN }}
+                  status-job: 'Visual regression tests pass'

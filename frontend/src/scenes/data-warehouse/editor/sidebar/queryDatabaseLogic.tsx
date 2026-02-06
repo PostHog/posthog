@@ -317,6 +317,23 @@ const createLazyTableChildren = (
         )
     }
 
+    if (field.fields?.length) {
+        return field.fields.map((childFieldName) => {
+            const childField =
+                referencedTable.fields[childFieldName] ??
+                ({
+                    name: childFieldName,
+                    hogql_value: childFieldName,
+                    type: 'unknown',
+                    schema_valid: true,
+                } as DatabaseSchemaField)
+
+            return createFieldNode(tableName, childField, isSearch, `${columnPath}.${childField.name}`, tableLookup, {
+                expandedLazyNodeIds,
+            })
+        })
+    }
+
     return Object.values(referencedTable.fields).map((childField) =>
         createFieldNode(tableName, childField, isSearch, `${columnPath}.${childField.name}`, tableLookup, {
             expandedLazyNodeIds,
@@ -353,6 +370,7 @@ const createTraversedLazyTableNode = (
             field,
             table: tableName,
             referencedTable: traversedField.table,
+            traversedFieldType: 'lazy-table',
         },
         children,
     }
@@ -386,6 +404,7 @@ const createTraversedVirtualTableNode = (
             type: 'field-traverser',
             field,
             table: tableName,
+            traversedFieldType: 'virtual-table',
         },
         children,
     }

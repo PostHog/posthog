@@ -1,4 +1,3 @@
-import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
@@ -24,7 +23,6 @@ from posthog.tasks.utils import CeleryQueue
 from posthog.utils import get_instance_region, get_previous_day
 
 logger = structlog.get_logger(__name__)
-logger.setLevel(logging.INFO)
 
 
 @cached(cache={})

@@ -9,6 +9,7 @@ jobs:
     changes:
         permissions:
             contents: read
+            pull-requests: read
         runs-on: ubuntu-24.04
         timeout-minutes: 5
         name: Determine need to run MCP checks
@@ -17,6 +18,7 @@ jobs:
         steps:
             - uses: actions/checkout@v6
 
+            # Not only the MCP folder but any file that generates schema for the mcp folder
             - uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
               id: filter
               if: github.event_name != 'push' # Run all tests on master push
@@ -24,6 +26,8 @@ jobs:
                   filters: |
                       mcp:
                         - 'services/mcp/**'
+                        - 'products/**' 
+                        - 'frontend/**'
                         - '.github/workflows/mcp-ci.yml'
                         - '.github/workflows/mcp-publish.yml'
     build:
@@ -51,7 +55,10 @@ jobs:
               run: pnpm install --frozen-lockfile
 
             - name: Build package
-              run: cd services/mcp/typescript && pnpm build
+              run: cd services/mcp && pnpm build
+
+            - name: Type check
+              run: cd services/mcp && pnpm typecheck
 
     unit-tests:
         name: Unit Tests

@@ -30,6 +30,7 @@ jobs:
                       hashicorp/
                       PostHog/
                       tailscale/
+                      inkeep/
 
     semgrep-python:
         runs-on: ubuntu-latest

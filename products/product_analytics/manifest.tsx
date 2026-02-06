@@ -206,6 +206,12 @@ export const manifest: ProductManifest = {
             flag: FEATURE_FLAGS.SCHEMA_MANAGEMENT,
         },
         {
+            path: 'SQL variables',
+            category: 'Schema',
+            href: urls.variables(),
+            sceneKeys: ['SqlVariableEdit'],
+        },
+        {
             path: 'Annotations',
             category: 'Metadata',
             iconType: 'annotation',

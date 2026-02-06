@@ -136,7 +136,7 @@ export function QuestionBranchingInput({
     )
 }
 
-function getResponseConfiguration(
+export function getResponseConfiguration(
     question: RatingSurveyQuestion | MultipleSurveyQuestion
 ): { value: string | number; label: string }[] {
     if (question.type === SurveyQuestionType.Rating) {

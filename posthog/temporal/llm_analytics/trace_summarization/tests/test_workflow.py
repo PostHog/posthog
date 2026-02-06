@@ -1,6 +1,7 @@
 """Tests for batch trace summarization workflow."""
 
 import uuid
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 
 import pytest
@@ -10,6 +11,11 @@ from posthog.temporal.llm_analytics.trace_summarization.models import BatchSumma
 from posthog.temporal.llm_analytics.trace_summarization.sampling import sample_items_in_window_activity
 from posthog.temporal.llm_analytics.trace_summarization.summarization import generate_and_save_summary_activity
 from posthog.temporal.llm_analytics.trace_summarization.workflow import BatchTraceSummarizationWorkflow
+
+
+@asynccontextmanager
+async def _noop_heartbeater(*args, **kwargs):
+    yield
 
 
 @pytest.fixture
@@ -70,13 +76,14 @@ def sample_trace_hierarchy(sample_trace_data):
     }
 
 
+@patch(
+    "posthog.temporal.llm_analytics.trace_summarization.sampling.Heartbeater",
+    _noop_heartbeater,
+)
 class TestSampleItemsInWindowActivity:
-    """Tests for sample_items_in_window_activity."""
-
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.asyncio
-    async def test_sample_items_success(self, mock_team):
-        """Test successful item sampling from window."""
+    async def test_sample_traces_success(self, mock_team):
         inputs = BatchSummarizationInputs(
             team_id=mock_team.id,
             max_items=100,
@@ -85,40 +92,46 @@ class TestSampleItemsInWindowActivity:
             window_end="2025-01-15T12:00:00",
         )
 
-        with patch(
-            "posthog.temporal.llm_analytics.trace_summarization.sampling.TracesQueryRunner"
-        ) as mock_runner_class:
-            from posthog.schema import LLMTrace, LLMTracePerson
+        mock_results = [[f"trace_{i}", f"2025-01-15T11:{i:02d}:00+00:00"] for i in range(50)]
 
-            mock_person = LLMTracePerson(
-                uuid=str(uuid.uuid4()),
-                distinct_id="test_user",
-                created_at=datetime.now(UTC).isoformat(),
-                properties={},
-            )
-
-            mock_runner = mock_runner_class.return_value
-            mock_traces = [
-                LLMTrace(id=f"trace_{i}", createdAt=datetime.now(UTC).isoformat(), events=[], person=mock_person)
-                for i in range(50)
-            ]
-            mock_runner.calculate.return_value.results = mock_traces
+        with patch("posthog.temporal.llm_analytics.trace_summarization.sampling.execute_hogql_query") as mock_execute:
+            mock_execute.return_value.results = mock_results
 
             result = await sample_items_in_window_activity(inputs)
 
             assert len(result) == 50
             assert isinstance(result[0], SampledItem)
             assert result[0].trace_id == "trace_0"
+            assert result[0].generation_id is None
             assert result[49].trace_id == "trace_49"
 
-            # Verify randomOrder is not used (defaults to timestamp DESC ordering)
-            query = mock_runner_class.call_args.kwargs["query"]
-            assert query.randomOrder is None
+    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.asyncio
+    async def test_sample_generations_success(self, mock_team):
+        inputs = BatchSummarizationInputs(
+            team_id=mock_team.id,
+            max_items=50,
+            analysis_level="generation",
+            window_minutes=60,
+            window_start="2025-01-15T11:00:00",
+            window_end="2025-01-15T12:00:00",
+        )
+
+        mock_results = [[f"trace_{i}", f"gen-uuid-{i}", f"2025-01-15T11:{i:02d}:00+00:00"] for i in range(10)]
+
+        with patch("posthog.temporal.llm_analytics.trace_summarization.sampling.execute_hogql_query") as mock_execute:
+            mock_execute.return_value.results = mock_results
+
+            result = await sample_items_in_window_activity(inputs)
+
+            assert len(result) == 10
+            assert isinstance(result[0], SampledItem)
+            assert result[0].trace_id == "trace_0"
+            assert result[0].generation_id == "gen-uuid-0"
 
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.asyncio
     async def test_sample_items_empty(self, mock_team):
-        """Test sampling when no traces found in window."""
         inputs = BatchSummarizationInputs(
             team_id=mock_team.id,
             max_items=100,
@@ -127,24 +140,22 @@ class TestSampleItemsInWindowActivity:
             window_end="2025-01-15T12:00:00",
         )
 
-        with patch(
-            "posthog.temporal.llm_analytics.trace_summarization.sampling.TracesQueryRunner"
-        ) as mock_runner_class:
-            mock_runner = mock_runner_class.return_value
-            mock_runner.calculate.return_value.results = []
+        with patch("posthog.temporal.llm_analytics.trace_summarization.sampling.execute_hogql_query") as mock_execute:
+            mock_execute.return_value.results = []
 
             result = await sample_items_in_window_activity(inputs)
 
             assert len(result) == 0
 
 
+@patch(
+    "posthog.temporal.llm_analytics.trace_summarization.summarization.Heartbeater",
+    _noop_heartbeater,
+)
 class TestGenerateSummaryActivity:
-    """Tests for generate_and_save_summary_activity."""
-
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.asyncio
     async def test_generate_and_save_summary_success(self, sample_trace_data, mock_team):
-        """Test successful summary generation and saving."""
         from posthog.schema import LLMTrace, LLMTracePerson
 
         from products.llm_analytics.backend.summarization.llm.schema import (
