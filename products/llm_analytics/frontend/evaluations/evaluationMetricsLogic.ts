@@ -60,10 +60,10 @@ function getIntervalFromDateRange(dateFrom: string | null): 'hour' | 'day' {
 export const evaluationMetricsLogic = kea<evaluationMetricsLogicType>([
     path(['products', 'llm_analytics', 'frontend', 'evaluations', 'evaluationMetricsLogic']),
 
-    connect({
+    connect(() => ({
         values: [llmEvaluationsLogic, ['evaluations'], llmAnalyticsSharedLogic, ['dateFilter']],
         actions: [llmAnalyticsSharedLogic, ['setDates']],
-    }),
+    })),
 
     actions({
         refreshMetrics: true,

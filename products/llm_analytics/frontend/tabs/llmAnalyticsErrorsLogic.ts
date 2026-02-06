@@ -12,14 +12,14 @@ import type { llmAnalyticsErrorsLogicType } from './llmAnalyticsErrorsLogicType'
 
 export const llmAnalyticsErrorsLogic = kea<llmAnalyticsErrorsLogicType>([
     path(['products', 'llm_analytics', 'frontend', 'tabs', 'llmAnalyticsErrorsLogic']),
-    connect({
+    connect(() => ({
         values: [
             llmAnalyticsSharedLogic,
             ['dateFilter', 'shouldFilterTestAccounts', 'propertyFilters'],
             groupsModel,
             ['groupsTaxonomicTypes'],
         ],
-    }),
+    })),
 
     actions({
         setErrorsSort: (column: string, direction: SortDirection) => ({ column, direction }),

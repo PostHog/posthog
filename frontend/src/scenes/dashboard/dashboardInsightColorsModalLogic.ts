@@ -110,7 +110,7 @@ export const dashboardInsightColorsModalLogic = kea<dashboardInsightColorsModalL
         insightTilesLoading: [
             (s) => [(state) => dashboardLogic.findMounted({ id: s.dashboardId(state) })?.values.itemsLoading || null],
             (itemsLoading): boolean | null => itemsLoading,
-            { resultEqualityCheck: () => false, equalityCheck: () => false },
+            { resultEqualityCheck: () => false },
         ],
         breakdownValues: [
             (s) => [s.insightTiles, s.allCohorts],

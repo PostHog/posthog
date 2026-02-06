@@ -24,9 +24,9 @@ export const insightAIAnalysisLogic = kea<insightAIAnalysisLogicType>([
     path(['scenes', 'insights', 'insightAIAnalysisLogic']),
     props({} as InsightAIAnalysisLogicProps),
     key((props) => props.insightId ?? 'new'),
-    connect({
+    connect(() => ({
         values: [teamLogic, ['currentTeamId'], organizationLogic, ['currentOrganization']],
-    }),
+    })),
     actions({
         startAnalysis: true,
         setHasClickedAnalyze: (hasClicked: boolean) => ({ hasClicked }),

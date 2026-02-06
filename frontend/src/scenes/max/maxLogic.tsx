@@ -264,8 +264,8 @@ export const maxLogic = kea<maxLogicType>([
                           parseInt((conversation?.id || uuid()).split('-').at(-1) as string, 16) % HEADLINES.length
                       ]
             },
-            // It's important we use a deep equality check for inputs, because we want to avoid needless re-renders
-            { equalityCheck: objectsEqual },
+            // It's important we use a deep equality check for outputs, because we want to avoid needless re-renders
+            { resultEqualityCheck: objectsEqual },
         ],
 
         conversationLoading: [

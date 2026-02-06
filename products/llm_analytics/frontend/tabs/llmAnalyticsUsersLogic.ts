@@ -10,14 +10,14 @@ import type { llmAnalyticsUsersLogicType } from './llmAnalyticsUsersLogicType'
 
 export const llmAnalyticsUsersLogic = kea<llmAnalyticsUsersLogicType>([
     path(['products', 'llm_analytics', 'frontend', 'tabs', 'llmAnalyticsUsersLogic']),
-    connect({
+    connect(() => ({
         values: [
             llmAnalyticsSharedLogic,
             ['dateFilter', 'shouldFilterTestAccounts', 'propertyFilters'],
             groupsModel,
             ['groupsTaxonomicTypes'],
         ],
-    }),
+    })),
 
     actions({
         setUsersSort: (column: string, direction: SortDirection) => ({ column, direction }),

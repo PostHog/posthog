@@ -38,10 +38,10 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
     props({} as LLMEvaluationLogicProps),
     key((props) => `${props.evaluationId || 'new'}${props.templateKey ? `-${props.templateKey}` : ''}`),
 
-    connect({
+    connect(() => ({
         values: [llmProviderKeysLogic, ['providerKeys', 'providerKeysLoading']],
         actions: [llmProviderKeysLogic, ['loadProviderKeys', 'loadProviderKeysSuccess']],
-    }),
+    })),
 
     actions({
         // Evaluation configuration actions
