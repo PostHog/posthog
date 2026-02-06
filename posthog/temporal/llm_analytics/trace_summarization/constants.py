@@ -49,7 +49,7 @@ SUMMARIZE_SCHEDULE_TO_CLOSE_TIMEOUT = timedelta(
 # Workflow-level timeouts (in minutes)
 WORKFLOW_EXECUTION_TIMEOUT_MINUTES = 120  # Max time for single team workflow (increased with longer activity timeouts)
 COORDINATOR_EXECUTION_TIMEOUT_MINUTES = (
-    55  # Max time for coordinator, must be less than schedule interval to avoid blocking
+    180  # 3 hours - 209 teams with 3 concurrent, most finish instantly but a few hit 120-min child timeout
 )
 
 # Retry policies
