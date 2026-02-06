@@ -355,20 +355,17 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                         "multiSearchAnyCaseInsensitive takes exactly 2 arguments".to_string(),
                     ));
                 }
-                
                 let haystack = args[0].deref(&vm.heap)?;
                 let needles = args[1].deref(&vm.heap)?;
-                
+
                 let haystack_str = match haystack {
                     HogLiteral::String(s) => s.to_lowercase(),
                     _ => return Ok(HogLiteral::Boolean(false).into()),
                 };
-                
                 let needles_array = match needles {
                     HogLiteral::Array(arr) => arr,
                     _ => return Ok(HogLiteral::Boolean(false).into()),
                 };
-                
                 for needle_value in needles_array {
                     let needle = needle_value.deref(&vm.heap)?;
                     if let HogLiteral::String(needle_str) = needle {
@@ -377,7 +374,6 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                         }
                     }
                 }
-                
                 Ok(HogLiteral::Boolean(false).into())
             }),
         ),
