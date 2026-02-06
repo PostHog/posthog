@@ -11,6 +11,8 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     ErrorTrackingAssignmentRuleApi,
     ErrorTrackingAssignmentRulesListParams,
+    ErrorTrackingAutoCaptureControlsApi,
+    ErrorTrackingAutocaptureControlsListParams,
     ErrorTrackingExternalReferenceApi,
     ErrorTrackingExternalReferencesListParams,
     ErrorTrackingFingerprintApi,
@@ -30,6 +32,7 @@ import type {
     ErrorTrackingSymbolSetsList2Params,
     ErrorTrackingSymbolSetsListParams,
     PaginatedErrorTrackingAssignmentRuleListApi,
+    PaginatedErrorTrackingAutoCaptureControlsListApi,
     PaginatedErrorTrackingExternalReferenceListApi,
     PaginatedErrorTrackingFingerprintListApi,
     PaginatedErrorTrackingGroupingRuleListApi,
@@ -39,6 +42,7 @@ import type {
     PaginatedErrorTrackingSuppressionRuleListApi,
     PaginatedErrorTrackingSymbolSetListApi,
     PatchedErrorTrackingAssignmentRuleApi,
+    PatchedErrorTrackingAutoCaptureControlsApi,
     PatchedErrorTrackingExternalReferenceApi,
     PatchedErrorTrackingGroupingRuleApi,
     PatchedErrorTrackingIssueFullApi,
@@ -194,6 +198,131 @@ export const errorTrackingAssignmentRulesReorderPartialUpdate = async (
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(patchedErrorTrackingAssignmentRuleApi),
+    })
+}
+
+export const getErrorTrackingAutocaptureControlsListUrl = (
+    projectId: string,
+    params?: ErrorTrackingAutocaptureControlsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/environments/${projectId}/error_tracking/autocapture_controls/?${stringifiedParams}`
+        : `/api/environments/${projectId}/error_tracking/autocapture_controls/`
+}
+
+export const errorTrackingAutocaptureControlsList = async (
+    projectId: string,
+    params?: ErrorTrackingAutocaptureControlsListParams,
+    options?: RequestInit
+): Promise<PaginatedErrorTrackingAutoCaptureControlsListApi> => {
+    return apiMutator<PaginatedErrorTrackingAutoCaptureControlsListApi>(
+        getErrorTrackingAutocaptureControlsListUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getErrorTrackingAutocaptureControlsCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/error_tracking/autocapture_controls/`
+}
+
+export const errorTrackingAutocaptureControlsCreate = async (
+    projectId: string,
+    errorTrackingAutoCaptureControlsApi: NonReadonly<ErrorTrackingAutoCaptureControlsApi>,
+    options?: RequestInit
+): Promise<ErrorTrackingAutoCaptureControlsApi> => {
+    return apiMutator<ErrorTrackingAutoCaptureControlsApi>(getErrorTrackingAutocaptureControlsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(errorTrackingAutoCaptureControlsApi),
+    })
+}
+
+export const getErrorTrackingAutocaptureControlsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/error_tracking/autocapture_controls/${id}/`
+}
+
+export const errorTrackingAutocaptureControlsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ErrorTrackingAutoCaptureControlsApi> => {
+    return apiMutator<ErrorTrackingAutoCaptureControlsApi>(
+        getErrorTrackingAutocaptureControlsRetrieveUrl(projectId, id),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getErrorTrackingAutocaptureControlsUpdateUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/error_tracking/autocapture_controls/${id}/`
+}
+
+export const errorTrackingAutocaptureControlsUpdate = async (
+    projectId: string,
+    id: string,
+    errorTrackingAutoCaptureControlsApi: NonReadonly<ErrorTrackingAutoCaptureControlsApi>,
+    options?: RequestInit
+): Promise<ErrorTrackingAutoCaptureControlsApi> => {
+    return apiMutator<ErrorTrackingAutoCaptureControlsApi>(
+        getErrorTrackingAutocaptureControlsUpdateUrl(projectId, id),
+        {
+            ...options,
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(errorTrackingAutoCaptureControlsApi),
+        }
+    )
+}
+
+export const getErrorTrackingAutocaptureControlsPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/error_tracking/autocapture_controls/${id}/`
+}
+
+export const errorTrackingAutocaptureControlsPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedErrorTrackingAutoCaptureControlsApi: NonReadonly<PatchedErrorTrackingAutoCaptureControlsApi>,
+    options?: RequestInit
+): Promise<ErrorTrackingAutoCaptureControlsApi> => {
+    return apiMutator<ErrorTrackingAutoCaptureControlsApi>(
+        getErrorTrackingAutocaptureControlsPartialUpdateUrl(projectId, id),
+        {
+            ...options,
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(patchedErrorTrackingAutoCaptureControlsApi),
+        }
+    )
+}
+
+export const getErrorTrackingAutocaptureControlsDestroyUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/error_tracking/autocapture_controls/${id}/`
+}
+
+export const errorTrackingAutocaptureControlsDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getErrorTrackingAutocaptureControlsDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
     })
 }
 

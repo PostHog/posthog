@@ -91,6 +91,7 @@ CUSTOMER_IO_TEMPLATE_ID_MAP = {
     "2fa_enabled": "31",
     "2fa_disabled": "30",
     "2fa_backup_code_used": "29",
+    "2fa_reset": "62",
     "password_reset": "32",
     "invite": "33",
     "member_join": "34",

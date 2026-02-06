@@ -63,6 +63,11 @@ class AshbySourceConfig(config.Config):
 
 
 @config.config
+class AttioSourceConfig(config.Config):
+    api_key: str
+
+
+@config.config
 class BigQuerySourceConfig(config.Config):
     key_file: BigQueryKeyFileConfig
     dataset_id: str
@@ -91,6 +96,11 @@ class ChargebeeSourceConfig(config.Config):
 
 
 @config.config
+class ClerkSourceConfig(config.Config):
+    secret_key: str
+
+
+@config.config
 class CustomerIOSourceConfig(config.Config):
     pass
 
@@ -102,7 +112,8 @@ class DoItSourceConfig(config.Config):
 
 @config.config
 class GithubSourceConfig(config.Config):
-    pass
+    personal_access_token: str
+    repository: str
 
 
 @config.config
@@ -146,7 +157,7 @@ class MSSQLSourceConfig(config.Config):
 
 @config.config
 class MailchimpSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -232,7 +243,8 @@ class ShopifySourceConfig(config.Config):
 
 @config.config
 class SnapchatAdsSourceConfig(config.Config):
-    pass
+    ad_account_id: str
+    snapchat_integration_id: int = config.value(converter=config.str_to_int)
 
 
 @config.config
@@ -296,10 +308,12 @@ class ZendeskSourceConfig(config.Config):
 def get_config_for_source(source: ExternalDataSourceType):
     return {
         ExternalDataSourceType.ASHBY: AshbySourceConfig,
+        ExternalDataSourceType.ATTIO: AttioSourceConfig,
         ExternalDataSourceType.BIGQUERY: BigQuerySourceConfig,
         ExternalDataSourceType.BINGADS: BingAdsSourceConfig,
         ExternalDataSourceType.BRAZE: BrazeSourceConfig,
         ExternalDataSourceType.CHARGEBEE: ChargebeeSourceConfig,
+        ExternalDataSourceType.CLERK: ClerkSourceConfig,
         ExternalDataSourceType.CUSTOMERIO: CustomerIOSourceConfig,
         ExternalDataSourceType.DOIT: DoItSourceConfig,
         ExternalDataSourceType.GITHUB: GithubSourceConfig,

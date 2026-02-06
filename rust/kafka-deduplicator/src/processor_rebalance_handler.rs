@@ -14,9 +14,9 @@ use crate::kafka::partition_router::{shutdown_workers, PartitionRouter};
 use crate::kafka::rebalance_handler::RebalanceHandler;
 use crate::kafka::types::Partition;
 use crate::metrics_const::{
-    PARTITION_STORE_FALLBACK_EMPTY, PARTITION_STORE_SETUP_SKIPPED,
-    REBALANCE_CHECKPOINT_IMPORT_COUNTER, REBALANCE_PARTITION_STATE_CHANGE,
-    REBALANCE_RESUME_SKIPPED_NO_OWNED,
+    CHECKPOINT_IMPORT_CANCELLED_CLEANUP_COUNTER, PARTITION_STORE_FALLBACK_EMPTY,
+    PARTITION_STORE_SETUP_SKIPPED, REBALANCE_CHECKPOINT_IMPORT_COUNTER,
+    REBALANCE_PARTITION_STATE_CHANGE, REBALANCE_RESUME_SKIPPED_NO_OWNED,
 };
 use crate::rebalance_tracker::RebalanceTracker;
 use crate::store_manager::StoreManager;
@@ -120,7 +120,7 @@ where
             }
 
             // Try checkpoint import WITH per-partition cancellation token
-            // Importer does defensive cleanup of any prior partial downloads at this path
+            // RAII cleanup guard handles partial downloads on failure/timeout/cancel
             // Fallback empty store creation is handled centrally at resume time.
             if let Some(ref importer) = importer {
                 match importer
@@ -132,16 +132,58 @@ where
                     .await
                 {
                     Ok(path) => {
-                        // === CHECKPOINT 2: After download (or cancellation) ===
-                        if cancel_token.is_cancelled()
-                            || !coordinator.is_partition_owned(&partition)
-                        {
+                        // === CHECKPOINT 2: After download completes ===
+                        // Check if we should skip registration (token cancelled or ownership lost)
+                        let is_cancelled = cancel_token.is_cancelled();
+                        let is_owned = coordinator.is_partition_owned(&partition);
+
+                        if is_cancelled || !is_owned {
+                            let reason = if is_cancelled {
+                                "cancelled"
+                            } else {
+                                "not_owned"
+                            };
                             metrics::counter!(
                                 PARTITION_STORE_SETUP_SKIPPED,
-                                "reason" => if cancel_token.is_cancelled() { "cancelled" } else { "not_owned" },
+                                "reason" => reason,
                             )
                             .increment(1);
-                            // Downloaded files will be cleaned up by the orphan directory cleaner.
+
+                            // Clean up the successfully imported directory since we can't use it.
+                            // With unique Utc::now() timestamps, each import attempt creates a new path,
+                            // so there's no collision risk with a new task - it will create its own directory.
+                            if path.exists() {
+                                match std::fs::remove_dir_all(&path) {
+                                    Ok(_) => {
+                                        metrics::counter!(
+                                            CHECKPOINT_IMPORT_CANCELLED_CLEANUP_COUNTER,
+                                            "result" => "success",
+                                        )
+                                        .increment(1);
+                                        info!(
+                                            topic = partition.topic(),
+                                            partition = partition.partition_number(),
+                                            path = %path.display(),
+                                            reason = reason,
+                                            "Cleaned up unused checkpoint import"
+                                        );
+                                    }
+                                    Err(e) => {
+                                        metrics::counter!(
+                                            CHECKPOINT_IMPORT_CANCELLED_CLEANUP_COUNTER,
+                                            "result" => "failed",
+                                        )
+                                        .increment(1);
+                                        warn!(
+                                            topic = partition.topic(),
+                                            partition = partition.partition_number(),
+                                            path = %path.display(),
+                                            error = %e,
+                                            "Failed to clean up checkpoint import, orphan cleaner will handle it"
+                                        );
+                                    }
+                                }
+                            }
                             return;
                         }
 

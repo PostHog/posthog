@@ -16,6 +16,7 @@ from posthog.models.team import Team
 
 pytestmark = [
     pytest.mark.django_db,
+    pytest.mark.usefixtures("temporal_worker", "cleanup"),
 ]
 
 

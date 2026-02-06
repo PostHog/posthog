@@ -112,18 +112,8 @@ class TestRunEvaluationWorkflow:
             },
         )
 
-        mock_heartbeater = MagicMock()
-        mock_heartbeater.__enter__ = MagicMock(return_value=mock_heartbeater)
-        mock_heartbeater.__exit__ = MagicMock(return_value=False)
-
         # Mock unified Client response
-        with (
-            patch(
-                "posthog.temporal.llm_analytics.run_evaluation.HeartbeaterSync",
-                MagicMock(return_value=mock_heartbeater),
-            ),
-            patch("posthog.temporal.llm_analytics.run_evaluation.Client") as mock_client_class,
-        ):
+        with patch("posthog.temporal.llm_analytics.run_evaluation.Client") as mock_client_class:
             mock_client = MagicMock()
             mock_client_class.return_value = mock_client
 
@@ -206,17 +196,7 @@ class TestRunEvaluationWorkflow:
             },
         )
 
-        mock_heartbeater = MagicMock()
-        mock_heartbeater.__enter__ = MagicMock(return_value=mock_heartbeater)
-        mock_heartbeater.__exit__ = MagicMock(return_value=False)
-
-        with (
-            patch(
-                "posthog.temporal.llm_analytics.run_evaluation.HeartbeaterSync",
-                MagicMock(return_value=mock_heartbeater),
-            ),
-            patch("posthog.temporal.llm_analytics.run_evaluation.Client") as mock_client_class,
-        ):
+        with patch("posthog.temporal.llm_analytics.run_evaluation.Client") as mock_client_class:
             mock_client = MagicMock()
             mock_client_class.return_value = mock_client
 
@@ -259,17 +239,7 @@ class TestRunEvaluationWorkflow:
             },
         )
 
-        mock_heartbeater = MagicMock()
-        mock_heartbeater.__enter__ = MagicMock(return_value=mock_heartbeater)
-        mock_heartbeater.__exit__ = MagicMock(return_value=False)
-
-        with (
-            patch(
-                "posthog.temporal.llm_analytics.run_evaluation.HeartbeaterSync",
-                MagicMock(return_value=mock_heartbeater),
-            ),
-            patch("posthog.temporal.llm_analytics.run_evaluation.Client") as mock_client_class,
-        ):
+        with patch("posthog.temporal.llm_analytics.run_evaluation.Client") as mock_client_class:
             mock_client = MagicMock()
             mock_client_class.return_value = mock_client
 
@@ -403,17 +373,7 @@ class TestRunEvaluationWorkflow:
             },
         )
 
-        mock_heartbeater = MagicMock()
-        mock_heartbeater.__enter__ = MagicMock(return_value=mock_heartbeater)
-        mock_heartbeater.__exit__ = MagicMock(return_value=False)
-
-        with (
-            patch(
-                "posthog.temporal.llm_analytics.run_evaluation.HeartbeaterSync",
-                MagicMock(return_value=mock_heartbeater),
-            ),
-            patch("posthog.temporal.llm_analytics.run_evaluation.Client") as mock_client_class,
-        ):
+        with patch("posthog.temporal.llm_analytics.run_evaluation.Client") as mock_client_class:
             mock_client = MagicMock()
             mock_client_class.return_value = mock_client
 

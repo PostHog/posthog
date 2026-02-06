@@ -24,7 +24,13 @@ export class Navigation {
     }
 
     async openMenuItem(name: string): Promise<void> {
-        await this.page.getByTestId(`menu-item-${name}`).click()
+        // Use navbar-specific selector for items that have duplicates in LemonTree
+        const navbarSelector = this.page.getByTestId(`navbar-${name}`)
+        const menuSelector = this.page.getByTestId(`menu-item-${name}`)
+
+        // Prefer navbar selector if it exists, fall back to menu-item
+        const element = (await navbarSelector.count()) > 0 ? navbarSelector : menuSelector
+        await element.click()
         // Wait for navigation to complete and page to be ready
         await this.page.waitForLoadState('domcontentloaded')
         // Additional wait with timeout for network to settle (catches lazy-loaded components)

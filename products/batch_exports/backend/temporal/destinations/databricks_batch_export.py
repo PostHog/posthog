@@ -74,6 +74,10 @@ NON_RETRYABLE_ERROR_TYPES: list[str] = [
     # Raised when we hit our self-imposed long running operation timeout.
     # We don't want to continually retry as it could consume a lot of compute resources in the user's account.
     "DatabricksOperationTimeoutError",
+    # Raised when the Databricks catalog is not found.
+    "DatabricksCatalogNotFoundError",
+    # Raised when the Databricks schema is not found.
+    "DatabricksSchemaNotFoundError",
 ]
 
 DatabricksField = tuple[str, str]

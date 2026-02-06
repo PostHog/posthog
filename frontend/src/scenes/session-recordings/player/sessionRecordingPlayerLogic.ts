@@ -362,7 +362,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 'trackedWindow',
             ],
             playerSettingsLogic,
-            ['speed', 'skipInactivitySetting'],
+            ['speed', 'skipInactivitySetting', 'showMetadataFooter'],
             userLogic,
             ['user', 'hasAvailableFeature'],
             preflightLogic,
@@ -416,7 +416,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         pauseIframePlayback: true,
         restartIframePlayback: true,
         setCurrentSegment: (segment: RecordingSegment) => ({ segment }),
-        setRootFrame: (frame: HTMLDivElement) => ({ frame }),
+        setRootFrame: (frame: HTMLDivElement | null) => ({ frame }),
         checkBufferingCompleted: true,
         initializePlayerFromStart: true,
         incrementErrorCount: true,
@@ -1038,6 +1038,15 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             console.log('caughtAssetErrorFromIframe', errorDetails)
         },
         [playerCommentModel.actionTypes.startCommenting]: async ({ comment }) => {
+            const mode = props.mode ?? SessionRecordingPlayerMode.Standard
+            if (!ModesWithInteractions.includes(mode)) {
+                return
+            }
+
+            if (comment?.recordingId && comment.recordingId !== props.sessionRecordingId) {
+                return
+            }
+
             actions.setIsCommenting(true)
             if (comment) {
                 // and we need a short wait until the logic is mounted after calling setIsCommenting
@@ -1211,13 +1220,15 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                         iframeDocument &&
                         iframeDocument.readyState === 'loading'
                     ) {
+                        let pauseTimeoutId: ReturnType<typeof setTimeout> | null = null
+
                         const onReady = (): void => {
                             setupErrorHandlers()
 
                             if (replayer && values.currentTimestamp !== undefined && values.sessionPlayerData.start) {
                                 const currentTime = values.currentTimestamp - values.sessionPlayerData.start.valueOf()
                                 replayer.pause(currentTime)
-                                setTimeout(() => {
+                                pauseTimeoutId = setTimeout(() => {
                                     if (replayer) {
                                         replayer.pause(currentTime)
                                     }
@@ -1230,6 +1241,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
                         iframeCleanups.push(() => {
                             iframeDocument.removeEventListener('DOMContentLoaded', onReady)
+                            if (pauseTimeoutId !== null) {
+                                clearTimeout(pauseTimeoutId)
+                            }
                         })
                     } else {
                         setupErrorHandlers()
@@ -1271,18 +1285,37 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             }
         },
         setCurrentSegment: ({ segment }) => {
-            // Check if we should we skip this segment
+            // Check if we should skip this segment
             if (!segment.isActive && values.skipInactivitySetting && segment.kind !== 'buffer') {
+                // In video export mode with metadata footer, instantly seek past inactive segments
+                // to avoid timing drift from fast-forward animation duration
+                if (props.mode === SessionRecordingPlayerMode.Video && values.showMetadataFooter) {
+                    actions.seekToTimestamp(segment.endTimestamp)
+                    return
+                }
                 actions.setSkippingInactivity(true)
             } else {
                 actions.setSkippingInactivity(false)
             }
 
-            // Check if the new segment is for a different window_id than the last one
-            // If so, we need to re-initialize the player
+            // If the new segment is for a different window_id than the last one, re-initialize the player
             if (!values.player || values.player.windowId !== segment.windowId) {
-                values.player?.replayer?.pause()
-                actions.tryInitReplayer()
+                // Only reinitialize if we have valid data for this segment's window
+                const canReinit =
+                    segment.windowId !== undefined &&
+                    values.sessionPlayerData.snapshotsByWindowId[segment.windowId]?.length >= 2
+
+                if (canReinit) {
+                    values.player?.replayer?.pause()
+                    actions.tryInitReplayer()
+                } else if (segment.kind === 'gap') {
+                    // Gap segment - keep current player visible, updateAnimation handles time
+                } else if (segment.windowId !== undefined) {
+                    // WindowId exists but snapshots not loaded - buffer and load
+                    actions.startBuffer()
+                    actions.loadNextSnapshotSource()
+                }
+                // Otherwise keep existing player visible (last valid frame)
             }
             if (values.currentTimestamp !== undefined) {
                 actions.seekToTimestamp(values.currentTimestamp)
@@ -1565,15 +1598,14 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         },
 
         showSeekIndicator: () => {
-            // Clear any existing timer to prevent premature hiding when spamming
-            if (cache.seekIndicatorTimer) {
-                clearTimeout(cache.seekIndicatorTimer)
-            }
+            // Using disposables with same key auto-disposes previous timer when spamming
             // Wait for CSS animation to complete (100ms fade-in + 300ms visible + 200ms fade-out)
-            cache.seekIndicatorTimer = setTimeout(() => {
-                actions.hideSeekIndicator()
-                cache.seekIndicatorTimer = null
-            }, 600)
+            cache.disposables.add(() => {
+                const timerId = setTimeout(() => {
+                    actions.hideSeekIndicator()
+                }, 600)
+                return () => clearTimeout(timerId)
+            }, 'seekIndicatorTimer')
         },
 
         seekToTime: ({ timeInMilliseconds }) => {
@@ -1969,10 +2001,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
     })),
 
     beforeUnmount(({ values, actions, cache, props }) => {
-        if (props.mode === SessionRecordingPlayerMode.Preview) {
-            return
-        }
-
         actions.stopAnimation()
 
         // Note: Disposables (timers, event listeners) are automatically cleaned up
@@ -1982,6 +2010,11 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         cache.pausedMediaElements = []
 
         actions.setPlayer(null)
+        actions.setRootFrame(null)
+
+        if (props.mode === SessionRecordingPlayerMode.Preview) {
+            return
+        }
 
         const playTimeMs = values.playingTimeTracking.watchTime || 0
         const summaryAnalytics: RecordingViewedSummaryAnalytics = {

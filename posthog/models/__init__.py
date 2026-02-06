@@ -25,8 +25,8 @@ from .core_event import CoreEvent
 from .dashboard import Dashboard
 from .dashboard_templates import DashboardTemplate
 from .data_color_theme import DataColorTheme
-from .dashboard_tile import DashboardTile, Text
 from ..ducklake.models import DuckLakeCatalog
+from .dashboard_tile import DashboardTile, Text
 from .element import Element
 from .element_group import ElementGroup
 from .entity import Entity

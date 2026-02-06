@@ -707,7 +707,7 @@ def property_to_expr(
 
         expr: ast.Expr = map_virtual_properties(field)
 
-        if property.type == "recording" and property.key == "snapshot_source":
+        if property.type == "recording" and property.key in ("snapshot_source", "snapshot_library"):
             expr = ast.Call(name="argMinMerge", args=[field])
 
         is_visited_page_property = property.type == "recording" and property.key == "visited_page"
@@ -1049,7 +1049,7 @@ def action_to_expr(action: Action, events_alias: Optional[str] = None) -> ast.Ex
 
 def entity_to_expr(entity: RetentionEntity, team: Team) -> ast.Expr:
     if entity.type == TREND_FILTER_TYPE_ACTIONS and entity.id is not None:
-        action = Action.objects.get(pk=entity.id)
+        action = Action.objects.get(pk=entity.id, team=team)
         return action_to_expr(action)
     if entity.id is None:
         return ast.Constant(value=True)

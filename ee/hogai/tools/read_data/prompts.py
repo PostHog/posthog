@@ -37,6 +37,32 @@ Retrieves and optionally retrieves data for an existing insight by its ID.
 - The user wants to see or discuss a specific saved insight.
 - You need to understand what an existing insight shows.
 
+# Feature flag
+
+Retrieves a feature flag by its numeric ID or key (slug).
+
+## Use this when:
+- You have a feature flag ID or key and want to retrieve its configuration.
+- The user wants to see details about a specific feature flag.
+- You need to understand what conditions and variants a feature flag has.
+
+## Parameters:
+- id: The numeric ID of the feature flag (optional if key is provided)
+- key: The key/slug of the feature flag (optional if id is provided)
+
+# Experiment
+
+Retrieves an experiment by its numeric ID or by its feature flag's key.
+
+## Use this when:
+- You have an experiment ID or its feature flag key and want to retrieve its configuration.
+- The user wants to see details about a specific A/B test experiment.
+- You need to understand the experiment's variants, status, or conclusion.
+
+## Parameters:
+- id: The numeric ID of the experiment (optional if feature_flag_key is provided)
+- feature_flag_key: The key of the experiment's feature flag (optional if id is provided)
+
 {{{billing_prompt}}}
 """.strip()
 

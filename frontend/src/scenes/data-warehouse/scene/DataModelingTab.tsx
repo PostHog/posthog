@@ -1,15 +1,18 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconDirectedGraph, IconList } from '@posthog/icons'
+import { IconArrowRight, IconDirectedGraph, IconList } from '@posthog/icons'
 import { LemonInput, LemonSegmentedButton, LemonTable, LemonTag, LemonTagType, Spinner } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { IconArrowDown } from 'lib/lemon-ui/icons'
 
 import { DataModelingNode, DataModelingNodeType } from '~/types'
 
 import { PAGE_SIZE, dataModelingNodesLogic } from './dataModelingNodesLogic'
 import { DataModelingEditor } from './modeling/DataModelingEditor'
+import { ElkDirection } from './modeling/autolayout'
+import { dataModelingEditorLogic } from './modeling/dataModelingEditorLogic'
 
 const NODE_TYPE_TAG_SETTINGS: Record<DataModelingNodeType, { label: string; type: LemonTagType }> = {
     table: { label: 'Table', type: 'default' },
@@ -46,12 +49,14 @@ type ViewMode = 'graph' | 'list'
 export function DataModelingTab(): JSX.Element {
     const { viewNodes, visibleNodes, nodesLoading, searchTerm, currentPage } = useValues(dataModelingNodesLogic)
     const { setSearchTerm, setCurrentPage } = useActions(dataModelingNodesLogic)
+    const { layoutDirection } = useValues(dataModelingEditorLogic)
+    const { setLayoutDirection } = useActions(dataModelingEditorLogic)
     const [viewMode, setViewMode] = useState<ViewMode>('graph')
 
     if (viewMode === 'graph') {
         return (
             <div className="space-y-4 h-full">
-                <div className="flex gap-2 justify-between items-center">
+                <div className="flex gap-2 items-center">
                     {(viewNodes.length > 0 || searchTerm) && (
                         <LemonInput
                             type="search"
@@ -60,17 +65,28 @@ export function DataModelingTab(): JSX.Element {
                             value={searchTerm}
                         />
                     )}
-                    <LemonSegmentedButton
-                        value={viewMode}
-                        onChange={(value) => setViewMode(value)}
-                        options={[
-                            { value: 'graph', icon: <IconDirectedGraph />, tooltip: 'Graph view' },
-                            { value: 'list', icon: <IconList />, tooltip: 'List view' },
-                        ]}
-                        size="small"
-                    />
+                    <div className="flex gap-2 ml-auto">
+                        <LemonSegmentedButton
+                            value={layoutDirection}
+                            onChange={(value) => setLayoutDirection(value as ElkDirection)}
+                            options={[
+                                { value: 'DOWN', icon: <IconArrowDown />, tooltip: 'Top to bottom' },
+                                { value: 'RIGHT', icon: <IconArrowRight />, tooltip: 'Left to right' },
+                            ]}
+                            size="small"
+                        />
+                        <LemonSegmentedButton
+                            value={viewMode}
+                            onChange={(value) => setViewMode(value)}
+                            options={[
+                                { value: 'graph', icon: <IconDirectedGraph />, tooltip: 'Graph view' },
+                                { value: 'list', icon: <IconList />, tooltip: 'List view' },
+                            ]}
+                            size="small"
+                        />
+                    </div>
                 </div>
-                <div className="h-[550px] border rounded-lg overflow-hidden">
+                <div className="h-[calc(100vh-17rem)] min-h-[400px] border rounded-lg overflow-hidden">
                     <DataModelingEditor />
                 </div>
             </div>

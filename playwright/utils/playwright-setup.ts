@@ -18,7 +18,7 @@ import type {
     TestSetupResponse,
 } from '~/queries/schema/schema-general'
 
-import { LOGIN_PASSWORD } from './playwright-test-base'
+import { LOGIN_PASSWORD } from './playwright-test-core'
 
 export interface PlaywrightSetupOptions {
     /** Custom data to pass to the setup function */
@@ -90,11 +90,12 @@ export class PlaywrightSetup {
      * This is the main setup method - creates everything you need for most tests.
      * The test user will be a member of the organization.
      */
-    async createWorkspace(organizationName?: string): Promise<PlaywrightWorkspaceSetupResult> {
+    async createWorkspace(
+        dataOrName?: string | Partial<PlaywrightWorkspaceSetupData>
+    ): Promise<PlaywrightWorkspaceSetupResult> {
+        const data = typeof dataOrName === 'string' ? { organization_name: dataOrName } : (dataOrName ?? {})
         const result = await this.callSetupEndpoint('organization_with_team', {
-            data: {
-                organization_name: organizationName,
-            } as PlaywrightWorkspaceSetupData,
+            data: data as PlaywrightWorkspaceSetupData,
         })
 
         if (!result.success) {
@@ -117,13 +118,7 @@ export class PlaywrightSetup {
         return workspace
     }
 
-    /**
-     * Login using workspace credentials and navigate to the team's project page
-     *
-     * Call this after creating a workspace to automatically login and navigate.
-     * The user will end up on /project/{teamId} ready to test.
-     */
-    async loginAndNavigateToTeam(page: Page, workspace: PlaywrightWorkspaceSetupResult): Promise<void> {
+    async login(page: Page, workspace: PlaywrightWorkspaceSetupResult): Promise<void> {
         // Use page.request to share cookies/session with the browser context
         await page.request.post(`${this.baseURL}/api/login/`, {
             data: {
@@ -131,6 +126,16 @@ export class PlaywrightSetup {
                 password: LOGIN_PASSWORD,
             },
         })
+    }
+
+    /**
+     * Login using workspace credentials and navigate to the team's project page
+     *
+     * Call this after creating a workspace to automatically login and navigate.
+     * The user will end up on /project/{teamId} ready to test.
+     */
+    async loginAndNavigateToTeam(page: Page, workspace: PlaywrightWorkspaceSetupResult): Promise<void> {
+        await this.login(page, workspace)
 
         await page.goto(`${this.baseURL}/project/${workspace.team_id}`)
     }

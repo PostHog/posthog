@@ -44,6 +44,7 @@ message PersonWithTeamDistinctId {
 message GetPersonRequest {
   int64 team_id = 1;
   int64 person_id = 2;
+  ReadOptions read_options = 3;
 }
 
 message GetPersonResponse {
@@ -53,6 +54,7 @@ message GetPersonResponse {
 message GetPersonsRequest {
   int64 team_id = 1;
   repeated int64 person_ids = 2;
+  ReadOptions read_options = 3;
 }
 
 message PersonsResponse {
@@ -63,21 +65,25 @@ message PersonsResponse {
 message GetPersonByUuidRequest {
   int64 team_id = 1;
   string uuid = 2;
+  ReadOptions read_options = 3;
 }
 
 message GetPersonsByUuidsRequest {
   int64 team_id = 1;
   repeated string uuids = 2;
+  ReadOptions read_options = 3;
 }
 
 message GetPersonByDistinctIdRequest {
   int64 team_id = 1;
   string distinct_id = 2;
+  ReadOptions read_options = 3;
 }
 
 message GetPersonsByDistinctIdsInTeamRequest {
   int64 team_id = 1;
   repeated string distinct_ids = 2;
+  ReadOptions read_options = 3;
 }
 
 message PersonsByDistinctIdsInTeamResponse {
@@ -86,6 +92,7 @@ message PersonsByDistinctIdsInTeamResponse {
 
 message GetPersonsByDistinctIdsRequest {
   repeated TeamDistinctId team_distinct_ids = 1;
+  ReadOptions read_options = 2;
 }
 
 message PersonsByDistinctIdsResponse {
@@ -95,6 +102,7 @@ message PersonsByDistinctIdsResponse {
 message GetDistinctIdsForPersonRequest {
   int64 team_id = 1;
   int64 person_id = 2;
+  ReadOptions read_options = 3;
 }
 
 message GetDistinctIdsForPersonResponse {
@@ -104,6 +112,7 @@ message GetDistinctIdsForPersonResponse {
 message GetDistinctIdsForPersonsRequest {
   int64 team_id = 1;
   repeated int64 person_ids = 2;
+  ReadOptions read_options = 3;
 }
 
 message GetDistinctIdsForPersonsResponse {
