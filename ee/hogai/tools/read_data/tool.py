@@ -21,6 +21,7 @@ from posthog.sync import database_sync_to_async
 
 from ee.hogai.artifacts.types import ModelArtifactResult
 from ee.hogai.chat_agent.sql.mixins import HogQLDatabaseMixin
+from ee.hogai.context.activity_log.context import ActivityLogContext
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.context.dashboard.context import DashboardContext, DashboardInsightContext
 from ee.hogai.context.error_tracking import ErrorTrackingIssueContext
@@ -30,9 +31,11 @@ from ee.hogai.tool import MaxTool, ToolMessagesArtifact
 from ee.hogai.tool_errors import MaxToolFatalError, MaxToolRetryableError
 from ee.hogai.tools.read_billing_tool.tool import ReadBillingTool
 from ee.hogai.tools.read_data.prompts import (
+    ACTIVITY_LOG_INSUFFICIENT_ACCESS_PROMPT,
     BILLING_INSUFFICIENT_ACCESS_PROMPT,
     DASHBOARD_NOT_FOUND_PROMPT,
     INSIGHT_NOT_FOUND_PROMPT,
+    READ_DATA_ACTIVITY_LOG_PROMPT,
     READ_DATA_BILLING_PROMPT,
     READ_DATA_PROMPT,
     READ_DATA_WAREHOUSE_SCHEMA_PROMPT,
@@ -105,6 +108,19 @@ class ReadSurvey(BaseModel):
     survey_id: str = Field(description="The UUID of the survey.")
 
 
+class ReadActivityLog(BaseModel):
+    """Retrieves recent activity log entries showing who changed what and when in this project."""
+
+    kind: Literal["activity_log"] = "activity_log"
+    scope: str | None = Field(
+        default=None,
+        description="Filter by scope (e.g. 'FeatureFlag', 'Insight', 'Experiment', 'Dashboard').",
+    )
+    item_id: str | None = Field(default=None, description="Filter by item ID.")
+    user_email: str | None = Field(default=None, description="Filter by user email.")
+    limit: int = Field(default=20, ge=1, le=50, description="Number of entries to return.")
+
+
 ReadDataQuery = (
     ReadDataWarehouseSchema
     | ReadDataWarehouseTableSchema
@@ -114,6 +130,7 @@ ReadDataQuery = (
     | ReadErrorTrackingIssue
     | ReadArtifact
     | ReadSurvey
+    | ReadActivityLog
 )
 
 
@@ -156,6 +173,12 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
         if has_billing_access:
             prompt_vars["billing_prompt"] = READ_DATA_BILLING_PROMPT
             kinds.append(ReadBillingInfo)
+
+        has_audit_logs_access = context_manager.check_has_audit_logs_access()
+
+        if has_audit_logs_access:
+            prompt_vars["activity_log_prompt"] = READ_DATA_ACTIVITY_LOG_PROMPT
+            kinds.append(ReadActivityLog)
 
         base_kinds: tuple[type[BaseModel], ...] = (
             ReadDataWarehouseSchema,
@@ -220,6 +243,12 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
                 return await self._read_error_tracking_issue(schema.issue_id), None
             case ReadSurvey() as schema:
                 return await self._read_survey(schema.survey_id), None
+            case ReadActivityLog() as schema:
+                if not self._context_manager.check_has_audit_logs_access():
+                    raise MaxToolFatalError(ACTIVITY_LOG_INSUFFICIENT_ACCESS_PROMPT)
+                return await self._read_activity_log(
+                    schema.scope, schema.item_id, schema.user_email, schema.limit
+                ), None
 
     async def _read_insight(
         self, artifact_or_insight_id: str, execute: bool
@@ -447,3 +476,18 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
                 return "\n\n".join(lines)
 
         raise MaxToolFatalError(f"Unknown artifact type: {type(content).__name__}")
+
+    async def _read_activity_log(
+        self,
+        scope: str | None,
+        item_id: str | None,
+        user_email: str | None,
+        limit: int,
+    ) -> str:
+        context = ActivityLogContext(team=self._team, user=self._user)
+        return await context.fetch_and_format(
+            scope=scope,
+            item_id=item_id,
+            user_email=user_email,
+            limit=limit,
+        )
