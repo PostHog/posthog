@@ -7,10 +7,13 @@ from temporalio.common import RetryPolicy
 from products.llm_analytics.backend.summarization.models import OpenAIModel, SummarizationMode
 
 # Window processing configuration
-DEFAULT_MAX_ITEMS_PER_WINDOW = 10  # Max items to process per window (conservative for worst-case 30s/item)
+DEFAULT_MAX_ITEMS_PER_WINDOW = (
+    15  # Max items to process per window (targets ~2500 summaries in 7-day clustering window)
+)
 DEFAULT_BATCH_SIZE = 3  # Number of traces to process in parallel (reduced to avoid rate limits)
 DEFAULT_MODE = SummarizationMode.DETAILED
 DEFAULT_WINDOW_MINUTES = 60  # Process traces from last N minutes (matches schedule frequency)
+DEFAULT_WINDOW_OFFSET_MINUTES = 30  # Offset window into the past so traces have time to fully complete
 DEFAULT_MODEL = OpenAIModel.GPT_4_1_NANO
 
 # Max text representation length (in characters)
@@ -22,11 +25,14 @@ MAX_TEXT_REPR_LENGTH = 2_000_000
 SCHEDULE_INTERVAL_HOURS = 1  # How often the coordinator runs
 
 # Timeout configuration (in seconds)
-SAMPLE_TIMEOUT_SECONDS = 300  # 5 minutes for sampling query
+SAMPLE_TIMEOUT_SECONDS = 900  # 15 minutes for sampling query (buffer above QUERY_ASYNC 600s ClickHouse timeout)
 GENERATE_SUMMARY_TIMEOUT_SECONDS = 300  # 5 minutes per summary generation (increased for LLM API latency/rate limits)
 
 # Workflow-level timeouts (in minutes)
 WORKFLOW_EXECUTION_TIMEOUT_MINUTES = 120  # Max time for single team workflow (increased with longer activity timeouts)
+COORDINATOR_EXECUTION_TIMEOUT_MINUTES = (
+    55  # Max time for coordinator, must be less than schedule interval to avoid blocking
+)
 
 # Retry policies
 SAMPLE_RETRY_POLICY = RetryPolicy(maximum_attempts=3)
@@ -50,19 +56,6 @@ GENERATION_DOCUMENT_TYPE = "llm-generation-summary-detailed"  # For generation-l
 # Generation-level configuration
 DEFAULT_MAX_GENERATIONS_PER_WINDOW = 50  # Higher than traces - generations are simpler units
 
-# Team allowlist - only these teams will be processed by the coordinator
-# Empty list means no teams will be processed (coordinator skips)
-ALLOWED_TEAM_IDS: list[int] = [
-    1,  # Local development
-    2,  # Internal PostHog project
-    # Dogfooding projects
-    112495,
-    148051,
-    140227,
-    237906,
-    294356,
-]
-
 # Temporal configuration
 WORKFLOW_NAME = "llma-trace-summarization"
 COORDINATOR_WORKFLOW_NAME = "llma-trace-summarization-coordinator"
@@ -71,3 +64,4 @@ CHILD_WORKFLOW_ID_PREFIX = "llma-trace-summarization-team"
 
 # Generation-level schedule configuration (reuses same coordinator workflow with different inputs)
 GENERATION_COORDINATOR_SCHEDULE_ID = "llma-generation-summarization-coordinator-schedule"
+GENERATION_CHILD_WORKFLOW_ID_PREFIX = "llma-generation-summarization-team"

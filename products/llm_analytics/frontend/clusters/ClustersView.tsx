@@ -8,6 +8,7 @@ import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { ClusterCard } from './ClusterCard'
+import { ClusterDistributionBar } from './ClusterDistributionBar'
 import { ClusterScatterPlot } from './ClusterScatterPlot'
 import { ClusteringAdminModal } from './ClusteringAdminModal'
 import { clustersAdminLogic } from './clustersAdminLogic'
@@ -77,6 +78,8 @@ export function ClustersView(): JSX.Element {
         traceSummaries,
         traceSummariesLoading,
         isScatterPlotExpanded,
+        clusterMetrics,
+        clusterMetricsLoading,
     } = useValues(clustersLogic)
     const {
         setClusteringLevel,
@@ -120,6 +123,7 @@ export function ClustersView(): JSX.Element {
                                     { value: 'generation', label: 'Generations' },
                                 ]}
                                 size="small"
+                                data-attr="clusters-level-toggle"
                             />
                         </span>
                     </Tooltip>
@@ -129,6 +133,7 @@ export function ClustersView(): JSX.Element {
                         icon={<IconRefresh />}
                         onClick={loadClusteringRuns}
                         tooltip="Refresh clustering runs"
+                        data-attr="clusters-refresh-runs"
                     />
                 </div>
 
@@ -164,32 +169,38 @@ export function ClustersView(): JSX.Element {
                                     { value: 'generation', label: 'Generations' },
                                 ]}
                                 size="small"
+                                data-attr="clusters-level-toggle"
                             />
                         </span>
                     </Tooltip>
                     <span className="text-muted">|</span>
-                    <label className="font-medium">Clustering run:</label>
-                    <LemonSelect
-                        value={effectiveRunId || undefined}
-                        onChange={(value) => setSelectedRunId(value || null)}
-                        options={clusteringRuns.map((run: { runId: string; label: string }) => ({
-                            value: run.runId,
-                            label: run.label,
-                        }))}
-                        placeholder="Select a run"
-                    />
+                    <Tooltip title="Clustering run">
+                        <span>
+                            <LemonSelect
+                                value={effectiveRunId || undefined}
+                                onChange={(value) => setSelectedRunId(value || null)}
+                                options={clusteringRuns.map((run: { runId: string; label: string }) => ({
+                                    value: run.runId,
+                                    label: run.label,
+                                }))}
+                                placeholder="Select a run"
+                                data-attr="clusters-run-select"
+                            />
+                        </span>
+                    </Tooltip>
                     <LemonButton
                         type="secondary"
                         size="small"
                         icon={<IconRefresh />}
                         onClick={loadClusteringRuns}
                         tooltip="Refresh clustering runs"
+                        data-attr="clusters-refresh-runs"
                     />
                 </div>
 
                 <div className="flex items-center gap-4">
                     {currentRun && (
-                        <div className="flex items-center gap-2 text-muted text-sm">
+                        <div className="flex items-center gap-2 text-muted text-sm whitespace-nowrap">
                             <span>
                                 {currentRun.totalItemsAnalyzed}{' '}
                                 {clusteringLevel === 'generation' ? 'generations' : 'traces'} analyzed
@@ -234,6 +245,7 @@ export function ClustersView(): JSX.Element {
                             icon={<IconGear />}
                             onClick={openModal}
                             tooltip="Run clustering with custom parameters"
+                            data-attr="clusters-run-clustering-button"
                         >
                             Run clustering
                         </LemonButton>
@@ -254,9 +266,10 @@ export function ClustersView(): JSX.Element {
                     <div
                         className="p-4 cursor-pointer hover:bg-surface-secondary transition-colors"
                         onClick={toggleScatterPlotExpanded}
+                        data-attr="clusters-scatter-plot-toggle"
                     >
-                        <div className="flex items-center justify-between">
-                            <h3 className="font-semibold text-base">Cluster visualization</h3>
+                        <div className="flex items-center gap-4">
+                            <ClusterDistributionBar clusters={sortedClusters} runId={effectiveRunId || ''} />
                             <LemonButton
                                 size="small"
                                 noPadding
@@ -290,6 +303,8 @@ export function ClustersView(): JSX.Element {
                             loadingTraces={traceSummariesLoading}
                             runId={effectiveRunId || ''}
                             clusteringLevel={clusteringLevel}
+                            metrics={clusterMetrics[cluster.cluster_id]}
+                            metricsLoading={clusterMetricsLoading}
                         />
                     ))}
                 </div>

@@ -166,7 +166,8 @@ class BaseAgentRunner(ABC):
                     "is_subagent": not self._use_checkpointer,
                     "$groups": event_usage.groups(team=team),
                     "ai_support_impersonated": not is_agent_billable,
-                    "ai_product": "posthog_ai",
+                    "ai_product": "mcp" if self._conversation.type == Conversation.Type.TOOL_CALL else "posthog_ai",
+                    "conversation_type": self._conversation.type,
                 }
                 # Use SubagentCallbackHandler when parent_span_id is provided to nest all events under the parent
                 if parent_span_id:

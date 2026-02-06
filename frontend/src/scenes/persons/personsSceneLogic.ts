@@ -37,10 +37,24 @@ export const personsSceneLogic = kea<personsSceneLogicType>([
     actions({
         setQuery: (query: DataTableNode) => ({ query }),
         resetDeletedDistinctId: (distinct_id: string) => ({ distinct_id }),
+        setShowDisplayNameNudge: (showDisplayNameNudge: boolean) => ({ showDisplayNameNudge }),
+        setIsBannerLoading: (isBannerLoading: boolean) => ({ isBannerLoading }),
     }),
 
     reducers({
         query: [PEOPLE_LIST_DEFAULT_QUERY, { setQuery: (_, { query }) => query }],
+        showDisplayNameNudge: [
+            false,
+            {
+                setShowDisplayNameNudge: (_, { showDisplayNameNudge }) => showDisplayNameNudge,
+            },
+        ],
+        isBannerLoading: [
+            false,
+            {
+                setIsBannerLoading: (_, { isBannerLoading }) => isBannerLoading,
+            },
+        ],
     }),
 
     listeners({

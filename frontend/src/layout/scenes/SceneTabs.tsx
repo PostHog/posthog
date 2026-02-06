@@ -11,6 +11,7 @@ import { IconPlus, IconX } from '@posthog/icons'
 
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { IconMenu } from 'lib/lemon-ui/icons'
@@ -36,6 +37,7 @@ export function SceneTabs(): JSX.Element {
     const { isLayoutNavbarVisibleForMobile } = useValues(panelLayoutLogic)
     const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
     const [isConfigurePinnedTabsOpen, setIsConfigurePinnedTabsOpen] = useState(false)
+    const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
 
     const handleDragEnd = ({ active, over }: DragEndEvent): void => {
         if (!over || over.id === 'new' || active.id === over.id) {
@@ -63,7 +65,7 @@ export function SceneTabs(): JSX.Element {
     }
 
     return (
-        <div className="h-[var(--scene-layout-header-height)] flex items-center w-full min-w-0 bg-surface-primary lg:bg-surface-tertiary z-[var(--z-top-navigation)] relative">
+        <div className="h-[var(--scene-layout-header-height)] flex items-center w-full min-w-0 bg-surface-tertiary z-[var(--z-top-navigation)] relative">
             {/* Mobile button to show/hide the layout navbar */}
             {mobileLayout && (
                 <ButtonPrimitive
@@ -76,7 +78,11 @@ export function SceneTabs(): JSX.Element {
             )}
 
             {/* Line below tabs to to complete border on <main> element */}
-            <div className="absolute bottom-0 w-full pl-[5px] pr-3">
+            <div
+                className={cn('absolute bottom-0 w-full lg:px-[5px] ', {
+                    'lg:pr-3': isRemovingSidePanelFlag,
+                })}
+            >
                 <div className="w-full bottom-0 h-px border-b border-primary z-10" />
             </div>
 
@@ -119,7 +125,8 @@ export function SceneTabs(): JSX.Element {
                                     const currentPath = router.values.location.pathname
                                     // If on /sql route, open a new /sql tab, otherwise default to /search
                                     const isSqlRoute = currentPath.endsWith('/sql')
-                                    newTab(isSqlRoute ? '/sql' : null)
+                                    const source = e.detail === 0 ? 'keyboard_shortcut' : 'new_tab_button'
+                                    newTab(isSqlRoute ? '/sql' : null, { source })
                                 }}
                                 tooltip="New tab"
                                 tooltipCloseDelayMs={0}
@@ -244,7 +251,8 @@ function SceneTabComponent({ tab, className, isDragging, containerClassName, ind
                             onClick={(e) => {
                                 e.stopPropagation()
                                 e.preventDefault()
-                                removeTab(tab)
+                                const source = e.detail === 0 ? 'keyboard_shortcut' : 'close_button'
+                                removeTab(tab, { source })
                             }}
                             tooltip={!tab.active ? 'Close tab' : 'Close active tab'}
                             tooltipCloseDelayMs={0}
@@ -270,7 +278,7 @@ function SceneTabComponent({ tab, className, isDragging, containerClassName, ind
                         e.stopPropagation()
                         e.preventDefault()
                         if (e.button === 1 && !isDragging && canRemoveTab) {
-                            removeTab(tab)
+                            removeTab(tab, { source: 'middle_click' })
                         }
                     }}
                     onDoubleClick={(e) => {

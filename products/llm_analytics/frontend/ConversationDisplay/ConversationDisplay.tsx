@@ -46,6 +46,8 @@ export function ConversationDisplay({ eventProperties, eventId }: ConversationDi
                     totalCostUsd={eventProperties.$ai_total_cost_usd}
                     model={eventProperties.$ai_model}
                     latency={eventProperties.$ai_latency}
+                    timeToFirstToken={eventProperties.$ai_time_to_first_token}
+                    isStreaming={eventProperties.$ai_stream === true}
                     timestamp={eventProperties.timestamp}
                 />
 

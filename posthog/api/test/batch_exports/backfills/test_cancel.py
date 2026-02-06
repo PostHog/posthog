@@ -16,6 +16,10 @@ from posthog.api.test.batch_exports.operations import (
     list_batch_export_backfills_ok,
 )
 
+pytestmark = [
+    pytest.mark.usefixtures("temporal_worker", "cleanup"),
+]
+
 
 def wait_for_backfill_creation(client: HttpClient, team_id: int, batch_export_id: str):
     total = 0

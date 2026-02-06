@@ -999,14 +999,22 @@
         }
 
         // Extract additional survey event properties from URL parameters
-        const URL_PARAMS_TO_IGNORE = ['distinct_id', '__posthog_debug__', 'auto_submit'];
+        const URL_PARAMS_TO_IGNORE = ['distinct_id', '__posthog_debug__', '__posthog_debug', 'auto_submit'];
         const surveyEventProperties = {};
 
         for (const [key, value] of searchParams.entries()) {
             // Skip question prefill parameters (q1, q2, etc.) and ignored params
             const keyLower = key.toLowerCase();
             if (!URL_PARAMS_TO_IGNORE.includes(keyLower) && !keyLower.match(/^q\d+$/)) {
-                surveyEventProperties[key] = value;
+                if (/^-?\d+(\.\d+)?$/.test(value)) {
+                    surveyEventProperties[key] = Number(value);
+                } else if (value === 'true') {
+                    surveyEventProperties[key] = true;
+                } else if (value === 'false') {
+                    surveyEventProperties[key] = false;
+                } else {
+                    surveyEventProperties[key] = value;
+                }
             }
         }
 

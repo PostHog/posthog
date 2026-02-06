@@ -22,6 +22,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { CustomerProfileScope, OnboardingStepKey } from '~/types'
 
 import { FeedbackBanner } from 'products/customer_analytics/frontend/components/FeedbackBanner'
+import { PersonDisplayNameNudgeBanner } from 'products/customer_analytics/frontend/components/PersonDisplayNameNudgeBanner'
 import { customerProfileConfigLogic } from 'products/customer_analytics/frontend/customerProfileConfigLogic'
 
 import { personsSceneLogic } from './personsSceneLogic'
@@ -43,11 +44,12 @@ export function PersonsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
     }
 
     const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
-    const { query } = useValues(personsSceneLogic)
+    const { query, showDisplayNameNudge } = useValues(personsSceneLogic)
     const { setQuery } = useActions(personsSceneLogic)
     const { resetDeletedDistinctId } = useAsyncActions(personsSceneLogic)
     const { currentTeam, baseCurrency } = useValues(teamLogic)
     const { loadConfigs } = useActions(customerProfileConfigLogic({ scope: CustomerProfileScope.PERSON }))
+    const queryUniqueKey = `persons-query-${tabId}`
 
     useOnMountEffect(() => {
         loadConfigs()
@@ -134,13 +136,16 @@ export function PersonsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
                     </>
                 }
             />
-            <FeedbackBanner
-                feedbackButtonId="people-list"
-                message="We're improving the persons experience. Send us your feedback!"
-            />
+            <PersonDisplayNameNudgeBanner uniqueKey={queryUniqueKey} />
+            {!showDisplayNameNudge && (
+                <FeedbackBanner
+                    feedbackButtonId="people-list"
+                    message="We're improving the persons experience. Send us your feedback!"
+                />
+            )}
 
             <Query
-                uniqueKey={`persons-query-${tabId}`}
+                uniqueKey={queryUniqueKey}
                 attachTo={personsSceneLogic({ tabId })}
                 query={{ ...query, showCount: true, showTableViews: true }}
                 setQuery={setQuery}

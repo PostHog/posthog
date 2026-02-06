@@ -106,7 +106,7 @@ export const EmailSetupModal = (props: EmailSetupModalLogicProps): JSX.Element =
                                 <thead>
                                     <tr className="border-b">
                                         <th className="py-2 text-left">Type</th>
-                                        <th className="py-2 text-left">Target</th>
+                                        <th className="py-2 text-left">Name</th>
                                         <th className="py-2 text-left">Value</th>
                                         <th className="py-2 text-left">Status</th>
                                     </tr>

@@ -173,21 +173,8 @@ class ClayWebhookResource(dagster.ConfigurableResource):
     max_batch_bytes: int = 90_000  # 90KB, leaving margin under Clay's 100KB limit
     max_records_per_batch: int = 10  # Rate limit friendly (Clay allows 10 records/sec sustained)
     max_retries: int = 3
-    # Fields to truncate in order of priority (least important first).
-    # These are array fields where partial data is acceptable.
-    # Order: diagnostic/metadata fields -> identifiers -> user-facing data
-    truncatable_fields: list[str] = [
-        "bounce_reasons",  # Diagnostic info, less critical
-        "subjects",  # Email subjects, can be sampled
-        "removal_timestamps",  # Timestamps for removals
-        "removal_types",  # Types of removal
-        "source_type",  # Source identifiers
-        "organization_names",  # Org names, can be partial
-        "organization_ids",  # Org IDs, can be partial
-        "emails",  # Core data, truncated last
-    ]
 
-    def _truncate_record_to_fit(self, record: dict) -> dict:
+    def _truncate_record_to_fit(self, record: dict, truncatable_fields: list[str]) -> dict:
         """Truncate array fields in a record to fit within max_batch_bytes."""
         record = record.copy()
         record_size = self._get_batch_size([record])
@@ -196,7 +183,7 @@ class ClayWebhookResource(dagster.ConfigurableResource):
             return record
 
         # Progressively truncate fields until it fits
-        for field in self.truncatable_fields:
+        for field in truncatable_fields:
             if field not in record or not isinstance(record[field], list):
                 continue
 
@@ -253,7 +240,12 @@ class ClayWebhookResource(dagster.ConfigurableResource):
         """Get the serialized size of a batch in bytes."""
         return len(json.dumps(batch, default=str).encode("utf-8"))
 
-    def create_batches(self, data: list[dict], logger: Any | None = None) -> ClayBatchResult:
+    def create_batches(
+        self,
+        data: list[dict],
+        logger: Any | None = None,
+        truncatable_fields: list[str] | None = None,
+    ) -> ClayBatchResult:
         """Split data into batches respecting both record count and byte limits.
 
         Returns a ClayBatchResult containing:
@@ -265,6 +257,7 @@ class ClayWebhookResource(dagster.ConfigurableResource):
         if not data:
             return ClayBatchResult(batches=[], truncated_count=0, skipped_count=0)
 
+        fields = truncatable_fields or []
         batches: list[list[dict]] = []
         current_batch: list[dict] = []
         truncated_count = 0
@@ -274,7 +267,7 @@ class ClayWebhookResource(dagster.ConfigurableResource):
             record_size = self._get_batch_size([record])
             if record_size > self.max_batch_bytes:
                 original_size = record_size
-                record = self._truncate_record_to_fit(record)
+                record = self._truncate_record_to_fit(record, fields)
                 record_size = self._get_batch_size([record])
                 truncated_count += 1
                 if logger:
