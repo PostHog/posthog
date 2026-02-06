@@ -367,7 +367,7 @@ function StepTriggerConfigurationSurvey({
     const { actionValidationErrorsById } = useValues(workflowLogic)
     const { allSurveys, surveysLoading, moreSurveysLoading, hasMoreSurveys, responseCounts } =
         useValues(surveyTriggerLogic)
-    const { loadMoreSurveys } = useActions(surveyTriggerLogic)
+    const { loadMoreSurveys, loadSurveys } = useActions(surveyTriggerLogic)
     const validationResult = actionValidationErrorsById[action.id]
     const selectedSurveyId = getSelectedSurveyId(config)
     const completedOnly = getCompletedResponsesOnly(config)
@@ -393,7 +393,7 @@ function StepTriggerConfigurationSurvey({
     const [searchTerm, setSearchTerm] = useState('')
 
     // Store selected survey name so it persists even when survey list hasn't loaded
-    const [selectedSurveyName, setSelectedSurveyName] = useState<string | null>(null)
+    const [_, setSelectedSurveyName] = useState<string | null>(null)
 
     // Update stored name when survey is found in the list
     useEffect(() => {
