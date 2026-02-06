@@ -7,9 +7,10 @@ import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { IconErrorOutline } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 
+import { parseErrorMessage } from '~/queries/query'
 import { ExperimentMetric } from '~/queries/schema/schema-general'
 
-interface MetricErrorStateProps {
+type MetricErrorStateProps = {
     error: {
         detail: string | object | any
         statusCode?: number
@@ -21,44 +22,12 @@ interface MetricErrorStateProps {
     height?: number
 }
 
-/**
- * Parse error message that may be in ErrorDetail string format.
- * Backend sometimes serializes ValidationError.detail as a string like:
- * "[ErrorDetail(string='Message', code='code')]"
- */
-function parseErrorMessage(error: MetricErrorStateProps['error']): string {
-    const errorDetail = error.detail
-
-    if (typeof errorDetail === 'string') {
-        // Try to match list format: [ErrorDetail(string="..." or '...', code='...')]
-        // DRF's ErrorDetail.__repr__ uses double quotes if the message contains single quotes
-        // Use backreference (\1) to match the same closing quote as the opening quote
-        const listMatch = errorDetail.match(/\[ErrorDetail\(string=(["'])(.+?)\1,\s*code='([^']*)'\)\]/)
-        if (listMatch) {
-            return listMatch[2] // Group 2 contains the message (group 1 is the quote character)
-        }
-
-        // Try to match single format: ErrorDetail(string="..." or '...', code='...')
-        const singleMatch = errorDetail.match(/ErrorDetail\(string=(["'])(.+?)\1,\s*code='([^']*)'\)/)
-        if (singleMatch) {
-            return singleMatch[2] // Group 2 contains the message (group 1 is the quote character)
-        }
-
-        return errorDetail
-    }
-
-    if (typeof errorDetail === 'object' && errorDetail !== null) {
-        // If it's an object, try to extract message or detail field
-        return (errorDetail as any).message || (errorDetail as any).detail || JSON.stringify(errorDetail)
-    }
-
-    return 'An error occurred while loading metric results'
-}
-
-export function MetricErrorState({ error, query, onRetry, height = 200 }: MetricErrorStateProps): JSX.Element {
+export const MetricErrorState = ({ error, query, onRetry, height = 200 }: MetricErrorStateProps): JSX.Element => {
     const { openSupportForm } = useActions(supportLogic)
 
-    const errorMessage = parseErrorMessage(error)
+    const errorMessage = parseErrorMessage(error.detail)
+    const { message } = errorMessage
+
     const isTimeout = error.statusCode === 504
 
     return (
@@ -73,7 +42,7 @@ export function MetricErrorState({ error, query, onRetry, height = 200 }: Metric
             <p className="text-xs text-muted max-w-80 text-center m-0">
                 {isTimeout
                     ? 'This may occur when the experiment has a large amount of data or is particularly complex. We are actively working on fixing this. In the meantime, please click try again to refresh the results.'
-                    : errorMessage}
+                    : message}
             </p>
 
             <div className="flex gap-1.5 mt-1">
