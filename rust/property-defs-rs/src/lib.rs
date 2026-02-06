@@ -37,6 +37,9 @@ pub async fn update_consumer_loop(
     context: Arc<AppContext>,
     mut channel: MeasuringReceiver<Update>,
 ) {
+    let mut prev_hits = [0u64; 3];
+    let mut prev_misses = [0u64; 3];
+
     loop {
         let mut batch = Vec::with_capacity(config.update_batch_size);
 
@@ -113,8 +116,12 @@ pub async fn update_consumer_loop(
                 0.0
             });
             metrics::gauge!(CACHE_LEN, &[("cache", *label)]).set(len as f64);
-            metrics::gauge!(CACHE_HITS, &[("cache", *label)]).set(hits[i] as f64);
-            metrics::gauge!(CACHE_MISSES, &[("cache", *label)]).set(misses[i] as f64);
+            let delta_hits = hits[i].saturating_sub(prev_hits[i]);
+            let delta_misses = misses[i].saturating_sub(prev_misses[i]);
+            metrics::counter!(CACHE_HITS, &[("cache", *label)]).increment(delta_hits);
+            metrics::counter!(CACHE_MISSES, &[("cache", *label)]).increment(delta_misses);
+            prev_hits[i] = hits[i];
+            prev_misses[i] = misses[i];
         }
 
         // enrich batch group events with resolved group_type_indices
