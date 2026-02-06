@@ -24,4 +24,3 @@ minimumReleaseAgeExclude:
     - node-forge@1.3.2
     - '@posthog/*'
     - '@modelcontextprotocol/sdk' # Security update for GHSA-345p-7cg4-v4c7
-    - kea
