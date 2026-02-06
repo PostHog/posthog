@@ -14,8 +14,8 @@ class SignalEmitterOutput:
     extra: dict[str, Any]
 
 
-# Type for signal emitter functions
-SignalEmitter = Callable[[int, dict[str, Any]], SignalEmitterOutput]
+# Type for signal emitter functions (None if the source has not enough meaningful data)
+SignalEmitter = Callable[[int, dict[str, Any]], SignalEmitterOutput | None]
 
 # Registry mapping (source_type, schema_name) -> emitter function
 _SIGNAL_EMITTERS: dict[tuple[str, str], SignalEmitter] = {}
