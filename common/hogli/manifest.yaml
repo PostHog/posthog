@@ -279,14 +279,11 @@ build:
         services:
             - frontend
     build:schema-json:
-        cmd: bin/turbo --filter=@posthog/frontend schema:build:json
+        cmd: pnpm --filter=@posthog/frontend run schema:build:json
         description: Generate schema.json from frontend
     build:schema-python:
-        cmd: bin/turbo --filter=@posthog/frontend schema:build:python
-        description: Generate Pydantic schema.py from schema.json with datamodel-codegen
-    internal:schema-python-script:
         bin_script: build-schema-python.sh
-        hidden: true
+        description: Generate Pydantic schema.py from schema.json with datamodel-codegen
     build:schema-latest-versions:
         bin_script: build-schema-latest-versions.py
         description: Extract latest schema versions and generate frontend JSON config
@@ -312,7 +309,7 @@ build:
             - clickhouse
             - django
     build:openapi-types:
-        cmd: bin/turbo --filter=@posthog/frontend openapi:types
+        cmd: pnpm --filter=@posthog/frontend run openapi:types
         description: Generate TypeScript API types from the backend OpenAPI schema
     build:openapi:
         steps:

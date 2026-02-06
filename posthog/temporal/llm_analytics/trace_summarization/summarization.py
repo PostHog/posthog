@@ -1,5 +1,6 @@
 """Activity for generating trace summaries using LLM."""
 
+import time
 from uuid import uuid4
 
 import structlog
@@ -11,6 +12,7 @@ from posthog.hogql_queries.ai.trace_query_runner import TraceQueryRunner
 from posthog.models.event.util import create_event
 from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
+from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.llm_analytics.trace_summarization import constants
 from posthog.temporal.llm_analytics.trace_summarization.models import SummarizationActivityResult
 
@@ -149,58 +151,93 @@ async def generate_and_save_summary_activity(
             product=LLM_TRACES_SUMMARIES_PRODUCT,
         )
 
-    # Fetch trace data and format text representation
-    result = await database_sync_to_async(_fetch_trace_and_format, thread_sensitive=False)(
-        trace_id, team_id, window_start, window_end, max_length
-    )
+    activity_start = time.monotonic()
+    log = logger.bind(trace_id=trace_id, team_id=team_id)
 
-    # Handle trace not found in window
-    if result is None:
-        logger.warning(
-            "Skipping trace - not found in time window",
-            trace_id=trace_id,
-            window_start=window_start,
-            window_end=window_end,
+    async with Heartbeater():
+        # Step 1: Fetch trace data and format text representation
+        t0 = time.monotonic()
+        result = await database_sync_to_async(_fetch_trace_and_format, thread_sensitive=False)(
+            trace_id, team_id, window_start, window_end, max_length
         )
-        return SummarizationActivityResult(
-            trace_id=trace_id,
-            success=False,
-            skipped=True,
-            skip_reason="trace_not_found",
+        fetch_duration_s = time.monotonic() - t0
+
+        # Handle trace not found in window
+        if result is None:
+            log.warning(
+                "Skipping trace - not found in time window",
+                fetch_duration_s=round(fetch_duration_s, 2),
+                window_start=window_start,
+                window_end=window_end,
+            )
+            return SummarizationActivityResult(
+                trace_id=trace_id,
+                success=False,
+                skipped=True,
+                skip_reason="trace_not_found",
+            )
+
+        _trace, hierarchy, text_repr, team = result
+        log.info(
+            "Trace fetched and formatted",
+            fetch_duration_s=round(fetch_duration_s, 2),
+            text_repr_length=len(text_repr),
+            event_count=len(hierarchy),
         )
 
-    _trace, hierarchy, text_repr, team = result
+        # Step 2: Generate summary using LLM via gateway
+        mode_enum = SummarizationMode(mode)
+        model_enum = OpenAIModel(model) if model else None
 
-    # Generate summary using LLM via gateway
-    # Note: text_repr is automatically reduced to fit LLM context if needed (see format_trace_text_repr)
-    mode_enum = SummarizationMode(mode)
-    model_enum = OpenAIModel(model) if model else None
+        t0 = time.monotonic()
+        summary_result = await database_sync_to_async(summarize, thread_sensitive=False)(
+            text_repr=text_repr,
+            team_id=team_id,
+            mode=mode_enum,
+            model=model_enum,
+            user_id=f"temporal-workflow-team-{team_id}",
+        )
+        llm_duration_s = time.monotonic() - t0
+        log.info(
+            "LLM summary generated",
+            llm_duration_s=round(llm_duration_s, 2),
+            text_repr_length=len(text_repr),
+            model=model,
+        )
 
-    summary_result = await database_sync_to_async(summarize, thread_sensitive=False)(
-        text_repr=text_repr,
-        team_id=team_id,
-        mode=mode_enum,
-        model=model_enum,
-        user_id=f"temporal-workflow-team-{team_id}",
-    )
+        # Step 3: Save event to ClickHouse
+        t0 = time.monotonic()
+        await database_sync_to_async(_save_summary_event, thread_sensitive=False)(
+            summary_result, hierarchy, text_repr, team
+        )
+        save_duration_s = time.monotonic() - t0
 
-    # Save event to ClickHouse immediately
-    await database_sync_to_async(_save_summary_event, thread_sensitive=False)(
-        summary_result, hierarchy, text_repr, team
-    )
+        # Step 4: Request embedding by sending to Kafka
+        embedding_requested = False
+        embedding_request_error = None
+        t0 = time.monotonic()
+        try:
+            await database_sync_to_async(_embed_summary, thread_sensitive=False)(summary_result, team)
+            embedding_requested = True
+        except Exception as e:
+            embedding_request_error = str(e)
+            log.exception(
+                "Failed to request embedding for trace summary",
+                error=embedding_request_error,
+            )
+        embed_duration_s = time.monotonic() - t0
 
-    # Request embedding by sending to Kafka
-    embedding_requested = False
-    embedding_request_error = None
-    try:
-        await database_sync_to_async(_embed_summary, thread_sensitive=False)(summary_result, team)
-        embedding_requested = True
-    except Exception as e:
-        embedding_request_error = str(e)
-        logger.exception(
-            "Failed to request embedding for trace summary",
-            trace_id=trace_id,
-            error=embedding_request_error,
+        total_duration_s = time.monotonic() - activity_start
+        log.info(
+            "Activity completed",
+            total_duration_s=round(total_duration_s, 2),
+            fetch_duration_s=round(fetch_duration_s, 2),
+            llm_duration_s=round(llm_duration_s, 2),
+            save_duration_s=round(save_duration_s, 2),
+            embed_duration_s=round(embed_duration_s, 2),
+            text_repr_length=len(text_repr),
+            event_count=len(hierarchy),
+            embedding_requested=embedding_requested,
         )
 
     return SummarizationActivityResult(

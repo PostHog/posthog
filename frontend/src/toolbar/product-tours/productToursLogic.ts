@@ -199,6 +199,9 @@ export const productToursLogic = kea<productToursLogicType>([
 
         // Sidebar transition state (hide highlights during animation)
         setSidebarTransitioning: (transitioning: boolean) => ({ transitioning }),
+
+        // Sidebar position toggle
+        toggleSidebarPosition: true,
     }),
 
     loaders(() => ({
@@ -314,6 +317,13 @@ export const productToursLogic = kea<productToursLogicType>([
             { persist: true },
             {
                 setSessionRecordingConsent: (_, { consent }) => consent,
+            },
+        ],
+        sidebarPosition: [
+            'right' as 'left' | 'right',
+            { persist: true },
+            {
+                toggleSidebarPosition: (state) => (state === 'right' ? 'left' : 'right'),
             },
         ],
     }),
