@@ -4,7 +4,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use dashmap::mapref::entry::Entry;
 use dashmap::DashMap;
-use futures::future::Shared;
+use futures::future::{join_all, Shared};
 use rdkafka::TopicPartitionList;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
@@ -431,14 +431,19 @@ where
     ) -> Result<()> {
         info!("Finalizing rebalance cycle - awaiting import tasks");
 
-        // Step 1: Await all pending import tasks
-        // Get current owned partitions and wait for their setup tasks
+        // Step 1: Await all pending import tasks in parallel
         let owned_partitions = self.rebalance_tracker.get_owned_partitions();
-        for partition in &owned_partitions {
-            if let Some(handle) = self.get_setup_task(partition) {
-                let _ = handle.await; // Ignore panic result - task handles its own errors
-                self.complete_setup_task(partition);
-            }
+        let task_futures: Vec<(Partition, SharedTaskHandle)> = owned_partitions
+            .iter()
+            .filter_map(|p| {
+                let p = p.clone();
+                self.get_setup_task(&p).map(|h| (p, h))
+            })
+            .collect();
+        let (partitions, handles): (Vec<_>, Vec<_>) = task_futures.into_iter().unzip();
+        let _ = join_all(handles).await; // Ignore panic results - tasks handle their own errors
+        for partition in &partitions {
+            self.complete_setup_task(partition);
         }
 
         // Step 2: Check if a new rebalance started while we were awaiting
@@ -448,10 +453,13 @@ where
             return Ok(());
         }
 
+        // Capture owned once after the check so steps 3–5 use a consistent snapshot.
+        // Avoids TOCTOU: a new rebalance could change ownership between steps otherwise.
+        let owned = self.rebalance_tracker.get_owned_partitions();
+
         // Step 3: Create fallback stores for any owned partitions that don't have a registered store
         // This handles cases where checkpoint import failed, was cancelled, or was disabled
-        let current_owned = self.rebalance_tracker.get_owned_partitions();
-        for partition in &current_owned {
+        for partition in &owned {
             if self
                 .store_manager
                 .get(partition.topic(), partition.partition_number())
@@ -486,7 +494,6 @@ where
         // Step 4: Delete unowned partition directories using parallel scatter-gather
         // This is simpler than tracking revoked partitions - just scan disk and delete
         // anything not in owned_partitions. Also catches orphans from previous runs.
-        let owned = self.rebalance_tracker.get_owned_partitions();
         if let Err(e) = self
             .store_manager
             .cleanup_unowned_partition_directories(&owned, self.rebalance_cleanup_parallelism)
@@ -499,7 +506,6 @@ where
         }
 
         // Step 5: Resume consumption
-        let owned = self.rebalance_tracker.get_owned_partitions();
         if owned.is_empty() {
             info!("No owned partitions to resume");
             metrics::counter!(REBALANCE_RESUME_SKIPPED_NO_OWNED).increment(1);

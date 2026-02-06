@@ -496,21 +496,9 @@ impl StoreManager {
             .map(|p| format_partition_dir(p.topic(), p.partition_number()))
             .collect();
 
-        // Scan disk for all partition directories
+        // Scan disk for all partition directories (tokio::fs to avoid blocking)
         let base_path = &self.store_config.path;
-        let entries: Vec<PathBuf> = match std::fs::read_dir(base_path) {
-            Ok(read_dir) => read_dir
-                .filter_map(|e| e.ok())
-                .filter(|e| e.file_type().map(|ft| ft.is_dir()).unwrap_or(false))
-                .map(|e| e.path())
-                .filter(|path| {
-                    // Keep only directories NOT in owned set
-                    path.file_name()
-                        .and_then(|n| n.to_str())
-                        .map(|name| !owned_dirs.contains(name))
-                        .unwrap_or(false)
-                })
-                .collect(),
+        let entries: Vec<PathBuf> = match tokio::fs::read_dir(base_path).await {
             Err(e) => {
                 warn!(
                     path = %base_path.display(),
@@ -518,6 +506,41 @@ impl StoreManager {
                     "Failed to read store base directory for cleanup"
                 );
                 return Ok(());
+            }
+            Ok(mut read_dir) => {
+                let mut vec = Vec::new();
+                while let Some(entry) = read_dir
+                    .next_entry()
+                    .await
+                    .map_err(|e| {
+                        warn!(
+                            path = %base_path.display(),
+                            error = %e,
+                            "Error reading directory entry during cleanup"
+                        );
+                    })
+                    .ok()
+                    .flatten()
+                {
+                    let is_dir = entry
+                        .file_type()
+                        .await
+                        .map(|ft| ft.is_dir())
+                        .unwrap_or(false);
+                    if !is_dir {
+                        continue;
+                    }
+                    let path = entry.path();
+                    let unowned = path
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .map(|name| !owned_dirs.contains(name))
+                        .unwrap_or(false);
+                    if unowned {
+                        vec.push(path);
+                    }
+                }
+                vec
             }
         };
 
