@@ -22527,6 +22527,8 @@
                 "marketing_analytics_settings_updated",
                 "marketing_analytics_dashboard_interaction",
                 "marketing_analytics_ads_integration_visited",
+                "marketing_analytics_data_source_connected",
+                "marketing_analytics_onboarding_completed",
                 "customer_analytics_dashboard_business_mode_changed",
                 "customer_analytics_dashboard_configuration_button_clicked",
                 "customer_analytics_dashboard_filters_changed",
