@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useRef, useState } from 'react'
 
-import { IconChevronRight, IconPlusSmall, IconSidebarClose, IconSidebarOpen } from '@posthog/icons'
+import { IconChevronRight, IconNotification, IconPlusSmall, IconSidebarClose, IconSidebarOpen } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { AccountMenu } from 'lib/components/Account/AccountMenu'
@@ -27,6 +27,8 @@ import { ConversationsMenu } from '~/layout/panel-layout/ai-first/ConversationsM
 import { RecentConversationsList } from '~/layout/panel-layout/ai-first/RecentConversationsList'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { ConfigurePinnedTabsModal } from '~/layout/scenes/ConfigurePinnedTabsModal'
+
+import { inboxLogic } from 'products/signals/frontend/inboxLogic'
 
 import { OrganizationMenu } from '../../lib/components/Account/OrganizationMenu'
 import { ProjectMenu } from '../../lib/components/Account/ProjectMenu'
@@ -140,6 +142,8 @@ export function AiFirstNavBar(): JSX.Element {
                                         <span className="pl-[2px]">New chat</span>
                                     </LemonButton>
 
+                                    <InboxNavItem isCollapsed={isLayoutNavCollapsed} />
+
                                     <div className="flex flex-col gap-1">
                                         <Label intent="menu" className="text-xxs px-2 text-tertiary">
                                             Recent
@@ -240,5 +244,35 @@ export function AiFirstNavBar(): JSX.Element {
                 onClose={() => setIsConfigurePinnedTabsOpen(false)}
             />
         </>
+    )
+}
+
+function InboxNavItem({ isCollapsed }: { isCollapsed: boolean }): JSX.Element {
+    const { reportCount } = useValues(inboxLogic)
+
+    return (
+        <ButtonPrimitive
+            menuItem={!isCollapsed}
+            iconOnly={isCollapsed}
+            tooltip={isCollapsed ? 'Inbox' : undefined}
+            tooltipPlacement="right"
+            onClick={() => router.actions.push(urls.inbox())}
+            data-attr="menu-item-inbox"
+        >
+            <span className="relative">
+                <IconNotification className="text-tertiary" />
+                {reportCount > 0 && (
+                    <span className="absolute -top-1 -right-1 bg-danger text-white text-[9px] font-bold rounded-full size-3.5 flex items-center justify-center">
+                        {reportCount > 9 ? '9+' : reportCount}
+                    </span>
+                )}
+            </span>
+            {!isCollapsed && (
+                <>
+                    <span>Inbox</span>
+                    {reportCount > 0 && <span className="ml-auto text-xs text-muted">{reportCount}</span>}
+                </>
+            )}
+        </ButtonPrimitive>
     )
 }

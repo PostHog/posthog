@@ -11,6 +11,7 @@ import {
     IconFolderOpen,
     IconGear,
     IconHome,
+    IconNotification,
     IconPeople,
     IconSearch,
     IconShortcut,
@@ -138,6 +139,9 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
         if (itemIdentifier === 'Activity' && currentPath.startsWith('/activity/')) {
             return true
         }
+        if (itemIdentifier === 'Inbox' && currentPath.startsWith('/inbox')) {
+            return true
+        }
         if (itemIdentifier === 'Settings' && currentPath.startsWith('/settings/')) {
             return true
         }
@@ -206,6 +210,14 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             onClick: () => handleStaticNavbarItemClick(urls.activity(), true),
             collapsedTooltip: 'Activity',
             documentationUrl: 'https://posthog.com/docs/data/events',
+        },
+        {
+            identifier: 'Inbox',
+            label: 'Inbox',
+            icon: <IconNotification />,
+            to: urls.inbox(),
+            onClick: () => handleStaticNavbarItemClick(urls.inbox(), true),
+            collapsedTooltip: 'Inbox',
         },
         ...(featureFlags[FEATURE_FLAGS.CUSTOM_PRODUCTS_SIDEBAR] === 'test'
             ? []
