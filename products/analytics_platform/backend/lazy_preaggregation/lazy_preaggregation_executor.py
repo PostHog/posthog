@@ -76,7 +76,7 @@ def is_fatal_error(error: Exception) -> bool:
         return True
 
     # Check wrapped errors (e.g., from wrap_query_error)
-    if error.__cause__ is not None:
+    if error.__cause__ is not None and isinstance(error.__cause__, Exception):
         return is_fatal_error(error.__cause__)
 
     return False
