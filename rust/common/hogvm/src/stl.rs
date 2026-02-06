@@ -363,7 +363,7 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                 let needles = args[1].deref(&vm.heap)?;
                 let needles_array = match needles {
                     HogLiteral::Array(arr) => arr,
-                    _ => return Ok(HogLiteral::Number(0.into()).into()),
+                    _ => return Ok(HogLiteral::Number(0i64.into()).into()),
                 };
 
                 for needle_value in needles_array {
@@ -371,11 +371,11 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                     let needle_str = to_string(&vm.heap, needle_value, 0)?.to_lowercase();
                     if haystack_str.contains(&needle_str) {
                         // Return 1 (numeric) to match ClickHouse-style predicate semantics
-                        return Ok(HogLiteral::Number(1.into()).into());
+                        return Ok(HogLiteral::Number(1i64.into()).into());
                     }
                 }
                 // No needles matched: return 0 (numeric)
-                Ok(HogLiteral::Number(0.into()).into())
+                Ok(HogLiteral::Number(0i64.into()).into())
             }),
         ),
     ]
