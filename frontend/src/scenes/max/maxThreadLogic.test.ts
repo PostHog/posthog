@@ -2142,6 +2142,139 @@ describe('maxThreadLogic', () => {
                 .tool_calls as EnhancedToolCall[]
             expect(enhancedToolCalls?.[0].updates).toEqual([])
         })
+
+        it('marks tool call as failed when approval is rejected', async () => {
+            const toolCallId = 'tool-123'
+            const proposalId = 'proposal-123'
+
+            await expectLogic(logic, () => {
+                // Set up a tool call
+                logic.actions.setThread([
+                    {
+                        type: AssistantMessageType.Assistant,
+                        content: 'Dangerous operation',
+                        status: 'completed',
+                        id: 'assistant-1',
+                        tool_calls: [
+                            {
+                                id: toolCallId,
+                                name: 'dangerous_tool',
+                                args: {},
+                                type: 'tool_call',
+                            },
+                        ],
+                    },
+                    // Tool call result message exists (operation was "completed" but later rejected)
+                    {
+                        type: AssistantMessageType.ToolCall,
+                        content: 'Tool executed',
+                        status: 'completed',
+                        id: 'tool-msg-1',
+                        tool_call_id: toolCallId,
+                        ui_payload: {},
+                    },
+                ])
+                // Set up pending approval that was rejected
+                logic.actions.addPendingApprovalData({
+                    proposal_id: proposalId,
+                    original_tool_call_id: toolCallId,
+                    tool_name: 'dangerous_tool',
+                    decision_status: 'pending',
+                    preview: 'Preview text',
+                    payload: {},
+                })
+                // Resolve the approval as rejected
+                logic.actions.setResolvedApprovalStatus(proposalId, 'rejected')
+            })
+
+            const enhancedToolCalls = (logic.values.threadGrouped[0] as AssistantMessage)
+                .tool_calls as EnhancedToolCall[]
+            // Even though there's a result message, rejected approval should mark it as failed
+            expect(enhancedToolCalls?.[0].status).toBe('failed')
+        })
+
+        it('marks tool call as failed when approval is auto_rejected', async () => {
+            const toolCallId = 'tool-456'
+            const proposalId = 'proposal-456'
+
+            await expectLogic(logic, () => {
+                logic.actions.setThread([
+                    {
+                        type: AssistantMessageType.Assistant,
+                        content: 'Dangerous operation',
+                        status: 'completed',
+                        id: 'assistant-1',
+                        tool_calls: [
+                            {
+                                id: toolCallId,
+                                name: 'dangerous_tool',
+                                args: {},
+                                type: 'tool_call',
+                            },
+                        ],
+                    },
+                ])
+                logic.actions.addPendingApprovalData({
+                    proposal_id: proposalId,
+                    original_tool_call_id: toolCallId,
+                    tool_name: 'dangerous_tool',
+                    decision_status: 'pending',
+                    preview: 'Preview text',
+                    payload: {},
+                })
+                logic.actions.setResolvedApprovalStatus(proposalId, 'auto_rejected')
+            })
+
+            const enhancedToolCalls = (logic.values.threadGrouped[0] as AssistantMessage)
+                .tool_calls as EnhancedToolCall[]
+            expect(enhancedToolCalls?.[0].status).toBe('failed')
+        })
+
+        it('marks tool call as completed when approval is approved', async () => {
+            const toolCallId = 'tool-789'
+            const proposalId = 'proposal-789'
+
+            await expectLogic(logic, () => {
+                logic.actions.setThread([
+                    {
+                        type: AssistantMessageType.Assistant,
+                        content: 'Dangerous operation',
+                        status: 'completed',
+                        id: 'assistant-1',
+                        tool_calls: [
+                            {
+                                id: toolCallId,
+                                name: 'dangerous_tool',
+                                args: {},
+                                type: 'tool_call',
+                            },
+                        ],
+                    },
+                    {
+                        type: AssistantMessageType.ToolCall,
+                        content: 'Tool executed',
+                        status: 'completed',
+                        id: 'tool-msg-1',
+                        tool_call_id: toolCallId,
+                        ui_payload: {},
+                    },
+                ])
+                logic.actions.addPendingApprovalData({
+                    proposal_id: proposalId,
+                    original_tool_call_id: toolCallId,
+                    tool_name: 'dangerous_tool',
+                    decision_status: 'pending',
+                    preview: 'Preview text',
+                    payload: {},
+                })
+                logic.actions.setResolvedApprovalStatus(proposalId, 'approved')
+            })
+
+            const enhancedToolCalls = (logic.values.threadGrouped[0] as AssistantMessage)
+                .tool_calls as EnhancedToolCall[]
+            // Approved operations should show as completed
+            expect(enhancedToolCalls?.[0].status).toBe('completed')
+        })
     })
 
     describe('retryCount', () => {

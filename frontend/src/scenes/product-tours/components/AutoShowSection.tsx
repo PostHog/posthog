@@ -392,9 +392,7 @@ export function AutoShowSection({ id }: { id: string }): JSX.Element | null {
                         }}
                         className="w-12"
                     />
-                    <span className="text-sm">
-                        seconds before showing the {entityKeyword} after the conditions are met
-                    </span>
+                    <span className="text-sm">seconds before showing the {entityKeyword}</span>
                 </div>
             </div>
 
@@ -414,8 +412,7 @@ export function AutoShowSection({ id }: { id: string }): JSX.Element | null {
                     />
                 ) : (
                     <p>
-                        <IconInfo /> Product tours display once per user, until they interact (complete any steps, or
-                        dismiss the tour).
+                        <IconInfo /> Product tours display once per user, until they interact
                     </p>
                 )}
             </div>

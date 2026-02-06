@@ -44,7 +44,6 @@ MAX_SESSION_IDS_COMBINED_LOGGING_LENGTH = 150  # Maximum string of combined sess
 # Videos to validate issues in summaries
 SECONDS_BEFORE_EVENT_FOR_VALIDATION_VIDEO = 7
 VALIDATION_VIDEO_DURATION = 12
-SESSION_VIDEO_RENDERING_DELAY = 2  # Don't analyze first seconds of the video, as it could include malformed frames
 VALIDATION_VIDEO_PLAYBACK_SPEED = 8  # We don't need minor details, as LLM needs 1 frame per second
 SHORT_VALIDATION_VIDEO_PLAYBACK_SPEED = (
     1  # For short videos (10s validation chunks), we should stick to "render fully", instead of speed

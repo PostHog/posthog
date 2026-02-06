@@ -5,14 +5,12 @@ import UniversalFilters from 'lib/components/UniversalFilters/UniversalFilters'
 import { universalFiltersLogic } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
 
-import { logsViewerConfigLogic } from 'products/logs/frontend/components/LogsViewer/config/logsViewerConfigLogic'
-
-import { logsSceneLogic } from '../../../logsSceneLogic'
+import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
 
 export const AttributesFilter = (): JSX.Element => {
-    const { filterGroup } = useValues(logsSceneLogic)
-    const { setFilterGroup } = useActions(logsSceneLogic)
-    const { setFilter } = useActions(logsViewerConfigLogic)
+    const { filters } = useValues(logsViewerFiltersLogic)
+    const { filterGroup } = filters
+    const { setFilterGroup } = useActions(logsViewerFiltersLogic)
 
     const rootKey = 'logs'
 
@@ -27,7 +25,6 @@ export const AttributesFilter = (): JSX.Element => {
             ]}
             onChange={(filterGroup) => {
                 setFilterGroup(filterGroup)
-                setFilter('filterGroup', filterGroup)
             }}
         >
             <NestedFilterGroup />
@@ -36,7 +33,7 @@ export const AttributesFilter = (): JSX.Element => {
 }
 
 const NestedFilterGroup = (): JSX.Element => {
-    const { openFilterOnInsert } = useValues(logsSceneLogic)
+    const { openFilterOnInsert } = useValues(logsViewerFiltersLogic)
     const { filterGroup } = useValues(universalFiltersLogic)
     const { replaceGroupValue, removeGroupValue } = useActions(universalFiltersLogic)
 
