@@ -35,7 +35,8 @@ EXPIRY_BUFFER_SECONDS = 1 * 60 * 60  # 1 hour
 
 # Waiting configuration for pending jobs
 DEFAULT_WAIT_TIMEOUT_SECONDS = 180  # 3 minutes
-DEFAULT_POLL_INTERVAL_SECONDS = 1.0  # Poll every 1 second
+DEFAULT_POLL_INTERVAL_SECONDS = 1.0  # Initial poll interval (doubles each iteration)
+DEFAULT_MAX_POLL_INTERVAL_SECONDS = 30.0  # Cap for exponential backoff
 DEFAULT_MAX_ATTEMPTS = 2  # Maximum retry attempts for failed jobs
 
 # Heartbeat configuration - keeps job marked as "alive" during long INSERTs
@@ -45,8 +46,10 @@ DEFAULT_HEARTBEAT_INTERVAL_SECONDS = 30.0  # Update updated_at every 30 seconds
 # With 30s heartbeat, 2 minutes = 4 missed heartbeats before considering dead
 DEFAULT_STALE_PENDING_THRESHOLD_SECONDS = 120  # 2 minutes
 
-# ClickHouse error codes that should NOT be retried (fatal errors)
-FATAL_CLICKHOUSE_ERROR_CODES = frozenset(
+# ClickHouse error codes that should NOT be retried.
+# These are errors where retrying will never help - the query itself is broken,
+# or the user needs to change something about their request.
+NON_RETRYABLE_CLICKHOUSE_ERROR_CODES = frozenset(
     {
         62,  # SYNTAX_ERROR
         43,  # ILLEGAL_TYPE_OF_ARGUMENT
@@ -55,29 +58,33 @@ FATAL_CLICKHOUSE_ERROR_CODES = frozenset(
         47,  # UNKNOWN_IDENTIFIER
         60,  # UNKNOWN_TABLE
         16,  # NO_SUCH_COLUMN_IN_TABLE
+        # Timeout means the query is too expensive - retrying won't help,
+        # and we want to surface this to the user so they can adjust their query.
+        159,  # TIMEOUT_EXCEEDED
+        # Too many simultaneous queries means the cluster is overloaded.
+        # Rather than adding to the load with retries, surface the error.
+        202,  # TOO_MANY_SIMULTANEOUS_QUERIES
     }
 )
 
 
-def is_fatal_error(error: Exception) -> bool:
+def is_non_retryable_error(error: Exception) -> bool:
     """
     Check if an error should NOT be retried.
 
-    Fatal errors include:
-    - Network/connection errors (can't reach ClickHouse)
-    - ClickHouse syntax errors, type mismatches, unknown identifiers
-    """
-    # Network/connection errors - can't reach ClickHouse
-    if isinstance(error, (ConnectionError, OSError, TimeoutError)):
-        return True
+    Non-retryable errors are those where the query itself is invalid or the
+    cluster is overloaded - retrying won't help and may make things worse.
 
-    # ClickHouse server errors with fatal codes
-    if isinstance(error, ServerException) and error.code in FATAL_CLICKHOUSE_ERROR_CODES:
+    Transient errors (network issues, connection drops) are retryable since
+    the server may recover.
+    """
+    # ClickHouse server errors with non-retryable codes
+    if isinstance(error, ServerException) and error.code in NON_RETRYABLE_CLICKHOUSE_ERROR_CODES:
         return True
 
     # Check wrapped errors (e.g., from wrap_query_error)
     if error.__cause__ is not None and isinstance(error.__cause__, Exception):
-        return is_fatal_error(error.__cause__)
+        return is_non_retryable_error(error.__cause__)
 
     return False
 
@@ -136,7 +143,7 @@ class PreaggregationResult:
     """Result of executing preaggregation jobs."""
 
     ready: bool
-    job_ids: list
+    job_ids: list[str]
     errors: list[str] = field(default_factory=list)
 
 
@@ -145,8 +152,8 @@ class WaitResult:
     """Result of waiting for pending preaggregation jobs."""
 
     success: bool
-    ready_job_ids: list
-    failed_jobs: list  # List of PreaggregationJob objects that permanently failed
+    ready_job_ids: list[str]
+    failed_jobs: list[PreaggregationJob]
     timed_out: bool = False
 
 
@@ -459,11 +466,15 @@ class PreaggregationExecutor:
     """
     Executes preaggregation jobs with configurable waiting behavior.
 
+    TODO: Consider replacing polling with a task queue (e.g. Celery) to avoid
+    tying up a thread/process for up to wait_timeout_seconds doing nothing.
+
     Settings can be configured at initialization:
     - wait_for_pending: Whether to wait for pending jobs (default True)
     - wait_timeout_seconds: Max time to wait for pending jobs (default 180s)
-    - poll_interval_seconds: How often to check job status (default 1s)
-    - max_attempts: Max retry attempts for failed jobs (default 3)
+    - poll_interval_seconds: Initial poll interval, doubles each iteration (default 1s)
+    - max_poll_interval_seconds: Cap for exponential backoff (default 30s)
+    - max_attempts: Max retry attempts for failed jobs (default 2)
     - ttl_seconds: How long preaggregated data persists (default 7 days)
     - stale_pending_threshold_seconds: How long before a PENDING job is considered stale
     """
@@ -473,6 +484,7 @@ class PreaggregationExecutor:
         wait_for_pending: bool = True,
         wait_timeout_seconds: float = DEFAULT_WAIT_TIMEOUT_SECONDS,
         poll_interval_seconds: float = DEFAULT_POLL_INTERVAL_SECONDS,
+        max_poll_interval_seconds: float = DEFAULT_MAX_POLL_INTERVAL_SECONDS,
         max_attempts: int = DEFAULT_MAX_ATTEMPTS,
         ttl_seconds: int = DEFAULT_TTL_SECONDS,
         stale_pending_threshold_seconds: float = DEFAULT_STALE_PENDING_THRESHOLD_SECONDS,
@@ -480,6 +492,7 @@ class PreaggregationExecutor:
         self.wait_for_pending = wait_for_pending
         self.wait_timeout_seconds = wait_timeout_seconds
         self.poll_interval_seconds = poll_interval_seconds
+        self.max_poll_interval_seconds = max_poll_interval_seconds
         self.max_attempts = max_attempts
         self.ttl_seconds = ttl_seconds
         self.stale_pending_threshold_seconds = stale_pending_threshold_seconds
@@ -502,7 +515,7 @@ class PreaggregationExecutor:
         6. Return job IDs for the combiner query
         """
         errors: list[str] = []
-        job_ids: list = []
+        job_ids: list[str] = []
 
         query_hash = compute_query_hash(query_info)
 
@@ -637,10 +650,11 @@ class PreaggregationExecutor:
         Returns WaitResult indicating success/failure and which jobs are ready.
         """
         start_time = time.monotonic()
+        current_poll_interval = self.poll_interval_seconds
         # Track jobs we're waiting for: maps tracking key -> (current job, attempt count)
         # The tracking key stays constant even as the job changes on replacement
-        waiting_for: dict = {job.id: {"job": job, "attempts": 0} for job in pending_jobs}
-        ready_job_ids: list = []
+        waiting_for: dict[str, dict] = {job.id: {"job": job, "attempts": 0} for job in pending_jobs}
+        ready_job_ids: list[str] = []
         failed_jobs: list[PreaggregationJob] = []
 
         while waiting_for:
@@ -691,8 +705,8 @@ class PreaggregationExecutor:
                                 replacement.error = str(e)
                                 replacement.save()
 
-                                if is_fatal_error(e):
-                                    # Fatal error - don't retry, fail immediately
+                                if is_non_retryable_error(e):
+                                    # Non-retryable error - don't retry, fail immediately
                                     failed_jobs.append(replacement)
                                     del waiting_for[tracking_key]
                                 else:
@@ -716,9 +730,11 @@ class PreaggregationExecutor:
 
             if waiting_for:
                 remaining_timeout = self.wait_timeout_seconds - (time.monotonic() - start_time)
-                sleep_time = min(self.poll_interval_seconds, remaining_timeout)
+                sleep_time = min(current_poll_interval, remaining_timeout)
                 if sleep_time > 0:
                     time.sleep(sleep_time)
+                # Exponential backoff, capped at max_poll_interval_seconds
+                current_poll_interval = min(current_poll_interval * 2, self.max_poll_interval_seconds)
 
         return WaitResult(
             success=len(failed_jobs) == 0,
@@ -726,21 +742,6 @@ class PreaggregationExecutor:
             failed_jobs=failed_jobs,
             timed_out=False,
         )
-
-
-def execute_preaggregation_jobs(
-    team: Team,
-    query_info: QueryInfo,
-    start: datetime,
-    end: datetime,
-) -> PreaggregationResult:
-    """
-    Backward-compatible function for executing preaggregation jobs.
-
-    Uses PreaggregationExecutor with default settings.
-    """
-    executor = PreaggregationExecutor()
-    return executor.execute(team, query_info, start, end)
 
 
 def ensure_preaggregated(
@@ -845,7 +846,7 @@ def ensure_preaggregated(
     ready_jobs = [j for j in existing_jobs if j.status == PreaggregationJob.Status.READY]
     ready_jobs = filter_overlapping_jobs(ready_jobs)
 
-    job_ids: list = [job.id for job in ready_jobs]
+    job_ids: list[str] = [job.id for job in ready_jobs]
 
     # Find missing windows
     missing_ranges = find_missing_contiguous_windows(ready_jobs, time_range_start, time_range_end)
