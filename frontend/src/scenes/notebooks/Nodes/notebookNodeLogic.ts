@@ -844,7 +844,7 @@ const parseDataframePreview = (preview?: string | null): NotebookDataframeResult
     } else if (trimmed.startsWith("'") && trimmed.endsWith("'")) {
         // we can't JSON.escape single quoted strings, so we'll have to do this manually
         const stripped = trimmed.slice(1, -1)
-        const unescaped = stripped.replace(/\\\\/g, '\\').replace(/\\'/g, "'")
+        const unescaped = stripped.replace(/\\'/g, "'").replace(/\\\\/g, '\\')
         candidates.push(unescaped)
     }
 
