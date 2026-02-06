@@ -339,7 +339,7 @@ def _get_rows_to_sync(cursor: psycopg.Cursor, inner_query: sql.Composed, logger:
 
         if "temporary file size exceeds temp_file_limit" in str(e):
             raise TemporaryFileSizeExceedsLimitException(
-                f"Error: {e}. Please ensure your incremental field has an appropriate index created"
+                f"Error: {e}. Please ensure your incremental field is set as a SORTKEY on the table"
             )
 
         return 0
@@ -593,7 +593,7 @@ def redshift_source(
                 except psycopg.errors.QueryCanceled:
                     if should_use_incremental_field:
                         raise QueryTimeoutException(
-                            f"10 min timeout statement reached. Please ensure your incremental field ({incremental_field}) has an appropriate index created"
+                            f"10 min timeout statement reached. Please ensure your incremental field ({incremental_field}) is set as a SORTKEY on the table"
                         )
                     raise
                 except Exception:
