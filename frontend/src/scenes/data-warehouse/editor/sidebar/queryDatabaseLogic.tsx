@@ -82,6 +82,19 @@ export const isJoined = (field: DatabaseSchemaField): boolean => {
     return field.type === 'view' || field.type === 'lazy_table'
 }
 
+const getSavedQuerySchemaTable = (
+    view: DataWarehouseSavedQuery,
+    allTablesMap: Record<string, DatabaseSchemaTable>
+): DatabaseSchemaTable | undefined => {
+    const schemaTable = allTablesMap[view.name]
+
+    if (schemaTable?.type === 'view' || schemaTable?.type === 'materialized_view') {
+        return schemaTable
+    }
+
+    return undefined
+}
+
 const FUSE_OPTIONS: Fuse.IFuseOptions<any> = {
     keys: [{ name: 'name', weight: 2 }],
     threshold: 0.3,
@@ -607,19 +620,29 @@ const createTableLookup = ({
     dataWarehouseTables,
     dataWarehouseSavedQueries,
     managedViews,
+    savedQuerySchemaTables,
 }: {
     posthogTables: DatabaseSchemaTable[]
     systemTables: DatabaseSchemaTable[]
     dataWarehouseTables: DatabaseSchemaDataWarehouseTable[]
     dataWarehouseSavedQueries: DataWarehouseSavedQuery[]
     managedViews: DatabaseSchemaManagedViewTable[]
+    savedQuerySchemaTables?: Record<string, DatabaseSchemaTable>
 }): TableLookup => {
     return Object.fromEntries(
         [
             ...posthogTables.map((table) => [table.name, { name: table.name, fields: table.fields }]),
             ...systemTables.map((table) => [table.name, { name: table.name, fields: table.fields }]),
             ...dataWarehouseTables.map((table) => [table.name, { name: table.name, fields: table.fields }]),
-            ...dataWarehouseSavedQueries.map((view) => [view.name, createSavedQueryLookupEntry(view)]),
+            ...dataWarehouseSavedQueries.map((view) => {
+                const schemaTable = savedQuerySchemaTables
+                    ? getSavedQuerySchemaTable(view, savedQuerySchemaTables)
+                    : undefined
+
+                return schemaTable
+                    ? [view.name, { name: view.name, fields: schemaTable.fields }]
+                    : [view.name, createSavedQueryLookupEntry(view)]
+            }),
             ...managedViews.map((view) => [view.name, { name: view.name, fields: view.fields }]),
         ].map(([name, entry]) => [normalizeTableLookupKey(name) ?? name, entry])
     )
@@ -688,14 +711,17 @@ const createViewNode = (
     tableLookup?: TableLookup,
     options?: {
         expandedLazyNodeIds?: Set<string>
-    }
+    },
+    schemaTable?: DatabaseSchemaTable
 ): TreeDataItem => {
     const viewChildren: TreeDataItem[] = []
     const isMaterializedView = view.is_materialized === true
     const isManagedViewsetView = view.managed_viewset_kind !== null
     const isManagedView = 'type' in view && view.type === 'managed_view'
+    const viewFields =
+        schemaTable && Object.keys(schemaTable.fields).length > 0 ? Object.values(schemaTable.fields) : view.columns
 
-    sortFieldsWithPrimary(view.name, Object.values(view.columns)).forEach((column: DatabaseSchemaField) => {
+    sortFieldsWithPrimary(view.name, viewFields).forEach((column: DatabaseSchemaField) => {
         viewChildren.push(
             createFieldNode(view.name, column, isSearch, column.name, tableLookup, {
                 expandedLazyNodeIds: options?.expandedLazyNodeIds,
@@ -966,6 +992,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 'databaseLoading',
                 'systemTables',
                 'systemTablesMap',
+                'allTablesMap',
             ],
             dataWarehouseViewsLogic,
             ['dataWarehouseSavedQueries', 'dataWarehouseSavedQueryMapById', 'dataWarehouseSavedQueriesLoading'],
@@ -1209,6 +1236,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 s.searchTerm,
                 s.featureFlags,
                 s.expandedSearchFolders,
+                s.allTablesMap,
             ],
             (
                 allPosthogTables: DatabaseSchemaTable[],
@@ -1225,7 +1253,8 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 relevantDrafts: [DataWarehouseSavedQueryDraft, FuseSearchMatch[] | null][],
                 searchTerm: string,
                 featureFlags: FeatureFlagsSet,
-                expandedSearchFolders: string[]
+                expandedSearchFolders: string[],
+                allTablesMap: Record<string, DatabaseSchemaTable>
             ): TreeDataItem[] => {
                 if (!searchTerm) {
                     return []
@@ -1237,6 +1266,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                     dataWarehouseTables,
                     dataWarehouseSavedQueries,
                     managedViews,
+                    savedQuerySchemaTables: allTablesMap,
                 })
                 const expandedLazyNodeIds = new Set(expandedSearchFolders.filter(isLazyNodeId))
                 const sourcesChildren: TreeDataItem[] = []
@@ -1297,7 +1327,8 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
 
                 // Add saved queries
                 relevantSavedQueries.forEach(([view, matches]) => {
-                    viewsChildren.push(createViewNode(view, matches, true, tableLookup, tableNodeOptions))
+                    const schemaTable = getSavedQuerySchemaTable(view, allTablesMap)
+                    viewsChildren.push(createViewNode(view, matches, true, tableLookup, tableNodeOptions, schemaTable))
                 })
 
                 // Add managed views
@@ -1381,6 +1412,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 s.featureFlags,
                 s.queryTabState,
                 s.expandedFolders,
+                s.allTablesMap,
             ],
             (
                 allPosthogTables: DatabaseSchemaTable[],
@@ -1397,7 +1429,8 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 hasMoreDrafts: boolean,
                 featureFlags: FeatureFlagsSet,
                 queryTabState: QueryTabState | null,
-                expandedFolders: string[]
+                expandedFolders: string[],
+                allTablesMap: Record<string, DatabaseSchemaTable>
             ): TreeDataItem[] => {
                 const sourcesChildren: TreeDataItem[] = []
                 const tableLookup = createTableLookup({
@@ -1406,6 +1439,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                     dataWarehouseTables,
                     dataWarehouseSavedQueries,
                     managedViews,
+                    savedQuerySchemaTables: allTablesMap,
                 })
                 const expandedLazyNodeIds = new Set(expandedFolders.filter(isLazyNodeId))
                 const tableNodeOptions = { expandedLazyNodeIds }
@@ -1499,7 +1533,10 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 } else {
                     // Add saved queries
                     dataWarehouseSavedQueries.forEach((view) => {
-                        viewsChildren.push(createViewNode(view, null, false, tableLookup, tableNodeOptions))
+                        const schemaTable = getSavedQuerySchemaTable(view, allTablesMap)
+                        viewsChildren.push(
+                            createViewNode(view, null, false, tableLookup, tableNodeOptions, schemaTable)
+                        )
                     })
 
                     // Add managed views
