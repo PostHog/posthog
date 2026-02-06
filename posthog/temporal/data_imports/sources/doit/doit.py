@@ -57,7 +57,18 @@ def doit_list_reports(config: DoItSourceConfig) -> list[tuple[str, str]]:
 
     reports = res.json()["reports"]
 
-    return [(NamingConvention().normalize_identifier(report["reportName"]), report["id"]) for report in reports]
+    result = []
+    for report in reports:
+        report_name = report.get("reportName") or ""
+        if not report_name.strip():
+            continue
+        try:
+            normalized = NamingConvention().normalize_identifier(report_name)
+            result.append((normalized, report["id"]))
+        except ValueError:
+            continue
+
+    return result
 
 
 def append_primary_key(row: dict[str, Any]) -> dict[str, Any]:
