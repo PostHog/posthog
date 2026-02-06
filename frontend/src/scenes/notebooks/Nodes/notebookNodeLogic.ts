@@ -835,13 +835,17 @@ const parseDataframePreview = (preview?: string | null): NotebookDataframeResult
         return null
     }
     const candidates = [trimmed]
-    if ((trimmed.startsWith('"') && trimmed.endsWith('"')) || (trimmed.startsWith("'") && trimmed.endsWith("'"))) {
-        const stripped = trimmed.slice(1, -1)
-        candidates.push(stripped)
-        if (trimmed.startsWith("'")) {
-            const unescaped = stripped.replace(/\\\\/g, '\\').replace(/\\'/g, "'")
-            candidates.push(unescaped)
+    if (trimmed.startsWith('"') && trimmed.endsWith('"')) {
+        try {
+            candidates.push(JSON.parse(trimmed))
+        } catch {
+            // oh well, not for us
         }
+    } else if (trimmed.startsWith("'") && trimmed.endsWith("'")) {
+        // we can't JSON.escape single quoted strings, so we'll have to do this manually
+        const stripped = trimmed.slice(1, -1)
+        const unescaped = stripped.replace(/\\\\/g, '\\').replace(/\\'/g, "'")
+        candidates.push(unescaped)
     }
 
     for (const candidate of candidates) {
