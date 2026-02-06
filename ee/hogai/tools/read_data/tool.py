@@ -256,6 +256,9 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
         if result is None:
             raise MaxToolRetryableError(INSIGHT_NOT_FOUND_PROMPT.format(short_id=artifact_or_insight_id))
 
+        if isinstance(result, ModelArtifactResult):
+            await self.check_object_access(result.model, "viewer", action="read")
+
         insight_name = result.content.name or f"Insight {artifact_or_insight_id}"
 
         # Create insight context
@@ -316,6 +319,7 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
 
         warehouse_tables = database.get_warehouse_table_names()
         views = database.get_view_names()
+        system_tables = database.get_system_table_names()
 
         listify = lambda items: "\n".join(f"- {item}" for item in sorted(items))
 
@@ -324,6 +328,7 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
             template_format="mustache",
             posthog_tables="\n".join(system_table_lines),
             data_warehouse_tables=listify(warehouse_tables),
+            system_tables=listify(system_tables),
             data_warehouse_views=listify(views),
         )
 
@@ -332,6 +337,7 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
         # Load tables on demand: warehouse first, then views, then posthog tables
         table_sources: list[Callable[[], list[str]]] = [
             database.get_warehouse_table_names,
+            database.get_system_table_names,
             database.get_view_names,
             database.get_posthog_table_names,
         ]
@@ -370,6 +376,8 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
             )
         except (Dashboard.DoesNotExist, ValueError):
             raise MaxToolFatalError(DASHBOARD_NOT_FOUND_PROMPT.format(dashboard_id=dashboard_id))
+
+        await self.check_object_access(dashboard, "viewer", action="read")
 
         dashboard_name = dashboard.name or f"Dashboard {dashboard_id}"
         tiles = [
@@ -444,7 +452,11 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
             team=self._team,
             survey_id=survey_id,
         )
-        return await context.execute_and_format()
+        survey = await context.aget_survey()
+        if survey is None:
+            raise MaxToolRetryableError(f"Survey with id={survey_id} not found.")
+        await self.check_object_access(survey, "viewer", resource="survey", action="read")
+        return await context.execute_and_format(survey)
 
     async def _read_artifact(self, artifact_id: str) -> str:
         try:
@@ -488,6 +500,7 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
         if flag is None:
             raise MaxToolRetryableError(context.get_not_found_message())
 
+        await self.check_object_access(flag, "viewer", resource="feature flag", action="read")
         return await context.format_feature_flag(flag)
 
     async def _read_experiment(self, experiment_id: int | None, feature_flag_key: str | None) -> str:
@@ -504,4 +517,5 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
         if experiment is None:
             raise MaxToolRetryableError(context.get_not_found_message())
 
+        await self.check_object_access(experiment, "viewer", resource="experiment", action="read")
         return await context.format_experiment(experiment)

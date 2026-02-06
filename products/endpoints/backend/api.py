@@ -1449,7 +1449,8 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         else:
             # SECURITY: For materialized endpoints with required variables, those variables MUST be provided.
             # Without this check, omitting a variable would return ALL data instead of filtered data.
-            if is_materialized:
+            # Exception: filters_override is the deprecated way to provide filters for insight endpoints
+            if is_materialized and not (data.filters_override and data.filters_override.properties):
                 required_var = self._get_required_variable_for_materialized(query, version)
                 if required_var:
                     raise ValidationError(f"Required variable '{required_var}' not provided")

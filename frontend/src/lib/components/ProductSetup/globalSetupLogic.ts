@@ -24,9 +24,9 @@ import { SetupTaskId } from './types'
  */
 export const globalSetupLogic = kea<globalSetupLogicType>([
     path(['lib', 'components', 'ProductSetup', 'globalSetupLogic']),
-    connect({
+    connect(() => ({
         values: [sceneLogic, ['activeSceneProductKey']],
-    }),
+    })),
     actions({
         // Task actions - single source of truth for task state updates
         // All actions accept either a single task ID or an array of task IDs

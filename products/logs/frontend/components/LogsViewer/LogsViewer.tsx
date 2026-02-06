@@ -17,7 +17,6 @@ import { LogsOrderBy, ParsedLogMessage } from 'products/logs/frontend/types'
 
 import { LogDetailsModal } from './LogDetailsModal'
 import { logDetailsModalLogic } from './LogDetailsModal/logDetailsModalLogic'
-import { LogsSelectionToolbar } from './LogsSelectionToolbar'
 import { LogsSparkline, LogsSparklineData } from './LogsViewerSparkline'
 import { LogsViewerToolbar } from './LogsViewerToolbar'
 import { logsViewerLogic } from './logsViewerLogic'
@@ -42,6 +41,7 @@ export interface LogsViewerProps {
     sparklineBreakdownBy: LogsSparklineBreakdownBy
     onSparklineBreakdownByChange: (breakdownBy: LogsSparklineBreakdownBy) => void
     onExpandTimeRange?: () => void
+    maxExportableLogs: number
 }
 
 export function LogsViewer({
@@ -61,6 +61,7 @@ export function LogsViewer({
     sparklineBreakdownBy,
     onSparklineBreakdownByChange,
     onExpandTimeRange,
+    maxExportableLogs,
 }: LogsViewerProps): JSX.Element {
     return (
         <BindLogic logic={logsViewerFiltersLogic} props={{ id: tabId }}>
@@ -81,6 +82,7 @@ export function LogsViewer({
                             sparklineBreakdownBy={sparklineBreakdownBy}
                             onSparklineBreakdownByChange={onSparklineBreakdownByChange}
                             onExpandTimeRange={onExpandTimeRange}
+                            maxExportableLogs={maxExportableLogs}
                         />
                     </BindLogic>
                 </BindLogic>
@@ -103,6 +105,7 @@ interface LogsViewerContentProps {
     sparklineBreakdownBy: LogsSparklineBreakdownBy
     onSparklineBreakdownByChange: (breakdownBy: LogsSparklineBreakdownBy) => void
     onExpandTimeRange?: () => void
+    maxExportableLogs: number
 }
 
 function LogsViewerContent({
@@ -119,6 +122,7 @@ function LogsViewerContent({
     sparklineBreakdownBy,
     onSparklineBreakdownByChange,
     onExpandTimeRange,
+    maxExportableLogs,
 }: LogsViewerContentProps): JSX.Element {
     const {
         tabId,
@@ -327,8 +331,8 @@ function LogsViewerContent({
                 totalLogsCount={totalLogsCount}
                 orderBy={orderBy}
                 onChangeOrderBy={(newOrderBy) => onChangeOrderBy(newOrderBy, 'toolbar')}
+                maxExportableLogs={maxExportableLogs}
             />
-            <LogsSelectionToolbar />
             {pinnedLogsArray.length > 0 && (
                 <VirtualizedLogsList
                     dataSource={pinnedLogsArray}
