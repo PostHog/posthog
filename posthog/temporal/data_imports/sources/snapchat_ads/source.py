@@ -92,7 +92,9 @@ class SnapchatAdsSource(SimpleSource[SnapchatAdsSourceConfig], OAuthMixin):
             oauth_integration.refresh_access_token()
 
         if oauth_integration.integration.errors == ERROR_TOKEN_REFRESH_FAILED:
-            raise ValueError("Failed to refresh token for Snapchat Ads integration. Please re-authorize the integration.")
+            raise ValueError(
+                "Failed to refresh token for Snapchat Ads integration. Please re-authorize the integration."
+            )
 
         integration = oauth_integration.integration
 
