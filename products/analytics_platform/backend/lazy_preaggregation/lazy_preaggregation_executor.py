@@ -36,7 +36,7 @@ EXPIRY_BUFFER_SECONDS = 1 * 60 * 60  # 1 hour
 # Waiting configuration for pending jobs
 DEFAULT_WAIT_TIMEOUT_SECONDS = 180  # 3 minutes
 DEFAULT_POLL_INTERVAL_SECONDS = 1.0  # Poll every 1 second
-DEFAULT_MAX_ATTEMPTS = 3  # Maximum retry attempts for failed jobs
+DEFAULT_MAX_ATTEMPTS = 2  # Maximum retry attempts for failed jobs
 
 # Heartbeat configuration - keeps job marked as "alive" during long INSERTs
 DEFAULT_HEARTBEAT_INTERVAL_SECONDS = 30.0  # Update updated_at every 30 seconds
