@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import math
-import time
 import collections
 from collections.abc import Callable, Iterator
 from contextlib import _GeneratorContextManager
@@ -618,91 +617,29 @@ def redshift_source(
                 connection.adapters.register_loader("json", JsonAsStringLoader)
                 return connection
 
-            offset = 0
+            with get_connection() as connection:
+                with connection.cursor() as cursor:
+                    query = _build_query(
+                        schema,
+                        table_name,
+                        should_use_incremental_field,
+                        table.type,
+                        incremental_field,
+                        incremental_field_type,
+                        db_incremental_field_last_value,
+                    )
+                    logger.debug(f"Redshift query: {query.as_string()}")
 
-            def offset_chunking(offset: int, chunk_size: int):
-                logger.debug(f"Using offset chunking. offset = {offset}, chunk_size = {chunk_size}")
+                    cursor.execute(query)
 
-                query = _build_query(
-                    schema,
-                    table_name,
-                    should_use_incremental_field,
-                    table.type,
-                    incremental_field,
-                    incremental_field_type,
-                    db_incremental_field_last_value,
-                )
+                    column_names = [column.name for column in cursor.description or []]
 
-                successive_errors = 0
-                connection = get_connection()
-                while True:
-                    try:
-                        if connection.closed:
-                            logger.debug("Redshift connection was closed, reopening...")
-                            connection = get_connection()
+                    while True:
+                        rows = cursor.fetchmany(chunk_size)
+                        if not rows:
+                            break
 
-                        with connection.cursor() as cursor:
-                            query_with_limit = cast(
-                                LiteralString, f"{query.as_string()} LIMIT {chunk_size} OFFSET {offset}"
-                            )
-                            query_with_limit_sql = sql.SQL(query_with_limit).format()
-
-                            logger.debug(f"Redshift query: {query_with_limit}")
-                            cursor.execute(query_with_limit_sql)
-
-                            column_names = [column.name for column in cursor.description or []]
-                            rows = cursor.fetchall()
-
-                            if not rows or len(rows) == 0:
-                                break
-
-                            offset += len(rows)
-
-                            yield table_from_iterator((dict(zip(column_names, row)) for row in rows), arrow_schema)
-
-                            successive_errors = 0
-                    except Exception as e:
-                        successive_errors += 1
-                        if successive_errors >= 5:
-                            if connection.closed is False:
-                                connection.__exit__(type(e), e, None)
-                            raise
-                        logger.debug(f"Error during fetch: {e}. Retrying ({successive_errors}/5)...")
-                        time.sleep(2 * successive_errors)
-
-                if connection.closed is False:
-                    connection.__exit__(None, None, None)
-
-            try:
-                with get_connection() as connection:
-                    with connection.cursor() as cursor:
-                        query = _build_query(
-                            schema,
-                            table_name,
-                            should_use_incremental_field,
-                            table.type,
-                            incremental_field,
-                            incremental_field_type,
-                            db_incremental_field_last_value,
-                        )
-                        logger.debug(f"Redshift query: {query.as_string()}")
-
-                        cursor.execute(query)
-
-                        column_names = [column.name for column in cursor.description or []]
-
-                        while True:
-                            rows = cursor.fetchmany(chunk_size)
-                            if not rows:
-                                break
-
-                            yield table_from_iterator((dict(zip(column_names, row)) for row in rows), arrow_schema)
-                            offset += len(rows)
-            except Exception as e:
-                # Fallback to offset chunking on any error
-                logger.debug(f"Falling back to offset chunking due to error: {e}")
-                yield from offset_chunking(offset, chunk_size)
-                return
+                        yield table_from_iterator((dict(zip(column_names, row)) for row in rows), arrow_schema)
 
     name = NamingConvention().normalize_identifier(table_name)
 
