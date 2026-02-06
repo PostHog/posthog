@@ -311,6 +311,7 @@ export const sceneLogic = kea<sceneLogicType>([
         cache.mountedTabLogic = {} as Record<string, () => void>
         cache.lastTrackedSceneByTab = {} as Record<string, { sceneId?: string; sceneKey?: string }>
         cache.initialNavigationTabCreated = false
+        cache.lastRegisteredTabCount = null as number | null
     }),
     actions({
         /* 1. Prepares to open the scene, as the listener may override and do something
@@ -373,10 +374,14 @@ export const sceneLogic = kea<sceneLogicType>([
         }),
         reloadBrowserDueToImportError: true,
 
-        newTab: (href?: string | null, options?: { activate?: boolean; skipNavigate?: boolean; id?: string }) => ({
-            href,
-            options,
-        }),
+        newTab: (href?: string | null, options?: { activate?: boolean; skipNavigate?: boolean; id?: string }) => {
+            const tabId = options?.id ?? generateTabId()
+            return {
+                href,
+                options,
+                tabId,
+            }
+        },
         setTabs: (tabs: SceneTab[]) => ({ tabs }),
         loadPinnedTabsFromBackend: true,
         setPinnedStateFromBackend: (pinnedState: PersistedPinnedState) => ({ pinnedState }),
@@ -404,9 +409,8 @@ export const sceneLogic = kea<sceneLogicType>([
                 setPinnedStateFromBackend: (state, { pinnedState }) => {
                     return composeTabsFromStorage(pinnedState, state)
                 },
-                newTab: (state, { href, options }) => {
+                newTab: (state, { href, options, tabId }) => {
                     const activate = options?.activate ?? true
-                    const tabId = options?.id ?? generateTabId()
                     const { pathname, search, hash } = combineUrl(href || '/new')
                     const baseTabs = activate
                         ? state.map((tab) => (tab.active ? { ...tab, active: false } : tab))
@@ -827,7 +831,19 @@ export const sceneLogic = kea<sceneLogicType>([
         [NEW_INTERNAL_TAB]: (payload) => {
             actions.newTab(payload.path)
         },
-        newTab: ({ href, options }) => {
+        newTab: ({ href, options, tabId }) => {
+            const newTab = values.tabs.find((tab) => tab.id === tabId)
+            const fallbackUrl = combineUrl(href || '/new')
+            posthog.capture('tab opened', {
+                tab_id: tabId,
+                pathname: newTab?.pathname ?? fallbackUrl.pathname,
+                search: newTab?.search ?? fallbackUrl.search,
+                hash: newTab?.hash ?? fallbackUrl.hash,
+                pinned: newTab?.pinned ?? false,
+                active: newTab?.active ?? options?.activate ?? true,
+                scene_id: newTab?.sceneId,
+                scene_key: newTab?.sceneKey,
+            })
             persistTabs(values.tabs, values.homepage)
             if (!(options?.skipNavigate ?? false)) {
                 router.actions.push(href || urls.newTab())
@@ -878,6 +894,16 @@ export const sceneLogic = kea<sceneLogicType>([
             }
         },
         removeTab: ({ tab }) => {
+            posthog.capture('tab closed', {
+                tab_id: tab.id,
+                pathname: tab.pathname,
+                search: tab.search,
+                hash: tab.hash,
+                pinned: tab.pinned,
+                active: tab.active,
+                scene_id: tab.sceneId,
+                scene_key: tab.sceneKey,
+            })
             const isHomepageTab = values.homepage?.id === tab.id
             if (tab.active) {
                 // values.activeTab will already be the new active tab from the reducer
@@ -1441,6 +1467,11 @@ export const sceneLogic = kea<sceneLogicType>([
             tabs: () => {
                 cache.initialNavigationTabCreated =
                     cache.initialNavigationTabCreated || values.tabs.some((tab) => !tab.pinned)
+                const tabCount = values.tabs.length
+                if (cache.lastRegisteredTabCount !== tabCount) {
+                    posthog.register({ tab_count: tabCount })
+                    cache.lastRegisteredTabCount = tabCount
+                }
                 const { tabIds } = values
                 for (const id of Object.keys(cache.mountedTabLogic)) {
                     if (!tabIds[id]) {
