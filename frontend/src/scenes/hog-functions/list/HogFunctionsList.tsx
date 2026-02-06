@@ -51,7 +51,7 @@ export function HogFunctionList({
     hideFeedback?: boolean
     emptyText?: string
 }): JSX.Element {
-    const { loading, filteredHogFunctions, hogFunctionsByGroup, filters, hogFunctions, hiddenHogFunctions } = useValues(
+    const { loading, filteredHogFunctions, hogFunctionsByGroup, filters, hogFunctions, hiddenHogFunctions, hogFunctionGroups } = useValues(
         hogFunctionsListLogic(props)
     )
     const { loadHogFunctionGroups, loadHogFunctions, moveToGroup, setCreateGroupModalOpen, createGroup, setFilters, resetFilters, toggleEnabled, deleteHogFunction, setReorderModalOpen } =
@@ -119,7 +119,6 @@ export function HogFunctionList({
             {
                 title: 'Group',
                 render: (_, hogFunction: HogFunctionType) => <span className="text-muted">{hogFunction.group?.name || 'None'}</span>,
-            },
             },
 
             updatedAtColumn() as LemonTableColumn<HogFunctionType, any>,

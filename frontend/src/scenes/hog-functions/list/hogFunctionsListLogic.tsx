@@ -73,7 +73,7 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
         addHogFunction: (hogFunction: HogFunctionType) => ({ hogFunction }),
         setReorderModalOpen: (open: boolean) => ({ open }),
         saveHogFunctionOrder: (newOrders: Record<string, number>) => ({ newOrders }),
-        moveToGroup: (hogFunction: HogFunctionType, groupId: string) => ({ hogFunction, groupId }),
+        moveToGroup: (hogFunction: HogFunctionType, groupId: string | null) => ({ hogFunction, groupId }),
         setCreateGroupModalOpen: (isOpen: boolean) => ({ isOpen }),
         createGroup: (name: string) => ({ name }),
     }),
