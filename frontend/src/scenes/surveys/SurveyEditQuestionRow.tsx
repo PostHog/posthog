@@ -15,6 +15,7 @@ import {
     MultipleSurveyQuestion,
     RatingSurveyQuestion,
     Survey,
+    SurveyEventName,
     SurveyQuestion,
     SurveyQuestionType,
     SurveyType,
@@ -123,7 +124,8 @@ function canQuestionSkipSubmitButton(
 }
 
 export function SurveyEditQuestionGroup({ index, question }: { index: number; question: SurveyQuestion }): JSX.Element {
-    const { survey, descriptionContentType } = useValues(surveyLogic)
+    const { survey, descriptionContentType, processedSurveyStats } = useValues(surveyLogic)
+    const surveyHasResponses = (processedSurveyStats?.[SurveyEventName.SENT]?.total_count ?? 0) > 0
     const { setDefaultForQuestionType, setSurveyValue, resetBranchingForQuestion, setMultipleSurveyQuestion } =
         useActions(surveyLogic)
 
@@ -327,7 +329,15 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                     <div className="flex flex-col gap-2">
                         <LemonField name="hasOpenChoice">
                             {({ value: hasOpenChoice, onChange: toggleHasOpenChoice }) => (
-                                <LemonField name="choices" label="Choices">
+                                <LemonField
+                                    name="choices"
+                                    label="Choices"
+                                    info={
+                                        surveyHasResponses
+                                            ? 'Editing choice text will cause existing responses to appear separately in results under their original text.'
+                                            : undefined
+                                    }
+                                >
                                     {({ value, onChange }) => (
                                         <div className="flex flex-col gap-2">
                                             {(value || []).map((choice: string, index: number) => {
