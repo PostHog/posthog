@@ -175,18 +175,6 @@ describe('VariantsPanelCreateFeatureFlag', () => {
             expect(hasVariantUpdate).toBe(true)
         })
 
-        it('updates variant description', async () => {
-            renderComponent(defaultExperiment)
-
-            const descriptionInputs = screen.getAllByPlaceholderText('Description')
-            await userEvent.type(descriptionInputs[0], 'Control group')
-
-            // Verify onChange was called with variant updates
-            expect(mockOnChange).toHaveBeenCalled()
-            const hasVariantUpdate = mockOnChange.mock.calls.some((call) => call[0].parameters?.feature_flag_variants)
-            expect(hasVariantUpdate).toBe(true)
-        })
-
         it('updates rollout percentage after enabling custom split', async () => {
             const { container } = renderComponent(defaultExperiment)
 
@@ -275,7 +263,7 @@ describe('VariantsPanelCreateFeatureFlag', () => {
                 <VariantsPanelCreateFeatureFlag experiment={experimentWithThreeVariants} onChange={mockOnChange} />
             )
 
-            const rows = container.querySelectorAll('.grid.grid-cols-24')
+            const rows = container.querySelectorAll('.grid.grid-cols-18')
             const controlRow = rows[1] // First row after header
 
             // Control variant should not have a delete button

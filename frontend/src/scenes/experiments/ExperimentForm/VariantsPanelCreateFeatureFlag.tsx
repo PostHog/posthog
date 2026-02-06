@@ -116,10 +116,9 @@ export const VariantsPanelCreateFeatureFlag = ({
         <div className="flex flex-col gap-4">
             <LemonField.Pure label="Variant keys">
                 <div className="text-sm border border-primary rounded p-4">
-                    <div className="grid grid-cols-24 gap-2 font-bold mb-2 items-center">
+                    <div className="grid grid-cols-18 gap-2 font-bold mb-2 items-center">
                         <div />
                         <div className="col-span-4">Variant key</div>
-                        <div className="col-span-6">Description</div>
                         <div className="col-span-3 flex items-center gap-1">
                             <span>Split</span>
                             {!disabled && (
@@ -145,7 +144,7 @@ export const VariantsPanelCreateFeatureFlag = ({
                     {variants.map((variant, index) => (
                         <div
                             key={index}
-                            className={`grid grid-cols-24 gap-2 mb-2 p-2 rounded ${
+                            className={`grid grid-cols-18 gap-2 mb-2 p-2 rounded ${
                                 hasVariantError(index)
                                     ? 'bg-danger-highlight border border-danger'
                                     : 'bg-transparent border border-transparent'
@@ -173,20 +172,6 @@ export const VariantsPanelCreateFeatureFlag = ({
                                     autoCapitalize="off"
                                     autoCorrect="off"
                                     spellCheck={false}
-                                />
-                            </div>
-                            <div className="col-span-6">
-                                <LemonInput
-                                    value={variant.name || ''}
-                                    onChange={(value) => updateVariant(index, { name: value })}
-                                    disabledReason={
-                                        disabled
-                                            ? 'You cannot change the variant name when editing an experiment.'
-                                            : undefined
-                                    }
-                                    data-attr="experiment-variant-name"
-                                    className="ph-ignore-input"
-                                    placeholder="Description"
                                 />
                             </div>
                             <div className="col-span-3">
