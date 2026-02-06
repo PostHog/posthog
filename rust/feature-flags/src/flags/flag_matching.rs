@@ -23,7 +23,6 @@ use crate::metrics::consts::{
     FLAG_HASH_KEY_PROCESSING_TIME, FLAG_HASH_KEY_WRITES_COUNTER, PROPERTY_CACHE_HITS_COUNTER,
     PROPERTY_CACHE_MISSES_COUNTER,
 };
-use crate::metrics::utils::parse_exception_for_prometheus_label;
 use crate::properties::property_models::PropertyFilter;
 use crate::utils::graph_utils::{
     build_dependency_graph, filter_graph_by_keys, log_dependency_graph_operation_error,
@@ -337,7 +336,7 @@ impl FeatureFlagMatcher {
 
         // Record when the optimization actually skips the lookup
         if request_is_optimizable && optimize_experience_continuity_lookups {
-            with_canonical_log(|log| log.hash_key_override_skipped = true);
+            with_canonical_log(|log| log.hash_key_override_status = Some("skipped"));
         }
 
         // Clone the request's hash_key_override before passing it to process_hash_key_override_if_needed
@@ -414,10 +413,9 @@ impl FeatureFlagMatcher {
                     "Failed to check if hash key override should be written for team {} distinct_id {}: {:?}",
                     self.team_id, self.distinct_id, e
                 );
-                let reason = parse_exception_for_prometheus_label(&e);
                 inc(
                     FLAG_EVALUATION_ERROR_COUNTER,
-                    &[("reason".to_string(), reason.to_string())],
+                    &[("reason".to_string(), e.evaluation_error_code())],
                     1,
                 );
                 return (None, true);
@@ -437,10 +435,9 @@ impl FeatureFlagMatcher {
             .await
             {
                 error!("Failed to set feature flag hash key overrides for team {} distinct_id {} hash_key {}: {:?}", self.team_id, self.distinct_id, hash_key, e);
-                let reason = parse_exception_for_prometheus_label(&e);
                 inc(
                     FLAG_EVALUATION_ERROR_COUNTER,
-                    &[("reason".to_string(), reason.to_string())],
+                    &[("reason".to_string(), e.evaluation_error_code())],
                     1,
                 );
                 return (None, true);
@@ -476,10 +473,9 @@ impl FeatureFlagMatcher {
             Ok(overrides) => (Some(overrides), false),
             Err(e) => {
                 error!("Failed to get feature flag hash key overrides for team {} distinct_id {}: {:?}", self.team_id, self.distinct_id, e);
-                let reason = parse_exception_for_prometheus_label(&e);
                 inc(
                     FLAG_EVALUATION_ERROR_COUNTER,
-                    &[("reason".to_string(), reason.to_string())],
+                    &[("reason".to_string(), e.evaluation_error_code())],
                     1,
                 );
                 (None, true)
@@ -550,13 +546,14 @@ impl FeatureFlagMatcher {
 
         // Handle hash key override errors by creating error responses for flags that need experience continuity
         if overrides.hash_key_override_error && overrides.hash_key_overrides.is_none() {
+            let hash_key_error = FlagError::HashKeyOverrideError;
             for flag in flags
                 .iter()
                 .filter(|flag| flag.ensure_experience_continuity.unwrap_or(false))
             {
                 evaluated_flags_map.insert(
                     flag.key.clone(),
-                    FlagDetails::create_error(flag, "hash_key_override_error", None),
+                    FlagDetails::create_error(flag, &hash_key_error, None),
                 );
             }
         }
@@ -682,11 +679,10 @@ impl FeatureFlagMatcher {
         error: &FlagError,
         evaluated_flags_map: &mut HashMap<String, FlagDetails>,
     ) {
-        let reason = parse_exception_for_prometheus_label(error);
         evaluated_flags_map.extend(flags_requiring_db_preparation.iter().map(|flag| {
             (
                 flag.key.clone(),
-                FlagDetails::create_error(flag, reason, None),
+                FlagDetails::create_error(flag, error, None),
             )
         }));
 
@@ -695,9 +691,10 @@ impl FeatureFlagMatcher {
             self.team_id, self.distinct_id, error
         );
 
+        let reason = error.evaluation_error_code();
         inc(
             FLAG_EVALUATION_ERROR_COUNTER,
-            &[("reason".to_string(), reason.to_string())],
+            &[("reason".to_string(), reason)],
             1,
         );
     }
@@ -801,14 +798,17 @@ impl FeatureFlagMatcher {
 
             match result {
                 Ok(flag_match) => {
+                    // Always store result for dependency resolution
                     self.flag_evaluation_state
                         .add_flag_evaluation_result(flag.id, flag_match.get_flag_value());
-                    level_evaluated_flags_map
-                        .insert(flag_key, FlagDetails::create(flag, &flag_match));
+                    // Only include active flags in the response
+                    if flag.active {
+                        level_evaluated_flags_map
+                            .insert(flag_key, FlagDetails::create(flag, &flag_match));
+                    }
                 }
                 Err(e) => {
                     errors_while_computing_flags = true;
-                    let reason = parse_exception_for_prometheus_label(&e);
 
                     // Track flag evaluation error in canonical log
                     with_canonical_log(|log| log.flags_errored += 1);
@@ -826,13 +826,17 @@ impl FeatureFlagMatcher {
                         );
                     }
 
+                    let reason = e.evaluation_error_code();
                     inc(
                         FLAG_EVALUATION_ERROR_COUNTER,
-                        &[("reason".to_string(), reason.to_string())],
+                        &[("reason".to_string(), reason)],
                         1,
                     );
-                    level_evaluated_flags_map
-                        .insert(flag_key, FlagDetails::create_error(flag, reason, None));
+                    // Only include active flags in the response
+                    if flag.active {
+                        level_evaluated_flags_map
+                            .insert(flag_key, FlagDetails::create_error(flag, &e, None));
+                    }
                 }
             }
         }
@@ -920,6 +924,37 @@ impl FeatureFlagMatcher {
             });
         }
         // For person-based flags, empty distinct_id is valid and should continue evaluation
+        if flag.get_group_type_index().is_none() {
+            use crate::flags::flag_models::BucketingIdentifier;
+
+            if flag.get_bucketing_identifier() == BucketingIdentifier::DeviceId {
+                if let Some(device_id) = &self.device_id {
+                    if !device_id.is_empty() {
+                        with_canonical_log(|log| log.flags_device_id_bucketing += 1);
+                    } else {
+                        with_canonical_log(|log| {
+                            tracing::warn!(
+                                flag_key = %flag.key,
+                                team_id = %flag.team_id,
+                                lib = log.lib,
+                                lib_version = log.lib_version.as_deref(),
+                                "Flag configured for device_id bucketing but no device_id provided, falling back to distinct_id"
+                            );
+                        });
+                    }
+                } else {
+                    with_canonical_log(|log| {
+                        tracing::warn!(
+                            flag_key = %flag.key,
+                            team_id = %flag.team_id,
+                            lib = log.lib,
+                            lib_version = log.lib_version.as_deref(),
+                            "Flag configured for device_id bucketing but no device_id provided, falling back to distinct_id"
+                        );
+                    });
+                }
+            }
+        }
 
         let mut highest_match = FeatureFlagMatchReason::NoConditionMatch;
         let mut highest_index = None;
@@ -1354,13 +1389,6 @@ impl FeatureFlagMatcher {
                         return Ok(device_id.clone());
                     }
                 }
-                // If device_id bucketing is set but no device_id provided,
-                // fall through to hash_key_overrides or distinct_id
-                tracing::warn!(
-                    flag_key = %feature_flag.key,
-                    team_id = %feature_flag.team_id,
-                    "Flag configured for device_id bucketing but no device_id provided, falling back to distinct_id"
-                );
             }
 
             // Use hash key overrides for experience continuity
@@ -1667,7 +1695,6 @@ impl FeatureFlagMatcher {
         let (hash_key_overrides, flag_hash_key_override_error) =
             if flags_have_experience_continuity_enabled {
                 common_metrics::inc(FLAG_EXPERIENCE_CONTINUITY_REQUESTS_COUNTER, &[], 1);
-                with_canonical_log(|log| log.hash_key_override_attempted = true);
                 match hash_key_override {
                     Some(hash_key) => {
                         let target_distinct_ids = vec![self.distinct_id.clone(), hash_key.clone()];
@@ -1724,9 +1751,16 @@ impl FeatureFlagMatcher {
             )
             .fin();
 
-        // Track success in canonical log
-        if hash_key_overrides.is_some() && !flag_hash_key_override_error {
-            with_canonical_log(|log| log.hash_key_override_succeeded = true);
+        // Track hash key override status in canonical log
+        if flag_hash_key_override_error {
+            with_canonical_log(|log| log.hash_key_override_status = Some("error"));
+        } else if let Some(ref overrides) = hash_key_overrides {
+            let status = if overrides.is_empty() {
+                "empty"
+            } else {
+                "found"
+            };
+            with_canonical_log(|log| log.hash_key_override_status = Some(status));
         }
 
         (hash_key_overrides, flag_hash_key_override_error)

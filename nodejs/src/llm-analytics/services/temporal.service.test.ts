@@ -105,9 +105,10 @@ describe('TemporalService', () => {
             await service.startEvaluationRunWorkflow('eval-123', mockEvent)
 
             expect(mockClient.workflow.start).toHaveBeenCalledWith('run-evaluation', {
-                taskQueue: 'general-purpose-task-queue',
+                taskQueue: 'llm-analytics-evals-task-queue',
                 workflowId: 'eval-123-event-456-ingestion',
                 workflowIdConflictPolicy: 'USE_EXISTING',
+                workflowTaskTimeout: '2 minutes',
                 args: [
                     {
                         evaluation_id: 'eval-123',

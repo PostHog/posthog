@@ -8,7 +8,6 @@ import { useEffect, useRef } from 'react'
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
 import { getCookie } from 'lib/api'
-import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import { SSOEnforcedLoginButton, SocialLoginButtons } from 'lib/components/SocialLoginButton/SocialLoginButton'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { usePrevious } from 'lib/hooks/usePrevious'
@@ -22,6 +21,7 @@ import { urls } from 'scenes/urls'
 
 import { LoginMethod } from '~/types'
 
+import { AuthShell } from './AuthShell'
 import { RedirectIfLoggedInOtherInstance } from './RedirectToLoggedInInstance'
 import RegionSelect from './RegionSelect'
 import { SupportModalButton } from './SupportModalButton'
@@ -86,6 +86,7 @@ export function Login(): JSX.Element {
     const preventPasswordError = useRef(false)
     const isPasswordHidden = precheckResponse.status === 'pending' || precheckResponse.sso_enforcement
     const isEmailVerificationSent = generalError?.code === 'email_verification_sent'
+    const loginTitle = isEmailVerificationSent ? 'Check your email' : 'Log in'
     const wasPasswordHiddenRef = useRef(isPasswordHidden)
 
     const lastLoginMethod = getCookie(LAST_LOGIN_METHOD_COOKIE) as LoginMethod
@@ -114,9 +115,9 @@ export function Login(): JSX.Element {
     }, [login.email, prevEmail, precheckResponse.status, precheck])
 
     return (
-        <BridgePage
+        <AuthShell
             view="login"
-            hedgehog
+            showHedgehog
             message={
                 <>
                     Welcome to
@@ -127,7 +128,7 @@ export function Login(): JSX.Element {
         >
             {preflight?.cloud && <RedirectIfLoggedInOtherInstance />}
             <div className="deprecated-space-y-4">
-                <h2>{isEmailVerificationSent ? 'Check your email' : 'Log in'}</h2>
+                <h2>{loginTitle}</h2>
                 {generalError && (
                     <LemonBanner type={generalError.code === 'email_verification_sent' ? 'warning' : 'error'}>
                         <>
@@ -280,7 +281,7 @@ export function Login(): JSX.Element {
                 {!isEmailVerificationSent && preflight?.cloud && (
                     <div className="text-center mt-4">
                         Don't have an account?{' '}
-                        <Link to={signupUrl} data-attr="signup" className="font-bold">
+                        <Link to={[signupUrl, { email: login.email }]} data-attr="signup" className="font-bold">
                             Create an account
                         </Link>
                     </div>
@@ -294,6 +295,6 @@ export function Login(): JSX.Element {
                     />
                 )}
             </div>
-        </BridgePage>
+        </AuthShell>
     )
 }

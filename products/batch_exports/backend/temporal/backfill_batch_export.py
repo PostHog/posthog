@@ -2,7 +2,6 @@ import json
 import typing
 import asyncio
 import datetime as dt
-import zoneinfo
 import dataclasses
 import collections.abc
 
@@ -16,7 +15,7 @@ import temporalio.workflow
 import temporalio.exceptions
 from asgiref.sync import sync_to_async
 
-from posthog.batch_exports.models import BatchExportBackfill
+from posthog.batch_exports.models import BatchExport, BatchExportBackfill
 from posthog.batch_exports.service import BackfillBatchExportInputs, BackfillDetails, unpause_batch_export
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import connect
@@ -46,35 +45,10 @@ class HeartbeatDetails(typing.NamedTuple):
 
 
 @temporalio.activity.defn
-async def get_schedule_frequency(schedule_id: str) -> float:
-    """Return a Temporal Schedule's frequency.
-
-    This assumes that the Schedule has one interval set.
-
-    Raises:
-         TemporalScheduleNotFoundError: If the Temporal Schedule whose frequency we are trying to get doesn't exist.
-    """
-    client = await connect(
-        settings.TEMPORAL_HOST,
-        settings.TEMPORAL_PORT,
-        settings.TEMPORAL_NAMESPACE,
-        settings.TEMPORAL_CLIENT_ROOT_CA,
-        settings.TEMPORAL_CLIENT_CERT,
-        settings.TEMPORAL_CLIENT_KEY,
-    )
-
-    handle = client.get_schedule_handle(schedule_id)
-
-    try:
-        desc = await handle.describe()
-    except temporalio.service.RPCError as e:
-        if e.status == temporalio.service.RPCStatusCode.NOT_FOUND:
-            raise TemporalScheduleNotFoundError(schedule_id)
-        else:
-            raise
-
-    interval = desc.schedule.spec.intervals[0]
-    return interval.every.total_seconds()
+async def get_batch_export_interval(batch_export_id: str) -> float:
+    """Return a batch export's interval in seconds."""
+    batch_export = await BatchExport.objects.aget(id=batch_export_id)
+    return batch_export.interval_time_delta.total_seconds()
 
 
 @dataclasses.dataclass
@@ -93,61 +67,6 @@ def get_utcnow():
     """Return the current time in UTC. This function is only required for mocking during tests,
     because mocking the global datetime breaks Temporal."""
     return dt.datetime.now(dt.UTC)
-
-
-def adjust_bound_datetime_to_schedule_time_zone(
-    bound_dt: dt.datetime, schedule_time_zone_name: str | None, frequency: dt.timedelta
-) -> dt.datetime:
-    """Adjust the bound datetime of a backfill to match the schedule's timezone.
-
-    First the happy paths:
-    1. The bound datetime's timezone is the same as the schedule's.
-    2. The schedule's timezone is `None` and the bound datetime's timezone is UTC.
-      * Temporal defaults to UTC if `time_zone_name` is not set.
-
-    In both cases, we simply return.
-
-    However, in the event that the schedule's timezone and the bound datetime's timezone do
-    not match we must assume that either:
-    1. The project's timezone has changed from when the batch export was created.
-    2. The batch export is naive (i.e. the schedule's timezone is `None`, which defaults to "UTC").
-
-    There are two solutions depending on the schedule's frequency:
-    * Daily exports always run at midnight, so we can just replace the bound datetime's timezone
-      with the schedule's timezone.
-    * Other frequencies are converted to the timezone instead.
-
-    The second solution is pretty optimal as users will be able to backfill as they see things in the
-    UI: Run times will match in the list view with the bounds of the backfill, as the UI will re-convert
-    timestamps back into the project's timezone.
-
-    The first solution is not optimal as users see that the runs in the list are not happening at
-    midnight, and the days selected to backfill may be off by 1. Unfortunately, when selecting a date in
-    the frontend with day granularity we set the time component to 00:00:00. Ideally, we would set it
-    to the offset to the schedule's midnight (in whatever timezone the schedule is at). But I can't
-    figure out a way to do it, and it may require implementing further work to support switching when the
-    schedule runs to other than midnight.
-    """
-    if bound_dt.tzinfo is None:
-        raise ValueError("Only timezone aware datetime objects are supported")
-
-    if (schedule_time_zone_name is not None and schedule_time_zone_name == bound_dt.tzname()) or (
-        schedule_time_zone_name is None and bound_dt.tzname() == "UTC"
-    ):
-        return bound_dt
-
-    if schedule_time_zone_name is None:
-        required_timezone = zoneinfo.ZoneInfo("UTC")
-
-    else:
-        required_timezone = zoneinfo.ZoneInfo(schedule_time_zone_name)
-
-    if frequency == dt.timedelta(days=1):
-        bound_dt = bound_dt.replace(tzinfo=required_timezone)
-    else:
-        bound_dt = bound_dt.astimezone(required_timezone)
-
-    return bound_dt
 
 
 @temporalio.activity.defn
@@ -173,7 +92,13 @@ async def backfill_schedule(inputs: BackfillScheduleInputs) -> None:
         )
 
         schedule_handle = client.get_schedule_handle(inputs.schedule_id)
-        description = await schedule_handle.describe()
+        try:
+            description = await schedule_handle.describe()
+        except temporalio.service.RPCError as e:
+            if e.status == temporalio.service.RPCStatusCode.NOT_FOUND:
+                raise TemporalScheduleNotFoundError(inputs.schedule_id)
+            else:
+                raise
 
         details = temporalio.activity.info().heartbeat_details
         if details:
@@ -197,23 +122,7 @@ async def backfill_schedule(inputs: BackfillScheduleInputs) -> None:
 
             start_at = dt.datetime.fromisoformat(last_activity_details.last_batch_data_interval_end)
 
-            if description.schedule.spec.time_zone_name and description.schedule.spec.time_zone_name != "UTC":
-                # Details is always in UTC, we must re-convert it to the schedule's timezone
-                start_at = start_at.astimezone(zoneinfo.ZoneInfo(description.schedule.spec.time_zone_name))
-
         frequency = dt.timedelta(seconds=inputs.frequency_seconds)
-
-        if start_at is not None:
-            start_at = adjust_bound_datetime_to_schedule_time_zone(
-                start_at,
-                schedule_time_zone_name=description.schedule.spec.time_zone_name,
-                frequency=frequency,
-            )
-
-        if end_at is not None:
-            end_at = adjust_bound_datetime_to_schedule_time_zone(
-                end_at, schedule_time_zone_name=description.schedule.spec.time_zone_name, frequency=frequency
-            )
 
         full_backfill_range = backfill_range(start_at, end_at, frequency)
 
@@ -372,8 +281,8 @@ class BackfillBatchExportWorkflow(PostHogWorkflow):
             id=backfill_id, status=BatchExportBackfill.Status.COMPLETED
         )
 
-        frequency_seconds = await temporalio.workflow.execute_activity(
-            get_schedule_frequency,
+        interval_seconds = await temporalio.workflow.execute_activity(
+            get_batch_export_interval,
             inputs.batch_export_id,
             start_to_close_timeout=dt.timedelta(minutes=1),
             retry_policy=temporalio.common.RetryPolicy(
@@ -391,14 +300,14 @@ class BackfillBatchExportWorkflow(PostHogWorkflow):
             # Allocate 5 minutes per expected number of runs to backfill as a timeout.
             # The 5 minutes are just an assumption and we may tweak this in the future
             backfill_duration = dt.datetime.fromisoformat(inputs.end_at) - dt.datetime.fromisoformat(inputs.start_at)
-            number_of_expected_runs = backfill_duration / dt.timedelta(seconds=frequency_seconds)
+            number_of_expected_runs = backfill_duration / dt.timedelta(seconds=interval_seconds)
             start_to_close_timeout = dt.timedelta(minutes=5 * number_of_expected_runs)
 
         backfill_schedule_inputs = BackfillScheduleInputs(
             schedule_id=inputs.batch_export_id,
             start_at=inputs.start_at,
             end_at=inputs.end_at,
-            frequency_seconds=frequency_seconds,
+            frequency_seconds=interval_seconds,
             start_delay=inputs.start_delay,
             backfill_id=backfill_id,
         )

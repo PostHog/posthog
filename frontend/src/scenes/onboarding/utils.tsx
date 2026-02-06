@@ -15,7 +15,7 @@ export const availableOnboardingProducts: AvailableOnboardingProducts = {
     },
     [ProductKey.WEB_ANALYTICS]: {
         name: 'Web Analytics',
-        description: 'Traffic, engagement, and conversion metrics for your website',
+        description: 'Measure traffic, engagement, and conversion metrics for your website',
         icon: 'IconPieChart',
         iconColor: 'rgb(54 196 111)',
         url: urls.webAnalytics(),
@@ -23,16 +23,16 @@ export const availableOnboardingProducts: AvailableOnboardingProducts = {
     },
     [ProductKey.DATA_WAREHOUSE]: {
         name: 'Data Warehouse',
-        description: 'Query data from external sources alongside your PostHog data',
+        description: 'Query external data alongside your PostHog data',
         icon: 'IconDatabase',
         iconColor: 'rgb(133 103 255)',
         breadcrumbsName: 'Data Warehouse',
-        url: urls.dataPipelines('sources'),
-        scene: Scene.DataPipelines,
+        url: urls.sources(),
+        scene: Scene.Sources,
     },
     [ProductKey.SESSION_REPLAY]: {
         name: 'Session Replay',
-        description: 'Recordings of user sessions',
+        description: 'Watch recordings of user sessions to debug issues faster',
         icon: 'IconRewindPlay',
         iconColor: 'rgb(247 165 1)',
         url: urls.replay(),
@@ -40,7 +40,7 @@ export const availableOnboardingProducts: AvailableOnboardingProducts = {
     },
     [ProductKey.FEATURE_FLAGS]: {
         name: 'Feature Flags',
-        description: 'Roll out features gradually and toggle functionality',
+        description: 'Ship features safely with gradual rollouts',
         breadcrumbsName: 'Feature Flags',
         icon: 'IconToggle',
         iconColor: 'rgb(48 171 198)',
@@ -49,7 +49,7 @@ export const availableOnboardingProducts: AvailableOnboardingProducts = {
     },
     [ProductKey.EXPERIMENTS]: {
         name: 'Experiments',
-        description: 'A/B tests and multivariate experiments',
+        description: 'Test changes and measure what works',
         breadcrumbsName: 'Experiments',
         icon: 'IconTestTube',
         iconColor: 'rgb(182 42 217)',
@@ -58,7 +58,7 @@ export const availableOnboardingProducts: AvailableOnboardingProducts = {
     },
     [ProductKey.SURVEYS]: {
         name: 'Surveys',
-        description: 'Qualitative feedback with in-app surveys',
+        description: 'Ask users why they did what they did',
         icon: 'IconMessage',
         iconColor: 'rgb(243 84 84)',
         url: urls.surveys(),
@@ -66,7 +66,7 @@ export const availableOnboardingProducts: AvailableOnboardingProducts = {
     },
     [ProductKey.ERROR_TRACKING]: {
         name: 'Error Tracking',
-        description: 'Monitor and debug errors and exceptions',
+        description: 'Catch and fix bugs before users complain',
         icon: 'IconWarning',
         iconColor: 'rgb(235 157 42)',
         url: urls.errorTracking(),
@@ -74,7 +74,7 @@ export const availableOnboardingProducts: AvailableOnboardingProducts = {
     },
     [ProductKey.LLM_ANALYTICS]: {
         name: 'LLM Analytics',
-        description: 'LLM usage, costs, and performance for AI-powered applications',
+        description: 'Monitor LLM usage, costs, and quality',
         icon: 'IconLlmAnalytics',
         iconColor: 'rgb(182 42 217)',
         url: urls.llmAnalyticsDashboard(),

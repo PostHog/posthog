@@ -1,11 +1,10 @@
 """Trace summarization workflows and activities for batch processing."""
 
-# Export activities
 # Export constants
 from posthog.temporal.llm_analytics.trace_summarization.constants import (
     COORDINATOR_WORKFLOW_NAME,
     DEFAULT_BATCH_SIZE,
-    DEFAULT_MAX_TRACES_PER_WINDOW,
+    DEFAULT_MAX_ITEMS_PER_WINDOW,
     DEFAULT_MODE,
     DEFAULT_WINDOW_MINUTES,
     EVENT_NAME_TRACE_SUMMARY,
@@ -15,10 +14,13 @@ from posthog.temporal.llm_analytics.trace_summarization.coordinator import (
     BatchTraceSummarizationCoordinatorInputs,
     BatchTraceSummarizationCoordinatorWorkflow,
 )
+from posthog.temporal.llm_analytics.trace_summarization.generation_summarization import (
+    generate_and_save_generation_summary_activity,
+)
 
 # Export models
-from posthog.temporal.llm_analytics.trace_summarization.models import BatchSummarizationInputs
-from posthog.temporal.llm_analytics.trace_summarization.sampling import query_traces_in_window_activity
+from posthog.temporal.llm_analytics.trace_summarization.models import BatchSummarizationInputs, SampledItem
+from posthog.temporal.llm_analytics.trace_summarization.sampling import sample_items_in_window_activity
 from posthog.temporal.llm_analytics.trace_summarization.schedule import create_batch_trace_summarization_schedule
 from posthog.temporal.llm_analytics.trace_summarization.summarization import generate_and_save_summary_activity
 
@@ -28,11 +30,12 @@ from posthog.temporal.llm_analytics.trace_summarization.workflow import BatchTra
 __all__ = [
     # Activities
     "generate_and_save_summary_activity",
-    "query_traces_in_window_activity",
+    "generate_and_save_generation_summary_activity",
+    "sample_items_in_window_activity",
     # Constants
     "COORDINATOR_WORKFLOW_NAME",
     "DEFAULT_BATCH_SIZE",
-    "DEFAULT_MAX_TRACES_PER_WINDOW",
+    "DEFAULT_MAX_ITEMS_PER_WINDOW",
     "DEFAULT_MODE",
     "DEFAULT_WINDOW_MINUTES",
     "EVENT_NAME_TRACE_SUMMARY",
@@ -40,6 +43,7 @@ __all__ = [
     # Models
     "BatchSummarizationInputs",
     "BatchTraceSummarizationCoordinatorInputs",
+    "SampledItem",
     # Workflows
     "BatchTraceSummarizationWorkflow",
     "BatchTraceSummarizationCoordinatorWorkflow",

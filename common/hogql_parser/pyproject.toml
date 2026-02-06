@@ -13,13 +13,13 @@ build-frontend = "build" # This is the successor to building with pip
 
 [tool.cibuildwheel.macos]
 before-build = [
-    "brew install boost antlr4-cpp-runtime",
+    "brew install antlr4-cpp-runtime",
 ]
 
 [tool.cibuildwheel.linux]
 before-all = [
     # manylinux_2_28 is based on AlmaLinux 8, which uses Fedora's dnf as its package manager
-    "dnf install -y boost-devel unzip cmake curl uuid pkg-config",
+    "dnf install -y unzip cmake curl uuid pkg-config",
     # update cmake for antlr
     "dnf install -y epel-release",
     "dnf install -y cmake3",

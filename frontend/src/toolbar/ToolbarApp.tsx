@@ -16,7 +16,7 @@ import { webVitalsToolbarLogic } from './web-vitals/webVitalsToolbarLogic'
 type HTMLElementWithShadowRoot = HTMLElement & { shadowRoot: ShadowRoot }
 
 export function ToolbarApp(props: ToolbarProps = {}): JSX.Element {
-    const { apiURL } = useValues(toolbarConfigLogic(props))
+    const { apiHost } = useValues(toolbarConfigLogic(props))
 
     const shadowRef = useRef<HTMLElementWithShadowRoot | null>(null)
     const [didLoadStyles, setDidLoadStyles] = useState(false)
@@ -42,7 +42,8 @@ export function ToolbarApp(props: ToolbarProps = {}): JSX.Element {
                   // this ensures that we bust the cache periodically
                   const timestampToNearestFiveMinutes =
                       Math.floor(Date.now() / fiveMinutesInMillis) * fiveMinutesInMillis
-                  styleLink.href = `${apiURL}/static/toolbar.css?t=${timestampToNearestFiveMinutes}`
+                  // Load CSS from API host (where static assets are served, same place as the JS was loaded from)
+                  styleLink.href = `${apiHost}/static/toolbar.css?t=${timestampToNearestFiveMinutes}`
                   styleLink.onload = () => setDidLoadStyles(true)
                   const shadowRoot =
                       shadowRef.current?.shadowRoot || window.document.getElementById(TOOLBAR_ID)?.shadowRoot

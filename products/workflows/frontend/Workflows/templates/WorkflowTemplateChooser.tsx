@@ -6,7 +6,7 @@ import { router } from 'kea-router'
 import { useState } from 'react'
 
 import { IconPencil, IconTrash } from '@posthog/icons'
-import { LemonDialog, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonTag } from '@posthog/lemon-ui'
 
 import { FallbackCoverImage } from 'lib/components/FallbackCoverImage/FallbackCoverImage'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -24,13 +24,13 @@ import { workflowTemplatesLogic } from './workflowTemplatesLogic'
 
 // Adapted from DashboardTemplateChooser.tsx; try to keep parity for a consistent user experience
 export function WorkflowTemplateChooser(): JSX.Element {
-    const { filteredTemplates, workflowTemplatesLoading } = useValues(workflowTemplatesLogic)
-    const { deleteHogflowTemplate } = useActions(workflowTemplatesLogic)
+    const { filteredTemplates, workflowTemplatesLoading, tagFilter, availableTags } = useValues(workflowTemplatesLogic)
+    const { deleteHogflowTemplate, setTagFilter } = useActions(workflowTemplatesLogic)
     const { user } = useValues(userLogic)
 
     const { createWorkflowFromTemplate, createEmptyWorkflow } = useActions(newWorkflowLogic)
 
-    const canManageTemplate = (template: HogFlowTemplate): boolean => {
+    const canEditTemplate = (template: HogFlowTemplate): boolean => {
         if (template.scope === 'global') {
             return user?.is_staff ?? false
         }
@@ -38,8 +38,32 @@ export function WorkflowTemplateChooser(): JSX.Element {
         return true
     }
 
+    const canDeleteTemplate = (template: HogFlowTemplate): boolean => {
+        // Global templates are managed in code and can't be deleted from the database
+        return template.scope !== 'global'
+    }
+
     return (
         <div>
+            <div className="mb-4 flex flex-wrap gap-2">
+                <LemonButton
+                    type={tagFilter === null ? 'primary' : 'secondary'}
+                    onClick={() => setTagFilter(null)}
+                    size="small"
+                >
+                    All
+                </LemonButton>
+                {availableTags.map((tag) => (
+                    <LemonButton
+                        key={tag}
+                        type={tagFilter === tag ? 'primary' : 'secondary'}
+                        onClick={() => setTagFilter(tagFilter === tag ? null : tag)}
+                        size="small"
+                    >
+                        {tag}
+                    </LemonButton>
+                ))}
+            </div>
             <div className="WorkflowTemplateChooser">
                 <TemplateItem
                     key={0}
@@ -47,6 +71,8 @@ export function WorkflowTemplateChooser(): JSX.Element {
                         name: 'Empty workflow',
                         description: 'Create a blank workflow from scratch',
                         image_url: BlankWorkflowHog,
+                        scope: 'team',
+                        tags: [],
                     }}
                     onClick={createEmptyWorkflow}
                     index={0}
@@ -61,7 +87,7 @@ export function WorkflowTemplateChooser(): JSX.Element {
                             template={template}
                             onClick={() => createWorkflowFromTemplate(template)}
                             onEdit={
-                                canManageTemplate(template)
+                                canEditTemplate(template)
                                     ? (e) => {
                                           e.stopPropagation()
                                           router.actions.push(urls.workflowNew(), { editTemplateId: template.id })
@@ -69,7 +95,7 @@ export function WorkflowTemplateChooser(): JSX.Element {
                                     : undefined
                             }
                             onDelete={
-                                canManageTemplate(template)
+                                canDeleteTemplate(template)
                                     ? (e) => {
                                           e.stopPropagation()
                                           LemonDialog.open({
@@ -78,10 +104,7 @@ export function WorkflowTemplateChooser(): JSX.Element {
                                                   <>
                                                       Are you sure you want to delete "{template.name}"?
                                                       <br />
-                                                      This action cannot be undone
-                                                      {template.scope === 'team'
-                                                          ? '!'
-                                                          : ' and will affect all posthog users!'}
+                                                      This action cannot be undone!
                                                   </>
                                               ),
                                               primaryButton: {
@@ -121,7 +144,7 @@ function TemplateItem({
     index,
     'data-attr': dataAttr,
 }: {
-    template: Pick<HogFlowTemplate, 'name' | 'description' | 'image_url' | 'scope'>
+    template: Pick<HogFlowTemplate, 'name' | 'description' | 'image_url' | 'scope' | 'tags'>
     onClick: () => void
     onEdit?: (e: React.MouseEvent) => void
     onDelete?: (e: React.MouseEvent) => void
@@ -197,12 +220,17 @@ function TemplateItem({
             </div>
 
             <h5 className="px-2 mb-1">{template?.name || 'Unnamed template'}</h5>
-            <div className="flex gap-x-1 px-2 mb-1">
+            <div className="flex gap-x-1 px-2 mb-1 flex-wrap">
                 {scopeTag && (
                     <LemonTag key="scope" type="option">
                         {scopeTag}
                     </LemonTag>
                 )}
+                {template.tags.map((tag) => (
+                    <LemonTag key={tag} type="default">
+                        {tag}
+                    </LemonTag>
+                ))}
             </div>
             <div className={clsx('px-2 py-1 grow', isHovering ? 'overflow-y-auto' : 'overflow-hidden')}>
                 <p className={clsx('text-secondary text-xs', isHovering ? '' : 'line-clamp-2')}>

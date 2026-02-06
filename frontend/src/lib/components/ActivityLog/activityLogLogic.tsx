@@ -32,6 +32,7 @@ import { groupActivityDescriber } from 'scenes/groups/activityDescriptions'
 import { hogFunctionActivityDescriber } from 'scenes/hog-functions/misc/activityDescriptions'
 import { notebookActivityDescriber } from 'scenes/notebooks/Notebook/notebookActivityDescriber'
 import { personActivityDescriber } from 'scenes/persons/activityDescriptions'
+import { productTourActivityDescriber } from 'scenes/product-tours/activityDescriptions'
 import { insightActivityDescriber } from 'scenes/saved-insights/activityDescriptions'
 import { replayActivityDescriber } from 'scenes/session-recordings/activityDescription'
 import { organizationActivityDescriber } from 'scenes/settings/organization/activityDescriptions'
@@ -42,6 +43,7 @@ import { urls } from 'scenes/urls'
 
 import { ActivityScope } from '~/types'
 
+import { endpointActivityDescriber } from 'products/endpoints/frontend/activityDescriber'
 import { workflowActivityDescriber } from 'products/workflows/frontend/Workflows/misc/workflowActivityDescriber'
 
 import type { activityLogLogicType } from './activityLogLogicType'
@@ -166,7 +168,10 @@ export const describerFor = (logItem?: ActivityLogItem): Describer | undefined =
         case ActivityScope.USER:
             return userActivityDescriber
         case ActivityScope.ENDPOINT:
-            return (logActivity, asNotification) => defaultDescriber(logActivity, asNotification)
+        case ActivityScope.ENDPOINT_VERSION:
+            return endpointActivityDescriber
+        case ActivityScope.PRODUCT_TOUR:
+            return productTourActivityDescriber
         default:
             return (logActivity, asNotification) => defaultDescriber(logActivity, asNotification)
     }
@@ -280,13 +285,13 @@ export const activityLogLogic = kea<activityLogLogicType>([
                 onPageChange(searchParams, hashParams, ActivityScope.INSIGHT),
             [urls.featureFlag(':id')]: (_, searchParams, hashParams) =>
                 onPageChange(searchParams, hashParams, ActivityScope.FEATURE_FLAG, true),
-            [urls.dataPipelines('history')]: (_, searchParams, hashParams) =>
-                onPageChange(searchParams, hashParams, ActivityScope.PLUGIN),
         }
     }),
-    events(({ actions }) => ({
+    events(({ actions, values }) => ({
         afterMount: () => {
-            actions.fetchActivity()
+            if (!values.activity.results.length && !values.activityLoading) {
+                actions.fetchActivity()
+            }
         },
     })),
 ])

@@ -44,7 +44,7 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                 },
             } as HogFlowAction)
         }
-    }, [outputResultPath])
+    }, [outputResultPath]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     const Step = useHogFlowStep(selectedNode?.data)
 
@@ -116,13 +116,7 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                             panels={[
                                 {
                                     key: 'outputs',
-                                    header: {
-                                        children: (
-                                            <>
-                                                <span className="flex-1">Output variable</span>
-                                            </>
-                                        ),
-                                    },
+                                    header: <span className="flex-1">Output variable</span>,
                                     content: (
                                         <div className="flex flex-col items-start gap-2">
                                             <LemonField.Pure label="Select a workflow variable to store the output of this step">
@@ -177,14 +171,12 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                                 },
                                 {
                                     key: 'filters',
-                                    header: {
-                                        children: (
-                                            <>
-                                                <span className="flex-1">Conditions</span>
-                                                <LemonBadge.Number count={numberOfActionFilters} showZero={false} />
-                                            </>
-                                        ),
-                                    },
+                                    header: (
+                                        <>
+                                            <span className="flex-1">Conditions</span>
+                                            <LemonBadge.Number count={numberOfActionFilters} showZero={false} />
+                                        </>
+                                    ),
                                     content: (
                                         <div>
                                             <p>
@@ -192,7 +184,7 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                                                 will skip this step and continue to the next one.
                                             </p>
                                             <HogFlowPropertyFilters
-                                                actionId={action.id}
+                                                filtersKey={`action-skip-conditions-${action.id}`}
                                                 filters={action.filters ?? {}}
                                                 setFilters={(filters) =>
                                                     setWorkflowAction(action.id, { ...action, filters })
@@ -204,13 +196,7 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                                 },
                                 {
                                     key: 'on_error',
-                                    header: {
-                                        children: (
-                                            <>
-                                                <span className="flex-1">Error handling</span>
-                                            </>
-                                        ),
-                                    },
+                                    header: <span className="flex-1">Error handling</span>,
                                     content: (
                                         <div>
                                             <p>
@@ -222,7 +208,7 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                                                     { value: 'continue', label: 'Continue to next step' },
                                                     { value: 'abort', label: 'Exit the workflow' },
                                                 ]}
-                                                value={action.on_error || 'continue'}
+                                                value={action.on_error || 'abort'}
                                                 onChange={(value) =>
                                                     setWorkflowAction(action.id, {
                                                         ...action,

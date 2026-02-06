@@ -101,3 +101,40 @@ class TestTokenRateLimiter:
 
         remaining = await limiter.get_remaining("test_key")
         assert remaining == 800  # 1000 - 200
+
+    async def test_would_allow_without_redis(self) -> None:
+        limiter = TokenRateLimiter(redis=None, limit=1000, window_seconds=60)
+        # Fallback limit is 100
+
+        # Should allow 50 tokens
+        assert await limiter.would_allow("test_key", 50) is True
+        # Should allow 100 tokens (at limit)
+        assert await limiter.would_allow("test_key", 100) is True
+        # Should deny 101 tokens (over limit)
+        assert await limiter.would_allow("test_key", 101) is False
+
+    async def test_would_allow_does_not_consume(self) -> None:
+        limiter = TokenRateLimiter(redis=None, limit=1000, window_seconds=60)
+        # Fallback limit is 100
+
+        # Check multiple times - should always allow since we're not consuming
+        assert await limiter.would_allow("test_key", 100) is True
+        assert await limiter.would_allow("test_key", 100) is True
+        assert await limiter.would_allow("test_key", 100) is True
+
+        # Now actually consume
+        await limiter.consume("test_key", 100)
+
+        # Should now deny
+        assert await limiter.would_allow("test_key", 1) is False
+
+    async def test_would_allow_with_redis(self) -> None:
+        mock_redis: MagicMock = MagicMock()
+        mock_redis.get = AsyncMock(return_value=b"800")
+
+        limiter = TokenRateLimiter(redis=mock_redis, limit=1000, window_seconds=60)
+
+        # 800 used, 200 remaining - should allow 200
+        assert await limiter.would_allow("test_key", 200) is True
+        # Should deny 201
+        assert await limiter.would_allow("test_key", 201) is False

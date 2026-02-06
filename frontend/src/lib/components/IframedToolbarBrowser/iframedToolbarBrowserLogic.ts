@@ -42,6 +42,7 @@ export const UserIntentVerb: {
     'edit-experiment': 'edit the experiment',
     'add-product-tour': 'add product tour',
     'edit-product-tour': 'edit the product tour',
+    'preview-product-tour': 'preview the product tour',
 }
 
 export const iframedToolbarBrowserLogic = kea<iframedToolbarBrowserLogicType>([
@@ -288,7 +289,10 @@ export const iframedToolbarBrowserLogic = kea<iframedToolbarBrowserLogicType>([
                 }
             }
 
-            window.addEventListener('message', onIframeMessage, false)
+            cache.disposables.add(() => {
+                window.addEventListener('message', onIframeMessage, false)
+                return () => window.removeEventListener('message', onIframeMessage, false)
+            }, 'iframeMessageListener')
             // We call init in case the toolbar got there first (unlikely)
             init()
         },

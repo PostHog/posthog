@@ -14,6 +14,7 @@ export type LinkedHogFunctionsProps = {
     subTemplateIds?: HogFunctionSubTemplateIdType[]
     newDisabledReason?: string
     hideFeedback?: boolean
+    emptyText?: string
 }
 
 const getFiltersFromSubTemplateId = (
@@ -29,6 +30,7 @@ export function LinkedHogFunctions({
     subTemplateIds,
     newDisabledReason,
     hideFeedback,
+    emptyText,
 }: LinkedHogFunctionsProps): JSX.Element | null {
     const [showNewDestination, setShowNewDestination] = useState(false)
     const logicKey = useMemo(() => {
@@ -76,6 +78,7 @@ export function LinkedHogFunctions({
             forceFilterGroups={hogFunctionFilterList}
             type={type}
             hideFeedback={hideFeedback}
+            emptyText={emptyText}
             extraControls={
                 <>
                     <LemonButton

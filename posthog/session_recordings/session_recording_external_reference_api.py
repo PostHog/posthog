@@ -10,7 +10,13 @@ from rest_framework.exceptions import ValidationError
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import groups
-from posthog.models.integration import GitHubIntegration, GitLabIntegration, Integration, LinearIntegration
+from posthog.models.integration import (
+    GitHubIntegration,
+    GitLabIntegration,
+    Integration,
+    JiraIntegration,
+    LinearIntegration,
+)
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.models.session_recording_external_reference import SessionRecordingExternalReference
 
@@ -73,6 +79,10 @@ class SessionRecordingExternalReferenceSerializer(serializers.ModelSerializer):
             gitlab = GitLabIntegration(reference.integration)
             issue_id = external_context.get("issue_id", "")
             return f"{gitlab.hostname}/{gitlab.project_path}/-/issues/{issue_id}" if issue_id else ""
+        elif reference.integration.kind == Integration.IntegrationKind.JIRA:
+            site_url = JiraIntegration(reference.integration).site_url()
+            issue_key = external_context.get("id", "")
+            return f"{site_url}/browse/{issue_key}"
         else:
             return ""
 
@@ -87,11 +97,13 @@ class SessionRecordingExternalReferenceSerializer(serializers.ModelSerializer):
         return self._get_external_context(reference).get("id", "")
 
     def get_metadata(self, reference: SessionRecordingExternalReference) -> dict[str, str]:
-        """Get provider-specific metadata (e.g. repository for GitHub)"""
+        """Get provider-specific metadata (e.g. repository for GitHub, project for Jira)"""
         external_context = self._get_external_context(reference)
 
         if reference.integration.kind == Integration.IntegrationKind.GITHUB:
             return {"repository": external_context.get("repository", "")}
+        elif reference.integration.kind == Integration.IntegrationKind.JIRA:
+            return {"project": external_context.get("project", "")}
 
         return {}
 
@@ -164,6 +176,16 @@ class SessionRecordingExternalReferenceSerializer(serializers.ModelSerializer):
                 "id": f"#{response.get('issue_id', '')}",
                 "title": title,
                 "issue_id": response.get("issue_id", ""),
+            }
+        elif integration.kind == Integration.IntegrationKind.JIRA:
+            title = config.get("title", "")
+            project_key = config.get("project_key", "")
+            config["description"] = f"{config.get('description', '')}\n\nPostHog recording: {recording_url}"
+            response = JiraIntegration(integration).create_issue(config)
+            external_context = {
+                "id": response.get("key", ""),
+                "title": title,
+                "project": project_key,
             }
         else:
             raise ValidationError(f"Integration kind '{integration.kind}' not supported")

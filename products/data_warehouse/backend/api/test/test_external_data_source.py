@@ -36,6 +36,7 @@ from products.data_warehouse.backend.models import ExternalDataSchema, ExternalD
 from products.data_warehouse.backend.models.external_data_job import ExternalDataJob
 from products.data_warehouse.backend.models.external_data_schema import sync_frequency_interval_to_sync_frequency
 from products.data_warehouse.backend.models.revenue_analytics_config import ExternalDataSourceRevenueAnalyticsConfig
+from products.data_warehouse.backend.models.table import DataWarehouseTable
 
 
 class TestExternalDataSource(APIBaseTest):
@@ -513,7 +514,7 @@ class TestExternalDataSource(APIBaseTest):
         self._create_external_data_source()
         self._create_external_data_source()
 
-        with self.assertNumQueries(26):
+        with self.assertNumQueries(27):
             response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/")
         payload = response.json()
 
@@ -556,6 +557,7 @@ class TestExternalDataSource(APIBaseTest):
                 "schemas",
                 "job_inputs",
                 "revenue_analytics_config",
+                "user_access_level",
             ],
         )
         self.assertEqual(
@@ -589,6 +591,34 @@ class TestExternalDataSource(APIBaseTest):
 
         assert ExternalDataSource.objects.filter(pk=source.pk, deleted=True).exists()
         assert ExternalDataSchema.objects.filter(pk=schema.pk, deleted=True).exists()
+
+    @patch("products.data_warehouse.backend.api.external_data_source.capture_exception")
+    @patch(
+        "products.data_warehouse.backend.api.external_data_source.delete_external_data_schedule",
+        side_effect=Exception("External delete failed"),
+    )
+    def test_delete_external_data_source_soft_deletes_even_if_external_cleanup_fails(
+        self, _mock_delete_schedule, mock_capture_exception
+    ):
+        source = self._create_external_data_source()
+        table = DataWarehouseTable.objects.create(
+            name="test_table",
+            format=DataWarehouseTable.TableFormat.CSVWithNames,
+            team=self.team,
+            external_data_source=source,
+            url_pattern="http://example.com/data/*.csv",
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="Customers", team_id=self.team.pk, source_id=source.pk, table=table
+        )
+
+        response = self.client.delete(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}")
+
+        assert response.status_code == 204
+        assert ExternalDataSource.objects.filter(pk=source.pk, deleted=True).exists()
+        assert ExternalDataSchema.objects.filter(pk=schema.pk, deleted=True).exists()
+        assert DataWarehouseTable.raw_objects.filter(pk=table.pk, deleted=True).exists()
+        assert mock_capture_exception.call_count == 2  # one for source, one for schema
 
     # TODO: update this test
     @patch("products.data_warehouse.backend.api.external_data_source.trigger_external_data_source_workflow")
@@ -1314,6 +1344,109 @@ class TestExternalDataSource(APIBaseTest):
         source.refresh_from_db()
         assert source.job_inputs["host"] == "new-host.example.com"
         assert source.job_inputs["password"] == "original_password"
+
+    def test_update_source_with_ssh_tunnel_missing_auth(self):
+        """Regression test: PATCH with ssh_tunnel but no auth key should not fail validation."""
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            created_by=self.user,
+            prefix="test_no_auth",
+            job_inputs={
+                "source_type": "Postgres",
+                "host": "db.example.com",
+                "port": "5432",
+                "database": "mydb",
+                "user": "dbuser",
+                "password": "db_password",
+                "schema": "public",
+                "ssh_tunnel": {
+                    "enabled": "True",
+                    "host": "ssh.example.com",
+                    "port": "22",
+                    "auth": {
+                        "type": "password",
+                        "username": "sshuser",
+                        "password": "ssh_secret_password",
+                        "passphrase": None,
+                        "private_key": None,
+                    },
+                },
+            },
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={
+                "job_inputs": {
+                    "ssh_tunnel": {
+                        "enabled": False,
+                    },
+                },
+            },
+        )
+
+        assert response.status_code == 200, f"Expected 200, got {response.status_code}: {response.json()}"
+
+        source.refresh_from_db()
+        assert source.job_inputs["password"] == "db_password"
+        assert source.job_inputs["ssh_tunnel"]["auth"]["password"] == "ssh_secret_password"
+
+    def test_update_source_with_ssh_tunnel_enabled_missing_auth(self):
+        """Regression test: PATCH with ssh_tunnel enabled but no auth key should preserve existing auth."""
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            created_by=self.user,
+            prefix="test_enabled_no_auth",
+            job_inputs={
+                "source_type": "Postgres",
+                "host": "db.example.com",
+                "port": "5432",
+                "database": "mydb",
+                "user": "dbuser",
+                "password": "db_password",
+                "schema": "public",
+                "ssh_tunnel": {
+                    "enabled": "True",
+                    "host": "ssh.example.com",
+                    "port": "22",
+                    "auth": {
+                        "type": "password",
+                        "username": "sshuser",
+                        "password": "ssh_secret_password",
+                        "passphrase": None,
+                        "private_key": None,
+                    },
+                },
+            },
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={
+                "job_inputs": {
+                    "ssh_tunnel": {
+                        "enabled": True,
+                        "host": "new-ssh.example.com",
+                        "port": 22,
+                    },
+                },
+            },
+        )
+
+        assert response.status_code == 200, f"Expected 200, got {response.status_code}: {response.json()}"
+
+        source.refresh_from_db()
+        assert source.job_inputs["ssh_tunnel"]["host"] == "new-ssh.example.com"
+        assert source.job_inputs["ssh_tunnel"]["auth"]["password"] == "ssh_secret_password"
+        assert source.job_inputs["ssh_tunnel"]["auth"]["username"] == "sshuser"
 
     def test_update_legacy_auth_type_format_preserves_credentials(self):
         """

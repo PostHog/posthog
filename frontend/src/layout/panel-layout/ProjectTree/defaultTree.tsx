@@ -6,17 +6,19 @@ import {
     IconBook,
     IconBug,
     IconCircleDashed,
+    IconCode,
     IconCode2,
-    IconCursor,
     IconDashboard,
     IconDatabase,
     IconDecisionTree,
+    IconDownload,
     IconExternal,
     IconFeatures,
     IconFlask,
     IconFolder,
     IconFolderOpen,
     IconFunnels,
+    IconGear,
     IconGraph,
     IconHogQL,
     IconHome,
@@ -30,6 +32,7 @@ import {
     IconPeople,
     IconPieChart,
     IconPiggyBank,
+    IconPlay,
     IconPlug,
     IconRetention,
     IconRewindPlay,
@@ -37,10 +40,12 @@ import {
     IconSearch,
     IconServer,
     IconSpotlight,
+    IconStethoscope,
     IconStickiness,
     IconSupport,
     IconToggle,
     IconToggleOff,
+    IconToolbar,
     IconTrends,
     IconUser,
     IconUserPaths,
@@ -183,7 +188,7 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
         icon: <IconBug />,
     },
     action: {
-        icon: <IconCursor />,
+        icon: <IconPlay />,
     },
     comment: {
         icon: <IconNotification />,
@@ -268,6 +273,40 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     conversations: {
         icon: <IconSupport />,
         iconColor: ['var(--color-product-support-light)', 'var(--color-product-support-dark)'],
+    },
+    toolbar: {
+        icon: <IconToolbar />,
+    },
+    settings: {
+        icon: <IconGear />,
+    },
+    health: {
+        icon: <IconStethoscope />,
+    },
+    sdk_doctor: {
+        icon: <IconCode />,
+    },
+    pipeline_status: {
+        icon: <IconDatabase />,
+    },
+    llm_evaluations: {
+        icon: <IconFlask />,
+        iconColor: ['var(--color-product-llm-evaluations-light)'],
+    },
+    llm_datasets: {
+        icon: <IconDatabase />,
+        iconColor: ['var(--color-product-llm-datasets-light)'],
+    },
+    llm_prompts: {
+        icon: <IconBook />,
+        iconColor: ['var(--color-product-llm-prompts-light)'],
+    },
+    llm_clusters: {
+        icon: <IconPeople />,
+        iconColor: ['var(--color-product-llm-clusters-light)'],
+    },
+    exports: {
+        icon: <IconDownload />,
     },
 }
 

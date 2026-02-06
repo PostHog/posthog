@@ -15,7 +15,6 @@ from django.db.models import Count, F, Q, Sum
 
 import requests
 import structlog
-import posthoganalytics
 from cachetools import cached
 from celery import shared_task
 from dateutil import parser
@@ -212,6 +211,7 @@ class UsageReportCounters:
     dotnet_events_count_in_period: int
     elixir_events_count_in_period: int
     unity_events_count_in_period: int
+    rust_events_count_in_period: int
     active_hog_destinations_in_period: int
     active_hog_transformations_in_period: int
 
@@ -224,7 +224,7 @@ class UsageReportCounters:
     # Logs
     logs_bytes_in_period: int
     logs_records_in_period: int
-    logs_gb_in_period: float
+    logs_mb_in_period: int
 
 
 # Instance metadata to be included in overall report
@@ -630,6 +630,7 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
                 {lib_expression} = 'posthog-dotnet', 'dotnet_events',
                 {lib_expression} = 'posthog-elixir', 'elixir_events',
                 {lib_expression} = 'posthog-unity', 'unity_events',
+                {lib_expression} = 'posthog-rs', 'rust_events',
                 'other'
             ) AS metric,
             count(1) as count
@@ -640,7 +641,9 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
     """
 
     # Define a custom function to combine results from multiple queries
-    def combine_event_metrics_results(results_list: list) -> dict[str, list[tuple[int, int]]]:
+    def combine_event_metrics_results(
+        results_list: list,
+    ) -> dict[str, list[tuple[int, int]]]:
         metrics: dict[str, dict[int, int]] = {
             "helicone_events": {},
             "langfuse_events": {},
@@ -661,6 +664,7 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
             "dotnet_events": {},
             "elixir_events": {},
             "unity_events": {},
+            "rust_events": {},
         }
 
         # Process each result set
@@ -720,7 +724,12 @@ def get_teams_with_recording_count_in_period(
         )
         GROUP BY team_id
     """,
-        {"previous_begin": previous_begin, "begin": begin, "end": end, "snapshot_source": snapshot_source},
+        {
+            "previous_begin": previous_begin,
+            "begin": begin,
+            "end": end,
+            "snapshot_source": snapshot_source,
+        },
         workload=Workload.OFFLINE,
         settings=CH_BILLING_SETTINGS,
     )
@@ -914,6 +923,48 @@ def get_teams_with_feature_flag_requests_count_in_period(
 
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_feature_flag_requests_sdk_breakdown_in_period(
+    begin: datetime, end: datetime, request_type: FlagRequestType
+) -> list[tuple[int, str, int]]:
+    """
+    Get per-SDK breakdown of feature flag requests for each team.
+    Returns list of (team_id, sdk_name, count) tuples.
+    """
+    team_to_query = 1 if get_instance_region() == "EU" else 2
+    validity_token = settings.DECIDE_BILLING_ANALYTICS_TOKEN
+
+    target_event = "decide usage" if request_type == FlagRequestType.DECIDE else "local evaluation usage"
+
+    result = sync_execute(
+        """
+        SELECT
+            distinct_id as team,
+            arrayJoin(JSONExtractKeys(properties, 'sdk_breakdown')) as sdk,
+            sum(JSONExtractInt(JSONExtractRaw(properties, 'sdk_breakdown'), sdk)) as sum
+        FROM events
+        WHERE team_id = %(team_to_query)s
+          AND event = %(target_event)s
+          AND timestamp >= %(begin)s AND timestamp < %(end)s
+          AND has([%(validity_token)s], replaceRegexpAll(JSONExtractRaw(properties, 'token'), '^"|"$', ''))
+          AND JSONHas(properties, 'sdk_breakdown')
+        GROUP BY team, sdk
+    """,
+        {
+            "begin": begin,
+            "end": end,
+            "team_to_query": team_to_query,
+            "validity_token": validity_token,
+            "target_event": target_event,
+        },
+        workload=Workload.OFFLINE,
+        settings=CH_BILLING_SETTINGS,
+    )
+
+    return result
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_survey_responses_count_in_period(
     begin: datetime,
     end: datetime,
@@ -996,6 +1047,10 @@ CLOUD_REGION_TO_TEAM_ID = {
     "EU": 1,
     "US": 2,
 }
+CLOUD_REGION_TO_URL = {
+    "EU": "https://eu.posthog.com",
+    "US": "https://us.posthog.com",
+}
 
 
 @timed_log()
@@ -1024,11 +1079,19 @@ def get_teams_with_ai_credits_used_in_period(
     6. Convert 1:1 to credits
 
     Events are stored in team 1 (EU) or team 2 (US), with the actual team (on which we group by) in properties.
-    At time of writing, events in the US have a materialized region but nothing present in EU.
-    Using the field from properties to filter events instead.
+    We filter by $group_1 which contains the region URL (https://eu.posthog.com or https://us.posthog.com).
     """
     region = get_instance_region()
-    assert region is not None, "Region must be set in production infrastructure"
+
+    if region is None:
+        # In production, we want to fail fast if region is not set
+        # In non-production environments (e.g., tests), we can return gracefully
+        from posthog.settings import TEST
+
+        if not TEST:
+            assert region is not None, "Region must be set in production infrastructure"
+        return []
+
     team_to_query = CLOUD_REGION_TO_TEAM_ID[region]
 
     with tags_context(product=Product.MAX_AI, usage_report="ai_credits", kind="usage_report"):
@@ -1084,7 +1147,7 @@ def get_teams_with_ai_credits_used_in_period(
                     PREWHERE
                         -- data inside PostHog project used as ground truth for billing (depends on region)
                         team_id = %(team_to_query)s
-                        AND JSONExtractString(properties, 'region') = %(region)s
+                        AND JSONExtractString(properties, '$group_1') = %(region_url)s
                         AND timestamp >= %(begin)s
                         AND timestamp < %(end)s
                         AND event = '$ai_trace'
@@ -1108,7 +1171,7 @@ def get_teams_with_ai_credits_used_in_period(
                     PREWHERE
                         -- data inside PostHog project used as ground truth for billing (depends on region)
                         team_id = %(team_to_query)s
-                        AND JSONExtractString(properties, 'region') = %(region)s
+                        AND JSONExtractString(properties, '$group_1') = %(region_url)s
                         AND timestamp >= %(begin)s
                         AND timestamp < %(end)s
                         AND event = '$ai_generation'
@@ -1138,7 +1201,7 @@ def get_teams_with_ai_credits_used_in_period(
             """,
             {
                 "team_to_query": team_to_query,
-                "region": region,
+                "region_url": CLOUD_REGION_TO_URL[region],
                 "begin": begin,
                 "end": end,
                 "markup_multiplier": 1 + AI_COST_MARKUP_PERCENT,
@@ -1178,7 +1241,10 @@ def get_teams_with_rows_synced_in_period(begin: datetime, end: datetime) -> list
 
     return list(
         ExternalDataJob.objects.filter(
-            finished_at__gte=begin, finished_at__lte=end, billable=True, status=ExternalDataJob.Status.COMPLETED
+            finished_at__gte=begin,
+            finished_at__lte=end,
+            billable=True,
+            status=ExternalDataJob.Status.COMPLETED,
         )
         .values("team_id")
         .annotate(total=Sum("rows_synced"))
@@ -1192,7 +1258,10 @@ def get_teams_with_free_historical_rows_synced_in_period(begin: datetime, end: d
         # during the free period, all rows get reported as free historical rows synced
         return list(
             ExternalDataJob.objects.filter(
-                finished_at__gte=begin, finished_at__lte=end, billable=True, status=ExternalDataJob.Status.COMPLETED
+                finished_at__gte=begin,
+                finished_at__lte=end,
+                billable=True,
+                status=ExternalDataJob.Status.COMPLETED,
             )
             .values("team_id")
             .annotate(total=Sum("rows_synced"))
@@ -1233,7 +1302,10 @@ def get_teams_with_active_external_data_schemas_in_period() -> list:
     # get all external data schemas that are running or completed at run time
     return list(
         ExternalDataSchema.objects.filter(
-            status__in=[ExternalDataSchema.Status.RUNNING, ExternalDataSchema.Status.COMPLETED]
+            status__in=[
+                ExternalDataSchema.Status.RUNNING,
+                ExternalDataSchema.Status.COMPLETED,
+            ]
         )
         .values("team_id")
         .annotate(total=Count("id"))
@@ -1252,7 +1324,9 @@ def get_teams_with_active_batch_exports_in_period() -> list:
 def get_teams_with_dwh_tables_storage_in_s3() -> list:
     return list(
         DataWarehouseTable.objects.filter(
-            ~Q(deleted=True), size_in_s3_mib__isnull=False, external_data_source_id__isnull=False
+            ~Q(deleted=True),
+            size_in_s3_mib__isnull=False,
+            external_data_source_id__isnull=False,
         )
         .values("team_id")
         .annotate(total=Sum("size_in_s3_mib"))
@@ -1293,6 +1367,7 @@ def get_teams_with_exceptions_captured_in_period(
     # Check if $lib is materialized
     lib_expression, _ = get_property_string_expr("events", "$lib", "'$lib'", "properties")
 
+    # nosemgrep: clickhouse-fstring-param-audit - lib_expression from internal materialized column helper
     results = sync_execute(
         f"""
         SELECT
@@ -1440,7 +1515,12 @@ def get_teams_with_recording_bytes_in_period(
         )
         GROUP BY team_id
     """,
-        {"previous_begin": previous_begin, "begin": begin, "end": end, "snapshot_source": snapshot_source},
+        {
+            "previous_begin": previous_begin,
+            "begin": begin,
+            "end": end,
+            "snapshot_source": snapshot_source,
+        },
         workload=Workload.OFFLINE,
         settings=CH_BILLING_SETTINGS,
     )
@@ -1658,7 +1738,9 @@ def has_non_zero_usage(report: FullUsageReport) -> bool:
     )
 
 
-def convert_team_usage_rows_to_dict(rows: list[Union[dict, tuple[int, int]]]) -> dict[int, int]:
+def convert_team_usage_rows_to_dict(
+    rows: list[Union[dict, tuple[int, int]]],
+) -> dict[int, int]:
     team_id_map = {}
     for row in rows:
         if isinstance(row, dict) and "team_id" in row:
@@ -1680,11 +1762,6 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
     api_queries_usage = get_teams_with_api_queries_metrics(period_start, period_end)
     exception_metrics_by_library, exception_metrics = get_teams_with_exceptions_captured_in_period(
         period_start, period_end
-    )
-
-    # Check if AI billing usage report is enabled
-    is_ai_billing_enabled = posthoganalytics.feature_enabled(
-        "posthog-ai-billing-usage-report", "internal_billing_events"
     )
 
     return {
@@ -1716,6 +1793,7 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
         "teams_with_dotnet_events_count_in_period": all_metrics["dotnet_events"],
         "teams_with_elixir_events_count_in_period": all_metrics["elixir_events"],
         "teams_with_unity_events_count_in_period": all_metrics["unity_events"],
+        "teams_with_rust_events_count_in_period": all_metrics["rust_events"],
         "teams_with_recording_count_in_period": get_teams_with_recording_count_in_period(
             period_start, period_end, snapshot_source="web"
         ),
@@ -1898,9 +1976,7 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
             period_start, period_end
         ),
         "teams_with_ai_event_count_in_period": get_teams_with_ai_event_count_in_period(period_start, period_end),
-        "teams_with_ai_credits_used_in_period": (
-            get_teams_with_ai_credits_used_in_period(period_start, period_end) if is_ai_billing_enabled else []
-        ),
+        "teams_with_ai_credits_used_in_period": get_teams_with_ai_credits_used_in_period(period_start, period_end),
         "teams_with_active_hog_destinations_in_period": get_teams_with_active_hog_destinations_in_period(),
         "teams_with_active_hog_transformations_in_period": get_teams_with_active_hog_transformations_in_period(),
         "teams_with_workflow_emails_sent_in_period": get_teams_with_workflow_emails_sent_in_period(
@@ -1934,7 +2010,13 @@ def _get_teams_for_usage_reports() -> Sequence[Team]:
     return list(
         Team.objects.select_related("organization")
         .exclude(Q(organization__for_internal_metrics=True) | Q(is_demo=True))
-        .only("id", "name", "organization__id", "organization__name", "organization__created_at")
+        .only(
+            "id",
+            "name",
+            "organization__id",
+            "organization__name",
+            "organization__created_at",
+        )
     )
 
 
@@ -2051,6 +2133,7 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         dotnet_events_count_in_period=all_data["teams_with_dotnet_events_count_in_period"].get(team.id, 0),
         elixir_events_count_in_period=all_data["teams_with_elixir_events_count_in_period"].get(team.id, 0),
         unity_events_count_in_period=all_data["teams_with_unity_events_count_in_period"].get(team.id, 0),
+        rust_events_count_in_period=all_data["teams_with_rust_events_count_in_period"].get(team.id, 0),
         ai_event_count_in_period=all_data["teams_with_ai_event_count_in_period"].get(team.id, 0),
         ai_credits_used_in_period=all_data["teams_with_ai_credits_used_in_period"].get(team.id, 0),
         active_hog_destinations_in_period=all_data["teams_with_active_hog_destinations_in_period"].get(team.id, 0),
@@ -2065,8 +2148,7 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         ),
         logs_bytes_in_period=all_data["teams_with_logs_bytes_in_period"].get(team.id, 0),
         logs_records_in_period=all_data["teams_with_logs_records_in_period"].get(team.id, 0),
-        # decimal GB (not GiB) to match pricing; billing uses logs_bytes_in_period for precision
-        logs_gb_in_period=round(all_data["teams_with_logs_bytes_in_period"].get(team.id, 0) / 1_000_000_000, 3),
+        logs_mb_in_period=int(all_data["teams_with_logs_bytes_in_period"].get(team.id, 0) // 1_000_000),
     )
 
 
@@ -2144,7 +2226,8 @@ def _get_full_org_usage_report_as_dict(full_report: FullUsageReport) -> dict[str
 
 def _queue_report(producer: Any, organization_id: str, full_report_dict: dict[str, Any]) -> None:
     json_data = json.dumps(
-        {"organization_id": organization_id, "usage_report": full_report_dict}, separators=(",", ":")
+        {"organization_id": organization_id, "usage_report": full_report_dict},
+        separators=(",", ":"),
     )
     compressed_bytes = gzip.compress(json_data.encode("utf-8"))
     compressed_b64 = base64.b64encode(compressed_bytes).decode("ascii")
@@ -2263,7 +2346,10 @@ def send_all_org_usage_reports(
                         at_date=at_date_str,
                     )
                 except Exception as capture_err:
-                    logger.exception(f"Failed to capture report for organization {organization_id}", error=capture_err)
+                    logger.exception(
+                        f"Failed to capture report for organization {organization_id}",
+                        error=capture_err,
+                    )
 
             # Then send the reports to billing through SQS (only if the producer is available)
             if has_non_zero_usage(full_report) and producer:
@@ -2271,7 +2357,10 @@ def send_all_org_usage_reports(
                     _queue_report(producer, organization_id, full_report_dict)
                     total_orgs_sent += 1
                 except Exception as err:
-                    logger.exception(f"Failed to queue report for organization {organization_id}", error=err)
+                    logger.exception(
+                        f"Failed to queue report for organization {organization_id}",
+                        error=err,
+                    )
 
         except Exception as loop_err:
             logger.exception(f"Failed to process organization {organization_id}", error=loop_err)

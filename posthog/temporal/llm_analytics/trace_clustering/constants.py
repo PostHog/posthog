@@ -6,7 +6,7 @@ from temporalio.common import RetryPolicy
 
 # Clustering parameters
 DEFAULT_LOOKBACK_DAYS = 7
-DEFAULT_MAX_SAMPLES = 1000
+DEFAULT_MAX_SAMPLES = 2500
 DEFAULT_MIN_K = 2
 DEFAULT_MAX_K = 10
 
@@ -18,10 +18,16 @@ DEFAULT_MAX_CONCURRENT_TEAMS = 3  # Max teams to process in parallel
 
 # Workflow timeouts
 WORKFLOW_EXECUTION_TIMEOUT = timedelta(minutes=30)
+COORDINATOR_EXECUTION_TIMEOUT = timedelta(hours=12)  # Must be less than daily schedule interval to avoid blocking
 # Temporal configuration
 WORKFLOW_NAME = "llma-trace-clustering"
 COORDINATOR_WORKFLOW_NAME = "llma-trace-clustering-coordinator"
 COORDINATOR_SCHEDULE_ID = "llma-trace-clustering-coordinator-schedule"
+CHILD_WORKFLOW_ID_PREFIX = "llma-trace-clustering-team"
+
+# Generation-level schedule configuration (reuses same coordinator workflow with different inputs)
+GENERATION_COORDINATOR_SCHEDULE_ID = "llma-generation-clustering-coordinator-schedule"
+GENERATION_CHILD_WORKFLOW_ID_PREFIX = "llma-generation-clustering-team"
 
 # Activity timeouts (per activity type)
 COMPUTE_ACTIVITY_TIMEOUT = timedelta(seconds=120)  # Fetch + k-means + distances
@@ -57,10 +63,12 @@ COORDINATOR_CHILD_WORKFLOW_RETRY_POLICY = RetryPolicy(maximum_attempts=2)
 
 # Event properties
 EVENT_NAME = "$ai_trace_clusters"
+EVENT_NAME_GENERATION = "$ai_generation_clusters"  # For generation-level clustering
 
 # Document type for LLM trace summaries (clustering uses detailed mode only)
 # New format includes mode suffix
 LLMA_TRACE_DOCUMENT_TYPE = "llm-trace-summary-detailed"
+LLMA_GENERATION_DOCUMENT_TYPE = "llm-generation-summary-detailed"  # For generation-level clustering
 # Legacy format (before mode suffix was added) - used with rendering filter
 LLMA_TRACE_DOCUMENT_TYPE_LEGACY = "llm-trace-summary"
 # Legacy rendering value for detailed summaries
@@ -69,15 +77,8 @@ LLMA_TRACE_RENDERING_LEGACY = "llma_trace_detailed"
 # Product for LLM trace summaries (matches sorting key in posthog_document_embeddings)
 LLMA_TRACE_PRODUCT = "llm-analytics"
 
-# Team allowlist (empty list = no teams processed)
-ALLOWED_TEAM_IDS: list[int] = [
-    1,  # Local development
-    2,  # Internal PostHog project
-    112495,  # Dogfooding project
-]
-
 # Cluster labeling agent configuration
-LABELING_AGENT_MODEL = "gpt-5.1"  # OpenAI GPT-5.1 for reasoning
+LABELING_AGENT_MODEL = "gpt-5.2"  # OpenAI GPT-5.2 for reasoning
 LABELING_AGENT_MAX_ITERATIONS = 50  # Max agent iterations before forced finalization
 LABELING_AGENT_RECURSION_LIMIT = 150  # LangGraph recursion limit (> 2 * max_iterations)
 LABELING_AGENT_TIMEOUT = 600.0  # 10 minutes for full agent run

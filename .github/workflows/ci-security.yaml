@@ -30,6 +30,7 @@ jobs:
                       hashicorp/
                       PostHog/
                       tailscale/
+                      inkeep/
 
     semgrep-python:
         runs-on: ubuntu-latest
@@ -159,6 +160,7 @@ jobs:
                     --exclude ./posthog/ \
                     --exclude ./products/ \
                     --exclude ./rust/ \
+                    --exclude ./.semgrep/ \
                     .
 
     semgrep-test-rules:

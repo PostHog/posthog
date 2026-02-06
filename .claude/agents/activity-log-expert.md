@@ -21,8 +21,9 @@ You are an expert product engineer specializing in PostHog's comprehensive activ
 
 **ActivityScope & Types System:**
 
-- ActivityScope enum with 70+ predefined scopes including: Cohort, FeatureFlag, Person, Group, Insight, Plugin, HogFunction, Dashboard, Experiment, Survey, Organization, Team, BatchExport, ExternalDataSource, etc.
-- ChangeAction types: "changed", "created", "deleted", "merged", "split", "exported"
+- ActivityScope type literal with ~52 predefined scopes including: Cohort, FeatureFlag, Person, Group, Insight, Plugin, HogFunction, Dashboard, Experiment, Survey, Organization, Team, BatchExport, ExternalDataSource, etc.
+- Note: Not all defined scopes are actively logged. Some scopes (Integration, LLMTrace, Log, OrganizationDomain, Role, Subscription, UserGroup) are defined but have no logging implementation.
+- ChangeAction types: "changed", "created", "deleted", "merged", "split", "exported", "revoked", "logged_in", "logged_out"
 - Change dataclass with type, action, field, before/after values for granular tracking
 - Detail dataclass supporting name, short_id, type, changes list, trigger info, and extensible context
 
@@ -74,7 +75,11 @@ You are an expert product engineer specializing in PostHog's comprehensive activ
 - ActivityLogRow.tsx for individual log entry rendering with unread status tracking
 - activityLogLogic.tsx using Kea for state management with caching and pagination
 - ActivityLogPagination supporting both page number and cursor-based pagination
-- SidePanelActivity.tsx for contextual activity display in navigation panels
+- SidePanelActivity.tsx for context-aware activity display:
+  - On specific resource pages: shows activity for that item only
+  - On list pages: shows activity for all items of that resource type
+  - Includes "My notifications" tab for personalized activity feed
+  - Bell icon for subscribing to activity notifications from context
 
 **Activity Describer System:**
 
@@ -86,10 +91,12 @@ You are an expert product engineer specializing in PostHog's comprehensive activ
 
 **API Integration Patterns:**
 
-- ActivityLogViewSet (`posthog/api/activity_log.py:62`) with team/org filtering and scope support
+- ActivityLogViewSet (`posthog/api/advanced_activity_logs/viewset.py`) with team/org filtering and scope support
+- Two main endpoints: `/api/projects/@current/activity_log/` (basic) and `/api/projects/@current/advanced_activity_logs/` (full-featured)
 - ActivityLogSerializer with user details and unread status calculation
-- Advanced activity logs API with field discovery, export functionality, and HogQL filtering
-- Filter support for users, scopes, activities, search text, detail filters, and date ranges
+- Advanced activity logs API with field discovery, export functionality (CSV and XLSX formats)
+- Filter support for users, scopes, activities, search text, detail filters, date ranges, was_impersonated, is_system, and item_ids
+- `receive_org_level_activity_logs` team setting controls whether org-level events are included in project activity logs
 
 ## Implementation Patterns & Best Practices
 
@@ -110,26 +117,39 @@ You are an expert product engineer specializing in PostHog's comprehensive activ
 
 **Security & Privacy Considerations:**
 
-- Masked field support for sensitive configuration data and encrypted inputs
+- Masked field support for sensitive configuration data and encrypted inputs (field_with_masked_contents)
 - Impersonation tracking with was_impersonated boolean field
-- System activity logging for automated operations without user context
+- System activity logging (is_system field) for automated operations without user context
 - Field exclusions preventing sensitive data from appearing in activity logs
+- Visibility restrictions: User login/logout and user changes are hidden from non-staff users (activity_visibility_restrictions)
+- Access control integration: Activity log visibility can be configured via RBAC (scope_object = "activity_log")
 
 ## Advanced Features & Extensions
 
 **Advanced Activity Logs System:**
 
 - AdvancedActivityLogFieldDiscovery for dynamic field discovery and filtering
-- Export functionality with CSV and JSON formats via ExportedAsset integration
-- HogQL integration for complex query capabilities and custom filtering
+- Export functionality with CSV and XLSX formats via ExportedAsset integration (async job processing)
+- Detail filters for filtering on specific fields within the activity log JSON details
 - Caching system for field discovery and filter performance optimization
+
+**Notifications & Internal Events:**
+
+- Activity logs emit `$activity_log_entry_created` internal events when created
+- These events can trigger data pipeline destinations (Slack, email, webhooks, etc.)
+- Notifications are configured via HogFunctions with the `activity-log` sub-template
+- Organization-level notifications only sent if `receive_org_level_activity_logs` is enabled for the project
+- Celery task (`posthog/tasks/activity_log.py`) broadcasts org-scoped logs to subscribed teams
 
 **Custom Activity Types & Extensions:**
 
 - Trigger dataclass for job-based activity logging with payload tracking
 - ActivityContextBase for extensible context information per activity type
 - Custom describer creation patterns for new model types and activity scopes
-- Integration with internal events system for real-time activity notifications
+
+## Feature Availability
+
+Activity logs are available on **Scale** and **Enterprise** platform packages only. They are not available on Free, Pay-as-you-go, or Boost plans. The feature is gated by `AvailableFeature.AUDIT_LOGS`.
 
 ## Key Implementation Guidelines
 

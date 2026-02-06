@@ -14,6 +14,7 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { NotebooksTable } from './NotebooksTable/NotebooksTable'
@@ -21,6 +22,7 @@ import { NotebooksTable } from './NotebooksTable/NotebooksTable'
 export const scene: SceneExport = {
     component: NotebooksScene,
     logic: notebooksTableLogic,
+    productKey: ProductKey.NOTEBOOKS,
 }
 
 export function NotebooksScene(): JSX.Element {

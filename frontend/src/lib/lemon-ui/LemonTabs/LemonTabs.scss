@@ -12,6 +12,17 @@
         --lemon-tabs-content-padding: 0.375rem 0;
     }
 
+    &--xsmall {
+        --lemon-tabs-margin-bottom: 0.25rem;
+        --lemon-tabs-content-padding: 0.25rem 0;
+
+        font-size: 0.8125rem;
+
+        .LemonTabs__bar {
+            overflow-x: clip; // Prevent scrollbar from slider positioning
+        }
+    }
+
     .Navigation3000__scene > &:first-child,
     .Navigation3000__scene > :first-child > &:first-child {
         margin-top: -0.75rem;
@@ -61,21 +72,37 @@
     }
 
     .LemonTabs__tab {
+        .reduce-visual-noise & {
+            color: var(--color-text-tertiary) !important;
+        }
+
         .LemonTabs--transitioning & {
             transition: color 150ms ease;
         }
 
         &:hover {
             color: var(--color-accent);
+
+            .reduce-visual-noise & {
+                color: var(--color-text-primary) !important;
+            }
         }
 
         &:active {
             color: var(--color-accent);
+
+            .reduce-visual-noise & {
+                color: var(--color-text-primary) !important;
+            }
         }
 
         &.LemonTabs__tab--active {
             color: var(--color-accent);
             text-shadow: 0 0 0.25px currentColor; // Simulate increased weight without affecting width
+
+            .reduce-visual-noise & {
+                color: var(--color-accent) !important;
+            }
         }
 
         a {
@@ -84,6 +111,17 @@
             // Make tab labels that are links the same colors as regular tab labels
             text-decoration: none;
             transition: none;
+        }
+
+        &[aria-selected='true'] {
+            color: var(--color-accent);
+
+            .reduce-visual-noise & {
+                div,
+                a {
+                    color: var(--color-accent);
+                }
+            }
         }
 
         .LemonTabs__tab-content {

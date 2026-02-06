@@ -44,9 +44,17 @@ export const RENDERABLE_UI_PAYLOAD_TOOLS: AssistantTool[] = [
     'search_session_recordings',
     'search_error_tracking_issues',
     'create_form',
-    'upsert_dashboard',
 ]
 
+export function isRenderableUIPayloadTool(toolName: string, toolPayload: unknown): boolean {
+    return (
+        (RENDERABLE_UI_PAYLOAD_TOOLS as readonly string[]).includes(toolName) ||
+        isDangerousOperationResponse(toolPayload)
+    )
+}
+
+// Renders rich UI for a small set of tools that return structured payloads (recordings search,
+// error-tracking search, create_form, upsert_dashboard) and for dangerous-operation approval cards.
 export function UIPayloadAnswer({
     toolCallId,
     toolName,
@@ -160,9 +168,22 @@ export function ErrorTrackingFiltersWidget({
     filters,
 }: {
     toolCallId: string
-    filters: MaxErrorTrackingSearchResponse
+    filters: MaxErrorTrackingSearchResponse | null | undefined
 }): JSX.Element {
     const logicProps: MaxErrorTrackingWidgetLogicProps = { toolCallId, filters }
+
+    if (!filters) {
+        return (
+            <MessageTemplate type="ai" wrapperClassName="w-full" boxClassName="p-0 overflow-hidden">
+                <div className="py-2">
+                    <EmptyMessage
+                        title="Error tracking data unavailable"
+                        description="The error tracking search could not be completed"
+                    />
+                </div>
+            </MessageTemplate>
+        )
+    }
 
     return (
         <BindLogic logic={maxErrorTrackingWidgetLogic} props={logicProps}>

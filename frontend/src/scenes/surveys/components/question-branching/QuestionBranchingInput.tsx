@@ -136,12 +136,17 @@ export function QuestionBranchingInput({
     )
 }
 
-function getResponseConfiguration(
+export function getResponseConfiguration(
     question: RatingSurveyQuestion | MultipleSurveyQuestion
 ): { value: string | number; label: string }[] {
     if (question.type === SurveyQuestionType.Rating) {
         // Handle different rating scales with appropriate groupings
         switch (question.scale) {
+            case 2:
+                return [
+                    { value: 'positive', label: '1 (Thumbs up)' },
+                    { value: 'negative', label: '2 (Thumbs down)' },
+                ]
             case 3:
                 return [
                     { value: 'negative', label: '1 (Negative)' },

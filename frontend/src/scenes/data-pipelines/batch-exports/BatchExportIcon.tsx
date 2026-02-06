@@ -37,7 +37,7 @@ export function RenderBatchExportIcon({
 }): JSX.Element {
     const icon = BATCH_EXPORT_ICON_MAP[type]
 
-    const sizePx = size === 'small' ? 30 : 60
+    const sizePx = size === 'small' ? 30 : 45
 
     return (
         <div className="flex gap-4 items-center">

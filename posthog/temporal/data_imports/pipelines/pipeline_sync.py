@@ -20,6 +20,7 @@ from dlt.common.normalizers.naming.snake_case import NamingConvention
 
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.logger import get_logger
+from posthog.temporal.data_imports.pipelines.helpers import build_table_name
 
 from products.data_warehouse.backend.models.external_data_job import ExternalDataJob
 from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
@@ -101,7 +102,7 @@ def validate_schema_and_update_table_sync(
     _schema_name: str = external_data_schema.name
     incremental_or_append = external_data_schema.should_use_incremental_field
 
-    table_name = f"{job.pipeline.prefix or ''}{job.pipeline.source_type}_{_schema_name}".lower()
+    table_name = build_table_name(job.pipeline, _schema_name)
     normalized_schema_name = NamingConvention().normalize_identifier(_schema_name)
     new_url_pattern = job.url_pattern_by_schema(normalized_schema_name)
 

@@ -341,7 +341,7 @@ export default {
         viewMode: 'story',
         mockDate: '2023-02-18',
         testOptions: {
-            waitForSelector: 'text=/Logs is in beta/i',
+            waitForSelector: '[data-attr="logs-viewer"]',
         },
     }, // scene mode
 } as Meta
@@ -351,4 +351,7 @@ export function LogsScene(): JSX.Element {
         router.actions.push(urls.logs())
     }, [])
     return <App />
+}
+LogsScene.parameters = {
+    featureFlags: [],
 }

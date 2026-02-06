@@ -6,7 +6,7 @@ import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useState } from 'react'
 
-import { IconInfo, IconPlus, IconTrash } from '@posthog/icons'
+import { IconGitBranch, IconInfo, IconPlus, IconTrash } from '@posthog/icons'
 import {
     LemonButton,
     LemonCalendarSelect,
@@ -16,6 +16,7 @@ import {
     LemonInput,
     LemonSegmentedButton,
     LemonSelect,
+    LemonSwitch,
     LemonTag,
     Link,
     Popover,
@@ -66,6 +67,7 @@ import { SurveyAppearancePreview } from './SurveyAppearancePreview'
 import { HTMLEditor, PresentationTypeCard } from './SurveyAppearanceUtils'
 import { SurveyEditQuestionGroup, SurveyEditQuestionHeader } from './SurveyEditQuestionRow'
 import { SurveyFormAppearance } from './SurveyFormAppearance'
+import { SurveyBranchingFlowModal } from './branching-flow/SurveyBranchingFlowModal'
 import { SURVEY_TYPE_LABEL_MAP, SurveyMatchTypeLabels, defaultSurveyFieldValues } from './constants'
 import { DataCollectionType, SurveyEditSection, surveyLogic } from './surveyLogic'
 import { surveysLogic } from './surveysLogic'
@@ -240,7 +242,6 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
         hasBranchingLogic,
         deviceTypesMatchTypeValidationError,
         surveyErrors,
-        isExternalSurveyFFEnabled,
         user,
         surveyLoading,
     } = useValues(surveyLogic)
@@ -260,6 +261,8 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
     const sortedItemIds = survey.questions.map((_, idx) => idx.toString())
     const { thankYouMessageDescriptionContentType = null } = survey.appearance ?? {}
     useMountedLogic(actionsModel)
+
+    const [showFlowModal, setShowFlowModal] = useState(false)
 
     const handleCancelClick = (): void => {
         editingSurvey(false)
@@ -307,7 +310,7 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                     forceEdit
                     actions={
                         <>
-                            {guidedEditorEnabled && (
+                            {guidedEditorEnabled && survey.type === SurveyType.Popover && (
                                 <LemonButton
                                     data-attr="switch-to-wizard"
                                     type="tertiary"
@@ -410,16 +413,26 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                             title={SURVEY_TYPE_LABEL_MAP[SurveyType.ExternalSurvey]}
                                                             description="Collect responses via an external link, hosted on PostHog. If you are already using surveys, make sure to upgrade posthog-js to at least v1.258.1."
                                                             value={SurveyType.ExternalSurvey}
-                                                            disabled={!isExternalSurveyFFEnabled}
                                                         >
-                                                            <LemonTag type="warning">
-                                                                {isExternalSurveyFFEnabled ? 'BETA' : 'COMING SOON'}
-                                                            </LemonTag>
+                                                            <LemonTag type="warning">BETA</LemonTag>
                                                         </PresentationTypeCard>
                                                     </div>
                                                     {survey.type === SurveyType.Widget && <SurveyWidgetCustomization />}
                                                     {survey.type === SurveyType.ExternalSurvey && (
                                                         <>
+                                                            <Tooltip title="Enable this to embed the survey in tools like Framer, Webflow, or other website builders that use iframes.">
+                                                                <LemonSwitch
+                                                                    checked={!!survey.enable_iframe_embedding}
+                                                                    onChange={(checked) =>
+                                                                        setSurveyValue(
+                                                                            'enable_iframe_embedding',
+                                                                            checked
+                                                                        )
+                                                                    }
+                                                                    label="Allow embedding in iframes"
+                                                                    bordered
+                                                                />
+                                                            </Tooltip>
                                                             <div className="font-semibold">
                                                                 How hosted surveys work:
                                                             </div>
@@ -717,6 +730,17 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                 >
                                                     Add question
                                                 </LemonButton>
+                                                {hasBranchingLogic && (
+                                                    <LemonButton
+                                                        data-attr="preview-survey-branching"
+                                                        type="secondary"
+                                                        className="w-max"
+                                                        icon={<IconGitBranch />}
+                                                        onClick={() => setShowFlowModal(true)}
+                                                    >
+                                                        Preview branching flow
+                                                    </LemonButton>
+                                                )}
                                             </div>
                                             {!survey.appearance?.displayThankYouMessage && (
                                                 <LemonButton
@@ -1273,6 +1297,7 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                     </div>
                 </div>
             </div>
+            <SurveyBranchingFlowModal survey={survey} isOpen={showFlowModal} onClose={() => setShowFlowModal(false)} />
         </SceneContent>
     )
 }

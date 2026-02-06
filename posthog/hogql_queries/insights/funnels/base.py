@@ -195,7 +195,7 @@ class FunnelBase(ABC):
                 serialized_result.update(
                     {
                         "breakdown": (
-                            get_breakdown_cohort_name(breakdown_value)
+                            get_breakdown_cohort_name(breakdown_value, self.context.team)
                             if self.context.breakdownFilter.breakdown_type == "cohort"
                             else breakdown_value
                         ),
@@ -454,7 +454,7 @@ class FunnelBase(ABC):
         ):
             for i in range(0, max_steps):
                 exprs.append(parse_expr(f"groupArray(10)(step_{i}_matching_event) AS step_{i}_matching_events"))
-            exprs.append(parse_expr(f"groupArray(10)(final_matching_event) AS final_matching_events"))
+            exprs.append(parse_expr("groupArray(10)(final_matching_event) AS final_matching_events"))
         return exprs
 
     def _get_step_time_avgs(self, max_steps: int, inner_query: bool = False) -> list[ast.Expr]:
@@ -572,7 +572,11 @@ class FunnelBase(ABC):
         exprs: list[ast.Expr] = []
 
         for prop in self.context.includeProperties:
-            exprs.append(parse_expr(f"any({prop}) as {prop}") if aggregate else parse_expr(prop))
+            prop_expr = parse_expr(prop)
+            if aggregate:
+                exprs.append(ast.Alias(alias=prop, expr=ast.Call(name="any", args=[prop_expr])))
+            else:
+                exprs.append(prop_expr)
 
         return exprs
 

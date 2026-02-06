@@ -73,8 +73,8 @@ pub struct FlagRequest {
     pub timezone: Option<String>,
     #[serde(default)]
     pub cookieless_hash_extra: Option<String>,
-    #[serde(default)]
-    pub evaluation_environments: Option<Vec<String>>,
+    #[serde(default, alias = "evaluation_environments")]
+    pub evaluation_contexts: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub evaluation_runtime: Option<EvaluationRuntime>,
 }
@@ -469,7 +469,7 @@ mod tests {
     #[tokio::test]
     async fn token_is_returned_correctly() {
         let redis_client = setup_redis_client(None).await;
-        let pg_client = setup_pg_reader_client(None).await;
+        let pg_client = setup_pg_reader_client(None);
         let team = insert_new_team_in_redis(redis_client.clone())
             .await
             .expect("Failed to insert new team in Redis");
@@ -505,7 +505,7 @@ mod tests {
     #[tokio::test]
     async fn test_error_cases() {
         let redis_client = setup_redis_client(None).await;
-        let pg_client = setup_pg_reader_client(None).await;
+        let pg_client = setup_pg_reader_client(None);
         let team_hypercache_reader = setup_team_hypercache_reader(redis_client.clone()).await;
         let hypercache_reader = setup_hypercache_reader(redis_client.clone()).await;
 

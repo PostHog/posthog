@@ -5,12 +5,20 @@ to not properly merge properties.
 This job reads events from ClickHouse to find property updates ($set, $set_once, $unset)
 within a bug window, compares timestamps with properties_last_updated_at in Postgres,
 and applies any missed updates.
+
+For comprehensive documentation including architecture diagrams, parameter reference,
+and example sensor configurations, see:
+    PERSON_PROPERTY_RECONCILIATION.md
+
+For detailed query explanations, see:
+    person_property_reconciliation_query_explanation.md
 """
 
 import json
 import time
+from collections.abc import Iterator
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from django.conf import settings
@@ -43,6 +51,8 @@ class PersonPropertyReconciliationConfig(dagster.Config):
     backup_enabled: bool = True  # Store before/after state in backup table
     batch_size: int = 100  # Commit Postgres transaction every N persons (0 = single commit at end)
     teams_per_chunk: int = 100  # Number of teams to process per task (reduces task overhead)
+    team_ch_props_fetch_window_seconds: int = 0  # 0 = single query; >0 = split into N-second windows
+    person_batch_size: int = 10000  # Persons per batch in windowed mode (keeps IN clauses small)
 
 
 @dataclass
@@ -59,6 +69,20 @@ class PersonPropertyDiffs:
 
     person_id: str
     person_version: int  # Version from CH person table (baseline for conflict detection)
+    set_updates: dict[str, PropertyValue]  # key -> PropertyValue
+    set_once_updates: dict[str, PropertyValue]  # key -> PropertyValue
+    unset_updates: dict[str, PropertyValue]  # key -> PropertyValue (value is always None)
+
+
+@dataclass
+class RawPersonPropertyUpdates:
+    """Raw property updates from events, before comparison with person state.
+
+    Used in windowed queries where we aggregate across multiple time windows
+    before doing a single comparison against person properties.
+    """
+
+    person_id: str
     set_updates: dict[str, PropertyValue]  # key -> PropertyValue
     set_once_updates: dict[str, PropertyValue]  # key -> PropertyValue
     unset_updates: dict[str, PropertyValue]  # key -> PropertyValue (value is always None)
@@ -120,8 +144,6 @@ FILTERED_PERSON_UPDATE_PROPERTIES = frozenset(
 
 def ensure_utc_datetime(ts: datetime) -> datetime:
     """Ensure timestamp is a UTC-aware datetime."""
-    from datetime import UTC
-
     if ts.tzinfo is None:
         return ts.replace(tzinfo=UTC)
     return ts
@@ -204,7 +226,7 @@ def get_person_property_updates_from_clickhouse(
                         )
                     ) AS kv_tuple
                 WHERE e.team_id = %(team_id)s
-                  AND e.timestamp > %(bug_window_start)s
+                  AND e.timestamp >= %(bug_window_start)s
                   AND e.timestamp < now()
                   AND (JSONExtractString(e.properties, '$set') != '' OR JSONExtractString(e.properties, '$set_once') != '' OR notEmpty(JSONExtractArrayRaw(e.properties, '$unset')))
                 -- Group by resolved person_id (not distinct_id) so argMax works across all distinct_ids
@@ -323,6 +345,699 @@ def get_person_property_updates_from_clickhouse(
             )
 
     return results
+
+
+def get_raw_person_property_updates_from_clickhouse(
+    team_id: int,
+    bug_window_start: str,
+    bug_window_end: str,
+    person_ids: tuple[str, ...],
+) -> list[RawPersonPropertyUpdates]:
+    """
+    Query ClickHouse to get raw property updates from events WITHOUT comparing to person state.
+
+    This is used for windowed queries where we need to aggregate events across multiple
+    time windows before doing a single comparison against person properties.
+
+    Returns raw aggregated event data:
+    - $set: argMax for latest value per key
+    - $set_once: argMin for first value per key
+    - $unset: max timestamp per key
+
+    Args:
+        team_id: Team ID to query
+        bug_window_start: Start of time window (ClickHouse format: "YYYY-MM-DD HH:MM:SS")
+        bug_window_end: End of time window (ClickHouse format: "YYYY-MM-DD HH:MM:SS")
+        person_ids: Tuple of person_ids to filter to (required for batched processing)
+
+    Returns:
+        List of RawPersonPropertyUpdates with aggregated event data (no person comparison)
+    """
+    query = """
+    -- CTE 1: Get all overrides for the team
+    WITH overrides AS (
+        SELECT
+            argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+            person_distinct_id_overrides.distinct_id AS distinct_id
+        FROM person_distinct_id_overrides
+        WHERE equals(person_distinct_id_overrides.team_id, %(team_id)s)
+        GROUP BY person_distinct_id_overrides.distinct_id
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)
+    ),
+    -- CTE 2: Extract and aggregate properties from events
+    event_properties_raw AS (
+        SELECT
+            person_id,
+            arrayMap(x -> x.1, arrayFilter(x -> x.4 = 'set', grouped_props)) AS set_keys,
+            arrayMap(x -> x.2, arrayFilter(x -> x.4 = 'set', grouped_props)) AS set_values,
+            arrayMap(x -> x.3, arrayFilter(x -> x.4 = 'set', grouped_props)) AS set_timestamps,
+            arrayMap(x -> x.1, arrayFilter(x -> x.4 = 'set_once', grouped_props)) AS set_once_keys,
+            arrayMap(x -> x.2, arrayFilter(x -> x.4 = 'set_once', grouped_props)) AS set_once_values,
+            arrayMap(x -> x.3, arrayFilter(x -> x.4 = 'set_once', grouped_props)) AS set_once_timestamps,
+            arrayMap(x -> x.1, arrayFilter(x -> x.4 = 'unset', grouped_props)) AS unset_keys,
+            arrayMap(x -> x.3, arrayFilter(x -> x.4 = 'unset', grouped_props)) AS unset_timestamps
+        FROM (
+            SELECT
+                person_id,
+                groupArray(tuple(key, value, kv_timestamp, prop_type)) AS grouped_props
+            FROM (
+                SELECT
+                    if(notEmpty(o.distinct_id), o.person_id, e.person_id) AS person_id,
+                    kv_tuple.2 AS key,
+                    kv_tuple.1 AS prop_type,
+                    if(kv_tuple.1 = 'set',
+                        argMaxIf(kv_tuple.3, e.timestamp, kv_tuple.3 IS NOT NULL AND kv_tuple.3 != ''),
+                        argMinIf(kv_tuple.3, e.timestamp, kv_tuple.3 IS NOT NULL AND kv_tuple.3 != '')
+                    ) AS value,
+                    if(kv_tuple.1 = 'set_once', min(e.timestamp), max(e.timestamp)) AS kv_timestamp
+                FROM events e
+                LEFT JOIN overrides o ON e.distinct_id = o.distinct_id
+                ARRAY JOIN
+                    arrayConcat(
+                        arrayFilter(x -> x.3 IS NOT NULL AND x.3 != '' AND x.3 != 'null' AND x.2 NOT IN %(filtered_properties)s,
+                            arrayMap(x -> tuple('set', x.1, toString(x.2)),
+                                arrayFilter(x -> x.2 IS NOT NULL, JSONExtractKeysAndValuesRaw(e.properties, '$set'))
+                            )
+                        ),
+                        arrayFilter(x -> x.3 IS NOT NULL AND x.3 != '' AND x.3 != 'null' AND x.2 NOT IN %(filtered_properties)s,
+                            arrayMap(x -> tuple('set_once', x.1, toString(x.2)),
+                                arrayFilter(x -> x.2 IS NOT NULL, JSONExtractKeysAndValuesRaw(e.properties, '$set_once'))
+                            )
+                        ),
+                        arrayFilter(x -> x.2 NOT IN %(filtered_properties)s,
+                            arrayMap(x -> tuple('unset', JSON_VALUE(x, '$'), ''),
+                                JSONExtractArrayRaw(e.properties, '$unset')
+                            )
+                        )
+                    ) AS kv_tuple
+                WHERE e.team_id = %(team_id)s
+                  AND e.timestamp >= %(bug_window_start)s
+                  AND e.timestamp < %(bug_window_end)s
+                  AND (JSONExtractString(e.properties, '$set') != '' OR JSONExtractString(e.properties, '$set_once') != '' OR notEmpty(JSONExtractArrayRaw(e.properties, '$unset')))
+                  AND if(notEmpty(o.distinct_id), o.person_id, e.person_id) IN %(person_ids)s
+                GROUP BY if(notEmpty(o.distinct_id), o.person_id, e.person_id), kv_tuple.2, kv_tuple.1
+            )
+            GROUP BY person_id
+        )
+    )
+    -- Return raw aggregated event data (no person comparison)
+    SELECT
+        person_id,
+        arrayMap(i -> (set_keys[i], set_values[i], set_timestamps[i]), arrayEnumerate(set_keys)) AS set_data,
+        arrayMap(i -> (set_once_keys[i], set_once_values[i], set_once_timestamps[i]), arrayEnumerate(set_once_keys)) AS set_once_data,
+        arrayMap(i -> (unset_keys[i], unset_timestamps[i]), arrayEnumerate(unset_keys)) AS unset_data
+    FROM event_properties_raw
+    WHERE length(set_keys) > 0 OR length(set_once_keys) > 0 OR length(unset_keys) > 0
+    ORDER BY person_id
+    SETTINGS
+        readonly=2,
+        max_execution_time=600,
+        allow_experimental_object_type=1,
+        format_csv_allow_double_quotes=0,
+        max_ast_elements=4000000,
+        max_expanded_ast_elements=4000000,
+        allow_experimental_analyzer=1,
+        transform_null_in=1,
+        optimize_min_equality_disjunction_chain_length=4294967295,
+        allow_experimental_join_condition=1,
+        use_hive_partitioning=0
+    """
+
+    params = {
+        "team_id": team_id,
+        "bug_window_start": bug_window_start,
+        "bug_window_end": bug_window_end,
+        "filtered_properties": tuple(FILTERED_PERSON_UPDATE_PROPERTIES),
+        "person_ids": person_ids,
+    }
+
+    rows = sync_execute(query, params)
+
+    results: list[RawPersonPropertyUpdates] = []
+    for row in rows:
+        person_id, set_data, set_once_data, unset_data = row
+
+        set_updates: dict[str, PropertyValue] = {}
+        for key, value, timestamp in set_data:
+            set_updates[str(key)] = PropertyValue(
+                timestamp=ensure_utc_datetime(timestamp),
+                value=json.loads(value),
+            )
+
+        set_once_updates: dict[str, PropertyValue] = {}
+        for key, value, timestamp in set_once_data:
+            set_once_updates[str(key)] = PropertyValue(
+                timestamp=ensure_utc_datetime(timestamp),
+                value=json.loads(value),
+            )
+
+        unset_updates: dict[str, PropertyValue] = {}
+        for key, timestamp in unset_data:
+            unset_updates[str(key)] = PropertyValue(
+                timestamp=ensure_utc_datetime(timestamp),
+                value=None,
+            )
+
+        if set_updates or set_once_updates or unset_updates:
+            results.append(
+                RawPersonPropertyUpdates(
+                    person_id=str(person_id),
+                    set_updates=set_updates,
+                    set_once_updates=set_once_updates,
+                    unset_updates=unset_updates,
+                )
+            )
+
+    return results
+
+
+def get_affected_person_ids_from_clickhouse(
+    team_id: int,
+    bug_window_start: str,
+    bug_window_end: str,
+) -> list[str]:
+    """
+    Query ClickHouse for distinct person_ids who had property-setting events in the bug window.
+
+    This is the first step of the batched windowed query flow:
+    1. get_affected_person_ids_from_clickhouse() - identify affected persons (bounded)
+    2. For each batch of persons: run windowed event queries filtered to that batch
+    3. compare_raw_updates_with_person_state() to filter to actual diffs
+
+    The query is bounded by bug_window_end to limit the set of affected persons,
+    even though the actual event property aggregation will extend to now() to
+    capture all property updates for those persons.
+
+    Note: This query checks for presence of $set/$set_once/$unset but doesn't filter
+    FILTERED_PERSON_UPDATE_PROPERTIES. This may include persons who only had filtered
+    properties updated, but the subsequent raw update queries will filter them out.
+    This is a minor inefficiency that doesn't affect correctness.
+
+    Args:
+        team_id: Team ID to query
+        bug_window_start: Start of bug window (ClickHouse format: "YYYY-MM-DD HH:MM:SS")
+        bug_window_end: End of bug window (ClickHouse format: "YYYY-MM-DD HH:MM:SS")
+
+    Returns:
+        List of person_id strings (UUIDs) affected in the bug window
+    """
+    query = """
+    -- CTE 1: Get all overrides for the team
+    WITH overrides AS (
+        SELECT
+            argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+            person_distinct_id_overrides.distinct_id AS distinct_id
+        FROM person_distinct_id_overrides
+        WHERE equals(person_distinct_id_overrides.team_id, %(team_id)s)
+        GROUP BY person_distinct_id_overrides.distinct_id
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)
+    )
+    -- Get distinct resolved person_ids with property-setting events in the bug window
+    SELECT DISTINCT
+        if(notEmpty(o.distinct_id), o.person_id, e.person_id) AS person_id
+    FROM events e
+    LEFT JOIN overrides o ON e.distinct_id = o.distinct_id
+    WHERE e.team_id = %(team_id)s
+      AND e.timestamp >= %(bug_window_start)s
+      AND e.timestamp < %(bug_window_end)s
+      AND (
+        JSONExtractString(e.properties, '$set') != ''
+        OR JSONExtractString(e.properties, '$set_once') != ''
+        OR notEmpty(JSONExtractArrayRaw(e.properties, '$unset'))
+      )
+    ORDER BY person_id
+    SETTINGS
+        readonly=2,
+        max_execution_time=600,
+        allow_experimental_analyzer=1
+    """
+
+    params = {
+        "team_id": team_id,
+        "bug_window_start": bug_window_start,
+        "bug_window_end": bug_window_end,
+    }
+
+    rows = sync_execute(query, params)
+    return [str(row[0]) for row in rows]
+
+
+# Default batch size for processing persons in windowed mode.
+# Keeps IN clauses under ClickHouse's max_query_size limit.
+# 10K UUIDs × ~40 chars ≈ 400KB query text.
+WINDOWED_PERSON_BATCH_SIZE = 10000
+
+
+def merge_raw_person_property_updates(
+    accumulated: dict[str, RawPersonPropertyUpdates],
+    new_updates: list[RawPersonPropertyUpdates],
+) -> None:
+    """
+    Merge new raw updates into accumulated dict, keyed by person_id.
+
+    This is used when iterating through time windows to accumulate raw property updates
+    across multiple query results BEFORE comparing with person state.
+
+    Merge rules:
+    - For $set: newer timestamp replaces older
+    - For $set_once: earlier timestamp wins (first-writer-wins semantics)
+    - For $unset: newer timestamp replaces older
+
+    Cross-map conflicts (set/set_once vs unset) are resolved downstream by
+    filter_event_person_properties after comparison with person state.
+
+    Args:
+        accumulated: Dict of person_id -> RawPersonPropertyUpdates to merge into (mutated in place)
+        new_updates: List of new RawPersonPropertyUpdates from the latest window query
+    """
+    for new_update in new_updates:
+        person_id = new_update.person_id
+
+        if person_id not in accumulated:
+            accumulated[person_id] = RawPersonPropertyUpdates(
+                person_id=person_id,
+                set_updates=dict(new_update.set_updates),
+                set_once_updates=dict(new_update.set_once_updates),
+                unset_updates=dict(new_update.unset_updates),
+            )
+            continue
+
+        existing = accumulated[person_id]
+
+        # Process $set updates - newer timestamp wins
+        for key, new_pv in new_update.set_updates.items():
+            if key in existing.set_updates:
+                if new_pv.timestamp > existing.set_updates[key].timestamp:
+                    existing.set_updates[key] = new_pv
+            else:
+                existing.set_updates[key] = new_pv
+
+        # Process $set_once updates - earlier timestamp wins
+        for key, new_pv in new_update.set_once_updates.items():
+            if key in existing.set_once_updates:
+                if new_pv.timestamp < existing.set_once_updates[key].timestamp:
+                    existing.set_once_updates[key] = new_pv
+            else:
+                existing.set_once_updates[key] = new_pv
+
+        # Process $unset updates - newer timestamp wins
+        for key, new_pv in new_update.unset_updates.items():
+            if key in existing.unset_updates:
+                if new_pv.timestamp > existing.unset_updates[key].timestamp:
+                    existing.unset_updates[key] = new_pv
+            else:
+                existing.unset_updates[key] = new_pv
+
+
+# Max number of person_ids per batch when querying person state.
+# Prevents "Query size exceeded" errors when IN clause becomes too large.
+# 10K UUIDs × ~40 chars ≈ 400KB query text, under typical max_query_size limits.
+PERSON_STATE_BATCH_SIZE = 10000
+
+
+def compare_raw_updates_with_person_state(
+    team_id: int,
+    raw_updates: list[RawPersonPropertyUpdates],
+) -> list[PersonPropertyDiffs]:
+    """
+    Compare merged raw event updates against current person state in ClickHouse.
+
+    This is the second step of the windowed query flow:
+    1. get_raw_person_property_updates_from_clickhouse() per window
+    2. merge_raw_person_property_updates() to combine windows
+    3. compare_raw_updates_with_person_state() to filter to actual diffs
+
+    Comparison rules (matching the original single-query behavior):
+    - $set: only include if key EXISTS in person AND value DIFFERS
+    - $set_once: only include if key does NOT exist in person
+    - $unset: only include if key EXISTS in person
+
+    Note on comparison semantics:
+        This function uses Python object comparison, so semantically equal values
+        like 123 (int) and 123.0 (float) are considered equal. This differs from
+        the non-windowed SQL path (get_person_property_updates_from_clickhouse)
+        which compares raw JSON string representations. The Python approach is
+        preferable for reconciliation as it avoids unnecessary updates when
+        values are semantically equivalent.
+
+    Note on batching:
+        For high-volume teams with many affected persons, we batch the person
+        state queries to avoid "Query size exceeded" errors from overly large
+        IN clauses. Each batch queries up to PERSON_STATE_BATCH_SIZE persons.
+
+    Args:
+        team_id: Team ID
+        raw_updates: Merged raw updates from all time windows
+
+    Returns:
+        List of PersonPropertyDiffs with only actual differences
+    """
+    if not raw_updates:
+        return []
+
+    # Extract person_ids for batching
+    person_ids = [u.person_id for u in raw_updates]
+
+    # Query person properties and versions in batches to avoid "Query size exceeded"
+    person_data: dict[str, tuple[dict, int]] = {}
+
+    for batch_start in range(0, len(person_ids), PERSON_STATE_BATCH_SIZE):
+        batch_person_ids = person_ids[batch_start : batch_start + PERSON_STATE_BATCH_SIZE]
+
+        query = """
+        SELECT
+            id,
+            argMax(properties, version) as properties,
+            argMax(version, version) as person_version
+        FROM person
+        WHERE team_id = %(team_id)s
+          AND id IN %(person_ids)s
+        GROUP BY id
+        HAVING argMax(is_deleted, version) = 0
+        """
+
+        params = {
+            "team_id": team_id,
+            "person_ids": tuple(batch_person_ids),
+        }
+
+        rows = sync_execute(query, params)
+
+        for row in rows:
+            person_id, properties_str, version = row
+            if properties_str:
+                properties = json.loads(properties_str) if isinstance(properties_str, str) else properties_str
+            else:
+                properties = {}
+            person_data[str(person_id)] = (properties, int(version))
+
+    results: list[PersonPropertyDiffs] = []
+
+    for raw_update in raw_updates:
+        if raw_update.person_id not in person_data:
+            continue
+
+        person_properties, person_version = person_data[raw_update.person_id]
+        person_keys = set(person_properties.keys())
+
+        # Filter $set: key must exist in person AND value must differ
+        filtered_set: dict[str, PropertyValue] = {}
+        for key, pv in raw_update.set_updates.items():
+            if key in person_keys:
+                person_val = person_properties[key]
+                if pv.value != person_val:
+                    filtered_set[key] = pv
+
+        # Filter $set_once: key must NOT exist in person
+        filtered_set_once: dict[str, PropertyValue] = {}
+        for key, pv in raw_update.set_once_updates.items():
+            if key not in person_keys:
+                filtered_set_once[key] = pv
+
+        # Filter $unset: key must exist in person
+        filtered_unset: dict[str, PropertyValue] = {}
+        for key, pv in raw_update.unset_updates.items():
+            if key in person_keys:
+                filtered_unset[key] = pv
+
+        if filtered_set or filtered_set_once or filtered_unset:
+            results.append(
+                PersonPropertyDiffs(
+                    person_id=raw_update.person_id,
+                    person_version=person_version,
+                    set_updates=filtered_set,
+                    set_once_updates=filtered_set_once,
+                    unset_updates=filtered_unset,
+                )
+            )
+
+    return results
+
+
+def parse_ch_timestamp(ts: str) -> datetime:
+    """Parse a ClickHouse timestamp string to a UTC datetime."""
+    return datetime.strptime(ts, "%Y-%m-%d %H:%M:%S").replace(tzinfo=UTC)
+
+
+def format_ch_timestamp(dt: datetime) -> str:
+    """Format a datetime to ClickHouse timestamp string (UTC)."""
+    if dt.tzinfo is None:
+        # Assume naive datetimes are already UTC
+        return dt.strftime("%Y-%m-%d %H:%M:%S")
+    # Convert to UTC before formatting
+    utc_dt = dt.astimezone(UTC)
+    return utc_dt.strftime("%Y-%m-%d %H:%M:%S")
+
+
+def get_person_property_updates_windowed(
+    team_id: int,
+    bug_window_start: str,
+    window_seconds: int,
+    bug_window_end: str | None = None,
+    logger: Any = None,
+) -> list[PersonPropertyDiffs]:
+    """
+    Fetch person property updates, optionally in time windows.
+
+    When window_seconds > 0, this function uses a two-step flow:
+    1. Query affected person_ids first (returns early if none)
+    2. Query raw event aggregates per window (no person comparison)
+    3. Merge raw updates across windows with timestamp-based deduplication
+    4. Compare final merged updates against current person state
+
+    When window_seconds <= 0, uses the original single-query approach.
+
+    Args:
+        team_id: Team ID to query
+        bug_window_start: Start of time window (ClickHouse format: "YYYY-MM-DD HH:MM:SS")
+        window_seconds: Size of each query window in seconds. If <= 0, single query is used.
+        bug_window_end: End of time window (defaults to now if not provided)
+        logger: Optional logger for progress tracking
+
+    Returns:
+        List of PersonPropertyDiffs with merged results across all windows
+    """
+    if window_seconds <= 0:
+        if logger:
+            logger.info(f"Using single-query mode for team_id={team_id}")
+        return get_person_property_updates_from_clickhouse(team_id, bug_window_start)
+
+    now = datetime.now(UTC)
+    effective_end = bug_window_end or format_ch_timestamp(now)
+
+    # Step 1: Get affected person_ids first (early exit if none)
+    affected_person_ids = get_affected_person_ids_from_clickhouse(
+        team_id=team_id,
+        bug_window_start=bug_window_start,
+        bug_window_end=effective_end,
+    )
+
+    if logger:
+        logger.info(f"Found {len(affected_person_ids)} affected persons for team_id={team_id}")
+
+    if not affected_person_ids:
+        return []
+
+    person_ids_tuple = tuple(affected_person_ids)
+
+    # Step 2: Query raw updates per window and merge
+    accumulated: dict[str, RawPersonPropertyUpdates] = {}
+    current_start = parse_ch_timestamp(bug_window_start)
+    window_count = 0
+    total_windows = int((now - current_start).total_seconds() / window_seconds) + 1
+
+    if logger:
+        logger.info(f"Starting windowed query: team_id={team_id}, ~{total_windows} windows of {window_seconds}s each")
+
+    while current_start < now:
+        current_end = min(current_start + timedelta(seconds=window_seconds), now)
+        window_updates = get_raw_person_property_updates_from_clickhouse(
+            team_id,
+            format_ch_timestamp(current_start),
+            format_ch_timestamp(current_end),
+            person_ids=person_ids_tuple,
+        )
+        merge_raw_person_property_updates(accumulated, window_updates)
+        window_count += 1
+
+        if logger and window_count % 10 == 0:
+            logger.info(
+                f"Processed window {window_count}/{total_windows} for team_id={team_id}, "
+                f"accumulated {len(accumulated)} unique persons"
+            )
+
+        current_start = current_end
+
+    if logger:
+        logger.info(
+            f"Completed all {window_count} windows for team_id={team_id}, total unique persons: {len(accumulated)}"
+        )
+
+    # Step 3: Compare merged raw updates against person state
+    if logger:
+        logger.info(f"Comparing {len(accumulated)} persons against current state for team_id={team_id}")
+
+    return compare_raw_updates_with_person_state(team_id, list(accumulated.values()))
+
+
+def get_person_property_updates_windowed_batched(
+    team_id: int,
+    bug_window_start: str,
+    bug_window_end: str,
+    window_seconds: int,
+    person_batch_size: int = WINDOWED_PERSON_BATCH_SIZE,
+    logger: Any = None,
+) -> Iterator[list[PersonPropertyDiffs]]:
+    """
+    Yield batches of PersonPropertyDiffs, processing persons in chunks.
+
+    This is the memory-efficient version of get_person_property_updates_windowed()
+    that processes persons in batches to prevent OOM on large teams.
+
+    Flow:
+    1. Get affected person_ids (bounded by bug_window_end)
+    2. For each batch of person_ids:
+       a. For each time window [start → now()]:
+          - Query raw events filtered to this batch's person_ids
+          - Merge into batch accumulator
+       b. Compare batch with person state
+       c. Yield batch results (allows caller to process and clear memory)
+
+    Args:
+        team_id: Team ID to query
+        bug_window_start: Start of bug window (ClickHouse format: "YYYY-MM-DD HH:MM:SS")
+        bug_window_end: End of bug window - used to bound affected persons
+        window_seconds: Size of each query window in seconds
+        person_batch_size: Number of persons per batch (default 10K)
+        logger: Optional logger for progress tracking
+
+    Yields:
+        List of PersonPropertyDiffs for each batch of persons
+    """
+    # Step 1: Get affected person_ids (bounded by bug_window_end)
+    if logger:
+        logger.info(f"Querying affected persons: team_id={team_id}, bug_window=[{bug_window_start}, {bug_window_end}]")
+
+    try:
+        affected_person_ids = get_affected_person_ids_from_clickhouse(
+            team_id=team_id,
+            bug_window_start=bug_window_start,
+            bug_window_end=bug_window_end,
+        )
+    except Exception:
+        if logger:
+            logger.exception(
+                f"Failed to query affected persons for team_id={team_id}, "
+                f"bug_window=[{bug_window_start}, {bug_window_end}]"
+            )
+        raise
+
+    if logger:
+        logger.info(f"Found {len(affected_person_ids)} affected persons for team_id={team_id}")
+
+    if not affected_person_ids:
+        return
+
+    # Calculate total batches and windows for logging
+    total_batches = (len(affected_person_ids) + person_batch_size - 1) // person_batch_size
+    now = datetime.now(UTC)
+    current_start_for_count = parse_ch_timestamp(bug_window_start)
+    total_windows = int((now - current_start_for_count).total_seconds() / window_seconds) + 1
+
+    if logger:
+        logger.info(
+            f"Starting batched windowed processing: team_id={team_id}, "
+            f"{total_batches} batches of ~{person_batch_size} persons, "
+            f"~{total_windows} windows of {window_seconds}s each"
+        )
+
+    # Step 2: Process each batch of persons
+    for batch_idx in range(0, len(affected_person_ids), person_batch_size):
+        batch_person_ids = affected_person_ids[batch_idx : batch_idx + person_batch_size]
+        batch_num = (batch_idx // person_batch_size) + 1
+
+        if logger:
+            logger.info(
+                f"Processing batch {batch_num}/{total_batches} for team_id={team_id}, {len(batch_person_ids)} persons"
+            )
+
+        # Step 2a: Query raw updates per window for this batch and merge
+        accumulated: dict[str, RawPersonPropertyUpdates] = {}
+        current_start = parse_ch_timestamp(bug_window_start)
+        window_count = 0
+
+        try:
+            while current_start < now:
+                current_end = min(current_start + timedelta(seconds=window_seconds), now)
+                try:
+                    window_updates = get_raw_person_property_updates_from_clickhouse(
+                        team_id,
+                        format_ch_timestamp(current_start),
+                        format_ch_timestamp(current_end),
+                        person_ids=tuple(batch_person_ids),
+                    )
+                except Exception:
+                    if logger:
+                        logger.exception(
+                            f"Batch {batch_num}: failed to query window {window_count + 1}/{total_windows} "
+                            f"[{format_ch_timestamp(current_start)}, {format_ch_timestamp(current_end)}) "
+                            f"for team_id={team_id}"
+                        )
+                    raise
+
+                merge_raw_person_property_updates(accumulated, window_updates)
+                window_count += 1
+
+                if logger and window_count % 10 == 0:
+                    logger.info(
+                        f"Batch {batch_num}: processed window {window_count}/{total_windows}, "
+                        f"accumulated {len(accumulated)} persons"
+                    )
+
+                current_start = current_end
+
+        except Exception:
+            if logger:
+                logger.exception(
+                    f"Batch {batch_num}: failed during windowed event collection for team_id={team_id} "
+                    f"after {window_count} windows, accumulated {len(accumulated)} persons"
+                )
+            raise
+
+        if logger:
+            logger.info(
+                f"Batch {batch_num}: completed {window_count} windows, total persons with updates: {len(accumulated)}"
+            )
+
+        # Step 2b: Compare batch with person state
+        if accumulated:
+            if logger:
+                logger.info(f"Batch {batch_num}: comparing {len(accumulated)} persons against current state")
+
+            try:
+                batch_diffs = compare_raw_updates_with_person_state(team_id, list(accumulated.values()))
+            except Exception:
+                if logger:
+                    logger.exception(
+                        f"Batch {batch_num}: failed to compare {len(accumulated)} persons "
+                        f"against current state for team_id={team_id}"
+                    )
+                raise
+
+            if batch_diffs:
+                if logger:
+                    logger.info(f"Batch {batch_num}: yielding {len(batch_diffs)} persons with diffs")
+                # Step 2c: Yield batch results
+                yield batch_diffs
+            else:
+                if logger:
+                    logger.info(f"Batch {batch_num}: no diffs found after comparison")
+        else:
+            if logger:
+                logger.info(f"Batch {batch_num}: no updates found in time windows")
+
+    if logger:
+        logger.info(f"Completed all {total_batches} batches for team_id={team_id}")
 
 
 def filter_event_person_properties(
@@ -1102,10 +1817,13 @@ class TeamReconciliationResult:
 def reconcile_single_team(
     team_id: int,
     bug_window_start: str,
+    bug_window_end: str,
     run_id: str,
     batch_size: int,
     dry_run: bool,
     backup_enabled: bool,
+    team_ch_props_fetch_window_seconds: int,
+    person_batch_size: int,
     persons_database: psycopg2.extensions.connection,
     kafka_producer: _KafkaProducer,
     logger: Any,
@@ -1113,27 +1831,13 @@ def reconcile_single_team(
     """
     Reconcile person properties for all affected persons in a single team.
 
+    This function supports two modes:
+    - Non-windowed (team_ch_props_fetch_window_seconds <= 0): Single query to ClickHouse
+    - Windowed batched (team_ch_props_fetch_window_seconds > 0): Process persons in batches,
+      each batch iterating through time windows. This prevents OOM on large teams.
+
     This function does not catch exceptions - the caller is responsible for error handling.
     """
-    # Query ClickHouse for all persons with property updates in this team
-    person_property_diffs = get_person_property_updates_from_clickhouse(
-        team_id=team_id,
-        bug_window_start=bug_window_start,
-    )
-
-    # Filter conflicting set/unset operations
-    person_property_diffs = filter_event_person_properties(person_property_diffs)
-
-    if not person_property_diffs:
-        logger.info(f"No persons to reconcile for team_id={team_id}")
-        return TeamReconciliationResult(
-            team_id=team_id,
-            persons_processed=0,
-            persons_updated=0,
-            persons_skipped=0,
-        )
-
-    logger.info(f"Processing {len(person_property_diffs)} persons for team_id={team_id}")
 
     # Callback for batch commits - handles Kafka publishing after each batch
     def on_batch_committed(batch_num: int, batch_persons: list[dict]) -> None:
@@ -1151,6 +1855,97 @@ def reconcile_single_team(
             logger.info(f"Batch {batch_num}: committed {len(batch_persons)} updates for team_id={team_id}")
         elif batch_persons and dry_run:
             logger.info(f"[DRY RUN] Batch {batch_num}: would apply {len(batch_persons)} updates for team_id={team_id}")
+
+    # Use windowed batched mode for large teams (window_seconds > 0)
+    if team_ch_props_fetch_window_seconds > 0:
+        logger.info(
+            f"Using windowed batched mode: team_id={team_id}, "
+            f"bug_window=[{bug_window_start}, {bug_window_end}], "
+            f"window_seconds={team_ch_props_fetch_window_seconds}, "
+            f"person_batch_size={person_batch_size}"
+        )
+
+        total_processed = 0
+        total_updated = 0
+        total_skipped = 0
+        person_batch_num = 0
+
+        with persons_database.cursor() as cursor:
+            cursor.execute("SET application_name = 'person_property_reconciliation'")
+            cursor.execute("SET lock_timeout = '5s'")
+            cursor.execute("SET statement_timeout = '30min'")
+            cursor.execute("SET synchronous_commit = off")
+
+            # Process each batch of persons from the iterator
+            for person_batch in get_person_property_updates_windowed_batched(
+                team_id=team_id,
+                bug_window_start=bug_window_start,
+                bug_window_end=bug_window_end,
+                window_seconds=team_ch_props_fetch_window_seconds,
+                person_batch_size=person_batch_size,
+                logger=logger,
+            ):
+                person_batch_num += 1
+
+                # Filter conflicting set/unset operations for this batch
+                filtered_batch = filter_event_person_properties(person_batch)
+
+                if not filtered_batch:
+                    logger.info(f"Person batch {person_batch_num}: no diffs after filtering for team_id={team_id}")
+                    continue
+
+                logger.info(
+                    f"Person batch {person_batch_num}: processing {len(filtered_batch)} persons for team_id={team_id}"
+                )
+
+                # Process this batch
+                result = process_persons_in_batches(
+                    person_property_diffs=filtered_batch,
+                    cursor=cursor,
+                    job_id=run_id,
+                    team_id=team_id,
+                    batch_size=batch_size,
+                    dry_run=dry_run,
+                    backup_enabled=backup_enabled,
+                    commit_fn=persons_database.commit,
+                    on_batch_committed=on_batch_committed,
+                    logger=logger,
+                )
+
+                total_processed += result.total_processed
+                total_updated += result.total_updated
+                total_skipped += result.total_skipped
+
+        logger.info(
+            f"Completed team_id={team_id} (windowed batched): processed={total_processed}, "
+            f"updated={total_updated}, skipped={total_skipped}, person_batches={person_batch_num}"
+        )
+
+        return TeamReconciliationResult(
+            team_id=team_id,
+            persons_processed=total_processed,
+            persons_updated=total_updated,
+            persons_skipped=total_skipped,
+        )
+
+    # Non-windowed mode (original behavior)
+    logger.info(f"Using non-windowed mode: team_id={team_id}, bug_window_start={bug_window_start}")
+    person_property_diffs = get_person_property_updates_from_clickhouse(team_id, bug_window_start)
+    logger.info(f"Found {len(person_property_diffs)} persons with property diffs for team_id={team_id}")
+
+    # Filter conflicting set/unset operations
+    person_property_diffs = filter_event_person_properties(person_property_diffs)
+
+    if not person_property_diffs:
+        logger.info(f"No persons to reconcile for team_id={team_id}")
+        return TeamReconciliationResult(
+            team_id=team_id,
+            persons_processed=0,
+            persons_updated=0,
+            persons_skipped=0,
+        )
+
+    logger.info(f"Processing {len(person_property_diffs)} persons for team_id={team_id}")
 
     with persons_database.cursor() as cursor:
         cursor.execute("SET application_name = 'person_property_reconciliation'")
@@ -1232,10 +2027,13 @@ def reconcile_team_chunk(
             result = reconcile_single_team(
                 team_id=team_id,
                 bug_window_start=config.bug_window_start,
+                bug_window_end=config.bug_window_end or config.bug_window_start,  # Fallback for backward compat
                 run_id=run_id,
                 batch_size=config.batch_size,
                 dry_run=config.dry_run,
                 backup_enabled=config.backup_enabled,
+                team_ch_props_fetch_window_seconds=config.team_ch_props_fetch_window_seconds,
+                person_batch_size=config.person_batch_size,
                 persons_database=persons_database,
                 kafka_producer=kafka_producer,
                 logger=context.log,
@@ -1394,6 +2192,8 @@ class ReconciliationSchedulerConfig(dagster.Config):
     backup_enabled: bool = True
     batch_size: int = 100
     teams_per_chunk: int = 100  # Number of teams to process per task
+    team_ch_props_fetch_window_seconds: int = 0  # 0 = single query; >0 = split into N-second windows
+    person_batch_size: int = 10000  # Persons per batch in windowed mode (keeps IN clauses small)
 
     # Resource configuration - the env var name for the PG connection string
     persons_db_env_var: str = "PERSONS_DB_WRITER_URL"  # Env var for Postgres connection URL
@@ -1416,6 +2216,8 @@ def build_reconciliation_run_config(
         "backup_enabled": config.backup_enabled,
         "batch_size": config.batch_size,
         "teams_per_chunk": config.teams_per_chunk,
+        "team_ch_props_fetch_window_seconds": config.team_ch_props_fetch_window_seconds,
+        "person_batch_size": config.person_batch_size,
     }
 
     if team_ids is not None:
@@ -1561,6 +2363,8 @@ def person_property_reconciliation_scheduler(context: dagster.SensorEvaluationCo
         backup_enabled=cursor_data.get("backup_enabled", True),
         batch_size=cursor_data.get("batch_size", 100),
         teams_per_chunk=cursor_data.get("teams_per_chunk", 100),
+        team_ch_props_fetch_window_seconds=cursor_data.get("team_ch_props_fetch_window_seconds", 0),
+        person_batch_size=cursor_data.get("person_batch_size", 10000),
         persons_db_env_var=cursor_data.get("persons_db_env_var", "PERSONS_DB_WRITER_URL"),
     )
 
@@ -1603,14 +2407,12 @@ def person_property_reconciliation_scheduler(context: dagster.SensorEvaluationCo
                 team_ids=chunk_team_ids,
             )
 
-            run_key = f"reconcile_team_ids_{next_team_index}_{chunk_end_index - 1}"
             context.log.info(
                 f"Scheduling run for team_ids[{next_team_index}:{chunk_end_index}] ({len(chunk_team_ids)} teams)"
             )
 
             run_requests.append(
                 dagster.RunRequest(
-                    run_key=run_key,
                     run_config=run_config,
                     tags={
                         "reconciliation_team_ids_range": f"{next_team_index}-{chunk_end_index - 1}",
@@ -1645,12 +2447,10 @@ def person_property_reconciliation_scheduler(context: dagster.SensorEvaluationCo
                 max_team_id=chunk_end,
             )
 
-            run_key = f"reconcile_teams_{current_start}_{chunk_end}"
             context.log.info(f"Scheduling run for teams {current_start}-{chunk_end}")
 
             run_requests.append(
                 dagster.RunRequest(
-                    run_key=run_key,
                     run_config=run_config,
                     tags={
                         "reconciliation_range": f"{current_start}-{chunk_end}",
