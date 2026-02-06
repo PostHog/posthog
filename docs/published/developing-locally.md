@@ -227,7 +227,7 @@ For a PostHog PR to be merged, all tests must be green, and ideally you should b
 For frontend unit tests, run:
 
 ```bash
-pnpm test:unit
+pnpm --filter=@posthog/frontend test
 ```
 
 You can narrow the run down to only files under matching paths:
