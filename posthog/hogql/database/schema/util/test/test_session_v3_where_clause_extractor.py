@@ -359,6 +359,32 @@ SELECT
         )
         assert expected == actual
 
+    def test_uuidv7_to_datetime_filter(self):
+        actual = f(
+            self.inliner.get_inner_where(
+                parse(
+                    "SELECT * FROM sessions WHERE $start_timestamp >= UUIDv7ToDateTime(toUUID('0199a58b-fdf2-785c-b6e3-6ba32b2380cf'))"
+                )
+            )
+        )
+        expected = f(
+            "raw_sessions_v3.session_timestamp >= (UUIDv7ToDateTime(toUUID('0199a58b-fdf2-785c-b6e3-6ba32b2380cf')) - toIntervalDay(3))"
+        )
+        assert expected == actual
+
+    def test_uuidv7_to_datetime_filter_with_interval(self):
+        actual = f(
+            self.inliner.get_inner_where(
+                parse(
+                    "SELECT * FROM sessions WHERE $start_timestamp <= UUIDv7ToDateTime(toUUID('0199a58b-fdf2-785c-b6e3-6ba32b2380cf')) + toIntervalHour(1)"
+                )
+            )
+        )
+        expected = f(
+            "raw_sessions_v3.session_timestamp <= ((UUIDv7ToDateTime(toUUID('0199a58b-fdf2-785c-b6e3-6ba32b2380cf')) + toIntervalHour(1)) + toIntervalDay(3))"
+        )
+        assert expected == actual
+
 
 class TestSessionsV3QueriesHogQLToClickhouse(ClickhouseTestMixin, APIBaseTest):
     def print_query(self, query: str) -> str:
@@ -505,6 +531,34 @@ FROM (
     WHERE $start_timestamp >= '2024-01-01'
 ) AS subquery
 WHERE subquery.session_id = '0199a58b-fdf2-785c-b6e3-6ba32b2380cf'
+"""
+        )
+        assert self.generalize_sql(actual) == self.snapshot
+
+    def test_single_session_lookup_with_uuidv7_timestamp(self):
+        actual = self.print_query(
+            """
+SELECT
+    session_id,
+    $start_timestamp,
+    $end_timestamp
+FROM sessions
+WHERE $start_timestamp >= UUIDv7ToDateTime(toUUID('0199a58b-fdf2-785c-b6e3-6ba32b2380cf'))
+    AND $start_timestamp <= UUIDv7ToDateTime(toUUID('0199a58b-fdf2-785c-b6e3-6ba32b2380cf')) + INTERVAL 1 HOUR
+    AND session_id = '0199a58b-fdf2-785c-b6e3-6ba32b2380cf'
+LIMIT 1
+"""
+        )
+        assert self.generalize_sql(actual) == self.snapshot
+
+    def test_single_session_lookup_with_uuidv7_timestamp_simple(self):
+        actual = self.print_query(
+            """
+SELECT session_id
+FROM sessions
+WHERE $start_timestamp >= UUIDv7ToDateTime(toUUID('0199a58b-fdf2-785c-b6e3-6ba32b2380cf'))
+    AND $start_timestamp <= UUIDv7ToDateTime(toUUID('0199a58b-fdf2-785c-b6e3-6ba32b2380cf')) + INTERVAL 2 DAY
+    AND session_id = '0199a58b-fdf2-785c-b6e3-6ba32b2380cf'
 """
         )
         assert self.generalize_sql(actual) == self.snapshot
