@@ -313,7 +313,7 @@ jobs:
                   echo $! > /tmp/resource-monitor.pid
 
             - name: Test with Jest
-              run: bin/turbo run test --filter=@posthog/frontend -- --maxWorkers=3
+              run: bin/turbo run test --filter=@posthog/frontend --force -- --maxWorkers=2
               env:
                   NODE_OPTIONS: --max-old-space-size=16384
 
