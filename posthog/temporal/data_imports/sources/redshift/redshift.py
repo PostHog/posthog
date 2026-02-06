@@ -69,28 +69,14 @@ def get_redshift_row_count(
 
             cursor.execute(
                 """
-                SELECT tablename as table_name FROM pg_tables WHERE schemaname = %(schema)s
-                UNION ALL
-                SELECT viewname as table_name FROM pg_views WHERE schemaname = %(schema)s
+                SELECT "table" AS table_name, tbl_rows AS row_count
+                FROM svv_table_info
+                WHERE schema = %(schema)s
                 """,
                 {"schema": schema},
             )
-            tables = cursor.fetchall()
-
-            if not tables:
-                return {}
-
-            counts = [
-                sql.SQL("SELECT {table_name} AS table_name, COUNT(*) AS row_count FROM {schema}.{table}").format(
-                    table_name=sql.Literal(table[0]), schema=sql.Identifier(schema), table=sql.Identifier(table[0])
-                )
-                for table in tables
-            ]
-
-            union_counts = sql.SQL(" UNION ALL ").join(counts)
-            cursor.execute(union_counts)
             row_count_result = cursor.fetchall()
-            row_counts = {row[0]: row[1] for row in row_count_result}
+            row_counts = {row[0]: int(row[1]) for row in row_count_result}
         return row_counts
     except Exception:
         return {}
