@@ -20,27 +20,25 @@ function canCoerceToType(value: unknown, propertyType: string): boolean {
             return true
 
         case 'Numeric':
-            // Accepts: numbers, numeric strings, booleans
+            // Accepts: numbers, numeric strings
+            // Rejects: Infinity, -Infinity, NaN, booleans (these become null in ClickHouse)
             if (typeof value === 'number') {
-                return true
-            }
-            if (typeof value === 'boolean') {
-                return true
+                return Number.isFinite(value)
             }
             if (typeof value === 'string') {
                 const trimmed = value.trim()
-                return trimmed !== '' && !isNaN(Number(trimmed))
+                const num = Number(trimmed)
+                return trimmed !== '' && Number.isFinite(num)
             }
             return false
 
         case 'Boolean':
-            // Accepts: booleans, "true"/"false" strings (case insensitive)
+            // Accepts: booleans, "true"/"false" strings (case sensitive - ClickHouse transform only matches lowercase)
             if (typeof value === 'boolean') {
                 return true
             }
             if (typeof value === 'string') {
-                const lower = value.toLowerCase()
-                return lower === 'true' || lower === 'false'
+                return value === 'true' || value === 'false'
             }
             return false
 

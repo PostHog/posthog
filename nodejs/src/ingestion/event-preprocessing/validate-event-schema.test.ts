@@ -104,8 +104,6 @@ describe('validateEventAgainstSchema', () => {
             ['numeric string', '42'],
             ['negative numeric string', '-10'],
             ['float string', '3.14'],
-            ['boolean true', true],
-            ['boolean false', false],
         ])('should accept %s as Numeric', (_, value) => {
             const schema: EventSchemaEnforcement = {
                 event_name: 'test_event',
@@ -123,6 +121,14 @@ describe('validateEventAgainstSchema', () => {
             ['whitespace string', '   '],
             ['object', { foo: 'bar' }],
             ['array', [1, 2, 3]],
+            ['boolean true', true],
+            ['boolean false', false],
+            ['Infinity', Infinity],
+            ['-Infinity', -Infinity],
+            ['NaN', NaN],
+            ['string "Infinity"', 'Infinity'],
+            ['string "-Infinity"', '-Infinity'],
+            ['string "NaN"', 'NaN'],
         ])('should reject %s as Numeric', (_, value) => {
             const schema: EventSchemaEnforcement = {
                 event_name: 'test_event',
@@ -142,9 +148,6 @@ describe('validateEventAgainstSchema', () => {
             ['false', false],
             ['string "true"', 'true'],
             ['string "false"', 'false'],
-            ['string "TRUE"', 'TRUE'],
-            ['string "FALSE"', 'FALSE'],
-            ['string "True"', 'True'],
         ])('should accept %s as Boolean', (_, value) => {
             const schema: EventSchemaEnforcement = {
                 event_name: 'test_event',
@@ -161,6 +164,10 @@ describe('validateEventAgainstSchema', () => {
             ['number 0', 0],
             ['string "yes"', 'yes'],
             ['string "no"', 'no'],
+            ['string "TRUE"', 'TRUE'],
+            ['string "FALSE"', 'FALSE'],
+            ['string "True"', 'True'],
+            ['string "False"', 'False'],
             ['object', {}],
             ['array', []],
         ])('should reject %s as Boolean', (_, value) => {
