@@ -20,8 +20,11 @@ interface RawSchemaPropertyRow {
  * Fetches schemas for events that have enforcement_mode='reject' on their EventSchema,
  * which are validated at ingestion time.
  */
+/** Map from event_name to schema for O(1) lookups */
+export type EventSchemaMap = Map<string, EventSchemaEnforcement>
+
 export class EventSchemaEnforcementManager {
-    private lazyLoader: LazyLoader<EventSchemaEnforcement[]>
+    private lazyLoader: LazyLoader<EventSchemaMap>
 
     constructor(private postgres: PostgresRouter) {
         this.lazyLoader = new LazyLoader({
@@ -35,30 +38,30 @@ export class EventSchemaEnforcementManager {
     }
 
     /**
-     * Get enforced event schemas for a team.
-     * Returns an empty array if no schemas are configured for enforcement.
+     * Get enforced event schemas for a team as a Map keyed by event_name for O(1) lookups.
+     * Returns an empty Map if no schemas are configured for enforcement.
      */
-    public async getSchemas(teamId: number): Promise<EventSchemaEnforcement[]> {
-        return (await this.lazyLoader.get(String(teamId))) ?? []
+    public async getSchemas(teamId: number): Promise<EventSchemaMap> {
+        return (await this.lazyLoader.get(String(teamId))) ?? new Map()
     }
 
     /**
      * Get enforced event schemas for multiple teams.
      */
-    public async getSchemasForTeams(teamIds: number[]): Promise<Record<string, EventSchemaEnforcement[]>> {
+    public async getSchemasForTeams(teamIds: number[]): Promise<Record<string, EventSchemaMap>> {
         const results = await this.lazyLoader.getMany(teamIds.map(String))
-        const converted: Record<string, EventSchemaEnforcement[]> = {}
+        const converted: Record<string, EventSchemaMap> = {}
         for (const [key, value] of Object.entries(results)) {
-            converted[key] = value ?? []
+            converted[key] = value ?? new Map()
         }
         return converted
     }
 
-    private async fetchSchemas(teamIds: string[]): Promise<Record<string, EventSchemaEnforcement[] | null>> {
+    private async fetchSchemas(teamIds: string[]): Promise<Record<string, EventSchemaMap | null>> {
         const numericTeamIds = teamIds.map(Number).filter((id) => !isNaN(id) && id > 0)
 
         if (numericTeamIds.length === 0) {
-            const result: Record<string, EventSchemaEnforcement[] | null> = {}
+            const result: Record<string, EventSchemaMap | null> = {}
             for (const id of teamIds) {
                 result[id] = null
             }
@@ -86,11 +89,11 @@ export class EventSchemaEnforcementManager {
             'fetch-enforced-event-schemas'
         )
 
-        // Aggregate rows into EventSchemaEnforcement structures
+        // Aggregate rows into EventSchemaMap structures (Map keyed by event_name)
         const schemasByTeam = this.aggregateRows(queryResult.rows)
 
         // Build result with nulls for teams that weren't found
-        const result: Record<string, EventSchemaEnforcement[] | null> = {}
+        const result: Record<string, EventSchemaMap | null> = {}
         for (const id of teamIds) {
             result[id] = schemasByTeam[id] ?? null
         }
@@ -99,12 +102,12 @@ export class EventSchemaEnforcementManager {
     }
 
     /**
-     * Aggregates flat rows into nested EventSchemaEnforcement structures.
+     * Aggregates flat rows into EventSchemaMap structures (Map keyed by event_name for O(1) lookups).
      *
      * Input: One row per (team, event, property, property_type)
-     * Output: Grouped by team -> event -> property (with merged property_types)
+     * Output: Grouped by team -> Map<event_name, schema>
      */
-    private aggregateRows(rows: RawSchemaPropertyRow[]): Record<string, EventSchemaEnforcement[]> {
+    private aggregateRows(rows: RawSchemaPropertyRow[]): Record<string, EventSchemaMap> {
         // team_id -> event_name -> property_name -> property_types[]
         const teamEventProps: Record<string, Record<string, Record<string, Set<string>>>> = {}
 
@@ -122,10 +125,10 @@ export class EventSchemaEnforcementManager {
             teamEventProps[teamId][row.event_name][row.property_name].add(row.property_type)
         }
 
-        // Convert to final structure
-        const result: Record<string, EventSchemaEnforcement[]> = {}
+        // Convert to final structure: Map keyed by event_name for O(1) lookups
+        const result: Record<string, EventSchemaMap> = {}
         for (const [teamId, events] of Object.entries(teamEventProps)) {
-            result[teamId] = []
+            const schemaMap: EventSchemaMap = new Map()
             for (const [eventName, properties] of Object.entries(events)) {
                 const requiredProperties: EventSchemaProperty[] = []
                 for (const [propName, propTypes] of Object.entries(properties)) {
@@ -135,11 +138,12 @@ export class EventSchemaEnforcementManager {
                         is_required: true,
                     })
                 }
-                result[teamId].push({
+                schemaMap.set(eventName, {
                     event_name: eventName,
                     required_properties: requiredProperties,
                 })
             }
+            result[teamId] = schemaMap
         }
 
         return result

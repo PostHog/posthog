@@ -125,19 +125,19 @@ describe('EventSchemaEnforcementManager', () => {
     }
 
     describe('getSchemas()', () => {
-        it('returns empty array when no schemas exist', async () => {
+        it('returns empty Map when no schemas exist', async () => {
             const result = await schemaManager.getSchemas(teamId)
-            expect(result).toEqual([])
+            expect(result.size).toBe(0)
         })
 
-        it('returns empty array when schemas exist but enforcement_mode is allow', async () => {
+        it('returns empty Map when schemas exist but enforcement_mode is allow', async () => {
             const eventDefId = await createEventDefinition(teamId, 'test_event')
             const propGroupId = await createPropertyGroup(teamId)
             await createEventSchema(eventDefId, propGroupId, 'allow')
             await createProperty(propGroupId, 'user_id', 'String', true)
 
             const result = await schemaManager.getSchemas(teamId)
-            expect(result).toEqual([])
+            expect(result.size).toBe(0)
         })
 
         it('returns enforced schemas for the team', async () => {
@@ -148,10 +148,12 @@ describe('EventSchemaEnforcementManager', () => {
 
             const result = await schemaManager.getSchemas(teamId)
 
-            expect(result).toHaveLength(1)
-            expect(result[0].event_name).toBe('purchase')
-            expect(result[0].required_properties).toHaveLength(2)
-            expect(result[0].required_properties).toEqual(
+            expect(result.size).toBe(1)
+            const schema = result.get('purchase')
+            expect(schema).toBeDefined()
+            expect(schema!.event_name).toBe('purchase')
+            expect(schema!.required_properties).toHaveLength(2)
+            expect(schema!.required_properties).toEqual(
                 expect.arrayContaining([
                     { name: 'product_id', property_types: ['String'], is_required: true },
                     { name: 'amount', property_types: ['Numeric'], is_required: true },
@@ -168,25 +170,26 @@ describe('EventSchemaEnforcementManager', () => {
 
             const result = await schemaManager.getSchemas(teamId)
 
-            expect(result).toHaveLength(1)
-            expect(result[0].required_properties).toHaveLength(1)
-            expect(result[0].required_properties[0].name).toBe('required_prop')
+            expect(result.size).toBe(1)
+            const schema = result.get('test_event')
+            expect(schema!.required_properties).toHaveLength(1)
+            expect(schema!.required_properties[0].name).toBe('required_prop')
         })
 
-        it('returns empty array for non-existent team', async () => {
+        it('returns empty Map for non-existent team', async () => {
             const result = await schemaManager.getSchemas(99999)
-            expect(result).toEqual([])
+            expect(result.size).toBe(0)
         })
 
         it('caches schemas for second lookup', async () => {
             await createEnforcedSchema(teamId, 'test_event', [{ name: 'prop', type: 'String', required: true }])
 
             const result1 = await schemaManager.getSchemas(teamId)
-            expect(result1).toHaveLength(1)
+            expect(result1.size).toBe(1)
             expect(fetchSchemasSpy).toHaveBeenCalledTimes(1)
 
             const result2 = await schemaManager.getSchemas(teamId)
-            expect(result2).toHaveLength(1)
+            expect(result2.size).toBe(1)
             expect(fetchSchemasSpy).toHaveBeenCalledTimes(1)
         })
 
@@ -196,8 +199,8 @@ describe('EventSchemaEnforcementManager', () => {
 
             const result = await schemaManager.getSchemas(teamId)
 
-            expect(result).toHaveLength(2)
-            expect(result.map((s) => s.event_name).sort()).toEqual(['event_a', 'event_b'])
+            expect(result.size).toBe(2)
+            expect(Array.from(result.keys()).sort()).toEqual(['event_a', 'event_b'])
         })
 
         it('merges property types when property appears in multiple property groups', async () => {
@@ -214,10 +217,11 @@ describe('EventSchemaEnforcementManager', () => {
 
             const result = await schemaManager.getSchemas(teamId)
 
-            expect(result).toHaveLength(1)
-            expect(result[0].required_properties).toHaveLength(1)
-            expect(result[0].required_properties[0].name).toBe('flexible_prop')
-            expect(result[0].required_properties[0].property_types.sort()).toEqual(['Numeric', 'String'])
+            expect(result.size).toBe(1)
+            const schema = result.get('test_event')
+            expect(schema!.required_properties).toHaveLength(1)
+            expect(schema!.required_properties[0].name).toBe('flexible_prop')
+            expect(schema!.required_properties[0].property_types.sort()).toEqual(['Numeric', 'String'])
         })
     })
 
@@ -235,17 +239,17 @@ describe('EventSchemaEnforcementManager', () => {
 
             const result = await schemaManager.getSchemasForTeams([teamId, team2Id])
 
-            expect(result[String(teamId)]).toHaveLength(1)
-            expect(result[String(teamId)][0].event_name).toBe('event_1')
-            expect(result[String(team2Id)]).toHaveLength(1)
-            expect(result[String(team2Id)][0].event_name).toBe('event_2')
+            expect(result[String(teamId)].size).toBe(1)
+            expect(result[String(teamId)].get('event_1')?.event_name).toBe('event_1')
+            expect(result[String(team2Id)].size).toBe(1)
+            expect(result[String(team2Id)].get('event_2')?.event_name).toBe('event_2')
         })
 
-        it('returns empty arrays for teams without enforced schemas', async () => {
+        it('returns empty Maps for teams without enforced schemas', async () => {
             const result = await schemaManager.getSchemasForTeams([teamId, 99999])
 
-            expect(result[String(teamId)]).toEqual([])
-            expect(result['99999']).toEqual([])
+            expect(result[String(teamId)].size).toBe(0)
+            expect(result['99999'].size).toBe(0)
         })
 
         it('efficiently loads multiple teams in single query', async () => {
@@ -259,18 +263,18 @@ describe('EventSchemaEnforcementManager', () => {
             const results = await Promise.all(promises)
 
             expect(fetchSchemasSpy).toHaveBeenCalledTimes(1)
-            expect(results[0]).toHaveLength(1)
-            expect(results[1]).toHaveLength(1)
-            expect(results[2]).toEqual([])
+            expect(results[0].size).toBe(1)
+            expect(results[1].size).toBe(1)
+            expect(results[2].size).toBe(0)
         })
 
         it('caches empty results for teams without schemas', async () => {
             const result1 = await schemaManager.getSchemas(99999)
-            expect(result1).toEqual([])
+            expect(result1.size).toBe(0)
             expect(fetchSchemasSpy).toHaveBeenCalledTimes(1)
 
             const result2 = await schemaManager.getSchemas(99999)
-            expect(result2).toEqual([])
+            expect(result2.size).toBe(0)
             expect(fetchSchemasSpy).toHaveBeenCalledTimes(1)
         })
     })

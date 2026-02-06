@@ -1,12 +1,14 @@
 import { EventSchemaEnforcement, IncomingEventWithTeam, Team } from '../../types'
 import { EventSchemaEnforcementManager } from '../../utils/event-schema-enforcement-manager'
 import { PipelineResultType, drop, ok } from '../pipelines/results'
-import { createValidateEventSchemaStep, findEnforcedSchema, validateEventAgainstSchema } from './validate-event-schema'
+import { createValidateEventSchemaStep, validateEventAgainstSchema } from './validate-event-schema'
 
 /** Creates a mock EventSchemaEnforcementManager that returns the provided schemas for any team */
 function createMockSchemaManager(schemas: EventSchemaEnforcement[]): EventSchemaEnforcementManager {
+    // Convert array to Map keyed by event_name for O(1) lookups
+    const schemaMap = new Map(schemas.map((s) => [s.event_name, s]))
     return {
-        getSchemas: jest.fn().mockResolvedValue(schemas),
+        getSchemas: jest.fn().mockResolvedValue(schemaMap),
         getSchemasForTeams: jest.fn().mockResolvedValue({}),
     } as unknown as EventSchemaEnforcementManager
 }
@@ -287,32 +289,6 @@ describe('validateEventAgainstSchema', () => {
 
             expect(result.valid).toBe(true)
         })
-    })
-})
-
-describe('findEnforcedSchema', () => {
-    const schemas: EventSchemaEnforcement[] = [
-        { event_name: 'event_a', required_properties: [] },
-        { event_name: 'event_b', required_properties: [] },
-        { event_name: 'event_c', required_properties: [] },
-    ]
-
-    it('should find schema by event name', () => {
-        const result = findEnforcedSchema('event_b', schemas)
-
-        expect(result).toEqual({ event_name: 'event_b', required_properties: [] })
-    })
-
-    it('should return undefined for unknown event', () => {
-        const result = findEnforcedSchema('unknown_event', schemas)
-
-        expect(result).toBeUndefined()
-    })
-
-    it('should return undefined for empty schemas list', () => {
-        const result = findEnforcedSchema('event_a', [])
-
-        expect(result).toBeUndefined()
     })
 })
 

@@ -119,16 +119,6 @@ export function validateEventAgainstSchema(
 }
 
 /**
- * Finds the enforced schema for an event, if any.
- */
-export function findEnforcedSchema(
-    eventName: string,
-    enforcedSchemas: EventSchemaEnforcement[]
-): EventSchemaEnforcement | undefined {
-    return enforcedSchemas.find((schema) => schema.event_name === eventName)
-}
-
-/**
  * Creates a processing step that validates events against enforced schemas.
  * Events that fail validation are dropped and an ingestion warning is emitted.
  *
@@ -142,11 +132,12 @@ export function createValidateEventSchemaStep<T extends { eventWithTeam: Incomin
         const { event, team } = eventWithTeam
 
         const enforcedSchemas = await schemaManager.getSchemas(team.id)
-        if (enforcedSchemas.length === 0) {
+        if (enforcedSchemas.size === 0) {
             return ok(input)
         }
 
-        const schema = findEnforcedSchema(event.event, enforcedSchemas)
+        // O(1) lookup by event name
+        const schema = enforcedSchemas.get(event.event)
         if (!schema) {
             return ok(input)
         }
