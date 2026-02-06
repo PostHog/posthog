@@ -43,7 +43,8 @@ cd nodejs
 
 if [[ -n $DEBUG ]]; then
   echo "🧐 Verifying installed packages..."
-  pnpm --filter=@posthog/nodejs install
+  pnpm --filter=@posthog/nodejs... install
+  turbo --filter=@posthog/nodejs prepare
 fi
 
 if [ $? -ne 0 ]; then
