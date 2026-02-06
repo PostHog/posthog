@@ -32,6 +32,7 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         allowed_models=frozenset(
             {
                 "claude-opus-4-5",
+                "claude-opus-4-6",
                 "claude-sonnet-4-5",
                 "claude-haiku-4-5",
                 "gpt-5.2",

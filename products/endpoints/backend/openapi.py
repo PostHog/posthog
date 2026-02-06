@@ -95,7 +95,7 @@ def generate_openapi_spec(
 def _build_component_schemas(endpoint: Endpoint, version: EndpointVersion) -> dict:
     """Build the components/schemas section with reusable schema definitions."""
     query = version.query
-    query_kind = query.get("kind")
+    is_materialized = bool(version and version.is_materialized and version.saved_query)
 
     schemas: dict = {
         "EndpointRunRequest": {
@@ -194,38 +194,80 @@ def _build_component_schemas(endpoint: Endpoint, version: EndpointVersion) -> di
         },
     }
 
-    # Add variables schema for HogQL queries
-    if query_kind == "HogQLQuery":
-        variables = query.get("variables")
-        if variables:
-            schemas["EndpointRunRequest"]["properties"]["variables"] = {
-                "$ref": "#/components/schemas/Variables",
-            }
-            schemas["Variables"] = _build_variables_schema(variables)
-    else:
-        # Insight queries support query_override
-        schemas["EndpointRunRequest"]["properties"]["query_override"] = {
-            "type": "object",
-            "description": "Override insight query parameters (e.g., series, dateRange, interval).",
-            "additionalProperties": True,
+    # Add variables schema based on query type and materialization state
+    variables_schema = _build_variables_schema(query, is_materialized)
+    if variables_schema:
+        schemas["EndpointRunRequest"]["properties"]["variables"] = {
+            "$ref": "#/components/schemas/Variables",
         }
+        schemas["Variables"] = variables_schema
 
     return schemas
 
 
-def _build_variables_schema(variables: dict) -> dict:
-    """Build schema for HogQL variables based on the endpoint's defined variables."""
-    properties = {}
+def _get_single_breakdown_property(breakdown_filter: dict) -> str | None:
+    """Extract breakdown property from either legacy or new format."""
+    breakdown = breakdown_filter.get("breakdown")
+    if breakdown:
+        return breakdown
+    breakdowns = breakdown_filter.get("breakdowns") or []
+    if len(breakdowns) == 1:
+        return breakdowns[0].get("property")
+    return None
 
-    for var_id, var_data in variables.items():
-        code_name = var_data.get("code_name", var_id)
-        properties[code_name] = {
-            "description": f"Variable: {code_name}",
-        }
+
+# Query types that support user-configurable breakdown filtering
+BREAKDOWN_SUPPORTED_QUERY_TYPES = {"TrendsQuery", "FunnelsQuery", "RetentionQuery"}
+
+
+def _build_variables_schema(query: dict, is_materialized: bool) -> dict | None:
+    """Build schema for variables based on query type and materialization state."""
+    query_kind = query.get("kind")
+    properties: dict = {}
+
+    if query_kind == "HogQLQuery":
+        # HogQL: variables from query definition
+        variables = query.get("variables", {})
+        for var_id, var_data in variables.items():
+            code_name = var_data.get("code_name", var_id)
+            default_value = var_data.get("value")
+            properties[code_name] = {
+                "type": "string",
+                "description": f"Variable: {code_name}",
+            }
+            if default_value is not None:
+                properties[code_name]["example"] = default_value
+    else:
+        # Insight queries - only include breakdown for supported query types
+        if query_kind in BREAKDOWN_SUPPORTED_QUERY_TYPES:
+            breakdown_filter = query.get("breakdownFilter") or {}
+            breakdown = _get_single_breakdown_property(breakdown_filter)
+            if breakdown:
+                properties[breakdown] = {
+                    "type": "string",
+                    "description": f"Filter by {breakdown} breakdown value",
+                    "example": "Chrome",
+                }
+
+        if not is_materialized:
+            # Non-materialized also supports date variables
+            properties["date_from"] = {
+                "type": "string",
+                "description": "Filter results from this date (ISO format or relative like '-7d')",
+                "example": "2024-01-01",
+            }
+            properties["date_to"] = {
+                "type": "string",
+                "description": "Filter results until this date (ISO format or relative like 'now')",
+                "example": "2024-01-31",
+            }
+
+    if not properties:
+        return None
 
     return {
         "type": "object",
-        "description": "HogQL query variables. Keys are variable code names as defined in the query.",
+        "description": "Query variables. For HogQL: code_names from query. For insights: breakdown property and date_from/date_to.",
         "properties": properties,
-        "additionalProperties": True,
+        "additionalProperties": False,
     }
