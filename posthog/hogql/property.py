@@ -7,7 +7,6 @@ from django.db.models import Q
 from django.db.models.functions.comparison import Coalesce
 
 from pydantic import BaseModel
-from structlog import getLogger
 
 from posthog.schema import (
     CohortPropertyFilter,
@@ -54,8 +53,6 @@ from posthog.utils import get_from_dict_or_attr
 
 from products.data_warehouse.backend.models import DataWarehouseJoin
 from products.data_warehouse.backend.models.util import get_view_or_table_by_name
-
-logger = getLogger(__name__)
 
 
 def parse_semver(value: str) -> tuple[str, str, str]:
@@ -320,11 +317,6 @@ def _multi_search_not_found(search_call: ast.Call) -> ast.CompareOperation:
 
 def _create_multi_search_call(expr: ast.Expr, value: list) -> ast.Call:
     """Create a multiSearchAnyCaseInsensitive call for the given expression and values."""
-    logger.debug(
-        "Using multiSearchAnyCaseInsensitive optimization",
-        values_count=len(value),
-        optimization="multi_search_contains",
-    )
     return ast.Call(
         name="multiSearchAnyCaseInsensitive",
         args=[
@@ -355,7 +347,6 @@ def _expr_to_compare_op(
             return _multi_search_found(_create_multi_search_call(expr, value))
         else:
             # Single value: keep existing ILIKE logic for backward compatibility
-            logger.debug("Using legacy ILIKE for single value contains", optimization="legacy_ilike")
             return ast.CompareOperation(
                 op=ast.CompareOperationOp.ILike,
                 left=ast.Call(name="toString", args=[expr]),
@@ -367,7 +358,6 @@ def _expr_to_compare_op(
             return _multi_search_not_found(_create_multi_search_call(expr, value))
         else:
             # Single value: keep existing NOT ILIKE logic for backward compatibility
-            logger.debug("Using legacy NOT ILIKE for single value not_contains", optimization="legacy_not_ilike")
             return ast.CompareOperation(
                 op=ast.CompareOperationOp.NotILike,
                 left=ast.Call(name="toString", args=[expr]),
