@@ -250,7 +250,7 @@ function TooltipBaseUI({
     fallbackPlacements,
     offset = 8,
     arrowOffset,
-    delayMs = 500,
+    delayMs = 400,
     closeDelayMs = 0,
     interactive = false,
     visible: controlledOpen,
