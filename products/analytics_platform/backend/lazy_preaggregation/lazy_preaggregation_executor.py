@@ -1,12 +1,15 @@
 import copy
 import json
 import time
+import uuid
 import hashlib
 import threading
+from collections.abc import Callable
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
+from typing import TypedDict
 
 from django.db import IntegrityError, transaction
 from django.db.models import Q
@@ -143,7 +146,7 @@ class PreaggregationResult:
     """Result of executing preaggregation jobs."""
 
     ready: bool
-    job_ids: list[str]
+    job_ids: list[uuid.UUID]
     errors: list[str] = field(default_factory=list)
 
 
@@ -152,9 +155,14 @@ class WaitResult:
     """Result of waiting for pending preaggregation jobs."""
 
     success: bool
-    ready_job_ids: list[str]
+    ready_jobs: list[PreaggregationJob]
     failed_jobs: list[PreaggregationJob]
     timed_out: bool = False
+
+
+class _WaitEntry(TypedDict):
+    job: PreaggregationJob
+    attempts: int
 
 
 def compute_query_hash(query_info: QueryInfo) -> str:
@@ -503,6 +511,7 @@ class PreaggregationExecutor:
         query_info: QueryInfo,
         start: datetime,
         end: datetime,
+        run_insert: Callable[[Team, PreaggregationJob], None] | None = None,
     ) -> PreaggregationResult:
         """
         Execute preaggregation jobs for the given query and time range.
@@ -513,9 +522,15 @@ class PreaggregationExecutor:
         4. Identify missing time windows
         5. Create and execute jobs for missing ranges
         6. Return job IDs for the combiner query
+
+        Args:
+            run_insert: Optional custom insert function. If not provided, uses the
+                        default AST-based run_preaggregation_insert with query_info.
         """
         errors: list[str] = []
-        job_ids: list[str] = []
+        job_ids: list[uuid.UUID] = []
+
+        insert_fn = run_insert or (lambda t, j: run_preaggregation_insert(t, j, query_info))
 
         query_hash = compute_query_hash(query_info)
 
@@ -527,14 +542,10 @@ class PreaggregationExecutor:
 
         # Wait for pending jobs if enabled
         if self.wait_for_pending and pending_jobs:
-            wait_result = self._wait_for_pending_jobs(team, pending_jobs, query_info)
+            wait_result = self._wait_for_pending_jobs(team, pending_jobs, insert_fn)
 
-            # Add successfully completed jobs to ready list
-            for job_id in wait_result.ready_job_ids:
-                job = PreaggregationJob.objects.get(id=job_id)
-                ready_jobs.append(job)
+            ready_jobs.extend(wait_result.ready_jobs)
 
-            # Report failed jobs as errors
             for failed_job in wait_result.failed_jobs:
                 errors.append(f"Job {failed_job.id} failed: {failed_job.error}")
 
@@ -557,7 +568,7 @@ class PreaggregationExecutor:
             new_job: PreaggregationJob | None = None
             try:
                 new_job = create_preaggregation_job(team, query_hash, range_start, range_end, self.ttl_seconds)
-                run_preaggregation_insert(team, new_job, query_info)
+                insert_fn(team, new_job)
 
                 new_job.status = PreaggregationJob.Status.READY
                 new_job.computed_at = django_timezone.now()
@@ -572,7 +583,6 @@ class PreaggregationExecutor:
                     new_job.save()
                 errors.append(f"Failed to create preaggregation for {range_start}-{range_end}: {e}")
 
-        # Ready if no errors (all missing ranges were successfully created)
         all_ready = len(errors) == 0
 
         return PreaggregationResult(ready=all_ready, job_ids=job_ids, errors=errors)
@@ -636,7 +646,7 @@ class PreaggregationExecutor:
         self,
         team: Team,
         pending_jobs: list[PreaggregationJob],
-        query_info: QueryInfo,
+        run_insert: Callable[[Team, PreaggregationJob], None],
     ) -> WaitResult:
         """
         Wait for pending jobs to complete, handling failures with retry logic.
@@ -653,8 +663,8 @@ class PreaggregationExecutor:
         current_poll_interval = self.poll_interval_seconds
         # Track jobs we're waiting for: maps tracking key -> (current job, attempt count)
         # The tracking key stays constant even as the job changes on replacement
-        waiting_for: dict[str, dict] = {job.id: {"job": job, "attempts": 0} for job in pending_jobs}
-        ready_job_ids: list[str] = []
+        waiting_for: dict[uuid.UUID, _WaitEntry] = {job.id: {"job": job, "attempts": 0} for job in pending_jobs}
+        ready_jobs: list[PreaggregationJob] = []
         failed_jobs: list[PreaggregationJob] = []
 
         while waiting_for:
@@ -662,7 +672,7 @@ class PreaggregationExecutor:
             if elapsed >= self.wait_timeout_seconds:
                 return WaitResult(
                     success=False,
-                    ready_job_ids=ready_job_ids,
+                    ready_jobs=ready_jobs,
                     failed_jobs=failed_jobs,
                     timed_out=True,
                 )
@@ -677,28 +687,27 @@ class PreaggregationExecutor:
                     continue
 
                 if job.status == PreaggregationJob.Status.READY:
-                    ready_job_ids.append(job.id)
+                    ready_jobs.append(job)
                     del waiting_for[tracking_key]
 
                 elif job.status == PreaggregationJob.Status.FAILED:
-                    # Each failed job counts as an attempt, regardless of who creates the replacement
                     entry["attempts"] += 1
 
                     if entry["attempts"] >= self.max_attempts:
-                        # This waiter has exceeded their attempt budget
                         failed_jobs.append(job)
                         del waiting_for[tracking_key]
                     else:
-                        # Try to create a replacement job
+                        # Reset backoff when starting to work on a replacement
+                        current_poll_interval = self.poll_interval_seconds
+
                         replacement = self._try_create_replacement_job(job)
                         if replacement is not None:
-                            # We won the race - execute the replacement
                             try:
-                                run_preaggregation_insert(team, replacement, query_info)
+                                run_insert(team, replacement)
                                 replacement.status = PreaggregationJob.Status.READY
                                 replacement.computed_at = django_timezone.now()
                                 replacement.save()
-                                ready_job_ids.append(replacement.id)
+                                ready_jobs.append(replacement)
                                 del waiting_for[tracking_key]
                             except Exception as e:
                                 replacement.status = PreaggregationJob.Status.FAILED
@@ -706,39 +715,31 @@ class PreaggregationExecutor:
                                 replacement.save()
 
                                 if is_non_retryable_error(e):
-                                    # Non-retryable error - don't retry, fail immediately
                                     failed_jobs.append(replacement)
                                     del waiting_for[tracking_key]
                                 else:
-                                    # Retryable error - wait for replacement (might be retried again)
                                     entry["job"] = replacement
                         else:
                             # Another waiter created a replacement - find it and wait for it
                             existing_replacement = self._find_pending_replacement(job)
                             if existing_replacement is not None:
                                 entry["job"] = existing_replacement
-                            # else: Edge case - re-check on next iteration
 
                 elif job.status == PreaggregationJob.Status.PENDING:
-                    # Check if job is stale (executor may have crashed)
                     stale_threshold = django_timezone.now() - timedelta(seconds=self.stale_pending_threshold_seconds)
                     if job.updated_at < stale_threshold:
-                        # Try to mark as failed - triggers replacement flow on next iteration
                         self._try_mark_stale_job_as_failed(job)
-                        # Either way, status will be checked on next iteration
-                    # else: Still waiting - keep polling
 
             if waiting_for:
                 remaining_timeout = self.wait_timeout_seconds - (time.monotonic() - start_time)
                 sleep_time = min(current_poll_interval, remaining_timeout)
                 if sleep_time > 0:
                     time.sleep(sleep_time)
-                # Exponential backoff, capped at max_poll_interval_seconds
                 current_poll_interval = min(current_poll_interval * 2, self.max_poll_interval_seconds)
 
         return WaitResult(
             success=len(failed_jobs) == 0,
-            ready_job_ids=ready_job_ids,
+            ready_jobs=ready_jobs,
             failed_jobs=failed_jobs,
             timed_out=False,
         )
@@ -811,7 +812,6 @@ def ensure_preaggregated(
     """
     base_placeholders = placeholders or {}
 
-    # Validate that reserved placeholders are not provided
     reserved_placeholders = {"time_window_min", "time_window_max"}
     conflicting = reserved_placeholders & set(base_placeholders.keys())
     if conflicting:
@@ -820,8 +820,7 @@ def ensure_preaggregated(
             "time_window_min and time_window_max are automatically added per-job."
         )
 
-    # Parse the query template (without time placeholders) for hashing
-    # We use sentinel values that will produce a stable hash
+    # Parse the query template with sentinel time placeholders for stable hashing
     hash_placeholders = {
         **base_placeholders,
         "time_window_min": ast.Constant(value="__TIME_WINDOW_MIN__"),
@@ -830,62 +829,25 @@ def ensure_preaggregated(
     parsed_for_hash = parse_select(insert_query, placeholders=hash_placeholders)
     assert isinstance(parsed_for_hash, ast.SelectQuery)
 
-    # Create QueryInfo for hashing (timezone from team)
     query_info = QueryInfo(
         query=parsed_for_hash,
         table=table,
         timezone=team.timezone,
     )
 
-    query_hash = compute_query_hash(query_info)
-
-    # Find existing jobs
-    existing_jobs = find_existing_jobs(team, query_hash, time_range_start, time_range_end)
-
-    # Filter to only READY jobs, then remove overlaps (keeping most recent)
-    ready_jobs = [j for j in existing_jobs if j.status == PreaggregationJob.Status.READY]
-    ready_jobs = filter_overlapping_jobs(ready_jobs)
-
-    job_ids: list[str] = [job.id for job in ready_jobs]
-
-    # Find missing windows
-    missing_ranges = find_missing_contiguous_windows(ready_jobs, time_range_start, time_range_end)
-
-    if not missing_ranges and not job_ids:
-        return PreaggregationResult(ready=True, job_ids=[])
-
-    errors: list[str] = []
-
-    for range_start, range_end in missing_ranges:
-        new_job: PreaggregationJob | None = None
-        try:
-            new_job = create_preaggregation_job(team, query_hash, range_start, range_end, ttl_seconds=ttl_seconds)
-
-            # Build and execute the INSERT query with job-specific time placeholders
-            insert_sql, values = _build_manual_insert_sql(
-                team=team,
-                job=new_job,
-                insert_query=insert_query,
-                table=table,
-                base_placeholders=base_placeholders,
-            )
+    def _run_manual_insert(t: Team, job: PreaggregationJob) -> None:
+        insert_sql, values = _build_manual_insert_sql(
+            team=t,
+            job=job,
+            insert_query=insert_query,
+            table=table,
+            base_placeholders=base_placeholders,
+        )
+        with heartbeat_while_running(job):
             sync_execute(insert_sql, values)
 
-            new_job.status = PreaggregationJob.Status.READY
-            new_job.computed_at = django_timezone.now()
-            new_job.save()
-
-            job_ids.append(new_job.id)
-
-        except Exception as e:
-            if new_job is not None:
-                new_job.status = PreaggregationJob.Status.FAILED
-                new_job.error = str(e)
-                new_job.save()
-            errors.append(f"Failed to create preaggregation for {range_start}-{range_end}: {e}")
-
-    all_ready = len(errors) == 0
-    return PreaggregationResult(ready=all_ready, job_ids=job_ids, errors=errors)
+    executor = PreaggregationExecutor(ttl_seconds=ttl_seconds)
+    return executor.execute(team, query_info, time_range_start, time_range_end, run_insert=_run_manual_insert)
 
 
 def _build_manual_insert_sql(
