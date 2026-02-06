@@ -10,14 +10,13 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
-from posthog.temporal.data_imports.signals import get_signal_emitter
+from posthog.temporal.data_imports.signals import SignalSourceConfig, get_signal_config
 
 from products.data_warehouse.backend.models import ExternalDataSchema
 from products.signals.backend.api import emit_signal
 
 # Maximum number of records to emit signals for per sync
 MAX_SIGNALS_PER_SYNC = 1000
-# Feature flag name for controlling signal emission
 EMIT_SIGNALS_FEATURE_FLAG = "emit-data-import-signals"
 
 
@@ -48,14 +47,14 @@ class EmitSignalsActivityInputs:
 @activity.defn
 async def emit_data_import_signals_activity(inputs: EmitSignalsActivityInputs) -> dict[str, Any]:
     """Emit signals for newly imported records from external data sources."""
-    emitter = get_signal_emitter(inputs.source_type, inputs.schema_name)
+    config = get_signal_config(inputs.source_type, inputs.schema_name)
     # Check if we care about this source type + schema
-    if emitter is None:
+    if config is None:
         activity.logger.warning(
-            f"No signal emitter registered for {inputs.source_type}/{inputs.schema_name}",
+            f"No signal emitter config registered for {inputs.source_type}/{inputs.schema_name}",
             extra=inputs.properties_to_log,
         )
-        return {"status": "skipped", "reason": "no_emitter_registered", "signals_emitted": 0}
+        return {"status": "skipped", "reason": "no_config_registered", "signals_emitted": 0}
     # Check if the FF enabled to allow signals emission
     # TODO: Revert after testing
     if False and not await database_sync_to_async(_is_feature_flag_enabled, thread_sensitive=False)(inputs.team_id):
@@ -86,6 +85,7 @@ async def emit_data_import_signals_activity(inputs: EmitSignalsActivityInputs) -
         team=team,
         table_name=schema.table.name,
         last_synced_at=inputs.last_synced_at,
+        config=config,
         extra=inputs.properties_to_log,
     )
     if not records:
@@ -99,7 +99,7 @@ async def emit_data_import_signals_activity(inputs: EmitSignalsActivityInputs) -
         team_id=inputs.team_id,
         records=records,
         extra=inputs.properties_to_log,
-        emitter=emitter,
+        emitter=config.emitter,
     )
     activity.logger.info(
         f"Emitted {signals_emitted} signals for {inputs.source_type}/{inputs.schema_name}",
@@ -130,33 +130,36 @@ def _query_new_records(
     team: Team,
     table_name: str,
     last_synced_at: str | None,
+    config: SignalSourceConfig,
     extra: dict[str, Any],
 ) -> list[dict[str, Any]]:
+    where_parts: list[str] = []
+    placeholders: dict[str, Any] = {}
+    # Continuous sync - need to analyze all that happened since the last one
     if last_synced_at is not None:
-        query = f"""
-            SELECT *
-            FROM {table_name}
-            WHERE created_at > {{last_synced_at}}
-            ORDER BY created_at DESC
-            LIMIT {MAX_SIGNALS_PER_SYNC}
-        """
-        parsed = parse_select(query, placeholders={"last_synced_at": last_synced_at})
+        where_parts.append("created_at > {last_synced_at}")
+        placeholders["last_synced_at"] = last_synced_at
+        limit = MAX_SIGNALS_PER_SYNC
+    # First ever sync - look back a limited window
     else:
-        # First ever sync - get most recent records
-        # TODO: Look max N days before in the past instead of just getting max records
-        query = f"""
-            SELECT *
-            FROM {table_name}
-            ORDER BY created_at DESC
-            LIMIT {MAX_SIGNALS_PER_SYNC}
-        """
-        parsed = parse_select(query)
+        where_parts.append(f"created_at > now() - interval {config.first_sync_lookback_days} day")
+        limit = config.first_sync_limit
+    if config.where_clause:
+        where_parts.append(config.where_clause)
+    where_sql = " AND ".join(where_parts)
+    query = f"""
+        SELECT *
+        FROM {table_name}
+        WHERE {where_sql}
+        ORDER BY created_at DESC
+        LIMIT {limit}
+    """
+    parsed = parse_select(query, placeholders=placeholders) if placeholders else parse_select(query)
     try:
         result = execute_hogql_query(query=parsed, team=team, query_type="EmitSignalsNewRecords")
     except Exception as e:
         activity.logger.exception(f"Error querying new records: {e}", extra=extra)
         return []
-
     if not result.results or not result.columns:
         return []
     return [dict(zip(result.columns, row)) for row in result.results]
