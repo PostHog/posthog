@@ -24,7 +24,7 @@ from posthog.models import Team, User
 from ee.hogai.chat_agent.mode_manager import ChatAgentModeManager
 from ee.hogai.context import AssistantContextManager
 from ee.hogai.tool_errors import MaxToolError, MaxToolFatalError, MaxToolRetryableError, MaxToolTransientError
-from ee.hogai.tools.read_taxonomy import ReadEvents
+from ee.hogai.tools.read_taxonomy.core import ReadEvents
 from ee.hogai.utils.tests import FakeChatAnthropic, FakeChatOpenAI
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from ee.hogai.utils.types.base import AssistantMessageUnion, AssistantNodeName, NodePath
@@ -745,7 +745,7 @@ class TestRootNodeTools(BaseTest):
         result = await node.arun(state, {})
         self.assertEqual(result, PartialAssistantState(root_tool_call_id=None))
 
-    @patch("ee.hogai.tools.read_taxonomy.ReadTaxonomyTool._run_impl")
+    @patch("ee.hogai.tools.read_taxonomy.tool.ReadTaxonomyTool._run_impl")
     async def test_run_valid_tool_call(self, read_taxonomy_mock):
         """Test that built-in tools can be called"""
         read_taxonomy_mock.return_value = ("Content", None)
@@ -802,7 +802,7 @@ class TestRootNodeTools(BaseTest):
         self.assertEqual(result.messages[0].tool_call_id, "xyz")
         self.assertIn("This tool does not exist", result.messages[0].content)
 
-    @patch("ee.hogai.tools.read_taxonomy.ReadTaxonomyTool._run_impl")
+    @patch("ee.hogai.tools.read_taxonomy.tool.ReadTaxonomyTool._run_impl")
     async def test_max_tool_fatal_error_returns_error_message(self, read_taxonomy_mock):
         """Test that MaxToolFatalError is caught and converted to tool message."""
         read_taxonomy_mock.side_effect = MaxToolFatalError(
@@ -835,7 +835,7 @@ class TestRootNodeTools(BaseTest):
         self.assertNotIn("retry", result.messages[0].content.lower())
 
     @patch("ee.hogai.core.agent_modes.executables.posthoganalytics.capture")
-    @patch("ee.hogai.tools.read_taxonomy.ReadTaxonomyTool._run_impl")
+    @patch("ee.hogai.tools.read_taxonomy.tool.ReadTaxonomyTool._run_impl")
     async def test_successful_tool_execution_emits_analytics_event(self, read_taxonomy_mock, capture_mock):
         """Test that successful tool execution emits an 'ai tool executed' analytics event."""
         read_taxonomy_mock.return_value = ("Content", None)
@@ -878,7 +878,7 @@ class TestRootNodeTools(BaseTest):
         self.assertIn("project", groups)
 
     @patch("ee.hogai.core.agent_modes.executables.posthoganalytics.capture")
-    @patch("ee.hogai.tools.read_taxonomy.ReadTaxonomyTool._run_impl")
+    @patch("ee.hogai.tools.read_taxonomy.tool.ReadTaxonomyTool._run_impl")
     async def test_max_tool_fatal_error_emits_analytics_event(self, read_taxonomy_mock, capture_mock):
         """Test that MaxToolFatalError emits a PostHog analytics event."""
         error_message = "Configuration error: INKEEP_API_KEY environment variable is not set"
@@ -958,7 +958,7 @@ class TestRootNodeTools(BaseTest):
         self.assertIn("organization", mode_call.kwargs["groups"])
         self.assertIn("project", mode_call.kwargs["groups"])
 
-    @patch("ee.hogai.tools.read_taxonomy.ReadTaxonomyTool._run_impl")
+    @patch("ee.hogai.tools.read_taxonomy.tool.ReadTaxonomyTool._run_impl")
     async def test_max_tool_error_groups_call_works_in_async_context(self, read_taxonomy_mock):
         """Test that groups() call in error handler works in async context without SynchronousOnlyOperation."""
         read_taxonomy_mock.side_effect = MaxToolFatalError("Test error")
@@ -990,7 +990,7 @@ class TestRootNodeTools(BaseTest):
         # Should complete without error
         self.assertIsInstance(result, PartialAssistantState)
 
-    @patch("ee.hogai.tools.read_taxonomy.ReadTaxonomyTool._run_impl")
+    @patch("ee.hogai.tools.read_taxonomy.tool.ReadTaxonomyTool._run_impl")
     async def test_max_tool_retryable_error_returns_error_with_retry_hint(self, read_taxonomy_mock):
         """Test that MaxToolRetryableError includes retry hint for adjusted inputs."""
         read_taxonomy_mock.side_effect = MaxToolRetryableError(
@@ -1021,7 +1021,7 @@ class TestRootNodeTools(BaseTest):
         self.assertIn("Invalid entity kind", result.messages[0].content)
         self.assertIn("retry with adjusted inputs", result.messages[0].content.lower())
 
-    @patch("ee.hogai.tools.read_taxonomy.ReadTaxonomyTool._run_impl")
+    @patch("ee.hogai.tools.read_taxonomy.tool.ReadTaxonomyTool._run_impl")
     async def test_max_tool_transient_error_returns_error_with_once_retry_hint(self, read_taxonomy_mock):
         """Test that MaxToolTransientError includes hint to retry once without changes."""
         read_taxonomy_mock.side_effect = MaxToolTransientError("Rate limit exceeded. Please try again in a few moments")
@@ -1050,7 +1050,7 @@ class TestRootNodeTools(BaseTest):
         self.assertIn("Rate limit exceeded", result.messages[0].content)
         self.assertIn("retry this operation once without changes", result.messages[0].content.lower())
 
-    @patch("ee.hogai.tools.read_taxonomy.ReadTaxonomyTool._run_impl")
+    @patch("ee.hogai.tools.read_taxonomy.tool.ReadTaxonomyTool._run_impl")
     async def test_generic_exception_returns_internal_error_message(self, read_taxonomy_mock):
         """Test that generic exceptions are caught and return internal error message."""
         read_taxonomy_mock.side_effect = RuntimeError("Unexpected internal error")
@@ -1086,7 +1086,7 @@ class TestRootNodeTools(BaseTest):
             ("retryable", MaxToolRetryableError("Retryable error"), "adjusted"),
         ]
     )
-    @patch("ee.hogai.tools.read_taxonomy.ReadTaxonomyTool._run_impl")
+    @patch("ee.hogai.tools.read_taxonomy.tool.ReadTaxonomyTool._run_impl")
     async def test_all_error_types_are_logged_with_retry_strategy(
         self, name, error, expected_strategy, read_taxonomy_mock
     ):
@@ -1118,7 +1118,7 @@ class TestRootNodeTools(BaseTest):
             self.assertEqual(call_kwargs["properties"]["retry_strategy"], expected_strategy)
             self.assertEqual(call_kwargs["properties"]["tool"], "read_taxonomy")
 
-    @patch("ee.hogai.tools.read_taxonomy.ReadTaxonomyTool._run_impl")
+    @patch("ee.hogai.tools.read_taxonomy.tool.ReadTaxonomyTool._run_impl")
     async def test_validation_error_returns_error_message(self, read_taxonomy_mock):
         """Test that pydantic ValidationError is caught and converted to tool message."""
         from pydantic import ValidationError as PydanticValidationError
