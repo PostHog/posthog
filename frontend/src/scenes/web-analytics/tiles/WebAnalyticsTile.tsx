@@ -127,9 +127,10 @@ const PathValueWithHoverLink = ({
     value: string
 }): JSX.Element => {
     const { effectiveDomain } = useValues(webAnalyticsFilterLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const url = buildOpenUrl(breakdownBy, value, effectiveDomain)
 
-    if (!url) {
+    if (!url || !featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_OPEN_URL]) {
         return <>{children}</>
     }
 
