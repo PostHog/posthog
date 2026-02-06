@@ -122,7 +122,7 @@ function MessageTemplateItem({
                     {emailHtml ? (
                         <iframe
                             srcDoc={emailHtml}
-                            sandbox=""
+                            sandbox="allow-same-origin"
                             className="w-full h-full border-0 bg-white pointer-events-none"
                         />
                     ) : (

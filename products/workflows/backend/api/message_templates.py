@@ -10,7 +10,7 @@ from posthog.models import MessageTemplate
 
 
 class EmailTemplateSerializer(serializers.Serializer):
-    subject = serializers.CharField(required=True)
+    subject = serializers.CharField(required=False)
     text = serializers.CharField(required=False)
     html = serializers.CharField(required=False)
     design = serializers.JSONField(required=False)
@@ -40,6 +40,15 @@ class MessageTemplateSerializer(serializers.ModelSerializer):
             "deleted",
         ]
         read_only_fields = ["id", "created_at", "created_by", "updated_at"]
+
+    def validate(self, data: Any) -> Any:
+        template_type = data.get("type")
+        email = data.get("content", {}).get("email") if data.get("content") else None
+        if template_type == "email" and email and not email.get("subject"):
+            raise serializers.ValidationError(
+                {"content": {"email": {"subject": "Subject is required for email templates."}}}
+            )
+        return data
 
     def create(self, validated_data: Any) -> Any:
         request = self.context["request"]

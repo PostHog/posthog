@@ -97,3 +97,14 @@ class TestMessageTemplatesAPI(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED
         assert response.json()["name"] == "Valid Template"
         assert response.json()["content"]["email"]["subject"] == "Hello"
+
+    def test_create_email_template_without_email_content_succeeds(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/messaging_templates/",
+            data={
+                "name": "No Email Content",
+                "type": "email",
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED

@@ -108,8 +108,8 @@ export const messageTemplatesLogic = kea<messageTemplatesLogicType>([
                     const lowerSearch = search.toLowerCase()
                     filtered = filtered.filter(
                         (t) =>
-                            t.name.toLowerCase().includes(lowerSearch) ||
-                            t.description?.toLowerCase().includes(lowerSearch)
+                            (t.name ?? '').toLowerCase().includes(lowerSearch) ||
+                            (t.description ?? '').toLowerCase().includes(lowerSearch)
                     )
                 }
                 if (createdByFilter !== null) {
