@@ -98,12 +98,27 @@ class DockerSandbox:
             settings.BASE_DIR, "products/tasks/backend/sandbox/images/Dockerfile.sandbox-local"
         )
 
+        # Derive the packages root from local_agent_path (e.g., /path/to/Twig/packages/agent -> /path/to/Twig/packages)
+        packages_root = os.path.dirname(local_agent_path)
+
         with tempfile.TemporaryDirectory() as tmpdir:
-            shutil.copytree(
-                local_agent_path,
-                os.path.join(tmpdir, "local-agent"),
-                ignore=shutil.ignore_patterns("node_modules"),
-            )
+            packages_dir = os.path.join(tmpdir, "packages")
+            os.makedirs(packages_dir)
+
+            # Copy all workspace packages needed by the agent
+            for pkg in ["agent", "shared", "git"]:
+                pkg_path = os.path.join(packages_root, pkg)
+                if os.path.isdir(pkg_path):
+                    shutil.copytree(
+                        pkg_path,
+                        os.path.join(packages_dir, pkg),
+                        ignore=shutil.ignore_patterns("node_modules", ".turbo"),
+                    )
+
+            # Create minimal pnpm-workspace.yaml
+            workspace_yaml = os.path.join(tmpdir, "pnpm-workspace.yaml")
+            with open(workspace_yaml, "w") as f:
+                f.write("packages:\n  - 'packages/*'\n")
 
             DockerSandbox._run(
                 [

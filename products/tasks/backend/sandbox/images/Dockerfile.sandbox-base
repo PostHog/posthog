@@ -70,11 +70,12 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | d
 # Agent SDK
 ###
 
-# Set up /scripts as a Node.js project and install @posthog/agent
+# Set up /scripts as a Node.js project and install @posthog/agent + ACP SDK
+# NOTE: TODO: Update @posthog/agent version when new release with OTEL support is published (https://github.com/PostHog/Twig/pull/805)
 RUN mkdir -p /scripts && \
     cd /scripts && \
     npm init -y && \
-    npm install @posthog/agent@1.27.0
+    npm install @posthog/agent@1.27.0 @agentclientprotocol/sdk
 
 # Download agent runner script from GitHub
 RUN cd /scripts && \

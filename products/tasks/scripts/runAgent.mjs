@@ -1,5 +1,20 @@
 #!/usr/bin/env node
-import { Agent, PermissionMode } from '@posthog/agent'
+/**
+ * Cloud agent runner script.
+ * Runs inside the sandbox container (Docker locally, Modal in production).
+ *
+ * Usage:
+ *   node runAgent.mjs --taskId <id> --runId <id> --repositoryPath <path> [--createPR true]
+ *   node runAgent.mjs --prompt "Do something" --repositoryPath <path> [--max-turns 10]
+ *
+ * Environment variables:
+ *   POSTHOG_API_URL - PostHog API URL (required)
+ *   POSTHOG_PERSONAL_API_KEY - API key (required)
+ *   POSTHOG_PROJECT_ID - Project ID (required for task mode)
+ */
+import { ClientSideConnection, PROTOCOL_VERSION, ndJsonStream } from '@agentclientprotocol/sdk'
+
+import { Agent } from '@posthog/agent'
 
 function parseArgs() {
     const args = process.argv.slice(2)
@@ -14,6 +29,49 @@ function parseArgs() {
     return parsed
 }
 
+/**
+ * Fetch task details from PostHog API.
+ */
+async function fetchTask(apiUrl, apiKey, projectId, taskId) {
+    const url = `${apiUrl}/api/projects/${projectId}/tasks/${taskId}/`
+    const response = await fetch(url, {
+        headers: {
+            Authorization: `Bearer ${apiKey}`,
+            'Content-Type': 'application/json',
+        },
+    })
+
+    if (!response.ok) {
+        throw new Error(`Failed to fetch task: ${response.status} ${response.statusText}`)
+    }
+
+    return response.json()
+}
+
+/**
+ * Create ACP client that handles permission requests automatically (bypass mode for cloud).
+ */
+function createCloudClient() {
+    return {
+        async requestPermission(params) {
+            // Auto-approve all permissions in cloud mode
+            const allowOption = params.options.find((o) => o.kind === 'allow_once' || o.kind === 'allow_always')
+            return {
+                outcome: {
+                    outcome: 'selected',
+                    optionId: allowOption?.optionId ?? params.options[0].optionId,
+                },
+            }
+        },
+        async sessionUpdate() {
+            // Session updates are logged via OTEL
+        },
+        async extNotification() {
+            // Extension notifications are logged via OTEL
+        },
+    }
+}
+
 export async function runAgent({
     taskId,
     runId,
@@ -25,45 +83,115 @@ export async function runAgent({
     maxTurns,
     createPR,
 }) {
+    const projectId = parseInt(posthogProjectId, 10)
+
+    // Set up environment for Claude Code SDK
+    // If ANTHROPIC_API_KEY is set, bypass the LLM gateway and go directly to Anthropic
+    // Otherwise, use the LLM gateway with PostHog API key authentication
+    const directAnthropicKey = process.env.ANTHROPIC_API_KEY
+    const llmGatewayUrl = process.env.LLM_GATEWAY_URL || `${posthogApiUrl}/api/projects/${projectId}/llm_gateway`
+
     const envOverrides = {
         POSTHOG_API_KEY: posthogApiKey,
         POSTHOG_API_HOST: posthogApiUrl,
         POSTHOG_AUTH_HEADER: `Bearer ${posthogApiKey}`,
-        ANTHROPIC_API_KEY: posthogApiKey,
-        ANTHROPIC_AUTH_TOKEN: posthogApiKey,
-        ANTHROPIC_BASE_URL: `${posthogApiUrl}/api/projects/${parseInt(posthogProjectId, 10)}/llm_gateway`,
+        // If direct Anthropic key is set, use it and bypass gateway; otherwise use PostHog key via gateway
+        ANTHROPIC_API_KEY: directAnthropicKey || posthogApiKey,
+        ANTHROPIC_AUTH_TOKEN: directAnthropicKey || posthogApiKey,
+        // If direct Anthropic key is set, point to Anthropic API; otherwise use LLM gateway
+        ANTHROPIC_BASE_URL: directAnthropicKey ? 'https://api.anthropic.com' : llmGatewayUrl,
     }
-
     Object.assign(process.env, envOverrides)
 
+    // Determine the prompt to use
+    let taskPrompt = prompt
+    let task = null
+
+    if (!taskPrompt && taskId) {
+        // Fetch task from API to get description
+
+        task = await fetchTask(posthogApiUrl, posthogApiKey, projectId, taskId)
+        taskPrompt = task.description
+    }
+
+    if (!taskPrompt) {
+        throw new Error('No prompt provided and could not fetch task description')
+    }
+
+    // Create agent with OTEL logging enabled
+    // Only configure posthog gateway if NOT using direct Anthropic key (to avoid overwriting ANTHROPIC_BASE_URL)
     const agent = new Agent({
-        workingDirectory: repositoryPath,
-        posthogApiUrl,
-        posthogApiKey,
-        posthogProjectId: parseInt(posthogProjectId, 10),
+        ...(directAnthropicKey
+            ? {}
+            : {
+                  posthog: {
+                      apiUrl: posthogApiUrl,
+                      getApiKey: () => posthogApiKey,
+                      projectId,
+                  },
+              }),
+        otelTransport: {
+            host: posthogApiUrl,
+            apiKey: posthogApiKey,
+            logsPath: '/i/v1/agent-logs',
+        },
         debug: true,
     })
 
-    if (prompt) {
-        const options = {
-            repositoryPath,
-            permissionMode: PermissionMode.BYPASS,
-            isCloudMode: true,
-        }
+    // Get ACP connection from agent
+    const acpConnection = await agent.run(taskId || 'cloud-task', runId || `run-${Date.now()}`, {})
+    const { clientStreams } = acpConnection
 
-        if (maxTurns) {
-            options.queryOverrides = {
-                maxTurns: parseInt(maxTurns, 10),
-            }
-        }
+    // Create client-side ACP connection
+    const clientStream = ndJsonStream(clientStreams.writable, clientStreams.readable)
+    const connection = new ClientSideConnection(() => createCloudClient(), clientStream)
 
-        await agent.run(prompt, options)
-    } else {
-        await agent.runTaskCloud(taskId, runId, {
-            repositoryPath,
-            createPR,
-        })
+    // Initialize the connection
+    await connection.initialize({
+        protocolVersion: PROTOCOL_VERSION,
+        clientCapabilities: {
+            fs: { readTextFile: true, writeTextFile: true },
+            terminal: true,
+        },
+    })
+
+    // Create a new session
+    const sessionId = runId || `session-${Date.now()}`
+    const sessionMeta = {
+        sessionId,
+        ...(maxTurns && {
+            claudeCode: {
+                options: {
+                    maxTurns: parseInt(maxTurns, 10),
+                },
+            },
+        }),
     }
+
+    await connection.newSession({
+        cwd: repositoryPath,
+        mcpServers: [],
+        _meta: sessionMeta,
+    })
+
+    // Send the prompt and wait for completion
+    let result
+    try {
+        result = await connection.prompt({
+            sessionId,
+            prompt: [{ type: 'text', text: taskPrompt }],
+        })
+
+        // Handle PR creation if requested and task completed successfully
+        if (createPR && result.stopReason === 'end_turn') {
+        }
+    } finally {
+        // Always flush logs and clean up, even if prompt execution fails
+        await agent.flushAllLogs().catch((err) => console.error('Failed to flush logs:', err))
+        await acpConnection.cleanup().catch((err) => console.error('Failed to cleanup:', err))
+    }
+
+    return result
 }
 
 async function main() {

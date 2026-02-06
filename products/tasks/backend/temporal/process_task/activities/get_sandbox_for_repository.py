@@ -1,3 +1,4 @@
+import os
 import logging
 from dataclasses import dataclass
 
@@ -77,6 +78,14 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
             "POSTHOG_API_URL": settings.SITE_URL,
             "POSTHOG_PROJECT_ID": str(ctx.team_id),
         }
+
+        if settings.DEBUG:
+            # Local development only: pass through ANTHROPIC_API_KEY if set (bypasses LLM gateway)
+            if os.environ.get("ANTHROPIC_API_KEY"):
+                environment_variables["ANTHROPIC_API_KEY"] = os.environ["ANTHROPIC_API_KEY"]
+            # LLM Gateway URL for local Docker - needs host.docker.internal to reach host
+            llm_gateway_port = os.environ.get("LLM_GATEWAY_PORT", "3308")
+            environment_variables["LLM_GATEWAY_URL"] = f"http://host.docker.internal:{llm_gateway_port}"
 
         config = SandboxConfig(
             name=get_sandbox_name_for_task(ctx.task_id),
