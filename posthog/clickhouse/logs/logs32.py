@@ -1,5 +1,7 @@
 from django.conf import settings
 
+from posthog.clickhouse.table_engines import MergeTreeEngine, ReplicationScheme
+
 from .log_attributes import TABLE_NAME as LOG_ATTRIBUTES_TABLE_NAME
 
 TABLE_NAME = "logs32"
@@ -74,7 +76,7 @@ CREATE TABLE IF NOT EXISTS {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{TABLE_NA
             resource_fingerprint
     )
 )
-ENGINE = ReplicatedMergeTree
+ENGINE = {MergeTreeEngine(TABLE_NAME, replication_scheme=ReplicationScheme.REPLICATED)}
 PARTITION BY toDate(original_expiry_timestamp)
 PRIMARY KEY (team_id, time_bucket, service_name, resource_fingerprint, severity_text, timestamp)
 ORDER BY (team_id, time_bucket, service_name, resource_fingerprint, severity_text, timestamp)
@@ -91,7 +93,7 @@ SETTINGS
 
 
 LOG_ATTRIBUTES_MV = f"""
-CREATE MATERIALIZED VIEW {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{TABLE_NAME}_to_log_attributes ON CLUSTER '{settings.CLICKHOUSE_LOGS_CLUSTER}' TO {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{LOG_ATTRIBUTES_TABLE_NAME}
+CREATE MATERIALIZED VIEW IF NOT EXISTS {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{TABLE_NAME}_to_log_attributes ON CLUSTER '{settings.CLICKHOUSE_LOGS_CLUSTER}' TO {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{LOG_ATTRIBUTES_TABLE_NAME}
 (
     `team_id` Int32,
     `time_bucket` DateTime64(0),
@@ -139,7 +141,7 @@ FROM
 """
 
 LOG_RESOURCE_ATTRIBUTES_MV = f"""
-CREATE MATERIALIZED VIEW {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{TABLE_NAME}_to_resource_attributes ON CLUSTER '{settings.CLICKHOUSE_LOGS_CLUSTER}' TO {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{LOG_ATTRIBUTES_TABLE_NAME}
+CREATE MATERIALIZED VIEW IF NOT EXISTS {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{TABLE_NAME}_to_resource_attributes ON CLUSTER '{settings.CLICKHOUSE_LOGS_CLUSTER}' TO {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{LOG_ATTRIBUTES_TABLE_NAME}
 (
     `team_id` Int32,
     `time_bucket` DateTime64(0),
