@@ -119,19 +119,25 @@ export const VisualizationArtifactAnswer = React.memo(function VisualizationArti
                 </div>
             )}
             <div className={clsx('flex items-center justify-between', !isCollapsed && 'mt-2')}>
-                <div className="flex items-center gap-1.5">
-                    <LemonButton
-                        sideIcon={isSummaryShown ? <IconCollapse /> : <IconExpand />}
-                        onClick={() => setIsSummaryShown(!isSummaryShown)}
-                        size="xsmall"
-                        className="-m-1 shrink"
-                        tooltip={isSummaryShown ? 'Hide definition' : 'Show definition'}
-                    >
-                        <h5 className="m-0 leading-none">
-                            <TopHeading query={query} />
-                        </h5>
-                    </LemonButton>
-                </div>
+                {isInsightVizNode(query) ? (
+                    <div className="flex items-center gap-1.5">
+                        <LemonButton
+                            sideIcon={isSummaryShown ? <IconCollapse /> : <IconExpand />}
+                            onClick={() => setIsSummaryShown(!isSummaryShown)}
+                            size="xsmall"
+                            className="-m-1 shrink"
+                            tooltip={isSummaryShown ? 'Hide definition' : 'Show definition'}
+                        >
+                            <h5 className="m-0 leading-none">
+                                <TopHeading query={query} />
+                            </h5>
+                        </LemonButton>
+                    </div>
+                ) : (
+                    <h5 className="m-0 leading-none">
+                        <TopHeading query={query} />
+                    </h5>
+                )}
                 <div className="flex items-center gap-1.5">
                     {isEditingInsight && activeTabId && activeSceneId === Scene.Insight && (
                         <InsightSuggestionButton tabId={activeTabId} />

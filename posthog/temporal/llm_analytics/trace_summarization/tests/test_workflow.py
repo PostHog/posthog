@@ -1,6 +1,7 @@
 """Tests for batch trace summarization workflow."""
 
 import uuid
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 
 import pytest
@@ -10,6 +11,11 @@ from posthog.temporal.llm_analytics.trace_summarization.models import BatchSumma
 from posthog.temporal.llm_analytics.trace_summarization.sampling import sample_items_in_window_activity
 from posthog.temporal.llm_analytics.trace_summarization.summarization import generate_and_save_summary_activity
 from posthog.temporal.llm_analytics.trace_summarization.workflow import BatchTraceSummarizationWorkflow
+
+
+@asynccontextmanager
+async def _noop_heartbeater(*args, **kwargs):
+    yield
 
 
 @pytest.fixture
@@ -70,9 +76,11 @@ def sample_trace_hierarchy(sample_trace_data):
     }
 
 
+@patch(
+    "posthog.temporal.llm_analytics.trace_summarization.sampling.Heartbeater",
+    _noop_heartbeater,
+)
 class TestSampleItemsInWindowActivity:
-    """Tests for sample_items_in_window_activity."""
-
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.asyncio
     async def test_sample_traces_success(self, mock_team):
@@ -140,13 +148,14 @@ class TestSampleItemsInWindowActivity:
             assert len(result) == 0
 
 
+@patch(
+    "posthog.temporal.llm_analytics.trace_summarization.summarization.Heartbeater",
+    _noop_heartbeater,
+)
 class TestGenerateSummaryActivity:
-    """Tests for generate_and_save_summary_activity."""
-
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.asyncio
     async def test_generate_and_save_summary_success(self, sample_trace_data, mock_team):
-        """Test successful summary generation and saving."""
         from posthog.schema import LLMTrace, LLMTracePerson
 
         from products.llm_analytics.backend.summarization.llm.schema import (

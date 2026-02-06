@@ -18,6 +18,7 @@ jobs:
         steps:
             - uses: actions/checkout@v6
 
+            # Not only the MCP folder but any file that generates schema for the mcp folder
             - uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
               id: filter
               if: github.event_name != 'push' # Run all tests on master push
@@ -25,6 +26,8 @@ jobs:
                   filters: |
                       mcp:
                         - 'services/mcp/**'
+                        - 'products/**' 
+                        - 'frontend/**'
                         - '.github/workflows/mcp-ci.yml'
                         - '.github/workflows/mcp-publish.yml'
     build:

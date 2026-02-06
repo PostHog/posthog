@@ -632,9 +632,9 @@ export const batchExportConfigurationLogic = kea<batchExportConfigurationLogicTy
         return `NEW:${service}`
     }),
     path((key) => ['scenes', 'data-pipelines', 'batch-exports', 'batchExportConfigurationLogic', key]),
-    connect({
+    connect(() => ({
         values: [teamLogic, ['timezone as teamTimezone', 'weekStartDay as teamWeekStartDay']],
-    }),
+    })),
     actions({
         setSavedConfiguration: (configuration: Record<string, any>) => ({ configuration }),
         setSelectedModel: (model: string) => ({ model }),
@@ -1167,7 +1167,7 @@ export const batchExportConfigurationLogic = kea<batchExportConfigurationLogicTy
             try {
                 await api.batchExports.delete(batchExportId)
                 lemonToast.success('Batch export deleted successfully')
-                router.actions.replace(urls.dataPipelines('destinations'))
+                router.actions.replace(urls.destinations())
             } catch (error: any) {
                 // Show error toast with the error message from the API
                 const errorMessage = error.detail || error.message || 'Failed to delete'

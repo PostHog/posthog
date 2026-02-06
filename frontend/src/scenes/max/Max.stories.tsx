@@ -1832,6 +1832,179 @@ DangerousOperationPendingApproval.parameters = {
     },
 }
 
+export const DangerousOperationPendingApprovalLongContent: StoryFn = () => {
+    const toolCallMessage: AssistantMessage = {
+        type: AssistantMessageType.Assistant,
+        content: "I'll perform the comprehensive migration. This requires your approval first.",
+        id: 'dangerous-op-long-msg',
+        tool_calls: [
+            {
+                id: 'dangerous_op_tool_long_1',
+                name: 'upsert_dashboard',
+                type: 'tool_call',
+                args: {
+                    dashboard_id: 'dashboard-long-preview',
+                    tiles: [],
+                },
+            },
+        ],
+    }
+
+    const longPreviewText = `# Database Migration Plan
+
+This migration will update **multiple tables** across the system.
+
+## Summary
+
+- **Total tables affected**: 15
+- **Total records to migrate**: 2,453,891
+- **Estimated downtime**: 0 (zero-downtime migration)
+- **Rollback strategy**: Automated via migration versioning
+
+## Phase 1: Schema Updates
+
+### Table: users
+\`\`\`sql
+ALTER TABLE users ADD COLUMN preferences JSONB DEFAULT '{}';
+ALTER TABLE users ADD COLUMN last_active_at TIMESTAMP;
+ALTER TABLE users ADD COLUMN notification_settings JSONB;
+\`\`\`
+
+### Table: organizations
+\`\`\`sql
+ALTER TABLE organizations ADD COLUMN billing_tier VARCHAR(50);
+ALTER TABLE organizations ADD COLUMN feature_flags JSONB DEFAULT '{}';
+ALTER TABLE organizations ADD COLUMN quota_limits JSONB;
+\`\`\`
+
+### Table: projects
+\`\`\`sql
+ALTER TABLE projects ADD COLUMN archived_at TIMESTAMP;
+ALTER TABLE projects ADD COLUMN metadata JSONB DEFAULT '{}';
+\`\`\`
+
+## Phase 2: Data Migration
+
+The following data transformations will be applied:
+
+1. **User preferences migration**
+   - Migrate legacy \`settings\` column to new \`preferences\` JSONB
+   - Parse and normalize date formats
+   - Apply default values for missing fields
+
+2. **Organization billing tier**
+   - Map existing \`plan_id\` to new \`billing_tier\`
+   - Free → \`starter\`
+   - Pro → \`growth\`
+   - Enterprise → \`scale\`
+
+3. **Project metadata**
+   - Consolidate \`extra_data\` and \`config\` into \`metadata\`
+   - Remove deprecated fields
+
+## Phase 3: Index Creation
+
+New indexes to improve query performance:
+
+| Table | Index Name | Columns | Type |
+|-------|-----------|---------|------|
+| users | idx_users_last_active | last_active_at | BTREE |
+| users | idx_users_preferences | preferences | GIN |
+| organizations | idx_org_billing | billing_tier | BTREE |
+| projects | idx_projects_archived | archived_at | BTREE |
+| events | idx_events_timestamp | timestamp, team_id | BTREE |
+
+## Phase 4: Cleanup
+
+After successful migration:
+
+- Drop legacy columns: \`users.old_settings\`, \`organizations.plan_id\`
+- Remove temporary migration tables
+- Update materialized views
+
+## Affected Services
+
+The following services will need to be notified:
+
+- ✅ API Gateway
+- ✅ Event Ingestion Pipeline
+- ✅ Query Engine
+- ✅ Billing Service
+- ✅ Notification Service
+- ✅ Export Service
+
+## Risks and Mitigations
+
+| Risk | Likelihood | Impact | Mitigation |
+|------|-----------|--------|------------|
+| Data loss | Low | High | Full backup before migration |
+| Performance degradation | Medium | Medium | Run during low-traffic hours |
+| Service interruption | Low | High | Blue-green deployment |
+| Rollback failure | Very Low | Critical | Tested rollback procedure |
+
+⚠️ **This is a significant operation that will modify your production database.**`
+
+    const pendingApproval: PendingApproval = {
+        proposal_id: 'proposal-long-content-123',
+        decision_status: 'pending',
+        tool_name: 'upsert_dashboard',
+        preview: longPreviewText,
+        payload: {
+            dashboard_id: 'dashboard-long-preview',
+            tiles: [],
+        },
+        original_tool_call_id: 'dangerous_op_tool_long_1',
+    }
+
+    useStorybookMocks({
+        post: {
+            '/api/environments/:team_id/conversations/': (_, res, ctx) =>
+                res(
+                    ctx.text(
+                        generateChunk([
+                            'event: conversation',
+                            `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
+                            'event: message',
+                            `data: ${JSON.stringify({
+                                ...humanMessage,
+                                content: 'Run the database migration',
+                            })}`,
+                            'event: message',
+                            `data: ${JSON.stringify(toolCallMessage)}`,
+                            'event: approval',
+                            `data: ${JSON.stringify(pendingApproval)}`,
+                        ])
+                    )
+                ),
+        },
+    })
+
+    const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
+    const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null, tabId: 'storybook' })
+    const { askMax } = useActions(threadLogic)
+    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
+
+    useEffect(() => {
+        if (dataProcessingAccepted) {
+            setTimeout(() => {
+                setConversationId(CONVERSATION_ID)
+                askMax('Run the database migration')
+            }, 0)
+        }
+    }, [dataProcessingAccepted, setConversationId, askMax])
+
+    if (!dataProcessingAccepted) {
+        return <></>
+    }
+
+    return <Template />
+}
+DangerousOperationPendingApprovalLongContent.parameters = {
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
+}
+
 export const ThreadWithMultiQuestionForm: StoryFn = () => {
     // Multi-question form with several questions - uses tool_calls format
     const formQuestions: MultiQuestionFormQuestion[] = [

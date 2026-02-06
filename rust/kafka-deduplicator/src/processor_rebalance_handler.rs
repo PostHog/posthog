@@ -120,7 +120,7 @@ where
             }
 
             // Try checkpoint import WITH per-partition cancellation token
-            // Importer does defensive cleanup of any prior partial downloads at this path
+            // RAII cleanup guard handles partial downloads on failure/timeout/cancel
             // Fallback empty store creation is handled centrally at resume time.
             if let Some(ref importer) = importer {
                 match importer
@@ -149,12 +149,10 @@ where
                             )
                             .increment(1);
 
-                            // Only clean up immediately if partition is NOT owned.
-                            // If token is cancelled but partition IS owned (rapid revoke→assign),
-                            // a new task may be about to work with this directory - let it handle
-                            // cleanup via its defensive pre-import cleanup, or let orphan cleaner
-                            // handle it after the new task completes.
-                            if !is_owned && path.exists() {
+                            // Clean up the successfully imported directory since we can't use it.
+                            // With unique Utc::now() timestamps, each import attempt creates a new path,
+                            // so there's no collision risk with a new task - it will create its own directory.
+                            if path.exists() {
                                 match std::fs::remove_dir_all(&path) {
                                     Ok(_) => {
                                         metrics::counter!(
@@ -167,7 +165,7 @@ where
                                             partition = partition.partition_number(),
                                             path = %path.display(),
                                             reason = reason,
-                                            "Cleaned up checkpoint import for unowned partition"
+                                            "Cleaned up unused checkpoint import"
                                         );
                                     }
                                     Err(e) => {
@@ -185,14 +183,6 @@ where
                                         );
                                     }
                                 }
-                            } else if is_cancelled && is_owned {
-                                // Token cancelled but partition re-assigned - let new task handle it
-                                debug!(
-                                    topic = partition.topic(),
-                                    partition = partition.partition_number(),
-                                    path = %path.display(),
-                                    "Skipping cleanup - partition was re-assigned, new task will handle"
-                                );
                             }
                             return;
                         }
