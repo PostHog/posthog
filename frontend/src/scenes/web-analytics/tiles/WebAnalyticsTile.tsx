@@ -92,13 +92,23 @@ const PAGE_LIKE_BREAKDOWNS = new Set([
     WebStatsBreakdown.FrustrationMetrics,
 ])
 
-const buildOpenUrl = (breakdownBy: WebStatsBreakdown, value: string, effectiveDomain: string | null): string | null => {
+const buildOpenUrl = (
+    breakdownBy: WebStatsBreakdown,
+    value: string,
+    effectiveDomain: string | null,
+    includeHost?: boolean
+): string | null => {
     if (!value || !PAGE_LIKE_BREAKDOWNS.has(breakdownBy)) {
         return null
     }
 
     // For ExitClick, the value is already a full URL
     if (breakdownBy === WebStatsBreakdown.ExitClick) {
+        return value.startsWith('http') ? value : `https://${value}`
+    }
+
+    // When includeHost is true, the value already contains host+path (e.g. example.com/about)
+    if (includeHost) {
         return value.startsWith('http') ? value : `https://${value}`
     }
 
@@ -121,14 +131,16 @@ const PathValueWithHoverLink = ({
     children,
     breakdownBy,
     value,
+    includeHost,
 }: {
     children: React.ReactNode
     breakdownBy: WebStatsBreakdown
     value: string
+    includeHost?: boolean
 }): JSX.Element => {
     const { effectiveDomain } = useValues(webAnalyticsFilterLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const url = buildOpenUrl(breakdownBy, value, effectiveDomain)
+    const url = buildOpenUrl(breakdownBy, value, effectiveDomain, includeHost)
 
     if (!url || !featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_OPEN_URL]) {
         return <>{children}</>
@@ -238,14 +250,14 @@ const BreakdownValueTitle: QueryContextColumnTitleComponent = (props) => {
     if (source.kind !== NodeKind.WebStatsTableQuery) {
         return null
     }
-    const { breakdownBy } = source
+    const { breakdownBy, includeHost } = source
     switch (breakdownBy) {
         case WebStatsBreakdown.Page:
-            return <>Path</>
+            return <>{includeHost ? 'Host + path' : 'Path'}</>
         case WebStatsBreakdown.InitialPage:
-            return <>Initial Path</>
+            return <>{includeHost ? 'Host + entry path' : 'Initial Path'}</>
         case WebStatsBreakdown.ExitPage:
-            return <>End Path</>
+            return <>{includeHost ? 'Host + end path' : 'End Path'}</>
         case WebStatsBreakdown.PreviousPage:
             return <>Previous Page</>
         case WebStatsBreakdown.ExitClick:
@@ -301,7 +313,7 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
     if (source.kind !== NodeKind.WebStatsTableQuery) {
         return null
     }
-    const { breakdownBy } = source
+    const { breakdownBy, includeHost } = source
 
     switch (breakdownBy) {
         case WebStatsBreakdown.ExitPage:
@@ -314,7 +326,7 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
             const decoded = tryDecodeURIComponent(value)
             const displayValue = source.doPathCleaning ? parseAliasToReadable(decoded) : decoded
             return (
-                <PathValueWithHoverLink breakdownBy={breakdownBy} value={value}>
+                <PathValueWithHoverLink breakdownBy={breakdownBy} value={value} includeHost={includeHost}>
                     {displayValue}
                 </PathValueWithHoverLink>
             )
@@ -794,6 +806,9 @@ export const WebStatsTableTile = ({
 
     const { key, type } = webStatsBreakdownToPropertyName(breakdownBy) || {}
 
+    const includeHost =
+        query.source.kind === NodeKind.WebStatsTableQuery ? query.source.includeHost : false
+
     const onClick = useCallback(
         (breakdownValue: string | null) => {
             if (!key || !type) {
@@ -805,9 +820,13 @@ export const WebStatsTableTile = ({
                 return
             }
 
+            if (includeHost) {
+                return
+            }
+
             togglePropertyFilter(type, key, breakdownValue)
         },
-        [togglePropertyFilter, type, key, productTab]
+        [togglePropertyFilter, type, key, productTab, includeHost]
     )
 
     const context = useMemo((): QueryContext => {
