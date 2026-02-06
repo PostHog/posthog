@@ -86,6 +86,16 @@ class TestActivityLogContext(ActivityLogTestMixin, BaseTest):
         assert "Insight" not in result
         assert "for scope=FeatureFlag" in result
 
+    async def test_fetch_and_format_filters_by_activity(self):
+        await self._create_log(scope="FeatureFlag", activity="created", item_id="1")
+        await self._create_log(scope="FeatureFlag", activity="deleted", item_id="2")
+
+        context = self._create_context()
+        result = await context.fetch_and_format(activity="created")
+
+        assert "1 entries" in result
+        assert "created" in result
+
     async def test_fetch_and_format_filters_by_item_id(self):
         await self._create_log(scope="FeatureFlag", item_id="10")
         await self._create_log(scope="FeatureFlag", item_id="20")

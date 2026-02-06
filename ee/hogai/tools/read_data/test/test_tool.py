@@ -625,7 +625,9 @@ class TestReadDataTool(BaseTest):
             result, artifact = await tool._arun_impl({"kind": "activity_log"})
 
             MockActivityLogContext.assert_called_once_with(team=self.team, user=self.user)
-            mock_instance.fetch_and_format.assert_called_once_with(scope=None, item_id=None, user_email=None, limit=20)
+            mock_instance.fetch_and_format.assert_called_once_with(
+                scope=None, activity=None, item_id=None, user_email=None, limit=20
+            )
             assert "Activity log" in result
             assert artifact is None
 
@@ -648,6 +650,7 @@ class TestReadDataTool(BaseTest):
                 {
                     "kind": "activity_log",
                     "scope": "FeatureFlag",
+                    "activity": "updated",
                     "item_id": "42",
                     "user_email": "test@example.com",
                     "limit": 10,
@@ -655,7 +658,7 @@ class TestReadDataTool(BaseTest):
             )
 
             mock_instance.fetch_and_format.assert_called_once_with(
-                scope="FeatureFlag", item_id="42", user_email="test@example.com", limit=10
+                scope="FeatureFlag", activity="updated", item_id="42", user_email="test@example.com", limit=10
             )
 
     async def test_create_tool_class_includes_activity_log_when_feature_available(self):
