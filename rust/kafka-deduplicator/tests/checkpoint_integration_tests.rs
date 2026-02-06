@@ -217,14 +217,19 @@ async fn test_checkpoint_export_import_via_minio() -> Result<()> {
         "Importer should be available"
     );
 
-    let import_result = importer
+    let (import_result, imported_metadata) = importer
         .import_checkpoint_for_topic_partition(test_topic, test_partition)
         .await?;
 
-    info!(path = ?import_result, "Imported checkpoint");
+    info!(path = ?import_result, consumer_offset = imported_metadata.consumer_offset, "Imported checkpoint");
     assert!(
         import_result.exists(),
         "Imported checkpoint directory should exist"
+    );
+    // Verify consumer_offset matches what was uploaded
+    assert_eq!(
+        imported_metadata.consumer_offset, uploaded_info.metadata.consumer_offset,
+        "Imported checkpoint metadata should contain the original consumer_offset for seeking"
     );
 
     // Verify each file from metadata was imported
@@ -504,7 +509,7 @@ async fn test_fallback_after_failed_attempt() -> Result<()> {
         "Import should succeed via fallback: {:?}",
         result.err()
     );
-    let import_path = result.unwrap();
+    let (import_path, _metadata) = result.unwrap();
 
     // Verify the imported checkpoint is from the OLDER (successful) checkpoint
     // by checking the marker file contains the older checkpoint's metadata
@@ -642,7 +647,7 @@ async fn test_parent_cancellation_stops_all_attempts() -> Result<()> {
     // The result may succeed (if download completed before cancellation) or fail
     // Either outcome is acceptable - we just verify no panic occurs
     info!(
-        result = ?result.as_ref().map(|p| p.display().to_string()).map_err(|e| e.to_string()),
+        result = ?result.as_ref().map(|(p, _)| p.display().to_string()).map_err(|e| e.to_string()),
         "Mid-download cancellation test completed (result depends on timing)"
     );
 
