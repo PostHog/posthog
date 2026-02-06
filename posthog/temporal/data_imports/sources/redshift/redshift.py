@@ -77,6 +77,26 @@ def get_redshift_row_count(
             )
             row_count_result = cursor.fetchall()
             row_counts = {row[0]: int(row[1]) for row in row_count_result}
+
+            cursor.execute(
+                "SELECT viewname FROM pg_views WHERE schemaname = %(schema)s",
+                {"schema": schema},
+            )
+            views = cursor.fetchall()
+
+            if views:
+                view_counts = [
+                    sql.SQL("SELECT {view_name} AS table_name, COUNT(*) AS row_count FROM {schema}.{view}").format(
+                        view_name=sql.Literal(view[0]),
+                        schema=sql.Identifier(schema),
+                        view=sql.Identifier(view[0]),
+                    )
+                    for view in views
+                ]
+                cursor.execute(sql.SQL(" UNION ALL ").join(view_counts))
+                for row in cursor.fetchall():
+                    row_counts[row[0]] = int(row[1])
+
         return row_counts
     except Exception:
         return {}
