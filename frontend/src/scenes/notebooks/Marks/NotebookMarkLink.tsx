@@ -28,7 +28,6 @@ export const NotebookMarkLink = Mark.create({
         }
         return ['a', mergeAttributes(HTMLAttributes, { target }), 0]
     },
-    },
 
     addPasteRules() {
         return [linkPasteRule()]
