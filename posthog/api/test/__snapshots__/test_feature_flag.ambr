@@ -559,7 +559,9 @@
              LIMIT 1)
           OR ("posthog_team"."parent_team_id" IS NULL
               AND "posthog_featureflag"."team_id" = 99999))
-         AND NOT ("posthog_featureflag"."is_remote_configuration"
+         AND NOT ("posthog_featureflag"."has_encrypted_payloads"
+                  AND "posthog_featureflag"."has_encrypted_payloads" IS NOT NULL
+                  AND "posthog_featureflag"."is_remote_configuration"
                   AND "posthog_featureflag"."is_remote_configuration" IS NOT NULL)
          AND NOT "posthog_featureflag"."deleted")
   '''
@@ -655,6 +657,7 @@
          "posthog_team"."session_recording_encryption",
          "posthog_team"."conversations_enabled",
          "posthog_team"."conversations_settings",
+         "posthog_team"."proactive_tasks_enabled",
          "posthog_team"."survey_config",
          "posthog_team"."surveys_opt_in",
          "posthog_team"."product_tours_opt_in",
@@ -820,7 +823,9 @@
              LIMIT 1)
           OR ("posthog_team"."parent_team_id" IS NULL
               AND "posthog_featureflag"."team_id" = 99999))
-         AND NOT ("posthog_featureflag"."is_remote_configuration"
+         AND NOT ("posthog_featureflag"."has_encrypted_payloads"
+                  AND "posthog_featureflag"."has_encrypted_payloads" IS NOT NULL
+                  AND "posthog_featureflag"."is_remote_configuration"
                   AND "posthog_featureflag"."is_remote_configuration" IS NOT NULL)
          AND NOT "posthog_featureflag"."deleted")
   '''
@@ -916,7 +921,9 @@
              LIMIT 1)
           OR ("posthog_team"."parent_team_id" IS NULL
               AND "posthog_featureflag"."team_id" = 99999))
-         AND NOT ("posthog_featureflag"."is_remote_configuration"
+         AND NOT ("posthog_featureflag"."has_encrypted_payloads"
+                  AND "posthog_featureflag"."has_encrypted_payloads" IS NOT NULL
+                  AND "posthog_featureflag"."is_remote_configuration"
                   AND "posthog_featureflag"."is_remote_configuration" IS NOT NULL)
          AND NOT "posthog_featureflag"."deleted")
   '''
@@ -971,6 +978,7 @@
          "posthog_team"."session_recording_encryption",
          "posthog_team"."conversations_enabled",
          "posthog_team"."conversations_settings",
+         "posthog_team"."proactive_tasks_enabled",
          "posthog_team"."survey_config",
          "posthog_team"."surveys_opt_in",
          "posthog_team"."product_tours_opt_in",
@@ -1115,6 +1123,7 @@
          "posthog_team"."session_recording_encryption",
          "posthog_team"."conversations_enabled",
          "posthog_team"."conversations_settings",
+         "posthog_team"."proactive_tasks_enabled",
          "posthog_team"."survey_config",
          "posthog_team"."surveys_opt_in",
          "posthog_team"."product_tours_opt_in",
@@ -1252,7 +1261,9 @@
              LIMIT 1)
           OR ("posthog_team"."parent_team_id" IS NULL
               AND "posthog_featureflag"."team_id" = 99999))
-         AND NOT ("posthog_featureflag"."is_remote_configuration"
+         AND NOT ("posthog_featureflag"."has_encrypted_payloads"
+                  AND "posthog_featureflag"."has_encrypted_payloads" IS NOT NULL
+                  AND "posthog_featureflag"."is_remote_configuration"
                   AND "posthog_featureflag"."is_remote_configuration" IS NOT NULL)
          AND NOT "posthog_featureflag"."deleted")
   '''
@@ -1332,7 +1343,9 @@
              LIMIT 1)
           OR ("posthog_team"."parent_team_id" IS NULL
               AND "posthog_featureflag"."team_id" = 99999))
-         AND NOT ("posthog_featureflag"."is_remote_configuration"
+         AND NOT ("posthog_featureflag"."has_encrypted_payloads"
+                  AND "posthog_featureflag"."has_encrypted_payloads" IS NOT NULL
+                  AND "posthog_featureflag"."is_remote_configuration"
                   AND "posthog_featureflag"."is_remote_configuration" IS NOT NULL)
          AND NOT "posthog_featureflag"."deleted")
   '''
@@ -1428,7 +1441,9 @@
              LIMIT 1)
           OR ("posthog_team"."parent_team_id" IS NULL
               AND "posthog_featureflag"."team_id" = 99999))
-         AND NOT ("posthog_featureflag"."is_remote_configuration"
+         AND NOT ("posthog_featureflag"."has_encrypted_payloads"
+                  AND "posthog_featureflag"."has_encrypted_payloads" IS NOT NULL
+                  AND "posthog_featureflag"."is_remote_configuration"
                   AND "posthog_featureflag"."is_remote_configuration" IS NOT NULL)
          AND NOT "posthog_featureflag"."deleted")
   '''
@@ -1538,6 +1553,7 @@
          "posthog_team"."session_recording_encryption",
          "posthog_team"."conversations_enabled",
          "posthog_team"."conversations_settings",
+         "posthog_team"."proactive_tasks_enabled",
          "posthog_team"."survey_config",
          "posthog_team"."surveys_opt_in",
          "posthog_team"."product_tours_opt_in",
@@ -1682,6 +1698,7 @@
          "posthog_team"."session_recording_encryption",
          "posthog_team"."conversations_enabled",
          "posthog_team"."conversations_settings",
+         "posthog_team"."proactive_tasks_enabled",
          "posthog_team"."survey_config",
          "posthog_team"."surveys_opt_in",
          "posthog_team"."product_tours_opt_in",
@@ -1931,7 +1948,9 @@
              LIMIT 1)
           OR ("posthog_team"."parent_team_id" IS NULL
               AND "posthog_featureflag"."team_id" = 99999))
-         AND NOT ("posthog_featureflag"."is_remote_configuration"
+         AND NOT ("posthog_featureflag"."has_encrypted_payloads"
+                  AND "posthog_featureflag"."has_encrypted_payloads" IS NOT NULL
+                  AND "posthog_featureflag"."is_remote_configuration"
                   AND "posthog_featureflag"."is_remote_configuration" IS NOT NULL)
          AND NOT "posthog_featureflag"."deleted")
   '''
@@ -2097,6 +2116,7 @@
          "posthog_team"."session_recording_encryption",
          "posthog_team"."conversations_enabled",
          "posthog_team"."conversations_settings",
+         "posthog_team"."proactive_tasks_enabled",
          "posthog_team"."survey_config",
          "posthog_team"."surveys_opt_in",
          "posthog_team"."product_tours_opt_in",
@@ -2241,6 +2261,7 @@
          "posthog_team"."session_recording_encryption",
          "posthog_team"."conversations_enabled",
          "posthog_team"."conversations_settings",
+         "posthog_team"."proactive_tasks_enabled",
          "posthog_team"."survey_config",
          "posthog_team"."surveys_opt_in",
          "posthog_team"."product_tours_opt_in",
@@ -2378,7 +2399,9 @@
              LIMIT 1)
           OR ("posthog_team"."parent_team_id" IS NULL
               AND "posthog_featureflag"."team_id" = 99999))
-         AND NOT ("posthog_featureflag"."is_remote_configuration"
+         AND NOT ("posthog_featureflag"."has_encrypted_payloads"
+                  AND "posthog_featureflag"."has_encrypted_payloads" IS NOT NULL
+                  AND "posthog_featureflag"."is_remote_configuration"
                   AND "posthog_featureflag"."is_remote_configuration" IS NOT NULL)
          AND NOT "posthog_featureflag"."deleted")
   '''
@@ -2463,6 +2486,7 @@
          "posthog_team"."session_recording_encryption",
          "posthog_team"."conversations_enabled",
          "posthog_team"."conversations_settings",
+         "posthog_team"."proactive_tasks_enabled",
          "posthog_team"."survey_config",
          "posthog_team"."surveys_opt_in",
          "posthog_team"."product_tours_opt_in",
@@ -2591,7 +2615,9 @@
              LIMIT 1)
           OR ("posthog_team"."parent_team_id" IS NULL
               AND "posthog_featureflag"."team_id" = 99999))
-         AND NOT ("posthog_featureflag"."is_remote_configuration"
+         AND NOT ("posthog_featureflag"."has_encrypted_payloads"
+                  AND "posthog_featureflag"."has_encrypted_payloads" IS NOT NULL
+                  AND "posthog_featureflag"."is_remote_configuration"
                   AND "posthog_featureflag"."is_remote_configuration" IS NOT NULL)
          AND NOT "posthog_featureflag"."deleted")
   '''
@@ -2701,6 +2727,7 @@
          "posthog_team"."session_recording_encryption",
          "posthog_team"."conversations_enabled",
          "posthog_team"."conversations_settings",
+         "posthog_team"."proactive_tasks_enabled",
          "posthog_team"."survey_config",
          "posthog_team"."surveys_opt_in",
          "posthog_team"."product_tours_opt_in",
@@ -2838,7 +2865,9 @@
              LIMIT 1)
           OR ("posthog_team"."parent_team_id" IS NULL
               AND "posthog_featureflag"."team_id" = 99999))
-         AND NOT ("posthog_featureflag"."is_remote_configuration"
+         AND NOT ("posthog_featureflag"."has_encrypted_payloads"
+                  AND "posthog_featureflag"."has_encrypted_payloads" IS NOT NULL
+                  AND "posthog_featureflag"."is_remote_configuration"
                   AND "posthog_featureflag"."is_remote_configuration" IS NOT NULL)
          AND NOT "posthog_featureflag"."deleted")
   '''
@@ -2975,7 +3004,9 @@
              LIMIT 1)
           OR ("posthog_team"."parent_team_id" IS NULL
               AND "posthog_featureflag"."team_id" = 99999))
-         AND NOT ("posthog_featureflag"."is_remote_configuration"
+         AND NOT ("posthog_featureflag"."has_encrypted_payloads"
+                  AND "posthog_featureflag"."has_encrypted_payloads" IS NOT NULL
+                  AND "posthog_featureflag"."is_remote_configuration"
                   AND "posthog_featureflag"."is_remote_configuration" IS NOT NULL)
          AND NOT "posthog_featureflag"."deleted")
   '''
@@ -3058,6 +3089,7 @@
          "posthog_team"."session_recording_encryption",
          "posthog_team"."conversations_enabled",
          "posthog_team"."conversations_settings",
+         "posthog_team"."proactive_tasks_enabled",
          "posthog_team"."survey_config",
          "posthog_team"."surveys_opt_in",
          "posthog_team"."product_tours_opt_in",
@@ -3202,6 +3234,7 @@
          "posthog_team"."session_recording_encryption",
          "posthog_team"."conversations_enabled",
          "posthog_team"."conversations_settings",
+         "posthog_team"."proactive_tasks_enabled",
          "posthog_team"."survey_config",
          "posthog_team"."surveys_opt_in",
          "posthog_team"."product_tours_opt_in",
@@ -3339,7 +3372,9 @@
              LIMIT 1)
           OR ("posthog_team"."parent_team_id" IS NULL
               AND "posthog_featureflag"."team_id" = 99999))
-         AND NOT ("posthog_featureflag"."is_remote_configuration"
+         AND NOT ("posthog_featureflag"."has_encrypted_payloads"
+                  AND "posthog_featureflag"."has_encrypted_payloads" IS NOT NULL
+                  AND "posthog_featureflag"."is_remote_configuration"
                   AND "posthog_featureflag"."is_remote_configuration" IS NOT NULL)
          AND NOT "posthog_featureflag"."deleted")
   '''
@@ -3478,6 +3513,7 @@
          "posthog_team"."session_recording_encryption",
          "posthog_team"."conversations_enabled",
          "posthog_team"."conversations_settings",
+         "posthog_team"."proactive_tasks_enabled",
          "posthog_team"."survey_config",
          "posthog_team"."surveys_opt_in",
          "posthog_team"."product_tours_opt_in",
@@ -3713,6 +3749,7 @@
          "posthog_team"."session_recording_encryption",
          "posthog_team"."conversations_enabled",
          "posthog_team"."conversations_settings",
+         "posthog_team"."proactive_tasks_enabled",
          "posthog_team"."survey_config",
          "posthog_team"."surveys_opt_in",
          "posthog_team"."product_tours_opt_in",
@@ -3838,6 +3875,7 @@
          "posthog_team"."session_recording_encryption",
          "posthog_team"."conversations_enabled",
          "posthog_team"."conversations_settings",
+         "posthog_team"."proactive_tasks_enabled",
          "posthog_team"."survey_config",
          "posthog_team"."surveys_opt_in",
          "posthog_team"."product_tours_opt_in",
@@ -3979,6 +4017,7 @@
          "posthog_team"."session_recording_encryption",
          "posthog_team"."conversations_enabled",
          "posthog_team"."conversations_settings",
+         "posthog_team"."proactive_tasks_enabled",
          "posthog_team"."survey_config",
          "posthog_team"."surveys_opt_in",
          "posthog_team"."product_tours_opt_in",

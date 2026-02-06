@@ -171,7 +171,7 @@ mod tests {
     #[tokio::test]
     async fn test_verify_token() {
         let redis_client = setup_redis_client(None).await;
-        let pg_client = setup_pg_reader_client(None).await;
+        let pg_client = setup_pg_reader_client(None);
         let team_hypercache_reader = setup_team_hypercache_reader(redis_client.clone()).await;
         let hypercache_reader = setup_hypercache_reader(redis_client.clone()).await;
         let team = insert_new_team_in_redis(redis_client.clone())
@@ -198,7 +198,7 @@ mod tests {
     #[tokio::test]
     async fn test_get_team_from_cache_or_pg() {
         let redis_client = setup_redis_client(None).await;
-        let pg_client = setup_pg_reader_client(None).await;
+        let pg_client = setup_pg_reader_client(None);
         let team_hypercache_reader = setup_team_hypercache_reader(redis_client.clone()).await;
         let hypercache_reader = setup_hypercache_reader(redis_client.clone()).await;
         let team = insert_new_team_in_redis(redis_client.clone())
@@ -251,7 +251,7 @@ mod tests {
     #[tokio::test]
     async fn test_get_flags_from_hypercache() {
         let redis_client = setup_redis_client(None).await;
-        let pg_client = setup_pg_reader_client(None).await;
+        let pg_client = setup_pg_reader_client(None);
         let team = insert_new_team_in_redis(redis_client.clone())
             .await
             .expect("Failed to insert new team in Redis");
@@ -423,7 +423,7 @@ mod tests {
         use common_compression::compress_zstd;
 
         let redis_client = setup_redis_client(None).await;
-        let pg_client = setup_pg_reader_client(None).await;
+        let pg_client = setup_pg_reader_client(None);
         let team = insert_new_team_in_redis(redis_client.clone())
             .await
             .expect("Failed to insert team in Redis");
@@ -540,7 +540,7 @@ mod tests {
     #[tokio::test]
     async fn test_get_flags_falls_back_to_pg_on_hypercache_miss() {
         let redis_client = setup_redis_client(None).await;
-        let pg_client = setup_pg_reader_client(None).await;
+        let pg_client = setup_pg_reader_client(None);
         let team_hypercache_reader = setup_team_hypercache_reader(redis_client.clone()).await;
         let hypercache_reader = setup_hypercache_reader(redis_client.clone()).await;
         let context = TestContext::new(None).await;

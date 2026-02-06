@@ -70,10 +70,12 @@ pub const CHECKPOINT_WORKER_STATUS_COUNTER: &str = "checkpoint_worker_status";
 
 /// Histogram for checkpoint upload duration
 /// Tags: result=success|error|cancelled
+/// When result=cancelled, additional tag: cause=rebalance|shutdown|unknown
 pub const CHECKPOINT_UPLOAD_DURATION_HISTOGRAM: &str = "checkpoint_upload_duration_seconds";
 
 /// Counter for checkpoint upload outcome status
 /// Tags: result=success|error|cancelled|unavailable
+/// When result=cancelled, additional tag: cause=rebalance|shutdown|unknown
 pub const CHECKPOINT_UPLOADS_COUNTER: &str = "checkpoint_upload_status";
 
 /// Counter for checkpoint file downloads outcome status
@@ -116,6 +118,12 @@ pub const CHECKPOINT_IMPORT_ATTEMPT_DURATION_HISTOGRAM: &str =
 /// Record outcomes for attempts to restore checkpoints
 /// when local store is missing after Kafka rebalances
 pub const REBALANCE_CHECKPOINT_IMPORT_COUNTER: &str = "rebalance_checkpoint_import_total";
+
+/// Counter for immediate cleanup of checkpoint imports after cancellation or ownership loss.
+/// This counts directories cleaned up immediately rather than waiting for orphan cleaner.
+/// Tags: result=success|failed
+pub const CHECKPOINT_IMPORT_CANCELLED_CLEANUP_COUNTER: &str =
+    "checkpoint_import_cancelled_cleanup_total";
 
 // ==== Store Manager Diagnostics ====
 /// Histogram for store creation duration (in milliseconds)
@@ -174,6 +182,13 @@ pub const BATCH_PROCESSING_ERROR: &str = "batch_processing_error_total";
 
 /// Counter for Resume commands skipped entirely (no owned partitions)
 pub const REBALANCE_RESUME_SKIPPED_NO_OWNED: &str = "rebalance_resume_skipped_no_owned_total";
+
+/// Counter for empty rebalances skipped (cooperative-sticky no-ops)
+/// Labels: event_type (assign|revoke)
+/// With cooperative-sticky protocol, the broker triggers rebalances for all consumers
+/// when any group membership changes, even if partitions don't move. This tracks
+/// how many of these empty rebalances we short-circuit.
+pub const REBALANCE_EMPTY_SKIPPED: &str = "rebalance_empty_skipped_total";
 
 // ==== Partition Batch Processing Diagnostics ====
 /// Histogram for partition batch processing duration (in milliseconds)

@@ -91,7 +91,10 @@ export const errorPropertiesLogic = kea<errorPropertiesLogicType>([
         frames: [
             (s) => [s.exceptionList],
             (exceptionList: ErrorTrackingException[]) => {
-                return exceptionList.flatMap((e) => e.stacktrace?.frames ?? []) as ErrorTrackingStackFrame[]
+                return exceptionList.flatMap((e) => {
+                    const frames = e.stacktrace?.frames
+                    return Array.isArray(frames) ? frames : []
+                }) as ErrorTrackingStackFrame[]
             },
         ],
         uuid: [(_, props) => [props.id], (id: ErrorEventId) => id],
