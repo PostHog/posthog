@@ -21,14 +21,8 @@ import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
 import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
 import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { ElementRect } from '~/toolbar/types'
-import { TOOLBAR_ID, elementToActionStep, getRectForElement, joinWithUiHost } from '~/toolbar/utils'
-import {
-    ProductTour,
-    ProductTourProgressionTriggerType,
-    ProductTourStep,
-    ProductTourStepType,
-    StepOrderVersion,
-} from '~/types'
+import { TOOLBAR_ID, elementToActionStep, getRectForElement } from '~/toolbar/utils'
+import { ProductTour, ProductTourStep, ProductTourStepType, StepOrderVersion } from '~/types'
 
 import { inferSelector } from './elementInference'
 import type { productToursLogicType } from './productToursLogicType'
@@ -171,19 +165,12 @@ export const productToursLogic = kea<productToursLogicType>([
         removeStep: (index: number) => ({ index }),
 
         // Step configuration
-        setStepTargetingMode: (index: number, useManual: boolean) => ({ index, useManual }),
-        updateStepSelector: (index: number, selector: string) => ({ index, selector }),
-        updateStepProgressionTrigger: (index: number, trigger: ProductTourProgressionTriggerType) => ({
-            index,
-            trigger,
-        }),
-        clearStepTargeting: (index: number) => ({ index }),
+        updateStep: (index: number, patch: Partial<TourStep>) => ({ index, patch }),
 
         // Tour CRUD
         selectTour: (id: string | null) => ({ id }),
         newTour: true,
         saveTour: true,
-        saveAndEditInPostHog: true,
         deleteTour: (id: string) => ({ id }),
 
         // Preview
@@ -297,14 +284,6 @@ export const productToursLogic = kea<productToursLogicType>([
                 selectTour: () => true,
             },
         ],
-        pendingEditInPostHog: [
-            false,
-            {
-                saveAndEditInPostHog: () => true,
-                selectTour: () => false,
-                submitTourFormFailure: () => false,
-            },
-        ],
         launchedFromMainApp: [
             false,
             {
@@ -389,20 +368,18 @@ export const productToursLogic = kea<productToursLogicType>([
                 }
 
                 const savedTour = await response.json()
-                const { uiHost, pendingEditInPostHog, launchedFromMainApp } = values
+                const { uiHost, launchedFromMainApp } = values
 
-                if (pendingEditInPostHog) {
-                    const editUrl = joinWithUiHost(uiHost, urls.productTour(savedTour.id, 'edit=true&tab=steps'))
-                    if (launchedFromMainApp) {
-                        window.location.href = editUrl
-                    } else {
-                        window.open(editUrl, '_blank')
-                    }
+                const editUrl = `${uiHost}${urls.productTour(savedTour.id, 'edit=true')}`
+
+                // always go back to posthog on save if that's where the user started
+                if (launchedFromMainApp) {
+                    window.location.href = editUrl
                 } else {
                     lemonToast.success(isUpdate ? 'Tour updated' : 'Tour created', {
                         button: {
                             label: 'Open in PostHog',
-                            action: () => window.open(joinWithUiHost(uiHost, urls.productTour(savedTour.id)), '_blank'),
+                            action: () => window.open(editUrl, '_blank'),
                         },
                     })
                 }
@@ -558,35 +535,7 @@ export const productToursLogic = kea<productToursLogicType>([
                 actions.setEditorState({ mode: 'idle' })
             }
         },
-        setStepTargetingMode: ({ index, useManual }) => {
-            if (!values.tourForm) {
-                return
-            }
-            const steps = [...(values.tourForm.steps || [])]
-            const step = steps[index]
-            if (!step || !hasElementTarget(step)) {
-                return
-            }
-
-            steps[index] = {
-                ...step,
-                useManualSelector: useManual,
-            }
-            actions.setTourFormValue('steps', steps)
-        },
-        updateStepSelector: ({ index, selector }) => {
-            if (!values.tourForm) {
-                return
-            }
-            const steps = [...(values.tourForm.steps || [])]
-            const step = steps[index]
-            if (!step || !hasElementTarget(step)) {
-                return
-            }
-            steps[index] = { ...step, selector, element: undefined }
-            actions.setTourFormValue('steps', steps)
-        },
-        updateStepProgressionTrigger: ({ index, trigger }) => {
+        updateStep: ({ index, patch }) => {
             if (!values.tourForm) {
                 return
             }
@@ -595,27 +544,7 @@ export const productToursLogic = kea<productToursLogicType>([
             if (!step) {
                 return
             }
-            steps[index] = { ...step, progressionTrigger: trigger }
-            actions.setTourFormValue('steps', steps)
-        },
-        clearStepTargeting: ({ index }) => {
-            if (!values.tourForm) {
-                return
-            }
-            const steps = [...(values.tourForm.steps || [])]
-            const step = steps[index]
-            if (!step) {
-                return
-            }
-            steps[index] = {
-                ...step,
-                type: 'modal',
-                selector: undefined,
-                inferenceData: undefined,
-                screenshotMediaId: undefined,
-                useManualSelector: undefined,
-                element: undefined,
-            }
+            steps[index] = { ...step, ...patch }
             actions.setTourFormValue('steps', steps)
         },
         newTour: () => {
@@ -643,9 +572,6 @@ export const productToursLogic = kea<productToursLogicType>([
             }
         },
         saveTour: () => {
-            actions.submitTourForm()
-        },
-        saveAndEditInPostHog: () => {
             actions.submitTourForm()
         },
         previewTour: () => {
@@ -766,6 +692,7 @@ export const productToursLogic = kea<productToursLogicType>([
                 actions.selectTour(productTourId)
                 toolbarConfigLogic.actions.clearUserIntent()
             } else if (userIntent === 'add-product-tour') {
+                actions.setLaunchedFromMainApp(true)
                 actions.newTour()
                 toolbarConfigLogic.actions.clearUserIntent()
             } else if (userIntent === 'preview-product-tour' && productTourId) {
