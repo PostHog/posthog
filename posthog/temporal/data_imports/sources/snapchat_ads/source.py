@@ -9,6 +9,7 @@ from posthog.schema import (
 )
 
 from posthog.exceptions_capture import capture_exception
+from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, OauthIntegration
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from posthog.temporal.data_imports.sources.common.mixins import OAuthMixin
@@ -85,6 +86,15 @@ class SnapchatAdsSource(SimpleSource[SnapchatAdsSourceConfig], OAuthMixin):
 
     def source_for_pipeline(self, config: SnapchatAdsSourceConfig, inputs: SourceInputs) -> SourceResponse:
         integration = self.get_oauth_integration(config.snapchat_integration_id, inputs.team_id)
+
+        oauth_integration = OauthIntegration(integration)
+        if oauth_integration.access_token_expired():
+            oauth_integration.refresh_access_token()
+
+        if oauth_integration.integration.errors == ERROR_TOKEN_REFRESH_FAILED:
+            raise ValueError("Failed to refresh token for Snapchat Ads integration. Please re-authorize the integration.")
+
+        integration = oauth_integration.integration
 
         if not integration.access_token:
             raise ValueError(f"Snapchat Ads access token not found for job {inputs.job_id}")
