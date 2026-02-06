@@ -29,10 +29,25 @@ CHILD_WORKFLOW_ID_PREFIX = "llma-trace-clustering-team"
 GENERATION_COORDINATOR_SCHEDULE_ID = "llma-generation-clustering-coordinator-schedule"
 GENERATION_CHILD_WORKFLOW_ID_PREFIX = "llma-generation-clustering-team"
 
-# Activity timeouts (per activity type)
-COMPUTE_ACTIVITY_TIMEOUT = timedelta(seconds=120)  # Fetch + k-means + distances
-LLM_ACTIVITY_TIMEOUT = timedelta(seconds=300)  # LLM API call (5 minutes)
+# Activity timeouts (per activity type, per single attempt)
+COMPUTE_ACTIVITY_TIMEOUT = timedelta(seconds=120)  # Fetch + clustering + distances
+LLM_ACTIVITY_TIMEOUT = timedelta(seconds=600)  # 10 minutes for full labeling agent run (LangGraph multi-turn)
 EMIT_ACTIVITY_TIMEOUT = timedelta(seconds=60)  # ClickHouse write
+
+# Heartbeat timeouts - allows Temporal to detect dead workers faster than
+# waiting for the full start_to_close_timeout to expire. Activities must
+# send heartbeats within this interval or Temporal will consider them failed
+# and schedule a retry on another worker.
+COMPUTE_HEARTBEAT_TIMEOUT = timedelta(seconds=60)  # 1 minute - compute is mostly CPU-bound
+LLM_HEARTBEAT_TIMEOUT = timedelta(seconds=120)  # 2 minutes - agent runs can have long pauses between LLM calls
+EMIT_HEARTBEAT_TIMEOUT = timedelta(seconds=30)  # 30 seconds - ClickHouse writes are fast
+
+# Schedule-to-close timeouts - caps total time including all retry attempts,
+# backoff intervals, and queue time. Prevents runaway retries from blocking
+# the workflow indefinitely.
+COMPUTE_SCHEDULE_TO_CLOSE_TIMEOUT = timedelta(seconds=420)  # 7 min (3 attempts * 120s + backoff)
+LLM_SCHEDULE_TO_CLOSE_TIMEOUT = timedelta(seconds=900)  # 15 min (2 attempts * 600s + backoff, capped)
+EMIT_SCHEDULE_TO_CLOSE_TIMEOUT = timedelta(seconds=210)  # 3.5 min (3 attempts * 60s + backoff)
 
 # Compute activity - CPU bound, quick retries
 COMPUTE_ACTIVITY_RETRY_POLICY = RetryPolicy(
@@ -40,6 +55,7 @@ COMPUTE_ACTIVITY_RETRY_POLICY = RetryPolicy(
     initial_interval=timedelta(seconds=1),
     maximum_interval=timedelta(seconds=10),
     backoff_coefficient=2.0,
+    non_retryable_error_types=["ValueError", "TypeError"],
 )
 
 # LLM activity - external dependency, longer intervals between retries
@@ -48,6 +64,7 @@ LLM_ACTIVITY_RETRY_POLICY = RetryPolicy(
     initial_interval=timedelta(seconds=5),
     maximum_interval=timedelta(seconds=30),
     backoff_coefficient=2.0,
+    non_retryable_error_types=["ValueError", "TypeError"],
 )
 
 # Event emission - database write, quick retries
@@ -56,6 +73,7 @@ EMIT_ACTIVITY_RETRY_POLICY = RetryPolicy(
     initial_interval=timedelta(seconds=1),
     maximum_interval=timedelta(seconds=10),
     backoff_coefficient=2.0,
+    non_retryable_error_types=["ValueError", "TypeError"],
 )
 
 # Coordinator retry policies
