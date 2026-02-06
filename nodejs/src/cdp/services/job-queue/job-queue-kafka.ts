@@ -202,11 +202,6 @@ export class CyclotronJobQueueKafka {
         // Seek-back latency test: for a sample of messages, seek to a random older offset
         // on the same partition and measure how long the read takes (for WarpStream evaluation)
         if (this.seekTestConsumer) {
-            logger.info('seek_test_enabled', {
-                batchSize: messages.length,
-                sampleRate: this.config.CDP_CYCLOTRON_TEST_SEEK_SAMPLE_RATE,
-                maxOffset: this.config.CDP_CYCLOTRON_TEST_SEEK_MAX_OFFSET,
-            })
             for (const message of messages) {
                 if (Math.random() < this.config.CDP_CYCLOTRON_TEST_SEEK_SAMPLE_RATE) {
                     await this.testSeekLatency(message)
