@@ -30,14 +30,16 @@ test.describe('Insights list', () => {
         await test.step('search for the insight and navigate to it', async () => {
             await insight.goToList()
             await page.getByPlaceholder('Search').fill(insightName)
+            // Wait for the debounced search to fire (loader appears) then complete (loader gone)
+            await page
+                .locator('.LemonTableLoader')
+                .waitFor({ state: 'visible' })
+                .catch(() => {})
+            await expect(page.locator('.LemonTableLoader')).toHaveCount(0)
             const link = page.locator('table tbody tr').first().getByRole('link', { name: insightName })
             await expect(link).toBeVisible()
-
-            // Re-renders are deatching nodes and playwright can't click on them fast enough
-            await expect(async () => {
-                await link.click({ timeout: 2000 })
-                await page.waitForURL(/\/insights\/\w+/, { timeout: 3000 })
-            }).toPass({ timeout: 15000 })
+            await link.click()
+            await page.waitForURL(/\/insights\/\w+/)
 
             await expect(insight.topBarName).toContainText(insightName, { timeout: 15_000 })
         })
