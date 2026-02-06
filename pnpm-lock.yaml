@@ -25217,7 +25217,7 @@ snapshots:
       cors: 2.8.5
       cross-spawn: 7.0.6
       eventsource: 3.0.7
-      eventsource-parser: 3.0.0
+      eventsource-parser: 3.0.6
       express: 5.2.1
       express-rate-limit: 8.2.1(express@5.2.1)
       hono: 4.11.7
