@@ -108,9 +108,10 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             or (settings.API_QUERIES_LEGACY_TEAM_LIST and self.team_id not in settings.API_QUERIES_LEGACY_TEAM_LIST)
         ):
             return [APIQueriesBurstThrottle(), APIQueriesSustainedThrottle()]
-        if query := self.request.data.get("query"):
-            if isinstance(query, dict) and query.get("kind") == "HogQLQuery":
-                return [HogQLQueryThrottle()]
+        if isinstance(self.request.data, dict):
+            if query := self.request.data.get("query"):
+                if isinstance(query, dict) and query.get("kind") == "HogQLQuery":
+                    return [HogQLQueryThrottle()]
         return [ClickHouseBurstRateThrottle(), ClickHouseSustainedRateThrottle()]
 
     def check_team_api_queries_concurrency(self):
@@ -192,7 +193,11 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
     def _validate_query_kind(self, request: Request, query_kind: str | None) -> None:
         if not query_kind:
             return
+        if not isinstance(request.data, dict):
+            raise ValidationError("Query body must be a JSON object.")
         query_payload = request.data.get("query")
+        if query_payload is not None and not isinstance(query_payload, dict):
+            raise ValidationError("Query must be a JSON object.")
         body_kind = query_payload.get("kind") if isinstance(query_payload, dict) else None
         if query_kind != body_kind:
             raise ValidationError(
