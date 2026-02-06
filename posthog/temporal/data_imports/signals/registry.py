@@ -28,6 +28,10 @@ class SignalSourceConfig:
     first_sync_limit: int = 100
     # Lookback window in days for first ever sync
     first_sync_lookback_days: int = 7
+    # Optional LLM prompt to check if a record is actionable before emitting.
+    # Must contain {description} placeholder. LLM should respond with ACTIONABLE or NOT_ACTIONABLE.
+    # If None, all records passing the emitter are considered actionable.
+    actionability_prompt: str | None = None
 
 
 # Registry mapping (source_type, schema_name) -> config

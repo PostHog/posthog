@@ -1,8 +1,13 @@
 import uuid
+import asyncio
 import dataclasses
 from typing import Any
 
+from django.conf import settings
+
 import posthoganalytics
+from google.genai import types
+from posthoganalytics.ai.gemini import genai
 from temporalio import activity
 
 from posthog.hogql.parser import parse_select
@@ -11,13 +16,17 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.data_imports.signals import SignalSourceConfig, get_signal_config
+from posthog.temporal.data_imports.signals.registry import SignalEmitterOutput
 
 from products.data_warehouse.backend.models import ExternalDataSchema
 from products.signals.backend.api import emit_signal
 
 # Maximum number of records to emit signals for per sync
-MAX_SIGNALS_PER_SYNC = 1000
+# TODO: Rever to 1000 after testing
+MAX_SIGNALS_PER_SYNC = 10
 EMIT_SIGNALS_FEATURE_FLAG = "emit-data-import-signals"
+# Concurrency limit for LLM actionability checks
+LLM_CONCURRENCY_LIMIT = 10
 
 
 @dataclasses.dataclass
@@ -94,12 +103,25 @@ async def emit_data_import_signals_activity(inputs: EmitSignalsActivityInputs) -
             extra=inputs.properties_to_log,
         )
         return {"status": "success", "reason": "no_new_records", "signals_emitted": 0}
-    # Emit signals for each record
-    signals_emitted = await _emit_signals_for_records(
+    # Build emitter outputs, filtering out records with missing data
+    outputs = _build_emitter_outputs(
         team_id=inputs.team_id,
         records=records,
-        extra=inputs.properties_to_log,
         emitter=config.emitter,
+    )
+    # Keep only actionable signals, when the prompt is defined
+    if config.actionability_prompt:
+        outputs = await _filter_actionable(
+            outputs=outputs,
+            actionability_prompt=config.actionability_prompt,
+            extra=inputs.properties_to_log,
+        )
+    if not outputs:
+        return {"status": "success", "reason": "no_actionable_records", "signals_emitted": 0}
+    signals_emitted = await _emit_signals(
+        team_id=inputs.team_id,
+        outputs=outputs,
+        extra=inputs.properties_to_log,
     )
     activity.logger.info(
         f"Emitted {signals_emitted} signals for {inputs.source_type}/{inputs.schema_name}",
@@ -136,7 +158,8 @@ def _query_new_records(
     where_parts: list[str] = []
     placeholders: dict[str, Any] = {}
     # Continuous sync - need to analyze all that happened since the last one
-    if last_synced_at is not None:
+    # TODO: Reverse to "is not None" after testing
+    if last_synced_at is None:
         where_parts.append("created_at > {last_synced_at}")
         placeholders["last_synced_at"] = last_synced_at
         limit = MAX_SIGNALS_PER_SYNC
@@ -165,19 +188,82 @@ def _query_new_records(
     return [dict(zip(result.columns, row)) for row in result.results]
 
 
-async def _emit_signals_for_records(
+def _build_emitter_outputs(
     team_id: int,
     records: list[dict[str, Any]],
-    extra: dict[str, Any],
     emitter,
+) -> list[SignalEmitterOutput]:
+    outputs = []
+    for record in records:
+        output = emitter(team_id, record)
+        if output is not None:
+            outputs.append(output)
+    return outputs
+
+
+async def _check_actionability(
+    output: SignalEmitterOutput,
+    actionability_prompt: str,
+) -> bool:
+    """Check if the signal is actionable through LLM-as-a-judge call"""
+    try:
+        client = genai.AsyncClient(api_key=settings.GEMINI_API_KEY)
+        prompt = actionability_prompt.format(description=output.description)
+        response = await client.models.generate_content(
+            model="models/gemini-3-flash-preview",
+            contents=[prompt],
+            # Limiting the output in hopes it will force LLM to give a short response
+            config=types.GenerateContentConfig(max_output_tokens=128),
+        )
+        response_text = (response.text or "").strip().upper()
+        return "NOT_ACTIONABLE" not in response_text
+    except Exception:
+        # If LLM call fails, allow to pass to not block the emission, as fails should not happen often
+        return True
+
+
+async def _filter_actionable(
+    outputs: list[SignalEmitterOutput],
+    actionability_prompt: str,
+    extra: dict[str, Any],
+) -> list[SignalEmitterOutput]:
+    """Keep only actionable signals"""
+    semaphore = asyncio.Semaphore(LLM_CONCURRENCY_LIMIT)
+
+    async def _bounded_check(output: SignalEmitterOutput) -> bool:
+        async with semaphore:
+            return await _check_actionability(output, actionability_prompt)
+
+    tasks: dict[int, asyncio.Task[bool]] = {}
+    async with asyncio.TaskGroup() as tg:
+        for i, output in enumerate(outputs):
+            tasks[i] = tg.create_task(_bounded_check(output))
+    actionable = []
+    filtered_count = 0
+    for i, output in enumerate(outputs):
+        result = tasks[i].result()
+        if result:
+            actionable.append(output)
+        elif isinstance(result, Exception):
+            actionable.append(output)
+        else:
+            filtered_count += 1
+    if filtered_count > 0:
+        activity.logger.info(
+            f"Filtered {filtered_count} non-actionable records out of {len(outputs)}",
+            extra=extra,
+        )
+    return actionable
+
+
+async def _emit_signals(
+    team_id: int,
+    outputs: list[SignalEmitterOutput],
+    extra: dict[str, Any],
 ) -> int:
     count = 0
-    for record in records:
+    for output in outputs:
         try:
-            output = emitter(team_id, record)
-            if output is None:
-                # Not enough data to emit a signal
-                continue
             await emit_signal(
                 team_id=team_id,
                 source_product="data_imports",
