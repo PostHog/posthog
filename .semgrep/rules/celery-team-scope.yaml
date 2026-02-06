@@ -1,0 +1,53 @@
+rules:
+    - id: celery-task-team-scope-audit
+      patterns:
+          - pattern-inside: |
+                @shared_task(...)
+                def $FUNC(...):
+                    ...
+          - pattern-either:
+                - pattern: $MODEL.objects.all()
+                - pattern: $MODEL.objects.filter(...)
+                - pattern: $MODEL.objects.get(...)
+                - pattern: $MODEL.objects.exclude(...)
+                - pattern: $MODEL.objects.first()
+                - pattern: $MODEL.objects.last()
+                - pattern: $MODEL.objects.count()
+                - pattern: $MODEL.objects.exists()
+          - pattern-not-inside: |
+                @with_team_scope(...)
+                def $FUNC(...):
+                    ...
+          - pattern-not: $MODEL.objects.unscoped()...
+      message: |
+          Celery task accesses model without explicit team scoping.
+
+          Background tasks don't have request context, so automatic team scoping
+          won't work. Either:
+          1. Add @with_team_scope() decorator if the task should be team-scoped
+          2. Use .unscoped() if intentionally querying across teams
+
+          Example with decorator:
+              @shared_task
+              @with_team_scope()
+              def my_task(team_id: int):
+                  FeatureFlag.objects.all()  # Scoped to team_id
+
+          Example with unscoped:
+              @shared_task
+              def my_task():
+                  FeatureFlag.objects.unscoped().all()  # Explicitly cross-team
+      languages: [python]
+      severity: WARNING
+      paths:
+          exclude:
+              - '**/test/**'
+              - '**/tests/**'
+              - '**/.semgrep/**'
+      metadata:
+          category: security
+          subcategory:
+              - audit
+          technology:
+              - django
+              - celery
