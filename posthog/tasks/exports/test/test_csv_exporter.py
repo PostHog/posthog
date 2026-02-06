@@ -599,7 +599,8 @@ class TestCSVExporter(APIBaseTest):
             self.assertNotIn("limit", query_json)
 
             # Verify content fell back to DB storage
-            lines = (exported_asset.content or b"").decode("utf-8").strip().split("\r\n")
+            content = exported_asset.content
+            lines = (bytes(content) if content else b"").decode("utf-8").strip().split("\r\n")
             self.assertEqual(lines, ["col", "value1", "value2"])
 
     @patch("posthog.models.exported_asset.object_storage.write_from_file")
