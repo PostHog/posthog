@@ -92,10 +92,9 @@ class GithubSource(SimpleSource[GithubSourceConfig | GithubSourcePATConfig]):
         return integration
 
     def parse_config(self, job_inputs: dict) -> GithubSourceConfig | GithubSourcePATConfig:
-        # Handle backward compatibility with existing PAT-based jobs
         if "personal_access_token" in job_inputs and "github_integration_id" not in job_inputs:
             return GithubSourcePATConfig.from_dict(job_inputs)
-        return self._config_class.from_dict(job_inputs)
+        return GithubSourceConfig.from_dict(job_inputs)
 
     def get_schemas(
         self, config: GithubSourceConfig | GithubSourcePATConfig, team_id: int, with_counts: bool = False
