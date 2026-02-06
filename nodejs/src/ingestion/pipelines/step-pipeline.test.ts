@@ -1,7 +1,8 @@
 import { Message } from 'node-rdkafka'
 
 import { createContext } from './helpers'
-import { drop, isOkResult, ok } from './results'
+import { TopHogTracker } from './pipeline.interface'
+import { dlq, drop, isOkResult, ok } from './results'
 import { StartPipeline } from './start-pipeline'
 import { StepPipeline } from './step-pipeline'
 
@@ -404,6 +405,157 @@ describe('StepPipeline', () => {
             // Should preserve context warnings but not call step
             expect(step).not.toHaveBeenCalled()
             expect(result.context.warnings).toEqual([contextWarning])
+        })
+    })
+
+    describe('topHog tracking', () => {
+        const message: Message = { value: Buffer.from('test'), topic: 'test', partition: 0, offset: 1 } as Message
+
+        function createMockTopHog(): TopHogTracker & { increment: jest.Mock } {
+            return { increment: jest.fn() }
+        }
+
+        it('should increment count and time metrics on OK result', async () => {
+            const mockTopHog = createMockTopHog()
+
+            function myStep(_input: { teamId: number }) {
+                return Promise.resolve(ok({ processed: true }))
+            }
+
+            const previous = new StartPipeline<{ teamId: number }, unknown>()
+            const pipeline = new StepPipeline(myStep, previous, {
+                keyExtractor: (input) => String(input.teamId),
+            })
+
+            const input = createContext(ok({ teamId: 42 }), { message, topHog: mockTopHog })
+            await pipeline.process(input)
+
+            expect(mockTopHog.increment).toHaveBeenCalledWith('myStep.count', '42')
+            expect(mockTopHog.increment).toHaveBeenCalledWith('myStep.time_ms', '42', expect.any(Number))
+        })
+
+        it('should use custom metric name when provided', async () => {
+            const mockTopHog = createMockTopHog()
+            const step = jest.fn().mockResolvedValue(ok({ done: true }))
+
+            const previous = new StartPipeline<{ teamId: number }, unknown>()
+            const pipeline = new StepPipeline(step, previous, {
+                metric: 'heatmap_events',
+                keyExtractor: (input) => String(input.teamId),
+            })
+
+            const input = createContext(ok({ teamId: 7 }), { message, topHog: mockTopHog })
+            await pipeline.process(input)
+
+            expect(mockTopHog.increment).toHaveBeenCalledWith('heatmap_events.count', '7')
+            expect(mockTopHog.increment).toHaveBeenCalledWith('heatmap_events.time_ms', '7', expect.any(Number))
+        })
+
+        it('should not track on non-OK results', async () => {
+            const mockTopHog = createMockTopHog()
+            const step = jest.fn().mockResolvedValue(dlq('bad data'))
+
+            const previous = new StartPipeline<{ teamId: number }, unknown>()
+            const pipeline = new StepPipeline(step, previous, {
+                keyExtractor: (input) => String(input.teamId),
+            })
+
+            const input = createContext(ok({ teamId: 1 }), { message, topHog: mockTopHog })
+            await pipeline.process(input)
+
+            expect(mockTopHog.increment).not.toHaveBeenCalled()
+        })
+
+        it('should not track when previous result is not OK', async () => {
+            const mockTopHog = createMockTopHog()
+            const step = jest.fn()
+
+            const previous = new StartPipeline<{ teamId: number }, unknown>()
+            const pipeline = new StepPipeline(step, previous, {
+                keyExtractor: (input) => String(input.teamId),
+            })
+
+            const input = createContext(drop<{ teamId: number }>('dropped'), {
+                message,
+                topHog: mockTopHog,
+            })
+            await pipeline.process(input)
+
+            expect(step).not.toHaveBeenCalled()
+            expect(mockTopHog.increment).not.toHaveBeenCalled()
+        })
+
+        it('should not track when topHog is not in context', async () => {
+            const step = jest.fn().mockResolvedValue(ok({ done: true }))
+
+            const previous = new StartPipeline<{ teamId: number }, unknown>()
+            const pipeline = new StepPipeline(step, previous, {
+                keyExtractor: (input) => String(input.teamId),
+            })
+
+            const input = createContext(ok({ teamId: 1 }), { message })
+            await pipeline.process(input)
+
+            expect(step).toHaveBeenCalled()
+        })
+
+        it('should skip count when trackCount is false', async () => {
+            const mockTopHog = createMockTopHog()
+            const step = jest.fn().mockResolvedValue(ok({ done: true }))
+
+            const previous = new StartPipeline<{ teamId: number }, unknown>()
+            const pipeline = new StepPipeline(step, previous, {
+                keyExtractor: (input) => String(input.teamId),
+                trackCount: false,
+            })
+
+            const input = createContext(ok({ teamId: 1 }), { message, topHog: mockTopHog })
+            await pipeline.process(input)
+
+            const calls = mockTopHog.increment.mock.calls.map(([metric]: [string]) => metric)
+            expect(calls).not.toContainEqual(expect.stringContaining('.count'))
+            expect(calls).toContainEqual(expect.stringContaining('.time_ms'))
+        })
+
+        it('should skip time when trackTime is false', async () => {
+            const mockTopHog = createMockTopHog()
+            const step = jest.fn().mockResolvedValue(ok({ done: true }))
+
+            const previous = new StartPipeline<{ teamId: number }, unknown>()
+            const pipeline = new StepPipeline(step, previous, {
+                keyExtractor: (input) => String(input.teamId),
+                trackTime: false,
+            })
+
+            const input = createContext(ok({ teamId: 1 }), { message, topHog: mockTopHog })
+            await pipeline.process(input)
+
+            const calls = mockTopHog.increment.mock.calls.map(([metric]: [string]) => metric)
+            expect(calls).toContainEqual(expect.stringContaining('.count'))
+            expect(calls).not.toContainEqual(expect.stringContaining('.time_ms'))
+        })
+
+        it('should not interfere with step result or context propagation', async () => {
+            const mockTopHog = createMockTopHog()
+
+            function trackedStep(input: { teamId: number }) {
+                return Promise.resolve(ok({ processed: input.teamId }))
+            }
+
+            const previous = new StartPipeline<{ teamId: number }, unknown>()
+            const pipeline = new StepPipeline(trackedStep, previous, {
+                keyExtractor: (input) => String(input.teamId),
+            })
+
+            const input = createContext(ok({ teamId: 5 }), { message, topHog: mockTopHog })
+            const result = await pipeline.process(input)
+
+            expect(isOkResult(result.result)).toBe(true)
+            if (isOkResult(result.result)) {
+                expect(result.result.value).toEqual({ processed: 5 })
+            }
+            expect(result.context.lastStep).toBe('trackedStep')
+            expect(result.context.topHog).toBe(mockTopHog)
         })
     })
 })
