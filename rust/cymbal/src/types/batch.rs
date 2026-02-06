@@ -53,7 +53,7 @@ impl<T> Batch<T> {
         async move {
             futures::future::try_join_all(handles)
                 .await
-                .expect("failed to join tasks")
+                .unwrap_or_else(|e| panic!("task panicked during batch processing: {:?}", e))
                 .into_iter()
                 .collect::<Result<Vec<_>, _>>()
                 .map(|value| value.into())
