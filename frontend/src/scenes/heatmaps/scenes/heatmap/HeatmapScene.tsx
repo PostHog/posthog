@@ -136,7 +136,10 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
                 <FilterPanel />
                 <SceneDivider />
                 <div ref={measureRef} className="w-full">
-                    <div className="border mx-auto bg-white rounded-lg" style={{ width: effectiveWidth ?? '100%' }}>
+                    <div
+                        className="border mx-auto bg-surface-primary rounded-lg"
+                        style={{ width: effectiveWidth ?? '100%' }}
+                    >
                         <div className="p-2 border-b text-muted-foreground gap-x-2 flex items-center">
                             <IconBrowser /> {displayUrl}
                             {typeof widthOverride === 'number' && containerWidth && widthOverride > containerWidth ? (

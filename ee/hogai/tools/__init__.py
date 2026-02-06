@@ -1,4 +1,3 @@
-from .create_dashboard import CreateDashboardTool
 from .create_form import CreateFormTool
 from .create_insight import CreateInsightTool
 from .execute_sql.tool import ExecuteSQLTool
@@ -13,7 +12,6 @@ from .todo_write import TodoWriteTool
 from .upsert_dashboard import UpsertDashboardTool
 
 __all__ = [
-    "CreateDashboardTool",
     "CreateFormTool",
     "ManageMemoriesTool",
     "ListDataTool",
