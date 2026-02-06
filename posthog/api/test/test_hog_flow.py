@@ -77,6 +77,7 @@ class TestHogFlowAPI(APIBaseTest):
 
         hog_flow = {
             "name": "Test Flow",
+            "status": "active",
             "actions": [trigger_action],
         }
 
@@ -114,6 +115,7 @@ class TestHogFlowAPI(APIBaseTest):
                 "inputs": {},
             }
         )
+        hog_flow["status"] = "active"
 
         # Check that the template is found but missing required inputs
         response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
@@ -132,6 +134,7 @@ class TestHogFlowAPI(APIBaseTest):
                 "inputs": {},
             }
         )
+        hog_flow["status"] = "active"
         response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
         assert response.status_code == 400, response.json()
         assert response.json() == {
@@ -148,6 +151,7 @@ class TestHogFlowAPI(APIBaseTest):
                 "inputs": {"url": {"value": "https://example.com"}},
             }
         )
+        hog_flow["status"] = "active"
 
         action["filters"] = {
             "properties": [{"key": "event", "type": "event_metadata", "value": ["custom_event"], "operator": "exact"}]
@@ -205,6 +209,7 @@ class TestHogFlowAPI(APIBaseTest):
 
         hog_flow = {
             "name": "Test Flow",
+            "status": "active",
             "actions": [trigger_action, conditional_action],
         }
 
@@ -253,6 +258,7 @@ class TestHogFlowAPI(APIBaseTest):
 
         hog_flow = {
             "name": "Test Flow Single Condition",
+            "status": "active",
             "actions": [trigger_action, wait_action],
         }
 
@@ -315,6 +321,7 @@ class TestHogFlowAPI(APIBaseTest):
 
         hog_flow = {
             "name": "Test Flow Mutually Exclusive",
+            "status": "active",
             "actions": [trigger_action, wait_action],
         }
 
@@ -380,6 +387,7 @@ class TestHogFlowAPI(APIBaseTest):
 
         hog_flow = {
             "name": "Test Flow",
+            "status": "active",
             "actions": [trigger_action, conditional_action],
         }
 
@@ -427,6 +435,7 @@ class TestHogFlowAPI(APIBaseTest):
 
         hog_flow = {
             "name": "Test Batch Flow",
+            "status": "active",
             "actions": [trigger_action],
         }
 
@@ -446,6 +455,7 @@ class TestHogFlowAPI(APIBaseTest):
 
         hog_flow = {
             "name": "Test Batch Flow",
+            "status": "active",
             "actions": [trigger_action],
         }
 
@@ -473,6 +483,7 @@ class TestHogFlowAPI(APIBaseTest):
 
         hog_flow = {
             "name": "Test Batch Flow",
+            "status": "active",
             "actions": [trigger_action],
         }
 
@@ -756,6 +767,7 @@ class TestHogFlowAPI(APIBaseTest):
 
         hog_flow_without = {
             "name": "Test Flow Without Filter",
+            "status": "active",
             "actions": [trigger_action_without_filter],
         }
 
@@ -782,6 +794,7 @@ class TestHogFlowAPI(APIBaseTest):
 
         hog_flow_with = {
             "name": "Test Flow With Filter",
+            "status": "active",
             "actions": [trigger_action_with_filter],
         }
 
@@ -860,3 +873,95 @@ class TestHogFlowAPI(APIBaseTest):
         assert name_change is not None
         assert name_change["before"] == original_name
         assert name_change["after"] == new_name
+
+    def test_hog_flow_draft_allows_incomplete_actions(self):
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "event",
+                "filters": {
+                    "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
+                },
+            },
+        }
+        incomplete_action = {
+            "id": "action_1",
+            "name": "action_1",
+            "type": "function",
+            "config": {},
+        }
+
+        hog_flow = {
+            "name": "Draft Flow",
+            "status": "draft",
+            "actions": [trigger_action, incomplete_action],
+        }
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 201, response.json()
+        assert response.json()["status"] == "draft"
+
+    def test_hog_flow_active_rejects_incomplete_actions(self):
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "event",
+                "filters": {
+                    "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
+                },
+            },
+        }
+        incomplete_action = {
+            "id": "action_1",
+            "name": "action_1",
+            "type": "function",
+            "config": {},
+        }
+
+        hog_flow = {
+            "name": "Active Flow",
+            "status": "active",
+            "actions": [trigger_action, incomplete_action],
+        }
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 400, response.json()
+
+    def test_hog_flow_draft_to_active_rejects_incomplete(self):
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "event",
+                "filters": {
+                    "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
+                },
+            },
+        }
+        incomplete_action = {
+            "id": "action_1",
+            "name": "action_1",
+            "type": "function",
+            "config": {},
+        }
+
+        hog_flow = {
+            "name": "Draft to Active Flow",
+            "status": "draft",
+            "actions": [trigger_action, incomplete_action],
+        }
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 201, response.json()
+        flow_id = response.json()["id"]
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {"status": "active"},
+        )
+        assert response.status_code == 400, response.json()

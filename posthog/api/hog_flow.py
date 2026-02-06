@@ -65,6 +65,9 @@ class HogFlowActionSerializer(serializers.Serializer):
         return super().to_internal_value(data)
 
     def validate(self, data):
+        if self.context.get("is_draft"):
+            return data
+
         trigger_is_function = False
         if data.get("type") == "trigger":
             if data.get("config", {}).get("type") in ["webhook", "manual", "tracking_pixel", "schedule"]:
@@ -198,6 +201,14 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
     trigger_masking = HogFlowMaskingSerializer(required=False, allow_null=True)
     variables = HogFlowVariableSerializer(required=False)
 
+    def to_internal_value(self, data):
+        status = data.get("status")
+        if status is None and self.instance:
+            status = self.instance.status
+        if status != "active":
+            self.context["is_draft"] = True
+        return super().to_internal_value(data)
+
     class Meta:
         model = HogFlow
         fields = [
@@ -231,6 +242,14 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
     def validate(self, data):
         instance = cast(Optional[HogFlow], self.instance)
         actions = data.get("actions", instance.actions if instance else [])
+
+        # When activating a draft, re-validate actions from the instance with full (non-draft) checks
+        status = data.get("status", instance.status if instance else "draft")
+        if status == "active" and instance and instance.status != "active" and "actions" not in data:
+            action_serializer = HogFlowActionSerializer(data=instance.actions, many=True, context=self.context)
+            action_serializer.is_valid(raise_exception=True)
+            actions = action_serializer.validated_data
+
         # The trigger is derived from the actions. We can trust the action level validation and pull it out
         trigger_actions = [action for action in actions if action.get("type") == "trigger"]
 
