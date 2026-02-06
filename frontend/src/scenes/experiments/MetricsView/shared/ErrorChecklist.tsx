@@ -18,14 +18,19 @@ export enum ResultErrorCode {
     NO_EXPOSURES = 'no-exposures',
 }
 
-export function ErrorChecklist({ error, metric }: { error: any; metric: any }): JSX.Element {
+interface ErrorChecklistProps {
+    error: any
+    metric: any
+}
+
+export function ErrorChecklist({ error, metric }: ErrorChecklistProps): JSX.Element | null {
     const { experiment, variants, getInsightType } = useValues(experimentLogic)
 
     if (!error) {
         return <></>
     }
 
-    const { statusCode, hasDiagnostics } = error
+    const { hasDiagnostics } = error
 
     function ChecklistItem({ errorCode, value }: { errorCode: ResultErrorCode; value: boolean }): JSX.Element {
         const failureText: Record<ResultErrorCode, string> = {
@@ -128,19 +133,5 @@ export function ErrorChecklist({ error, metric }: { error: any; metric: any }): 
         return <div>{checklistItems}</div>
     }
 
-    if (statusCode === 504) {
-        return (
-            <>
-                <h2 className="text-xl font-semibold leading-tight">Experiment results timed out</h2>
-                <div className="text-sm text-center text-balance">
-                    This may occur when the experiment has a large amount of data or is particularly complex. We are
-                    actively working on fixing this. In the meantime, please try refreshing the experiment to retrieve
-                    the results.
-                </div>
-            </>
-        )
-    }
-
-    // Other unexpected errors
-    return <div>{error.detail}</div>
+    return null
 }
