@@ -247,20 +247,18 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
                     </>
                 )}
                 <FixErrorButton type="tertiary" size="xsmall" source="action-bar" />
-                {vimModeFeatureEnabled && (
-                    <LemonSwitch
-                        checked={editorVimModeEnabled}
-                        onChange={setEditorVimModeEnabled}
-                        label="Vim"
-                        size="small"
-                        data-attr="sql-editor-vim-toggle"
-                    />
-                )}
-                {isRemovingSidePanelFlag && (
-                    <div className="ml-auto -mr-2">
-                        <SceneTitlePanelButton />
-                    </div>
-                )}
+                <div className="ml-auto flex items-center gap-1">
+                    {vimModeFeatureEnabled && (
+                        <LemonSwitch
+                            checked={editorVimModeEnabled}
+                            onChange={setEditorVimModeEnabled}
+                            label="Vim"
+                            size="small"
+                            data-attr="sql-editor-vim-toggle"
+                        />
+                    )}
+                    {isRemovingSidePanelFlag && <SceneTitlePanelButton />}
+                </div>
             </div>
             <QueryPane
                 originalValue={originalQueryInput ?? ''}
