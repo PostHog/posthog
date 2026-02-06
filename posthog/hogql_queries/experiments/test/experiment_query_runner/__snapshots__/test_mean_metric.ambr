@@ -21,7 +21,7 @@
        metric_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             toTimeZone(events.timestamp, 'UTC') AS timestamp,
-            accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'amount'), ''), 'null'), '^"|"$', ''), 'Float64') AS value
+            coalesce(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'amount'), ''), 'null'), '^"|"$', ''), 'Float64'), 0) AS value
      FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -81,7 +81,7 @@
        metric_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             toTimeZone(events.timestamp, 'UTC') AS timestamp,
-            1 AS value
+            coalesce(accurateCastOrNull(1, 'Float64'), 0) AS value
      FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -151,7 +151,7 @@
        metric_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             toTimeZone(events.timestamp, 'UTC') AS timestamp,
-            accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'amount'), ''), 'null'), '^"|"$', ''), 'Float64') AS value
+            coalesce(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'amount'), ''), 'null'), '^"|"$', ''), 'Float64'), 0) AS value
      FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -221,7 +221,7 @@
        metric_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             toTimeZone(events.timestamp, 'UTC') AS timestamp,
-            accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'amount'), ''), 'null'), '^"|"$', ''), 'Float64') AS value
+            coalesce(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'amount'), ''), 'null'), '^"|"$', ''), 'Float64'), 0) AS value
      FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -291,7 +291,7 @@
        metric_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             toTimeZone(events.timestamp, 'UTC') AS timestamp,
-            accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'amount'), ''), 'null'), '^"|"$', ''), 'Float64') AS value
+            coalesce(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'amount'), ''), 'null'), '^"|"$', ''), 'Float64'), 0) AS value
      FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -304,7 +304,7 @@
        entity_metrics AS
     (SELECT exposures.entity_id AS entity_id,
             exposures.variant AS variant,
-            avg(coalesce(accurateCastOrNull(metric_events.value, 'Float64'), 0)) AS value
+            coalesce(avg(accurateCastOrNull(metric_events.value, 'Float64')), 0) AS value
      FROM exposures
      LEFT JOIN metric_events ON and(equals(exposures.entity_id, metric_events.entity_id), greaterOrEquals(toTimeZone(metric_events.timestamp, 'UTC'), exposures.first_exposure_time))
      GROUP BY exposures.entity_id,
@@ -351,7 +351,7 @@
        metric_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             toTimeZone(events.timestamp, 'UTC') AS timestamp,
-            accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'amount'), ''), 'null'), '^"|"$', ''), 'Float64') AS value
+            coalesce(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'amount'), ''), 'null'), '^"|"$', ''), 'Float64'), 0) AS value
      FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -364,7 +364,7 @@
        entity_metrics AS
     (SELECT exposures.entity_id AS entity_id,
             exposures.variant AS variant,
-            max(coalesce(accurateCastOrNull(metric_events.value, 'Float64'), 0)) AS value
+            coalesce(max(accurateCastOrNull(metric_events.value, 'Float64')), 0) AS value
      FROM exposures
      LEFT JOIN metric_events ON and(equals(exposures.entity_id, metric_events.entity_id), greaterOrEquals(toTimeZone(metric_events.timestamp, 'UTC'), exposures.first_exposure_time))
      GROUP BY exposures.entity_id,
@@ -411,7 +411,7 @@
        metric_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             toTimeZone(events.timestamp, 'UTC') AS timestamp,
-            accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'amount'), ''), 'null'), '^"|"$', ''), 'Float64') AS value
+            coalesce(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'amount'), ''), 'null'), '^"|"$', ''), 'Float64'), 0) AS value
      FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -424,7 +424,7 @@
        entity_metrics AS
     (SELECT exposures.entity_id AS entity_id,
             exposures.variant AS variant,
-            min(coalesce(accurateCastOrNull(metric_events.value, 'Float64'), 0)) AS value
+            coalesce(min(accurateCastOrNull(metric_events.value, 'Float64')), 0) AS value
      FROM exposures
      LEFT JOIN metric_events ON and(equals(exposures.entity_id, metric_events.entity_id), greaterOrEquals(toTimeZone(metric_events.timestamp, 'UTC'), exposures.first_exposure_time))
      GROUP BY exposures.entity_id,
@@ -471,7 +471,7 @@
        metric_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             toTimeZone(events.timestamp, 'UTC') AS timestamp,
-            accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'amount'), ''), 'null'), '^"|"$', ''), 'Float64') AS value
+            coalesce(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'amount'), ''), 'null'), '^"|"$', ''), 'Float64'), 0) AS value
      FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,

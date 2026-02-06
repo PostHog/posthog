@@ -1376,10 +1376,10 @@
             arrayJoin(JSONExtractKeysAndValues(event.properties, 'String')) AS prop
      FROM events AS event
      JOIN funnel_actors ON equals(funnel_actors.actor_id, event.`$group_1`)
-     WHERE and(equals(event.team_id, 99999), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), date_from), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), date_to), equals(event.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), date_to)), notIn(event.event, funnel_step_names), in(event.event, ['positively_related', 'negatively_related'])))
+     WHERE and(equals(event.team_id, 99999), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), date_from), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), date_to), equals(event.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), date_to)), notIn(event.event, funnel_step_names), in(event.event, tuple('positively_related', 'negatively_related'))))
   GROUP BY name,
            prop
-  HAVING and(ifNull(greater(plus(success_count, failure_count), 2), 0), notIn((prop).1, []))
+  HAVING ifNull(greater(plus(success_count, failure_count), 2), 0)
   LIMIT 100
   UNION ALL WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id,
@@ -1499,10 +1499,10 @@
             arrayJoin(JSONExtractKeysAndValues(event.properties, 'String')) AS prop
      FROM events AS event
      JOIN funnel_actors ON equals(funnel_actors.actor_id, event.`$group_1`)
-     WHERE and(equals(event.team_id, 99999), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), date_from), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), date_to), equals(event.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), date_to)), notIn(event.event, funnel_step_names), in(event.event, ['positively_related', 'negatively_related'])))
+     WHERE and(equals(event.team_id, 99999), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), date_from), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), date_to), equals(event.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), date_to)), notIn(event.event, funnel_step_names), in(event.event, tuple('positively_related', 'negatively_related'))))
   GROUP BY name,
            prop
-  HAVING and(ifNull(greater(plus(success_count, failure_count), 2), 0), notIn((prop).1, []))
+  HAVING ifNull(greater(plus(success_count, failure_count), 2), 0)
   LIMIT 100
   UNION ALL WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id,
