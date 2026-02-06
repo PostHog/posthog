@@ -417,9 +417,12 @@ def _load_cohorts_with_dependencies(
     loaded_ids: set[int] = set()
 
     while ids_to_load:
-        # Load cohorts in bulk
-        new_cohorts = Cohort.objects.db_manager(using_database).filter(
-            pk__in=ids_to_load, team__project_id=project_id, deleted=False
+        # Load cohorts in bulk with team prefetched to avoid N+1 queries
+        # when get_all_cohort_dependencies accesses cohort.team.project_id
+        new_cohorts = (
+            Cohort.objects.db_manager(using_database)
+            .filter(pk__in=ids_to_load, team__project_id=project_id, deleted=False)
+            .select_related("team")
         )
 
         # Add loaded cohorts to cache
