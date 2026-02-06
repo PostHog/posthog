@@ -5,16 +5,14 @@ import { propertyFilterTypeToPropertyDefinitionType } from 'lib/components/Prope
 import { uuid } from 'lib/utils'
 
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { QuickFilterContext } from '~/queries/schema/schema-general'
 import { PropertyFilterType, PropertyOperator, QuickFilter, QuickFilterOption } from '~/types'
 
 import type { quickFilterFormLogicType } from './quickFilterFormLogicType'
 import { quickFiltersLogic } from './quickFiltersLogic'
-import { quickFiltersModalLogic } from './quickFiltersModalLogic'
+import { ModalView, QuickFiltersModalLogicProps, quickFiltersModalLogic } from './quickFiltersModalLogic'
 
-export interface QuickFilterFormLogicProps {
+export interface QuickFilterFormLogicProps extends QuickFiltersModalLogicProps {
     filter: QuickFilter | null
-    context: QuickFilterContext
 }
 
 export interface QuickFilterFormValues {
@@ -45,14 +43,19 @@ const trimValue = (value: string | string[] | null): string | string[] | null =>
 
 export const operatorsWithoutValues = [PropertyOperator.IsSet, PropertyOperator.IsNotSet]
 
-export const quickFilterFormLogic = kea<quickFilterFormLogicType>([
+export const quickFilterFormLogic: quickFilterFormLogicType = kea<quickFilterFormLogicType>([
     path(['lib', 'components', 'QuickFilters', 'quickFilterFormLogic']),
     props({} as QuickFilterFormLogicProps),
     key((props) => `${props.context}-${props.filter?.id || 'new'}`),
 
     connect((props: QuickFilterFormLogicProps) => ({
         values: [propertyDefinitionsModel, ['options as propertyOptions']],
-        actions: [propertyDefinitionsModel, ['loadPropertyValues'], quickFiltersModalLogic(props), ['closeModal']],
+        actions: [
+            propertyDefinitionsModel,
+            ['loadPropertyValues'],
+            quickFiltersModalLogic(props),
+            ['setView', 'closeModal'],
+        ],
     })),
 
     actions({
@@ -132,7 +135,9 @@ export const quickFilterFormLogic = kea<quickFilterFormLogicType>([
                     await quickFiltersLogic(props).asyncActions.createFilter(payload)
                 }
 
-                actions.closeModal()
+                // Return to list view instead of closing modal
+                // This allows the auto-select logic to trigger for new filters and users to add more filters
+                actions.setView(ModalView.List)
             },
         },
     })),
