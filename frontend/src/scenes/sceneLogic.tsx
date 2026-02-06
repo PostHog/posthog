@@ -52,6 +52,15 @@ import { userLogic } from './userLogic'
 const TAB_STATE_KEY = 'scene-tabs-state'
 const PINNED_TAB_STATE_KEY = 'scene-tabs-pinned-state'
 
+type TabOpenSource = 'internal_link' | 'keyboard_shortcut' | 'new_tab_button' | 'unknown'
+type TabCloseSource =
+    | 'close_button'
+    | 'context_menu'
+    | 'keyboard_shortcut'
+    | 'middle_click'
+    | 'open_in_side_panel'
+    | 'unknown'
+
 export interface PersistedPinnedState {
     tabs: SceneTab[]
     homepage: SceneTab | null
@@ -374,7 +383,10 @@ export const sceneLogic = kea<sceneLogicType>([
         }),
         reloadBrowserDueToImportError: true,
 
-        newTab: (href?: string | null, options?: { activate?: boolean; skipNavigate?: boolean; id?: string }) => {
+        newTab: (
+            href?: string | null,
+            options?: { activate?: boolean; skipNavigate?: boolean; id?: string; source?: TabOpenSource }
+        ) => {
             const tabId = options?.id ?? generateTabId()
             return {
                 href,
@@ -386,8 +398,8 @@ export const sceneLogic = kea<sceneLogicType>([
         loadPinnedTabsFromBackend: true,
         setPinnedStateFromBackend: (pinnedState: PersistedPinnedState) => ({ pinnedState }),
         setHomepage: (tab: SceneTab | null) => ({ tab }),
-        closeTabId: (tabId: string) => ({ tabId }),
-        removeTab: (tab: SceneTab) => ({ tab }),
+        closeTabId: (tabId: string, options?: { source?: TabCloseSource }) => ({ tabId, options }),
+        removeTab: (tab: SceneTab, options?: { source?: TabCloseSource }) => ({ tab, options }),
         activateTab: (tab: SceneTab) => ({ tab }),
         clickOnTab: (tab: SceneTab) => ({ tab }),
         reorderTabs: (activeId: string, overId: string) => ({ activeId, overId }),
@@ -829,11 +841,12 @@ export const sceneLogic = kea<sceneLogicType>([
     }),
     listeners(({ values, actions, cache, props, selectors }) => ({
         [NEW_INTERNAL_TAB]: (payload) => {
-            actions.newTab(payload.path)
+            actions.newTab(payload.path, { source: payload?.source ?? 'internal_link' })
         },
         newTab: ({ href, options, tabId }) => {
             const newTab = values.tabs.find((tab) => tab.id === tabId)
             const fallbackUrl = combineUrl(href || '/new')
+            const openSource = options?.source ?? 'unknown'
             posthog.capture('tab opened', {
                 tab_id: tabId,
                 pathname: newTab?.pathname ?? fallbackUrl.pathname,
@@ -843,6 +856,7 @@ export const sceneLogic = kea<sceneLogicType>([
                 active: newTab?.active ?? options?.activate ?? true,
                 scene_id: newTab?.sceneId,
                 scene_key: newTab?.sceneKey,
+                open_source: openSource,
             })
             persistTabs(values.tabs, values.homepage)
             if (!(options?.skipNavigate ?? false)) {
@@ -887,13 +901,14 @@ export const sceneLogic = kea<sceneLogicType>([
         setHomepage: () => {
             persistTabs(values.tabs, values.homepage)
         },
-        closeTabId: ({ tabId }) => {
+        closeTabId: ({ tabId, options }) => {
             const tab = values.tabs.find(({ id }) => id === tabId)
             if (tab) {
-                actions.removeTab(tab)
+                actions.removeTab(tab, { source: options?.source })
             }
         },
-        removeTab: ({ tab }) => {
+        removeTab: ({ tab, options }) => {
+            const closeSource = options?.source ?? 'unknown'
             posthog.capture('tab closed', {
                 tab_id: tab.id,
                 pathname: tab.pathname,
@@ -903,6 +918,7 @@ export const sceneLogic = kea<sceneLogicType>([
                 active: tab.active,
                 scene_id: tab.sceneId,
                 scene_key: tab.sceneKey,
+                close_source: closeSource,
             })
             const isHomepageTab = values.homepage?.id === tab.id
             if (tab.active) {
