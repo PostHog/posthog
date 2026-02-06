@@ -31,13 +31,13 @@ export default defineConfig({
     /* Fail the build on CI if you accidentally left test.only in the source code. */
     forbidOnly: !!process.env.CI,
     /* Retry on CI only */
-    retries: 0, // process.env.CI ? 3 : 2,
+    retries: 3, // process.env.CI ? 3 : 2,
     /* 
         GitHub Actions has 4 cores so run 3 workers 
         and leave one core for all the rest
         For local running, our machines are all M3 or M4 by now so we can afford to run more workers
     */
-    workers: 2, //process.env.CI ? 3 : 6,
+    workers: process.env.CI ? 3 : 6,
     /* Reporter to use. See https://playwright.dev/docs/test-reporters */
     reporter: [
         ['html', { open: 'never' }],
