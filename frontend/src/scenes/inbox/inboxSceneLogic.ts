@@ -1,10 +1,10 @@
-import { actions, kea, path, reducers } from 'kea'
+import { actions, events, kea, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
 
-import { SignalReport, SignalReportArtefact, SignalReportArtefactResponse } from './types'
 import type { inboxSceneLogicType } from './inboxSceneLogicType'
+import { SignalReport, SignalReportArtefact, SignalReportArtefactResponse } from './types'
 
 export const inboxSceneLogic = kea<inboxSceneLogicType>([
     path(['scenes', 'inbox', 'inboxSceneLogic']),
@@ -42,4 +42,10 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             },
         ],
     }),
+
+    events(({ actions }) => ({
+        afterMount: () => {
+            actions.loadReports()
+        },
+    })),
 ])
