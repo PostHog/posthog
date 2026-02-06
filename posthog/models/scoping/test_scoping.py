@@ -1,8 +1,11 @@
+import pytest
 from posthog.test.base import BaseTest
 
 from parameterized import parameterized
 
 from posthog.models.scoping import (
+    TeamContext,
+    get_current_team_context,
     get_current_team_id,
     reset_current_team_id,
     set_current_team_id,
@@ -203,3 +206,66 @@ class TestWithTeamScopeDecorator(BaseTest):
 
         result = my_task(team_id=42)
         assert result == "result for team 42"
+
+    def test_raises_if_team_id_is_not_int(self):
+        """Decorator raises TypeError if team_id is not an int."""
+
+        @with_team_scope()
+        def my_task(team_id: int):
+            pass
+
+        with pytest.raises(TypeError, match="must be an int"):
+            my_task(team_id="not-an-int")
+
+    def test_raises_if_team_id_is_none_explicitly(self):
+        """Decorator raises ValueError if team_id is None."""
+
+        @with_team_scope()
+        def my_task(team_id: int):
+            pass
+
+        with pytest.raises(ValueError, match="Could not find"):
+            my_task(team_id=None)
+
+
+class TestTeamContext(BaseTest):
+    def test_team_context_effective_team_id_without_parent(self):
+        """TeamContext.effective_team_id returns team_id when no parent."""
+        ctx = TeamContext(team_id=42)
+        assert ctx.effective_team_id == 42
+
+    def test_team_context_effective_team_id_with_parent(self):
+        """TeamContext.effective_team_id returns parent_team_id when set."""
+        ctx = TeamContext(team_id=42, parent_team_id=100)
+        assert ctx.effective_team_id == 100
+
+    def test_get_current_team_context_returns_full_context(self):
+        """get_current_team_context returns the full TeamContext object."""
+        with team_scope(42, parent_team_id=100):
+            ctx = get_current_team_context()
+            assert ctx is not None
+            assert ctx.team_id == 42
+            assert ctx.parent_team_id == 100
+            assert ctx.effective_team_id == 100
+
+    def test_set_current_team_id_with_parent(self):
+        """set_current_team_id caches parent_team_id in context."""
+        token = set_current_team_id(42, parent_team_id=100)
+        try:
+            ctx = get_current_team_context()
+            assert ctx is not None
+            assert ctx.team_id == 42
+            assert ctx.parent_team_id == 100
+        finally:
+            reset_current_team_id(token)
+
+    def test_team_scope_with_parent_team_id(self):
+        """team_scope context manager accepts parent_team_id."""
+        with team_scope(42, parent_team_id=100):
+            ctx = get_current_team_context()
+            assert ctx is not None
+            assert ctx.team_id == 42
+            assert ctx.parent_team_id == 100
+
+        # Context should be cleared after exiting
+        assert get_current_team_context() is None

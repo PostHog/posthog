@@ -20,42 +20,74 @@ import functools
 from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from contextvars import ContextVar, Token
+from dataclasses import dataclass
 from typing import ParamSpec, TypeVar
 
 P = ParamSpec("P")
 R = TypeVar("R")
 
-# The current team_id, set by middleware or explicitly via team_scope()
-_current_team_id: ContextVar[int | None] = ContextVar("current_team_id", default=None)
+
+@dataclass(frozen=True, slots=True)
+class TeamContext:
+    """Holds team context including cached parent team information."""
+
+    team_id: int
+    parent_team_id: int | None = None
+
+    @property
+    def effective_team_id(self) -> int:
+        """Returns parent_team_id if set, otherwise team_id."""
+        return self.parent_team_id if self.parent_team_id is not None else self.team_id
+
+
+# The current team context, set by middleware or explicitly via team_scope()
+_current_team_context: ContextVar[TeamContext | None] = ContextVar("current_team_context", default=None)
 
 
 def get_current_team_id() -> int | None:
     """Get the current team_id from context, or None if not set."""
-    return _current_team_id.get()
+    ctx = _current_team_context.get()
+    return ctx.team_id if ctx is not None else None
 
 
-def set_current_team_id(team_id: int | None) -> Token[int | None]:
+def get_current_team_context() -> TeamContext | None:
+    """Get the current team context, or None if not set."""
+    return _current_team_context.get()
+
+
+def set_current_team_id(team_id: int | None, parent_team_id: int | None = None) -> Token[TeamContext | None]:
     """Set the current team_id in context. Returns a token to reset it later."""
-    return _current_team_id.set(team_id)
+    if team_id is None:
+        return _current_team_context.set(None)
+    return _current_team_context.set(TeamContext(team_id=team_id, parent_team_id=parent_team_id))
 
 
-def reset_current_team_id(token: Token[int | None]) -> None:
+def reset_current_team_id(token: Token[TeamContext | None]) -> None:
     """Reset the current team_id to its previous value."""
-    _current_team_id.reset(token)
+    _current_team_context.reset(token)
 
 
 @contextmanager
-def team_scope(team_id: int) -> Generator[None, None, None]:
+def team_scope(team_id: int, parent_team_id: int | None = None) -> Generator[None, None, None]:
     """
     Context manager to set the current team_id for a block of code.
 
     Useful for background jobs or tests where there's no request context.
 
+    Args:
+        team_id: The team ID to scope queries to.
+        parent_team_id: Optional parent team ID for cross-database models.
+            If provided, queries to PERSONS_DB_MODELS will use this ID instead.
+
     Example:
         with team_scope(123):
             flags = FeatureFlag.objects.all()  # Auto-filtered to team 123
+
+        # With parent team for persons DB models:
+        with team_scope(123, parent_team_id=100):
+            persons = Person.objects.all()  # Filtered to team 100
     """
-    token = set_current_team_id(team_id)
+    token = set_current_team_id(team_id, parent_team_id)
     try:
         yield
     finally:
@@ -108,19 +140,19 @@ def with_team_scope(
     """
 
     def decorator(func: Callable[P, R]) -> Callable[P, R]:
+        # Cache signature inspection at decoration time (not per-call)
+        sig = inspect.signature(func)
+        params = list(sig.parameters.keys())
+        param_index = params.index(team_id_param) if team_id_param in params else None
+
         @functools.wraps(func)
         def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
             # Try to get team_id from kwargs first
             team_id = kwargs.get(team_id_param)
 
-            # If not in kwargs, try to get from positional args
-            if team_id is None:
-                sig = inspect.signature(func)
-                params = list(sig.parameters.keys())
-                if team_id_param in params:
-                    param_index = params.index(team_id_param)
-                    if param_index < len(args):
-                        team_id = args[param_index]
+            # If not in kwargs, try to get from positional args using cached index
+            if team_id is None and param_index is not None and param_index < len(args):
+                team_id = args[param_index]
 
             if team_id is None:
                 raise ValueError(
@@ -128,6 +160,9 @@ def with_team_scope(
                     f"Ensure the function has a '{team_id_param}' parameter or "
                     f"specify a different parameter name."
                 )
+
+            if not isinstance(team_id, int):
+                raise TypeError(f"with_team_scope: '{team_id_param}' must be an int, got {type(team_id).__name__}")
 
             with team_scope(team_id):
                 return func(*args, **kwargs)
@@ -138,7 +173,9 @@ def with_team_scope(
 
 
 __all__ = [
+    "TeamContext",
     "get_current_team_id",
+    "get_current_team_context",
     "set_current_team_id",
     "reset_current_team_id",
     "team_scope",
