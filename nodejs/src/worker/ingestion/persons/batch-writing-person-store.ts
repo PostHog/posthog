@@ -1193,6 +1193,13 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
             // Handle force_update with || operator - once true, stays true
             mergedPersonUpdate.force_update = existingPersonUpdate.force_update || person.force_update
 
+            // Handle last_seen_at - take the newer timestamp (max)
+            if (person.last_seen_at) {
+                if (!mergedPersonUpdate.last_seen_at || person.last_seen_at > mergedPersonUpdate.last_seen_at) {
+                    mergedPersonUpdate.last_seen_at = person.last_seen_at
+                }
+            }
+
             this.personUpdateCache.set(this.getPersonIdCacheKey(teamId, person.id), mergedPersonUpdate)
         } else {
             // First time we're caching this person id
