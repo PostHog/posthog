@@ -1701,6 +1701,11 @@
         animation-fill-mode: none;
     }
 
+    .animate-pulse-glow {
+        animation: pulse-glow 2s ease-in-out forwards;
+        animation-fill-mode: none;
+    }
+
     // Highlight background blink
 
     /* stylelint-disable-next-line keyframes-name-pattern */
@@ -1736,6 +1741,19 @@
 
         100% {
             transform: rotateZ(360deg);
+        }
+    }
+
+    // Pass in a different color variable to change the color of the glow
+    // Example: <span className="[--pulse-glow-color:blue] animate-pulse-glow" />
+    /* stylelint-disable-next-line keyframes-name-pattern */
+    @keyframes pulse-glow {
+        0% {
+            box-shadow: 0 0 0 2px var(--pulse-glow-color, var(--color-accent));
+        }
+
+        100% {
+            box-shadow: 0 0 0 10px transparent;
         }
     }
 

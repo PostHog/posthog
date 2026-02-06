@@ -8,6 +8,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { Error404 } from '~/layout/Error404'
+import { ProductKey } from '~/queries/schema/schema-general'
 
 import { ProductTourEdit } from './ProductTourEdit'
 import { ProductTourView } from './ProductTourView'
@@ -17,6 +18,7 @@ export const scene: SceneExport<ProductTourLogicProps> = {
     component: ProductTourComponent,
     logic: productTourLogic,
     paramsToProps: ({ params: { id } }) => ({ id }),
+    productKey: ProductKey.PRODUCT_TOURS,
 }
 
 export function ProductTourComponent({ id }: ProductTourLogicProps): JSX.Element {

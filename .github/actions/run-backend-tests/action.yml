@@ -205,12 +205,13 @@ runs:
           shell: bash
           run: echo "PYTEST_ARGS=--snapshot-update" >> $GITHUB_ENV # We can only update snapshots within the PostHog org
 
-        - name: Add --snapshot-warn-unused for compat tests
-          # Compat tests run a subset of snapshot tests, so unused snapshots are expected
-          # This makes unused snapshots non-fatal (warning only)
+        - name: Add snapshot flags for subset runs (compat tests)
+          # Subset runs don't own snapshots — the main django tests do.
+          # Always update snapshots and warn on unused so compat tests
+          # never fail due to snapshot differences across CH versions.
           if: inputs.snapshot-warn-unused == 'true'
           shell: bash
-          run: echo "PYTEST_ARGS=$PYTEST_ARGS --snapshot-warn-unused" >> $GITHUB_ENV
+          run: echo "PYTEST_ARGS=--snapshot-update --snapshot-warn-unused" >> $GITHUB_ENV
 
         # Tests
         - name: Run Core tests

@@ -108,10 +108,7 @@ export function ProductTourView({ id }: { id: string }): JSX.Element {
                 isLoading={productTourLoading}
                 actions={
                     <>
-                        <ProductToursToolbarButton
-                            tourId={id}
-                            mode={isAnnouncement(productTour) ? 'preview' : 'edit'}
-                        />
+                        <ProductToursToolbarButton tourId={id} mode="preview" />
                         <LemonButton type="secondary" size="small" onClick={() => editingProductTour(true)}>
                             Edit
                         </LemonButton>

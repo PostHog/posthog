@@ -152,7 +152,11 @@ export function StepButtonsEditor({
         return (
             <div className="space-y-3">
                 {isTourContext && (
-                    <LemonSwitch checked={customButtonsEnabled} onChange={toggleCustomButtons} label="Custom buttons" />
+                    <LemonSwitch
+                        checked={customButtonsEnabled}
+                        onChange={toggleCustomButtons}
+                        label="Use custom buttons"
+                    />
                 )}
                 {(customButtonsEnabled || !isTourContext) && (
                     <div className="flex gap-4">
@@ -198,7 +202,7 @@ export function StepButtonsEditor({
     return (
         <div className="space-y-3">
             {isTourContext && (
-                <LemonSwitch checked={customButtonsEnabled} onChange={toggleCustomButtons} label="Custom buttons" />
+                <LemonSwitch checked={customButtonsEnabled} onChange={toggleCustomButtons} label="Use custom buttons" />
             )}
             {(customButtonsEnabled || !isTourContext) && (
                 <>

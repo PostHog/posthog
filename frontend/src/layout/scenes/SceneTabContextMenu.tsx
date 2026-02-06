@@ -114,7 +114,7 @@ export function SceneTabContextMenu({ tab, children, onConfigurePinnedTabs }: Sc
                     )}
                     <ContextMenuSeparator />
                     <ContextMenuItem asChild>
-                        <ButtonPrimitive menuItem onClick={() => removeTab(tab)}>
+                        <ButtonPrimitive menuItem onClick={() => removeTab(tab, { source: 'context_menu' })}>
                             <IconX /> Close tab <KeyboardShortcut command option w />
                         </ButtonPrimitive>
                     </ContextMenuItem>

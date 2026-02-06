@@ -17,6 +17,7 @@ interface ToolbarButtonProps {
     type?: 'primary' | 'secondary' | 'tertiary'
     size?: 'xsmall' | 'small' | 'medium' | 'large'
     saveFirst?: boolean
+    label?: JSX.Element
 }
 
 const MODE_CONFIG: Record<
@@ -30,7 +31,7 @@ const MODE_CONFIG: Record<
         intent: 'edit-product-tour',
     },
     preview: {
-        label: 'Preview in toolbar',
+        label: 'Preview',
         title: 'Preview product tour',
         description: 'Select a URL to launch the toolbar and preview your product tour on your site',
         intent: 'preview-product-tour',
@@ -43,6 +44,7 @@ export function ProductToursToolbarButton({
     type = 'secondary',
     size = 'small',
     saveFirst = false,
+    label,
 }: ToolbarButtonProps): JSX.Element {
     const { pendingToolbarOpen, isToolbarModalOpen } = useValues(productTourLogic({ id: tourId }))
     const { openToolbarModal, closeToolbarModal, submitAndOpenToolbar } = useActions(productTourLogic({ id: tourId }))
@@ -56,7 +58,7 @@ export function ProductToursToolbarButton({
                 onClick={saveFirst ? submitAndOpenToolbar : openToolbarModal}
                 loading={pendingToolbarOpen}
             >
-                {config.label}
+                {label ? label : config.label}
             </LemonButton>
             <LemonModal
                 title={config.title}

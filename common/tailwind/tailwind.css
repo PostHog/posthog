@@ -8,13 +8,4 @@
     --text-xxs--line-height: 0.75rem;
 
     --spacing-button-padding-x: 7px; /* Match the padding of the button primitives base size (6px) + 1px border */
-
-    @keyframes inputFocusPulse {
-        0% {
-            box-shadow: 0 0 0px 2px var(--color-accent);
-        }
-        100% {
-            box-shadow: 0 0 0px 2px transparent;
-        }
-    }
 }

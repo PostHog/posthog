@@ -1,4 +1,4 @@
-import { useRef } from 'react'
+import { useLayoutEffect, useRef } from 'react'
 import useResizeObserver from 'use-resize-observer'
 
 export type TextfitProps = {
@@ -10,65 +10,48 @@ export type TextfitProps = {
 export const Textfit = ({ min, max, children }: TextfitProps): JSX.Element => {
     const parentRef = useRef<HTMLDivElement>(null)
     const childRef = useRef<HTMLDivElement>(null)
-    const fontSizeRef = useRef<number>(min)
 
-    let resizeTimer: NodeJS.Timeout
+    const calculateFontSize = (): void => {
+        const parent = parentRef.current
+        const child = childRef.current
 
-    const updateFontSize = (size: number): void => {
-        fontSizeRef.current = size
-        childRef.current!.style.fontSize = `${size}px`
+        if (!parent || !child) {
+            return
+        }
+
+        let low = min
+        let high = max
+
+        while (low <= high) {
+            const mid = Math.floor((low + high) / 2)
+            child.style.fontSize = `${mid}px`
+
+            const childFitsParent =
+                child.getBoundingClientRect().width <= parent.getBoundingClientRect().width &&
+                child.getBoundingClientRect().height <= parent.getBoundingClientRect().height
+
+            if (childFitsParent) {
+                low = mid + 1
+            } else {
+                high = mid - 1
+            }
+        }
+
+        const finalSize = Math.max(min, Math.min(max, Math.min(low, high)))
+        child.style.fontSize = `${finalSize}px`
     }
 
-    const handleResize = (): void => {
-        clearTimeout(resizeTimer)
-        resizeTimer = setTimeout(() => {
-            const parent = parentRef.current
-            const child = childRef.current
-
-            if (!parent || !child) {
-                return
-            }
-
-            let mid
-            let low = min
-            let high = max
-
-            while (low <= high) {
-                mid = Math.floor((low + high) / 2)
-                updateFontSize(mid)
-                const childRect = child.getBoundingClientRect()
-                const parentRect = parent.getBoundingClientRect()
-
-                const childFitsParent = childRect.width <= parentRect.width && childRect.height <= parentRect.height
-
-                if (childFitsParent) {
-                    low = mid + 1
-                } else {
-                    high = mid - 1
-                }
-            }
-            mid = Math.min(low, high)
-
-            // Ensure we hit the user-supplied limits
-            mid = Math.max(mid, min)
-            mid = Math.min(mid, max)
-
-            updateFontSize(mid)
-        }, 50)
-    }
+    useLayoutEffect(() => {
+        calculateFontSize()
+    }, [children, min, max])
 
     useResizeObserver<HTMLDivElement>({
         ref: parentRef,
-        onResize: () => handleResize(),
+        onResize: calculateFontSize,
     })
 
     return (
-        <div
-            ref={parentRef}
-            className="w-full h-full flex items-center justify-center leading-none"
-            // eslint-disable-next-line react/forbid-dom-props
-            style={{ fontSize: fontSizeRef.current }}
-        >
+        <div ref={parentRef} className="w-full h-full flex items-center justify-center leading-none">
             <div ref={childRef} className="whitespace-nowrap">
                 {children}
             </div>

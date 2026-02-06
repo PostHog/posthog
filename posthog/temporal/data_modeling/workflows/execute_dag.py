@@ -125,17 +125,29 @@ def _dag_execution_levels(
     edge_lookup: dict,
 ) -> list[list[str]]:
     """Compute execution levels using kahn's topological sort."""
-    # Initialize in_degree for all nodes, defaulting to 0 for nodes with no dependencies
-    in_degree = {node_id: len(edge_lookup.get(node_id, set())) for node_id in nodes}
-    # inverse of the edge_lookup
+    node_set = set(nodes)
+    in_degree = {}
+    for node_id in node_set:
+        # the intersection filters out nodes which may not be in the user requested node set
+        in_degree[node_id] = len(edge_lookup.get(node_id, set()) & node_set)
     dependents = _get_dependent_lookup(edge_lookup)
     levels: list[list[str]] = []
     remaining = nodes.copy()
     while remaining:
         current_level = [node_id for node_id in remaining if in_degree[node_id] == 0]
         if not current_level:
-            # the only cases where this is possible are an empty DAG or a cycle in the DAG
-            raise EmptyDAGOrCycleError(f"DAG is either empty or contains a cycle: team={team_id} dag={dag_id}")
+            # we have extensive checks for cycles in DAGs. this is precautionary and shouldn't happen
+            problem_nodes = {
+                node_id: {
+                    "in_degree": in_degree[node_id],
+                    "dependencies": list(edge_lookup.get(node_id, set())),
+                    "unfulfilled_dependencies": list(edge_lookup.get(node_id, set()) & set(remaining)),
+                }
+                for node_id in remaining
+            }
+            raise EmptyDAGOrCycleError(
+                f"DAG is empty or contains a cycle: team={team_id} dag={dag_id} problem_nodes={problem_nodes}"
+            )
         levels.append(current_level)
         for node_id in current_level:
             remaining.remove(node_id)

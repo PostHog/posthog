@@ -31,6 +31,7 @@ import { DebugNotice } from 'lib/components/DebugNotice'
 import { HealthMenu } from 'lib/components/HealthMenu/HealthMenu'
 import { HelpMenu } from 'lib/components/HelpMenu/HelpMenu'
 import { NavPanelAdvertisement } from 'lib/components/NavPanelAdvertisement/NavPanelAdvertisement'
+import { PosthogStatusShownOnlyIfNotOperational } from 'lib/components/PosthogStatus/PosthogStatusShownOnlyIfNotOperational'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -604,6 +605,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                 >
                                     <HelpMenu />
                                     <HealthMenu />
+                                    <PosthogStatusShownOnlyIfNotOperational />
                                 </div>
                             )}
                         </div>

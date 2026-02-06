@@ -27,7 +27,7 @@ from posthog.models import Dashboard, DashboardTile, Insight
 from ee.hogai.artifacts.types import ModelArtifactResult
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.context.insight.context import InsightContext
-from ee.hogai.tool_errors import MaxToolFatalError, MaxToolRetryableError
+from ee.hogai.tool_errors import MaxToolAccessDeniedError, MaxToolFatalError, MaxToolRetryableError
 from ee.hogai.tools.upsert_dashboard.tool import CreateDashboardToolArgs, UpdateDashboardToolArgs, UpsertDashboardTool
 from ee.hogai.utils.types import AssistantState
 from ee.models.assistant import AgentArtifact, Conversation
@@ -200,15 +200,13 @@ class TestUpsertDashboardTool(BaseTest):
             insight_ids=[new_insight.short_id],
         )
 
-        # Patch at the class level to return False (no permission)
-        async def mock_no_permission(self, dashboard):
-            return False
+        with patch.object(tool, "user_access_control") as mock_uac:
+            mock_uac.check_access_level_for_object.return_value = False
 
-        with patch.object(UpsertDashboardTool, "_check_user_permissions", mock_no_permission):
-            with self.assertRaises(MaxToolFatalError) as ctx:
+            with self.assertRaises(MaxToolAccessDeniedError) as ctx:
                 await tool._arun_impl(action)
 
-        self.assertIn("permission", str(ctx.exception).lower())
+        self.assertIn("access", str(ctx.exception).lower())
 
         tiles = [t async for t in DashboardTile.objects.filter(dashboard=dashboard)]
         self.assertEqual(len(tiles), 0)

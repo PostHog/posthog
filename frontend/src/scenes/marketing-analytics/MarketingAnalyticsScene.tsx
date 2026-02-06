@@ -1,15 +1,13 @@
 import clsx from 'clsx'
-import { BindLogic, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
+import { useEffect } from 'react'
 
 import { LemonBanner, LemonSkeleton, Link } from '@posthog/lemon-ui'
 
-import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
-import { FilmCameraHog } from 'lib/components/hedgehogs'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
-import { urls } from 'scenes/urls'
 import { QueryTile } from 'scenes/web-analytics/common'
 import { NonIntegratedConversionsTable } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/NonIntegratedConversionsTable/NonIntegratedConversionsTable'
 import { WebQuery } from 'scenes/web-analytics/tiles/WebAnalyticsTile'
@@ -26,6 +24,8 @@ import {
     MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID,
     marketingAnalyticsTilesLogic,
 } from '../web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsTilesLogic'
+import { Onboarding } from './Onboarding/Onboarding'
+import { marketingOnboardingLogic } from './Onboarding/marketingOnboardingLogic'
 
 export const scene: SceneExport = {
     component: MarketingAnalyticsScene,
@@ -67,8 +67,17 @@ const QueryTileItem = ({ tile }: { tile: QueryTile }): JSX.Element => {
 
 const MarketingAnalyticsDashboard = (): JSX.Element => {
     const { featureFlags } = useValues(featureFlagLogic)
-    const { validExternalTables, validNativeSources, loading } = useValues(marketingAnalyticsLogic)
+    const { hasSources, loading } = useValues(marketingAnalyticsLogic)
     const { tiles: marketingTiles } = useValues(marketingAnalyticsTilesLogic)
+    const { showOnboarding } = useValues(marketingOnboardingLogic)
+    const { completeOnboarding, resetOnboarding } = useActions(marketingOnboardingLogic)
+
+    // Reset onboarding if user has no sources (handles session/project changes)
+    useEffect(() => {
+        if (!loading && !hasSources && !showOnboarding) {
+            resetOnboarding()
+        }
+    }, [loading, hasSources, showOnboarding])
 
     const feedbackBanner = (
         <LemonBanner type="info" action={{ children: 'Send feedback', id: 'marketing-analytics-feedback-button' }}>
@@ -77,39 +86,34 @@ const MarketingAnalyticsDashboard = (): JSX.Element => {
         </LemonBanner>
     )
 
-    let component: JSX.Element | null = null
     if (!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_MARKETING]) {
-        component = (
-            <LemonBanner type="info">
-                You can enable marketing analytics in the feature preview settings{' '}
-                <Link to="https://app.posthog.com/settings/user-feature-previews#marketing-analytics">here</Link>.
-            </LemonBanner>
+        return (
+            <>
+                {feedbackBanner}
+                <LemonBanner type="info">
+                    You can enable marketing analytics in the feature preview settings{' '}
+                    <Link to="https://app.posthog.com/settings/user-feature-previews#marketing-analytics">here</Link>.
+                </LemonBanner>
+            </>
         )
-    } else if (loading) {
-        component = <LemonSkeleton />
-    } else if (validExternalTables.length === 0 && validNativeSources.length === 0) {
-        component = (
-            <ProductIntroduction
-                productName="Marketing analytics"
-                productKey={ProductKey.MARKETING_ANALYTICS}
-                thingName="marketing integration"
-                titleOverride="Add your first marketing integration"
-                description="To enable marketing analytics, you need to integrate your marketing data sources. You can do this in the settings by adding a native (like Google Ads) or non-native (from a bucket like S3) source."
-                action={() => window.open(urls.settings('environment-marketing-analytics'), '_blank')}
-                isEmpty={true}
-                docsURL="https://posthog.com/docs/web-analytics/marketing-analytics"
-                customHog={FilmCameraHog}
-            />
+    }
+
+    if (loading) {
+        return (
+            <>
+                {feedbackBanner}
+                <LemonSkeleton />
+            </>
         )
-    } else {
-        // if the user has sources configured and the feature flag is enabled, show the marketing tiles
-        component = (
-            <div className="mt-4 grid grid-cols-1 md:grid-cols-2 xxl:grid-cols-3 gap-x-4 gap-y-12">
-                {marketingTiles?.map((tile, i) => (
-                    <QueryTileItem key={i} tile={tile} />
-                ))}
-                <NonIntegratedConversionsTable />
-            </div>
+    }
+
+    // Show onboarding if user hasn't completed it yet
+    if (showOnboarding) {
+        return (
+            <>
+                {feedbackBanner}
+                <Onboarding completeOnboarding={completeOnboarding} />
+            </>
         )
     }
 
@@ -117,7 +121,12 @@ const MarketingAnalyticsDashboard = (): JSX.Element => {
         <>
             {feedbackBanner}
             <MarketingAnalyticsSourceStatusBanner />
-            {component}
+            <div className="mt-4 grid grid-cols-1 md:grid-cols-2 xxl:grid-cols-3 gap-x-4 gap-y-12">
+                {marketingTiles?.map((tile, i) => (
+                    <QueryTileItem key={i} tile={tile} />
+                ))}
+                <NonIntegratedConversionsTable />
+            </div>
         </>
     )
 }

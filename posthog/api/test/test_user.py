@@ -1482,7 +1482,7 @@ class TestUserAPI(APIBaseTest):
                 "error_tracking_issue_assigned": True,  # Default value
                 "data_pipeline_error_threshold": 0.0,  # Default value
                 "project_api_key_exposed": True,  # Default value
-                "materialized_view_sync_failed": True,  # Default value
+                "materialized_view_sync_failed": False,  # Default value
             },
         )
 

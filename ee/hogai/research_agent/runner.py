@@ -2,8 +2,11 @@ from collections.abc import AsyncGenerator
 from typing import TYPE_CHECKING, Any, Optional
 from uuid import UUID
 
+import posthoganalytics
+
 from posthog.schema import AgentMode, AssistantMessage, HumanMessage, MaxBillingContext
 
+from posthog import event_usage
 from posthog.models import Team, User
 
 from ee.hogai.chat_agent.stream_processor import ChatAgentStreamProcessor
@@ -101,6 +104,18 @@ class ResearchAgentRunner(BaseAgentRunner):
         stream_first_message: bool = True,
         stream_only_assistant_messages: bool = False,
     ) -> AsyncGenerator[AssistantOutput, None]:
+        if self._user:
+            posthoganalytics.capture(
+                distinct_id=self._user.distinct_id,
+                event="ai deep research executed",
+                properties={
+                    "conversation_id": str(self._conversation.id),
+                    "is_new_conversation": self._is_new_conversation,
+                    "$session_id": self._session_id,
+                },
+                groups=event_usage.groups(team=self._team),
+            )
+
         last_ai_message: AssistantMessage | None = None
         async for stream_event in super().astream(
             stream_message_chunks, stream_subgraphs, stream_first_message, stream_only_assistant_messages

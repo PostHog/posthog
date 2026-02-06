@@ -388,6 +388,19 @@ class AgentToolsExecutable(BaseAgentLoopExecutable):
                 raise ValueError(
                     f"Tool '{tool_call.name}' returned {type(result).__name__}, expected LangchainToolMessage"
                 )
+
+            # Track successful tool execution
+            user_distinct_id = self._get_user_distinct_id(config)
+            if user_distinct_id:
+                posthoganalytics.capture(
+                    distinct_id=user_distinct_id,
+                    event="ai tool executed",
+                    properties={
+                        **self._get_debug_props(config),
+                        "tool_name": tool_call.name,
+                    },
+                    groups=groups(None, self._team),
+                )
         except MaxToolError as e:
             logger.exception(
                 "maxtool_error", extra={"tool": tool_call.name, "error": str(e), "retry_strategy": e.retry_strategy}
@@ -477,6 +490,18 @@ class AgentToolsExecutable(BaseAgentLoopExecutable):
         agent_mode: AgentMode | None = None
         if tool_call.name == AssistantTool.SWITCH_MODE and result.artifact:
             agent_mode = result.artifact
+            user_distinct_id = self._get_user_distinct_id(config)
+            if user_distinct_id:
+                posthoganalytics.capture(
+                    distinct_id=user_distinct_id,
+                    event="ai mode executed",
+                    properties={
+                        **self._get_debug_props(config),
+                        "mode": agent_mode,
+                        "previous_mode": state.agent_mode_or_default,
+                    },
+                    groups=groups(None, self._team),
+                )
 
         return PartialAssistantState(
             messages=[tool_message],

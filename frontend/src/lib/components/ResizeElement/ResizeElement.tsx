@@ -51,6 +51,16 @@ export function ResizableElement({
         currentWidthRef.current = newWidth
     }, [])
 
+    useEffect(() => {
+        if (!isResizing.current && defaultWidth !== currentWidthRef.current) {
+            setWidth(defaultWidth)
+            if (containerRef.current) {
+                containerRef.current.style.width = `${defaultWidth}px`
+            }
+            currentWidthRef.current = defaultWidth
+        }
+    }, [defaultWidth])
+
     const handleMouseDown = useCallback(
         (e: React.MouseEvent | React.TouchEvent) => {
             document.body.classList.add('is-resizing')

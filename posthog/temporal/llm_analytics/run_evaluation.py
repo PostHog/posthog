@@ -378,7 +378,7 @@ Output: {output_data}"""
         if is_byok:
             raise ApplicationError(
                 "API key is invalid or has been deleted.",
-                {"error_type": "auth_error", "key_id": key_id},
+                {"error_type": "auth_error", "key_id": key_id, "provider": provider},
                 non_retryable=True,
             )
         raise
@@ -387,7 +387,7 @@ Output: {output_data}"""
         if is_byok:
             raise ApplicationError(
                 "API key doesn't have access to this model.",
-                {"error_type": "permission_error", "key_id": key_id},
+                {"error_type": "permission_error", "key_id": key_id, "provider": provider},
                 non_retryable=True,
             )
         raise
@@ -396,12 +396,18 @@ Output: {output_data}"""
         if is_byok:
             raise ApplicationError(
                 "API key has exceeded its quota.",
-                {"error_type": "quota_error", "key_id": key_id},
+                {"error_type": "quota_error", "key_id": key_id, "provider": provider},
                 non_retryable=True,
             )
         raise
     except RateLimitError:
         increment_errors("rate_limit")
+        if is_byok:
+            raise ApplicationError(
+                "API key is being rate limited.",
+                {"error_type": "rate_limit", "key_id": key_id, "provider": provider},
+                non_retryable=True,
+            )
         raise
     except ModelNotFoundError:
         increment_errors("model_not_found")
@@ -612,7 +618,7 @@ class RunEvaluationWorkflow(PostHogWorkflow):
 
                 # Update key state for API-related errors
                 key_id = details.get("key_id")
-                if key_id and error_type in ("auth_error", "permission_error", "quota_error"):
+                if key_id and error_type in ("auth_error", "permission_error", "quota_error", "rate_limit"):
                     new_state = (
                         LLMProviderKey.State.INVALID if error_type == "auth_error" else LLMProviderKey.State.ERROR
                     )

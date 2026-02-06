@@ -125,7 +125,8 @@ export function SceneTabs(): JSX.Element {
                                     const currentPath = router.values.location.pathname
                                     // If on /sql route, open a new /sql tab, otherwise default to /search
                                     const isSqlRoute = currentPath.endsWith('/sql')
-                                    newTab(isSqlRoute ? '/sql' : null)
+                                    const source = e.detail === 0 ? 'keyboard_shortcut' : 'new_tab_button'
+                                    newTab(isSqlRoute ? '/sql' : null, { source })
                                 }}
                                 tooltip="New tab"
                                 tooltipCloseDelayMs={0}
@@ -250,7 +251,8 @@ function SceneTabComponent({ tab, className, isDragging, containerClassName, ind
                             onClick={(e) => {
                                 e.stopPropagation()
                                 e.preventDefault()
-                                removeTab(tab)
+                                const source = e.detail === 0 ? 'keyboard_shortcut' : 'close_button'
+                                removeTab(tab, { source })
                             }}
                             tooltip={!tab.active ? 'Close tab' : 'Close active tab'}
                             tooltipCloseDelayMs={0}
@@ -276,7 +278,7 @@ function SceneTabComponent({ tab, className, isDragging, containerClassName, ind
                         e.stopPropagation()
                         e.preventDefault()
                         if (e.button === 1 && !isDragging && canRemoveTab) {
-                            removeTab(tab)
+                            removeTab(tab, { source: 'middle_click' })
                         }
                     }}
                     onDoubleClick={(e) => {

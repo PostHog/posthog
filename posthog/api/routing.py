@@ -422,6 +422,11 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
                     query_value = team_from_request.project_id if team_from_request else int(query_value)
                 except ValueError:
                     raise NotFound("Project not found.")
+            elif query_lookup == "organization_id":
+                try:
+                    query_value = UUID(query_value)
+                except ValueError:
+                    raise NotFound("Organization not found.")
 
             result[query_lookup] = query_value
 

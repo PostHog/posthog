@@ -24,9 +24,9 @@ export const insightAIAnalysisLogic = kea<insightAIAnalysisLogicType>([
     path(['scenes', 'insights', 'insightAIAnalysisLogic']),
     props({} as InsightAIAnalysisLogicProps),
     key((props) => props.insightId ?? 'new'),
-    connect({
+    connect(() => ({
         values: [teamLogic, ['currentTeamId'], organizationLogic, ['currentOrganization']],
-    }),
+    })),
     actions({
         startAnalysis: true,
         setHasClickedAnalyze: (hasClicked: boolean) => ({ hasClicked }),
@@ -47,13 +47,8 @@ export const insightAIAnalysisLogic = kea<insightAIAnalysisLogicType>([
                         return null
                     }
 
-                    try {
-                        const response = await api.insights.analyze(props.insightId)
-                        return response.result
-                    } catch (e) {
-                        console.error('[InsightAIAnalysis] Error fetching analysis', e)
-                        return null
-                    }
+                    const response = await api.insights.analyze(props.insightId)
+                    return response.result
                 },
             },
         ],
@@ -99,6 +94,24 @@ export const insightAIAnalysisLogic = kea<insightAIAnalysisLogicType>([
                     [suggestionIndex]: isPositive,
                 }),
                 resetAnalysis: () => ({}),
+            },
+        ],
+        analysisError: [
+            null as string | null,
+            {
+                startAnalysis: () => null,
+                startAnalysisFailure: (_, { error }) => {
+                    // Extract error message from API response
+                    const err = error as any
+                    if (err?.detail) {
+                        return err.detail
+                    }
+                    if (err?.message) {
+                        return err.message
+                    }
+                    return 'Failed to generate analysis'
+                },
+                resetAnalysis: () => null,
             },
         ],
     }),

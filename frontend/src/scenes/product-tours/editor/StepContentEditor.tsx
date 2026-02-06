@@ -1,19 +1,23 @@
 import './StepContentEditor.scss'
 
 import { JSONContent } from '@tiptap/core'
+import { Color } from '@tiptap/extension-color'
 import { Image } from '@tiptap/extension-image'
 import { Link } from '@tiptap/extension-link'
 import { Placeholder } from '@tiptap/extension-placeholder'
 import { TextAlign } from '@tiptap/extension-text-align'
+import { TextStyle } from '@tiptap/extension-text-style'
 import { Underline } from '@tiptap/extension-underline'
-import { EditorContent, useEditor } from '@tiptap/react'
+import { Editor, EditorContent, useEditor } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
+import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { IconCode, IconImage, IconList, IconVideoCamera } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonInput, LemonMenu, LemonModal } from '@posthog/lemon-ui'
 
+import { ResizableElement } from 'lib/components/ResizeElement/ResizeElement'
 import { useUploadFiles } from 'lib/hooks/useUploadFiles'
 import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
@@ -21,20 +25,33 @@ import { Popover } from 'lib/lemon-ui/Popover'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { IconBold, IconItalic, IconLink } from 'lib/lemon-ui/icons'
 
+import { DEFAULT_APPEARANCE } from '../constants'
+import { productTourLogic } from '../productTourLogic'
+import { isBannerAnnouncement } from '../productToursLogic'
+import { getWidthValue } from '../stepUtils'
 import { CodeBlockExtension } from './CodeBlockExtension'
 import { EmbedExtension } from './EmbedExtension'
+import { FooterPreview } from './FooterPreview'
 import { SlashCommandExtension } from './SlashCommandMenu'
 import { IconAlignCenter, IconAlignLeft, IconAlignRight, IconListNumbers, IconUnderline } from './icons'
+import { addProductTourCSSVariablesToElement } from './productTourCSSUtils'
 
 export interface StepContentEditorProps {
-    content: JSONContent | null
-    onChange: (content: JSONContent) => void
+    tourId: string
     placeholder?: string
     autoFocus?: boolean
     /** Custom image upload function. If not provided, uses the default PostHog API upload. Used for Toolbar uploads. */
     uploadImage?: (file: File) => Promise<{ url: string; fileName: string }>
-    // restrict to only inline styles - no images/videos/etc
-    inlineOnly?: boolean
+}
+
+function getAlignmentIcon(editor: Editor): JSX.Element {
+    if (editor.isActive({ textAlign: 'center' })) {
+        return <IconAlignCenter />
+    }
+    if (editor.isActive({ textAlign: 'right' })) {
+        return <IconAlignRight />
+    }
+    return <IconAlignLeft />
 }
 
 const DEFAULT_CONTENT: JSONContent = {
@@ -47,25 +64,41 @@ const DEFAULT_CONTENT: JSONContent = {
 }
 
 export function StepContentEditor({
-    content,
-    onChange,
-    placeholder = "Type '/' for commands...",
+    tourId,
+    placeholder: placeholderProp,
     autoFocus = false,
     uploadImage,
-    inlineOnly = false,
 }: StepContentEditorProps): JSX.Element {
+    const { productTour, productTourForm, selectedStepIndex } = useValues(productTourLogic({ id: tourId }))
+    const { updateSelectedStep } = useActions(productTourLogic({ id: tourId }))
+
+    const steps = productTourForm.content?.steps ?? []
+    const step = steps[selectedStepIndex]
+    const appearance = productTourForm.content?.appearance
+    const isBanner = productTour ? isBannerAnnouncement(productTour) : false
+
+    const content = step?.content as JSONContent | null
+    const placeholder =
+        placeholderProp ??
+        (isBanner
+            ? 'Your banner message here...'
+            : `Type '/' for commands, or start writing your step ${selectedStepIndex + 1} content...`)
     const dropRef = useRef<HTMLDivElement>(null)
+    const contentRef = useRef<HTMLDivElement>(null)
     const [linkUrl, setLinkUrl] = useState('')
     const [showLinkPopover, setShowLinkPopover] = useState(false)
     const [showVideoModal, setShowVideoModal] = useState(false)
     const [videoUrl, setVideoUrl] = useState('')
+    const [showColorPicker, setShowColorPicker] = useState(false)
+    const [textColor, setTextColor] = useState('#000000')
     const linkButtonRef = useRef<HTMLButtonElement>(null)
     // Force re-render when editor selection changes so toolbar active states update
     const [, setEditorState] = useState(0)
+    const forceToolbarUpdate = useCallback(() => setEditorState((n) => n + 1), [])
     const [customUploading, setCustomUploading] = useState(false)
 
     const editor = useEditor({
-        extensions: inlineOnly
+        extensions: isBanner
             ? [
                   StarterKit.configure({
                       heading: false,
@@ -91,6 +124,8 @@ export function StepContentEditor({
                   TextAlign.configure({
                       types: ['heading', 'paragraph'],
                   }),
+                  TextStyle,
+                  Color,
                   Link.configure({
                       openOnClick: false,
                       HTMLAttributes: {
@@ -113,14 +148,10 @@ export function StepContentEditor({
         content: content || DEFAULT_CONTENT,
         autofocus: autoFocus,
         onUpdate: ({ editor: e }) => {
-            onChange(e.getJSON())
+            updateSelectedStep({ content: e.getJSON() })
         },
-        onSelectionUpdate: () => {
-            setEditorState((n) => n + 1)
-        },
-        onTransaction: () => {
-            setEditorState((n) => n + 1)
-        },
+        onSelectionUpdate: forceToolbarUpdate,
+        onTransaction: forceToolbarUpdate,
     })
 
     const defaultUpload = useUploadFiles({
@@ -201,6 +232,12 @@ export function StepContentEditor({
         }
     }, [editor, content])
 
+    useEffect(() => {
+        if (contentRef.current) {
+            addProductTourCSSVariablesToElement(contentRef.current, appearance ?? DEFAULT_APPEARANCE)
+        }
+    }, [appearance])
+
     const setLink = (): void => {
         if (!linkUrl) {
             return
@@ -224,6 +261,24 @@ export function StepContentEditor({
 
     const hasExistingLink = editor?.isActive('link') ?? false
 
+    const applyTextColor = (color: string): void => {
+        editor?.chain().focus().setColor(color).run()
+        setTextColor(color)
+    }
+
+    const removeTextColor = (): void => {
+        editor?.chain().focus().unsetColor().run()
+        setShowColorPicker(false)
+    }
+
+    const openColorPicker = (): void => {
+        const currentColor = editor?.getAttributes('textStyle').color || '#000000'
+        setTextColor(currentColor)
+        setShowColorPicker(true)
+    }
+
+    const hasTextColor = editor?.getAttributes('textStyle').color ?? false
+
     const insertEmbed = (): void => {
         if (!videoUrl || !editor) {
             return
@@ -233,13 +288,18 @@ export function StepContentEditor({
         setVideoUrl('')
     }
 
+    const closeVideoModal = (): void => {
+        setShowVideoModal(false)
+        setVideoUrl('')
+    }
+
     if (!editor) {
-        return <div className="StepContentEditor loading">Loading editor...</div>
+        return <div className="flex items-center justify-center min-h-[200px] text-muted">Loading editor...</div>
     }
 
     const toolbar = (
-        <div className="StepContentEditor__format-toolbar">
-            {!inlineOnly && (
+        <div className="flex flex-wrap gap-0.5 items-center">
+            {!isBanner && (
                 <>
                     <LemonButton
                         size="small"
@@ -297,7 +357,59 @@ export function StepContentEditor({
                 icon={<IconCode />}
                 tooltip="Inline code"
             />
-            {!inlineOnly && (
+            <Popover
+                visible={showColorPicker}
+                onClickOutside={() => setShowColorPicker(false)}
+                showArrow={false}
+                overlay={
+                    <div className="p-2 flex flex-col gap-2 min-w-48">
+                        <div className="flex items-center gap-2">
+                            <input
+                                type="color"
+                                value={textColor}
+                                onChange={(e) => applyTextColor(e.target.value)}
+                                className="w-8 h-8 cursor-pointer border border-border rounded"
+                            />
+                            <LemonInput
+                                size="small"
+                                placeholder="#000000"
+                                value={textColor}
+                                onChange={(value) => {
+                                    setTextColor(value)
+                                    // Apply color if it's a valid hex
+                                    if (/^#([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$/.test(value)) {
+                                        editor?.chain().focus().setColor(value).run()
+                                    }
+                                }}
+                                className="flex-1"
+                            />
+                        </div>
+                        {hasTextColor && (
+                            <LemonButton size="small" status="danger" onClick={removeTextColor} fullWidth>
+                                Remove color
+                            </LemonButton>
+                        )}
+                    </div>
+                }
+            >
+                <LemonButton
+                    size="small"
+                    active={!!hasTextColor}
+                    onClick={openColorPicker}
+                    tooltip="Text color"
+                    sideIcon={null}
+                >
+                    <span
+                        className="font-bold"
+                        style={{
+                            borderBottom: `3px solid ${hasTextColor || textColor}`,
+                        }}
+                    >
+                        A
+                    </span>
+                </LemonButton>
+            </Popover>
+            {!isBanner && (
                 <>
                     <LemonDivider vertical className="mx-1 self-stretch" />
                     <LemonMenu
@@ -345,19 +457,7 @@ export function StepContentEditor({
                             },
                         ]}
                     >
-                        <LemonButton
-                            size="small"
-                            icon={
-                                editor.isActive({ textAlign: 'center' }) ? (
-                                    <IconAlignCenter />
-                                ) : editor.isActive({ textAlign: 'right' }) ? (
-                                    <IconAlignRight />
-                                ) : (
-                                    <IconAlignLeft />
-                                )
-                            }
-                            tooltip="Text alignment"
-                        />
+                        <LemonButton size="small" icon={getAlignmentIcon(editor)} tooltip="Text alignment" />
                     </LemonMenu>
                     <Popover
                         visible={showLinkPopover}
@@ -422,37 +522,56 @@ export function StepContentEditor({
                         tooltip="Embed video"
                         onClick={() => setShowVideoModal(true)}
                     />
-                    <span className="text-xs text-muted ml-auto">
-                        Type <code>/</code> for commands
-                    </span>
                 </>
             )}
         </div>
     )
 
+    const editorContent = (
+        <div
+            ref={contentRef}
+            className="w-full border border-[var(--ph-tour-border-color,var(--border))] bg-[var(--ph-tour-background-color,var(--bg-light))]"
+            style={{
+                fontFamily: 'var(--ph-tour-font-family, inherit)',
+                color: 'var(--ph-tour-text-color, inherit)',
+                borderRadius: 'var(--ph-tour-border-radius, 8px)',
+                boxShadow: 'var(--ph-tour-box-shadow)',
+            }}
+        >
+            <EditorContent
+                editor={editor}
+                className={`StepContentEditor__content ${isBanner ? 'StepContentEditor__content--banner' : ''}`}
+            />
+            <FooterPreview tourId={tourId} />
+        </div>
+    )
+
     return (
-        <div ref={inlineOnly ? undefined : dropRef} className="StepContentEditor">
+        <div ref={dropRef} className="StepContentEditor flex flex-col gap-4">
             {toolbar}
 
-            <EditorContent editor={editor} className="StepContentEditor__content" />
+            {isBanner ? (
+                editorContent
+            ) : (
+                <ResizableElement
+                    defaultWidth={getWidthValue(step?.maxWidth)}
+                    minWidth={200}
+                    maxWidth={700}
+                    onResize={(width) => updateSelectedStep({ maxWidth: width })}
+                    className="mx-auto"
+                >
+                    {editorContent}
+                </ResizableElement>
+            )}
 
-            {!inlineOnly && (
+            {!isBanner && (
                 <LemonModal
                     isOpen={showVideoModal}
-                    onClose={() => {
-                        setShowVideoModal(false)
-                        setVideoUrl('')
-                    }}
+                    onClose={closeVideoModal}
                     title="Embed video"
                     footer={
                         <>
-                            <LemonButton
-                                type="secondary"
-                                onClick={() => {
-                                    setShowVideoModal(false)
-                                    setVideoUrl('')
-                                }}
-                            >
+                            <LemonButton type="secondary" onClick={closeVideoModal}>
                                 Cancel
                             </LemonButton>
                             <LemonButton
