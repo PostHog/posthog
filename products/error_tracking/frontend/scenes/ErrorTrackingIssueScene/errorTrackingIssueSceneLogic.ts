@@ -32,6 +32,7 @@ export interface ErrorTrackingIssueSceneLogicProps {
     id: ErrorTrackingIssue['id']
     fingerprint?: string
     timestamp?: string
+    from?: string
 }
 
 export type ErrorTrackingIssueStatus = ErrorTrackingIssue['status']

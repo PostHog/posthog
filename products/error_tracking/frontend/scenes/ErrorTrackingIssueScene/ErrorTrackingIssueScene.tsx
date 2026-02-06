@@ -58,7 +58,12 @@ import {
 export const scene: SceneExport<ErrorTrackingIssueSceneLogicProps> = {
     component: ErrorTrackingIssueScene,
     logic: errorTrackingIssueSceneLogic,
-    paramsToProps: ({ params: { id }, searchParams: { fingerprint, timestamp } }) => ({ id, fingerprint, timestamp }),
+    paramsToProps: ({ params: { id }, searchParams: { fingerprint, timestamp, from } }) => ({
+        id,
+        fingerprint,
+        timestamp,
+        from,
+    }),
 }
 
 export function ErrorTrackingIssueScene(): JSX.Element {
@@ -67,6 +72,14 @@ export function ErrorTrackingIssueScene(): JSX.Element {
 
     useEffect(() => {
         posthog.capture('error_tracking_issue_viewed', { issue_id: issueId })
+
+        // Track click-through from alert notifications
+        const searchParams = new URLSearchParams(window.location.search)
+        if (searchParams.get('from') === 'alert') {
+            posthog.capture('error_tracking_alert_clicked', {
+                issue_id: issueId,
+            })
+        }
     }, [issueId])
 
     return (

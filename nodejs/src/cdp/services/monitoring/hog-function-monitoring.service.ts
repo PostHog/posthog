@@ -64,6 +64,30 @@ export const isHogFunctionResult = (
     return 'hogFunction' in result.invocation
 }
 
+const ERROR_TRACKING_TEMPLATE_IDS: string[] = [
+    'error-tracking-issue-created',
+    'error-tracking-issue-reopened',
+    'error-tracking-issue-spiking',
+]
+
+const TRIGGER_EVENT_MAP: Record<string, string> = {
+    'error-tracking-issue-created': '$error_tracking_issue_created',
+    'error-tracking-issue-reopened': '$error_tracking_issue_reopened',
+    'error-tracking-issue-spiking': '$error_tracking_issue_spiking',
+}
+
+function isErrorTrackingAlertFunction(templateId: string | undefined): boolean {
+    return templateId !== undefined && ERROR_TRACKING_TEMPLATE_IDS.includes(templateId)
+}
+
+function getDestinationTypeFromTemplateId(templateId: string | undefined): string | null {
+    if (!templateId) {
+        return null
+    }
+    const match = templateId.match(/^template-(.+)$/)
+    return match ? match[1] : null
+}
+
 export class HogFunctionMonitoringService {
     messagesToProduce: HogFunctionMonitoringMessage[] = []
     eventsToCapture: InternalCaptureEvent[] = []
@@ -193,6 +217,50 @@ export class HogFunctionMonitoringService {
                             },
                             source
                         )
+
+                        // Capture error tracking alert events
+                        if (isHogFunctionResult(result)) {
+                            const hogFunction = result.invocation.hogFunction
+                            const subTemplateId = hogFunction.template_id
+
+                            if (isErrorTrackingAlertFunction(subTemplateId)) {
+                                const team = await this.hub.teamManager.getTeam(result.invocation.teamId)
+                                if (team) {
+                                    const totalLatencyMs = timings.reduce((sum, t) => sum + t.duration_ms, 0)
+                                    const triggerEvent = TRIGGER_EVENT_MAP[subTemplateId!]
+                                    const destinationType = getDestinationTypeFromTemplateId(
+                                        hogFunction.inputs?.template_id?.value as string | undefined
+                                    )
+                                    const issueId =
+                                        result.invocation.state?.globals?.event?.distinct_id ?? null
+
+                                    const eventName = result.error
+                                        ? 'error_tracking_alert_failed'
+                                        : 'error_tracking_alert_sent'
+                                    const eventProperties: Record<string, unknown> = {
+                                        alert_id: hogFunction.id,
+                                        trigger_event: triggerEvent,
+                                        destination_type: destinationType,
+                                        issue_id: issueId,
+                                        latency_ms: totalLatencyMs,
+                                    }
+
+                                    if (result.error) {
+                                        eventProperties.error_type =
+                                            typeof result.error === 'string' ? result.error : 'unknown'
+                                    }
+
+                                    this.eventsToCapture.push({
+                                        team_token: team.api_token,
+                                        event: eventName,
+                                        distinct_id: `error_tracking_alert_${hogFunction.id}`,
+                                        timestamp: castTimestampOrNow(null, TimestampFormat.ISO),
+                                        properties: eventProperties,
+                                    })
+                                    hogFunctionMonitoringPendingEvents.set(this.eventsToCapture.length)
+                                }
+                            }
+                        }
                     }
 
                     // PostHog capture events

@@ -2,6 +2,7 @@ import FuseClass from 'fuse.js'
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -15,7 +16,25 @@ import { userLogic } from 'scenes/userLogic'
 import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { CyclotronJobFiltersType, HogFunctionType, HogFunctionTypeType, UserType } from '~/types'
 
+import { getDestinationTypeFromTemplateId } from '../configuration/hogFunctionConfigurationLogic'
 import type { hogFunctionsListLogicType } from './hogFunctionsListLogicType'
+
+const ERROR_TRACKING_TEMPLATE_IDS = [
+    'error-tracking-issue-created',
+    'error-tracking-issue-reopened',
+    'error-tracking-issue-spiking',
+] as const
+
+const TRIGGER_EVENT_MAP: Record<string, string> = {
+    'error-tracking-issue-created': '$error_tracking_issue_created',
+    'error-tracking-issue-reopened': '$error_tracking_issue_reopened',
+    'error-tracking-issue-spiking': '$error_tracking_issue_spiking',
+}
+
+function isErrorTrackingAlert(hogFunction: HogFunctionType): boolean {
+    const templateId = hogFunction.template?.id
+    return templateId ? ERROR_TRACKING_TEMPLATE_IDS.includes(templateId as any) : false
+}
 
 export const CDP_TEST_HIDDEN_FLAG = '[CDP-TEST-HIDDEN]'
 // Helping kea-typegen navigate the exported default class for Fuse
@@ -213,6 +232,33 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
         },
         saveHogFunctionOrderFailure: () => {
             lemonToast.error('Failed to update order')
+        },
+        toggleEnabled: ({ hogFunction, enabled }) => {
+            if (isErrorTrackingAlert(hogFunction)) {
+                const templateId = hogFunction.template?.id
+                posthog.capture('error_tracking_alert_toggled', {
+                    alert_id: hogFunction.id,
+                    trigger_event: templateId ? TRIGGER_EVENT_MAP[templateId] : null,
+                    destination_type: getDestinationTypeFromTemplateId(templateId),
+                    enabled,
+                })
+            }
+        },
+        deleteHogFunction: ({ hogFunction }) => {
+            if (isErrorTrackingAlert(hogFunction)) {
+                const templateId = hogFunction.template?.id
+                const createdAt = hogFunction.created_at ? new Date(hogFunction.created_at) : null
+                const timeSinceCreationDays = createdAt
+                    ? Math.floor((Date.now() - createdAt.getTime()) / (1000 * 60 * 60 * 24))
+                    : null
+
+                posthog.capture('error_tracking_alert_deleted', {
+                    alert_id: hogFunction.id,
+                    trigger_event: templateId ? TRIGGER_EVENT_MAP[templateId] : null,
+                    destination_type: getDestinationTypeFromTemplateId(templateId),
+                    time_since_creation_days: timeSinceCreationDays,
+                })
+            }
         },
     })),
 

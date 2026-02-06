@@ -64,6 +64,15 @@ import {
 import { eventToHogFunctionContextId } from '../sub-templates/sub-templates'
 import type { hogFunctionConfigurationLogicType } from './hogFunctionConfigurationLogicType'
 
+// Helper to extract destination type from template ID (e.g., 'template-slack' -> 'slack')
+export function getDestinationTypeFromTemplateId(templateId: string | null | undefined): string | null {
+    if (!templateId) {
+        return null
+    }
+    const match = templateId.match(/^template-(.+)$/)
+    return match ? match[1] : templateId
+}
+
 export interface HogFunctionConfigurationLogicProps {
     logicKey?: string
     templateId?: string | null
@@ -505,7 +514,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                         }
                     }
 
-                    // Capture error tracking specific alert event
+                    // Capture error tracking specific alert events
                     if (
                         res.template?.id === 'error-tracking-issue-created' ||
                         res.template?.id === 'error-tracking-issue-reopened' ||
@@ -517,13 +526,27 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                             'error-tracking-issue-spiking': '$error_tracking_issue_spiking',
                         }
                         const triggerEvent = triggerEventMap[res.template.id]
+                        const destinationType = getDestinationTypeFromTemplateId(
+                            values.hogFunction?.template?.id ?? props.templateId
+                        )
 
-                        posthog.capture('error_tracking_alert_created', {
-                            trigger_event: triggerEvent,
-                            subtemplate_id: res.template.id,
-                            has_custom_filters: res.filters && Object.keys(res.filters).length > 1,
-                            enabled: res.enabled,
-                        })
+                        if (isNew) {
+                            posthog.capture('error_tracking_alert_created', {
+                                alert_id: res.id,
+                                trigger_event: triggerEvent,
+                                destination_type: destinationType,
+                                subtemplate_id: res.template.id,
+                                has_custom_filters: res.filters && Object.keys(res.filters).length > 1,
+                                enabled: res.enabled,
+                            })
+                        } else {
+                            posthog.capture('error_tracking_alert_updated', {
+                                alert_id: res.id,
+                                trigger_event: triggerEvent,
+                                destination_type: destinationType,
+                                has_custom_filters: res.filters && Object.keys(res.filters).length > 1,
+                            })
+                        }
                     }
 
                     lemonToast.success('Configuration saved')
@@ -1402,6 +1425,34 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             if (!hogFunction) {
                 return
             }
+
+            // Capture error tracking alert deleted event before deletion
+            const templateId = hogFunction.template?.id
+            if (
+                templateId === 'error-tracking-issue-created' ||
+                templateId === 'error-tracking-issue-reopened' ||
+                templateId === 'error-tracking-issue-spiking'
+            ) {
+                const triggerEventMap: Record<string, string> = {
+                    'error-tracking-issue-created': '$error_tracking_issue_created',
+                    'error-tracking-issue-reopened': '$error_tracking_issue_reopened',
+                    'error-tracking-issue-spiking': '$error_tracking_issue_spiking',
+                }
+                const createdAt = hogFunction.created_at ? new Date(hogFunction.created_at) : null
+                const timeSinceCreationDays = createdAt
+                    ? Math.floor((Date.now() - createdAt.getTime()) / (1000 * 60 * 60 * 24))
+                    : null
+
+                posthog.capture('error_tracking_alert_deleted', {
+                    alert_id: hogFunction.id,
+                    trigger_event: triggerEventMap[templateId],
+                    destination_type: getDestinationTypeFromTemplateId(
+                        values.hogFunction?.template?.id ?? props.templateId
+                    ),
+                    time_since_creation_days: timeSinceCreationDays,
+                })
+            }
+
             await deleteWithUndo({
                 endpoint: `projects/${values.currentProjectId}/hog_functions`,
                 object: {
