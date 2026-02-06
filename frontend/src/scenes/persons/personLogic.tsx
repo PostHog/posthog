@@ -6,7 +6,7 @@ import api from 'lib/api'
 import { Scene } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
 
-import { NodeKind } from '~/queries/schema/schema-general'
+import { HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
 import { Breadcrumb, PersonType } from '~/types'
 
@@ -69,7 +69,7 @@ export const personLogic = kea<personLogicType>([
                     if (props.id == null) {
                         return null
                     }
-                    const queryResponse = await api.query(
+                    const queryResponse = await api.query<HogQLQuery>(
                         {
                             kind: NodeKind.HogQLQuery,
                             query: getHogqlQueryStringForPersonId(),
