@@ -134,9 +134,6 @@ jobs:
                         # Generation tooling - changes here could affect output
                         - 'frontend/bin/generate-openapi-types.mjs'
                         - 'frontend/src/lib/api-orval-mutator.ts'
-                        # Turbo config affects caching behavior
-                        - 'turbo.json'
-                        - 'common/hogli/manifest.yaml'
 
     detect-snapshot-mode:
         name: Detect snapshot mode
@@ -1068,8 +1065,9 @@ jobs:
                   oldest_supported_clickhouse_image: ${{ needs.get_clickhouse_versions.outputs.oldest_supported_image }}
                   # Skip plugin transpiler build - these tests don't need it and it causes esbuild deadlocks
                   skip-plugin-transpiler: 'true'
-                  # Compat tests run a subset of snapshot tests, so unused snapshots are expected
-                  # This makes unused snapshots non-fatal (warning only) instead of failing the build
+                  # Compat tests run a subset and don't own snapshots (main django tests do).
+                  # This flag makes unused snapshots non-fatal and always updates snapshot
+                  # content so compat tests never fail due to CH version query differences.
                   snapshot-warn-unused: 'true'
 
     # Aggregate and commit snapshot changes from all matrix jobs
