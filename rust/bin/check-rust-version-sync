@@ -40,8 +40,11 @@ check_match() {
         return
     fi
 
+    local escaped
+    escaped=$(echo "$expected" | sed 's/\./\\./g')
+
     while IFS= read -r line; do
-        if ! echo "$line" | grep -q "$expected"; then
+        if ! echo "$line" | grep -qE "(^|[^0-9])${escaped}([^0-9]|$)"; then
             echo "MISMATCH: $file ($description)"
             echo "  Found:    $(echo "$line" | sed 's/^[[:space:]]*//')"
             echo "  Expected: $expected"
