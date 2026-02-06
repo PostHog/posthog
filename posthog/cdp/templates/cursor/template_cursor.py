@@ -13,6 +13,14 @@ template: HogFunctionTemplateDC = HogFunctionTemplateDC(
     code="""
 let base64Auth := base64Encode(f'{inputs.cursor_account.api_key}:')
 
+if (empty(inputs.prompt)) {
+    throw Error('Prompt cannot be empty. Configure the agent prompt in the workflow step.')
+}
+
+if (empty(inputs.repository)) {
+    throw Error('Repository is required. Select a repository in the workflow step.')
+}
+
 let body := {
     'prompt': {
         'text': inputs.prompt
@@ -25,7 +33,7 @@ let body := {
     }
 }
 
-if (inputs.ref) {
+if (not empty(inputs.ref)) {
     body.source.ref := inputs.ref
 }
 
@@ -39,7 +47,12 @@ let res := fetch('https://api.cursor.com/v0/agents', {
 })
 
 if (res.status >= 400) {
-    throw Error(f'Failed to launch Cursor agent: {res.status}: {res.body}')
+    let errorMessage := res.body?.message ?? res.body?.error ?? res.body ?? ''
+    if (empty(errorMessage)) {
+        errorMessage := '(no message from Cursor API; try again or check status.cursor.com)'
+    }
+    let codePart := if (res.body?.code != null) then f' [{res.body.code}]' else ''
+    throw Error(f'Failed to launch Cursor agent: {res.status}{codePart}: {errorMessage}')
 }
 """.strip(),
     inputs_schema=[

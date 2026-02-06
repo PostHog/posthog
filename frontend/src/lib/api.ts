@@ -1393,6 +1393,10 @@ export class ApiRequest {
         return this.integrations(teamId).addPathComponent(id).addPathComponent('github_repos')
     }
 
+    public integrationCursorRepositories(id: IntegrationType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.integrations(teamId).addPathComponent(id).addPathComponent('cursor_repositories')
+    }
+
     public integrationJiraProjects(id: IntegrationType['id'], teamId?: TeamType['id']): ApiRequest {
         return this.integrations(teamId).addPathComponent(id).addPathComponent('jira_projects')
     }
@@ -4746,6 +4750,16 @@ const api = {
         },
         async githubRepositories(id: IntegrationType['id']): Promise<{ repositories: string[] }> {
             return await new ApiRequest().integrationGitHubRepositories(id).get()
+        },
+        async cursorRepositories(
+            id: IntegrationType['id'],
+            options?: { forceRefresh?: boolean }
+        ): Promise<{ repositories: { name: string; url: string }[]; lastRefreshedAt: string }> {
+            const request = new ApiRequest().integrationCursorRepositories(id)
+            if (options?.forceRefresh) {
+                request.withQueryString({ force_refresh: 'true' })
+            }
+            return await request.get()
         },
         async jiraProjects(id: IntegrationType['id']): Promise<{ projects: JiraProjectType[] }> {
             return await new ApiRequest().integrationJiraProjects(id).get()

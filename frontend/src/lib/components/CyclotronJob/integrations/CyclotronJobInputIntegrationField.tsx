@@ -7,6 +7,7 @@ import {
     ClickUpSpacePicker,
     ClickUpWorkspacePicker,
 } from 'lib/integrations/ClickUpIntegrationHelpers'
+import { CursorRepositoryPicker } from 'lib/integrations/CursorIntegrationHelpers'
 import { GitHubRepositoryPicker } from 'lib/integrations/GitHubIntegrationHelpers'
 import {
     GoogleAdsConversionActionPicker,
@@ -151,6 +152,9 @@ export function CyclotronJobInputIntegrationField({
     if (schema.integration_field === 'github_repository') {
         return <GitHubRepositoryPicker value={value} onChange={(x) => onChange?.(x)} integrationId={integration.id} />
     }
+    if (schema.integration_field === 'cursor_repository') {
+        return <CursorRepositoryPicker value={value} onChange={(x) => onChange?.(x)} integrationId={integration.id} />
+    }
     if (schema.integration_field === 'twilio_phone_number') {
         return <TwilioPhoneNumberPicker value={value} onChange={(x) => onChange?.(x)} integration={integration} />
     }
@@ -179,7 +183,7 @@ export function CyclotronJobInputIntegrationField({
     }
     return (
         <div className="text-danger">
-            <p>Unsupported integration type: {schema.integration}</p>
+            <p>Unsupported integration field: {schema.integration_field}</p>
         </div>
     )
 }

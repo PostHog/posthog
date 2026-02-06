@@ -2363,9 +2363,10 @@ class CursorIntegration:
         except requests.exceptions.RequestException:
             raise ValidationError({"api_key": "Invalid Cursor API key"})
 
-        email = me_info.get("email", "")
-        key_name = me_info.get("name", "")
-        integration_id = email or key_name
+        # Cursor /v0/me returns userEmail and apiKeyName (see Cloud Agents API Key Info docs)
+        email = me_info.get("userEmail") or me_info.get("email", "")
+        key_name = me_info.get("apiKeyName") or me_info.get("name", "")
+        integration_id = email or key_name or me_info.get("id", "")
 
         if not integration_id:
             raise ValidationError({"api_key": "Failed to validate Cursor API key"})

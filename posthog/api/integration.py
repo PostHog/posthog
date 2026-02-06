@@ -237,7 +237,7 @@ class IntegrationViewSet(
     viewsets.GenericViewSet,
 ):
     scope_object = "integration"
-    scope_object_read_actions = ["list", "retrieve", "github_repos"]
+    scope_object_read_actions = ["list", "retrieve", "github_repos", "cursor_repositories"]
     queryset = Integration.objects.all()
     serializer_class = IntegrationSerializer
 
@@ -375,11 +375,12 @@ class IntegrationViewSet(
         except Exception:
             raise ValidationError("Failed to fetch repositories from Cursor")
 
+        # Cursor Cloud Agents API GET /v0/repositories: each repo is { owner, name, repository } (repository = URL)
         response = {
             "repositories": [
                 {
                     "name": f"{repo.get('owner', '')}/{repo.get('name', '')}",
-                    "url": repo.get("url", ""),
+                    "url": repo.get("repository", ""),
                 }
                 for repo in repositories
             ],
