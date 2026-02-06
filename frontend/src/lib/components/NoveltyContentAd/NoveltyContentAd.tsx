@@ -11,11 +11,11 @@ import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { noveltyContentAdLogic } from './noveltyContentAdLogic'
 
 export function NoveltyContentAd(): JSX.Element | null {
-    const { currentAd, isDismissed } = useValues(noveltyContentAdLogic)
+    const { currentAd, isDismissed, isEnabled } = useValues(noveltyContentAdLogic)
     const { dismissAd } = useActions(noveltyContentAdLogic)
     const { isLayoutNavCollapsed } = useValues(panelLayoutLogic)
 
-    if (isDismissed || isLayoutNavCollapsed) {
+    if (!isEnabled || isDismissed || isLayoutNavCollapsed) {
         return null
     }
 

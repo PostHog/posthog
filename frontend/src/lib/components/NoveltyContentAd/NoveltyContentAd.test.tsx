@@ -27,8 +27,26 @@ describe('noveltyContentAdLogic', () => {
         expect(logic.values.currentAd.cta).toBeTruthy()
     })
 
+    it('is disabled by default', () => {
+        expect(logic.values.isEnabled).toBe(false)
+    })
+
     it('is not dismissed by default', () => {
         expect(logic.values.isDismissed).toBe(false)
+    })
+
+    it('can be toggled', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.toggleEnabled()
+        }).toMatchValues({
+            isEnabled: true,
+        })
+
+        await expectLogic(logic, () => {
+            logic.actions.toggleEnabled()
+        }).toMatchValues({
+            isEnabled: false,
+        })
     })
 
     it('can be dismissed', async () => {

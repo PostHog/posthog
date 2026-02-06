@@ -1,5 +1,7 @@
 import { actions, afterMount, kea, path, reducers, selectors } from 'kea'
 
+import { shouldIgnoreInput } from 'lib/utils'
+
 import type { noveltyContentAdLogicType } from './noveltyContentAdLogicType'
 
 export interface FictionalAd {
@@ -92,6 +94,7 @@ export const noveltyContentAdLogic = kea<noveltyContentAdLogicType>([
         showNextAd: true,
         dismissAd: true,
         undoDismiss: true,
+        toggleEnabled: true,
     }),
 
     reducers({
@@ -107,6 +110,12 @@ export const noveltyContentAdLogic = kea<noveltyContentAdLogicType>([
             {
                 dismissAd: () => true,
                 undoDismiss: () => false,
+            },
+        ],
+        isEnabled: [
+            false,
+            {
+                toggleEnabled: (state) => !state,
             },
         ],
     }),
@@ -126,10 +135,35 @@ export const noveltyContentAdLogic = kea<noveltyContentAdLogicType>([
             actions.showNextAd()
         }, 30000)
 
+        // Secret key sequence listener: "67"
+        const lastKeys: string[] = []
+        const secretSequence = ['6', '7']
+
+        const keyDownListener = (e: KeyboardEvent): void => {
+            if (shouldIgnoreInput(e)) {
+                return
+            }
+
+            const key = e.key
+            lastKeys.push(key)
+
+            if (lastKeys.length > 10) {
+                lastKeys.shift()
+            }
+
+            if (lastKeys.slice(-secretSequence.length).join('') === secretSequence.join('')) {
+                actions.toggleEnabled()
+                lastKeys.splice(-secretSequence.length)
+            }
+        }
+
+        window.addEventListener('keydown', keyDownListener)
+
         return () => {
             if (cache.interval) {
                 clearInterval(cache.interval)
             }
+            window.removeEventListener('keydown', keyDownListener)
         }
     }),
 ])
