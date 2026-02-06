@@ -106,10 +106,17 @@ export async function pollForResults(
                 e.code = parsed.code
             }
 
+            // Attach queryId to error for downstream error handling
+            e.queryId = queryId
+
             throw e
         }
     }
-    throw new Error(QUERY_TIMEOUT_ERROR_MESSAGE)
+
+    // if we get here, the query timed out
+    const timeoutError = new Error(QUERY_TIMEOUT_ERROR_MESSAGE)
+    ;(timeoutError as Error & { queryId?: string }).queryId = queryId
+    throw timeoutError
 }
 
 /**
