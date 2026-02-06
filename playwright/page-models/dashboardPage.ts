@@ -40,6 +40,19 @@ export class DashboardPage {
         await this.page.getByRole('button', { name: 'Close' }).click()
     }
 
+    async addToNewDashboardFromInsightPage(): Promise<void> {
+        await this.page.getByTestId('info-actions-panel').click()
+        const addButton = this.page.getByTestId('insight-add-to-dashboard-button')
+        await expect(addButton).toBeVisible()
+        await addButton.click()
+
+        const modal = this.page.locator('.LemonModal').filter({ hasText: 'Add to dashboard' })
+        await expect(modal).toBeVisible()
+
+        await modal.getByRole('button', { name: 'Add to a new dashboard' }).click()
+        await this.page.getByTestId('create-dashboard-blank').click()
+    }
+
     async addInsightToDashboard(dashboardName: string): Promise<void> {
         await this.page.getByTestId('info-actions-panel').click()
         const addButton = this.page.getByTestId('insight-add-to-dashboard-button')

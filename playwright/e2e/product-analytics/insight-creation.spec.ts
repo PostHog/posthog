@@ -181,8 +181,9 @@ test.describe('Insight creation', () => {
         })
 
         await test.step('add insight to a new dashboard', async () => {
-            await dashboard.addInsightToNewDashboard()
-            await expect(dashboard.items.locator('canvas').first()).toBeVisible()
+            await dashboard.addToNewDashboardFromInsightPage()
+            await expect(page).toHaveURL(/\/dashboard\//)
+            await expect(page.locator('.InsightCard canvas').first()).toBeVisible()
         })
     })
 })

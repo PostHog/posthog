@@ -59,6 +59,31 @@ test.describe('Dashboards', () => {
         })
     })
 
+    test('Add insight to new dashboard and view it there', async ({ page }) => {
+        const insight = new InsightPage(page)
+        const dashboard = new DashboardPage(page)
+        const insightName = randomString('add-to-dash')
+
+        await test.step('create and save a Trends insight', async () => {
+            await insight.goToNewTrends()
+            await insight.trends.waitForChart()
+            await insight.editName(insightName)
+            await insight.save()
+            await expect(insight.editButton).toBeVisible()
+        })
+
+        await test.step('add insight to a new dashboard', async () => {
+            await dashboard.addToNewDashboardFromInsightPage()
+        })
+
+        await test.step('verify insight is visible on the new dashboard', async () => {
+            await expect(page).toHaveURL(/\/dashboard\//)
+            const card = page.locator('.InsightCard').filter({ hasText: insightName })
+            await expect(card).toBeVisible()
+            await expect(card.locator('canvas')).toBeVisible()
+        })
+    })
+
     test('Can duplicate, rename, and remove dashboard tiles', async ({ page }) => {
         const dashboard = new DashboardPage(page)
         const newTileName = randomString('tile-name')
