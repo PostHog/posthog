@@ -81,3 +81,19 @@ pub const TOMBSTONE_COUNTER: &str = "posthog_tombstone_total";
 // This surfaces teams generating excessive DB load regardless of individual query latency.
 // Labels: team_id, operation_type (person_query, cohort_query, group_query)
 pub const FLAG_DB_OPERATIONS_PER_REQUEST: &str = "flags_db_operations_per_request";
+
+// Flag batch evaluation metrics
+// These track the performance difference between sequential and parallel evaluation strategies.
+// Used for A/B testing and tuning the PARALLEL_EVAL_THRESHOLD.
+
+// Time spent evaluating a batch of flags (histogram)
+// Labels: evaluation_type ("sequential" or "parallel")
+pub const FLAG_BATCH_EVALUATION_TIME: &str = "flags_batch_evaluation_time_ms";
+
+// Counter for evaluation batches by type
+// Labels: evaluation_type ("sequential" or "parallel")
+pub const FLAG_BATCH_EVALUATION_COUNTER: &str = "flags_batch_evaluation_total";
+
+// Histogram of flag counts per batch evaluation
+// Labels: evaluation_type ("sequential" or "parallel")
+pub const FLAG_BATCH_SIZE: &str = "flags_batch_size";

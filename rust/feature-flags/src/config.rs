@@ -465,6 +465,13 @@ pub struct Config {
     // Set to 0 to disable retries (fail immediately on first error)
     #[envconfig(from = "REDIS_CLIENT_RETRY_COUNT", default = "3")]
     pub redis_client_retry_count: u32,
+
+    // Threshold for parallel flag evaluation
+    // Below this count, flags are evaluated sequentially (faster for small counts)
+    // Above this count, flags are evaluated in parallel using rayon
+    // Default: 100 (sequential is faster for typical workloads of ~50 flags)
+    #[envconfig(from = "PARALLEL_EVAL_THRESHOLD", default = "100")]
+    pub parallel_eval_threshold: usize,
 }
 
 impl Config {
@@ -584,6 +591,7 @@ impl Config {
             redis_compression_enabled: FlexBool(true),
             redis_client_retry_count: 3,
             optimize_experience_continuity_lookups: FlexBool(true),
+            parallel_eval_threshold: 100,
         }
     }
 
