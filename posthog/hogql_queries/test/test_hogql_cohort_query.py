@@ -399,6 +399,33 @@ class TestHogQLCohortQuery(ClickhouseTestMixin, APIBaseTest):
         # Should not use the OR optimization (which would create a single query with OR logic)
         self.assertNotIn("or(", query_str)
 
+    def test_static_cohort_condition_rejects_cross_project_cohort(self) -> None:
+        from posthog.models.organization import Organization
+
+        _, _, other_team = Organization.objects.bootstrap(self.user, name="other org")
+        other_static_cohort = Cohort.objects.create(
+            team=other_team, name="Other Static Cohort", is_static=True, is_calculating=False
+        )
+
+        cohort_filters = {
+            "type": "AND",
+            "values": [
+                {
+                    "type": "AND",
+                    "values": [
+                        {"key": "id", "type": "static-cohort", "value": other_static_cohort.id, "negation": False}
+                    ],
+                }
+            ],
+        }
+        cohort = Cohort.objects.create(
+            team=self.team, name="References Cross-Project Cohort", filters={"properties": cohort_filters}
+        )
+
+        hogql_query = HogQLCohortQuery(cohort=cohort)
+        with self.assertRaises(Cohort.DoesNotExist):
+            hogql_query.query_str("clickhouse")
+
 
 class TestHogQLRealtimeCohortQuery(ClickhouseTestMixin, APIBaseTest):
     """Tests for HogQLRealtimeCohortQuery which uses precalculated_events for behavioral filters."""

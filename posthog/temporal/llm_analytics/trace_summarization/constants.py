@@ -30,6 +30,9 @@ GENERATE_SUMMARY_TIMEOUT_SECONDS = 300  # 5 minutes per summary generation (incr
 
 # Workflow-level timeouts (in minutes)
 WORKFLOW_EXECUTION_TIMEOUT_MINUTES = 120  # Max time for single team workflow (increased with longer activity timeouts)
+COORDINATOR_EXECUTION_TIMEOUT_MINUTES = (
+    55  # Max time for coordinator, must be less than schedule interval to avoid blocking
+)
 
 # Retry policies
 SAMPLE_RETRY_POLICY = RetryPolicy(maximum_attempts=3)
@@ -52,20 +55,6 @@ GENERATION_DOCUMENT_TYPE = "llm-generation-summary-detailed"  # For generation-l
 
 # Generation-level configuration
 DEFAULT_MAX_GENERATIONS_PER_WINDOW = 50  # Higher than traces - generations are simpler units
-
-# Team allowlist - only these teams will be processed by the coordinator
-# Empty list means no teams will be processed (coordinator skips)
-ALLOWED_TEAM_IDS: list[int] = [
-    1,  # Local development
-    2,  # Internal PostHog project
-    # Dogfooding projects
-    112495,
-    148051,
-    140227,
-    237906,
-    294356,
-    21999,
-]
 
 # Temporal configuration
 WORKFLOW_NAME = "llma-trace-summarization"
