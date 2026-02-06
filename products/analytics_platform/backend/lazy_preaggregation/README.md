@@ -95,6 +95,39 @@ query = parse_select(
 )
 ```
 
+## Concurrency and race conditions
+
+The executor handles concurrent queries that need the same preaggregated data.
+
+### Waiting for pending jobs
+
+When query B requests data that query A is already computing, query B waits for A to finish rather than creating duplicate work. The executor polls the job status until it becomes READY or FAILED (configurable timeout, default 3 minutes).
+
+### One INSERT per job ID
+
+Each job ID is used for exactly one INSERT statement. This is critical because if a job fails partway through, we can't know what data was or wasn't inserted. Retrying with the same job ID could result in duplicate or inconsistent data.
+
+### Race condition: multiple waiters, job fails
+
+When a job fails, multiple waiters may all try to create a replacement job simultaneously. We use a partial unique index on `(team_id, query_hash, time_range_start, time_range_end) WHERE status = 'pending'` to ensure only one PENDING job can exist per range. The database atomically enforces this:
+
+1. Job A fails
+2. Waiters B and C both try to create a replacement
+3. One succeeds (gets the new job), the other gets an IntegrityError
+4. The loser finds the winner's job and waits for it
+
+### Replacement jobs use the same range
+
+When creating a replacement for a failed job, we use the exact same time range as the failed job (not the original query's range). This ensures all waiters coordinate on the same replacement, even if they originally requested overlapping but different ranges.
+
+### Attempt tracking
+
+Each waiter tracks their own attempt count locally. After a configurable number of failures (default 3), the waiter stops retrying and reports the job as permanently failed. This means new queries get fresh attempt budgets, so newer queries may succeed where older ones gave up.
+
+### Stale pending jobs
+
+If an executor crashes while a job is PENDING, other waiters detect this via the `updated_at` timestamp. When a PENDING job hasn't been updated for longer than the stale threshold (default: `HOGQL_INCREASED_MAX_EXECUTION_TIME` = 10 minutes), waiters mark it as FAILED and trigger the normal replacement flow. This ensures the system recovers from executor crashes without manual intervention.
+
 ## Limitations
 
 - Automatic transformation only supports very specific query patterns
