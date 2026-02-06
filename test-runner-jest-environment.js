@@ -18,7 +18,7 @@ class CustomEnvironment extends PlaywrightEnvironment {
                     sources: false, // Don't include source files to keep trace size manageable
                 })
                 this._webkitTracingEnabled = true
-                console.log('[webkit-diagnostics] Tracing started for webkit browser')
+                
             } catch (err) {
                 console.warn('[webkit-diagnostics] Failed to start tracing:', err.message)
                 this._webkitTracingEnabled = false
@@ -38,7 +38,7 @@ class CustomEnvironment extends PlaywrightEnvironment {
                 }
                 const tracePath = path.join(traceDir, `webkit-trace-${Date.now()}.zip`)
                 await this.global.context.tracing.stop({ path: tracePath })
-                console.log(`[webkit-diagnostics] Trace saved to ${tracePath}`)
+                
             } catch (err) {
                 console.warn('[webkit-diagnostics] Failed to save trace:', err.message)
             }
