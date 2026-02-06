@@ -1,5 +1,6 @@
 // Build frontend/src/products.{json,tsx} from manifest.tsx files
 import * as ps from 'child_process'
+import * as crypto from 'crypto'
 import fse from 'fs-extra'
 import path from 'path'
 import { cloneNode } from 'ts-clone-node'
@@ -7,6 +8,9 @@ import ts from 'typescript'
 import { fileURLToPath } from 'url'
 
 export const __dirname = path.dirname(fileURLToPath(import.meta.url))
+const PRODUCTS_TSX_PATH = path.join(__dirname, 'src/products.tsx')
+const PRODUCTS_JSON_PATH = path.join(__dirname, 'src/products.json')
+const PRODUCTS_CACHE_PATH = path.join(__dirname, 'tmp/products-build.hash')
 
 // Run directly
 buildProductManifests()
@@ -22,6 +26,11 @@ function buildProductManifests() {
     // Also include the schema file so we can resolve some enum values
     const enumFile = path.resolve(__dirname, '../frontend/src/queries/schema/schema-general.ts')
     const allSourceFiles = [...sourceFiles, enumFile]
+    const shouldForce = process.argv.includes('--force') || process.env.BUILD_PRODUCTS_FORCE === '1'
+
+    if (!shouldForce && canSkipBuild(allSourceFiles)) {
+        return
+    }
 
     const program = ts.createProgram(allSourceFiles, {
         target: 1, // ES5
@@ -333,7 +342,7 @@ function buildProductManifests() {
     const tsxTmpFile = path.join(tsxTmpDir, 'products.tsx')
     fse.writeFileSync(tsxTmpFile, productsTsx)
     ps.execFileSync('prettier', ['--write', tsxTmpFile])
-    fse.renameSync(tsxTmpFile, path.join(__dirname, 'src/products.tsx'))
+    fse.renameSync(tsxTmpFile, PRODUCTS_TSX_PATH)
 
     // 8. Assemble `products.json`, write, format, move to src/
     // A much simplified version of `products.tsx` to simplify consumption from Python
@@ -357,7 +366,42 @@ function buildProductManifests() {
     const jsonTmpFile = path.join(jsonTmpDir, 'products.json')
     fse.writeFileSync(jsonTmpFile, JSON.stringify(productsJson))
     ps.execFileSync('prettier', ['--write', jsonTmpFile])
-    fse.renameSync(jsonTmpFile, path.join(__dirname, 'src/products.json'))
+    fse.renameSync(jsonTmpFile, PRODUCTS_JSON_PATH)
+
+    writeBuildHash(allSourceFiles)
+}
+
+function canSkipBuild(sourceFiles) {
+    if (!fse.existsSync(PRODUCTS_TSX_PATH) || !fse.existsSync(PRODUCTS_JSON_PATH)) {
+        return false
+    }
+    if (!fse.existsSync(PRODUCTS_CACHE_PATH)) {
+        return false
+    }
+    const cached = fse.readFileSync(PRODUCTS_CACHE_PATH, 'utf8').trim()
+    if (!cached) {
+        return false
+    }
+    const current = computeInputsHash(sourceFiles)
+    return cached === current
+}
+
+function writeBuildHash(sourceFiles) {
+    const hash = computeInputsHash(sourceFiles)
+    fse.mkdirSync(path.dirname(PRODUCTS_CACHE_PATH), { recursive: true })
+    fse.writeFileSync(PRODUCTS_CACHE_PATH, `${hash}\n`)
+}
+
+function computeInputsHash(sourceFiles) {
+    const hash = crypto.createHash('sha256')
+    const sortedFiles = [...sourceFiles].sort()
+    for (const filePath of sortedFiles) {
+        hash.update(filePath)
+        hash.update('\0')
+        hash.update(fse.readFileSync(filePath))
+        hash.update('\0')
+    }
+    return hash.digest('hex')
 }
 
 function keepOnlyImport(prop, manifestPath) {
