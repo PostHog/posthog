@@ -52,30 +52,28 @@ DEFAULT_STALE_PENDING_THRESHOLD_SECONDS = 120  # 2 minutes
 # ClickHouse error codes that should NOT be retried.
 # These are errors where retrying will never help - the query itself is broken,
 # or the user needs to change something about their request.
-NON_RETRYABLE_CLICKHOUSE_ERROR_CODES = frozenset(
-    {
-        62,  # SYNTAX_ERROR
-        43,  # ILLEGAL_TYPE_OF_ARGUMENT
-        53,  # TYPE_MISMATCH
-        46,  # UNKNOWN_FUNCTION
-        47,  # UNKNOWN_IDENTIFIER
-        60,  # UNKNOWN_TABLE
-        16,  # NO_SUCH_COLUMN_IN_TABLE
-        # Timeout means the query is too expensive - retrying won't help,
-        # and we want to surface this to the user so they can adjust their query.
-        159,  # TIMEOUT_EXCEEDED
-        # Too many simultaneous queries means the cluster is overloaded.
-        # Rather than adding to the load with retries, surface the error.
-        202,  # TOO_MANY_SIMULTANEOUS_QUERIES
-    }
-)
+NON_RETRYABLE_CLICKHOUSE_ERROR_CODES = {
+    62,  # SYNTAX_ERROR
+    43,  # ILLEGAL_TYPE_OF_ARGUMENT
+    53,  # TYPE_MISMATCH
+    46,  # UNKNOWN_FUNCTION
+    47,  # UNKNOWN_IDENTIFIER
+    60,  # UNKNOWN_TABLE
+    16,  # NO_SUCH_COLUMN_IN_TABLE
+    # Timeout means the query is too expensive - retrying won't help,
+    # and we want to surface this to the user so they can adjust their query.
+    159,  # TIMEOUT_EXCEEDED
+    # Too many simultaneous queries means the cluster is overloaded.
+    # Rather than adding to the load with retries, surface the error.
+    202,  # TOO_MANY_SIMULTANEOUS_QUERIES
+}
 
 
 RESERVED_PLACEHOLDERS = {"time_window_min", "time_window_max"}
 
 
 def _validate_no_reserved_placeholders(placeholders: dict[str, ast.Expr]) -> None:
-    conflicting = RESERVED_PLACEHOLDERS & set(placeholders.keys())
+    conflicting = RESERVED_PLACEHOLDERS & set(placeholders)
     if conflicting:
         raise ValueError(
             f"Cannot use reserved placeholder names: {conflicting}. "
@@ -211,7 +209,7 @@ def get_daily_windows(start: datetime, end: datetime) -> list[tuple[datetime, da
 
     # If end has non-zero time (e.g., 23:59:59), include that day's window
     # For example: end=2025-01-02 23:59:59 should include the Jan 2 window
-    if end.hour > 0 or end.minute > 0 or end.second > 0:
+    if end.hour > 0 or end.minute > 0 or end.second > 0 or end.microsecond > 0:
         end_normalized = end_normalized + timedelta(days=1)
 
     while current < end_normalized:
@@ -277,19 +275,15 @@ def filter_overlapping_jobs(jobs: list[PreaggregationJob]) -> list[Preaggregatio
 
     selected: list[PreaggregationJob] = []
     for job in sorted_jobs:
-        # Check if this job overlaps with any already-selected job
-        has_overlap = False
-        for selected_job in selected:
-            if _intervals_overlap(
+        if not any(
+            _intervals_overlap(
                 job.time_range_start,
                 job.time_range_end,
                 selected_job.time_range_start,
                 selected_job.time_range_end,
-            ):
-                has_overlap = True
-                break
-
-        if not has_overlap:
+            )
+            for selected_job in selected
+        ):
             selected.append(job)
 
     return selected
