@@ -647,8 +647,7 @@ def _get_both_flags_responses_for_local_evaluation(team: Team) -> tuple[dict[str
                 seen_cohorts_cache=seen_cohorts_cache,
             )
 
-            # Serialize for with-cohorts response (keep original filters)
-            feature_flag.filters = original_filters
+            # Serialize for with-cohorts response (uses original filters)
             flags_with_cohorts_data.append(MinimalFeatureFlagSerializer(feature_flag, context={}).data)
 
             # Build cohorts dict for with-cohorts response
