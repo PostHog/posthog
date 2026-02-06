@@ -10,7 +10,7 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.AddField(
-            model_name="eventschema",
+            model_name="eventdefinition",
             name="enforcement_mode",
             field=models.CharField(
                 choices=[("allow", "Allow"), ("reject", "Reject")],
@@ -19,10 +19,10 @@ class Migration(migrations.Migration):
             ),
         ),
         migrations.AddIndex(
-            model_name="eventschema",
+            model_name="eventdefinition",
             index=models.Index(
                 fields=["enforcement_mode"],
-                name="posthog_eve_enforce_idx",
+                name="posthog_eventdef_enforce_idx",
                 condition=models.Q(enforcement_mode="reject"),
             ),
         ),

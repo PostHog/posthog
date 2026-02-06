@@ -6,6 +6,11 @@ from posthog.models.team import Team
 from posthog.models.utils import UniqueConstraintByExpression, UUIDTModel
 
 
+class SchemaEnforcementMode(models.TextChoices):
+    ALLOW = "allow", "Allow"
+    REJECT = "reject", "Reject"
+
+
 class EventDefinition(UUIDTModel):
     team = models.ForeignKey(
         Team,
@@ -26,6 +31,12 @@ class EventDefinition(UUIDTModel):
     # Volume of events in the last 30 rolling days (computed asynchronously)
     volume_30_day = models.IntegerField(default=None, null=True)
 
+    enforcement_mode = models.CharField(
+        max_length=10,
+        choices=SchemaEnforcementMode.choices,
+        default=SchemaEnforcementMode.ALLOW,
+    )
+
     class Meta:
         indexes = [
             # Index on project_id foreign key
@@ -35,6 +46,11 @@ class EventDefinition(UUIDTModel):
                 fields=["name"],
                 opclasses=["gin_trgm_ops"],
             ),  # To speed up DB-based fuzzy searching
+            models.Index(
+                fields=["enforcement_mode"],
+                name="posthog_eventdef_enforce_idx",
+                condition=models.Q(enforcement_mode="reject"),
+            ),
         ]
         constraints = [
             UniqueConstraintByExpression(
