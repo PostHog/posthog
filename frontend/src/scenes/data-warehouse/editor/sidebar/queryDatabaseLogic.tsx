@@ -97,7 +97,12 @@ const managedViewsFuse = new Fuse<DatabaseSchemaManagedViewTable>([], FUSE_OPTIO
 const endpointTablesFuse = new Fuse<DatabaseSchemaEndpointTable>([], FUSE_OPTIONS)
 const draftsFuse = new Fuse<DataWarehouseSavedQueryDraft>([], FUSE_OPTIONS)
 // Factory functions for creating tree nodes
-type TableLookup = Record<string, DatabaseSchemaTable | DatabaseSchemaDataWarehouseTable>
+type TableLookupEntry = {
+    name: string
+    fields: Record<string, DatabaseSchemaField>
+}
+
+type TableLookup = Record<string, TableLookupEntry>
 
 const normalizeTableLookupKey = (tableName?: string | null): string | null => {
     if (!tableName) {
@@ -196,11 +201,11 @@ const resolveFieldTraverserTarget = (
     }
 
     const baseTable = tableLookup[tableName]
-    if (!baseTable || !('fields' in baseTable)) {
+    if (!baseTable) {
         return null
     }
 
-    let currentTable: DatabaseSchemaTable | DatabaseSchemaDataWarehouseTable | null = baseTable
+    let currentTable: TableLookupEntry | null = baseTable
     let currentField: DatabaseSchemaField | null = null
     let index = 0
 
@@ -295,7 +300,7 @@ const createLazyTableChildren = (
         ? (tableLookup?.[field.table] ?? (normalizedTableName ? tableLookup?.[normalizedTableName] : undefined))
         : undefined
 
-    if (!referencedTable || !('fields' in referencedTable)) {
+    if (!referencedTable) {
         if (!field.fields) {
             return []
         }
@@ -335,6 +340,66 @@ const createLazyTableChildren = (
     }
 
     return Object.values(referencedTable.fields).map((childField) =>
+        createFieldNode(tableName, childField, isSearch, `${columnPath}.${childField.name}`, tableLookup, {
+            expandedLazyNodeIds,
+        })
+    )
+}
+
+const createViewTableChildren = (
+    tableName: string,
+    field: DatabaseSchemaField,
+    isSearch: boolean,
+    columnPath: string,
+    tableLookup?: TableLookup,
+    expandedLazyNodeIds?: Set<string>
+): TreeDataItem[] => {
+    const normalizedTableName = normalizeTableLookupKey(field.table)
+    const referencedTable = field.table
+        ? (tableLookup?.[field.table] ?? (normalizedTableName ? tableLookup?.[normalizedTableName] : undefined))
+        : undefined
+
+    if (!referencedTable) {
+        if (!field.fields) {
+            return []
+        }
+
+        return field.fields.map((childFieldName) =>
+            createFieldNode(
+                tableName,
+                {
+                    name: childFieldName,
+                    hogql_value: childFieldName,
+                    type: 'unknown',
+                    schema_valid: true,
+                },
+                isSearch,
+                `${columnPath}.${childFieldName}`,
+                tableLookup,
+                { expandedLazyNodeIds }
+            )
+        )
+    }
+
+    if (field.fields?.length) {
+        return field.fields.map((childFieldName) => {
+            const childField =
+                referencedTable.fields[childFieldName] ??
+                ({
+                    name: childFieldName,
+                    hogql_value: childFieldName,
+                    type: 'unknown',
+                    schema_valid: true,
+                } as DatabaseSchemaField)
+
+            return createFieldNode(tableName, childField, isSearch, `${columnPath}.${childField.name}`, tableLookup, {
+                expandedLazyNodeIds,
+            })
+        })
+    }
+
+    const sortedFields = sortFieldsWithPrimary(referencedTable.name, Object.values(referencedTable.fields))
+    return sortedFields.map((childField) =>
         createFieldNode(tableName, childField, isSearch, `${columnPath}.${childField.name}`, tableLookup, {
             expandedLazyNodeIds,
         })
@@ -473,6 +538,31 @@ const createFieldNode = (
         }
     }
 
+    if (field.type === 'view' || field.type === 'materialized_view') {
+        const children = createViewTableChildren(
+            tableName,
+            field,
+            isSearch,
+            columnPath,
+            tableLookup,
+            expandedLazyNodeIds
+        )
+
+        return {
+            id: `${isSearch ? 'search-' : ''}view-table-${tableName}-${columnPath}`,
+            name: field.name,
+            type: 'node',
+            record: {
+                type: 'view-table',
+                field,
+                table: tableName,
+                referencedTable: field.table,
+                traversedFieldType: field.type,
+            },
+            children,
+        }
+    }
+
     if (field.type === 'lazy_table') {
         const lazyNodeId = `${isSearch ? 'search-' : ''}lazy-${tableName}-${columnPath}`
         const isExpanded = expandedLazyNodeIds ? expandedLazyNodeIds.has(lazyNodeId) : false
@@ -502,6 +592,37 @@ const createFieldNode = (
     }
 
     return createColumnNode(tableName, field, columnPath, isSearch)
+}
+
+const createSavedQueryLookupEntry = (view: DataWarehouseSavedQuery): TableLookupEntry => {
+    return {
+        name: view.name,
+        fields: Object.fromEntries(view.columns.map((column) => [column.name, column])),
+    }
+}
+
+const createTableLookup = ({
+    posthogTables,
+    systemTables,
+    dataWarehouseTables,
+    dataWarehouseSavedQueries,
+    managedViews,
+}: {
+    posthogTables: DatabaseSchemaTable[]
+    systemTables: DatabaseSchemaTable[]
+    dataWarehouseTables: DatabaseSchemaDataWarehouseTable[]
+    dataWarehouseSavedQueries: DataWarehouseSavedQuery[]
+    managedViews: DatabaseSchemaManagedViewTable[]
+}): TableLookup => {
+    return Object.fromEntries(
+        [
+            ...posthogTables.map((table) => [table.name, { name: table.name, fields: table.fields }]),
+            ...systemTables.map((table) => [table.name, { name: table.name, fields: table.fields }]),
+            ...dataWarehouseTables.map((table) => [table.name, { name: table.name, fields: table.fields }]),
+            ...dataWarehouseSavedQueries.map((view) => [view.name, createSavedQueryLookupEntry(view)]),
+            ...managedViews.map((view) => [view.name, { name: view.name, fields: view.fields }]),
+        ].map(([name, entry]) => [normalizeTableLookupKey(name) ?? name, entry])
+    )
 }
 
 const createTableNode = (
@@ -1074,6 +1195,10 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
         searchTreeData: [
             (s) => [
                 s.allPosthogTables,
+                s.systemTables,
+                s.dataWarehouseTables,
+                s.dataWarehouseSavedQueries,
+                s.managedViews,
                 s.relevantPosthogTables,
                 s.relevantSystemTables,
                 s.relevantDataWarehouseTables,
@@ -1087,6 +1212,10 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
             ],
             (
                 allPosthogTables: DatabaseSchemaTable[],
+                systemTables: DatabaseSchemaTable[],
+                dataWarehouseTables: DatabaseSchemaDataWarehouseTable[],
+                dataWarehouseSavedQueries: DataWarehouseSavedQuery[],
+                managedViews: DatabaseSchemaManagedViewTable[],
                 relevantPosthogTables: [DatabaseSchemaTable, FuseSearchMatch[] | null][],
                 relevantSystemTables: [DatabaseSchemaTable, FuseSearchMatch[] | null][],
                 relevantDataWarehouseTables: [DatabaseSchemaDataWarehouseTable, FuseSearchMatch[] | null][],
@@ -1102,13 +1231,13 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                     return []
                 }
 
-                const tableLookup = Object.fromEntries(
-                    [
-                        ...allPosthogTables,
-                        ...relevantSystemTables.map(([table]) => table),
-                        ...relevantDataWarehouseTables.map(([table]) => table),
-                    ].map((table) => [table.name, table])
-                )
+                const tableLookup = createTableLookup({
+                    posthogTables: allPosthogTables,
+                    systemTables,
+                    dataWarehouseTables,
+                    dataWarehouseSavedQueries,
+                    managedViews,
+                })
                 const expandedLazyNodeIds = new Set(expandedSearchFolders.filter(isLazyNodeId))
                 const sourcesChildren: TreeDataItem[] = []
                 const expandedIds: string[] = []
@@ -1271,9 +1400,13 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 expandedFolders: string[]
             ): TreeDataItem[] => {
                 const sourcesChildren: TreeDataItem[] = []
-                const tableLookup = Object.fromEntries(
-                    [...allPosthogTables, ...systemTables, ...dataWarehouseTables].map((table) => [table.name, table])
-                )
+                const tableLookup = createTableLookup({
+                    posthogTables: allPosthogTables,
+                    systemTables,
+                    dataWarehouseTables,
+                    dataWarehouseSavedQueries,
+                    managedViews,
+                })
                 const expandedLazyNodeIds = new Set(expandedFolders.filter(isLazyNodeId))
                 const tableNodeOptions = { expandedLazyNodeIds }
 
