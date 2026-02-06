@@ -29,9 +29,9 @@ class EmitSignalsActivityInputs:
     job_id: str
     source_type: str
     schema_name: str
-    # The incremental field's last value BEFORE this sync started
-    # Used to identify which records are new
-    incremental_field_last_value_before_sync: Any | None
+    # ISO timestamp of when the previous sync completed
+    # Used to filter records with created_at > last_synced_at
+    last_synced_at: str | None
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
@@ -84,8 +84,7 @@ async def emit_data_import_signals_activity(inputs: EmitSignalsActivityInputs) -
     records = await database_sync_to_async(_query_new_records, thread_sensitive=False)(
         team=team,
         table_name=schema.table.name,
-        schema=schema,
-        incremental_field_last_value_before_sync=inputs.incremental_field_last_value_before_sync,
+        last_synced_at=inputs.last_synced_at,
         extra=inputs.properties_to_log,
     )
     if not records:
@@ -129,51 +128,35 @@ def _fetch_schema_and_team(schema_id: uuid.UUID, team_id: int) -> tuple[External
 def _query_new_records(
     team: Team,
     table_name: str,
-    schema: ExternalDataSchema,
-    incremental_field_last_value_before_sync: Any | None,
+    last_synced_at: str | None,
     extra: dict[str, Any],
 ) -> list[dict[str, Any]]:
-    incremental_field = schema.incremental_field
-    if incremental_field and incremental_field_last_value_before_sync is not None:
-        # Only get new records if we have an incremental field and a last value before the sync
+    if last_synced_at is not None:
         query = f"""
             SELECT *
             FROM {table_name}
-            WHERE {incremental_field} > {{last_value}}
-            ORDER BY {incremental_field} DESC
+            WHERE created_at > {{last_synced_at}}
+            ORDER BY created_at DESC
             LIMIT {MAX_SIGNALS_PER_SYNC}
         """
-        try:
-            result = execute_hogql_query(
-                query=parse_select(
-                    query,
-                    placeholders={"last_value": incremental_field_last_value_before_sync},
-                ),
-                team=team,
-                query_type="EmitSignalsNewRecords",
-            )
-        except Exception as e:
-            activity.logger.exception(f"Error querying new records: {e}", extra=extra)
-            return []
+        parsed = parse_select(query, placeholders={"last_synced_at": last_synced_at})
     else:
-        # Full refresh or first sync - get most recent records
-        # TODO: Look N days before in the past instead of just getting max records
+        # First ever sync - get most recent records
+        # TODO: Look max N days before in the past instead of just getting max records
         query = f"""
             SELECT *
             FROM {table_name}
             ORDER BY created_at DESC
             LIMIT {MAX_SIGNALS_PER_SYNC}
         """
-        try:
-            result = execute_hogql_query(
-                query=parse_select(query),
-                team=team,
-                query_type="EmitSignalsNewRecords",
-            )
-        except Exception as e:
-            activity.logger.exception(f"Error querying records: {e}", extra=extra)
-            return []
-    # Convert results to list of dicts
+        parsed = parse_select(query)
+
+    try:
+        result = execute_hogql_query(query=parsed, team=team, query_type="EmitSignalsNewRecords")
+    except Exception as e:
+        activity.logger.exception(f"Error querying new records: {e}", extra=extra)
+        return []
+
     if not result.results or not result.columns:
         return []
     return [dict(zip(result.columns, row)) for row in result.results]

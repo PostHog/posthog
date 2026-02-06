@@ -41,8 +41,8 @@ class CreateExternalDataJobModelActivityOutputs:
     incremental_or_append: bool
     source_type: str
     schema_name: str
-    # Used to process only new records since the last sync
-    incremental_field_last_value: typing.Any | None
+    # ISO timestamp of when the previous sync completed, used to detect new records
+    last_synced_at: str | None
 
 
 @activity.defn
@@ -89,7 +89,7 @@ def create_external_data_job_model_activity(
             incremental_or_append=schema.is_incremental or schema.is_append,
             source_type=source.source_type,
             schema_name=schema.name,
-            incremental_field_last_value=schema.incremental_field_last_value,
+            last_synced_at=schema.last_synced_at.isoformat() if schema.last_synced_at else None,
         )
     except Exception as e:
         logger.exception(
