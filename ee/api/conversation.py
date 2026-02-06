@@ -19,14 +19,13 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet
 
-from posthog.schema import AgentMode, AssistantEventType, AssistantMessage, HumanMessage, MaxBillingContext
+from posthog.schema import AgentMode, AssistantMessage, HumanMessage, MaxBillingContext
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.exceptions import Conflict, QuotaLimitExceeded
 from posthog.exceptions_capture import capture_exception
 from posthog.models.user import User
 from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
-from posthog.redis import get_client as get_redis_client
 from posthog.temporal.ai.chat_agent import (
     CHAT_AGENT_STREAM_MAX_LENGTH,
     CHAT_AGENT_WORKFLOW_TIMEOUT,
@@ -43,24 +42,6 @@ from ee.hogai.utils.aio import async_to_sync
 from ee.hogai.utils.sse import AssistantSSESerializer
 from ee.hogai.utils.types import PartialAssistantState
 from ee.models.assistant import Conversation
-
-# Onboarding mode usage limits
-ONBOARDING_FREE_MESSAGE_LIMIT = 20  # Max free messages per user
-ONBOARDING_USAGE_KEY_PREFIX = "onboarding_usage:"
-ONBOARDING_USAGE_TTL_SECONDS = 30 * 24 * 60 * 60  # 30 days
-
-
-def increment_onboarding_usage(user_id: int) -> int:
-    """Increment onboarding usage count for a user. Returns new count."""
-    redis_client = get_redis_client()
-    key = f"{ONBOARDING_USAGE_KEY_PREFIX}{user_id}"
-    # Use pipeline for atomicity - always set TTL to prevent memory leak if expire fails
-    pipe = redis_client.pipeline()
-    pipe.incr(key)
-    pipe.expire(key, ONBOARDING_USAGE_TTL_SECONDS)
-    results = pipe.execute()
-    return results[0]
-
 
 logger = structlog.get_logger(__name__)
 
@@ -180,24 +161,6 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
         context["user"] = cast(User, self.request.user)
         return context
 
-    def _onboarding_limit_response(self) -> StreamingHttpResponse:
-        """Return a friendly SSE response when onboarding message limit is reached."""
-        message = AssistantMessage(
-            id=str(uuid.uuid4()),
-            content=(
-                "I think I have a good understanding of what you're looking for! "
-                "Go ahead and select the products above that interest you, then continue with signup to get started. "
-                "You can always explore more products later."
-            ),
-        )
-
-        def stream():
-            output = f"event: {AssistantEventType.MESSAGE}\n"
-            output += f"data: {message.model_dump_json(exclude_none=True)}\n\n"
-            yield output.encode("utf-8")
-
-        return StreamingHttpResponse(stream(), content_type="text/event-stream")
-
     def create(self, request: Request, *args, **kwargs):
         """
         Unified endpoint that handles both conversation creation and streaming.
@@ -259,22 +222,9 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
         if not has_message and conversation.status == Conversation.Status.IDLE and not has_resume_payload:
             raise exceptions.ValidationError("Cannot continue streaming from an idle conversation")
 
-        # Skip billing for impersonated sessions (support agents) and capped onboarding mode
+        # Skip billing for impersonated sessions (support agents)
         is_impersonated = is_impersonated_session(request)
-        agent_mode = serializer.validated_data.get("agent_mode")
-        user = cast(User, request.user)
-
-        # Onboarding mode: free up to ONBOARDING_FREE_MESSAGE_LIMIT messages per user
-        # After limit, return a friendly message to proceed with product selection
-        # Use atomic increment-then-check to avoid race conditions
-        if agent_mode == AgentMode.ONBOARDING and has_message:
-            new_count = increment_onboarding_usage(user.pk)
-            if new_count > ONBOARDING_FREE_MESSAGE_LIMIT:
-                return self._onboarding_limit_response()
-
-        # Onboarding mode is always free (capped above), skip billing for impersonated sessions
-        is_onboarding_free = agent_mode == AgentMode.ONBOARDING
-        is_agent_billable = not is_impersonated and not is_onboarding_free
+        is_agent_billable = not is_impersonated
         workflow_inputs = ChatAgentWorkflowInputs(
             team_id=self.team_id,
             user_id=cast(User, request.user).pk,  # Use pk instead of id for User model
