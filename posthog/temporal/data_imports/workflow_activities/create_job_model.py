@@ -35,10 +35,20 @@ class CreateExternalDataJobModelActivityInputs:
         }
 
 
+@dataclasses.dataclass(frozen=True)
+class CreateExternalDataJobModelActivityOutputs:
+    job_id: str
+    incremental_or_append: bool
+    source_type: str
+    schema_name: str
+    # Used to process only new records since the last sync
+    incremental_field_last_value: typing.Any | None
+
+
 @activity.defn
 def create_external_data_job_model_activity(
     inputs: CreateExternalDataJobModelActivityInputs,
-) -> tuple[str, bool, str]:
+) -> CreateExternalDataJobModelActivityOutputs:
     bind_contextvars(team_id=inputs.team_id)
     logger = LOGGER.bind()
 
@@ -74,7 +84,13 @@ def create_external_data_job_model_activity(
             f"Created external data job for external data source {inputs.source_id}",
         )
 
-        return str(job.id), schema.is_incremental or schema.is_append, source.source_type
+        return CreateExternalDataJobModelActivityOutputs(
+            job_id=str(job.id),
+            incremental_or_append=schema.is_incremental or schema.is_append,
+            source_type=source.source_type,
+            schema_name=schema.name,
+            incremental_field_last_value=schema.incremental_field_last_value,
+        )
     except Exception as e:
         logger.exception(
             f"External data job failed on create_external_data_job_model_activity for {str(inputs.source_id)} with error: {e}"
