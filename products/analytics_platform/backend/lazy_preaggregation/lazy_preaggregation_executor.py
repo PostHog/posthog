@@ -572,7 +572,40 @@ class PreaggregationExecutor:
         for range_start, range_end in missing_ranges:
             new_job: PreaggregationJob | None = None
             try:
-                new_job = create_preaggregation_job(team, query_hash, range_start, range_end, self.ttl_seconds)
+                with transaction.atomic():
+                    new_job = create_preaggregation_job(team, query_hash, range_start, range_end, self.ttl_seconds)
+            except IntegrityError:
+                # Another executor created a PENDING job for this range between
+                # our find_existing_jobs call and now. Wait for it if enabled.
+                if self.wait_for_pending:
+                    existing_pending = list(
+                        PreaggregationJob.objects.filter(
+                            team=team,
+                            query_hash=query_hash,
+                            time_range_start=range_start,
+                            time_range_end=range_end,
+                            status__in=[PreaggregationJob.Status.PENDING, PreaggregationJob.Status.READY],
+                        )
+                    )
+                    if existing_pending:
+                        wait_result = self._wait_for_pending_jobs(team, existing_pending, insert_fn)
+                        for ready_job in wait_result.ready_jobs:
+                            job_ids.append(ready_job.id)
+                        for failed_job in wait_result.failed_jobs:
+                            errors.append(f"Job {failed_job.id} failed: {failed_job.error}")
+                        if wait_result.timed_out:
+                            errors.append(f"Timeout waiting for pending job for {range_start}-{range_end}")
+                    else:
+                        errors.append(
+                            f"Failed to create preaggregation for {range_start}-{range_end}: concurrent job vanished"
+                        )
+                else:
+                    errors.append(
+                        f"Failed to create preaggregation for {range_start}-{range_end}: concurrent pending job exists"
+                    )
+                continue
+
+            try:
                 insert_fn(team, new_job)
 
                 new_job.status = PreaggregationJob.Status.READY
@@ -582,10 +615,9 @@ class PreaggregationExecutor:
                 job_ids.append(new_job.id)
 
             except Exception as e:
-                if new_job is not None:
-                    new_job.status = PreaggregationJob.Status.FAILED
-                    new_job.error = str(e)
-                    new_job.save()
+                new_job.status = PreaggregationJob.Status.FAILED
+                new_job.error = str(e)
+                new_job.save()
                 errors.append(f"Failed to create preaggregation for {range_start}-{range_end}: {e}")
 
         all_ready = len(errors) == 0
@@ -699,6 +731,9 @@ class PreaggregationExecutor:
             for tracking_key, entry in list(waiting_for.items()):
                 job = jobs_by_id.get(entry["job"].id)
                 if job is None:
+                    # Job was deleted from DB — treat as permanently failed
+                    failed_jobs.append(entry["job"])
+                    del waiting_for[tracking_key]
                     continue
 
                 if job.status == PreaggregationJob.Status.READY:

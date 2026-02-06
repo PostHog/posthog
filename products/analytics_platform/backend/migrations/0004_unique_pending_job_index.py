@@ -21,6 +21,6 @@ class Migration(migrations.Migration):
                 ON analytics_platform_preaggregationjob (team_id, query_hash, time_range_start, time_range_end)
                 WHERE status = 'pending';
             """,
-            reverse_sql="DROP INDEX IF EXISTS unique_pending_job_per_range;",
+            reverse_sql="DROP INDEX CONCURRENTLY IF EXISTS unique_pending_job_per_range;",
         ),
     ]
