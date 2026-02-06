@@ -1100,3 +1100,78 @@ class TestReadDataTool(BaseTest):
 
             assert "Allowed Experiment" in result
             mock_uac.check_access_level_for_object.assert_called_once()
+
+    async def test_read_activity_log_delegates_to_activity_log_context(self):
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        context_manager = MagicMock()
+        context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+        context_manager.check_has_audit_logs_access = MagicMock(return_value=True)
+
+        tool = await ReadDataTool.create_tool_class(
+            team=self.team, user=self.user, state=state, context_manager=context_manager
+        )
+
+        with patch("ee.hogai.tools.read_data.tool.ActivityLogContext") as MockActivityLogContext:
+            mock_instance = MagicMock()
+            mock_instance.fetch_and_format = AsyncMock(return_value="## Activity log\n\nShowing 5 entries.\n\n...")
+            MockActivityLogContext.return_value = mock_instance
+
+            result, artifact = await tool._arun_impl({"kind": "activity_log"})
+
+            MockActivityLogContext.assert_called_once_with(team=self.team, user=self.user)
+            mock_instance.fetch_and_format.assert_called_once_with(scope=None, item_id=None, user_email=None, limit=20)
+            assert "Activity log" in result
+            assert artifact is None
+
+    async def test_read_activity_log_passes_filters(self):
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        context_manager = MagicMock()
+        context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+        context_manager.check_has_audit_logs_access = MagicMock(return_value=True)
+
+        tool = await ReadDataTool.create_tool_class(
+            team=self.team, user=self.user, state=state, context_manager=context_manager
+        )
+
+        with patch("ee.hogai.tools.read_data.tool.ActivityLogContext") as MockActivityLogContext:
+            mock_instance = MagicMock()
+            mock_instance.fetch_and_format = AsyncMock(return_value="## Activity log\n\n...")
+            MockActivityLogContext.return_value = mock_instance
+
+            await tool._arun_impl(
+                {
+                    "kind": "activity_log",
+                    "scope": "FeatureFlag",
+                    "item_id": "42",
+                    "user_email": "test@example.com",
+                    "limit": 10,
+                }
+            )
+
+            mock_instance.fetch_and_format.assert_called_once_with(
+                scope="FeatureFlag", item_id="42", user_email="test@example.com", limit=10
+            )
+
+    async def test_create_tool_class_includes_activity_log_when_feature_available(self):
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        context_manager = MagicMock()
+        context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+        context_manager.check_has_audit_logs_access = MagicMock(return_value=True)
+
+        tool = await ReadDataTool.create_tool_class(
+            team=self.team, user=self.user, state=state, context_manager=context_manager
+        )
+
+        assert "Activity log" in tool.description
+
+    async def test_create_tool_class_excludes_activity_log_when_feature_unavailable(self):
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        context_manager = MagicMock()
+        context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+        context_manager.check_has_audit_logs_access = MagicMock(return_value=False)
+
+        tool = await ReadDataTool.create_tool_class(
+            team=self.team, user=self.user, state=state, context_manager=context_manager
+        )
+
+        assert "Activity log" not in tool.description
