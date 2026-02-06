@@ -72,7 +72,10 @@ def dataframe_to_clay_payload(df: pl.DataFrame) -> list[dict[str, Any]]:
     for row in df.to_dicts():
         contacts_raw = row.get("contacts") or []
         if isinstance(contacts_raw, str):
-            contacts_raw = json.loads(contacts_raw) if contacts_raw else []
+            try:
+                contacts_raw = json.loads(contacts_raw) if contacts_raw else []
+            except json.JSONDecodeError:
+                contacts_raw = []
 
         payload.append(
             {
