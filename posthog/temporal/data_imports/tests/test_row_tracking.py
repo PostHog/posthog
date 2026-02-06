@@ -15,6 +15,7 @@ from asgiref.sync import sync_to_async
 from structlog.types import FilteringBoundLogger
 
 from posthog.models import Team
+from posthog.sync import database_sync_to_async
 from posthog.tasks.usage_report import ExternalDataJob
 from posthog.temporal.data_imports.row_tracking import (
     finish_row_tracking,
@@ -26,6 +27,7 @@ from posthog.temporal.data_imports.row_tracking import (
 from products.data_warehouse.backend.models import ExternalDataSource
 
 
+@mock.patch("posthog.temporal.data_imports.row_tracking.database_sync_to_async_pool", database_sync_to_async)
 class TestRowTracking(BaseTest):
     def _logger(self) -> FilteringBoundLogger:
         return mock.AsyncMock()
