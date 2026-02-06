@@ -31,6 +31,8 @@ GUARANTEED_TEAM_IDS: list[int] = [
     237906,
     294356,
     21999,
+    117964,
+    153418,
 ]
 
 # Default sample percentage for gradual rollout.

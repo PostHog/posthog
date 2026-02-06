@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-02-05 10:13:51 UTC
+// Generated at: 2026-02-06 10:12:37 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -76,9 +76,6 @@ export type CanonicalProvider =
     | 'moonshotai-int4'
     | 'moonshotai-turbo'
     | 'morph'
-    | 'ncompass'
-    | 'ncompass-bf16'
-    | 'ncompass-fp8'
     | 'nebius'
     | 'nebius-base'
     | 'nebius-fast'
