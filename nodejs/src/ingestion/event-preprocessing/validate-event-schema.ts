@@ -56,21 +56,10 @@ function canCoerceToType(value: unknown, propertyType: string): boolean {
     }
 }
 
-/**
- * Checks if a value can be coerced to ANY of the given property types.
- * Used when a property has multiple types from different property groups.
- */
-function canCoerceToAnyType(value: unknown, propertyTypes: string[]): boolean {
-    if (propertyTypes.length === 0) {
-        return true
-    }
-    return propertyTypes.some((type) => canCoerceToType(value, type))
-}
-
 export interface SchemaValidationError {
     propertyName: string
     reason: 'missing_required' | 'type_mismatch'
-    expectedTypes?: string[]
+    expectedType?: string
     actualValue?: unknown
 }
 
@@ -89,24 +78,22 @@ export function validateEventAgainstSchema(
 ): SchemaValidationResult {
     const errors: SchemaValidationError[] = []
 
-    for (const property of schema.required_properties) {
-        const value = eventProperties?.[property.name]
+    for (const [propertyName, propertyType] of schema.required_properties) {
+        const value = eventProperties?.[propertyName]
 
-        // Check if required property is missing
         if (value === null || value === undefined) {
             errors.push({
-                propertyName: property.name,
+                propertyName,
                 reason: 'missing_required',
             })
             continue
         }
 
-        // Check if value can be coerced to any of the expected types
-        if (!canCoerceToAnyType(value, property.property_types)) {
+        if (!canCoerceToType(value, propertyType)) {
             errors.push({
-                propertyName: property.name,
+                propertyName,
                 reason: 'type_mismatch',
-                expectedTypes: property.property_types,
+                expectedType: propertyType,
                 actualValue: value,
             })
         }
@@ -158,7 +145,7 @@ export function createValidateEventSchemaStep<T extends { eventWithTeam: Incomin
                             errors: validationResult.errors.map((err) => ({
                                 property: err.propertyName,
                                 reason: err.reason,
-                                expectedTypes: err.expectedTypes,
+                                expectedType: err.expectedType,
                                 actualValue:
                                     err.actualValue !== undefined
                                         ? typeof err.actualValue === 'object'

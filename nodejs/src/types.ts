@@ -639,17 +639,11 @@ export interface RawOrganization {
 // NOTE: We don't need to list all options here - only the ones we use
 export type OrganizationAvailableFeature = 'group_analytics' | 'data_pipelines' | 'zapier'
 
-/** Property definition within an enforced event schema */
-export interface EventSchemaProperty {
-    name: string
-    property_types: string[] // Multiple types if from different property groups
-    is_required: boolean
-}
-
 /** Event schema with enforcement enabled. Only includes required properties since optional properties are not validated. */
 export interface EventSchemaEnforcement {
     event_name: string
-    required_properties: EventSchemaProperty[]
+    /** Map from property name to its expected type */
+    required_properties: Map<string, string>
 }
 
 /** Usable Team model. */

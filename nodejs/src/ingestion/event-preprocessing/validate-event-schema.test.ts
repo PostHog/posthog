@@ -24,7 +24,7 @@ describe('validateEventAgainstSchema', () => {
         ])('should reject when required property is %s', (_, value) => {
             const schema: EventSchemaEnforcement = {
                 event_name: 'test_event',
-                required_properties: [{ name: 'required_prop', property_types: ['String'], is_required: true }],
+                required_properties: new Map([['required_prop', 'String']]),
             }
 
             const result = validateEventAgainstSchema({ required_prop: value }, schema)
@@ -40,7 +40,7 @@ describe('validateEventAgainstSchema', () => {
         it('should reject when required property is missing from properties object', () => {
             const schema: EventSchemaEnforcement = {
                 event_name: 'test_event',
-                required_properties: [{ name: 'required_prop', property_types: ['String'], is_required: true }],
+                required_properties: new Map([['required_prop', 'String']]),
             }
 
             const result = validateEventAgainstSchema({}, schema)
@@ -52,7 +52,7 @@ describe('validateEventAgainstSchema', () => {
         it('should reject when properties object is undefined', () => {
             const schema: EventSchemaEnforcement = {
                 event_name: 'test_event',
-                required_properties: [{ name: 'required_prop', property_types: ['String'], is_required: true }],
+                required_properties: new Map([['required_prop', 'String']]),
             }
 
             const result = validateEventAgainstSchema(undefined, schema)
@@ -64,11 +64,11 @@ describe('validateEventAgainstSchema', () => {
         it('should report multiple missing required fields', () => {
             const schema: EventSchemaEnforcement = {
                 event_name: 'test_event',
-                required_properties: [
-                    { name: 'field1', property_types: ['String'], is_required: true },
-                    { name: 'field2', property_types: ['Numeric'], is_required: true },
-                    { name: 'field3', property_types: ['Boolean'], is_required: true },
-                ],
+                required_properties: new Map([
+                    ['field1', 'String'],
+                    ['field2', 'Numeric'],
+                    ['field3', 'Boolean'],
+                ]),
             }
 
             const result = validateEventAgainstSchema({}, schema)
@@ -88,7 +88,7 @@ describe('validateEventAgainstSchema', () => {
         ])('should accept %s as String', (_, value) => {
             const schema: EventSchemaEnforcement = {
                 event_name: 'test_event',
-                required_properties: [{ name: 'prop', property_types: ['String'], is_required: true }],
+                required_properties: new Map([['prop', 'String']]),
             }
 
             const result = validateEventAgainstSchema({ prop: value }, schema)
@@ -109,7 +109,7 @@ describe('validateEventAgainstSchema', () => {
         ])('should accept %s as Numeric', (_, value) => {
             const schema: EventSchemaEnforcement = {
                 event_name: 'test_event',
-                required_properties: [{ name: 'prop', property_types: ['Numeric'], is_required: true }],
+                required_properties: new Map([['prop', 'Numeric']]),
             }
 
             const result = validateEventAgainstSchema({ prop: value }, schema)
@@ -134,7 +134,7 @@ describe('validateEventAgainstSchema', () => {
         ])('should reject %s as Numeric', (_, value) => {
             const schema: EventSchemaEnforcement = {
                 event_name: 'test_event',
-                required_properties: [{ name: 'prop', property_types: ['Numeric'], is_required: true }],
+                required_properties: new Map([['prop', 'Numeric']]),
             }
 
             const result = validateEventAgainstSchema({ prop: value }, schema)
@@ -153,7 +153,7 @@ describe('validateEventAgainstSchema', () => {
         ])('should accept %s as Boolean', (_, value) => {
             const schema: EventSchemaEnforcement = {
                 event_name: 'test_event',
-                required_properties: [{ name: 'prop', property_types: ['Boolean'], is_required: true }],
+                required_properties: new Map([['prop', 'Boolean']]),
             }
 
             const result = validateEventAgainstSchema({ prop: value }, schema)
@@ -175,7 +175,7 @@ describe('validateEventAgainstSchema', () => {
         ])('should reject %s as Boolean', (_, value) => {
             const schema: EventSchemaEnforcement = {
                 event_name: 'test_event',
-                required_properties: [{ name: 'prop', property_types: ['Boolean'], is_required: true }],
+                required_properties: new Map([['prop', 'Boolean']]),
             }
 
             const result = validateEventAgainstSchema({ prop: value }, schema)
@@ -194,7 +194,7 @@ describe('validateEventAgainstSchema', () => {
         ])('should accept %s as DateTime', (_, value) => {
             const schema: EventSchemaEnforcement = {
                 event_name: 'test_event',
-                required_properties: [{ name: 'prop', property_types: ['DateTime'], is_required: true }],
+                required_properties: new Map([['prop', 'DateTime']]),
             }
 
             const result = validateEventAgainstSchema({ prop: value }, schema)
@@ -210,7 +210,7 @@ describe('validateEventAgainstSchema', () => {
         ])('should reject %s as DateTime', (_, value) => {
             const schema: EventSchemaEnforcement = {
                 event_name: 'test_event',
-                required_properties: [{ name: 'prop', property_types: ['DateTime'], is_required: true }],
+                required_properties: new Map([['prop', 'DateTime']]),
             }
 
             const result = validateEventAgainstSchema({ prop: value }, schema)
@@ -229,7 +229,7 @@ describe('validateEventAgainstSchema', () => {
         ])('should accept %s as Object', (_, value) => {
             const schema: EventSchemaEnforcement = {
                 event_name: 'test_event',
-                required_properties: [{ name: 'prop', property_types: ['Object'], is_required: true }],
+                required_properties: new Map([['prop', 'Object']]),
             }
 
             const result = validateEventAgainstSchema({ prop: value }, schema)
@@ -244,7 +244,7 @@ describe('validateEventAgainstSchema', () => {
         ])('should reject %s as Object', (_, value) => {
             const schema: EventSchemaEnforcement = {
                 event_name: 'test_event',
-                required_properties: [{ name: 'prop', property_types: ['Object'], is_required: true }],
+                required_properties: new Map([['prop', 'Object']]),
             }
 
             const result = validateEventAgainstSchema({ prop: value }, schema)
@@ -254,27 +254,35 @@ describe('validateEventAgainstSchema', () => {
         })
     })
 
-    describe('multiple property types', () => {
-        it('should accept value matching any of the allowed types', () => {
+    describe('multiple required properties', () => {
+        it('should accept when all required properties pass validation', () => {
             const schema: EventSchemaEnforcement = {
                 event_name: 'test_event',
-                required_properties: [{ name: 'prop', property_types: ['Numeric', 'String'], is_required: true }],
+                required_properties: new Map([
+                    ['name', 'String'],
+                    ['age', 'Numeric'],
+                ]),
             }
 
-            const result = validateEventAgainstSchema({ prop: 'hello' }, schema)
+            const result = validateEventAgainstSchema({ name: 'alice', age: 30 }, schema)
 
             expect(result.valid).toBe(true)
         })
 
-        it('should accept numeric value when both Numeric and String are allowed', () => {
+        it('should reject when one of multiple required properties fails', () => {
             const schema: EventSchemaEnforcement = {
                 event_name: 'test_event',
-                required_properties: [{ name: 'prop', property_types: ['Numeric', 'Boolean'], is_required: true }],
+                required_properties: new Map([
+                    ['name', 'String'],
+                    ['age', 'Numeric'],
+                ]),
             }
 
-            const result = validateEventAgainstSchema({ prop: 42 }, schema)
+            const result = validateEventAgainstSchema({ name: 'alice', age: 'not-a-number' }, schema)
 
-            expect(result.valid).toBe(true)
+            expect(result.valid).toBe(false)
+            expect(result.errors).toHaveLength(1)
+            expect(result.errors[0].propertyName).toBe('age')
         })
     })
 
@@ -282,7 +290,7 @@ describe('validateEventAgainstSchema', () => {
         it('should allow values for unknown property types', () => {
             const schema: EventSchemaEnforcement = {
                 event_name: 'test_event',
-                required_properties: [{ name: 'prop', property_types: ['UnknownType'], is_required: true }],
+                required_properties: new Map([['prop', 'UnknownType']]),
             }
 
             const result = validateEventAgainstSchema({ prop: 'anything' }, schema)
@@ -328,7 +336,7 @@ describe('createValidateEventSchemaStep', () => {
         const schemas: EventSchemaEnforcement[] = [
             {
                 event_name: 'other_event',
-                required_properties: [{ name: 'required_prop', property_types: ['String'], is_required: true }],
+                required_properties: new Map([['required_prop', 'String']]),
             },
         ]
         const mockManager = createMockSchemaManager(schemas)
@@ -344,7 +352,7 @@ describe('createValidateEventSchemaStep', () => {
         const schemas: EventSchemaEnforcement[] = [
             {
                 event_name: 'test_event',
-                required_properties: [{ name: 'required_prop', property_types: ['String'], is_required: true }],
+                required_properties: new Map([['required_prop', 'String']]),
             },
         ]
         const mockManager = createMockSchemaManager(schemas)
@@ -360,7 +368,7 @@ describe('createValidateEventSchemaStep', () => {
         const schemas: EventSchemaEnforcement[] = [
             {
                 event_name: 'test_event',
-                required_properties: [{ name: 'required_prop', property_types: ['String'], is_required: true }],
+                required_properties: new Map([['required_prop', 'String']]),
             },
         ]
         const mockManager = createMockSchemaManager(schemas)
@@ -384,7 +392,7 @@ describe('createValidateEventSchemaStep', () => {
                                 {
                                     property: 'required_prop',
                                     reason: 'missing_required',
-                                    expectedTypes: undefined,
+                                    expectedType: undefined,
                                     actualValue: undefined,
                                 },
                             ],
@@ -399,7 +407,7 @@ describe('createValidateEventSchemaStep', () => {
         const schemas: EventSchemaEnforcement[] = [
             {
                 event_name: 'test_event',
-                required_properties: [{ name: 'numeric_prop', property_types: ['Numeric'], is_required: true }],
+                required_properties: new Map([['numeric_prop', 'Numeric']]),
             },
         ]
         const mockManager = createMockSchemaManager(schemas)
@@ -423,7 +431,7 @@ describe('createValidateEventSchemaStep', () => {
                                 {
                                     property: 'numeric_prop',
                                     reason: 'type_mismatch',
-                                    expectedTypes: ['Numeric'],
+                                    expectedType: 'Numeric',
                                     actualValue: 'not-a-number',
                                 },
                             ],
@@ -438,10 +446,10 @@ describe('createValidateEventSchemaStep', () => {
         const schemas: EventSchemaEnforcement[] = [
             {
                 event_name: 'test_event',
-                required_properties: [
-                    { name: 'field1', property_types: ['String'], is_required: true },
-                    { name: 'field2', property_types: ['Numeric'], is_required: true },
-                ],
+                required_properties: new Map([
+                    ['field1', 'String'],
+                    ['field2', 'Numeric'],
+                ]),
             },
         ]
         const mockManager = createMockSchemaManager(schemas)
@@ -460,7 +468,7 @@ describe('createValidateEventSchemaStep', () => {
         const schemas: EventSchemaEnforcement[] = [
             {
                 event_name: 'test_event',
-                required_properties: [{ name: 'prop', property_types: ['Boolean'], is_required: true }],
+                required_properties: new Map([['prop', 'Boolean']]),
             },
         ]
         const mockManager = createMockSchemaManager(schemas)

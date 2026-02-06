@@ -1,4 +1,4 @@
-import { EventSchemaEnforcement, EventSchemaProperty } from '../types'
+import { EventSchemaEnforcement } from '../types'
 import { PostgresRouter, PostgresUse } from './db/postgres'
 import { LazyLoader } from './lazy-loader'
 
@@ -11,7 +11,6 @@ interface RawSchemaPropertyRow {
     event_name: string
     property_name: string
     property_type: string
-    is_required: boolean
 }
 
 /**
@@ -68,21 +67,24 @@ export class EventSchemaEnforcementManager {
             return result
         }
 
-        // Simple flat query - aggregation happens in JS
+        // Properties that have conflicting types across property groups are excluded
+        // from validation (HAVING COUNT(DISTINCT ...) = 1) since misconfigured
+        // properties should not block ingestion.
         const queryResult = await this.postgres.query<RawSchemaPropertyRow>(
             PostgresUse.COMMON_READ,
             `SELECT
                 ed.team_id,
                 ed.name as event_name,
                 p.name as property_name,
-                p.property_type,
-                p.is_required
+                MIN(p.property_type) as property_type
             FROM posthog_eventdefinition ed
             JOIN posthog_eventschema es ON es.event_definition_id = ed.id
             JOIN posthog_schemapropertygroupproperty p ON p.property_group_id = es.property_group_id
             WHERE ed.team_id = ANY($1)
               AND ed.enforcement_mode = 'reject'
               AND p.is_required = true
+            GROUP BY ed.team_id, ed.name, p.name
+            HAVING COUNT(DISTINCT p.property_type) = 1
             ORDER BY ed.team_id, ed.name, p.name`,
             [numericTeamIds],
             'fetch-enforced-event-schemas'
@@ -100,49 +102,22 @@ export class EventSchemaEnforcementManager {
         return result
     }
 
-    /**
-     * Aggregates flat rows into EventSchemaMap structures (Map keyed by event_name for O(1) lookups).
-     *
-     * Input: One row per (team, event, property, property_type)
-     * Output: Grouped by team -> Map<event_name, schema>
-     */
     private aggregateRows(rows: RawSchemaPropertyRow[]): Record<string, EventSchemaMap> {
-        // team_id -> event_name -> property_name -> property_types[]
-        const teamEventProps: Record<string, Record<string, Record<string, Set<string>>>> = {}
+        const result: Record<string, EventSchemaMap> = {}
 
         for (const row of rows) {
             const teamId = String(row.team_id)
-            if (!teamEventProps[teamId]) {
-                teamEventProps[teamId] = {}
+            if (!result[teamId]) {
+                result[teamId] = new Map()
             }
-            if (!teamEventProps[teamId][row.event_name]) {
-                teamEventProps[teamId][row.event_name] = {}
-            }
-            if (!teamEventProps[teamId][row.event_name][row.property_name]) {
-                teamEventProps[teamId][row.event_name][row.property_name] = new Set()
-            }
-            teamEventProps[teamId][row.event_name][row.property_name].add(row.property_type)
-        }
 
-        // Convert to final structure: Map keyed by event_name for O(1) lookups
-        const result: Record<string, EventSchemaMap> = {}
-        for (const [teamId, events] of Object.entries(teamEventProps)) {
-            const schemaMap: EventSchemaMap = new Map()
-            for (const [eventName, properties] of Object.entries(events)) {
-                const requiredProperties: EventSchemaProperty[] = []
-                for (const [propName, propTypes] of Object.entries(properties)) {
-                    requiredProperties.push({
-                        name: propName,
-                        property_types: Array.from(propTypes),
-                        is_required: true,
-                    })
-                }
-                schemaMap.set(eventName, {
-                    event_name: eventName,
-                    required_properties: requiredProperties,
-                })
+            let schema = result[teamId].get(row.event_name)
+            if (!schema) {
+                schema = { event_name: row.event_name, required_properties: new Map() }
+                result[teamId].set(row.event_name, schema)
             }
-            result[teamId] = schemaMap
+
+            schema.required_properties.set(row.property_name, row.property_type)
         }
 
         return result
