@@ -206,7 +206,8 @@ runs:
           # Use explicit snapshot-mode if provided, otherwise auto-detect based on PR context
           # Skip on forks (due to GITHUB_TOKEN being read-only in PRs coming from them) except for persons-on-events
           # runs, as we want to ignore snapshots diverging there
-          if: inputs.snapshot-mode == 'update' || (inputs.snapshot-mode == '' && (github.event.pull_request.head.repo.full_name == github.repository || inputs.person-on-events == 'true'))
+          # Note: Auto-detect only works for pull_request events; push/schedule events must use explicit snapshot-mode
+          if: inputs.snapshot-mode == 'update' || (inputs.snapshot-mode == '' && github.event_name == 'pull_request' && (github.event.pull_request.head.repo.full_name == github.repository || inputs.person-on-events == 'true'))
           shell: bash
           run: echo "PYTEST_ARGS=--snapshot-update" >> $GITHUB_ENV # We can only update snapshots within the PostHog org
 
