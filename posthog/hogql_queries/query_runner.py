@@ -203,6 +203,13 @@ def get_query_runner(
     except AttributeError:
         raise ValueError(f"Can't get a runner for an unknown query type: {query}")
 
+    # Wrapper nodes (frontend-only UI nodes) aren't runnable themselves — unwrap to their inner source query
+    if kind in ("InsightVizNode", "DataVisualizationNode", "DataTableNode"):
+        source = get_from_dict_or_attr(query, "source")
+        if source is not None:
+            return get_query_runner(source, team, timings, limit_context, modifiers)
+        raise ValueError(f"Can't get a runner for a {kind} without a source query")
+
     if kind == "TrendsQuery":
         # Check if this should use calendar heatmap runner instead
         query_obj = cast(TrendsQuery | dict[str, Any], query)

@@ -33,7 +33,7 @@ from posthog.schema import (
 from posthog.hogql.constants import LimitContext
 
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
-from posthog.hogql_queries.query_runner import ExecutionMode, QueryRunner
+from posthog.hogql_queries.query_runner import ExecutionMode, QueryRunner, get_query_runner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import Team, WeekStartDay
 
@@ -813,3 +813,40 @@ class TestApplySeriesCustomNames(BaseTest):
         _, was_modified = runner.apply_series_custom_names(cached_response)
 
         self.assertEqual(was_modified, expect_modified)
+
+
+class TestGetQueryRunnerWrapperNodes(BaseTest):
+    @parameterized.expand(
+        [
+            (
+                "InsightVizNode",
+                {
+                    "kind": "InsightVizNode",
+                    "source": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+                },
+            ),
+            (
+                "DataVisualizationNode",
+                {
+                    "kind": "DataVisualizationNode",
+                    "source": {"kind": "HogQLQuery", "query": "SELECT 1"},
+                },
+            ),
+            (
+                "DataTableNode",
+                {
+                    "kind": "DataTableNode",
+                    "source": {"kind": "EventsQuery", "select": ["*"]},
+                },
+            ),
+        ]
+    )
+    def test_unwraps_wrapper_node_to_inner_source(self, _name: str, query: dict):
+        runner = get_query_runner(query, self.team)
+        self.assertNotEqual(runner.__class__.__name__, "QueryRunner")
+        self.assertIsNotNone(runner)
+
+    def test_wrapper_node_without_source_raises(self):
+        with self.assertRaises(ValueError) as ctx:
+            get_query_runner({"kind": "InsightVizNode"}, self.team)
+        self.assertIn("without a source query", str(ctx.exception))
