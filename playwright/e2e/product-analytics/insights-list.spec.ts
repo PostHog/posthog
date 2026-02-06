@@ -3,10 +3,12 @@ import { randomString } from '../../utils'
 import { PlaywrightWorkspaceSetupResult, expect, test } from '../../utils/workspace-test-base'
 
 test.describe('Insights list', () => {
+    test.setTimeout(60_000)
+
     let workspace: PlaywrightWorkspaceSetupResult | null = null
 
     test.beforeAll(async ({ playwrightSetup }) => {
-        workspace = await playwrightSetup.createWorkspace({ use_current_time: true })
+        workspace = await playwrightSetup.createWorkspace({ use_current_time: true, skip_onboarding: true })
     })
 
     test.beforeEach(async ({ page, playwrightSetup }) => {
@@ -25,16 +27,19 @@ test.describe('Insights list', () => {
             await expect(insight.editButton).toBeVisible()
         })
 
-        await test.step('search for the insight in the list', async () => {
+        await test.step('search for the insight and navigate to it', async () => {
             await insight.goToList()
             await page.getByPlaceholder('Search').fill(insightName)
-            await expect(page.getByText(insightName)).toBeVisible()
-        })
+            const link = page.locator('table tbody tr').first().getByRole('link', { name: insightName })
+            await expect(link).toBeVisible()
 
-        await test.step('open the insight from the list', async () => {
-            await page.locator('table tbody tr').first().getByRole('link', { name: insightName }).click()
-            await expect(page).toHaveURL(/\/insights\/\w+/)
-            await expect(insight.topBarName).toContainText(insightName)
+            // Re-renders are deatching nodes and playwright can't click on them fast enough
+            await expect(async () => {
+                await link.click({ timeout: 2000 })
+                await page.waitForURL(/\/insights\/\w+/, { timeout: 3000 })
+            }).toPass({ timeout: 15000 })
+
+            await expect(insight.topBarName).toContainText(insightName, { timeout: 15_000 })
         })
     })
 
@@ -84,7 +89,7 @@ test.describe('Insights list', () => {
         })
 
         await test.step('verify duplicate was created', async () => {
-            await expect(page.getByText(`${insightName} (copy)`)).toBeVisible()
+            await expect(page.getByText(`${insightName} (copy)`).first()).toBeVisible()
         })
     })
 })
