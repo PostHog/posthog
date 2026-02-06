@@ -5322,7 +5322,7 @@ class LLMTrace(BaseModel):
     )
     aiSessionId: str | None = None
     createdAt: str
-    distinctId: str | None = None
+    distinctId: str
     errorCount: float | None = None
     events: list[LLMTraceEvent]
     id: str

@@ -18596,7 +18596,7 @@
                     "type": "string"
                 }
             },
-            "required": ["id", "createdAt", "events"],
+            "required": ["id", "createdAt", "distinctId", "events"],
             "type": "object"
         },
         "LLMTraceEvent": {

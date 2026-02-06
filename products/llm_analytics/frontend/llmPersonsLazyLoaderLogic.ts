@@ -19,12 +19,12 @@ interface BatchByDistinctIdsResponse {
     results: Record<string, PersonAPIResponse>
 }
 
-function toTracePerson(apiPerson: PersonAPIResponse): LLMTracePerson {
+function toTracePerson(apiPerson: PersonAPIResponse, distinctId: string): LLMTracePerson {
     return {
         uuid: apiPerson.uuid,
         created_at: apiPerson.created_at,
         properties: apiPerson.properties,
-        distinct_id: apiPerson.distinct_ids[0] ?? '',
+        distinct_id: distinctId,
     }
 }
 
@@ -53,6 +53,15 @@ export const llmPersonsLazyLoaderLogic = kea<llmPersonsLazyLoaderLogicType>([
 
                     for (const distinctId of requestedDistinctIds) {
                         newState[distinctId] = persons[distinctId] ?? null
+                    }
+
+                    return newState
+                },
+                loadPersonsBatchFailure: (state, { requestedDistinctIds }) => {
+                    const newState = { ...state }
+
+                    for (const distinctId of requestedDistinctIds) {
+                        newState[distinctId] = null
                     }
 
                     return newState
@@ -143,7 +152,7 @@ export const llmPersonsLazyLoaderLogic = kea<llmPersonsLazyLoaderLogicType>([
                         const persons: Record<string, LLMTracePerson> = {}
 
                         for (const [distinctId, personData] of Object.entries(response.results)) {
-                            persons[distinctId] = toTracePerson(personData)
+                            persons[distinctId] = toTracePerson(personData, distinctId)
                         }
 
                         actions.loadPersonsBatchSuccess(persons, batch)

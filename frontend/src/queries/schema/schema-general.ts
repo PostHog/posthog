@@ -3990,7 +3990,7 @@ export interface LLMTrace {
     id: string
     aiSessionId?: string
     createdAt: string
-    distinctId?: string
+    distinctId: string
     person?: LLMTracePerson
     totalLatency?: number
     inputTokens?: number

@@ -184,6 +184,7 @@ class TestGenerateSummaryActivity:
             mock_trace = LLMTrace(
                 id=sample_trace_data["trace_id"],
                 createdAt=sample_trace_data["trace_timestamp"],
+                distinctId="test_user",
                 events=[],
                 person=mock_person,
             )
@@ -246,6 +247,7 @@ class TestGenerateSummaryActivity:
             mock_trace = LLMTrace(
                 id=sample_trace_data["trace_id"],
                 createdAt=sample_trace_data["trace_timestamp"],
+                distinctId="test",
                 events=[],
                 person=mock_person,
             )
@@ -300,6 +302,7 @@ class TestGenerateSummaryActivity:
             mock_trace = LLMTrace(
                 id=sample_trace_data["trace_id"],
                 createdAt=sample_trace_data["trace_timestamp"],
+                distinctId="test",
                 events=[],
                 person=mock_person,
             )
