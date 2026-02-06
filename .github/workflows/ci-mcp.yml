@@ -115,6 +115,7 @@ jobs:
             OBJECT_STORAGE_SECRET_ACCESS_KEY: 'object_storage_root_password'
             SKIP_SERVICE_VERSION_REQUIREMENTS: 1
             NO_RESTART_LOOP: 1
+            DISABLE_SECURE_SSL_REDIRECT: 'True'
 
         steps:
             - uses: actions/checkout@v6
