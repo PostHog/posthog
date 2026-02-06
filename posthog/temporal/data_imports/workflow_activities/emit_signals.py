@@ -24,7 +24,7 @@ from products.signals.backend.api import emit_signal
 # Maximum number of records to emit signals for per syncg
 MAX_SIGNALS_PER_SYNC = 1000
 EMIT_SIGNALS_FEATURE_FLAG = "emit-data-import-signals"
-# Concurrency limit for LLM actionability checks
+# Concurrent LLM calls limit for actionability checks
 LLM_CONCURRENCY_LIMIT = 10
 
 
