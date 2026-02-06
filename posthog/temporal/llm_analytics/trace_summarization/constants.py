@@ -38,7 +38,9 @@ GENERATE_SUMMARY_TIMEOUT_SECONDS = (
 # send heartbeats within this interval or Temporal will consider them failed
 # and retry on another worker.
 SAMPLE_HEARTBEAT_TIMEOUT = timedelta(seconds=120)  # 2 minutes - sampling has long CH queries
-SUMMARIZE_HEARTBEAT_TIMEOUT = None  # Disabled - large trace formatting holds the GIL and blocks heartbeats. Relies on start_to_close (15 min) and schedule_to_close (45 min) for stuck activity detection.
+SUMMARIZE_HEARTBEAT_TIMEOUT: timedelta | None = (
+    None  # Disabled - large trace formatting holds the GIL and blocks heartbeats. Relies on start_to_close (15 min) and schedule_to_close (45 min) for stuck activity detection.
+)
 
 # Schedule-to-close timeouts - caps total time including all retry attempts,
 # backoff intervals, and queue time. Prevents runaway retries from blocking
