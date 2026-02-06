@@ -187,7 +187,7 @@ jobs:
         name: Turbo discover
         outputs:
             run_legacy: ${{ steps.contract-check.outputs.run_legacy }}
-            products: ${{ steps.discover.outputs.products }}
+            matrix: ${{ steps.discover.outputs.matrix }}
 
         steps:
             - uses: actions/checkout@v4
@@ -255,17 +255,19 @@ jobs:
                   # Products depend on legacy code (ee/, posthog/, common/) at runtime,
                   # so legacy changes must trigger ALL product tests.
                   # For product-only changes, use turbo cache to test only affected products.
+                  #
+                  # Products with < THRESHOLD tests get grouped into one matrix entry
+                  # to avoid spinning up a full Docker stack for a handful of tests.
 
                   LEGACY_CHANGED="${{ needs.changes.outputs.legacy }}"
+                  THRESHOLD=50
 
                   if [[ "$LEGACY_CHANGED" == "true" ]]; then
-                    # Legacy changed — all products must be tested
                     PRODUCTS=$(pnpm turbo run backend:test --dry-run=json 2>/dev/null \
                       | sed -n '/^{/,$p' \
                       | jq -c '[.tasks[] | select(.command | test("NONEXISTENT") | not) | .package | sub("@posthog/products-"; "")] | unique' \
                       || echo '[]')
                   else
-                    # Only product files changed — test only affected products (cache MISS)
                     PRODUCTS=$(pnpm turbo run backend:test --dry-run=json 2>/dev/null \
                       | sed -n '/^{/,$p' \
                       | jq -c '[.tasks[] | select(.command | test("NONEXISTENT") | not) | select(.cache.status == "MISS") | .package | sub("@posthog/products-"; "")] | unique' \
@@ -273,24 +275,60 @@ jobs:
                   fi
 
                   echo "Products to test: $PRODUCTS"
-                  echo "products=$PRODUCTS" >> $GITHUB_OUTPUT
 
-    # Runs product tests in parallel — one matrix job per affected product
+                  # Count tests per product and split into big (own job) vs small (grouped)
+                  MATRIX="[]"
+                  SMALL_PRODUCTS="[]"
+
+                  for product in $(echo "$PRODUCTS" | jq -r '.[]'); do
+                    test_dir="products/$product/backend/tests"
+                    if [ -d "$test_dir" ]; then
+                      count=$(grep -r "def test_" "$test_dir" 2>/dev/null | wc -l | tr -d ' ')
+                    else
+                      count=0
+                    fi
+                    echo "  $product: $count tests"
+
+                    if [ "$count" -ge "$THRESHOLD" ]; then
+                      MATRIX=$(echo "$MATRIX" | jq -c \
+                        --arg g "$product" \
+                        --arg f "--filter=@posthog/products-$product" \
+                        '. + [{"group": $g, "filters": $f}]')
+                    else
+                      SMALL_PRODUCTS=$(echo "$SMALL_PRODUCTS" | jq -c --arg p "$product" '. + [$p]')
+                    fi
+                  done
+
+                  SMALL_COUNT=$(echo "$SMALL_PRODUCTS" | jq 'length')
+                  if [ "$SMALL_COUNT" -gt 0 ]; then
+                    GROUP_NAME=$(echo "$SMALL_PRODUCTS" | jq -r 'join(", ")')
+                    FILTERS=$(echo "$SMALL_PRODUCTS" | jq -r '[.[] | "--filter=@posthog/products-" + .] | join(" ")')
+                    MATRIX=$(echo "$MATRIX" | jq -c \
+                      --arg g "$GROUP_NAME" \
+                      --arg f "$FILTERS" \
+                      '. + [{"group": $g, "filters": $f}]')
+                  fi
+
+                  echo "Matrix: $MATRIX"
+                  echo "matrix=$MATRIX" >> $GITHUB_OUTPUT
+
+    # Runs product tests in parallel — one matrix job per group
     # Each job gets its own runner + Docker stack, so no shared DB conflicts
+    # Small products (< 50 tests) are grouped into a single job to avoid setup overhead
     turbo-tests:
         needs: [changes, turbo-discover]
         if: >-
             always() &&
             needs.turbo-discover.result == 'success' &&
-            needs.turbo-discover.outputs.products != '[]' &&
-            needs.turbo-discover.outputs.products != ''
+            needs.turbo-discover.outputs.matrix != '[]' &&
+            needs.turbo-discover.outputs.matrix != ''
         runs-on: depot-ubuntu-latest
         timeout-minutes: 30
-        name: Turbo tests (${{ matrix.product }})
+        name: Turbo tests (${{ matrix.group }})
         strategy:
             fail-fast: false
             matrix:
-                product: ${{ fromJson(needs.turbo-discover.outputs.products) }}
+                include: ${{ fromJson(needs.turbo-discover.outputs.matrix) }}
 
         steps:
             - uses: actions/checkout@v4
@@ -367,7 +405,7 @@ jobs:
                   bin/check_postgres_up
 
             - name: Run product tests
-              run: pnpm turbo run backend:test --filter=@posthog/products-${{ matrix.product }} --output-logs=new-only
+              run: pnpm turbo run backend:test ${{ matrix.filters }} --concurrency=1 --output-logs=new-only
 
     check-migrations:
         needs: [changes]
