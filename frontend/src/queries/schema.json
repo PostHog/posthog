@@ -15408,7 +15408,8 @@
                 "BingAds",
                 "Shopify",
                 "Attio",
-                "SnapchatAds"
+                "SnapchatAds",
+                "Convex"
             ],
             "type": "string"
         },

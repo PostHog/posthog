@@ -101,6 +101,12 @@ class ClerkSourceConfig(config.Config):
 
 
 @config.config
+class ConvexSourceConfig(config.Config):
+    deploy_url: str
+    deploy_key: str
+
+
+@config.config
 class CustomerIOSourceConfig(config.Config):
     pass
 
@@ -307,6 +313,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.BRAZE: BrazeSourceConfig,
         ExternalDataSourceType.CHARGEBEE: ChargebeeSourceConfig,
         ExternalDataSourceType.CLERK: ClerkSourceConfig,
+        ExternalDataSourceType.CONVEX: ConvexSourceConfig,
         ExternalDataSourceType.CUSTOMERIO: CustomerIOSourceConfig,
         ExternalDataSourceType.DOIT: DoItSourceConfig,
         ExternalDataSourceType.GITHUB: GithubSourceConfig,
