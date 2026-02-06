@@ -581,6 +581,44 @@ export const sessionProfileLogic = kea<sessionProfileLogicType>([
             ): boolean =>
                 (sessionDataLoading && sessionData === null) || (sessionEventsLoading && sessionEvents === null),
         ],
+        sessionProperties: [
+            (s) => [s.sessionData],
+            (sessionData: SessionData | null): Record<string, any> | null => {
+                if (!sessionData) {
+                    return null
+                }
+
+                const props: Record<string, any> = {}
+                const mappings: [string, any][] = [
+                    ['$session_duration', sessionData.session_duration],
+                    ['$start_timestamp', sessionData.start_timestamp],
+                    ['$end_timestamp', sessionData.end_timestamp],
+                    ['$entry_current_url', sessionData.entry_current_url],
+                    ['$end_current_url', sessionData.end_current_url],
+                    ['$urls', sessionData.urls?.length ? sessionData.urls : null],
+                    ['$pageview_count', sessionData.pageview_count],
+                    ['$autocapture_count', sessionData.autocapture_count],
+                    ['$screen_count', sessionData.screen_count],
+                    ['$channel_type', sessionData.channel_type],
+                    ['$is_bounce', sessionData.is_bounce],
+                    ['$entry_hostname', sessionData.entry_hostname],
+                    ['$entry_pathname', sessionData.entry_pathname],
+                    ['$entry_utm_source', sessionData.entry_utm_source],
+                    ['$entry_utm_campaign', sessionData.entry_utm_campaign],
+                    ['$entry_utm_medium', sessionData.entry_utm_medium],
+                    ['$entry_referring_domain', sessionData.entry_referring_domain],
+                    ['$last_external_click_url', sessionData.last_external_click_url],
+                ]
+
+                for (const [key, value] of mappings) {
+                    if (value != null) {
+                        props[key] = value
+                    }
+                }
+
+                return props
+            },
+        ],
         isLoadingMore: [
             (s) => [s.sessionEventsLoading, s.sessionEvents],
             (sessionEventsLoading: boolean, sessionEvents: SessionEventType[] | null): boolean =>
