@@ -248,7 +248,7 @@ async def analyze_video_segment_activity(
                 "segment_start_time": segment.start_time,
                 "segment_end_time": segment.end_time,
                 "video_file_uri": uploaded_video.file_uri,
-                "video_duration_seconds": uploaded_video.duration_seconds,
+                "video_duration_seconds": uploaded_video.duration,
                 "model": inputs.model_to_use,
             },
         )
