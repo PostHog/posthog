@@ -1,5 +1,5 @@
 import '@testing-library/jest-dom'
-import { type RenderResult, cleanup, render, screen } from '@testing-library/react'
+import { type RenderResult, cleanup, render, screen, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 import { MAX_EXPERIMENT_VARIANTS } from 'lib/constants'
@@ -185,9 +185,12 @@ describe('VariantsPanelCreateFeatureFlag', () => {
             const percentageInputs = container.querySelectorAll(
                 '[data-attr="experiment-variant-rollout-percentage-input"]'
             )
+            const percentageInput = percentageInputs[0];
 
-            await userEvent.clear(percentageInputs[0] as Element)
-            await userEvent.type(percentageInputs[0] as Element, '70')
+            await userEvent.clear(percentageInput)
+            // Setting the value on type=number inputs with userEvent.type can be flaky 
+            // https://github.com/testing-library/user-event/issues/411
+            await fireEvent.change(percentageInput, { target: { value: '70' } })
 
             // Check the last call
             const lastCall = mockOnChange.mock.calls[mockOnChange.mock.calls.length - 1]

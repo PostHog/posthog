@@ -96,7 +96,7 @@ describe('ExperimentTypePanel', () => {
 
             const cards = container.querySelectorAll('[role="button"]')
             const productCard = cards[0]
-            userEvent.click(productCard)
+            await userEvent.click(productCard)
 
             expect(mockSetExperimentType).toHaveBeenCalledWith('product')
             expect(mockSetExperimentType).toHaveBeenCalledTimes(1)
@@ -112,7 +112,7 @@ describe('ExperimentTypePanel', () => {
 
             const cards = container.querySelectorAll('[role="button"]')
             const noCodeCard = cards[1]
-            userEvent.click(noCodeCard)
+            await userEvent.click(noCodeCard)
 
             expect(mockSetExperimentType).toHaveBeenCalledWith('web')
             expect(mockSetExperimentType).toHaveBeenCalledTimes(1)
@@ -129,7 +129,7 @@ describe('ExperimentTypePanel', () => {
             const cards = container.querySelectorAll('[role="button"]')
             const noCodeCard = cards[1] as HTMLElement
             noCodeCard.focus()
-            userEvent.keyboard('{Enter}')
+            await userEvent.keyboard('{Enter}')
 
             expect(mockSetExperimentType).toHaveBeenCalledWith('web')
         })
@@ -145,7 +145,7 @@ describe('ExperimentTypePanel', () => {
             const cards = container.querySelectorAll('[role="button"]')
             const noCodeCard = cards[1] as HTMLElement
             noCodeCard.focus()
-            userEvent.keyboard(' ')
+            await userEvent.keyboard(' ')
 
             expect(mockSetExperimentType).toHaveBeenCalledWith('web')
         })
@@ -160,7 +160,7 @@ describe('ExperimentTypePanel', () => {
 
             const cards = container.querySelectorAll('[role="button"]')
             const productCard = cards[0]
-            userEvent.click(productCard)
+            await userEvent.click(productCard)
 
             expect(mockSetExperimentType).toHaveBeenCalledWith('product')
         })

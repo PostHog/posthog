@@ -8,6 +8,7 @@ import {
     CohortType,
     DataColorThemeModel,
     ExperimentStatsMethod,
+    ExperimentVelocityStats,
     FilterLogicalOperator,
     GroupType,
     OrganizationInviteType,
@@ -457,3 +458,11 @@ export const MOCK_DATA_COLOR_THEMES: DataColorThemeModel[] = [
         is_global: false,
     },
 ]
+
+export const MOCK_EXPERIMENTS_STATS_RESPONSE: ExperimentVelocityStats = {
+    launched_last_30d: 0,
+    launched_previous_30d: 0,
+    percent_change: 0,
+    active_experiments: 0,
+    completed_last_30d: 0,
+}
