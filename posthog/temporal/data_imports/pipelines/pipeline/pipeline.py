@@ -1,4 +1,3 @@
-import gc
 import sys
 import time
 from collections.abc import AsyncIterator, Iterable
@@ -78,12 +77,12 @@ async def async_iterate(iterable: Iterable[T]) -> AsyncIterator[T]:
 
     try:
         while True:
-            has_value, item = await database_sync_to_async(_next)()
+            has_value, item = await database_sync_to_async(_next, thread_sensitive=False)()
             if not has_value:
                 break
             yield item  # type: ignore[misc]
     finally:
-        await database_sync_to_async(_close)()
+        await database_sync_to_async(_close, thread_sensitive=False)()
 
 
 class PipelineNonDLT(Generic[ResumableData]):
@@ -222,7 +221,6 @@ class PipelineNonDLT(Generic[ResumableData]):
                 if "py_table" in locals() and py_table is not None:
                     del py_table
                 pa_memory_pool.release_unused()
-                gc.collect()
 
                 # Only raise if we're not running in descending order, otherwise we'll often not
                 # complete the job before the incremental value can be updated. Or if the source is
@@ -266,7 +264,6 @@ class PipelineNonDLT(Generic[ResumableData]):
                 del py_table
 
             pa_memory_pool.release_unused()
-            gc.collect()
 
     async def _process_pa_table(
         self, pa_table: pa.Table, index: int, resuming_sync: bool, row_count: int, is_first_ever_sync: bool
