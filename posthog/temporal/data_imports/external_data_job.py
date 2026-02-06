@@ -21,6 +21,7 @@ from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.schedule import trigger_schedule_buffer_one
 from posthog.temporal.data_imports.metrics import get_data_import_finished_metric
 from posthog.temporal.data_imports.row_tracking import finish_row_tracking, get_rows
+from posthog.temporal.data_imports.signals import is_signal_emission_registered
 from posthog.temporal.data_imports.sources import SourceRegistry
 from posthog.temporal.data_imports.sources.common.base import ResumableSource
 from posthog.temporal.data_imports.workflow_activities.calculate_table_size import (
@@ -33,7 +34,12 @@ from posthog.temporal.data_imports.workflow_activities.check_billing_limits impo
 )
 from posthog.temporal.data_imports.workflow_activities.create_job_model import (
     CreateExternalDataJobModelActivityInputs,
+    CreateExternalDataJobModelActivityOutputs,
     create_external_data_job_model_activity,
+)
+from posthog.temporal.data_imports.workflow_activities.emit_signals import (
+    EmitSignalsActivityInputs,
+    emit_data_import_signals_activity,
 )
 from posthog.temporal.data_imports.workflow_activities.import_data_sync import (
     ImportDataActivityInputs,
@@ -234,7 +240,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 billable=inputs.billable,
             )
 
-            job_id, incremental_or_append, source_type = await workflow.execute_activity(
+            create_job_result: CreateExternalDataJobModelActivityOutputs = await workflow.execute_activity(
                 create_external_data_job_model_activity,
                 create_external_data_job_inputs,
                 start_to_close_timeout=dt.timedelta(minutes=1),
@@ -244,6 +250,11 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 ),
             )
 
+            job_id = create_job_result.job_id
+            incremental_or_append = create_job_result.incremental_or_append
+            source_type = create_job_result.source_type
+            schema_name = create_job_result.schema_name
+            incremental_field_last_value_before_sync = create_job_result.incremental_field_last_value
             update_inputs.job_id = job_id
 
             # Check billing limits
@@ -324,6 +335,27 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                     retry_policy=RetryPolicy(
                         maximum_attempts=3,
                         non_retryable_error_types=["NondeterminismError"],
+                    ),
+                )
+
+            # Emit signals for new records (if registered for this source type + schema)
+            if source_type is not None and is_signal_emission_registered(source_type, schema_name):
+                await workflow.execute_activity(
+                    emit_data_import_signals_activity,
+                    EmitSignalsActivityInputs(
+                        team_id=inputs.team_id,
+                        schema_id=inputs.external_data_schema_id,
+                        source_id=inputs.external_data_source_id,
+                        job_id=job_id,
+                        source_type=source_type,
+                        schema_name=schema_name,
+                        incremental_field_last_value_before_sync=incremental_field_last_value_before_sync,
+                    ),
+                    # Should be a fast activity, so we don't block the workflow for too long
+                    start_to_close_timeout=dt.timedelta(minutes=10),
+                    retry_policy=RetryPolicy(
+                        # Don't retry as it should work every time, so retries won't help if it fails
+                        maximum_attempts=1,
                     ),
                 )
 
