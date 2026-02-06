@@ -20,6 +20,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { MarketingAnalyticsFilters } from '../web-analytics/tabs/marketing-analytics/frontend/components/MarketingAnalyticsFilters/MarketingAnalyticsFilters'
 import { MarketingAnalyticsSourceStatusBanner } from '../web-analytics/tabs/marketing-analytics/frontend/components/MarketingAnalyticsSourceStatusBanner'
 import { marketingAnalyticsLogic } from '../web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
+import { marketingAnalyticsSettingsLogic } from '../web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsSettingsLogic'
 import {
     MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID,
     marketingAnalyticsTilesLogic,
@@ -67,17 +68,26 @@ const QueryTileItem = ({ tile }: { tile: QueryTile }): JSX.Element => {
 
 const MarketingAnalyticsDashboard = (): JSX.Element => {
     const { featureFlags } = useValues(featureFlagLogic)
-    const { hasSources, loading } = useValues(marketingAnalyticsLogic)
+    const { hasSources, hasNoConfiguredSources, loading } = useValues(marketingAnalyticsLogic)
+    const { conversion_goals } = useValues(marketingAnalyticsSettingsLogic)
     const { tiles: marketingTiles } = useValues(marketingAnalyticsTilesLogic)
     const { showOnboarding } = useValues(marketingOnboardingLogic)
     const { completeOnboarding, resetOnboarding } = useActions(marketingOnboardingLogic)
 
-    // Reset onboarding if user has no sources (handles session/project changes)
+    // Auto-complete onboarding if user already has sources and conversion goals configured
     useEffect(() => {
-        if (!loading && !hasSources && !showOnboarding) {
+        if (!loading && hasSources && conversion_goals.length > 0 && showOnboarding) {
+            completeOnboarding()
+        }
+    }, [loading, hasSources, conversion_goals, showOnboarding])
+
+    // Reset onboarding if user truly has no configured sources (handles session/project changes).
+    // Uses hasNoConfiguredSources which guards against premature evaluation while tables are loading.
+    useEffect(() => {
+        if (hasNoConfiguredSources && !showOnboarding) {
             resetOnboarding()
         }
-    }, [loading, hasSources, showOnboarding])
+    }, [hasNoConfiguredSources, showOnboarding])
 
     const feedbackBanner = (
         <LemonBanner type="info" action={{ children: 'Send feedback', id: 'marketing-analytics-feedback-button' }}>
