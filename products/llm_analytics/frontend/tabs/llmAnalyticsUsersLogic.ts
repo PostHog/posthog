@@ -48,18 +48,18 @@ export const llmAnalyticsUsersLogic = kea<llmAnalyticsUsersLogicType>([
                     query: `
                 SELECT
                     argMax(user_tuple, timestamp) as __llm_person,
-                    countDistinctIf(ai_trace_id, notEmpty(ai_trace_id) AND event_name = '$ai_generation') as traces,
-                    countIf(event_name = '$ai_generation') as generations,
-                    countIf((notEmpty(ai_error) OR ai_is_error = 'true') AND event_name = '$ai_generation') as errors,
-                    round(sumIf(toFloat(ai_total_cost_usd), event_name = '$ai_generation'), 4) as total_cost,
-                    minIf(timestamp, event_name = '$ai_generation') as first_seen,
-                    maxIf(timestamp, event_name = '$ai_generation') as last_seen,
                     tuple(
                         avgIf(sentiment_positive, event_name = '$ai_sentiment'),
                         avgIf(sentiment_neutral, event_name = '$ai_sentiment'),
                         avgIf(sentiment_negative, event_name = '$ai_sentiment'),
                         countIf(event_name = '$ai_sentiment')
-                    ) as sentiment
+                    ) as sentiment,
+                    countDistinctIf(ai_trace_id, notEmpty(ai_trace_id) AND event_name = '$ai_generation') as traces,
+                    countIf(event_name = '$ai_generation') as generations,
+                    countIf((notEmpty(ai_error) OR ai_is_error = 'true') AND event_name = '$ai_generation') as errors,
+                    round(sumIf(toFloat(ai_total_cost_usd), event_name = '$ai_generation'), 4) as total_cost,
+                    minIf(timestamp, event_name = '$ai_generation') as first_seen,
+                    maxIf(timestamp, event_name = '$ai_generation') as last_seen
                 FROM (
                     SELECT
                         distinct_id,
