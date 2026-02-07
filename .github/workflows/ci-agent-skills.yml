@@ -1,0 +1,70 @@
+name: Agent Skills
+
+on:
+    pull_request:
+    push:
+        branches:
+            - master
+        paths:
+            - 'products/*/skills/**'
+            - '.claude/skills/**'
+            - 'products/posthog_ai/scripts/build_skills.py'
+            - '.github/workflows/ci-agent-skills.yml'
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+    cancel-in-progress: true
+
+jobs:
+    changes:
+        permissions:
+            contents: read
+            pull-requests: read
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        name: Determine need to run skill checks
+        outputs:
+            skills: ${{ steps.filter.outputs.skills || 'true' }}
+        steps:
+            - uses: actions/checkout@v6
+
+            - uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
+              id: filter
+              if: github.event_name != 'push'
+              with:
+                  filters: |
+                      skills:
+                        - 'products/*/skills/**'
+                        - 'products/*/backend/max_tools.py'
+                        - '.claude/skills/**'
+                        - 'products/posthog_ai/scripts/build_skills.py'
+                        - '.github/workflows/ci-agent-skills.yml'
+
+    check-skills:
+        name: Check built skills are up-to-date
+        runs-on: ubuntu-latest
+        needs: changes
+        if: needs.changes.outputs.skills == 'true'
+        permissions:
+            contents: read
+
+        steps:
+            - uses: actions/checkout@v6
+
+            - name: Set up Python
+              uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548 # v6.1.0
+              with:
+                  python-version-file: 'pyproject.toml'
+
+            - name: Install uv
+              uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b # v7.2.0
+              with:
+                  enable-cache: true
+                  save-cache: ${{ github.ref == 'refs/heads/master' }}
+                  version: 0.9.9
+
+            - name: Install python dependencies
+              run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+
+            - name: Check skills are built
+              run: uv run python products/posthog_ai/scripts/build_skills.py --check
