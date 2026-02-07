@@ -33,6 +33,7 @@ import {
     ResultsQuery,
 } from '../components/ResultsBreakdown'
 import { SummarizeExperimentButton } from '../components/SummarizeExperimentButton'
+import { SummarizeSessionReplaysButton } from '../components/SummarizeSessionReplaysButton'
 import { experimentLogic } from '../experimentLogic'
 import type { ExperimentSceneLogicProps } from '../experimentSceneLogic'
 import { experimentSceneLogic } from '../experimentSceneLogic'
@@ -100,11 +101,14 @@ const MetricsTab = (): JSX.Element => {
         usesNewQueryRunner &&
         hasMinimumExposureForResults
 
+    const isSessionReplaySummaryEnabled = featureFlags[FEATURE_FLAGS.EXPERIMENTS_SESSION_REPLAY_SUMMARY]
+
     return (
         <>
-            {isAiSummaryEnabled && (
-                <div className="mt-1 mb-4 flex justify-start">
-                    <SummarizeExperimentButton />
+            {(isAiSummaryEnabled || isSessionReplaySummaryEnabled) && (
+                <div className="mt-1 mb-4 flex justify-start gap-2">
+                    {isAiSummaryEnabled && <SummarizeExperimentButton />}
+                    {isSessionReplaySummaryEnabled && <SummarizeSessionReplaysButton experiment={experiment} />}
                 </div>
             )}
             {usesNewQueryRunner && (
