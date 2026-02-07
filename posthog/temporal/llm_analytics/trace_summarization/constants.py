@@ -43,6 +43,20 @@ MAX_TRACE_EVENTS_LIMIT = 50
 # workers for minutes.
 MAX_TRACE_PROPERTIES_SIZE = 2_000_000
 
+# AI event types used in trace queries (sampling and fetching)
+AI_EVENT_TYPES = (
+    "$ai_span",
+    "$ai_generation",
+    "$ai_embedding",
+    "$ai_metric",
+    "$ai_feedback",
+    "$ai_trace",
+)
+
+# Expand the time window by this amount each side when fetching traces,
+# so traces that started just before/after the window are still found.
+TRACE_CAPTURE_RANGE = timedelta(minutes=10)
+
 # Schedule configuration
 SCHEDULE_INTERVAL_HOURS = 1  # How often the coordinator runs
 
