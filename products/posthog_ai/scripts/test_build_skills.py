@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import textwrap
 from pathlib import Path
 
@@ -10,8 +11,10 @@ import pytest
 from products.posthog_ai.scripts.build_skills import (
     _json_schema_type_label,
     _make_jinja_env,
+    build_manifest,
     build_skill,
     discover_product_skills,
+    parse_frontmatter,
     render_skill,
 )
 
@@ -45,6 +48,38 @@ from products.posthog_ai.scripts.build_skills import (
 )
 def test_json_schema_type_label(prop: dict, expected: str) -> None:
     assert _json_schema_type_label(prop) == expected
+
+
+# ---------------------------------------------------------------------------
+# parse_frontmatter
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "text,expected_meta,expected_body_starts_with",
+    [
+        (
+            "---\nname: my-skill\ndescription: A skill\n---\n# Body\n",
+            {"name": "my-skill", "description": "A skill"},
+            "# Body",
+        ),
+        (
+            "No frontmatter here\n# Just body\n",
+            {},
+            "No frontmatter here",
+        ),
+        (
+            "---\nname: 'quoted-name'\ndescription: \"double-quoted\"\n---\nBody\n",
+            {"name": "quoted-name", "description": "double-quoted"},
+            "Body",
+        ),
+    ],
+    ids=["with-frontmatter", "no-frontmatter", "quoted-values"],
+)
+def test_parse_frontmatter(text: str, expected_meta: dict, expected_body_starts_with: str) -> None:
+    meta, body = parse_frontmatter(text)
+    assert meta == expected_meta
+    assert body.startswith(expected_body_starts_with)
 
 
 # ---------------------------------------------------------------------------
@@ -141,23 +176,67 @@ def test_render_j2_strict_undefined_raises(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# build_skill — header generation
+# build_skill — produces ContextMillResource dict
 # ---------------------------------------------------------------------------
 
 
-def test_build_skill_adds_header(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_build_skill_extracts_frontmatter(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("products.posthog_ai.scripts.build_skills.REPO_ROOT", tmp_path)
 
     md_file = tmp_path / "products" / "foo" / "skills" / "bar" / "SKILL.md"
     md_file.parent.mkdir(parents=True)
-    md_file.write_text("Skill body.\n")
+    md_file.write_text("---\nname: bar\ndescription: Bar skill\n---\n# Skill body\n")
 
     env = _make_jinja_env()
     result = build_skill("bar", md_file, env)
 
-    assert result.startswith("<!-- AUTO-GENERATED from products/foo/skills/bar/SKILL.md")
-    assert "do not edit by hand" in result
-    assert result.endswith("Skill body.\n")
+    assert result["id"] == "bar"
+    assert result["name"] == "bar"
+    assert result["uri"] == "skill://posthog/bar"
+    assert result["resource"]["mimeType"] == "text/markdown"
+    assert result["resource"]["description"] == "Bar skill"
+    assert result["resource"]["text"] == "# Skill body"
+    assert result["source"] == "products/foo/skills/bar/SKILL.md"
+
+
+def test_build_skill_defaults_without_frontmatter(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("products.posthog_ai.scripts.build_skills.REPO_ROOT", tmp_path)
+
+    md_file = tmp_path / "products" / "foo" / "skills" / "my-skill" / "SKILL.md"
+    md_file.parent.mkdir(parents=True)
+    md_file.write_text("# No frontmatter\nJust body.\n")
+
+    env = _make_jinja_env()
+    result = build_skill("my-skill", md_file, env)
+
+    assert result["name"] == "my-skill"
+    assert result["resource"]["description"] == "Skill: my-skill"
+    assert "# No frontmatter" in result["resource"]["text"]
+
+
+# ---------------------------------------------------------------------------
+# build_manifest
+# ---------------------------------------------------------------------------
+
+
+def test_build_manifest_produces_valid_structure(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("products.posthog_ai.scripts.build_skills.REPO_ROOT", tmp_path)
+    monkeypatch.setattr("products.posthog_ai.scripts.build_skills.PRODUCTS_DIR", tmp_path / "products")
+
+    for skill_name in ("skill-a", "skill-b"):
+        skill_dir = tmp_path / "products" / "alpha" / "skills" / skill_name
+        skill_dir.mkdir(parents=True)
+        (skill_dir / "SKILL.md").write_text(f"---\nname: {skill_name}\ndescription: desc\n---\n# Body\n")
+
+    skills = discover_product_skills()
+    env = _make_jinja_env()
+    manifest = build_manifest(skills, env)
+
+    assert manifest["version"] == "1.0.0"
+    assert len(manifest["resources"]) == 2
+    assert manifest["resources"][0]["id"] == "skill-a"
+    assert manifest["resources"][1]["id"] == "skill-b"
+    assert manifest["resources"][0]["uri"] == "skill://posthog/skill-a"
 
 
 # ---------------------------------------------------------------------------
@@ -172,21 +251,17 @@ def test_pydantic_schema_renders_json() -> None:
         name: str = Field(description="The name")
         count: int = Field(default=0, description="A counter")
 
-    # Register as importable
+    import sys
     import types
 
     fake_module = types.ModuleType("_test_skill_models")
     fake_module.SampleModel = SampleModel  # type: ignore
-    import sys
-
     sys.modules["_test_skill_models"] = fake_module
 
     try:
         from products.posthog_ai.scripts.build_skills import pydantic_schema
 
         result = pydantic_schema("_test_skill_models.SampleModel")
-        import json
-
         schema = json.loads(result)
         assert schema["properties"]["name"]["type"] == "string"
         assert schema["properties"]["count"]["type"] == "integer"
@@ -245,7 +320,7 @@ def test_pydantic_field_list_renders_bullets() -> None:
 
 
 # ---------------------------------------------------------------------------
-# End-to-end: template with pydantic_fields
+# End-to-end: template with pydantic_fields → manifest
 # ---------------------------------------------------------------------------
 
 
@@ -274,6 +349,7 @@ def test_end_to_end_template_with_pydantic(tmp_path: Path, monkeypatch: pytest.M
             textwrap.dedent("""\
             ---
             name: e2e-skill
+            description: End-to-end test skill
             ---
             # E2E test
 
@@ -284,13 +360,20 @@ def test_end_to_end_template_with_pydantic(tmp_path: Path, monkeypatch: pytest.M
         from products.posthog_ai.scripts.build_skills import build_all, check_all
 
         # Build
-        results = build_all()
-        assert len(results) == 1
-        skill_name, output_path, content = results[0]
-        assert skill_name == "e2e-skill"
-        assert output_path.exists()
-        assert "| `title` |" in content
-        assert "AUTO-GENERATED" in content
+        manifest = build_all()
+        assert len(manifest["resources"]) == 1
+
+        resource = manifest["resources"][0]
+        assert resource["id"] == "e2e-skill"
+        assert resource["name"] == "e2e-skill"
+        assert resource["uri"] == "skill://posthog/e2e-skill"
+        assert "| `title` |" in resource["resource"]["text"]
+
+        # Verify manifest.json was written
+        manifest_path = tmp_path / "output" / "manifest.json"
+        assert manifest_path.exists()
+        written = json.loads(manifest_path.read_text())
+        assert written == manifest
 
         # Check should pass after build
         assert check_all() is True
@@ -298,7 +381,7 @@ def test_end_to_end_template_with_pydantic(tmp_path: Path, monkeypatch: pytest.M
         del sys.modules["_test_e2e_models"]
 
 
-def test_check_detects_stale_skill(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_check_detects_stale_manifest(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("products.posthog_ai.scripts.build_skills.REPO_ROOT", tmp_path)
     monkeypatch.setattr("products.posthog_ai.scripts.build_skills.PRODUCTS_DIR", tmp_path / "products")
     monkeypatch.setattr("products.posthog_ai.scripts.build_skills.OUTPUT_DIR", tmp_path / "output")
@@ -306,27 +389,43 @@ def test_check_detects_stale_skill(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     # Create source
     skill_src = tmp_path / "products" / "alpha" / "skills" / "stale-skill"
     skill_src.mkdir(parents=True)
-    (skill_src / "SKILL.md").write_text("Version 2\n")
+    (skill_src / "SKILL.md").write_text("---\nname: stale-skill\ndescription: Stale\n---\nVersion 2\n")
 
-    # Create stale output
-    output_dir = tmp_path / "output" / "stale-skill"
+    # Create stale manifest
+    output_dir = tmp_path / "output"
     output_dir.mkdir(parents=True)
-    (output_dir / "SKILL.md").write_text("Version 1\n")
+    stale_manifest = {
+        "version": "1.0.0",
+        "resources": [
+            {
+                "id": "stale-skill",
+                "name": "stale-skill",
+                "uri": "skill://posthog/stale-skill",
+                "resource": {
+                    "mimeType": "text/markdown",
+                    "description": "Stale",
+                    "text": "Version 1",
+                },
+                "source": "products/alpha/skills/stale-skill/SKILL.md",
+            }
+        ],
+    }
+    (output_dir / "manifest.json").write_text(json.dumps(stale_manifest))
 
     from products.posthog_ai.scripts.build_skills import check_all
 
     assert check_all() is False
 
 
-def test_check_detects_missing_skill(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_check_detects_missing_manifest(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("products.posthog_ai.scripts.build_skills.REPO_ROOT", tmp_path)
     monkeypatch.setattr("products.posthog_ai.scripts.build_skills.PRODUCTS_DIR", tmp_path / "products")
     monkeypatch.setattr("products.posthog_ai.scripts.build_skills.OUTPUT_DIR", tmp_path / "output")
 
-    # Create source but no output
+    # Create source but no manifest
     skill_src = tmp_path / "products" / "alpha" / "skills" / "missing-skill"
     skill_src.mkdir(parents=True)
-    (skill_src / "SKILL.md").write_text("Content\n")
+    (skill_src / "SKILL.md").write_text("---\nname: missing\ndescription: Missing\n---\nContent\n")
 
     from products.posthog_ai.scripts.build_skills import check_all
 
