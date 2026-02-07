@@ -62,6 +62,7 @@ import { EvalsTabContent } from './components/EvalsTabContent'
 import { EventContentDisplayAsync, EventContentGeneration } from './components/EventContentWithAsyncData'
 import { FeedbackTag } from './components/FeedbackTag'
 import { MetricTag } from './components/MetricTag'
+import { SentimentDot } from './components/SentimentTag'
 import { SaveToDatasetButton } from './datasets/SaveToDatasetButton'
 import { FeedbackViewDisplay } from './feedback-view/FeedbackViewDisplay'
 import { useAIData } from './hooks/useAIData'
@@ -164,6 +165,7 @@ function TraceSceneWrapper(): JSX.Element {
         responseError,
         feedbackEvents,
         metricEvents,
+        sentimentByEventId,
         eventMetadata,
         effectiveEventId,
     } = useValues(llmAnalyticsTraceDataLogic)
@@ -203,6 +205,7 @@ function TraceSceneWrapper(): JSX.Element {
                                 trace={trace}
                                 metricEvents={metricEvents as LLMTraceEvent[]}
                                 feedbackEvents={feedbackEvents as LLMTraceEvent[]}
+                                sentimentByEventId={sentimentByEventId}
                                 billedTotalUsd={billedTotalUsd}
                                 billedCredits={billedCredits}
                                 markupUsd={markupUsd}
@@ -285,6 +288,7 @@ function TraceMetadata({
     trace,
     metricEvents,
     feedbackEvents,
+    sentimentByEventId,
     billedTotalUsd,
     billedCredits,
     markupUsd,
@@ -293,6 +297,7 @@ function TraceMetadata({
     trace: LLMTrace
     metricEvents: LLMTraceEvent[]
     feedbackEvents: LLMTraceEvent[]
+    sentimentByEventId: Map<string, LLMTraceEvent>
     billedTotalUsd?: number
     billedCredits?: number
     markupUsd?: number
@@ -379,7 +384,80 @@ function TraceMetadata({
             {feedbackEvents.map((feedback) => (
                 <FeedbackTag key={feedback.id} properties={feedback.properties} />
             ))}
+            {sentimentByEventId.size > 0 && <TraceSentimentChip sentimentByEventId={sentimentByEventId} />}
         </header>
+    )
+}
+
+const SENTIMENT_CHIP_COLOR: Record<string, string> = {
+    positive: 'bg-success',
+    negative: 'bg-danger',
+    neutral: 'bg-muted-alt',
+}
+
+function TraceSentimentChip({
+    sentimentByEventId,
+}: {
+    sentimentByEventId: Map<string, LLMTraceEvent>
+}): JSX.Element | null {
+    if (sentimentByEventId.size === 0) {
+        return null
+    }
+
+    // Average sentiment scores across all events
+    let totalPositive = 0
+    let totalNeutral = 0
+    let totalNegative = 0
+    let count = 0
+    for (const event of sentimentByEventId.values()) {
+        const scores = event.properties.$ai_sentiment_scores
+        if (scores) {
+            totalPositive += scores.positive ?? 0
+            totalNeutral += scores.neutral ?? 0
+            totalNegative += scores.negative ?? 0
+            count++
+        }
+    }
+    if (count === 0) {
+        return null
+    }
+
+    const avgPositive = totalPositive / count
+    const avgNeutral = totalNeutral / count
+    const avgNegative = totalNegative / count
+
+    // Derive label from highest averaged score
+    let label: string
+    let avgScore: number
+    if (avgPositive >= avgNeutral && avgPositive >= avgNegative) {
+        label = 'positive'
+        avgScore = avgPositive
+    } else if (avgNegative >= avgPositive && avgNegative >= avgNeutral) {
+        label = 'negative'
+        avgScore = avgNegative
+    } else {
+        label = 'neutral'
+        avgScore = avgNeutral
+    }
+
+    const widthPercent = Math.round(avgScore * 100)
+    const barColor = SENTIMENT_CHIP_COLOR[label] ?? 'bg-muted-alt'
+    const prefix = count > 1 ? `Avg of ${count} generations — ` : ''
+    const tooltipText = `${prefix}Positive: ${Math.round(avgPositive * 100)}% / Neutral: ${Math.round(avgNeutral * 100)}% / Negative: ${Math.round(avgNegative * 100)}%`
+
+    return (
+        <Chip title={tooltipText}>
+            <span className="flex items-center gap-1.5">
+                Sentiment
+                <span className="w-10 h-1.5 bg-border-light rounded-full overflow-hidden inline-block">
+                    <span
+                        className={`block h-full rounded-full ${barColor}`}
+                        // eslint-disable-next-line react/forbid-dom-props
+                        style={{ width: `${widthPercent}%` }}
+                    />
+                </span>
+            </span>
+        </Chip>
     )
 }
 
@@ -534,6 +612,7 @@ const TreeNode = React.memo(function TraceNode({
     const item = node.event
 
     const { eventTypeExpanded } = useValues(llmAnalyticsTraceLogic)
+    const { sentimentByEventId } = useValues(llmAnalyticsTraceDataLogic)
     const eventType = getEventType(item)
     const isCollapsedDueToFilter = !eventTypeExpanded(eventType)
     const isBillable =
@@ -541,6 +620,12 @@ const TreeNode = React.memo(function TraceNode({
         isLLMEvent(item) &&
         (item as LLMTraceEvent).event === '$ai_generation' &&
         !!(item as LLMTraceEvent).properties?.$ai_billable
+    const sentimentEventId = isLLMEvent(item)
+        ? ((item as LLMTraceEvent).properties.$ai_generation_id ??
+          (item as LLMTraceEvent).properties.$ai_span_id ??
+          item.id)
+        : null
+    const sentimentEvent = sentimentEventId ? sentimentByEventId.get(sentimentEventId) : undefined
 
     const children = [
         isLLMEvent(item) && item.properties.$ai_is_error && (
@@ -585,6 +670,7 @@ const TreeNode = React.memo(function TraceNode({
                             💰
                         </span>
                     )}
+                    {sentimentEvent && <SentimentDot event={sentimentEvent} />}
                     {!isCollapsedDueToFilter && (
                         <Tooltip title={formatLLMEventTitle(item)}>
                             {searchQuery?.trim() ? (

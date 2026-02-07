@@ -9,11 +9,12 @@ import { objectsEqual } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
-import { DataTableNode, LLMTrace } from '~/queries/schema/schema-general'
+import { DataTableNode, LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 import { QueryContext, QueryContextColumnComponent } from '~/queries/types'
 import { isTracesQuery } from '~/queries/utils'
 
 import { LLMMessageDisplay } from './ConversationDisplay/ConversationMessagesDisplay'
+import { SentimentBar } from './components/SentimentTag'
 import { llmAnalyticsColumnRenderers } from './llmAnalyticsColumnRenderers'
 import { llmAnalyticsSharedLogic } from './llmAnalyticsSharedLogic'
 import { llmAnalyticsTracesTabLogic } from './tabs/llmAnalyticsTracesTabLogic'
@@ -97,6 +98,12 @@ export const useTracesQueryContext = (): QueryContext<DataTableNode> => {
                     <Tooltip title="Total cost of all generations and embeddings in this trace">Cost</Tooltip>
                 ),
                 render: CostColumn,
+            },
+            sentiment: {
+                renderTitle: () => (
+                    <Tooltip title="Sentiment classification of user messages in this trace">Sentiment</Tooltip>
+                ),
+                render: SentimentColumn,
             },
         },
     }
@@ -204,3 +211,28 @@ const OutputMessageColumn: QueryContextColumnComponent = ({ record }) => {
     return <LLMMessageDisplay message={outputNormalized.at(-1)!} isOutput={true} minimal />
 }
 OutputMessageColumn.displayName = 'OutputMessageColumn'
+
+function findTraceSentiment(events: LLMTraceEvent[]): LLMTraceEvent | null {
+    let worst: LLMTraceEvent | null = null
+    const priority: Record<string, number> = { negative: 3, neutral: 2, positive: 1 }
+    for (const event of events) {
+        if (event.event !== '$ai_sentiment') {
+            continue
+        }
+        const label = event.properties.$ai_sentiment_label
+        if (!worst || (priority[label] ?? 0) > (priority[worst.properties.$ai_sentiment_label] ?? 0)) {
+            worst = event
+        }
+    }
+    return worst
+}
+
+const SentimentColumn: QueryContextColumnComponent = ({ record }) => {
+    const row = record as LLMTrace
+    const sentimentEvent = Array.isArray(row.events) ? findTraceSentiment(row.events) : null
+    if (!sentimentEvent) {
+        return <>–</>
+    }
+    return <SentimentBar event={sentimentEvent} />
+}
+SentimentColumn.displayName = 'SentimentColumn'

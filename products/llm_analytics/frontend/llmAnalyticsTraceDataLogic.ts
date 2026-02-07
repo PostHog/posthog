@@ -45,7 +45,7 @@ function getDataNodeLogicProps({ traceId, query, cachedResults }: TraceDataLogic
     return dataNodeLogicProps
 }
 
-const FEEDBACK_EVENTS = new Set(['$ai_feedback', '$ai_metric'])
+const FEEDBACK_EVENTS = new Set(['$ai_feedback', '$ai_metric', '$ai_sentiment'])
 
 /**
  * Find all parent events for a given event, including the event itself
@@ -224,6 +224,21 @@ export const llmAnalyticsTraceDataLogic = kea<llmAnalyticsTraceDataLogicType>([
             (s) => [s.trace],
             (trace): LLMTraceEvent[] | undefined =>
                 trace?.events.filter((event) => event.event === '$ai_feedback' && event.properties.$ai_feedback_text),
+        ],
+        sentimentByEventId: [
+            (s) => [s.trace],
+            (trace: LLMTrace | undefined): Map<string, LLMTraceEvent> => {
+                const map = new Map<string, LLMTraceEvent>()
+                if (!trace) {
+                    return map
+                }
+                for (const event of trace.events) {
+                    if (event.event === '$ai_sentiment' && event.properties.$ai_parent_id) {
+                        map.set(event.properties.$ai_parent_id, event)
+                    }
+                }
+                return map
+            },
         ],
         metricsAndFeedbackEvents: [
             (s) => [s.metricEvents, s.feedbackEvents],

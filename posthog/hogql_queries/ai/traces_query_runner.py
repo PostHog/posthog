@@ -93,7 +93,7 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
                         min(timestamp) as first_ts,
                         max(timestamp) as last_ts
                     FROM events
-                    WHERE event IN ('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')
+                    WHERE event IN ('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace', '$ai_sentiment')
                       AND {{conditions}}
                     GROUP BY trace_id
                     ORDER BY {order_clause}
@@ -239,7 +239,7 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
                     arraySort(x -> x.3,
                         groupArrayIf(
                             tuple(uuid, event, timestamp, properties),
-                            event IN ('$ai_metric', '$ai_feedback') OR toString(properties.$ai_parent_id) = toString(properties.$ai_trace_id)
+                            event IN ('$ai_metric', '$ai_feedback', '$ai_sentiment') OR toString(properties.$ai_parent_id) = toString(properties.$ai_trace_id)
                         )
                     )
                 ) AS events,
@@ -266,7 +266,7 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
                 any(properties.ai_support_impersonated) AS is_support_trace
             FROM events
             WHERE event IN (
-                '$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace'
+                '$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace', '$ai_sentiment'
             )
               AND {filter_conditions}
             GROUP BY properties.$ai_trace_id
@@ -294,7 +294,7 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
         return {
             **super().get_cache_payload(),
             # When the response schema changes, increment this version to invalidate the cache.
-            "schema_version": 3,
+            "schema_version": 4,
         }
 
     @cached_property
