@@ -14,6 +14,7 @@ import { DataTableRow } from '~/queries/nodes/DataTable/dataTableLogic'
 import { isHogQLQuery } from '~/queries/utils'
 
 import { LLMAnalyticsTraceEvents } from './components/LLMAnalyticsTraceEvents'
+import { UserSentimentBar } from './components/SentimentTag'
 import { useSortableColumns } from './hooks/useSortableColumns'
 import { llmAnalyticsSharedLogic } from './llmAnalyticsSharedLogic'
 import { llmAnalyticsSessionsViewLogic } from './tabs/llmAnalyticsSessionsViewLogic'
@@ -86,6 +87,17 @@ export function LLMAnalyticsSessionsScene(): JSX.Element {
                                     </Tooltip>
                                 </strong>
                             )
+                        },
+                    },
+                    sentiment: {
+                        renderTitle: () => (
+                            <Tooltip title="Average sentiment across this session's traces">Sentiment</Tooltip>
+                        ),
+                        render: function RenderSentiment({ value }) {
+                            if (!Array.isArray(value) || value.length < 4) {
+                                return <>–</>
+                            }
+                            return <UserSentimentBar scores={value as [number, number, number, number]} />
                         },
                     },
                     traces: {

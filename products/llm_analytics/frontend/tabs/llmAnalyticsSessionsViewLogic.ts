@@ -295,17 +295,23 @@ export const llmAnalyticsSessionsViewLogic = kea<llmAnalyticsSessionsViewLogicTy
                     query: `
                 SELECT
                     properties.$ai_session_id as session_id,
-                    countDistinctIf(properties.$ai_trace_id, isNotNull(properties.$ai_trace_id)) as traces,
+                    tuple(
+                        avgIf(JSONExtractFloat(JSONExtractRaw(properties, '$ai_sentiment_scores'), 'positive'), event = '$ai_sentiment'),
+                        avgIf(JSONExtractFloat(JSONExtractRaw(properties, '$ai_sentiment_scores'), 'neutral'), event = '$ai_sentiment'),
+                        avgIf(JSONExtractFloat(JSONExtractRaw(properties, '$ai_sentiment_scores'), 'negative'), event = '$ai_sentiment'),
+                        countIf(event = '$ai_sentiment')
+                    ) as sentiment,
+                    countDistinctIf(properties.$ai_trace_id, isNotNull(properties.$ai_trace_id) AND event != '$ai_sentiment') as traces,
                     countIf(event = '$ai_span') as spans,
                     countIf(event = '$ai_generation') as generations,
                     countIf(event = '$ai_embedding') as embeddings,
-                    countIf(properties.$ai_is_error = 'true') as errors,
-                    round(sum(toFloat(properties.$ai_total_cost_usd)), 4) as total_cost,
-                    round(sum(toFloat(properties.$ai_latency)), 2) as total_latency,
-                    min(timestamp) as first_seen,
-                    max(timestamp) as last_seen
+                    countIf(properties.$ai_is_error = 'true' AND event != '$ai_sentiment') as errors,
+                    round(sumIf(toFloat(properties.$ai_total_cost_usd), event != '$ai_sentiment'), 4) as total_cost,
+                    round(sumIf(toFloat(properties.$ai_latency), event != '$ai_sentiment'), 2) as total_latency,
+                    minIf(timestamp, event != '$ai_sentiment') as first_seen,
+                    maxIf(timestamp, event != '$ai_sentiment') as last_seen
                 FROM events
-                WHERE event IN ('$ai_generation', '$ai_span', '$ai_embedding', '$ai_trace')
+                WHERE event IN ('$ai_generation', '$ai_span', '$ai_embedding', '$ai_trace', '$ai_sentiment')
                     AND isNotNull(properties.$ai_session_id)
                     AND properties.$ai_session_id != ''
                     AND {filters}
@@ -324,6 +330,7 @@ export const llmAnalyticsSessionsViewLogic = kea<llmAnalyticsSessionsViewLogicTy
                 },
                 columns: [
                     'session_id',
+                    'sentiment',
                     'traces',
                     'spans',
                     'generations',
