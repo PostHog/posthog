@@ -323,7 +323,7 @@ build:
         cmd: pnpm --filter=@posthog/frontend run build:products
         description: Build products manifest from TypeScript/JSX files
     build:skills:
-        cmd: python products/posthog_ai/scripts/build_skills.py
+        cmd: python products/posthog_ai/scripts/build_skills.py && pnpm prettier --write services/mcp/skills/manifest.json
         description: Build agent skills from products/*/skills/ into MCP distribution manifest
 docker:
     # docker:services:up is a Python command in common/hogli/devenv/cli.py that respects intent config
