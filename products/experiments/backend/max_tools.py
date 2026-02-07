@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from typing import Any, Literal
 
 from posthoganalytics import capture_exception
@@ -617,14 +618,12 @@ class SessionReplaySummaryTool(MaxTool):
 
         Replicates frontend getViewRecordingFilters() logic from experiments/utils.ts
         """
-        from datetime import datetime
-
         feature_flag_key = experiment.feature_flag.key
 
         # Build filter structure matching RecordingUniversalFilters
         return {
             "date_from": experiment.start_date.isoformat() if experiment.start_date else None,
-            "date_to": experiment.end_date.isoformat() if experiment.end_date else datetime.now().isoformat(),
+            "date_to": experiment.end_date.isoformat() if experiment.end_date else datetime.now(UTC).isoformat(),
             "events": [
                 {
                     "id": "$feature_flag_called",
