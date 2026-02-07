@@ -1,10 +1,27 @@
 import fs from 'fs'
+import ipaddr from 'ipaddr.js'
 import path from 'path'
 
-export const KNOWN_BOT_IP_LIST = fs
+const rawBotIpLines = fs
     .readFileSync(path.join(__dirname, '../../../../', 'assets', 'bot-ips.txt'), 'utf8')
     .split('\n')
     .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+
+export const KNOWN_BOT_IP_SET = new Set<string>()
+export const KNOWN_BOT_CIDR_RANGES: [ipaddr.IPv4 | ipaddr.IPv6, number][] = []
+
+for (const entry of rawBotIpLines) {
+    if (entry.includes('/')) {
+        try {
+            KNOWN_BOT_CIDR_RANGES.push(ipaddr.parseCIDR(entry))
+        } catch {
+            // skip malformed CIDR entries
+        }
+    } else {
+        KNOWN_BOT_IP_SET.add(entry)
+    }
+}
 
 export const KNOWN_BOT_UA_LIST = [
     'bot',
