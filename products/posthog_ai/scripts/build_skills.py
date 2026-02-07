@@ -304,7 +304,7 @@ class SkillBuilder:
         if not dry_run and manifest.resources:
             self.output_dir.mkdir(parents=True, exist_ok=True)
             manifest_path = self.output_dir / "manifest.json"
-            manifest_path.write_text(json.dumps(manifest.model_dump(), indent=2) + "\n")
+            manifest_path.write_text(json.dumps(manifest.model_dump(), indent=4) + "\n")
 
         return manifest
 
