@@ -570,6 +570,8 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
 
             link = raw_question.get("link")
             if link:
+                if not isinstance(link, str):
+                    raise serializers.ValidationError(f"Question {index + 1}: link must be a string")
                 cleaned_question["link"] = self._validate_and_sanitize_link(link)
 
             cleaned_questions.append(cleaned_question)
