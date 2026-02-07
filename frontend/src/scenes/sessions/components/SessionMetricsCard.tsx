@@ -32,8 +32,9 @@ function MetricCard({ title, value, isLoading, subtitle }: MetricCardProps): JSX
 }
 
 export function SessionMetricsCard(): JSX.Element {
-    const { sessionData, sessionDuration, uniqueUrlCount, totalEventCount, otherEventCount, isInitialLoading } =
+    const { sessionData, sessionDataLoading, sessionDuration, uniqueUrlCount, totalEventCount, otherEventCount } =
         useValues(sessionProfileLogic)
+    const isLoading = sessionDataLoading && !sessionData
     return (
         <div className="@container">
             <div className="flex flex-col @md:flex-row gap-4 @md:justify-between">
@@ -41,9 +42,9 @@ export function SessionMetricsCard(): JSX.Element {
                     title="Duration"
                     value={sessionDuration !== null ? humanFriendlyDuration(sessionDuration) : null}
                     subtitle={sessionDuration !== null ? `${sessionDuration} seconds` : undefined}
-                    isLoading={isInitialLoading}
+                    isLoading={isLoading}
                 />
-                <MetricCard title="Unique URLs" value={uniqueUrlCount} isLoading={isInitialLoading} />
+                <MetricCard title="Unique URLs" value={uniqueUrlCount} isLoading={isLoading} />
                 <MetricCard
                     title="Total Events"
                     value={totalEventCount}
@@ -56,7 +57,7 @@ export function SessionMetricsCard(): JSX.Element {
                               }`
                             : undefined
                     }
-                    isLoading={isInitialLoading}
+                    isLoading={isLoading}
                 />
             </div>
         </div>

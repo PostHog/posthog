@@ -2,7 +2,7 @@ import { useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconCollapse, IconExpand, IconVideoCamera } from '@posthog/icons'
-import { LemonButton, LemonCard, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonCard, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { SessionRecordingPlayer } from 'scenes/session-recordings/player/SessionRecordingPlayer'
 import { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
@@ -35,8 +35,9 @@ export function SessionRecordingSection(): JSX.Element | null {
                 {isExpanded && (
                     <div className="border-t border-border">
                         {hasRecordingLoading ? (
-                            <div className="flex justify-center items-center h-[300px]">
-                                <Spinner />
+                            <div className="p-4 space-y-3">
+                                <LemonSkeleton className="h-6 w-48" />
+                                <LemonSkeleton className="h-[250px] w-full" />
                             </div>
                         ) : hasRecording ? (
                             <div className="h-[400px]">
