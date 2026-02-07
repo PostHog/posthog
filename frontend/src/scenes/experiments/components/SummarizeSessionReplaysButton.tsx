@@ -30,7 +30,7 @@ export const SummarizeSessionReplaysButton = ({
             icon={<IconAI />}
             tooltip="Analyze user behavior patterns in session replays using AI"
         >
-            Summarize replays
+            Summarize session replays
         </LemonButton>
     )
 }
