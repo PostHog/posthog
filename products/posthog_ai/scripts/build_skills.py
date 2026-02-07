@@ -274,6 +274,10 @@ class SkillBuilder:
         skills = self.discoverer.discover()
 
         if not skills:
+            manifest_path = self.output_dir / "manifest.json"
+            if manifest_path.exists():
+                print(f"STALE:   {manifest_path.relative_to(self.repo_root)} (no skills found, but manifest exists)")
+                return False
             print("No product skills found.")
             return True
 
@@ -389,6 +393,16 @@ def _setup_django() -> None:
         import django
 
         django.setup()
+    except SystemExit as e:
+        print(
+            f"ERROR: Django setup called sys.exit({e.code}). "
+            "This usually means a required setting (e.g. SECRET_KEY) is missing. "
+            "Skill building requires a working Django environment because Jinja2 "
+            "templates import Pydantic models from product code.\n"
+            "Hint: set SECRET_KEY in your environment or .env file.",
+            file=sys.stderr,
+        )
+        raise SystemExit(1) from e
     except Exception as e:
         print(
             f"WARNING: Django setup failed ({e}). Template functions that import models will not work.",

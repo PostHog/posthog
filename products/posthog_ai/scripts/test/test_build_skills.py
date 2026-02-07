@@ -375,6 +375,19 @@ def test_check_detects_missing_manifest(tmp_path: Path) -> None:
     assert builder.check_all() is False
 
 
+def test_check_detects_stale_manifest_when_no_skills(tmp_path: Path) -> None:
+    output_dir = tmp_path / "output"
+    output_dir.mkdir(parents=True)
+    (output_dir / "manifest.json").write_text(json.dumps({"version": "1.0.0", "resources": [{"id": "old"}]}))
+
+    builder = SkillBuilder(
+        repo_root=tmp_path,
+        products_dir=tmp_path / "products",
+        output_dir=output_dir,
+    )
+    assert builder.check_all() is False
+
+
 def test_lint_all_passes_for_valid_skills(tmp_path: Path) -> None:
     skill_dir = tmp_path / "products" / "alpha" / "skills" / "good-skill"
     skill_dir.mkdir(parents=True)

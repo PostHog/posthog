@@ -70,6 +70,9 @@ jobs:
               run: ./bin/hogli lint:skills
 
             - name: Check skills are up to date
+              env:
+                  SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # For testing only
+                  DATABASE_URL: 'postgres://localhost:5432/posthog'
               run: |
                   ./bin/hogli build:skills
                   if ! git diff --exit-code; then
