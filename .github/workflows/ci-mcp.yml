@@ -27,7 +27,6 @@ jobs:
                       mcp:
                         - 'services/mcp/**'
                         - 'products/**' 
-                        - 'frontend/**'
                         - 'ee/**/*'
                         - 'posthog/**/*'
                         - '.github/workflows/mcp-ci.yml'
