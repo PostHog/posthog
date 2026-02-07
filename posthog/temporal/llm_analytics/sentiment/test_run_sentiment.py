@@ -115,9 +115,7 @@ class TestClassifySentimentActivity:
         # Per-message results
         assert len(result["per_message"]) == 2
         assert result["per_message"][0]["label"] == "neutral"
-        assert result["per_message"][0]["text"] == "I need help"
         assert result["per_message"][1]["label"] == "negative"
-        assert result["per_message"][1]["text"] == "I'm frustrated"
         # Called once per user message
         assert mock_classify.call_count == 2
 
@@ -170,9 +168,7 @@ class TestClassifySentimentActivity:
         # Per-message array present
         assert len(props["$ai_sentiment_messages"]) == 2
         assert props["$ai_sentiment_messages"][0]["label"] == "positive"
-        assert props["$ai_sentiment_messages"][0]["text"] == "Great work!"
         assert props["$ai_sentiment_messages"][1]["label"] == "negative"
-        assert props["$ai_sentiment_messages"][1]["text"] == "This is broken"
 
     @pytest.mark.asyncio
     @patch("posthog.temporal.llm_analytics.sentiment.run_sentiment.database_sync_to_async")

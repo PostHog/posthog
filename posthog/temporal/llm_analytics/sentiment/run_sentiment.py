@@ -21,7 +21,6 @@ from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.llm_analytics.sentiment.extraction import (
-    extract_user_messages,
     extract_user_messages_individually,
     truncate_to_token_limit,
 )
@@ -99,28 +98,32 @@ async def classify_sentiment_activity(input: SentimentClassificationInput) -> di
 
     # Classify each user message individually
     per_message_results: list[dict[str, Any]] = []
+    classify_results: list[SentimentClassificationResult] = []
     async with _classify_lock:
         for text in individual_messages:
             truncated = truncate_to_token_limit(text)
             msg_result = await asyncio.to_thread(classify, truncated)
             per_message_results.append(
                 {
-                    "text": truncated,
                     "label": msg_result.label,
                     "score": msg_result.score,
-                    "scores": msg_result.scores,
                 }
+            )
+            classify_results.append(
+                SentimentClassificationResult(
+                    label=msg_result.label,
+                    score=msg_result.score,
+                    scores=msg_result.scores,
+                    text=truncated,
+                )
             )
 
     # Overall sentiment = "worst" (negative > neutral > positive) for backward compat
     SEVERITY = {"negative": 2, "neutral": 1, "positive": 0}
-    worst = max(per_message_results, key=lambda r: SEVERITY.get(r["label"], 0))
-    overall_label = worst["label"]
-    overall_score = worst["score"]
-    overall_scores = worst["scores"]
-
-    # Build concatenated text for backward compat ($ai_sentiment_text)
-    truncated_text = truncate_to_token_limit(extract_user_messages(ai_input))
+    worst = max(classify_results, key=lambda r: SEVERITY.get(r.label, 0))
+    overall_label = worst.label
+    overall_score = worst.score
+    overall_scores = worst.scores
 
     # Emit $ai_sentiment event
     trace_id = properties.get("$ai_trace_id")
@@ -147,7 +150,6 @@ async def classify_sentiment_activity(input: SentimentClassificationInput) -> di
             "$ai_sentiment_label": overall_label,
             "$ai_sentiment_score": overall_score,
             "$ai_sentiment_scores": overall_scores,
-            "$ai_sentiment_text": truncated_text,
             "$ai_sentiment_model": MODEL_NAME,
             "$ai_sentiment_messages": per_message_results,
         }

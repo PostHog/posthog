@@ -110,10 +110,8 @@ export function UserSentimentBar({ scores }: { scores: [number, number, number, 
 }
 
 export interface MessageSentiment {
-    text: string
     label: string
     score: number
-    scores: Record<string, number>
 }
 
 export function MessageSentimentBar({ sentiment }: { sentiment: MessageSentiment }): JSX.Element | null {
@@ -123,10 +121,7 @@ export function MessageSentimentBar({ sentiment }: { sentiment: MessageSentiment
     }
     const widthPercent = typeof sentiment.score === 'number' ? Math.round(sentiment.score * 100) : 50
     const barColor = SENTIMENT_BAR_COLOR[label]
-    const scores = sentiment.scores
-    const tooltipText = scores
-        ? `Positive: ${formatScore(scores.positive)} / Neutral: ${formatScore(scores.neutral)} / Negative: ${formatScore(scores.negative)}`
-        : `Sentiment: ${label}`
+    const tooltipText = `${label} (${formatScore(sentiment.score)})`
 
     return (
         <Tooltip title={tooltipText}>
