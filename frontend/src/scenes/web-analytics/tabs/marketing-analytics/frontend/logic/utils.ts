@@ -309,17 +309,28 @@ const sourceTileConfigs: Record<NativeMarketingSource, SourceTileConfig> = {
             cost: 'spend',
             impressions: 'impressions',
             clicks: 'clicks',
-            reportedConversion: 'conversions',
-            reportedConversionValue: 'conversion_values',
+            reportedConversion: 'actions',
+            reportedConversionValue: 'action_values',
             currencyColumn: 'account_currency',
         },
         specialConversionLogic: (table, tileColumnSelection) => {
+            // Use conversion action types from centralized config
+            const { omni: omniActionTypes, fallback: fallbackActionTypes } =
+                MARKETING_INTEGRATION_CONFIGS.MetaAds.conversionActionTypes
+
+            const buildArraySumExpr = (field: string, actionTypes: readonly string[]): string => {
+                const actionTypesStr = actionTypes.map((t) => `'${t}'`).join(', ')
+                return `arraySum(x -> JSONExtractFloat(x, 'value'), arrayFilter(x -> JSONExtractString(x, 'action_type') IN (${actionTypesStr}), JSONExtractArrayRaw(coalesce(${field}, '[]'))))`
+            }
+
             if (tileColumnSelection === MarketingAnalyticsColumnsSchemaNames.ReportedConversion) {
-                const hasConversionsColumn = table.fields && 'conversions' in table.fields
-                if (hasConversionsColumn) {
+                const hasActionsColumn = table.fields && 'actions' in table.fields
+                if (hasActionsColumn) {
+                    const omniSum = buildArraySumExpr('actions', omniActionTypes)
+                    const fallbackSum = buildArraySumExpr('actions', fallbackActionTypes)
                     return {
                         math: 'hogql' as any,
-                        math_hogql: 'SUM(toFloat(conversions))',
+                        math_hogql: `SUM(if(${omniSum} > 0, ${omniSum}, ${fallbackSum}))`,
                     }
                 }
                 return {
@@ -328,11 +339,13 @@ const sourceTileConfigs: Record<NativeMarketingSource, SourceTileConfig> = {
                 }
             }
             if (tileColumnSelection === MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue) {
-                const hasConversionValuesColumn = table.fields && 'conversion_values' in table.fields
-                if (hasConversionValuesColumn) {
+                const hasActionValuesColumn = table.fields && 'action_values' in table.fields
+                if (hasActionValuesColumn) {
+                    const omniSum = buildArraySumExpr('action_values', omniActionTypes)
+                    const fallbackSum = buildArraySumExpr('action_values', fallbackActionTypes)
                     return {
                         math: 'hogql' as any,
-                        math_hogql: 'SUM(ifNull(toFloat(conversion_values), 0))',
+                        math_hogql: `SUM(if(${omniSum} > 0, ${omniSum}, ${fallbackSum}))`,
                     }
                 }
                 return {
@@ -490,31 +503,30 @@ export function createMarketingTile(
     if (tileColumnSelection === 'roas') {
         const mappings = tileConfig.columnMappings
         const costColumn = mappings.cost
-        const conversionValueColumn = mappings.reportedConversionValue
         const needsDivision = mappings.costNeedsDivision
 
         // Build cost expression
         const costExpr = needsDivision ? `toFloat(${costColumn} / 1000000)` : `toFloat(${costColumn})`
 
-        // Build conversion value expression - check if column exists
-        const hasConversionValueColumn = table.fields && conversionValueColumn in table.fields
-        if (!hasConversionValueColumn) {
-            // If no conversion value column, ROAS is 0
-            return {
-                kind: NodeKind.DataWarehouseNode,
-                id: table.id,
-                name: integrationConfig.primarySource,
-                custom_name: `${table.name} roas`,
-                id_field: tileConfig.idField,
-                distinct_id_field: tileConfig.idField,
-                timestamp_field: tileConfig.timestampField,
-                table_name: table.name,
-                math: 'hogql' as any,
-                math_hogql: '0',
+        // Build conversion value numerator: use specialConversionLogic if available
+        let conversionValueExpr: string
+        const specialResult = tileConfig.specialConversionLogic?.(
+            table,
+            MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue
+        )
+        if (specialResult?.math_hogql) {
+            conversionValueExpr = specialResult.math_hogql
+        } else {
+            const conversionValueColumn = mappings.reportedConversionValue
+            const hasConversionValueColumn = table.fields && conversionValueColumn in table.fields
+            if (!hasConversionValueColumn) {
+                conversionValueExpr = '0'
+            } else {
+                conversionValueExpr = `SUM(ifNull(toFloat(${conversionValueColumn}), 0))`
             }
         }
 
-        const mathHogql = `SUM(ifNull(toFloat(${conversionValueColumn}), 0)) / nullIf(SUM(${costExpr}), 0)`
+        const mathHogql = conversionValueExpr === '0' ? '0' : `${conversionValueExpr} / nullIf(SUM(${costExpr}), 0)`
 
         return {
             kind: NodeKind.DataWarehouseNode,
