@@ -6,6 +6,7 @@ to fetch event data, classify sentiment, and emit a $ai_sentiment event.
 
 import json
 import uuid
+import asyncio
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -23,6 +24,10 @@ from posthog.temporal.llm_analytics.sentiment.extraction import extract_user_mes
 from posthog.temporal.llm_analytics.sentiment.model import MODEL_NAME, classify
 
 logger = structlog.get_logger(__name__)
+
+# Serializes classify() calls so only one thread runs the ONNX export at a time.
+# torch.export is not thread-safe; concurrent exports corrupt global state.
+_classify_lock = asyncio.Lock()
 
 SENTIMENT_RETRY_POLICY = RetryPolicy(
     maximum_attempts=3,
@@ -91,12 +96,19 @@ async def classify_sentiment_activity(input: SentimentClassificationInput) -> di
     # Truncate to model limit
     truncated_text = truncate_to_token_limit(user_text)
 
-    # Classify
-    result = classify(truncated_text)
+    # Classify (run in thread to avoid blocking the Temporal event loop).
+    # The async lock ensures only one coroutine loads the model at a time,
+    # preventing concurrent torch ONNX exports which are not thread-safe.
+    async with _classify_lock:
+        result = await asyncio.to_thread(classify, truncated_text)
 
     # Emit $ai_sentiment event
     trace_id = properties.get("$ai_trace_id")
     generation_event_uuid = event_data.get("uuid")
+    # Use the generation's logical ID so the sentiment event can nest under it
+    # in the trace tree. The frontend resolves $ai_parent_id against
+    # $ai_generation_id ?? $ai_span_id ?? event.id.
+    generation_parent_id = properties.get("$ai_generation_id") or properties.get("$ai_span_id") or generation_event_uuid
     distinct_id = event_data.get("distinct_id", "")
 
     def _emit():
@@ -108,6 +120,7 @@ async def classify_sentiment_activity(input: SentimentClassificationInput) -> di
 
         sentiment_properties: dict[str, Any] = {
             "$ai_trace_id": trace_id,
+            "$ai_parent_id": generation_parent_id,
             "$ai_generation_event_uuid": generation_event_uuid,
             "$ai_sentiment_label": result.label,
             "$ai_sentiment_score": result.score,
@@ -151,7 +164,7 @@ class RunSentimentClassificationWorkflow(PostHogWorkflow):
         result = await temporalio.workflow.execute_activity(
             classify_sentiment_activity,
             input,
-            start_to_close_timeout=timedelta(seconds=30),
+            start_to_close_timeout=timedelta(minutes=5),
             retry_policy=SENTIMENT_RETRY_POLICY,
         )
         return result

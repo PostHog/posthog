@@ -5,6 +5,8 @@ import json
 import pytest
 from unittest.mock import patch
 
+from parameterized import parameterized
+
 from posthog.temporal.llm_analytics.sentiment.model import SentimentResult
 from posthog.temporal.llm_analytics.sentiment.run_sentiment import (
     SentimentClassificationInput,
@@ -12,11 +14,20 @@ from posthog.temporal.llm_analytics.sentiment.run_sentiment import (
 )
 
 
-def _make_event_data(ai_input=None, team_id=1, uuid="test-uuid", distinct_id="user-1", person_id=None):
+def _make_event_data(
+    ai_input=None,
+    team_id=1,
+    uuid="test-uuid",
+    distinct_id="user-1",
+    person_id=None,
+    extra_properties=None,
+):
     properties = {}
     if ai_input is not None:
         properties["$ai_input"] = ai_input
     properties["$ai_trace_id"] = "trace-123"
+    if extra_properties:
+        properties.update(extra_properties)
     return {
         "team_id": team_id,
         "uuid": uuid,
@@ -121,3 +132,41 @@ class TestClassifySentimentActivity:
 
         assert result["skipped"] is True
         assert result["skip_reason"] == "no_ai_input"
+
+    @parameterized.expand(
+        [
+            ("generation_id", {"$ai_generation_id": "gen-abc"}, None, "gen-abc"),
+            ("span_id", {}, "span-xyz", "span-xyz"),
+            ("generation_id_over_span_id", {"$ai_generation_id": "gen-abc"}, "span-xyz", "gen-abc"),
+            ("fallback_to_event_uuid", {}, None, "test-uuid"),
+        ]
+    )
+    @pytest.mark.asyncio
+    @patch("posthog.temporal.llm_analytics.sentiment.run_sentiment.create_event")
+    @patch("posthog.temporal.llm_analytics.sentiment.run_sentiment.Team")
+    @patch("posthog.temporal.llm_analytics.sentiment.run_sentiment.classify")
+    async def test_parent_id_resolution(
+        self, _name, extra_props, span_id, expected_parent_id, mock_classify, mock_team_cls, mock_create_event
+    ):
+        mock_classify.return_value = SentimentResult(
+            label="neutral", score=0.9, scores={"positive": 0.05, "neutral": 0.9, "negative": 0.05}
+        )
+        mock_team_cls.objects.get.return_value = mock_team_cls
+
+        props = (
+            {"$ai_generation_id": extra_props.get("$ai_generation_id")} if "$ai_generation_id" in extra_props else {}
+        )
+        if span_id:
+            props["$ai_span_id"] = span_id
+
+        ai_input = [{"role": "user", "content": "hello"}]
+        event_data = _make_event_data(ai_input=ai_input, extra_properties=props)
+        input = SentimentClassificationInput(event_data=event_data)
+
+        result = await classify_sentiment_activity(input)
+
+        assert result["skipped"] is False
+        mock_create_event.assert_called_once()
+        call_kwargs = mock_create_event.call_args
+        sentiment_properties = call_kwargs.kwargs.get("properties") or call_kwargs[1].get("properties")
+        assert sentiment_properties["$ai_parent_id"] == expected_parent_id

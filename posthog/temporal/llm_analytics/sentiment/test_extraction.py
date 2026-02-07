@@ -12,7 +12,7 @@ class TestExtractUserMessages:
             {"role": "user", "content": "I'm frustrated with this feature"},
         ]
         result = extract_user_messages(ai_input)
-        assert result == "Hello, I need help. I'm frustrated with this feature"
+        assert result == "Hello, I need help\n\n---\n\nI'm frustrated with this feature"
 
     def test_anthropic_format(self):
         ai_input = [
@@ -21,7 +21,7 @@ class TestExtractUserMessages:
             {"role": "user", "content": [{"type": "text", "text": "Help me"}]},
         ]
         result = extract_user_messages(ai_input)
-        assert result == "Hello. Help me"
+        assert result == "Hello\n\n---\n\nHelp me"
 
     def test_none_input(self):
         assert extract_user_messages(None) == ""

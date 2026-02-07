@@ -9,7 +9,7 @@ def extract_user_messages(ai_input: Union[str, list, dict, None]) -> str:
     """Extract and concatenate all user messages from $ai_input.
 
     Filters for role === "user" messages, extracts text content,
-    and concatenates with ". " separator. Handles OpenAI and
+    and concatenates with "\n\n---\n\n" separator. Handles OpenAI and
     Anthropic message formats.
 
     Returns empty string if no user messages found, input is missing,
@@ -33,7 +33,7 @@ def extract_user_messages(ai_input: Union[str, list, dict, None]) -> str:
                 text = _extract_content_text(msg.get("content", ""))
                 if text:
                     user_texts.append(text)
-        return ". ".join(user_texts)
+        return "\n\n---\n\n".join(user_texts)
 
     return ""
 

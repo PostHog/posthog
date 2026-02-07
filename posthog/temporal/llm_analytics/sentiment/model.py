@@ -3,10 +3,16 @@
 Uses ONNX Runtime for inference (~60MB) instead of PyTorch (~2GB).
 Loads the model once per worker process (singleton) and provides a
 classify() function that returns three-class sentiment scores.
+
+The ONNX export is cached to disk so subsequent worker restarts skip
+the expensive PyTorch→ONNX conversion (~10s).
 """
 
+import os
 import threading
 from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
 
 import structlog
 
@@ -14,6 +20,7 @@ logger = structlog.get_logger(__name__)
 
 MODEL_NAME = "cardiffnlp/twitter-roberta-base-sentiment-latest"
 LABELS = ["negative", "neutral", "positive"]
+_ONNX_CACHE_DIR = Path(os.environ.get("POSTHOG_SENTIMENT_MODEL_CACHE", "/tmp/posthog-sentiment-onnx-cache"))
 
 _model_lock = threading.Lock()
 _pipeline = None
@@ -27,7 +34,12 @@ class SentimentResult:
 
 
 def _load_pipeline():
-    """Load the sentiment classification pipeline via ONNX Runtime. Called once per worker."""
+    """Load the sentiment classification pipeline via ONNX Runtime. Called once per worker.
+
+    Uses a threading.Lock to ensure only one thread performs the export.
+    The torch ONNX exporter is not thread-safe, so concurrent threads
+    must wait rather than export in parallel.
+    """
     global _pipeline
     if _pipeline is not None:
         return _pipeline
@@ -40,21 +52,52 @@ def _load_pipeline():
         from optimum.onnxruntime import ORTModelForSequenceClassification
         from transformers import AutoTokenizer, pipeline
 
-        logger.info("Loading sentiment model (ONNX)", model=MODEL_NAME)
-        tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
-        model = ORTModelForSequenceClassification.from_pretrained(
-            MODEL_NAME,
-            export=True,
-        )
-        _pipeline = pipeline(
-            "sentiment-analysis",
-            model=model,
-            tokenizer=tokenizer,
-            top_k=None,  # Return all class scores
-            truncation=True,
-            max_length=512,
-        )
-        logger.info("Sentiment model loaded (ONNX)", model=MODEL_NAME)
+        cache_dir = str(_ONNX_CACHE_DIR)
+        onnx_cached = (_ONNX_CACHE_DIR / "model.onnx").exists()
+
+        try:
+            if onnx_cached:
+                logger.info("Loading sentiment model from ONNX cache", cache_dir=cache_dir)
+                tokenizer = AutoTokenizer.from_pretrained(cache_dir)
+                model = ORTModelForSequenceClassification.from_pretrained(cache_dir)
+            else:
+                logger.info("Exporting sentiment model to ONNX (first run)", model=MODEL_NAME)
+                tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
+                # PyTorch 2.9+ defaults torch.onnx.export to dynamo=True.
+                # Optimum 1.25 does not override this, and the dynamo path can
+                # emit external data files into temp dirs that disappear before
+                # ORTModel loads them.
+                import torch
+
+                original_export = torch.onnx.export
+
+                def export_with_dynamo_disabled(*args: Any, **kwargs: Any):
+                    kwargs.setdefault("dynamo", False)
+                    return original_export(*args, **kwargs)
+
+                torch.onnx.export = export_with_dynamo_disabled
+                try:
+                    model = ORTModelForSequenceClassification.from_pretrained(MODEL_NAME, export=True)
+                finally:
+                    torch.onnx.export = original_export
+                _ONNX_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+                model.save_pretrained(cache_dir)
+                tokenizer.save_pretrained(cache_dir)
+                logger.info("ONNX model cached to disk", cache_dir=cache_dir)
+
+            _pipeline = pipeline(
+                "sentiment-analysis",
+                model=model,
+                tokenizer=tokenizer,
+                top_k=None,  # Return all class scores
+                truncation=True,
+                max_length=512,
+            )
+        except Exception:
+            logger.exception("Failed to load sentiment model")
+            raise
+
+        logger.info("Sentiment model loaded", model=MODEL_NAME)
         return _pipeline
 
 
