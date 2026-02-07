@@ -527,6 +527,32 @@ export const llmAnalyticsDashboardLogic = kea<llmAnalyticsDashboardLogicType>([
                     },
                 },
                 {
+                    title: 'Sentiment',
+                    description: 'Distribution of user message sentiment across generations',
+                    query: {
+                        kind: NodeKind.TrendsQuery,
+                        series: [
+                            {
+                                event: '$ai_sentiment',
+                                name: '$ai_sentiment',
+                                kind: NodeKind.EventsNode,
+                            },
+                        ],
+                        breakdownFilter: {
+                            breakdown: '$ai_sentiment_label',
+                        },
+                        dateRange: { date_from: dashboardDateFilter.dateFrom, date_to: dashboardDateFilter.dateTo },
+                        properties: propertyFilters,
+                        filterTestAccounts: shouldFilterTestAccounts,
+                    },
+                    context: {
+                        groupTypeLabel: 'sentiment events',
+                        insightProps: {
+                            dashboardItemId: `new-sentiment-query`,
+                        },
+                    },
+                },
+                {
                     title: 'Generations by HTTP status',
                     query: {
                         kind: NodeKind.TrendsQuery,
