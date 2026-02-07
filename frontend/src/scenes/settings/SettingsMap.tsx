@@ -223,6 +223,26 @@ export const SETTINGS_MAP: SettingSection[] = [
         title: 'AI',
         settings: [
             {
+                id: 'organization-ai-consent',
+                title: 'PostHog AI data analysis',
+                description: (
+                    // Note: Sync the copy below with AIConsentPopoverWrapper.tsx
+                    <>
+                        PostHog AI features, such as the PostHog AI chat, use{' '}
+                        <Tooltip title={`As of ${dayjs().format('MMMM YYYY')}: Anthropic and OpenAI`}>
+                            <dfn>external AI services</dfn>
+                        </Tooltip>{' '}
+                        for data analysis.
+                        <br />
+                        This <i>can</i> involve transfer of identifying user data, so we ask for your org-wide consent
+                        below.
+                        <br />
+                        <strong>Your data will not be used for training models.</strong>
+                    </>
+                ),
+                component: <OrganizationAI />,
+            },
+            {
                 id: 'core-memory',
                 title: 'Memory',
                 description:
@@ -822,26 +842,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'organization-logo',
                 title: 'Logo',
                 component: <OrganizationLogo />,
-            },
-            {
-                id: 'organization-ai-consent',
-                title: 'PostHog AI data analysis',
-                description: (
-                    // Note: Sync the copy below with AIConsentPopoverWrapper.tsx
-                    <>
-                        PostHog AI features, such as the PostHog AI chat, use{' '}
-                        <Tooltip title={`As of ${dayjs().format('MMMM YYYY')}: Anthropic and OpenAI`}>
-                            <dfn>external AI services</dfn>
-                        </Tooltip>{' '}
-                        for data analysis.
-                        <br />
-                        This <i>can</i> involve transfer of identifying user data, so we ask for your org-wide consent
-                        below.
-                        <br />
-                        <strong>Your data will not be used for training models.</strong>
-                    </>
-                ),
-                component: <OrganizationAI />,
             },
             {
                 id: 'organization-ip-anonymization-default',
