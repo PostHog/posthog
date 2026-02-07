@@ -6,8 +6,8 @@ from pydantic import BaseModel, Field
 from posthog.schema import MaxExperimentSummaryContext
 
 from posthog.models import Experiment, FeatureFlag
-from posthog.session_recordings.queries.session_recording_list_from_query import filter_from_params_to_query
 from posthog.session_recordings.session_recording_api import list_recordings_from_query
+from posthog.session_recordings.utils import filter_from_params_to_query
 from posthog.sync import database_sync_to_async
 
 from ee.hogai.llm import MaxChatOpenAI
