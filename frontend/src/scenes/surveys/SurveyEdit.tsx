@@ -43,7 +43,7 @@ import { SurveyActionTrigger } from 'scenes/surveys/SurveyActionTrigger'
 import { SurveyCancelEventTrigger, SurveyEventTrigger } from 'scenes/surveys/SurveyEventTrigger'
 import { SurveyRepeatSchedule } from 'scenes/surveys/SurveyRepeatSchedule'
 import { SurveyResponsesCollection } from 'scenes/surveys/SurveyResponsesCollection'
-import { SurveyTranslations } from 'scenes/surveys/SurveyTranslations'
+import { COMMON_LANGUAGES, SurveyTranslations } from 'scenes/surveys/SurveyTranslations'
 import { SurveyWidgetCustomization } from 'scenes/surveys/SurveyWidgetCustomization'
 import { sanitizeSurveyAppearance } from 'scenes/surveys/utils'
 import { urls } from 'scenes/urls'
@@ -64,17 +64,16 @@ import {
     SurveyType,
 } from '~/types'
 
-import { SurveyBranchingFlowModal } from './branching-flow/SurveyBranchingFlowModal'
-import { SURVEY_TYPE_LABEL_MAP, SurveyMatchTypeLabels, defaultSurveyFieldValues } from './constants'
 import { SurveyAPIEditor } from './SurveyAPIEditor'
 import { SurveyAppearancePreview } from './SurveyAppearancePreview'
 import { HTMLEditor, PresentationTypeCard } from './SurveyAppearanceUtils'
 import { SurveyEditQuestionGroup, SurveyEditQuestionHeader } from './SurveyEditQuestionRow'
 import { SurveyFormAppearance } from './SurveyFormAppearance'
-import { COMMON_LANGUAGES } from './SurveyTranslations'
 import { DataCollectionType, SurveyEditSection, surveyLogic } from './surveyLogic'
 import { surveysLogic } from './surveysLogic'
 import { canUseSurveyWizard } from './utils'
+import { SurveyBranchingFlowModal } from './branching-flow/SurveyBranchingFlowModal'
+import { SURVEY_TYPE_LABEL_MAP, SurveyMatchTypeLabels, defaultSurveyFieldValues } from './constants'
 
 function SurveyCompletionConditions(): JSX.Element {
     const { survey, dataCollectionType, isAdaptiveLimitFFEnabled } = useValues(surveyLogic)
