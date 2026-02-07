@@ -56,21 +56,23 @@ describe('experimentsLogic', () => {
 
     describe('feature flag modal filters', () => {
         it('updates filters and triggers new API call', async () => {
+            jest.useFakeTimers()
             api.get.mockClear()
 
-            await expectLogic(logic, () => {
-                logic.actions.setFeatureFlagModalFilters({ search: 'test', page: 1 })
-            })
-                .toMatchValues({
-                    featureFlagModalFilters: expect.objectContaining({
-                        search: 'test',
-                        page: 1,
-                    }),
+            logic.actions.setFeatureFlagModalFilters({ search: 'test', page: 1 })
+
+            expect(logic.values.featureFlagModalFilters).toEqual(
+                expect.objectContaining({
+                    search: 'test',
+                    page: 1,
                 })
-                .delay(350) // Wait for debounce
-                .toFinishAllListeners()
+            )
+
+            await jest.advanceTimersByTimeAsync(350)
 
             expect(api.get).toHaveBeenCalledWith(expect.stringContaining('search=test'))
+
+            jest.useRealTimers()
         })
 
         it('resets filters to defaults', async () => {
@@ -90,13 +92,12 @@ describe('experimentsLogic', () => {
         })
 
         it('resets filters and reloads feature flags', async () => {
+            jest.useFakeTimers()
             api.get.mockClear()
 
-            await expectLogic(logic, () => {
-                logic.actions.setFeatureFlagModalFilters({ search: 'test' })
-            })
-                .delay(350) // Wait for debounce
-                .toFinishAllListeners()
+            logic.actions.setFeatureFlagModalFilters({ search: 'test' })
+            await jest.advanceTimersByTimeAsync(350)
+            jest.useRealTimers()
 
             api.get.mockClear()
 
@@ -239,27 +240,27 @@ describe('experimentsLogic', () => {
         })
 
         it('updates filters and triggers API call with debounce', async () => {
+            jest.useFakeTimers()
             api.get.mockClear()
 
-            await expectLogic(logic, () => {
-                logic.actions.setExperimentsFilters({ search: 'test experiment' })
-            })
-                .delay(350)
-                .toFinishAllListeners()
+            logic.actions.setExperimentsFilters({ search: 'test experiment' })
+            await jest.advanceTimersByTimeAsync(350)
 
             expect(api.get).toHaveBeenCalledWith(expect.stringContaining('search=test%20experiment'))
+
+            jest.useRealTimers()
         })
 
         it('filters archived experiments', async () => {
+            jest.useFakeTimers()
             api.get.mockClear()
 
-            await expectLogic(logic, () => {
-                logic.actions.setExperimentsFilters({ archived: true })
-            })
-                .delay(350)
-                .toFinishAllListeners()
+            logic.actions.setExperimentsFilters({ archived: true })
+            await jest.advanceTimersByTimeAsync(350)
 
             expect(api.get).toHaveBeenCalledWith(expect.stringContaining('archived=true'))
+
+            jest.useRealTimers()
         })
 
         it('constructs correct params from filters', () => {
