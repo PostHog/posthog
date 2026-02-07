@@ -121,6 +121,8 @@ NON_RETRYABLE_ERROR_TYPES = (
     "ParamValidationError",
     # Invalid S3 credentials when using `copy_into_redshift_activity_from_stage`.
     "InvalidCredentialsError",
+    # Raised by Redshift client when the cluster has insufficient system resources.
+    "InsufficientSystemResourcesError",
 )
 
 
@@ -140,6 +142,15 @@ class StringLimitExceededError(Exception):
         )
 
         super().__init__(msg)
+
+
+class InsufficientSystemResourcesError(Exception):
+    """Error raised when the Redshift cluster has insufficient system resources.
+
+    For example: "Insufficient system resources to support data size: consider increasing compute size. (Disk Full)"
+    """
+
+    pass
 
 
 class ClientErrorGroup(ExceptionGroup):
@@ -974,7 +985,15 @@ class RedshiftConsumerFromStage(ConsumerFromStage):
 
         async with self.client.async_client_cursor() as cursor:
             async with self.client.connection.transaction():
-                await cursor.execute(self.current_buffer.read())
+                try:
+                    await cursor.execute(self.current_buffer.read())
+                except psycopg.errors.InternalError_ as err:
+                    self.logger.exception("Error executing insert query", error=str(err))
+                    self.external_logger.error("Error executing insert query: %s", str(err))  # noqa: TRY400
+                    if "Insufficient system resources" in str(err):
+                        raise InsufficientSystemResourcesError(str(err)) from err
+                    else:
+                        raise
 
         self.logger.debug(
             "Insert query finished",
