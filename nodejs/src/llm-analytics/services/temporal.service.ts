@@ -156,6 +156,7 @@ export class TemporalService {
             workflowId,
             workflowIdConflictPolicy: 'USE_EXISTING',
             workflowTaskTimeout: '2 minutes',
+            workflowExecutionTimeout: '10 minutes',
         })
 
         sentimentWorkflowsStarted.labels({ status: 'success' }).inc()

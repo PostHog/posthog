@@ -21,7 +21,9 @@ from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.llm_analytics.sentiment.constants import (
-    ACTIVITY_TIMEOUT,
+    ACTIVITY_HEARTBEAT_TIMEOUT,
+    ACTIVITY_SCHEDULE_TO_CLOSE_TIMEOUT,
+    ACTIVITY_START_TO_CLOSE_TIMEOUT,
     MODEL_NAME,
     RETRY_BACKOFF_COEFFICIENT,
     RETRY_INITIAL_INTERVAL,
@@ -105,11 +107,12 @@ async def classify_sentiment_activity(input: SentimentClassificationInput) -> di
             "skip_reason": "no_user_messages",
         }
 
-    # Classify each user message individually
+    # Classify each user message individually, heartbeating between messages
+    # so Temporal knows we're alive (especially important with many messages).
     per_message_results: list[dict[str, Any]] = []
     classify_results: list[SentimentClassificationResult] = []
     async with _classify_lock:
-        for text in individual_messages:
+        for i, text in enumerate(individual_messages):
             truncated = truncate_to_token_limit(text)
             msg_result = await asyncio.to_thread(classify, truncated)
             per_message_results.append(
@@ -126,6 +129,7 @@ async def classify_sentiment_activity(input: SentimentClassificationInput) -> di
                     text=truncated,
                 )
             )
+            temporalio.activity.heartbeat(f"classified {i + 1}/{len(individual_messages)}")
 
     # Overall sentiment = "worst" (negative > neutral > positive) for backward compat
     worst = max(classify_results, key=lambda r: SEVERITY.get(r.label, 0))
@@ -198,7 +202,9 @@ class RunSentimentClassificationWorkflow(PostHogWorkflow):
         result = await temporalio.workflow.execute_activity(
             classify_sentiment_activity,
             input,
-            start_to_close_timeout=ACTIVITY_TIMEOUT,
+            start_to_close_timeout=ACTIVITY_START_TO_CLOSE_TIMEOUT,
+            schedule_to_close_timeout=ACTIVITY_SCHEDULE_TO_CLOSE_TIMEOUT,
+            heartbeat_timeout=ACTIVITY_HEARTBEAT_TIMEOUT,
             retry_policy=SENTIMENT_RETRY_POLICY,
         )
         return result

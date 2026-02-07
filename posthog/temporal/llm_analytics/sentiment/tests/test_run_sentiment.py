@@ -13,6 +13,14 @@ from posthog.temporal.llm_analytics.sentiment.run_sentiment import (
     classify_sentiment_activity,
 )
 
+pytestmark = pytest.mark.usefixtures("_mock_heartbeat")
+
+
+@pytest.fixture(autouse=True)
+def _mock_heartbeat():
+    with patch("temporalio.activity.heartbeat"):
+        yield
+
 
 def _make_event_data(
     ai_input=None,
