@@ -125,6 +125,60 @@ def find_dependent_flags(flag_to_check: FeatureFlag) -> list[FeatureFlag]:
     )
 
 
+def find_dependent_flags_batch(flags_to_check: list[FeatureFlag]) -> dict[int, list[FeatureFlag]]:
+    """Find all active flags that depend on any of the given flags via flag-type filter properties.
+
+    Returns a dict mapping each flag ID to its list of dependent flags.
+    This is more efficient than calling find_dependent_flags for each flag individually.
+    """
+    if not flags_to_check:
+        return {}
+
+    # All flags should be from the same team
+    team = flags_to_check[0].team
+    flag_ids = [f.id for f in flags_to_check]
+
+    # Build OR conditions for each flag ID we're checking
+    # We need to find any flag that depends on ANY of these flags
+    or_conditions = " OR ".join(["prop->>'key' = %s" for _ in flag_ids])
+
+    # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
+    dependent_flags = list(
+        FeatureFlag.objects.filter(team=team, deleted=False, active=True)
+        .exclude(id__in=flag_ids)
+        .extra(
+            where=[
+                f"""
+                    EXISTS (
+                        SELECT 1 FROM jsonb_array_elements(filters->'groups') AS grp
+                        CROSS JOIN jsonb_array_elements(grp->'properties') AS prop
+                        WHERE prop->>'type' = 'flag'
+                        AND ({or_conditions})
+                    )
+                    """
+            ],
+            params=[str(fid) for fid in flag_ids],
+        )
+        .order_by("key")
+    )
+
+    # Build the result mapping by checking which flags each dependent flag depends on
+    result: dict[int, list[FeatureFlag]] = {fid: [] for fid in flag_ids}
+    flag_id_strs = {str(fid) for fid in flag_ids}
+
+    for dep_flag in dependent_flags:
+        groups = dep_flag.filters.get("groups", [])
+        for group in groups:
+            properties = group.get("properties", [])
+            for prop in properties:
+                if prop.get("type") == "flag" and prop.get("key") in flag_id_strs:
+                    dep_flag_id = int(prop["key"])
+                    if dep_flag_id in result and dep_flag not in result[dep_flag_id]:
+                        result[dep_flag_id].append(dep_flag)
+
+    return result
+
+
 def _get_flag_rollout_info(flag: FeatureFlag, checker: FeatureFlagStatusChecker) -> dict[str, Any]:
     """Compute rollout state for a flag to include in bulk delete response.
 
@@ -1928,6 +1982,10 @@ class FeatureFlagViewSet(
         ).prefetch_related("features", "experiment_set")
 
         flags_by_id = {flag.id: flag for flag in flags}
+        flags_list = list(flags)
+
+        # Batch query for dependent flags (avoids N+1 queries)
+        dependent_flags_map = find_dependent_flags_batch(flags_list)
 
         deleted = []
         errors = []
@@ -1943,7 +2001,8 @@ class FeatureFlagViewSet(
                 errors.append({"id": flag_id, "reason": "Flag not found"})
                 continue
             # Check for linked early access features
-            if flag.features.count() > 0:
+            # Use list() to leverage the prefetched data instead of causing another query
+            if len(list(flag.features.all())) > 0:
                 errors.append(
                     {
                         "id": flag_id,
@@ -1954,9 +2013,10 @@ class FeatureFlagViewSet(
                 continue
 
             # Check for linked active experiments
-            active_experiments = flag.experiment_set.filter(deleted=False)
-            if active_experiments.exists():
-                experiment_ids = list(active_experiments.values_list("id", flat=True))
+            # Filter in Python to leverage the prefetched experiment_set
+            active_experiments = [exp for exp in flag.experiment_set.all() if not exp.deleted]
+            if active_experiments:
+                experiment_ids = [exp.id for exp in active_experiments]
                 errors.append(
                     {
                         "id": flag_id,
@@ -1966,8 +2026,8 @@ class FeatureFlagViewSet(
                 )
                 continue
 
-            # Check for other flags that depend on this flag
-            dependent_flags = find_dependent_flags(flag)
+            # Check for other flags that depend on this flag (using batch-fetched data)
+            dependent_flags = dependent_flags_map.get(flag_id, [])
             if dependent_flags:
                 dependent_flag_names = [f"{f.key} (ID: {f.id})" for f in dependent_flags[:3]]
                 if len(dependent_flags) > 3:
@@ -1989,7 +2049,9 @@ class FeatureFlagViewSet(
             old_key = flag.key
 
             # If all experiments are soft-deleted, rename the key to free it up
-            if flag.experiment_set.filter(deleted=True).exists():
+            # Use the already-fetched prefetched data
+            has_deleted_experiments = any(exp.deleted for exp in flag.experiment_set.all())
+            if has_deleted_experiments:
                 flag.key = f"{flag.key}:deleted:{flag.id}"
 
             flag.deleted = True

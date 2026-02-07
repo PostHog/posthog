@@ -128,6 +128,7 @@ export const flagSelectionLogic = kea<flagSelectionLogicType>([
                 const end = Math.max(previouslyCheckedIndex, index)
                 const flagIdsInRange = displayedFlags
                     .slice(start, end + 1)
+                    .filter((f: FeatureFlagType) => f.can_edit)
                     .map((f: FeatureFlagType) => f.id)
                     .filter((fid: number | null): fid is number => fid !== null)
 

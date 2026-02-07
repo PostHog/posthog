@@ -300,6 +300,7 @@ export function OverViewTab({
                             clearSelection()
                         }
                     }}
+                    aria-label="Select all feature flags"
                 />
             ),
             render: function Render(_: unknown, featureFlag: FeatureFlagType, index: number) {
@@ -315,6 +316,7 @@ export function OverViewTab({
                         disabledReason={
                             !featureFlag.can_edit ? "You don't have permission to edit this feature flag." : undefined
                         }
+                        aria-label={`Select feature flag ${featureFlag.key}`}
                     />
                 )
             },
