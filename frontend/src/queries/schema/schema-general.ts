@@ -1065,6 +1065,7 @@ export interface ChartSettings {
     showLegend?: boolean
     showTotalRow?: boolean
     heatmap?: HeatmapSettings
+    incompletePeriodDisplay?: IncompletePeriodDisplay
 }
 
 export interface ConditionalFormattingRule {
@@ -1256,6 +1257,8 @@ export enum ResultCustomizationBy {
     Value = 'value',
     Position = 'position',
 }
+
+export type IncompletePeriodDisplay = 'dashed' | 'solid' | 'hidden'
 
 export type TrendsFormulaNode = {
     formula: string

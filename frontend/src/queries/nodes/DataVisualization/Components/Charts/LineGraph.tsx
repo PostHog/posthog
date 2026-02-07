@@ -39,6 +39,7 @@ import { ChartSettings, GoalLine, YAxisSettings } from '~/queries/schema/schema-
 import { ChartDisplayType, GraphType } from '~/types'
 
 import { AxisSeries, AxisSeriesSettings, formatDataWithSettings } from '../../dataVisualizationLogic'
+import { displayLogic } from '../../displayLogic'
 import { AxisBreakdownSeries } from '../seriesBreakdownLogic'
 import { lineGraphLogic } from './lineGraphLogic'
 
@@ -138,7 +139,7 @@ export const LineGraph = ({
         if (!isShiftPressed) {
             setHoveredDatasetIndex(null)
         }
-    }, [isShiftPressed])
+    }, [isShiftPressed, setHoveredDatasetIndex])
 
     const isBarChart =
         visualizationType === ChartDisplayType.ActionsBar || visualizationType === ChartDisplayType.ActionsStackedBar
@@ -146,21 +147,39 @@ export const LineGraph = ({
     const isAreaChart = visualizationType === ChartDisplayType.ActionsAreaGraph
     const isHighlightBarMode = isBarChart && isStackedBarChart && isShiftPressed
 
+    const { incompleteState } = useValues(displayLogic)
+
+    const effectiveXData = useMemo(() => {
+        if (!xData || !incompleteState.shouldHide) {
+            return xData
+        }
+        const { incompleteFrom, incompleteTo } = incompleteState
+        return { ...xData, data: xData.data.filter((_, i) => i < incompleteFrom || i > incompleteTo) }
+    }, [xData, incompleteState.shouldHide, incompleteState.incompleteFrom, incompleteState.incompleteTo])
+
     const MAX_SERIES = 200
     const ySeriesData = useMemo(() => {
         if (!yData) {
             return null
         }
-        if (yData.length > MAX_SERIES) {
+        let data = yData
+        if (data.length > MAX_SERIES) {
             if (!dashboardId) {
                 lemonToast.warning(
                     `This breakdown has too many series (${yData.length}). Only showing top ${MAX_SERIES} series in the chart. All series are still available in the table below.`
                 )
             }
-            return yData.slice(0, MAX_SERIES)
+            data = data.slice(0, MAX_SERIES)
         }
-        return yData
-    }, [yData, dashboardId])
+        if (incompleteState.shouldHide) {
+            const { incompleteFrom, incompleteTo } = incompleteState
+            data = data.map((series) => ({
+                ...series,
+                data: series.data.filter((_, i) => i < incompleteFrom || i > incompleteTo),
+            })) as typeof data
+        }
+        return data
+    }, [yData, dashboardId, incompleteState.shouldHide, incompleteState.trimCount])
 
     const datasets = useMemo(() => {
         if (!ySeriesData) {
@@ -193,6 +212,8 @@ export const LineGraph = ({
                 return rest.column.name
             }
 
+            const { incompleteFrom, incompleteTo } = incompleteState
+
             return {
                 data: seriesData,
                 label: getLabel(),
@@ -207,6 +228,20 @@ export const LineGraph = ({
                 type: graphType,
                 fill: isAreaChart ? 'origin' : false,
                 yAxisID,
+                ...(incompleteState.shouldDash && graphType === GraphType.Line
+                    ? {
+                          segment: {
+                              borderDash: (ctx: { p0DataIndex: number }) => {
+                                  const p0 = ctx.p0DataIndex
+                                  const p1 = p0 + 1
+                                  return (p0 >= incompleteFrom && p0 <= incompleteTo) ||
+                                      (p1 >= incompleteFrom && p1 <= incompleteTo)
+                                      ? [8, 4]
+                                      : []
+                              },
+                          },
+                      }
+                    : {}),
                 ...(settings?.display?.trendLine && xData && yData && xData.data.length > 0 && seriesData.length > 0
                     ? {
                           trendlineLinear: {
@@ -228,6 +263,7 @@ export const LineGraph = ({
         hoveredDatasetIndex,
         visualizationType,
         chartSettings.stackBars100,
+        incompleteState,
     ])
 
     const { canvasRef } = useChart({
@@ -237,8 +273,8 @@ export const LineGraph = ({
             let xSeriesData: AxisSeries<string>
             let hasRightYAxis = false
             let hasLeftYAxis = false
-            if (xData && ySeriesData && datasets) {
-                xSeriesData = xData
+            if (effectiveXData && ySeriesData && datasets) {
+                xSeriesData = effectiveXData
                 hasRightYAxis = !!ySeriesData.find((n) => n.settings?.display?.yAxisPosition === 'right')
                 hasLeftYAxis =
                     !chartSettings.stackBars100 &&
@@ -613,7 +649,7 @@ export const LineGraph = ({
             }
         },
         deps: [
-            xData,
+            effectiveXData,
             yData,
             visualizationType,
             goalLines,
@@ -622,6 +658,7 @@ export const LineGraph = ({
             getTooltip,
             isHighlightBarMode,
             hoveredDatasetIndex,
+            incompleteState,
         ],
     })
 

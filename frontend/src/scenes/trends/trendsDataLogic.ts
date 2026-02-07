@@ -1,7 +1,6 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
 import { DataColorTheme, DataColorToken } from 'lib/colors'
-import { dayjs } from 'lib/dayjs'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { getColorFromToken } from 'scenes/dataThemeLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -16,6 +15,7 @@ import {
     getTrendResultCustomizationColorToken,
     getTrendResultCustomizationKey,
 } from 'scenes/insights/utils'
+import { computeIncompleteOffset } from 'scenes/insights/utils/incompletePeriodUtils'
 
 import {
     BreakdownFilter,
@@ -266,21 +266,10 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
         incompletenessOffsetFromEnd: [
             (s) => [s.results, s.interval],
             (results, interval) => {
-                // Returns negative number of points to paint over starting from end of array
                 if (results[0]?.days === undefined) {
                     return 0
                 }
-                const startDate = dayjs()
-                    .tz('utc', true)
-                    .startOf(interval ?? 'd')
-                const startIndex = results[0].days.findIndex((day: string) => {
-                    return dayjs(day).tz('utc', true) >= startDate
-                })
-
-                if (startIndex !== undefined && startIndex !== -1) {
-                    return startIndex - results[0].days.length
-                }
-                return 0
+                return computeIncompleteOffset(results[0].days, interval ?? 'd')
             },
         ],
 

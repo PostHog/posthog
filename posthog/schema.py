@@ -2036,6 +2036,12 @@ class HogQueryResponse(BaseModel):
     stdout: str | None = None
 
 
+class IncompletePeriodDisplay(StrEnum):
+    DASHED = "dashed"
+    SOLID = "solid"
+    HIDDEN = "hidden"
+
+
 class InfinityValue(float, Enum):
     NUMBER_999999 = 999999
     NUMBER__999999 = -999999
@@ -4685,6 +4691,7 @@ class ChartSettings(BaseModel):
     )
     goalLines: list[GoalLine] | None = None
     heatmap: HeatmapSettings | None = None
+    incompletePeriodDisplay: IncompletePeriodDisplay | None = None
     leftYAxisSettings: YAxisSettings | None = None
     rightYAxisSettings: YAxisSettings | None = None
     seriesBreakdownColumn: str | None = None

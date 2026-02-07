@@ -1,11 +1,30 @@
 import * as d3 from 'd3'
-import { actions, afterMount, connect, kea, key, listeners, path, props, reducers } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 
-import { GoalLine } from '~/queries/schema/schema-general'
+import { detectIntervalFromXData, findIncompleteRange } from 'scenes/insights/utils/incompletePeriodUtils'
 
-import { dataVisualizationLogic } from './dataVisualizationLogic'
+import { ChartSettings, GoalLine, IncompletePeriodDisplay } from '~/queries/schema/schema-general'
+import { ChartDisplayType } from '~/types'
+
+import { AxisSeries, dataVisualizationLogic } from './dataVisualizationLogic'
 import type { displayLogicType } from './displayLogicType'
+
+export interface IncompletePeriodState {
+    incompleteFrom: number
+    incompleteTo: number
+    trimCount: number
+    shouldHide: boolean
+    shouldDash: boolean
+}
+
+export const COMPLETE_STATE: IncompletePeriodState = {
+    incompleteFrom: -1,
+    incompleteTo: -1,
+    trimCount: 0,
+    shouldHide: false,
+    shouldDash: false,
+}
 
 export interface DisplayLogicProps {
     key: string
@@ -16,7 +35,7 @@ export const displayLogic = kea<displayLogicType>([
     path(['queries', 'nodes', 'DataVisualization', 'displayLogic']),
     props({ key: '' } as DisplayLogicProps),
     connect(() => ({
-        values: [dataVisualizationLogic, ['yData', 'query', 'chartSettings']],
+        values: [dataVisualizationLogic, ['xData', 'yData', 'query', 'chartSettings', 'visualizationType']],
         actions: [dataVisualizationLogic, ['setQuery', 'updateChartSettings', '_setQuery']],
     })),
     actions(({ values }) => ({
@@ -55,6 +74,41 @@ export const displayLogic = kea<displayLogicType>([
                 setGoalLines: (_state, { goalLines }) => {
                     return goalLines
                 },
+            },
+        ],
+    }),
+    selectors({
+        incompleteState: [
+            (s) => [s.xData, s.chartSettings, s.visualizationType],
+            (
+                xData: AxisSeries<string> | null,
+                chartSettings: ChartSettings,
+                visualizationType: ChartDisplayType
+            ): IncompletePeriodState => {
+                const incompletePeriodDisplay: IncompletePeriodDisplay =
+                    chartSettings.incompletePeriodDisplay ?? 'dashed'
+                const isBarChart =
+                    visualizationType === ChartDisplayType.ActionsBar ||
+                    visualizationType === ChartDisplayType.ActionsStackedBar
+
+                if (isBarChart || !xData?.data?.length) {
+                    return COMPLETE_STATE
+                }
+                const interval = detectIntervalFromXData(xData.data)
+                if (!interval) {
+                    return COMPLETE_STATE
+                }
+                const range = findIncompleteRange(xData.data, interval)
+                if (!range) {
+                    return COMPLETE_STATE
+                }
+                return {
+                    incompleteFrom: range.from,
+                    incompleteTo: range.to,
+                    trimCount: incompletePeriodDisplay === 'hidden' ? range.count : 0,
+                    shouldHide: incompletePeriodDisplay === 'hidden',
+                    shouldDash: incompletePeriodDisplay === 'dashed',
+                }
             },
         ],
     }),
