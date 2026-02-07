@@ -280,7 +280,7 @@ def find_missing_contiguous_windows(
         is_covered = False
         for job in existing_jobs:
             if (
-                job.status == PreaggregationJob.Status.READY
+                job.status in (PreaggregationJob.Status.READY, PreaggregationJob.Status.PENDING)
                 and job.time_range_start <= window_start
                 and job.time_range_end >= window_end
             ):
@@ -440,11 +440,14 @@ class PreaggregationExecutor:
     """
     Executes preaggregation jobs with configurable waiting behavior.
 
+    When a PENDING job already exists for a requested range, the executor always
+    waits for it rather than creating a duplicate. This is enforced by a partial
+    unique index that prevents multiple PENDING jobs for the same range.
+
     TODO: Consider replacing polling with a task queue (e.g. Celery) to avoid
     tying up a thread/process for up to wait_timeout_seconds doing nothing.
 
     Settings can be configured at initialization:
-    - wait_for_pending: Whether to wait for pending jobs (default True)
     - wait_timeout_seconds: Max time to wait for pending jobs (default 180s)
     - poll_interval_seconds: Initial poll interval, doubles each iteration (default 1s)
     - max_poll_interval_seconds: Cap for exponential backoff (default 30s)
@@ -455,7 +458,6 @@ class PreaggregationExecutor:
 
     def __init__(
         self,
-        wait_for_pending: bool = True,
         wait_timeout_seconds: float = DEFAULT_WAIT_TIMEOUT_SECONDS,
         poll_interval_seconds: float = DEFAULT_POLL_INTERVAL_SECONDS,
         max_poll_interval_seconds: float = DEFAULT_MAX_POLL_INTERVAL_SECONDS,
@@ -463,7 +465,6 @@ class PreaggregationExecutor:
         ttl_seconds: int = DEFAULT_TTL_SECONDS,
         stale_pending_threshold_seconds: float = DEFAULT_STALE_PENDING_THRESHOLD_SECONDS,
     ):
-        self.wait_for_pending = wait_for_pending
         self.wait_timeout_seconds = wait_timeout_seconds
         self.poll_interval_seconds = poll_interval_seconds
         self.max_poll_interval_seconds = max_poll_interval_seconds
@@ -484,7 +485,7 @@ class PreaggregationExecutor:
 
         1. Hash the query to get a stable identifier
         2. Find existing jobs (READY and PENDING)
-        3. Wait for pending jobs if enabled
+        3. Wait for any pending jobs to complete (with stale detection)
         4. Identify missing time windows
         5. Create and execute jobs for missing ranges
         6. Return job IDs for the combiner query
@@ -506,8 +507,11 @@ class PreaggregationExecutor:
         ready_jobs = [j for j in existing_jobs if j.status == PreaggregationJob.Status.READY]
         pending_jobs = [j for j in existing_jobs if j.status == PreaggregationJob.Status.PENDING]
 
-        # Wait for pending jobs if enabled
-        if self.wait_for_pending and pending_jobs:
+        # Wait for pending jobs — stale detection runs inside the wait loop,
+        # so any dead executors are detected and their jobs replaced.
+        still_pending_jobs: list[PreaggregationJob] = []
+
+        if pending_jobs:
             wait_result = self._wait_for_pending_jobs(team, pending_jobs, insert_fn)
 
             ready_jobs.extend(wait_result.ready_jobs)
@@ -518,16 +522,25 @@ class PreaggregationExecutor:
             if wait_result.timed_out:
                 errors.append("Timeout waiting for pending jobs")
 
+            # Jobs that neither became READY nor FAILED are still PENDING.
+            # These are not stale (stale detection runs inside the wait loop),
+            # just slow. We treat them as covered below since the unique index
+            # prevents creating duplicates for their ranges.
+            transitioned_ids = {j.id for j in wait_result.ready_jobs} | {j.id for j in wait_result.failed_jobs}
+            still_pending_jobs = [j for j in pending_jobs if j.id not in transitioned_ids]
+
         # Filter to remove overlapping jobs (keep most recent)
         ready_jobs = filter_overlapping_jobs(ready_jobs)
 
         for existing_job in ready_jobs:
             job_ids.append(existing_job.id)
 
-        # Find missing windows merged into contiguous ranges
-        missing_ranges = find_missing_contiguous_windows(ready_jobs, start, end)
+        # Find missing windows, treating both READY and still-PENDING as covered.
+        # PENDING ranges are covered because another executor is already working on them —
+        # creating a duplicate would hit the unique index and waste time.
+        missing_ranges = find_missing_contiguous_windows(ready_jobs + still_pending_jobs, start, end)
 
-        if not missing_ranges and not job_ids:
+        if not missing_ranges and not job_ids and not errors:
             return PreaggregationResult(ready=True, job_ids=[])
 
         for range_start, range_end in missing_ranges:
@@ -537,32 +550,27 @@ class PreaggregationExecutor:
                     new_job = create_preaggregation_job(team, query_hash, range_start, range_end, self.ttl_seconds)
             except IntegrityError:
                 # Another executor created a PENDING job for this range between
-                # our find_existing_jobs call and now. Wait for it if enabled.
-                if self.wait_for_pending:
-                    existing_pending = list(
-                        PreaggregationJob.objects.filter(
-                            team=team,
-                            query_hash=query_hash,
-                            time_range_start=range_start,
-                            time_range_end=range_end,
-                            status__in=[PreaggregationJob.Status.PENDING, PreaggregationJob.Status.READY],
-                        )
+                # our find_existing_jobs call and now. Wait for it.
+                existing_pending = list(
+                    PreaggregationJob.objects.filter(
+                        team=team,
+                        query_hash=query_hash,
+                        time_range_start=range_start,
+                        time_range_end=range_end,
+                        status__in=[PreaggregationJob.Status.PENDING, PreaggregationJob.Status.READY],
                     )
-                    if existing_pending:
-                        wait_result = self._wait_for_pending_jobs(team, existing_pending, insert_fn)
-                        for ready_job in wait_result.ready_jobs:
-                            job_ids.append(ready_job.id)
-                        for failed_job in wait_result.failed_jobs:
-                            errors.append(f"Job {failed_job.id} failed: {failed_job.error}")
-                        if wait_result.timed_out:
-                            errors.append(f"Timeout waiting for pending job for {range_start}-{range_end}")
-                    else:
-                        errors.append(
-                            f"Failed to create preaggregation for {range_start}-{range_end}: concurrent job vanished"
-                        )
+                )
+                if existing_pending:
+                    wait_result = self._wait_for_pending_jobs(team, existing_pending, insert_fn)
+                    for ready_job in wait_result.ready_jobs:
+                        job_ids.append(ready_job.id)
+                    for failed_job in wait_result.failed_jobs:
+                        errors.append(f"Job {failed_job.id} failed: {failed_job.error}")
+                    if wait_result.timed_out:
+                        errors.append(f"Timeout waiting for pending job for {range_start}-{range_end}")
                 else:
                     errors.append(
-                        f"Failed to create preaggregation for {range_start}-{range_end}: concurrent pending job exists"
+                        f"Failed to create preaggregation for {range_start}-{range_end}: concurrent job vanished"
                     )
                 continue
 
