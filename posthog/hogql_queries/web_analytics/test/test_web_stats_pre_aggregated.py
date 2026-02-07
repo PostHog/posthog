@@ -1,6 +1,8 @@
 from freezegun import freeze_time
 from posthog.test.base import _create_event, _create_person, flush_persons_and_events, snapshot_clickhouse_queries
 
+from parameterized import parameterized
+
 from posthog.schema import (
     DateRange,
     EventPropertyFilter,
@@ -275,12 +277,15 @@ class TestWebStatsPreAggregated(WebAnalyticsPreAggregatedTestBase):
         assert hogql_query.order_by
         assert len(hogql_query.order_by) > 0
 
-    def _calculate_breakdown_query(self, breakdown: WebStatsBreakdown, use_preagg: bool, properties=None):
+    def _calculate_breakdown_query(
+        self, breakdown: WebStatsBreakdown, use_preagg: bool, properties=None, include_host: bool = False
+    ):
         query = WebStatsTableQuery(
             dateRange=DateRange(date_from="2024-01-01", date_to="2024-01-02"),
             properties=properties or [],
             breakdownBy=breakdown,
             limit=100,
+            includeHost=include_host,
         )
 
         modifiers = HogQLQueryModifiers(
@@ -404,3 +409,346 @@ class TestWebStatsPreAggregated(WebAnalyticsPreAggregatedTestBase):
                 assert not regular_response.usedPreAggregatedTables
 
                 assert self._sort_results(preagg_response.results) == self._sort_results(regular_response.results)
+
+    @parameterized.expand(
+        [
+            (WebStatsBreakdown.PAGE,),
+            (WebStatsBreakdown.INITIAL_PAGE,),
+            (WebStatsBreakdown.EXIT_PAGE,),
+        ]
+    )
+    def test_include_host_concatenates_host_and_path(self, breakdown):
+        with freeze_time("2024-01-01T09:00:00Z"):
+            sessions = [str(uuid7("2024-01-01")) for _ in range(3)]
+
+            for i in range(3):
+                _create_person(team_id=self.team.pk, distinct_ids=[f"host_user_{i}"])
+
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="host_user_0",
+                timestamp="2024-01-01T10:00:00Z",
+                properties={
+                    "$session_id": sessions[0],
+                    "$current_url": "https://example.com/landing",
+                    "$pathname": "/landing",
+                    "$host": "example.com",
+                    "$device_type": "Desktop",
+                    "$browser": "Chrome",
+                    "$os": "Windows",
+                    "$viewport_width": 1920,
+                    "$viewport_height": 1080,
+                },
+            )
+
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="host_user_0",
+                timestamp="2024-01-01T10:01:00Z",
+                properties={
+                    "$session_id": sessions[0],
+                    "$current_url": "https://example.com/features",
+                    "$pathname": "/features",
+                    "$host": "example.com",
+                    "$device_type": "Desktop",
+                    "$browser": "Chrome",
+                    "$os": "Windows",
+                    "$viewport_width": 1920,
+                    "$viewport_height": 1080,
+                },
+            )
+
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="host_user_1",
+                timestamp="2024-01-01T11:00:00Z",
+                properties={
+                    "$session_id": sessions[1],
+                    "$current_url": "https://subdomain.example.com/landing",
+                    "$pathname": "/landing",
+                    "$host": "subdomain.example.com",
+                    "$device_type": "Desktop",
+                    "$browser": "Chrome",
+                    "$os": "Windows",
+                    "$viewport_width": 1920,
+                    "$viewport_height": 1080,
+                },
+            )
+
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="host_user_1",
+                timestamp="2024-01-01T11:01:00Z",
+                properties={
+                    "$session_id": sessions[1],
+                    "$current_url": "https://subdomain.example.com/pricing",
+                    "$pathname": "/pricing",
+                    "$host": "subdomain.example.com",
+                    "$device_type": "Desktop",
+                    "$browser": "Chrome",
+                    "$os": "Windows",
+                    "$viewport_width": 1920,
+                    "$viewport_height": 1080,
+                },
+            )
+
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="host_user_2",
+                timestamp="2024-01-01T12:00:00Z",
+                properties={
+                    "$session_id": sessions[2],
+                    "$current_url": "https://example.com/pricing",
+                    "$pathname": "/pricing",
+                    "$host": "example.com",
+                    "$device_type": "Desktop",
+                    "$browser": "Chrome",
+                    "$os": "Windows",
+                    "$viewport_width": 1920,
+                    "$viewport_height": 1080,
+                },
+            )
+
+            flush_persons_and_events()
+            self._populate_preaggregated_tables()
+
+        response = self._calculate_breakdown_query(breakdown, use_preagg=True, include_host=True)
+
+        breakdown_values = [r[0] for r in response.results]
+
+        if breakdown == WebStatsBreakdown.PAGE:
+            assert "example.com/landing" in breakdown_values
+            assert "subdomain.example.com/landing" in breakdown_values
+            assert "example.com/features" in breakdown_values
+            assert "subdomain.example.com/pricing" in breakdown_values
+            assert "example.com/pricing" in breakdown_values
+        elif breakdown == WebStatsBreakdown.INITIAL_PAGE:
+            assert "example.com/landing" in breakdown_values
+            assert "subdomain.example.com/landing" in breakdown_values
+            assert "example.com/pricing" in breakdown_values
+        elif breakdown == WebStatsBreakdown.EXIT_PAGE:
+            assert "example.com/features" in breakdown_values
+            assert "subdomain.example.com/pricing" in breakdown_values
+            assert "example.com/pricing" in breakdown_values
+
+        assert response.usedPreAggregatedTables
+
+    @parameterized.expand(
+        [
+            (WebStatsBreakdown.PAGE,),
+            (WebStatsBreakdown.INITIAL_PAGE,),
+            (WebStatsBreakdown.EXIT_PAGE,),
+        ]
+    )
+    def test_include_host_false_returns_path_only(self, breakdown):
+        with freeze_time("2024-01-01T09:00:00Z"):
+            sessions = [str(uuid7("2024-01-01")) for _ in range(2)]
+
+            for i in range(2):
+                _create_person(team_id=self.team.pk, distinct_ids=[f"path_user_{i}"])
+
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="path_user_0",
+                timestamp="2024-01-01T10:00:00Z",
+                properties={
+                    "$session_id": sessions[0],
+                    "$current_url": "https://example.com/landing",
+                    "$pathname": "/landing",
+                    "$host": "example.com",
+                    "$device_type": "Desktop",
+                    "$browser": "Chrome",
+                    "$os": "Windows",
+                    "$viewport_width": 1920,
+                    "$viewport_height": 1080,
+                },
+            )
+
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="path_user_1",
+                timestamp="2024-01-01T11:00:00Z",
+                properties={
+                    "$session_id": sessions[1],
+                    "$current_url": "https://subdomain.example.com/landing",
+                    "$pathname": "/landing",
+                    "$host": "subdomain.example.com",
+                    "$device_type": "Desktop",
+                    "$browser": "Chrome",
+                    "$os": "Windows",
+                    "$viewport_width": 1920,
+                    "$viewport_height": 1080,
+                },
+            )
+
+            flush_persons_and_events()
+            self._populate_preaggregated_tables()
+
+        response = self._calculate_breakdown_query(breakdown, use_preagg=True, include_host=False)
+
+        breakdown_values = [r[0] for r in response.results]
+
+        assert "/landing" in breakdown_values
+        assert "example.com/landing" not in breakdown_values
+        assert "subdomain.example.com/landing" not in breakdown_values
+        assert response.usedPreAggregatedTables
+
+    def test_include_host_page_breakdown_groups_same_paths_separately(self):
+        with freeze_time("2024-01-01T09:00:00Z"):
+            sessions = [str(uuid7("2024-01-01")) for _ in range(3)]
+
+            for i in range(3):
+                _create_person(team_id=self.team.pk, distinct_ids=[f"group_user_{i}"])
+
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="group_user_0",
+                timestamp="2024-01-01T10:00:00Z",
+                properties={
+                    "$session_id": sessions[0],
+                    "$current_url": "https://example.com/landing",
+                    "$pathname": "/landing",
+                    "$host": "example.com",
+                    "$device_type": "Desktop",
+                    "$browser": "Chrome",
+                    "$os": "Windows",
+                    "$viewport_width": 1920,
+                    "$viewport_height": 1080,
+                },
+            )
+
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="group_user_1",
+                timestamp="2024-01-01T11:00:00Z",
+                properties={
+                    "$session_id": sessions[1],
+                    "$current_url": "https://subdomain.example.com/landing",
+                    "$pathname": "/landing",
+                    "$host": "subdomain.example.com",
+                    "$device_type": "Desktop",
+                    "$browser": "Chrome",
+                    "$os": "Windows",
+                    "$viewport_width": 1920,
+                    "$viewport_height": 1080,
+                },
+            )
+
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="group_user_2",
+                timestamp="2024-01-01T12:00:00Z",
+                properties={
+                    "$session_id": sessions[2],
+                    "$current_url": "https://example.com/landing",
+                    "$pathname": "/landing",
+                    "$host": "example.com",
+                    "$device_type": "Desktop",
+                    "$browser": "Chrome",
+                    "$os": "Windows",
+                    "$viewport_width": 1920,
+                    "$viewport_height": 1080,
+                },
+            )
+
+            flush_persons_and_events()
+            self._populate_preaggregated_tables()
+
+        with_host = self._calculate_breakdown_query(WebStatsBreakdown.PAGE, use_preagg=True, include_host=True)
+        without_host = self._calculate_breakdown_query(WebStatsBreakdown.PAGE, use_preagg=True, include_host=False)
+
+        with_host_dict = {r[0]: r[1] for r in with_host.results}
+        without_host_dict = {r[0]: r[1] for r in without_host.results}
+
+        assert with_host_dict["example.com/landing"][0] == 2
+        assert with_host_dict["subdomain.example.com/landing"][0] == 1
+        assert without_host_dict["/landing"][0] == 3
+        assert with_host.usedPreAggregatedTables
+        assert without_host.usedPreAggregatedTables
+
+    def test_include_host_consistency_between_preagg_and_regular(self):
+        with freeze_time("2024-01-01T09:00:00Z"):
+            sessions = [str(uuid7("2024-01-01")) for _ in range(2)]
+
+            for i in range(2):
+                _create_person(team_id=self.team.pk, distinct_ids=[f"consistency_user_{i}"])
+
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="consistency_user_0",
+                timestamp="2024-01-01T10:00:00Z",
+                properties={
+                    "$session_id": sessions[0],
+                    "$current_url": "https://example.com/landing",
+                    "$pathname": "/landing",
+                    "$host": "example.com",
+                    "$device_type": "Desktop",
+                    "$browser": "Chrome",
+                    "$os": "Windows",
+                    "$viewport_width": 1920,
+                    "$viewport_height": 1080,
+                },
+            )
+
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="consistency_user_0",
+                timestamp="2024-01-01T10:01:00Z",
+                properties={
+                    "$session_id": sessions[0],
+                    "$current_url": "https://example.com/features",
+                    "$pathname": "/features",
+                    "$host": "example.com",
+                    "$device_type": "Desktop",
+                    "$browser": "Chrome",
+                    "$os": "Windows",
+                    "$viewport_width": 1920,
+                    "$viewport_height": 1080,
+                },
+            )
+
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="consistency_user_1",
+                timestamp="2024-01-01T11:00:00Z",
+                properties={
+                    "$session_id": sessions[1],
+                    "$current_url": "https://subdomain.example.com/landing",
+                    "$pathname": "/landing",
+                    "$host": "subdomain.example.com",
+                    "$device_type": "Desktop",
+                    "$browser": "Chrome",
+                    "$os": "Windows",
+                    "$viewport_width": 1920,
+                    "$viewport_height": 1080,
+                },
+            )
+
+            flush_persons_and_events()
+            self._populate_preaggregated_tables()
+
+        for breakdown in [WebStatsBreakdown.PAGE, WebStatsBreakdown.INITIAL_PAGE, WebStatsBreakdown.EXIT_PAGE]:
+            with self.subTest(breakdown=breakdown):
+                preagg_response = self._calculate_breakdown_query(breakdown, use_preagg=True, include_host=True)
+                regular_response = self._calculate_breakdown_query(breakdown, use_preagg=False, include_host=True)
+
+                assert preagg_response.usedPreAggregatedTables
+                assert not regular_response.usedPreAggregatedTables
+
+                preagg_values = sorted([r[0] for r in preagg_response.results])
+                regular_values = sorted([r[0] for r in regular_response.results])
+
+                assert preagg_values == regular_values

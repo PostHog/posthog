@@ -14,6 +14,7 @@ from posthog.test.base import (
 )
 
 import numpy as np
+from parameterized import parameterized
 from pydantic.dataclasses import dataclass
 
 from posthog.schema import (
@@ -213,6 +214,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareT
         include_bounce_rate=False,
         include_scroll_depth=False,
         include_avg_time_on_page=False,
+        include_host=False,
         properties=None,
         compare_filter=None,
         action: Optional[Action] = None,
@@ -235,6 +237,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareT
                 includeBounceRate=include_bounce_rate,
                 includeScrollDepth=include_scroll_depth,
                 includeAvgTimeOnPage=include_avg_time_on_page,
+                includeHost=include_host,
                 compareFilter=compare_filter,
                 conversionGoal=ActionConversionGoal(actionId=action.id)
                 if action
@@ -2328,3 +2331,235 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareT
 
         start_result = next(r for r in results if r[0] == "/start")
         self.assertAlmostEqual(start_result[3][0], stats["/start"]["p90_duration"], places=2)
+
+    @parameterized.expand(
+        [
+            (WebStatsBreakdown.PAGE,),
+            (WebStatsBreakdown.INITIAL_PAGE,),
+            (WebStatsBreakdown.EXIT_PAGE,),
+        ]
+    )
+    def test_include_host_concatenates_host_and_path(self, breakdown):
+        s1 = str(uuid7("2023-12-02"))
+        s2 = str(uuid7("2023-12-03"))
+        s3 = str(uuid7("2023-12-04"))
+
+        self._create_events(
+            [
+                (
+                    "p1",
+                    [
+                        ("2023-12-02", s1, "/landing", {"$host": "example.com"}),
+                        ("2023-12-02", s1, "/features", {"$host": "example.com"}),
+                    ],
+                ),
+                (
+                    "p2",
+                    [
+                        ("2023-12-03", s2, "/landing", {"$host": "subdomain.example.com"}),
+                        ("2023-12-03", s2, "/pricing", {"$host": "subdomain.example.com"}),
+                    ],
+                ),
+                (
+                    "p3",
+                    [
+                        ("2023-12-04", s3, "/pricing", {"$host": "example.com"}),
+                    ],
+                ),
+            ]
+        )
+
+        results = self._run_web_stats_table_query(
+            "all",
+            "2023-12-15",
+            breakdown_by=breakdown,
+            include_host=True,
+        ).results
+
+        breakdown_values = [r[0] for r in results]
+
+        if breakdown == WebStatsBreakdown.PAGE:
+            assert "example.com/landing" in breakdown_values
+            assert "subdomain.example.com/landing" in breakdown_values
+            assert "example.com/features" in breakdown_values
+            assert "subdomain.example.com/pricing" in breakdown_values
+            assert "example.com/pricing" in breakdown_values
+        elif breakdown == WebStatsBreakdown.INITIAL_PAGE:
+            assert "example.com/landing" in breakdown_values
+            assert "subdomain.example.com/landing" in breakdown_values
+            assert "example.com/pricing" in breakdown_values
+        elif breakdown == WebStatsBreakdown.EXIT_PAGE:
+            assert "example.com/features" in breakdown_values
+            assert "subdomain.example.com/pricing" in breakdown_values
+            assert "example.com/pricing" in breakdown_values
+
+    @parameterized.expand(
+        [
+            (WebStatsBreakdown.PAGE,),
+            (WebStatsBreakdown.INITIAL_PAGE,),
+            (WebStatsBreakdown.EXIT_PAGE,),
+        ]
+    )
+    def test_include_host_false_returns_path_only(self, breakdown):
+        s1 = str(uuid7("2023-12-02"))
+        s2 = str(uuid7("2023-12-03"))
+
+        self._create_events(
+            [
+                (
+                    "p1",
+                    [
+                        ("2023-12-02", s1, "/landing", {"$host": "example.com"}),
+                        ("2023-12-02", s1, "/features", {"$host": "example.com"}),
+                    ],
+                ),
+                (
+                    "p2",
+                    [
+                        ("2023-12-03", s2, "/landing", {"$host": "subdomain.example.com"}),
+                        ("2023-12-03", s2, "/pricing", {"$host": "subdomain.example.com"}),
+                    ],
+                ),
+            ]
+        )
+
+        results = self._run_web_stats_table_query(
+            "all",
+            "2023-12-15",
+            breakdown_by=breakdown,
+            include_host=False,
+        ).results
+
+        breakdown_values = [r[0] for r in results]
+
+        assert "/landing" in breakdown_values
+        assert "example.com/landing" not in breakdown_values
+        assert "subdomain.example.com/landing" not in breakdown_values
+
+    def test_include_host_page_breakdown_groups_same_paths_on_different_hosts_separately(self):
+        s1 = str(uuid7("2023-12-02"))
+        s2 = str(uuid7("2023-12-03"))
+        s3 = str(uuid7("2023-12-04"))
+
+        self._create_events(
+            [
+                (
+                    "p1",
+                    [
+                        ("2023-12-02", s1, "/landing", {"$host": "example.com"}),
+                        ("2023-12-02", s1, "/features", {"$host": "example.com"}),
+                    ],
+                ),
+                (
+                    "p2",
+                    [
+                        ("2023-12-03", s2, "/landing", {"$host": "subdomain.example.com"}),
+                    ],
+                ),
+                (
+                    "p3",
+                    [
+                        ("2023-12-04", s3, "/landing", {"$host": "example.com"}),
+                    ],
+                ),
+            ]
+        )
+
+        results_with_host = self._run_web_stats_table_query(
+            "all",
+            "2023-12-15",
+            breakdown_by=WebStatsBreakdown.PAGE,
+            include_host=True,
+        ).results
+
+        results_without_host = self._run_web_stats_table_query(
+            "all",
+            "2023-12-15",
+            breakdown_by=WebStatsBreakdown.PAGE,
+            include_host=False,
+        ).results
+
+        with_host_dict = {r[0]: r[1] for r in results_with_host}
+        without_host_dict = {r[0]: r[1] for r in results_without_host}
+
+        assert with_host_dict["example.com/landing"][0] == 2
+        assert with_host_dict["subdomain.example.com/landing"][0] == 1
+        assert without_host_dict["/landing"][0] == 3
+
+    def test_include_host_initial_page_breakdown_with_bounce_rate(self):
+        s1 = str(uuid7("2023-12-02"))
+        s2 = str(uuid7("2023-12-03"))
+
+        self._create_events(
+            [
+                (
+                    "p1",
+                    [
+                        ("2023-12-02", s1, "/landing", {"$host": "example.com"}),
+                        ("2023-12-02", s1, "/features", {"$host": "example.com"}),
+                    ],
+                ),
+                (
+                    "p2",
+                    [
+                        ("2023-12-03", s2, "/pricing", {"$host": "subdomain.example.com"}),
+                    ],
+                ),
+            ]
+        )
+
+        results = self._run_web_stats_table_query(
+            "all",
+            "2023-12-15",
+            breakdown_by=WebStatsBreakdown.INITIAL_PAGE,
+            include_bounce_rate=True,
+            include_host=True,
+        ).results
+
+        breakdown_values = {r[0]: r for r in results}
+
+        assert "example.com/landing" in breakdown_values
+        assert "subdomain.example.com/pricing" in breakdown_values
+
+    def test_include_host_exit_page_breakdown_counts_correctly(self):
+        s1 = str(uuid7("2023-12-02"))
+        s2 = str(uuid7("2023-12-03"))
+        s3 = str(uuid7("2023-12-04"))
+
+        self._create_events(
+            [
+                (
+                    "p1",
+                    [
+                        ("2023-12-02", s1, "/landing", {"$host": "example.com"}),
+                        ("2023-12-02", s1, "/features", {"$host": "example.com"}),
+                    ],
+                ),
+                (
+                    "p2",
+                    [
+                        ("2023-12-03", s2, "/pricing", {"$host": "subdomain.example.com"}),
+                        ("2023-12-03", s2, "/features", {"$host": "subdomain.example.com"}),
+                    ],
+                ),
+                (
+                    "p3",
+                    [
+                        ("2023-12-04", s3, "/landing", {"$host": "example.com"}),
+                        ("2023-12-04", s3, "/features", {"$host": "example.com"}),
+                    ],
+                ),
+            ]
+        )
+
+        results_with_host = self._run_web_stats_table_query(
+            "all",
+            "2023-12-15",
+            breakdown_by=WebStatsBreakdown.EXIT_PAGE,
+            include_host=True,
+        ).results
+
+        results_dict = {r[0]: r[1] for r in results_with_host}
+
+        assert results_dict["example.com/features"][0] == 2
+        assert results_dict["subdomain.example.com/features"][0] == 1
