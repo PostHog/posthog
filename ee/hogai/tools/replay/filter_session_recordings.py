@@ -95,8 +95,8 @@ class FilterSessionRecordingsToolArgs(BaseModel):
         ```
 
         ## Date Range
-        - **date_from**: "-7d" (relative), "2025-01-15" (absolute). Default: "-3d"
-        - **date_to**: null (current time, default) or "2025-01-20" (absolute)
+        - **date_from**: "-7d" (relative), "2025-01-15T00:00:00.000" (absolute). Default: "-3d"
+        - **date_to**: null (current time, default) or "2025-01-20T23:59:59.999" (absolute)
 
         ## Ordering
         - **order**: "start_time" (default), "duration", "console_error_count", "activity_score", etc.

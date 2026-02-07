@@ -1285,7 +1285,15 @@ export function dateFilterToText(
             return formatDateRange(dayjs(dateFrom, 'YYYY-MM-DD'), dayjs(dateTo, 'YYYY-MM-DD'))
         }
         if (dateFrom?.includes('T') || dateTo?.includes('T')) {
-            return formatDateTimeRange(dayjs(dateFrom, 'YYYY-MM-DD HH:mm'), dayjs(dateTo, 'YYYY-MM-DD HH:mm'))
+            // Parse each date individually - dates without a time component use 'YYYY-MM-DD' (midnight),
+            // while datetimes use 'YYYY-MM-DD HH:mm' to preserve the time
+            const parsedFrom = dateFrom?.includes('T')
+                ? dayjs(dateFrom, 'YYYY-MM-DD HH:mm')
+                : dayjs(dateFrom, 'YYYY-MM-DD')
+            const parsedTo = dateTo?.includes('T')
+                ? dayjs(dateTo, 'YYYY-MM-DD HH:mm')
+                : dayjs(dateTo, 'YYYY-MM-DD')
+            return formatDateTimeRange(parsedFrom, parsedTo)
         }
         return `${dateFrom} - ${dateTo}`
     }

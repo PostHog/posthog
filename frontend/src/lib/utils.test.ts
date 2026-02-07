@@ -271,6 +271,21 @@ describe('lib/utils', () => {
                 expect(dateFilterToText('-1mStart', '-1mEnd', 'default')).toEqual('Last month')
             })
 
+            it('handles dates with time components', () => {
+                expect(
+                    dateFilterToText('2026-02-01T00:00:00.000', '2026-02-04T23:59:59.999', 'default')
+                ).toEqual('February 1, 00:00 - February 4, 23:59')
+            })
+
+            it('handles mixed formats where only one date has a time component', () => {
+                expect(dateFilterToText('2026-02-01', '2026-02-04T23:59:59.999', 'default')).toEqual(
+                    'February 1, 00:00 - February 4, 23:59'
+                )
+                expect(dateFilterToText('2026-02-01T00:00:00.000', '2026-02-04', 'default')).toEqual(
+                    'February 1 - February 4'
+                )
+            })
+
             it('can have overridden date options', () => {
                 expect(dateFilterToText('-21d', null, 'default', [{ key: 'Last 3 weeks', values: ['-21d'] }])).toEqual(
                     'Last 3 weeks'
