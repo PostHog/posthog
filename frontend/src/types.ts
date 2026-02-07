@@ -3787,7 +3787,16 @@ export interface Survey extends WithAccessControl {
     headline_summary?: string | null
     headline_response_count?: number | null
     form_content?: Record<string, unknown> | null
-    translations?: Record<string, { name?: string; description?: string }> | null
+    translations?: Record<
+        string,
+        {
+            name?: string
+            description?: string
+            thankYouMessageHeader?: string
+            thankYouMessageDescription?: string
+            thankYouMessageCloseButtonText?: string
+        }
+    > | null
 }
 
 export enum SurveyMatchType {
