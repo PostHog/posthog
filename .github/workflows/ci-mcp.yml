@@ -28,6 +28,8 @@ jobs:
                         - 'services/mcp/**'
                         - 'products/**' 
                         - 'frontend/**'
+                        - 'ee/**/*'
+                        - 'posthog/**/*'
                         - '.github/workflows/mcp-ci.yml'
                         - '.github/workflows/mcp-publish.yml'
     build:
