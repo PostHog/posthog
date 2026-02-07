@@ -174,8 +174,8 @@ export const sessionProfileLogic = kea<sessionProfileLogicType>([
                             $entry_referring_domain,
                             $last_external_click_url
                         FROM sessions
-                        WHERE $start_timestamp >= parseDateTimeBestEffort(${startDate.toISOString()})
-                            AND $start_timestamp <= parseDateTimeBestEffort(${endDate.toISOString()})
+                        WHERE $start_timestamp >= toDateTime(${startDate.toISOString()})
+                            AND $start_timestamp <= toDateTime(${endDate.toISOString()})
                             AND session_id = ${props.sessionId}
                         LIMIT 1
                     `
@@ -269,8 +269,8 @@ export const sessionProfileLogic = kea<sessionProfileLogicType>([
                             properties.$exception_list,
                             distinct_id
                         FROM events
-                        WHERE timestamp >= parseDateTimeBestEffort(${startDate.toISOString()})
-                            AND timestamp <= parseDateTimeBestEffort(${endDate.toISOString()})
+                        WHERE timestamp >= toDateTime(${startDate.toISOString()})
+                            AND timestamp <= toDateTime(${endDate.toISOString()})
                             AND \`$session_id\` = ${props.sessionId}
                         ORDER BY timestamp ASC
                         LIMIT 50
@@ -292,8 +292,8 @@ export const sessionProfileLogic = kea<sessionProfileLogicType>([
                             properties.$exception_list,
                             distinct_id
                         FROM events
-                        WHERE timestamp >= parseDateTimeBestEffort(${startDate.toISOString()})
-                            AND timestamp <= parseDateTimeBestEffort(${endDate.toISOString()})
+                        WHERE timestamp >= toDateTime(${startDate.toISOString()})
+                            AND timestamp <= toDateTime(${endDate.toISOString()})
                             AND \`$session_id\` = ${props.sessionId}
                         ORDER BY timestamp DESC
                         LIMIT 50
@@ -384,8 +384,8 @@ export const sessionProfileLogic = kea<sessionProfileLogicType>([
                             properties.$exception_list,
                             distinct_id
                         FROM events
-                        WHERE timestamp >= parseDateTimeBestEffort(${startDate.toISOString()})
-                            AND timestamp <= parseDateTimeBestEffort(${endDate.toISOString()})
+                        WHERE timestamp >= toDateTime(${startDate.toISOString()})
+                            AND timestamp <= toDateTime(${endDate.toISOString()})
                             AND \`$session_id\` = ${props.sessionId}
                         ORDER BY timestamp ASC
                         LIMIT 50
@@ -408,8 +408,8 @@ export const sessionProfileLogic = kea<sessionProfileLogicType>([
                             properties.$exception_list,
                             distinct_id
                         FROM events
-                        WHERE timestamp >= parseDateTimeBestEffort(${startDate.toISOString()})
-                            AND timestamp <= parseDateTimeBestEffort(${endDate.toISOString()})
+                        WHERE timestamp >= toDateTime(${startDate.toISOString()})
+                            AND timestamp <= toDateTime(${endDate.toISOString()})
                             AND \`$session_id\` = ${props.sessionId}
                         ORDER BY timestamp DESC
                         LIMIT 50
@@ -488,8 +488,8 @@ export const sessionProfileLogic = kea<sessionProfileLogicType>([
                         SELECT properties, uuid
                         FROM events
                         WHERE event = ${eventName}
-                        AND timestamp >= parseDateTimeBestEffort(${startDate.toISOString()})
-                        AND timestamp <= parseDateTimeBestEffort(${endDate.toISOString()})
+                        AND timestamp >= toDateTime(${startDate.toISOString()})
+                        AND timestamp <= toDateTime(${endDate.toISOString()})
                         AND uuid = ${eventId}
                         LIMIT 1
                     `
@@ -518,8 +518,8 @@ export const sessionProfileLogic = kea<sessionProfileLogicType>([
                     const countQuery = hogql`
                         SELECT count(*) as total
                         FROM events
-                        WHERE timestamp >= parseDateTimeBestEffort(${startDate.toISOString()})
-                            AND timestamp <= parseDateTimeBestEffort(${endDate.toISOString()})
+                        WHERE timestamp >= toDateTime(${startDate.toISOString()})
+                            AND timestamp <= toDateTime(${endDate.toISOString()})
                             AND \`$session_id\` = ${props.sessionId}
                     `
 
@@ -563,8 +563,8 @@ export const sessionProfileLogic = kea<sessionProfileLogicType>([
                             properties.zendesk_ticket_id,
                             distinct_id
                         FROM events
-                        WHERE timestamp >= parseDateTimeBestEffort(${startDate.toISOString()})
-                            AND timestamp <= parseDateTimeBestEffort(${endDate.toISOString()})
+                        WHERE timestamp >= toDateTime(${startDate.toISOString()})
+                            AND timestamp <= toDateTime(${endDate.toISOString()})
                             AND \`$session_id\` = ${props.sessionId}
                             AND event = 'support_ticket'
                         ORDER BY timestamp DESC
