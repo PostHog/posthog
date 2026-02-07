@@ -179,6 +179,7 @@ export const FEATURE_FLAGS = {
     AI_FIRST: 'ai-first', // this a larger change, not released to team yet
     UX_REMOVE_SIDEPANEL: 'ux-remove-sidepanel', // used to remove the sidepanel from the experience
     UX_NEW_TOOLTIP: 'ux-new-tooltip', // used to enable the new tooltip component
+    UX_NEW_TAXONOMIC_SEARCH: 'ux-new-taxonomic-search', // used to enable the new taxonomic search component
 
     // Feature flags used to control opt-in for different behaviors, should not be removed
     CONTROL_SUPPORT_LOGIN: 'control_support_login', // owner: #team-security, used to control whether users can opt out of support impersonation
