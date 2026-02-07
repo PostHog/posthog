@@ -264,15 +264,17 @@ class EventDefinitionViewSet(
         return results
 
     def dangerously_get_object(self):
-        id = self.kwargs["id"]
+        return self._get_event_definition(id=self.kwargs["id"], team__project_id=self.project_id)
+
+    def _get_event_definition(self, **filters) -> EventDefinition:
         if EE_AVAILABLE:
             from ee.models.event_definition import EnterpriseEventDefinition
 
-            enterprise_event = EnterpriseEventDefinition.objects.filter(id=id, team__project_id=self.project_id).first()
+            enterprise_event = EnterpriseEventDefinition.objects.filter(**filters).first()
             if enterprise_event:
                 return enterprise_event
 
-            non_enterprise_event = EventDefinition.objects.get(id=id, team__project_id=self.project_id)
+            non_enterprise_event = EventDefinition.objects.get(**filters)
             new_enterprise_event = EnterpriseEventDefinition(
                 eventdefinition_ptr_id=non_enterprise_event.id, description=""
             )
@@ -280,7 +282,7 @@ class EventDefinitionViewSet(
             new_enterprise_event.save()
             return new_enterprise_event
 
-        return EventDefinition.objects.get(id=id, team__project_id=self.project_id)
+        return EventDefinition.objects.get(**filters)
 
     def get_serializer_class(self) -> type[serializers.ModelSerializer]:
         serializer_class = self.serializer_class
@@ -448,7 +450,11 @@ class EventDefinitionViewSet(
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        event_def = self.get_queryset().filter(name=event_name).first()
+        try:
+            event_def = self._get_event_definition(name=event_name, team__project_id=self.project_id)
+        except EventDefinition.DoesNotExist:
+            event_def = None
+
         if not event_def:
             return response.Response(
                 {"detail": f"Event definition with name '{event_name}' not found"},
