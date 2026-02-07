@@ -77,7 +77,8 @@ jobs:
                   TEST: 1
               run: |
                   ./bin/hogli build:skills
-                  if ! git diff --exit-code; then
+                  git add services/mcp/skills/
+                  if ! git diff --cached --exit-code; then
                       echo ""
                       echo "::error::Agent skills are out of date!"
                       echo ""
