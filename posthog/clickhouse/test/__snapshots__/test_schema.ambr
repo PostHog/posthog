@@ -2949,7 +2949,9 @@
   
       lc_dagster__job_name String,
       lc_dagster__run_id String,
-      lc_dagster__owner String
+      lc_dagster__owner String,
+  
+      lc_modifiers String
   ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.query_log_archive_new', '{replica}-{shard}')
   PARTITION BY toYYYYMM(event_date)
   ORDER BY (team_id, event_date, event_time, query_id)
@@ -3073,7 +3075,9 @@
   
       JSONExtractString(log_comment, 'dagster', 'job_name') as lc_dagster__job_name,
       JSONExtractString(log_comment, 'dagster', 'run_id') as lc_dagster__run_id,
-      JSONExtractString(log_comment, 'dagster', 'tags', 'owner') as lc_dagster__owner
+      JSONExtractString(log_comment, 'dagster', 'tags', 'owner') as lc_dagster__owner,
+  
+      if(is_initial_query, JSONExtractRaw(log_comment, 'modifiers'), '') as lc_modifiers
   FROM system.query_log
   WHERE
       type != 'QueryStart'
@@ -6773,7 +6777,9 @@
   
       lc_dagster__job_name String,
       lc_dagster__run_id String,
-      lc_dagster__owner String
+      lc_dagster__owner String,
+  
+      lc_modifiers String
   ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.query_log_archive_new', '{replica}-{shard}')
   PARTITION BY toYYYYMM(event_date)
   ORDER BY (team_id, event_date, event_time, query_id)
