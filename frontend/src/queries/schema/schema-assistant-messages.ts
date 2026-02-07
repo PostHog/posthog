@@ -405,6 +405,7 @@ export type AssistantTool =
     | 'search_error_tracking_issues'
     | 'find_error_tracking_impactful_issue_event_list'
     | 'experiment_results_summary'
+    | 'experiment_session_replays_summary'
     | 'create_survey'
     | 'edit_survey'
     | 'analyze_survey_responses'
