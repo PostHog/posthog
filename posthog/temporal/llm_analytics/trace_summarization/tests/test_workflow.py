@@ -230,7 +230,7 @@ class TestGenerateSummaryActivity:
             patch(
                 "posthog.temporal.llm_analytics.trace_summarization.summarization.format_trace_text_repr"
             ) as mock_format,
-            patch("posthog.temporal.llm_analytics.trace_summarization.summarization._fetch_trace") as mock_fetch_trace,
+            patch("posthog.temporal.llm_analytics.trace_summarization.summarization.fetch_trace") as mock_fetch_trace,
             patch("posthog.temporal.llm_analytics.trace_summarization.summarization.create_event") as mock_create_event,
         ):
             mock_person = LLMTracePerson(
@@ -289,7 +289,7 @@ class TestGenerateSummaryActivity:
             patch(
                 "posthog.temporal.llm_analytics.trace_summarization.summarization.format_trace_text_repr"
             ) as mock_format,
-            patch("posthog.temporal.llm_analytics.trace_summarization.summarization._fetch_trace") as mock_fetch_trace,
+            patch("posthog.temporal.llm_analytics.trace_summarization.summarization.fetch_trace") as mock_fetch_trace,
             patch("posthog.temporal.llm_analytics.trace_summarization.summarization.create_event"),
             patch(
                 "posthog.temporal.llm_analytics.trace_summarization.summarization.LLMTracesSummarizerEmbedder"
@@ -341,7 +341,7 @@ class TestGenerateSummaryActivity:
             patch(
                 "posthog.temporal.llm_analytics.trace_summarization.summarization.format_trace_text_repr"
             ) as mock_format,
-            patch("posthog.temporal.llm_analytics.trace_summarization.summarization._fetch_trace") as mock_fetch_trace,
+            patch("posthog.temporal.llm_analytics.trace_summarization.summarization.fetch_trace") as mock_fetch_trace,
             patch("posthog.temporal.llm_analytics.trace_summarization.summarization.create_event"),
             patch(
                 "posthog.temporal.llm_analytics.trace_summarization.summarization.LLMTracesSummarizerEmbedder"

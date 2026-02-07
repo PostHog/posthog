@@ -1,20 +1,10 @@
 """Activity for generating trace summaries using LLM."""
 
 import time
-from datetime import UTC, datetime, timedelta
-from typing import Any
 from uuid import uuid4
 
-import orjson
 import structlog
 import temporalio
-
-from posthog.schema import LLMTrace, LLMTraceEvent, LLMTracePerson
-
-from posthog.hogql import ast
-from posthog.hogql.constants import LimitContext
-from posthog.hogql.parser import parse_select
-from posthog.hogql.query import execute_hogql_query
 
 from posthog.models.event.util import create_event
 from posthog.models.team import Team
@@ -23,6 +13,7 @@ from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.llm_analytics.trace_summarization import constants
 from posthog.temporal.llm_analytics.trace_summarization.constants import MAX_RAW_TRACE_SIZE
 from posthog.temporal.llm_analytics.trace_summarization.models import SummarizationActivityResult
+from posthog.temporal.llm_analytics.trace_summarization.queries import fetch_trace
 
 from products.llm_analytics.backend.summarization.llm import summarize
 from products.llm_analytics.backend.summarization.llm.schema import SummarizationResponse
@@ -37,105 +28,6 @@ from ee.hogai.llm_traces_summaries.constants import LLM_TRACES_SUMMARIES_DOCUMEN
 from ee.hogai.llm_traces_summaries.tools.embed_summaries import LLMTracesSummarizerEmbedder
 
 logger = structlog.get_logger(__name__)
-
-# Expand the time window by 10 minutes each side so traces that started just
-# before/after the window boundaries are still found (matches TraceQueryRunner).
-_CAPTURE_RANGE = timedelta(minutes=10)
-
-_AI_EVENT_TYPES = (
-    "$ai_span",
-    "$ai_generation",
-    "$ai_embedding",
-    "$ai_metric",
-    "$ai_feedback",
-    "$ai_trace",
-)
-
-_TRACE_EVENTS_QUERY = """
-    SELECT uuid, event, timestamp, properties
-    FROM events
-    WHERE event IN {event_types}
-      AND timestamp >= toDateTime({start_ts}, 'UTC')
-      AND timestamp < toDateTime({end_ts}, 'UTC')
-      AND properties.$ai_trace_id = {trace_id}
-    ORDER BY timestamp
-"""
-
-
-def _fetch_trace(team: Team, trace_id: str, window_start: str, window_end: str) -> LLMTrace | None:
-    """Fetch trace events with a simple query — no person JOIN, no aggregations.
-
-    Returns an LLMTrace or None if no events found. The $ai_trace meta-event
-    is used to populate trace-level fields (traceName, inputState, outputState)
-    but is excluded from the events list (matching TraceQueryRunner behavior).
-    """
-    start_dt = datetime.fromisoformat(window_start).astimezone(UTC) - _CAPTURE_RANGE
-    end_dt = datetime.fromisoformat(window_end).astimezone(UTC) + _CAPTURE_RANGE
-
-    query = parse_select(_TRACE_EVENTS_QUERY)
-    result = execute_hogql_query(
-        query_type="SummarizationTraceFetch",
-        query=query,
-        placeholders={
-            "event_types": ast.Tuple(exprs=[ast.Constant(value=e) for e in _AI_EVENT_TYPES]),
-            "start_ts": ast.Constant(value=start_dt.strftime("%Y-%m-%d %H:%M:%S")),
-            "end_ts": ast.Constant(value=end_dt.strftime("%Y-%m-%d %H:%M:%S")),
-            "trace_id": ast.Constant(value=trace_id),
-        },
-        team=team,
-        limit_context=LimitContext.QUERY_ASYNC,
-    )
-
-    if not result.results:
-        return None
-
-    events: list[LLMTraceEvent] = []
-    trace_name: str | None = None
-    input_state: Any = None
-    output_state: Any = None
-    first_timestamp: str | None = None
-
-    for row in result.results:
-        event_uuid, event_name, event_timestamp, event_properties = row
-        if first_timestamp is None:
-            first_timestamp = event_timestamp.isoformat()
-
-        props = orjson.loads(event_properties) if isinstance(event_properties, str) else event_properties
-
-        if event_name == "$ai_trace":
-            # Extract trace-level metadata; exclude from events list
-            trace_name = props.get("$ai_span_name") or props.get("$ai_trace_name")
-            try:
-                input_state = orjson.loads(props["$ai_input_state"]) if props.get("$ai_input_state") else None
-            except (orjson.JSONDecodeError, TypeError):
-                input_state = None
-            try:
-                output_state = orjson.loads(props["$ai_output_state"]) if props.get("$ai_output_state") else None
-            except (orjson.JSONDecodeError, TypeError):
-                output_state = None
-            continue
-
-        events.append(
-            LLMTraceEvent(
-                id=str(event_uuid),
-                event=event_name,
-                createdAt=event_timestamp.isoformat(),
-                properties=props,
-            )
-        )
-
-    if not events:
-        return None
-
-    return LLMTrace(
-        id=trace_id,
-        createdAt=first_timestamp or events[0].createdAt,
-        traceName=trace_name,
-        inputState=input_state,
-        outputState=output_state,
-        events=events,
-        person=LLMTracePerson(uuid="", distinct_id="", created_at=first_timestamp or "", properties={}),
-    )
 
 
 @temporalio.activity.defn
@@ -174,7 +66,7 @@ async def generate_and_save_summary_activity(
         """
         team = Team.objects.get(id=team_id)
 
-        llm_trace = _fetch_trace(team, trace_id, window_start, window_end)
+        llm_trace = fetch_trace(team, trace_id, window_start, window_end)
         if llm_trace is None:
             return None
 
