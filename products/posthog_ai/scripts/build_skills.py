@@ -33,16 +33,11 @@ import textwrap
 from pathlib import Path
 
 import yaml
+from jinja2 import Environment, StrictUndefined, TemplateSyntaxError
 from pydantic import BaseModel, Field, ValidationError
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT))
-
-try:
-    from jinja2 import Environment, StrictUndefined, TemplateSyntaxError
-except ImportError:
-    print("ERROR: jinja2 is required. Install with: pip install jinja2", file=sys.stderr)
-    sys.exit(1)
 
 MANIFEST_VERSION = "1.0.0"
 
@@ -467,9 +462,6 @@ def _setup_django() -> None:
     module requires at import time. The build script never connects to these services
     — it only needs the Django ORM metadata and model imports to work.
     """
-    os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
-    os.environ.setdefault("REDIS_URL", "redis://localhost:6379")
-    os.environ.setdefault("POSTHOG_REDIS_HOST", "localhost")
     try:
         import django
 
