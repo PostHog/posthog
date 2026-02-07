@@ -23,7 +23,7 @@ logger = structlog.get_logger(__name__)
 # Single source of truth for both clustering and summarization workflows.
 GUARANTEED_TEAM_IDS: list[int] = [
     1,  # Local development
-    2,  # Internal PostHog project
+    # 2,  # Internal PostHog project
     # Dogfooding projects
     112495,
     148051,
