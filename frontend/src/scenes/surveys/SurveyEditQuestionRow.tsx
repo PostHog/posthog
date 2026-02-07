@@ -209,9 +209,16 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
             const trans = updatedTranslations[lang]
             if (trans.choices) {
                 const oldChoices = trans.choices
-                const newTransChoices = [...newChoices].map(
-                    (defaultChoice, idx) => oldChoices[idx] || defaultChoice || '[Translation needed]'
-                )
+                const newTransChoices = [...newChoices].map((defaultChoice, idx) => {
+                    const existingChoice = oldChoices[idx]
+                    if (existingChoice !== undefined && existingChoice !== null) {
+                        return existingChoice
+                    }
+                    if (defaultChoice !== undefined && defaultChoice !== null && defaultChoice !== '') {
+                        return defaultChoice
+                    }
+                    return '[Translation needed]'
+                })
                 updatedTranslations[lang] = {
                     ...trans,
                     choices: newTransChoices,
@@ -231,8 +238,6 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
         question: MultipleSurveyQuestion,
         newType: SurveyQuestionType
     ): void => {
-        setMultipleSurveyQuestion(index, question, question.type)
-
         LemonDialog.open({
             title: 'Changing question type',
             description: (
@@ -258,6 +263,10 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
             },
             secondaryButton: {
                 children: 'Cancel',
+                onClick: () => {
+                    // Revert the question type back to original
+                    setMultipleSurveyQuestion(index, question, question.type)
+                },
             },
         })
     }
@@ -293,64 +302,69 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
         <Group name={`questions.${index}`} key={index}>
             <div className="flex flex-col gap-2">
                 <LemonField name="type" label="Question type" className="max-w-60">
-                    <LemonSelect
-                        disabled={!!editingLanguage}
-                        disabledReason={
-                            editingLanguage ? 'Question type can only be changed in the default language' : undefined
-                        }
-                        data-attr={`survey-question-type-${index}`}
-                        onSelect={(newType) => {
-                            const isCurrentMultipleChoice =
-                                question.type === SurveyQuestionType.MultipleChoice ||
-                                question.type === SurveyQuestionType.SingleChoice
-                            const isNewMultipleChoice =
-                                newType === SurveyQuestionType.MultipleChoice ||
-                                newType === SurveyQuestionType.SingleChoice
+                    {({ value: currentType }) => (
+                        <LemonSelect
+                            value={currentType}
+                            disabled={!!editingLanguage}
+                            disabledReason={
+                                editingLanguage
+                                    ? 'Question type can only be changed in the default language'
+                                    : undefined
+                            }
+                            data-attr={`survey-question-type-${index}`}
+                            onSelect={(newType) => {
+                                const isCurrentMultipleChoice =
+                                    question.type === SurveyQuestionType.MultipleChoice ||
+                                    question.type === SurveyQuestionType.SingleChoice
+                                const isNewMultipleChoice =
+                                    newType === SurveyQuestionType.MultipleChoice ||
+                                    newType === SurveyQuestionType.SingleChoice
 
-                            if (isCurrentMultipleChoice && isNewMultipleChoice) {
-                                setMultipleSurveyQuestion(index, question, newType)
+                                if (isCurrentMultipleChoice && isNewMultipleChoice) {
+                                    setMultipleSurveyQuestion(index, question, newType)
+                                    resetBranchingForQuestion(index)
+                                    return
+                                }
+                                if (isCurrentMultipleChoice && !isNewMultipleChoice) {
+                                    confirmQuestionTypeChange(index, question, newType)
+                                    return
+                                }
+                                if (hasTranslations) {
+                                    confirmQuestionTypeChangeWithTranslations(index, question, newType)
+                                    return
+                                }
+                                setDefaultForQuestionType(index, question, newType)
                                 resetBranchingForQuestion(index)
-                                return
-                            }
-                            if (isCurrentMultipleChoice && !isNewMultipleChoice) {
-                                confirmQuestionTypeChange(index, question, newType)
-                                return
-                            }
-                            if (hasTranslations) {
-                                confirmQuestionTypeChangeWithTranslations(index, question, newType)
-                                return
-                            }
-                            setDefaultForQuestionType(index, question, newType)
-                            resetBranchingForQuestion(index)
-                        }}
-                        options={[
-                            {
-                                label: SurveyQuestionLabel[SurveyQuestionType.Open],
-                                value: SurveyQuestionType.Open,
-                                'data-attr': `survey-question-type-${index}-${SurveyQuestionType.Open}`,
-                            },
-                            {
-                                label: 'Link/Notification',
-                                value: SurveyQuestionType.Link,
-                                'data-attr': `survey-question-type-${index}-${SurveyQuestionType.Link}`,
-                            },
-                            {
-                                label: 'Rating',
-                                value: SurveyQuestionType.Rating,
-                                'data-attr': `survey-question-type-${index}-${SurveyQuestionType.Rating}`,
-                            },
-                            {
-                                label: 'Single choice select',
-                                value: SurveyQuestionType.SingleChoice,
-                                'data-attr': `survey-question-type-${index}-${SurveyQuestionType.SingleChoice}`,
-                            },
-                            {
-                                label: 'Multiple choice select',
-                                value: SurveyQuestionType.MultipleChoice,
-                                'data-attr': `survey-question-type-${index}-${SurveyQuestionType.MultipleChoice}`,
-                            },
-                        ]}
-                    />
+                            }}
+                            options={[
+                                {
+                                    label: SurveyQuestionLabel[SurveyQuestionType.Open],
+                                    value: SurveyQuestionType.Open,
+                                    'data-attr': `survey-question-type-${index}-${SurveyQuestionType.Open}`,
+                                },
+                                {
+                                    label: 'Link/Notification',
+                                    value: SurveyQuestionType.Link,
+                                    'data-attr': `survey-question-type-${index}-${SurveyQuestionType.Link}`,
+                                },
+                                {
+                                    label: 'Rating',
+                                    value: SurveyQuestionType.Rating,
+                                    'data-attr': `survey-question-type-${index}-${SurveyQuestionType.Rating}`,
+                                },
+                                {
+                                    label: 'Single choice select',
+                                    value: SurveyQuestionType.SingleChoice,
+                                    'data-attr': `survey-question-type-${index}-${SurveyQuestionType.SingleChoice}`,
+                                },
+                                {
+                                    label: 'Multiple choice select',
+                                    value: SurveyQuestionType.MultipleChoice,
+                                    'data-attr': `survey-question-type-${index}-${SurveyQuestionType.MultipleChoice}`,
+                                },
+                            ]}
+                        />
+                    )}
                 </LemonField>
                 <LemonField name={getFieldName('question')} label="Label">
                     <LemonInput
