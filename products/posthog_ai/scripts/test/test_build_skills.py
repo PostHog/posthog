@@ -154,43 +154,6 @@ def test_discover_mixed_depths(tmp_path: Path) -> None:
     assert names == [("dir-skill", 1), ("loose", 0)]
 
 
-def test_validate_depth_2_raises(tmp_path: Path) -> None:
-    products = tmp_path / "products"
-    skill_dir = products / "alpha" / "skills" / "nested-skill"
-    skill_dir.mkdir(parents=True)
-    (skill_dir / "SKILL.md").write_text("content")
-    (skill_dir / "sub").mkdir()
-
-    skill = DiscoveredSkill(
-        name="nested-skill",
-        source_file=skill_dir / "SKILL.md",
-        product_dir=products / "alpha",
-        depth=1,
-    )
-    discoverer = SkillDiscoverer(products_dir=products)
-    errors = discoverer.validate_depths([skill])
-    assert len(errors) == 1
-    assert "Nested subdirectory not allowed" in errors[0]
-    assert "sub" in errors[0]
-
-
-def test_validate_depth_0_skips_validation(tmp_path: Path) -> None:
-    products = tmp_path / "products"
-    skills_dir = products / "alpha" / "skills"
-    skills_dir.mkdir(parents=True)
-    (skills_dir / "loose.md").write_text("content")
-
-    skill = DiscoveredSkill(
-        name="loose",
-        source_file=skills_dir / "loose.md",
-        product_dir=products / "alpha",
-        depth=0,
-    )
-    discoverer = SkillDiscoverer(products_dir=products)
-    errors = discoverer.validate_depths([skill])
-    assert errors == []
-
-
 def test_render_static_skill(tmp_path: Path) -> None:
     md_file = tmp_path / "SKILL.md"
     md_file.write_text("# Hello\nThis is a skill.\n")
@@ -235,13 +198,12 @@ def test_build_skill_extracts_frontmatter(tmp_path: Path) -> None:
     builder = SkillBuilder(repo_root=tmp_path, products_dir=tmp_path / "products", output_dir=tmp_path / "output")
     result = builder.build_skill(skill, renderer)
 
-    assert result.id == "bar"
     assert result.name == "bar"
-    assert result.uri == "skill://posthog/bar"
-    assert result.resource.mimeType == "text/markdown"
-    assert result.resource.description == "Bar skill"
-    assert result.resource.text == "# Skill body"
-    assert result.source == "products/foo/skills/bar/SKILL.md"
+    assert result.description == "Bar skill"
+    assert result.files[0].path == "SKILL.md"
+    assert "# Skill body" in result.files[0].content
+    assert "name: bar" in result.files[0].content
+    assert result.source == "products/foo/skills/bar"
 
 
 def test_build_skill_defaults_without_frontmatter(tmp_path: Path) -> None:
@@ -255,8 +217,146 @@ def test_build_skill_defaults_without_frontmatter(tmp_path: Path) -> None:
     result = builder.build_skill(skill, renderer)
 
     assert result.name == "my-skill"
-    assert result.resource.description == "Skill: my-skill"
-    assert "# No frontmatter" in result.resource.text
+    assert result.description == "Skill: my-skill"
+    assert "# No frontmatter" in result.files[0].content
+
+
+def test_build_skill_collects_all_files(tmp_path: Path) -> None:
+    skill_dir = tmp_path / "products" / "alpha" / "skills" / "multi-file"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text("---\nname: multi\ndescription: Multi\n---\n# Main\n")
+    refs = skill_dir / "references"
+    refs.mkdir()
+    (refs / "example.md").write_text("# Example reference\n")
+    (skill_dir / "helper.py").write_text("print('hello')\n")
+
+    renderer = SkillRenderer()
+    skill = DiscoveredSkill(
+        name="multi-file", source_file=skill_dir / "SKILL.md", product_dir=tmp_path / "products" / "alpha", depth=1
+    )
+    builder = SkillBuilder(repo_root=tmp_path, products_dir=tmp_path / "products", output_dir=tmp_path / "output")
+    result = builder.build_skill(skill, renderer)
+
+    paths = [f.path for f in result.files]
+    assert paths[0] == "SKILL.md"
+    assert "helper.py" in paths
+    assert "references/example.md" in paths
+    assert len(result.files) == 3
+
+
+def test_build_skill_excludes_test_dirs(tmp_path: Path) -> None:
+    skill_dir = tmp_path / "products" / "alpha" / "skills" / "with-tests"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text("---\nname: t\ndescription: T\n---\n# Body\n")
+    test_dir = skill_dir / "test"
+    test_dir.mkdir()
+    (test_dir / "test_something.py").write_text("assert True")
+    tests_dir = skill_dir / "tests"
+    tests_dir.mkdir()
+    (tests_dir / "test_other.py").write_text("assert True")
+
+    renderer = SkillRenderer()
+    skill = DiscoveredSkill(
+        name="with-tests", source_file=skill_dir / "SKILL.md", product_dir=tmp_path / "products" / "alpha", depth=1
+    )
+    builder = SkillBuilder(repo_root=tmp_path, products_dir=tmp_path / "products", output_dir=tmp_path / "output")
+    result = builder.build_skill(skill, renderer)
+
+    paths = [f.path for f in result.files]
+    assert paths == ["SKILL.md"]
+
+
+def test_build_skill_excludes_test_files(tmp_path: Path) -> None:
+    skill_dir = tmp_path / "products" / "alpha" / "skills" / "test-files"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text("---\nname: tf\ndescription: TF\n---\n# Body\n")
+    (skill_dir / "test_foo.py").write_text("assert True")
+    (skill_dir / "bar_test.py").write_text("assert True")
+    (skill_dir / "helper.py").write_text("x = 1")
+
+    renderer = SkillRenderer()
+    skill = DiscoveredSkill(
+        name="test-files", source_file=skill_dir / "SKILL.md", product_dir=tmp_path / "products" / "alpha", depth=1
+    )
+    builder = SkillBuilder(repo_root=tmp_path, products_dir=tmp_path / "products", output_dir=tmp_path / "output")
+    result = builder.build_skill(skill, renderer)
+
+    paths = [f.path for f in result.files]
+    assert "test_foo.py" not in paths
+    assert "bar_test.py" not in paths
+    assert "helper.py" in paths
+
+
+def test_build_skill_renders_j2_references(tmp_path: Path) -> None:
+    skill_dir = tmp_path / "products" / "alpha" / "skills" / "j2-refs"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md.j2").write_text("---\nname: j2r\ndescription: J2R\n---\n# Main {{ 'content' }}\n")
+    refs = skill_dir / "references"
+    refs.mkdir()
+    (refs / "example.md.j2").write_text("# Rendered {{ 'value' }}\n")
+
+    renderer = SkillRenderer()
+    skill = DiscoveredSkill(
+        name="j2-refs", source_file=skill_dir / "SKILL.md.j2", product_dir=tmp_path / "products" / "alpha", depth=1
+    )
+    builder = SkillBuilder(repo_root=tmp_path, products_dir=tmp_path / "products", output_dir=tmp_path / "output")
+    result = builder.build_skill(skill, renderer)
+
+    paths = [f.path for f in result.files]
+    assert "SKILL.md" in paths
+    assert "references/example.md" in paths
+    ref_file = next(f for f in result.files if f.path == "references/example.md")
+    assert "Rendered value" in ref_file.content
+
+
+def test_build_skill_rejects_deep_j2(tmp_path: Path) -> None:
+    skill_dir = tmp_path / "products" / "alpha" / "skills" / "deep-j2"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text("---\nname: dj\ndescription: DJ\n---\n# Body\n")
+    deep = skill_dir / "a" / "b"
+    deep.mkdir(parents=True)
+    (deep / "template.md.j2").write_text("deep template")
+
+    renderer = SkillRenderer()
+    skill = DiscoveredSkill(
+        name="deep-j2", source_file=skill_dir / "SKILL.md", product_dir=tmp_path / "products" / "alpha", depth=1
+    )
+    builder = SkillBuilder(repo_root=tmp_path, products_dir=tmp_path / "products", output_dir=tmp_path / "output")
+
+    with pytest.raises(ValueError, match="Jinja2 template too deep"):
+        builder.build_skill(skill, renderer)
+
+
+def test_build_skill_validates_entry_point(tmp_path: Path) -> None:
+    skill_dir = tmp_path / "products" / "alpha" / "skills" / "no-entry"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "README.md").write_text("not an entry point")
+
+    renderer = SkillRenderer()
+    skill = DiscoveredSkill(
+        name="no-entry", source_file=skill_dir / "SKILL.md", product_dir=tmp_path / "products" / "alpha", depth=1
+    )
+    builder = SkillBuilder(repo_root=tmp_path, products_dir=tmp_path / "products", output_dir=tmp_path / "output")
+
+    with pytest.raises(ValueError, match="Missing SKILL.md entry point"):
+        builder.build_skill(skill, renderer)
+
+
+def test_build_skill_entry_point_first(tmp_path: Path) -> None:
+    skill_dir = tmp_path / "products" / "alpha" / "skills" / "ordered"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text("---\nname: ord\ndescription: Ord\n---\n# Main\n")
+    (skill_dir / "aaa.md").write_text("first alphabetically")
+    (skill_dir / "zzz.md").write_text("last alphabetically")
+
+    renderer = SkillRenderer()
+    skill = DiscoveredSkill(
+        name="ordered", source_file=skill_dir / "SKILL.md", product_dir=tmp_path / "products" / "alpha", depth=1
+    )
+    builder = SkillBuilder(repo_root=tmp_path, products_dir=tmp_path / "products", output_dir=tmp_path / "output")
+    result = builder.build_skill(skill, renderer)
+
+    assert result.files[0].path == "SKILL.md"
 
 
 def test_build_manifest_produces_valid_structure(tmp_path: Path) -> None:
@@ -274,9 +374,10 @@ def test_build_manifest_produces_valid_structure(tmp_path: Path) -> None:
 
     assert manifest.version == "1.0.0"
     assert len(manifest.resources) == 2
-    assert manifest.resources[0].id == "skill-a"
-    assert manifest.resources[1].id == "skill-b"
-    assert manifest.resources[0].uri == "skill://posthog/skill-a"
+    assert manifest.resources[0].name == "skill-a"
+    assert manifest.resources[1].name == "skill-b"
+    assert manifest.resources[0].files[0].path == "SKILL.md"
+    assert manifest.resources[0].description == "desc"
 
 
 def test_end_to_end_template_with_pydantic(tmp_path: Path) -> None:
@@ -314,10 +415,10 @@ def test_end_to_end_template_with_pydantic(tmp_path: Path) -> None:
         assert len(manifest.resources) == 1
 
         resource = manifest.resources[0]
-        assert resource.id == "e2e-skill"
         assert resource.name == "e2e-skill"
-        assert resource.uri == "skill://posthog/e2e-skill"
-        assert "| `title` |" in resource.resource.text
+        assert resource.description == "End-to-end test skill"
+        assert resource.files[0].path == "SKILL.md"
+        assert "| `title` |" in resource.files[0].content
 
         manifest_path = tmp_path / "output" / "manifest.json"
         assert manifest_path.exists()
@@ -340,15 +441,15 @@ def test_check_detects_stale_manifest(tmp_path: Path) -> None:
         "version": "1.0.0",
         "resources": [
             {
-                "id": "stale-skill",
                 "name": "stale-skill",
-                "uri": "skill://posthog/stale-skill",
-                "resource": {
-                    "mimeType": "text/markdown",
-                    "description": "Stale",
-                    "text": "Version 1",
-                },
-                "source": "products/alpha/skills/stale-skill/SKILL.md",
+                "description": "Stale",
+                "files": [
+                    {
+                        "path": "SKILL.md",
+                        "content": "Version 1",
+                    }
+                ],
+                "source": "products/alpha/skills/stale-skill",
             }
         ],
     }
@@ -405,6 +506,22 @@ def test_lint_all_passes_for_valid_skills(tmp_path: Path) -> None:
     assert builder.lint_all() is True
 
 
+def test_lint_all_passes_with_subdirectories(tmp_path: Path) -> None:
+    skill_dir = tmp_path / "products" / "alpha" / "skills" / "with-refs"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text("---\nname: with-refs\ndescription: Has refs\n---\n# Body\n")
+    refs = skill_dir / "references"
+    refs.mkdir()
+    (refs / "example.md").write_text("# Example\n")
+
+    builder = SkillBuilder(
+        repo_root=tmp_path,
+        products_dir=tmp_path / "products",
+        output_dir=tmp_path / "output",
+    )
+    assert builder.lint_all() is True
+
+
 def test_lint_all_catches_missing_frontmatter(tmp_path: Path) -> None:
     skill_dir = tmp_path / "products" / "alpha" / "skills" / "bad-skill"
     skill_dir.mkdir(parents=True)
@@ -431,6 +548,22 @@ def test_lint_all_catches_bad_jinja2_syntax(tmp_path: Path) -> None:
     assert builder.lint_all() is False
 
 
+def test_lint_all_catches_bad_jinja2_in_subdirectory(tmp_path: Path) -> None:
+    skill_dir = tmp_path / "products" / "alpha" / "skills" / "broken-ref-j2"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md.j2").write_text("---\nname: brj\ndescription: B\n---\n# {{ 'ok' }}\n")
+    refs = skill_dir / "references"
+    refs.mkdir()
+    (refs / "bad.md.j2").write_text("{% if unclosed %}\n")
+
+    builder = SkillBuilder(
+        repo_root=tmp_path,
+        products_dir=tmp_path / "products",
+        output_dir=tmp_path / "output",
+    )
+    assert builder.lint_all() is False
+
+
 def test_lint_all_catches_duplicate_skill_names(tmp_path: Path) -> None:
     for product in ("alpha", "beta"):
         skill_dir = tmp_path / "products" / product / "skills" / "same-name"
@@ -445,11 +578,43 @@ def test_lint_all_catches_duplicate_skill_names(tmp_path: Path) -> None:
     assert builder.lint_all() is False
 
 
-def test_lint_all_catches_depth_2_violations(tmp_path: Path) -> None:
-    skill_dir = tmp_path / "products" / "alpha" / "skills" / "nested"
+def test_build_skill_rejects_binary_file(tmp_path: Path) -> None:
+    skill_dir = tmp_path / "products" / "alpha" / "skills" / "has-binary"
     skill_dir.mkdir(parents=True)
-    (skill_dir / "SKILL.md").write_text("---\nname: nested\ndescription: N\n---\nBody\n")
-    (skill_dir / "subdir").mkdir()
+    (skill_dir / "SKILL.md").write_text("---\nname: hb\ndescription: HB\n---\n# Body\n")
+    (skill_dir / "image.png").write_bytes(b"\x89PNG\r\n\x1a\n\x00\x00\x00")
+
+    renderer = SkillRenderer()
+    skill = DiscoveredSkill(
+        name="has-binary", source_file=skill_dir / "SKILL.md", product_dir=tmp_path / "products" / "alpha", depth=1
+    )
+    builder = SkillBuilder(repo_root=tmp_path, products_dir=tmp_path / "products", output_dir=tmp_path / "output")
+
+    with pytest.raises(ValueError, match="Binary file not supported"):
+        builder.build_skill(skill, renderer)
+
+
+def test_lint_catches_binary_file(tmp_path: Path) -> None:
+    skill_dir = tmp_path / "products" / "alpha" / "skills" / "has-binary"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text("---\nname: hb\ndescription: HB\n---\n# Body\n")
+    (skill_dir / "image.png").write_bytes(b"\x89PNG\r\n\x1a\n\x00\x00\x00")
+
+    builder = SkillBuilder(
+        repo_root=tmp_path,
+        products_dir=tmp_path / "products",
+        output_dir=tmp_path / "output",
+    )
+    assert builder.lint_all() is False
+
+
+def test_lint_catches_deep_j2(tmp_path: Path) -> None:
+    skill_dir = tmp_path / "products" / "alpha" / "skills" / "deep-j2"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text("---\nname: dj\ndescription: DJ\n---\n# Body\n")
+    deep = skill_dir / "a" / "b"
+    deep.mkdir(parents=True)
+    (deep / "template.md.j2").write_text("deep template")
 
     builder = SkillBuilder(
         repo_root=tmp_path,

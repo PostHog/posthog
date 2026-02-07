@@ -47,6 +47,31 @@ except ImportError:
 MANIFEST_VERSION = "1.0.0"
 
 _FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
+_TEST_DIR_NAMES = {"test", "tests"}
+_TEST_FILE_RE = re.compile(r"^test_.*\.py$|.*_test\.py$")
+_BINARY_CHECK_SIZE = 8192
+
+
+def _create_jinja_env(**extra_globals: object) -> Environment:
+    """Create a Jinja2 Environment with the standard skill rendering settings."""
+    env = Environment(
+        undefined=StrictUndefined,
+        keep_trailing_newline=True,
+        lstrip_blocks=True,
+        trim_blocks=True,
+    )
+    env.globals.update(extra_globals)
+    return env
+
+
+def _assert_text_file(file_path: Path) -> None:
+    """Raise ValueError if file appears to be binary (contains null bytes)."""
+    with open(file_path, "rb") as f:
+        chunk = f.read(_BINARY_CHECK_SIZE)
+    if b"\x00" in chunk:
+        raise ValueError(
+            f"Binary file not supported in skill directory: {file_path.name}. Only text-based files are allowed."
+        )
 
 
 class SkillFrontmatter(BaseModel):
@@ -61,17 +86,15 @@ class DiscoveredSkill(BaseModel):
     depth: int
 
 
-class SkillResourceContent(BaseModel):
-    mimeType: str = "text/markdown"
-    description: str
-    text: str
+class SkillFile(BaseModel):
+    path: str
+    content: str
 
 
 class SkillResource(BaseModel):
-    id: str
     name: str
-    uri: str
-    resource: SkillResourceContent
+    description: str
+    files: list[SkillFile]
     source: str
 
 
@@ -169,24 +192,6 @@ class SkillDiscoverer:
 
         return skills
 
-    def validate_depths(self, skills: list[DiscoveredSkill]) -> list[str]:
-        """Check for depth 2+ violations (subdirectories inside depth-1 skill directories).
-
-        Returns a list of error messages. Empty list means validation passed.
-        """
-        errors: list[str] = []
-        for skill in skills:
-            if skill.depth != 1:
-                continue
-            skill_dir = skill.source_file.parent
-            for child in skill_dir.iterdir():
-                if child.is_dir():
-                    errors.append(
-                        f"Nested subdirectory not allowed in skill directory: "
-                        f"{child.relative_to(self.products_dir.parent)}"
-                    )
-        return errors
-
 
 class SkillRenderer:
     """Renders skill source files to final markdown via Jinja2."""
@@ -194,15 +199,11 @@ class SkillRenderer:
     def __init__(self) -> None:
         from products.posthog_ai.scripts.pydantic_schema import pydantic_field_list, pydantic_fields, pydantic_schema
 
-        self.env = Environment(
-            undefined=StrictUndefined,
-            keep_trailing_newline=True,
-            lstrip_blocks=True,
-            trim_blocks=True,
+        self.env = _create_jinja_env(
+            pydantic_schema=pydantic_schema,
+            pydantic_fields=pydantic_fields,
+            pydantic_field_list=pydantic_field_list,
         )
-        self.env.globals["pydantic_schema"] = pydantic_schema
-        self.env.globals["pydantic_fields"] = pydantic_fields
-        self.env.globals["pydantic_field_list"] = pydantic_field_list
 
     def render(self, source_file: Path) -> str:
         """Render a skill source file to its final markdown content."""
@@ -222,23 +223,74 @@ class SkillBuilder:
         self.output_dir = output_dir
         self.discoverer = SkillDiscoverer(products_dir)
 
+    def collect_skill_files(self, skill_dir: Path, renderer: SkillRenderer) -> list[SkillFile]:
+        """Collect and render all files from a skill directory.
+
+        Walks the directory recursively, excluding test directories and test files.
+        Validates that .j2 files are at most 1 level deep within the skill dir.
+        Returns a list of SkillFile with SKILL.md always first.
+        """
+        files: list[SkillFile] = []
+        entry_point: SkillFile | None = None
+
+        for root, dirs, filenames in os.walk(skill_dir):
+            dirs[:] = [d for d in sorted(dirs) if d not in _TEST_DIR_NAMES]
+            rel_root = Path(root).relative_to(skill_dir)
+            depth = len(rel_root.parts)
+
+            for filename in sorted(filenames):
+                if _TEST_FILE_RE.match(filename):
+                    continue
+
+                file_path = Path(root) / filename
+                rel_path = file_path.relative_to(skill_dir)
+
+                _assert_text_file(file_path)
+
+                if filename.endswith(".j2") and depth > 1:
+                    raise ValueError(f"Jinja2 template too deep (max 1 level): {rel_path} in {skill_dir.name}")
+
+                content = renderer.render(file_path)
+                out_path = str(rel_path)
+                if out_path.endswith(".j2"):
+                    out_path = out_path.removesuffix(".j2")
+
+                skill_file = SkillFile(path=out_path, content=content)
+                if out_path == "SKILL.md":
+                    entry_point = skill_file
+                else:
+                    files.append(skill_file)
+
+        if entry_point is None:
+            raise ValueError(f"Missing SKILL.md entry point in {skill_dir.name}")
+
+        return [entry_point, *files]
+
     def build_skill(self, skill: DiscoveredSkill, renderer: SkillRenderer) -> SkillResource:
         """Build a single skill and return a SkillResource."""
-        rendered = renderer.render(skill.source_file)
-        metadata, body = parse_frontmatter(rendered)
+        if skill.depth == 1:
+            skill_dir = skill.source_file.parent
+            skill_files = self.collect_skill_files(skill_dir, renderer)
+            entry_content = skill_files[0].content
+            metadata, _body = parse_frontmatter(entry_content)
+            source = str(skill_dir.relative_to(self.repo_root))
+        else:
+            rendered = renderer.render(skill.source_file)
+            metadata, _body = parse_frontmatter(rendered)
+            out_name = skill.source_file.name
+            if out_name.endswith(".j2"):
+                out_name = out_name.removesuffix(".j2")
+            skill_files = [SkillFile(path=out_name, content=rendered.strip())]
+            source = str(skill.source_file.relative_to(self.repo_root))
 
         display_name = metadata.get("name", skill.name)
         description = metadata.get("description", f"Skill: {skill.name}")
 
         return SkillResource(
-            id=skill.name,
             name=display_name,
-            uri=f"skill://posthog/{skill.name}",
-            resource=SkillResourceContent(
-                description=description,
-                text=body.strip(),
-            ),
-            source=str(skill.source_file.relative_to(self.repo_root)),
+            description=description,
+            files=skill_files,
+            source=source,
         )
 
     def build_manifest(self, skills: list[DiscoveredSkill], renderer: SkillRenderer) -> SkillManifest:
@@ -249,13 +301,6 @@ class SkillBuilder:
     def build_all(self, *, dry_run: bool = False) -> SkillManifest:
         """Build all product skills and write the manifest."""
         skills = self.discoverer.discover()
-
-        depth_errors = self.discoverer.validate_depths(skills)
-        if depth_errors:
-            for err in depth_errors:
-                print(f"ERROR: {err}", file=sys.stderr)
-            raise SystemExit(1)
-
         renderer = SkillRenderer()
         manifest = self.build_manifest(skills, renderer)
 
@@ -294,38 +339,57 @@ class SkillBuilder:
         if actual_manifest != expected_dict:
             print(f"STALE:   {manifest_path.relative_to(self.repo_root)}")
 
-            actual_ids = {r["id"] for r in actual_manifest.get("resources", [])}
-            expected_ids = {r.id for r in expected_manifest.resources}
-            for added in expected_ids - actual_ids:
+            actual_names = {r["name"] for r in actual_manifest.get("resources", [])}
+            expected_names = {r.name for r in expected_manifest.resources}
+            for added in expected_names - actual_names:
                 print(f"  + {added} (new)")
-            for removed in actual_ids - expected_ids:
+            for removed in actual_names - expected_names:
                 print(f"  - {removed} (removed)")
-            for skill_id in actual_ids & expected_ids:
-                actual_r = next(r for r in actual_manifest["resources"] if r["id"] == skill_id)
-                expected_r = next(r for r in expected_manifest.resources if r.id == skill_id)
+            for skill_name in actual_names & expected_names:
+                actual_r = next(r for r in actual_manifest["resources"] if r["name"] == skill_name)
+                expected_r = next(r for r in expected_manifest.resources if r.name == skill_name)
                 if actual_r != expected_r.model_dump():
-                    print(f"  ~ {skill_id} (changed)")
+                    print(f"  ~ {skill_name} (changed)")
 
             return False
 
         print(f"OK:      {manifest_path.relative_to(self.repo_root)} ({len(expected_manifest.resources)} skill(s))")
         return True
 
+    def _collect_lint_files(self, skill: DiscoveredSkill) -> list[tuple[Path, int]]:
+        """Collect all files for linting from a skill, with their depth relative to skill dir.
+
+        Returns list of (file_path, depth) tuples. Excludes test dirs/files.
+        """
+        if skill.depth == 0:
+            return [(skill.source_file, 0)]
+
+        skill_dir = skill.source_file.parent
+        result: list[tuple[Path, int]] = []
+        for root, dirs, filenames in os.walk(skill_dir):
+            dirs[:] = [d for d in sorted(dirs) if d not in _TEST_DIR_NAMES]
+            rel_root = Path(root).relative_to(skill_dir)
+            depth = len(rel_root.parts)
+            for filename in sorted(filenames):
+                if _TEST_FILE_RE.match(filename):
+                    continue
+                result.append((Path(root) / filename, depth))
+        return result
+
     def lint_all(self) -> bool:
         """Validate skill sources without rendering (no Django needed).
 
         Checks:
-        - Depth validation (no depth 2+)
+        - Binary file detection (only text files allowed)
         - Duplicate skill name detection (across products)
-        - Jinja2 syntax validation via parse-only
-        - Frontmatter validation for static .md files (required: name, description)
+        - Jinja2 syntax validation via parse-only (all .j2 files)
+        - Jinja2 template depth validation (.j2 files must be at most 1 level deep)
+        - Frontmatter validation for static .md entry points (required: name, description)
 
         Returns True if all checks pass, False otherwise.
         """
         skills = self.discoverer.discover()
         errors: list[str] = []
-
-        errors.extend(self.discoverer.validate_depths(skills))
 
         seen: dict[str, DiscoveredSkill] = {}
         for skill in skills:
@@ -339,23 +403,33 @@ class SkillBuilder:
             else:
                 seen[skill.name] = skill
 
-        jinja_env = Environment(
-            undefined=StrictUndefined,
-            keep_trailing_newline=True,
-            lstrip_blocks=True,
-            trim_blocks=True,
-        )
+        jinja_env = _create_jinja_env()
 
         for skill in skills:
-            raw = skill.source_file.read_text()
-            source_label = str(skill.source_file.relative_to(self.repo_root))
+            lint_files = self._collect_lint_files(skill)
 
-            if skill.source_file.suffix == ".j2":
+            for file_path, depth in lint_files:
+                source_label = str(file_path.relative_to(self.repo_root))
+
                 try:
-                    jinja_env.parse(raw)
-                except TemplateSyntaxError as e:
-                    errors.append(f"Jinja2 syntax error in {source_label}: {e}")
-            else:
+                    _assert_text_file(file_path)
+                except ValueError as e:
+                    errors.append(str(e))
+                    continue
+
+                if file_path.suffix == ".j2":
+                    if depth > 1:
+                        errors.append(f"Jinja2 template too deep (max 1 level): {source_label}")
+                    raw = file_path.read_text()
+                    try:
+                        jinja_env.parse(raw)
+                    except TemplateSyntaxError as e:
+                        errors.append(f"Jinja2 syntax error in {source_label}: {e}")
+
+            # Frontmatter validation only on the entry point when it's a static .md
+            if skill.source_file.suffix != ".j2":
+                raw = skill.source_file.read_text()
+                source_label = str(skill.source_file.relative_to(self.repo_root))
                 try:
                     validate_frontmatter(raw, source_label)
                 except ValueError as e:
@@ -387,8 +461,15 @@ class SkillBuilder:
 
 
 def _setup_django() -> None:
-    """Set up Django (needed for importing product models during build/check)."""
+    """Set up Django (needed for importing product models during build/check).
+
+    Sets dummy values for infrastructure env vars (Redis, etc.) that the settings
+    module requires at import time. The build script never connects to these services
+    — it only needs the Django ORM metadata and model imports to work.
+    """
     os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
+    os.environ.setdefault("REDIS_URL", "redis://localhost:6379")
+    os.environ.setdefault("POSTHOG_REDIS_HOST", "localhost")
     try:
         import django
 
@@ -432,14 +513,12 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    repo_root = Path(__file__).resolve().parent.parent.parent.parent
-    products_dir = repo_root / "products"
-    output_dir = repo_root / "services" / "mcp" / "skills"
-    builder = SkillBuilder(repo_root, products_dir, output_dir)
+    products_dir = REPO_ROOT / "products"
+    output_dir = REPO_ROOT / "services" / "mcp" / "skills"
+    builder = SkillBuilder(REPO_ROOT, products_dir, output_dir)
 
     if args.lint:
-        ok = builder.lint_all()
-        if not ok:
+        if not builder.lint_all():
             sys.exit(1)
         return
 
@@ -450,12 +529,10 @@ def main() -> None:
     _setup_django()
 
     if args.check:
-        ok = builder.check_all()
-        if not ok:
+        if not builder.check_all():
             print("\nSkills are out of date. Run `hogli build:skills` to rebuild.")
             sys.exit(1)
-        else:
-            print("\nAll product skills are up-to-date.")
+        print("\nAll product skills are up-to-date.")
         return
 
     manifest = builder.build_all()
@@ -464,9 +541,9 @@ def main() -> None:
         return
 
     manifest_path = output_dir / "manifest.json"
-    print(f"Built {len(manifest.resources)} skill(s) → {manifest_path.relative_to(repo_root)}")
+    print(f"Built {len(manifest.resources)} skill(s) → {manifest_path.relative_to(REPO_ROOT)}")
     for r in manifest.resources:
-        print(f"  {r.id:<40} uri={r.uri}")
+        print(f"  {r.name:<40} source={r.source}")
 
 
 if __name__ == "__main__":

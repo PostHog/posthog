@@ -5,6 +5,7 @@ from __future__ import annotations
 import sys
 import json
 import types
+from collections.abc import Callable, Generator
 
 import pytest
 
@@ -46,63 +47,60 @@ def test_json_schema_type_label(prop: dict, expected: str) -> None:
 
 
 @pytest.fixture()
-def _fake_module_schema():
-    class SampleModel(BaseModel):
-        name: str = Field(description="The name")
-        count: int = Field(default=0, description="A counter")
+def register_fake_module() -> Generator[Callable[..., None], None, None]:
+    """Factory fixture that registers a Pydantic model as a fake module for import.
 
-    mod = types.ModuleType("_test_pydantic_schema_models")
-    mod.SampleModel = SampleModel  # type: ignore
-    sys.modules["_test_pydantic_schema_models"] = mod
-    yield
-    del sys.modules["_test_pydantic_schema_models"]
+    Returns a callable: register(module_name, class_name, model_cls).
+    Automatically cleans up all registered modules after the test.
+    """
+    registered: list[str] = []
 
+    def _register(module_name: str, class_name: str, model_cls: type) -> None:
+        mod = types.ModuleType(module_name)
+        setattr(mod, class_name, model_cls)
+        sys.modules[module_name] = mod
+        registered.append(module_name)
 
-@pytest.fixture()
-def _fake_module_fields():
-    class TinyModel(BaseModel):
-        x: str = Field(description="The x field")
-        y: int = Field(default=0, description="The y field")
+    yield _register
 
-    mod = types.ModuleType("_test_pydantic_fields_models")
-    mod.TinyModel = TinyModel  # type: ignore
-    sys.modules["_test_pydantic_fields_models"] = mod
-    yield
-    del sys.modules["_test_pydantic_fields_models"]
+    for name in registered:
+        sys.modules.pop(name, None)
 
 
-@pytest.fixture()
-def _fake_module_bullets():
-    class BulletModel(BaseModel):
-        alpha: str = Field(description="First")
-        beta: int = Field(description="Second")
-
-    mod = types.ModuleType("_test_pydantic_bullets_models")
-    mod.BulletModel = BulletModel  # type: ignore
-    sys.modules["_test_pydantic_bullets_models"] = mod
-    yield
-    del sys.modules["_test_pydantic_bullets_models"]
+class SampleModel(BaseModel):
+    name: str = Field(description="The name")
+    count: int = Field(default=0, description="A counter")
 
 
-@pytest.mark.usefixtures("_fake_module_schema")
-def test_pydantic_schema_renders_json() -> None:
-    result = pydantic_schema("_test_pydantic_schema_models.SampleModel")
+class TinyModel(BaseModel):
+    x: str = Field(description="The x field")
+    y: int = Field(default=0, description="The y field")
+
+
+class BulletModel(BaseModel):
+    alpha: str = Field(description="First")
+    beta: int = Field(description="Second")
+
+
+def test_pydantic_schema_renders_json(register_fake_module: Callable[..., None]) -> None:
+    register_fake_module("_test_schema_models", "SampleModel", SampleModel)
+    result = pydantic_schema("_test_schema_models.SampleModel")
     schema = json.loads(result)
     assert schema["properties"]["name"]["type"] == "string"
     assert schema["properties"]["count"]["type"] == "integer"
     assert "name" in schema.get("required", [])
 
 
-@pytest.mark.usefixtures("_fake_module_fields")
-def test_pydantic_fields_renders_table() -> None:
-    result = pydantic_fields("_test_pydantic_fields_models.TinyModel")
+def test_pydantic_fields_renders_table(register_fake_module: Callable[..., None]) -> None:
+    register_fake_module("_test_fields_models", "TinyModel", TinyModel)
+    result = pydantic_fields("_test_fields_models.TinyModel")
     assert "| `x` |" in result
     assert "| `y` |" in result
     assert "| Field | Type | Required | Description |" in result
 
 
-@pytest.mark.usefixtures("_fake_module_bullets")
-def test_pydantic_field_list_renders_bullets() -> None:
-    result = pydantic_field_list("_test_pydantic_bullets_models.BulletModel")
+def test_pydantic_field_list_renders_bullets(register_fake_module: Callable[..., None]) -> None:
+    register_fake_module("_test_bullets_models", "BulletModel", BulletModel)
+    result = pydantic_field_list("_test_bullets_models.BulletModel")
     assert "- **`alpha`** (string): First" in result
     assert "- **`beta`** (integer): Second" in result

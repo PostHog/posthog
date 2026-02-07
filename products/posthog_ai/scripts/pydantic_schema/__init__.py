@@ -9,9 +9,10 @@ from __future__ import annotations
 
 import json
 import importlib
+from typing import Any
 
 
-def _import_model(dotted_path: str) -> type:
+def _import_model(dotted_path: str) -> type[Any]:
     """Import a class by its fully-qualified dotted path.
 
     Example: ``products.feature_flags.backend.max_tools.FeatureFlagCreationSchema``
