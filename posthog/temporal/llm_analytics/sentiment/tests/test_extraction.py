@@ -1,5 +1,6 @@
 """Tests for sentiment text extraction utilities."""
 
+from posthog.temporal.llm_analytics.sentiment.constants import MAX_MESSAGE_CHARS, MAX_USER_MESSAGES
 from posthog.temporal.llm_analytics.sentiment.extraction import (
     extract_user_messages,
     extract_user_messages_individually,
@@ -130,22 +131,47 @@ class TestExtractUserMessagesIndividually:
         ai_input = [{"role": "user", "content": "Just one message"}]
         assert extract_user_messages_individually(ai_input) == ["Just one message"]
 
+    def test_limits_to_last_n_messages(self):
+        total = MAX_USER_MESSAGES + 10
+        ai_input = [{"role": "user", "content": f"msg {i}"} for i in range(total)]
+        result = extract_user_messages_individually(ai_input)
+        assert len(result) == MAX_USER_MESSAGES
+        assert result == [f"msg {i}" for i in range(total - MAX_USER_MESSAGES, total)]
+
+    def test_exactly_max_messages(self):
+        ai_input = [{"role": "user", "content": f"msg {i}"} for i in range(MAX_USER_MESSAGES)]
+        result = extract_user_messages_individually(ai_input)
+        assert len(result) == MAX_USER_MESSAGES
+
+    def test_limit_applies_after_filtering(self):
+        total = MAX_USER_MESSAGES + 10
+        ai_input = []
+        for i in range(total):
+            ai_input.append({"role": "user", "content": f"user {i}"})
+            ai_input.append({"role": "assistant", "content": f"assistant {i}"})
+        result = extract_user_messages_individually(ai_input)
+        assert len(result) == MAX_USER_MESSAGES
+        assert result[0] == f"user {total - MAX_USER_MESSAGES}"
+        assert result[-1] == f"user {total - 1}"
+
 
 class TestTruncateToTokenLimit:
     def test_short_text_unchanged(self):
         text = "Hello world"
         assert truncate_to_token_limit(text) == text
 
-    def test_long_text_truncated(self):
-        text = "x" * 2000
+    def test_long_text_keeps_tail(self):
+        text = "HEAD" + "x" * (MAX_MESSAGE_CHARS + 500)
         result = truncate_to_token_limit(text)
-        assert len(result) == 1500
+        assert len(result) == MAX_MESSAGE_CHARS
+        assert not result.startswith("HEAD")
 
     def test_exact_limit(self):
-        text = "x" * 1500
+        text = "x" * MAX_MESSAGE_CHARS
         assert truncate_to_token_limit(text) == text
 
-    def test_custom_limit(self):
-        text = "x" * 100
+    def test_custom_limit_keeps_tail(self):
+        text = "AAAA" + "B" * 96
         result = truncate_to_token_limit(text, max_chars=50)
         assert len(result) == 50
+        assert result == "B" * 50

@@ -142,13 +142,19 @@ export function ConversationMessagesDisplay({
             </div>
         ) : undefined
 
-    // Track user message index to match per-message sentiments
+    // Match per-message sentiments to user messages, aligned from the end.
+    // The backend only classifies the last N user messages, so if there are
+    // more user messages than sentiments we skip the earliest ones.
+    const totalUserMessages = inputNormalized.filter((m) => m.role === 'user').length
+    const sentimentOffset = totalUserMessages - (messageSentiments?.length ?? 0)
     let userMessageIndex = 0
     const inputDisplay =
         inputNormalized.length > 0 ? (
             inputNormalized.map((message, i) => {
                 const isUserMsg = message.role === 'user'
-                const sentiment = isUserMsg && messageSentiments ? messageSentiments[userMessageIndex] : undefined
+                const sentimentIdx = userMessageIndex - sentimentOffset
+                const sentiment =
+                    isUserMsg && messageSentiments && sentimentIdx >= 0 ? messageSentiments[sentimentIdx] : undefined
                 if (isUserMsg) {
                     userMessageIndex++
                 }

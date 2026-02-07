@@ -8,7 +8,7 @@ import json
 import uuid
 import asyncio
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import Any
 
 import structlog
@@ -20,11 +20,20 @@ from posthog.models.event.util import create_event
 from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.llm_analytics.sentiment.constants import (
+    ACTIVITY_TIMEOUT,
+    MODEL_NAME,
+    RETRY_BACKOFF_COEFFICIENT,
+    RETRY_INITIAL_INTERVAL,
+    RETRY_MAX_ATTEMPTS,
+    RETRY_MAX_INTERVAL,
+    SEVERITY,
+)
 from posthog.temporal.llm_analytics.sentiment.extraction import (
     extract_user_messages_individually,
     truncate_to_token_limit,
 )
-from posthog.temporal.llm_analytics.sentiment.model import MODEL_NAME, classify
+from posthog.temporal.llm_analytics.sentiment.model import classify
 
 logger = structlog.get_logger(__name__)
 
@@ -33,10 +42,10 @@ logger = structlog.get_logger(__name__)
 _classify_lock = asyncio.Lock()
 
 SENTIMENT_RETRY_POLICY = RetryPolicy(
-    maximum_attempts=3,
-    initial_interval=timedelta(seconds=5),
-    maximum_interval=timedelta(seconds=30),
-    backoff_coefficient=2.0,
+    maximum_attempts=RETRY_MAX_ATTEMPTS,
+    initial_interval=RETRY_INITIAL_INTERVAL,
+    maximum_interval=RETRY_MAX_INTERVAL,
+    backoff_coefficient=RETRY_BACKOFF_COEFFICIENT,
 )
 
 
@@ -119,7 +128,6 @@ async def classify_sentiment_activity(input: SentimentClassificationInput) -> di
             )
 
     # Overall sentiment = "worst" (negative > neutral > positive) for backward compat
-    SEVERITY = {"negative": 2, "neutral": 1, "positive": 0}
     worst = max(classify_results, key=lambda r: SEVERITY.get(r.label, 0))
     overall_label = worst.label
     overall_score = worst.score
@@ -190,7 +198,7 @@ class RunSentimentClassificationWorkflow(PostHogWorkflow):
         result = await temporalio.workflow.execute_activity(
             classify_sentiment_activity,
             input,
-            start_to_close_timeout=timedelta(minutes=5),
+            start_to_close_timeout=ACTIVITY_TIMEOUT,
             retry_policy=SENTIMENT_RETRY_POLICY,
         )
         return result

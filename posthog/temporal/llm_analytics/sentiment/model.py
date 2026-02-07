@@ -8,19 +8,15 @@ The ONNX export is cached to disk so subsequent worker restarts skip
 the expensive PyTorch→ONNX conversion (~10s).
 """
 
-import os
 import threading
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
 
 import structlog
 
-logger = structlog.get_logger(__name__)
+from posthog.temporal.llm_analytics.sentiment.constants import LABELS, MODEL_NAME, ONNX_CACHE_DIR
 
-MODEL_NAME = "cardiffnlp/twitter-roberta-base-sentiment-latest"
-LABELS = ["negative", "neutral", "positive"]
-_ONNX_CACHE_DIR = Path(os.environ.get("POSTHOG_SENTIMENT_MODEL_CACHE", "/tmp/posthog-sentiment-onnx-cache"))
+logger = structlog.get_logger(__name__)
 
 _model_lock = threading.Lock()
 _pipeline = None
@@ -52,8 +48,8 @@ def _load_pipeline():
         from optimum.onnxruntime import ORTModelForSequenceClassification
         from transformers import AutoTokenizer, pipeline
 
-        cache_dir = str(_ONNX_CACHE_DIR)
-        onnx_cached = (_ONNX_CACHE_DIR / "model.onnx").exists()
+        cache_dir = str(ONNX_CACHE_DIR)
+        onnx_cached = (ONNX_CACHE_DIR / "model.onnx").exists()
 
         try:
             if onnx_cached:
@@ -80,7 +76,7 @@ def _load_pipeline():
                     model = ORTModelForSequenceClassification.from_pretrained(MODEL_NAME, export=True)
                 finally:
                     torch.onnx.export = original_export
-                _ONNX_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+                ONNX_CACHE_DIR.mkdir(parents=True, exist_ok=True)
                 model.save_pretrained(cache_dir)
                 tokenizer.save_pretrained(cache_dir)
                 logger.info("ONNX model cached to disk", cache_dir=cache_dir)
