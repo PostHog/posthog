@@ -535,30 +535,64 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
 
     @staticmethod
     def get_token_response(token_value=None):
+        """
+        RFC 7662 Token Introspection response.
+
+        Per Section 2.2, inactive/unknown tokens MUST return {"active": false} with no
+        additional information. Active tokens include the required "active" field plus
+        optional fields (token_type, scope, client_id, exp) as applicable.
+
+        We search across all supported token types (access then refresh) per Section 2.1:
+        "If the server is unable to locate the token using the given hint, it MUST extend
+        its search across all of its supported token types."
+        """
         if not token_value:
             return JsonResponse({"active": False}, status=200)
 
+        # Try access token first (indexed lookup via token_checksum)
+        token_checksum = hashlib.sha256(token_value.encode("utf-8")).hexdigest()
         try:
-            token_checksum = hashlib.sha256(token_value.encode("utf-8")).hexdigest()
-            token = OAuthAccessToken.objects.get(token_checksum=token_checksum) or OAuthRefreshToken.objects.get(
-                token_checksum=token_checksum
-            )
-        except ObjectDoesNotExist:
-            return JsonResponse({"active": False}, status=200)
+            access_token = OAuthAccessToken.objects.get(token_checksum=token_checksum)
+        except OAuthAccessToken.DoesNotExist:
+            access_token = None
 
-        if token.is_valid():
+        if access_token:
+            # RFC 7662 Section 2.2: expired tokens MUST return {"active": false}
+            if not access_token.is_valid():
+                return JsonResponse({"active": False}, status=200)
             data = {
                 "active": True,
-                "scope": token.scope,
-                "scoped_teams": token.scoped_teams or [],
-                "scoped_organizations": token.scoped_organizations or [],
-                "exp": int(calendar.timegm(token.expires.timetuple())),
+                "token_type": "access_token",
+                "scope": access_token.scope,
+                "scoped_teams": access_token.scoped_teams or [],
+                "scoped_organizations": access_token.scoped_organizations or [],
+                "exp": int(calendar.timegm(access_token.expires.timetuple())),
             }
-            if token.application:
-                data["client_id"] = token.application.client_id
+            if access_token.application:
+                data["client_id"] = access_token.application.client_id
             return JsonResponse(data)
-        else:
-            return JsonResponse({"active": False}, status=200)
+
+        # Fall back to refresh token (lookup by plaintext token — OAuthRefreshToken has
+        # no token_checksum field; revoked tokens filtered via revoked__isnull=True)
+        try:
+            refresh_token = OAuthRefreshToken.objects.get(token=token_value, revoked__isnull=True)
+        except OAuthRefreshToken.DoesNotExist:
+            refresh_token = None
+
+        if refresh_token:
+            # Refresh tokens lack scope and exp fields on AbstractRefreshToken,
+            # so we only return the fields that are available
+            data = {
+                "active": True,
+                "token_type": "refresh_token",
+                "scoped_teams": refresh_token.scoped_teams or [],
+                "scoped_organizations": refresh_token.scoped_organizations or [],
+            }
+            if refresh_token.application:
+                data["client_id"] = refresh_token.application.client_id
+            return JsonResponse(data)
+
+        return JsonResponse({"active": False}, status=200)
 
     def get(self, request, *args, **kwargs):
         """
