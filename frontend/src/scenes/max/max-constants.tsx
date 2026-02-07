@@ -605,6 +605,19 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             return 'Summarizing experiment results...'
         },
     },
+    experiment_session_replays_summary: {
+        name: 'Summarize experiment session replays',
+        description: 'Analyze user behavior patterns across experiment variants using session recordings',
+        product: Scene.Experiment,
+        icon: iconForType('session_replay'),
+        modes: [AgentMode.Flags],
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Analyzed session replay patterns'
+            }
+            return 'Analyzing session replays...'
+        },
+    },
     create_survey: {
         name: 'Create surveys',
         description: 'Create surveys in seconds',
