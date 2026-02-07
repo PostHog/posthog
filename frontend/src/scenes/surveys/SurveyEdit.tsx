@@ -68,8 +68,8 @@ import { SurveyAppearancePreview } from './SurveyAppearancePreview'
 import { HTMLEditor, PresentationTypeCard } from './SurveyAppearanceUtils'
 import { SurveyEditQuestionGroup, SurveyEditQuestionHeader } from './SurveyEditQuestionRow'
 import { SurveyFormAppearance } from './SurveyFormAppearance'
-import { SurveyBranchingFlowModal } from './branching-flow/SurveyBranchingFlowModal'
 import { COMMON_LANGUAGES } from './SurveyTranslations'
+import { SurveyBranchingFlowModal } from './branching-flow/SurveyBranchingFlowModal'
 import { SURVEY_TYPE_LABEL_MAP, SurveyMatchTypeLabels, defaultSurveyFieldValues } from './constants'
 import { DataCollectionType, SurveyEditSection, surveyLogic } from './surveyLogic'
 import { surveysLogic } from './surveysLogic'
@@ -180,7 +180,7 @@ function SurveyCompletionConditions(): JSX.Element {
                         />
                         <LemonSelect
                             value={survey.response_sampling_interval_type}
-                            size="small="
+                            size="small"
                             onChange={(newValue) => {
                                 setSurveyValue('response_sampling_interval_type', newValue)
                             }}
