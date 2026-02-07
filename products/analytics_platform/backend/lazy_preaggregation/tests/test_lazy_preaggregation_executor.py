@@ -1,10 +1,8 @@
-import time
-import threading
 from datetime import UTC, datetime, timedelta
 
 import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from django.db import IntegrityError
 from django.utils import timezone as django_timezone
@@ -38,7 +36,6 @@ from products.analytics_platform.backend.lazy_preaggregation.lazy_preaggregation
     ensure_preaggregated,
     filter_overlapping_jobs,
     find_missing_contiguous_windows,
-    heartbeat_while_running,
     is_non_retryable_error,
 )
 from products.analytics_platform.backend.models import PreaggregationJob
@@ -1242,7 +1239,7 @@ class TestPreaggregationExecutorWaiting(BaseTest):
         assert result.timed_out is False
 
     def test_gives_up_at_max_attempts(self):
-        executor = PreaggregationExecutor(wait_timeout_seconds=1.0, poll_interval_seconds=0.1, max_attempts=2)
+        executor = PreaggregationExecutor(wait_timeout_seconds=2.0, poll_interval_seconds=0.05, max_attempts=2)
 
         failed_job = PreaggregationJob.objects.create(
             team=self.team,
@@ -1262,7 +1259,8 @@ class TestPreaggregationExecutorWaiting(BaseTest):
 
         result = executor._wait_for_pending_jobs(self.team, [failed_job], failing_insert)
 
-        assert insert_call_count[0] == 1
+        # max_attempts=2 means 2 INSERT attempts before giving up
+        assert insert_call_count[0] == 2
         assert result.success is False
         assert len(result.ready_jobs) == 0
         assert len(result.failed_jobs) == 1
@@ -1809,105 +1807,6 @@ class TestPreaggregationExecutorWaiting(BaseTest):
         assert sleep_durations[2] == pytest.approx(2.0, abs=0.01)
         # Without reset this would be 4.0 — the reset to 0.5 proves it works
         assert sleep_durations[3] == pytest.approx(0.5, abs=0.01)
-
-
-class TestHeartbeat(BaseTest):
-    """Tests for the heartbeat mechanism during INSERT execution."""
-
-    def test_heartbeat_updates_during_long_insert(self):
-        job = PreaggregationJob.objects.create(
-            team=self.team,
-            query_hash="test_hash",
-            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
-            time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
-            status=PreaggregationJob.Status.PENDING,
-            expires_at=django_timezone.now() + timedelta(days=7),
-        )
-
-        mock_qs = MagicMock()
-        mock_qs.update.return_value = 1
-
-        with patch.object(PreaggregationJob.objects, "filter", return_value=mock_qs):
-            with heartbeat_while_running(job, interval_seconds=0.05):
-                time.sleep(0.25)
-
-        assert mock_qs.update.call_count >= 2
-
-    def test_heartbeat_stops_on_success(self):
-        job = PreaggregationJob.objects.create(
-            team=self.team,
-            query_hash="test_hash",
-            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
-            time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
-            status=PreaggregationJob.Status.PENDING,
-            expires_at=django_timezone.now() + timedelta(days=7),
-        )
-
-        daemon_threads_before = len([t for t in threading.enumerate() if t.daemon])
-
-        mock_qs = MagicMock()
-        mock_qs.update.return_value = 1
-        with patch.object(PreaggregationJob.objects, "filter", return_value=mock_qs):
-            with heartbeat_while_running(job, interval_seconds=0.05):
-                time.sleep(0.1)
-
-        time.sleep(0.1)
-
-        daemon_threads_after = len([t for t in threading.enumerate() if t.daemon])
-        assert daemon_threads_after <= daemon_threads_before
-
-    def test_heartbeat_stops_on_failure(self):
-        job = PreaggregationJob.objects.create(
-            team=self.team,
-            query_hash="test_hash",
-            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
-            time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
-            status=PreaggregationJob.Status.PENDING,
-            expires_at=django_timezone.now() + timedelta(days=7),
-        )
-
-        daemon_threads_before = len([t for t in threading.enumerate() if t.daemon])
-
-        mock_qs = MagicMock()
-        mock_qs.update.return_value = 1
-        try:
-            with patch.object(PreaggregationJob.objects, "filter", return_value=mock_qs):
-                with heartbeat_while_running(job, interval_seconds=0.05):
-                    time.sleep(0.1)
-                    raise ValueError("Simulated INSERT failure")
-        except ValueError:
-            pass
-
-        time.sleep(0.1)
-
-        daemon_threads_after = len([t for t in threading.enumerate() if t.daemon])
-        assert daemon_threads_after <= daemon_threads_before
-
-    def test_heartbeat_only_updates_pending_jobs(self):
-        job = PreaggregationJob.objects.create(
-            team=self.team,
-            query_hash="test_hash",
-            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
-            time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
-            status=PreaggregationJob.Status.PENDING,
-            expires_at=django_timezone.now() + timedelta(days=7),
-        )
-
-        filter_calls = []
-
-        def tracking_filter(*args, **kwargs):
-            filter_calls.append(kwargs)
-            qs = MagicMock()
-            qs.update.return_value = 1
-            return qs
-
-        with patch.object(PreaggregationJob.objects, "filter", side_effect=tracking_filter):
-            with heartbeat_while_running(job, interval_seconds=0.05):
-                time.sleep(0.15)
-
-        assert len(filter_calls) >= 2
-        for call in filter_calls:
-            assert call.get("status") == PreaggregationJob.Status.PENDING
 
 
 class TestIsNonRetryableError(BaseTest):

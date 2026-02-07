@@ -3,9 +3,7 @@ import json
 import time
 import uuid
 import hashlib
-import threading
 from collections.abc import Callable
-from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
@@ -42,12 +40,14 @@ DEFAULT_POLL_INTERVAL_SECONDS = 1.0  # Initial poll interval (doubles each itera
 DEFAULT_MAX_POLL_INTERVAL_SECONDS = 30.0  # Cap for exponential backoff
 DEFAULT_MAX_ATTEMPTS = 2  # Maximum retry attempts for failed jobs
 
-# Heartbeat configuration - keeps job marked as "alive" during long INSERTs
-DEFAULT_HEARTBEAT_INTERVAL_SECONDS = 30.0  # Update updated_at every 30 seconds
-
-# Threshold for detecting stale PENDING jobs (executor may have crashed)
-# With 30s heartbeat, 2 minutes = 4 missed heartbeats before considering dead
-DEFAULT_STALE_PENDING_THRESHOLD_SECONDS = 120  # 2 minutes
+# Threshold for detecting stale PENDING jobs (executor may have crashed).
+# Without a heartbeat, we use ClickHouse's max_execution_time (default 5 min)
+# plus a generous buffer for network overhead, query queuing, etc.
+# TODO: Improve stale detection latency — currently we must wait the full
+# threshold before recovering from a crashed executor. Options include a
+# heartbeat via Redis/pg_notify, or using ClickHouse query progress callbacks
+# once INSERT support is available in clickhouse-driver.
+DEFAULT_STALE_PENDING_THRESHOLD_SECONDS = 600  # 10 minutes
 
 # ClickHouse error codes that should NOT be retried.
 # These are errors where retrying will never help - the query itself is broken,
@@ -99,39 +99,6 @@ def is_non_retryable_error(error: Exception) -> bool:
             return True
         current = current.__cause__
     return False
-
-
-@contextmanager
-def heartbeat_while_running(
-    job: "PreaggregationJob",
-    interval_seconds: float = DEFAULT_HEARTBEAT_INTERVAL_SECONDS,
-):
-    """
-    Update job.updated_at periodically while the wrapped code runs.
-
-    TODO let's try to delete this in the future, and use the progress argument to the clickhouse client
-
-    This prevents the job from being marked as stale while a long INSERT
-    is still executing. The heartbeat stops when the context exits
-    (whether success or failure).
-    """
-    stop_event = threading.Event()
-
-    def heartbeat_loop():
-        while not stop_event.wait(timeout=interval_seconds):
-            # Atomic update - only if job is still PENDING
-            PreaggregationJob.objects.filter(
-                id=job.id,
-                status=PreaggregationJob.Status.PENDING,
-            ).update(updated_at=django_timezone.now())
-
-    heartbeat_thread = threading.Thread(target=heartbeat_loop, daemon=True)
-    heartbeat_thread.start()
-    try:
-        yield
-    finally:
-        stop_event.set()
-        heartbeat_thread.join(timeout=5.0)  # Don't block forever if thread is stuck
 
 
 class PreaggregationTable(StrEnum):
@@ -454,12 +421,7 @@ def run_preaggregation_insert(
     job: PreaggregationJob,
     query_info: QueryInfo,
 ) -> None:
-    """
-    Run the INSERT query to populate preaggregation results in ClickHouse.
-
-    Uses a heartbeat to update job.updated_at periodically, preventing the job
-    from being marked as stale during long-running INSERTs.
-    """
+    """Run the INSERT query to populate preaggregation results in ClickHouse."""
     assert job.expires_at is not None
 
     insert_sql, values = build_preaggregation_insert_sql(
@@ -471,8 +433,7 @@ def run_preaggregation_insert(
         expires_at=job.expires_at,
     )
 
-    with heartbeat_while_running(job):
-        sync_execute(insert_sql, values)
+    sync_execute(insert_sql, values)
 
 
 class PreaggregationExecutor:
@@ -743,7 +704,7 @@ class PreaggregationExecutor:
                 elif job.status == PreaggregationJob.Status.FAILED:
                     entry["attempts"] += 1
 
-                    if entry["attempts"] >= self.max_attempts:
+                    if entry["attempts"] > self.max_attempts:
                         failed_jobs.append(job)
                         del waiting_for[tracking_key]
                     else:
@@ -888,8 +849,7 @@ def ensure_preaggregated(
             table=table,
             base_placeholders=base_placeholders,
         )
-        with heartbeat_while_running(job):
-            sync_execute(insert_sql, values)
+        sync_execute(insert_sql, values)
 
     executor = PreaggregationExecutor(ttl_seconds=ttl_seconds)
     return executor.execute(team, query_info, time_range_start, time_range_end, run_insert=_run_manual_insert)
