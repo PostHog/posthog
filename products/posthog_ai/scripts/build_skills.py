@@ -1,11 +1,16 @@
 #!/usr/bin/env python3
 # ruff: noqa: T201 allow print statements
 """
-Build coding agent skills from products/*/skills/ into .claude/skills/.
+Build coding agent skills from products/*/skills/ into a context-mill-compatible
+manifest for MCP resource distribution.
 
 Skills can be:
 - Plain markdown (SKILL.md) — copied as-is
 - Jinja2 templates (SKILL.md.j2) — rendered with Python context including Pydantic schema helpers
+
+Each skill must have YAML frontmatter with at least ``name`` and ``description`` fields.
+The build produces a manifest.json in the ContextMillManifest format consumed by
+the MCP server at services/mcp/.
 
 Requires the project's Python environment (managed by uv) for template rendering
 that imports Pydantic models from product code.
@@ -19,12 +24,14 @@ Usage:
 from __future__ import annotations
 
 import os
+import re
 import sys
 import json
 import argparse
 import textwrap
 import importlib
 from pathlib import Path
+from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT))
@@ -58,8 +65,6 @@ def _ensure_django() -> None:
 # ---------------------------------------------------------------------------
 # Pydantic helpers exposed to Jinja2 templates
 # ---------------------------------------------------------------------------
-
-GENERATED_HEADER = "<!-- AUTO-GENERATED from {source_rel} — do not edit by hand. Run `python products/posthog_ai/scripts/build_skills.py` to rebuild. -->\n"
 
 
 def _import_model(dotted_path: str) -> type:
@@ -162,11 +167,45 @@ def _json_schema_type_label(prop: dict) -> str:
 
 
 # ---------------------------------------------------------------------------
+# YAML frontmatter parsing
+# ---------------------------------------------------------------------------
+
+_FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
+
+
+def parse_frontmatter(text: str) -> tuple[dict[str, str], str]:
+    """Extract YAML frontmatter and body from a skill file.
+
+    Returns (metadata_dict, body_without_frontmatter).
+    Parses simple ``key: value`` pairs — no nested YAML needed.
+    """
+    match = _FRONTMATTER_RE.match(text)
+    if not match:
+        return {}, text
+
+    raw_yaml = match.group(1)
+    body = text[match.end() :]
+    metadata: dict[str, str] = {}
+
+    for line in raw_yaml.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        key, _, value = line.partition(":")
+        if value:
+            metadata[key.strip()] = value.strip().strip("'\"")
+
+    return metadata, body
+
+
+# ---------------------------------------------------------------------------
 # Skill discovery and build
 # ---------------------------------------------------------------------------
 
 PRODUCTS_DIR = REPO_ROOT / "products"
-OUTPUT_DIR = REPO_ROOT / ".claude" / "skills"
+OUTPUT_DIR = REPO_ROOT / "services" / "mcp" / "dist-skills"
+
+MANIFEST_VERSION = "1.0.0"
 
 
 def discover_product_skills() -> list[tuple[str, Path, Path]]:
@@ -227,66 +266,101 @@ def render_skill(source_file: Path, jinja_env: Environment) -> str:
     return raw
 
 
-def build_skill(skill_name: str, source_file: Path, jinja_env: Environment) -> str:
-    """Build a single skill and return the rendered content (with header)."""
-    source_rel = source_file.relative_to(REPO_ROOT)
+def build_skill(skill_name: str, source_file: Path, jinja_env: Environment) -> dict[str, Any]:
+    """Build a single skill and return a ContextMillResource dict.
+
+    Parses YAML frontmatter for name/description, renders the template,
+    and produces a manifest resource entry with the skill text inlined.
+    """
     rendered = render_skill(source_file, jinja_env)
-    header = GENERATED_HEADER.format(source_rel=source_rel)
-    return header + rendered
+    metadata, body = parse_frontmatter(rendered)
+
+    display_name = metadata.get("name", skill_name)
+    description = metadata.get("description", f"Skill: {skill_name}")
+
+    return {
+        "id": skill_name,
+        "name": display_name,
+        "uri": f"skill://posthog/{skill_name}",
+        "resource": {
+            "mimeType": "text/markdown",
+            "description": description,
+            "text": body.strip(),
+        },
+        "source": str(source_file.relative_to(REPO_ROOT)),
+    }
 
 
-def build_all(*, dry_run: bool = False) -> list[tuple[str, Path, str]]:
-    """Build all product skills.
+def build_manifest(skills: list[tuple[str, Path, Path]], jinja_env: Environment) -> dict[str, Any]:
+    """Build the full ContextMillManifest dict from discovered skills."""
+    resources: list[dict[str, Any]] = []
+    for skill_name, source_file, _product_dir in skills:
+        resource = build_skill(skill_name, source_file, jinja_env)
+        resources.append(resource)
 
-    Returns list of (skill_name, output_path, content) tuples.
+    return {
+        "version": MANIFEST_VERSION,
+        "resources": resources,
+    }
+
+
+def build_all(*, dry_run: bool = False) -> dict[str, Any]:
+    """Build all product skills and write the manifest.
+
+    Returns the manifest dict.
     """
     skills = discover_product_skills()
     jinja_env = _make_jinja_env()
-    results: list[tuple[str, Path, str]] = []
+    manifest = build_manifest(skills, jinja_env)
 
-    for skill_name, source_file, _product_dir in skills:
-        content = build_skill(skill_name, source_file, jinja_env)
-        output_path = OUTPUT_DIR / skill_name / "SKILL.md"
+    if not dry_run and manifest["resources"]:
+        OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+        manifest_path = OUTPUT_DIR / "manifest.json"
+        manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
 
-        if not dry_run:
-            output_path.parent.mkdir(parents=True, exist_ok=True)
-            output_path.write_text(content)
-
-        results.append((skill_name, output_path, content))
-
-    return results
+    return manifest
 
 
 def check_all() -> bool:
-    """Check that all product skills are up-to-date.
+    """Check that the built manifest is up-to-date.
 
-    Returns True if all skills are current, False otherwise.
+    Returns True if the manifest is current, False otherwise.
     """
     skills = discover_product_skills()
     jinja_env = _make_jinja_env()
-    all_ok = True
 
     if not skills:
         print("No product skills found.")
         return True
 
-    for skill_name, source_file, _product_dir in skills:
-        expected_content = build_skill(skill_name, source_file, jinja_env)
-        output_path = OUTPUT_DIR / skill_name / "SKILL.md"
+    expected_manifest = build_manifest(skills, jinja_env)
+    manifest_path = OUTPUT_DIR / "manifest.json"
 
-        if not output_path.exists():
-            print(f"MISSING: {output_path.relative_to(REPO_ROOT)} (source: {source_file.relative_to(REPO_ROOT)})")
-            all_ok = False
-            continue
+    if not manifest_path.exists():
+        print(f"MISSING: {manifest_path.relative_to(REPO_ROOT)}")
+        return False
 
-        actual_content = output_path.read_text()
-        if actual_content != expected_content:
-            print(f"STALE:   {output_path.relative_to(REPO_ROOT)} (source: {source_file.relative_to(REPO_ROOT)})")
-            all_ok = False
-        else:
-            print(f"OK:      {output_path.relative_to(REPO_ROOT)}")
+    actual_manifest = json.loads(manifest_path.read_text())
+    if actual_manifest != expected_manifest:
+        print(f"STALE:   {manifest_path.relative_to(REPO_ROOT)}")
 
-    return all_ok
+        # Show which skills changed
+        actual_ids = {r["id"] for r in actual_manifest.get("resources", [])}
+        expected_ids = {r["id"] for r in expected_manifest.get("resources", [])}
+        for added in expected_ids - actual_ids:
+            print(f"  + {added} (new)")
+        for removed in actual_ids - expected_ids:
+            print(f"  - {removed} (removed)")
+        for skill_id in actual_ids & expected_ids:
+            actual_r = next(r for r in actual_manifest["resources"] if r["id"] == skill_id)
+            expected_r = next(r for r in expected_manifest["resources"] if r["id"] == skill_id)
+            if actual_r != expected_r:
+                print(f"  ~ {skill_id} (changed)")
+
+        return False
+
+    print(f"OK:      {manifest_path.relative_to(REPO_ROOT)} ({len(expected_manifest['resources'])} skill(s))")
+    return True
 
 
 def list_skills() -> None:
@@ -318,7 +392,7 @@ def main() -> None:
     parser.add_argument(
         "--check",
         action="store_true",
-        help="Check if built skills are up-to-date (exit 1 if not)",
+        help="Check if built manifest is up-to-date (exit 1 if not)",
     )
     parser.add_argument(
         "--list",
@@ -340,14 +414,16 @@ def main() -> None:
             print("\nAll product skills are up-to-date.")
         return
 
-    results = build_all()
-    if not results:
+    manifest = build_all()
+    resources = manifest.get("resources", [])
+    if not resources:
         print("No product skills found in products/*/skills/.")
         return
 
-    print(f"Built {len(results)} skill(s):")
-    for _skill_name, output_path, _content in results:
-        print(f"  {output_path.relative_to(REPO_ROOT)}")
+    manifest_path = OUTPUT_DIR / "manifest.json"
+    print(f"Built {len(resources)} skill(s) → {manifest_path.relative_to(REPO_ROOT)}")
+    for r in resources:
+        print(f"  {r['id']:<40} uri={r['uri']}")
 
 
 if __name__ == "__main__":

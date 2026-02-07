@@ -7,7 +7,7 @@ on:
             - master
         paths:
             - 'products/*/skills/**'
-            - '.claude/skills/**'
+            - 'services/mcp/dist-skills/**'
             - 'products/posthog_ai/scripts/build_skills.py'
             - '.github/workflows/ci-agent-skills.yml'
 
@@ -36,7 +36,7 @@ jobs:
                       skills:
                         - 'products/*/skills/**'
                         - 'products/*/backend/max_tools.py'
-                        - '.claude/skills/**'
+                        - 'services/mcp/dist-skills/**'
                         - 'products/posthog_ai/scripts/build_skills.py'
                         - '.github/workflows/ci-agent-skills.yml'
 
