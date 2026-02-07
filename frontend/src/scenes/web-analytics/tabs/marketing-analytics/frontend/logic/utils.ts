@@ -503,31 +503,30 @@ export function createMarketingTile(
     if (tileColumnSelection === 'roas') {
         const mappings = tileConfig.columnMappings
         const costColumn = mappings.cost
-        const conversionValueColumn = mappings.reportedConversionValue
         const needsDivision = mappings.costNeedsDivision
 
         // Build cost expression
         const costExpr = needsDivision ? `toFloat(${costColumn} / 1000000)` : `toFloat(${costColumn})`
 
-        // Build conversion value expression - check if column exists
-        const hasConversionValueColumn = table.fields && conversionValueColumn in table.fields
-        if (!hasConversionValueColumn) {
-            // If no conversion value column, ROAS is 0
-            return {
-                kind: NodeKind.DataWarehouseNode,
-                id: table.id,
-                name: integrationConfig.primarySource,
-                custom_name: `${table.name} roas`,
-                id_field: tileConfig.idField,
-                distinct_id_field: tileConfig.idField,
-                timestamp_field: tileConfig.timestampField,
-                table_name: table.name,
-                math: 'hogql' as any,
-                math_hogql: '0',
+        // Build conversion value numerator: use specialConversionLogic if available
+        let conversionValueExpr: string
+        const specialResult = tileConfig.specialConversionLogic?.(
+            table,
+            MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue
+        )
+        if (specialResult?.math_hogql) {
+            conversionValueExpr = specialResult.math_hogql
+        } else {
+            const conversionValueColumn = mappings.reportedConversionValue
+            const hasConversionValueColumn = table.fields && conversionValueColumn in table.fields
+            if (!hasConversionValueColumn) {
+                conversionValueExpr = '0'
+            } else {
+                conversionValueExpr = `SUM(ifNull(toFloat(${conversionValueColumn}), 0))`
             }
         }
 
-        const mathHogql = `SUM(ifNull(toFloat(${conversionValueColumn}), 0)) / nullIf(SUM(${costExpr}), 0)`
+        const mathHogql = conversionValueExpr === '0' ? '0' : `${conversionValueExpr} / nullIf(SUM(${costExpr}), 0)`
 
         return {
             kind: NodeKind.DataWarehouseNode,
