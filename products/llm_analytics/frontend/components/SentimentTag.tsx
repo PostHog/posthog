@@ -77,6 +77,38 @@ const SENTIMENT_BAR_COLOR: Record<SentimentLabel, string> = {
     neutral: 'bg-muted-alt',
 }
 
+export function UserSentimentBar({ scores }: { scores: [number, number, number, number] }): JSX.Element | null {
+    const [positive, neutral, negative, count] = scores
+    if (!count || count === 0) {
+        return <>–</>
+    }
+
+    let label: SentimentLabel = 'neutral'
+    const maxScore = Math.max(positive, neutral, negative)
+    if (positive === maxScore) {
+        label = 'positive'
+    } else if (negative === maxScore) {
+        label = 'negative'
+    }
+
+    const barColor = SENTIMENT_BAR_COLOR[label]
+    const widthPercent = Math.round(maxScore * 100)
+
+    return (
+        <Tooltip
+            title={`Avg positive: ${formatScore(positive)} / Avg neutral: ${formatScore(neutral)} / Avg negative: ${formatScore(negative)} (${count} traces)`}
+        >
+            <div className="w-16 h-1.5 bg-border-light rounded-full overflow-hidden">
+                <div
+                    className={`h-full rounded-full ${barColor}`}
+                    // eslint-disable-next-line react/forbid-dom-props
+                    style={{ width: `${widthPercent}%` }}
+                />
+            </div>
+        </Tooltip>
+    )
+}
+
 export function SentimentBar({ event }: { event: LLMTraceEvent }): JSX.Element | null {
     const label = getSentimentLabel(event)
     if (!label) {

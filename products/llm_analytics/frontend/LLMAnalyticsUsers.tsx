@@ -5,6 +5,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { isHogQLQuery } from '~/queries/utils'
 
+import { UserSentimentBar } from './components/SentimentTag'
 import { useSortableColumns } from './hooks/useSortableColumns'
 import { llmAnalyticsColumnRenderers } from './llmAnalyticsColumnRenderers'
 import { llmAnalyticsSharedLogic } from './llmAnalyticsSharedLogic'
@@ -75,6 +76,17 @@ export function LLMAnalyticsUsers(): JSX.Element {
                                 return <span>N/A</span>
                             }
                             return <span>${Number(value).toFixed(4)}</span>
+                        },
+                    },
+                    sentiment: {
+                        renderTitle: () => (
+                            <Tooltip title="Average sentiment across this user's traces">Sentiment</Tooltip>
+                        ),
+                        render: function RenderSentiment({ value }) {
+                            if (!Array.isArray(value) || value.length < 4) {
+                                return <>–</>
+                            }
+                            return <UserSentimentBar scores={value as [number, number, number, number]} />
                         },
                     },
                 },
