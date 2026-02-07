@@ -9,10 +9,10 @@ import requests
 from parameterized import parameterized
 
 from posthog.dags.common.resources import ClayWebhookResource
+from posthog.dags.common.utils import compute_dataframe_hashes
 
 from ee.billing.dags.job_switchers import (
     clickhouse_to_dataframe,
-    compute_dataframe_hashes,
     dataframe_to_clay_payload,
     filter_changed_domains,
     get_prior_hashes_from_metadata,
@@ -26,18 +26,19 @@ class TestClickhouseToDataframe:
                 "single_row",
                 [
                     (
-                        "example.com",
-                        ["user1@example.com", "user2@example.com"],
-                        5,
-                        datetime(2024, 1, 15, 10, 30),
-                        datetime(2024, 6, 20, 14, 22),
-                        ["Subject 1"],
-                        ["mailbox full"],
-                        ["org-123"],
-                        ["Example Corp"],
-                        [1704067200],
-                        ["voluntary"],
-                        ["customer_io_delivery"],
+                        5,  # bounce_count
+                        ["mailbox full"],  # bounce_reasons
+                        [{"email": "user1@example.com", "first_name": "Alice"}],  # contacts
+                        "example.com",  # email_domain
+                        ["user1@example.com", "user2@example.com"],  # emails
+                        datetime(2024, 1, 15, 10, 30),  # first_bounce_at
+                        datetime(2024, 6, 20, 14, 22),  # last_bounce_at
+                        "org-123",  # organization_id
+                        "Example Corp",  # organization_name
+                        [1704067200],  # removal_timestamps
+                        ["voluntary"],  # removal_types
+                        ["customer_io_delivery"],  # source_type
+                        ["Subject 1"],  # subjects
                     ),
                 ],
                 1,
@@ -47,34 +48,8 @@ class TestClickhouseToDataframe:
             (
                 "multiple_rows",
                 [
-                    (
-                        "a.com",
-                        ["a@a.com"],
-                        1,
-                        None,
-                        None,
-                        [],
-                        [],
-                        [],
-                        [],
-                        [],
-                        [],
-                        [],
-                    ),
-                    (
-                        "b.com",
-                        ["b@b.com"],
-                        2,
-                        None,
-                        None,
-                        [],
-                        [],
-                        [],
-                        [],
-                        [],
-                        [],
-                        [],
-                    ),
+                    (1, [], [], "a.com", ["a@a.com"], None, None, "", "", [], [], [], []),
+                    (2, [], [], "b.com", ["b@b.com"], None, None, "", "", [], [], [], []),
                 ],
                 2,
                 "a.com",
@@ -206,13 +181,24 @@ class TestDataframeToClayPayload:
             {
                 "email_domain": ["example.com"],
                 "emails": [["user@example.com"]],
+                "contacts": [
+                    [
+                        {
+                            "email": "user@example.com",
+                            "first_name": "Alice",
+                            "last_name": "Smith",
+                            "is_active": "true",
+                            "date_joined": "2024-01-01 00:00:00",
+                        }
+                    ]
+                ],
                 "bounce_count": [5],
                 "first_bounce_at": [datetime(2024, 1, 15)],
                 "last_bounce_at": [None],
                 "subjects": [["Test subject"]],
                 "bounce_reasons": [["mailbox full"]],
-                "organization_ids": [["org-1"]],
-                "organization_names": [["Example Corp"]],
+                "organization_id": ["org-1"],
+                "organization_name": ["Example Corp"],
                 "removal_timestamps": [[1704067200]],
                 "removal_types": [["voluntary"]],
                 "source_type": [["customer_io"]],
@@ -225,23 +211,58 @@ class TestDataframeToClayPayload:
         assert len(payload) == 1
         assert payload[0]["domain"] == "example.com"
         assert payload[0]["emails"] == ["user@example.com"]
+        assert payload[0]["contacts"] == [
+            {
+                "email": "user@example.com",
+                "first_name": "Alice",
+                "last_name": "Smith",
+                "is_active": "true",
+                "date_joined": "2024-01-01 00:00:00",
+            }
+        ]
         assert payload[0]["first_bounce_at"] == "2024-01-15T00:00:00"
         assert payload[0]["last_bounce_at"] is None
         assert payload[0]["bounce_count"] == 5
-        assert payload[0]["organization_names"] == ["Example Corp"]
+        assert payload[0]["organization_id"] == "org-1"
+        assert payload[0]["organization_name"] == "Example Corp"
 
-    def test_handles_null_arrays(self):
+    def test_handles_contacts_as_json_string(self):
+        contacts_json = '[{"email": "a@test.com", "first_name": "A"}]'
+        df = pl.DataFrame(
+            {
+                "email_domain": ["test.com"],
+                "emails": [["a@test.com"]],
+                "contacts": [contacts_json],
+                "bounce_count": [0],
+                "first_bounce_at": [None],
+                "last_bounce_at": [None],
+                "subjects": [[]],
+                "bounce_reasons": [[]],
+                "organization_id": [""],
+                "organization_name": [""],
+                "removal_timestamps": [[]],
+                "removal_types": [[]],
+                "source_type": [[]],
+            }
+        )
+
+        payload = dataframe_to_clay_payload(df)
+
+        assert payload[0]["contacts"] == [{"email": "a@test.com", "first_name": "A"}]
+
+    def test_handles_null_values(self):
         df = pl.DataFrame(
             {
                 "email_domain": ["test.com"],
                 "emails": [None],
+                "contacts": [None],
                 "bounce_count": [0],
                 "first_bounce_at": [None],
                 "last_bounce_at": [None],
                 "subjects": [None],
                 "bounce_reasons": [None],
-                "organization_ids": [None],
-                "organization_names": [None],
+                "organization_id": [None],
+                "organization_name": [None],
                 "removal_timestamps": [None],
                 "removal_types": [None],
                 "source_type": [None],
@@ -251,7 +272,10 @@ class TestDataframeToClayPayload:
         payload = dataframe_to_clay_payload(df)
 
         assert payload[0]["emails"] == []
+        assert payload[0]["contacts"] == []
         assert payload[0]["bounce_reasons"] == []
+        assert payload[0]["organization_id"] == ""
+        assert payload[0]["organization_name"] == ""
 
 
 class TestGetPriorHashesFromMetadata:
@@ -318,65 +342,6 @@ class TestClayWebhookResource:
 
             with pytest.raises(Exception):
                 resource.send([{"domain": "example.com"}])
-
-    def test_send_batched_empty_data(self):
-        with patch("posthog.dags.common.resources.requests.Session") as mock_session_class:
-            resource = ClayWebhookResource(
-                webhook_url="https://api.clay.com/webhook/123",
-                api_key="test-key",
-            )
-
-            responses = resource.send_batched([])
-
-            assert responses == []
-            mock_session_class.assert_not_called()
-
-    def test_send_batched_single_batch(self):
-        with patch("posthog.dags.common.resources.requests.Session") as mock_session_class:
-            mock_session = MagicMock()
-            mock_session_class.return_value.__enter__.return_value = mock_session
-            mock_response = MagicMock()
-            mock_response.status_code = 200
-            mock_session.post.return_value = mock_response
-
-            resource = ClayWebhookResource(
-                webhook_url="https://api.clay.com/webhook/123",
-                api_key="test-key",
-            )
-            data = [{"domain": f"{i}.com"} for i in range(50)]
-
-            responses = resource.send_batched(data)
-
-            assert len(responses) == 1
-            mock_session.post.assert_called_once()
-            assert mock_session.post.call_args.kwargs["json"] == data
-
-    def test_send_batched_multiple_batches(self):
-        with patch("posthog.dags.common.resources.requests.Session") as mock_session_class:
-            mock_session = MagicMock()
-            mock_session_class.return_value.__enter__.return_value = mock_session
-            mock_response = MagicMock()
-            mock_response.status_code = 200
-            mock_session.post.return_value = mock_response
-
-            max_bytes = 100
-            resource = ClayWebhookResource(
-                webhook_url="https://api.clay.com/webhook/123",
-                api_key="test-key",
-                max_batch_bytes=max_bytes,
-            )
-            data = [{"domain": f"{i}.com"} for i in range(12)]
-
-            responses = resource.send_batched(data)
-
-            assert len(responses) == 3
-            assert mock_session.post.call_count == 3
-
-            # Verify each batch is under the size limit
-            for call in mock_session.post.call_args_list:
-                batch = call.kwargs["json"]
-                batch_size = len(json.dumps(batch, default=str).encode("utf-8"))
-                assert batch_size <= max_bytes, f"Batch size {batch_size} exceeds limit {max_bytes}"
 
     def test_retry_on_transient_failure_recovers(self):
         """Transient 503 that recovers after retry should succeed."""
@@ -456,27 +421,145 @@ class TestClayWebhookResource:
             # Should only attempt once since 400 is not retryable
             assert mock_session.post.call_count == 1
 
-    def test_send_batched_single_oversized_record_raises_error(self):
-        """A single record that exceeds max_batch_bytes should raise ValueError."""
+
+class TestClayWebhookResourceCreateBatches:
+    """Tests for the create_batches method."""
+
+    def test_create_batches_empty_data(self):
+        resource = ClayWebhookResource(
+            webhook_url="https://api.clay.com/webhook/123",
+            api_key="test-key",
+        )
+
+        result = resource.create_batches([])
+
+        assert result.batches == []
+        assert result.truncated_count == 0
+        assert result.skipped_count == 0
+
+    def test_create_batches_respects_record_count_limit(self):
+        resource = ClayWebhookResource(
+            webhook_url="https://api.clay.com/webhook/123",
+            api_key="test-key",
+            max_records_per_batch=3,
+            max_batch_bytes=100_000,  # High limit so record count wins
+        )
+        data = [{"domain": f"{i}.com"} for i in range(10)]
+
+        result = resource.create_batches(data)
+
+        assert len(result.batches) == 4  # 3 + 3 + 3 + 1
+        assert len(result.batches[0]) == 3
+        assert len(result.batches[1]) == 3
+        assert len(result.batches[2]) == 3
+        assert len(result.batches[3]) == 1
+        assert result.truncated_count == 0
+        assert result.skipped_count == 0
+
+    def test_create_batches_respects_byte_limit(self):
+        resource = ClayWebhookResource(
+            webhook_url="https://api.clay.com/webhook/123",
+            api_key="test-key",
+            max_records_per_batch=100,  # High limit so bytes constraint wins
+            max_batch_bytes=100,
+        )
+        data = [{"domain": f"{i}.com"} for i in range(10)]
+
+        result = resource.create_batches(data)
+
+        # Verify each batch is under the byte limit
+        for batch in result.batches:
+            batch_size = len(json.dumps(batch, default=str).encode("utf-8"))
+            assert batch_size <= 100
+
+    def test_create_batches_truncates_oversized_records(self):
+        resource = ClayWebhookResource(
+            webhook_url="https://api.clay.com/webhook/123",
+            api_key="test-key",
+            max_batch_bytes=500,
+            max_records_per_batch=10,
+        )
+        # Create a record with a large array in a truncatable field
+        oversized_record = {
+            "domain": "example.com",
+            "emails": [f"user{i}@example.com" for i in range(100)],
+        }
+        original_size = len(json.dumps([oversized_record]).encode("utf-8"))
+        assert original_size > 500  # Verify it's actually oversized
+
+        result = resource.create_batches([oversized_record], truncatable_fields=["emails"])
+
+        assert len(result.batches) == 1
+        assert len(result.batches[0]) == 1
+        # The record should have truncated emails
+        assert len(result.batches[0][0]["emails"]) < 100
+        # Verify it fits in the limit
+        batch_size = len(json.dumps(result.batches[0]).encode("utf-8"))
+        assert batch_size <= 500
+        assert result.truncated_count == 1
+        assert result.skipped_count == 0
+
+    def test_create_batches_skips_untruncatable_oversized_records(self):
         resource = ClayWebhookResource(
             webhook_url="https://api.clay.com/webhook/123",
             api_key="test-key",
             max_batch_bytes=50,  # Very small limit
+            max_records_per_batch=10,
         )
+        # Record that can't be truncated to fit (no truncatable array fields)
         oversized_record = {"domain": "example.com", "data": "x" * 100}
 
-        with pytest.raises(ValueError, match="Single record exceeds max_batch_bytes"):
-            resource.send_batched([oversized_record])
+        result = resource.create_batches([oversized_record])
 
-    def test_send_batched_oversized_record_in_middle_raises_error(self):
-        """An oversized record in the middle of data should raise ValueError before any sends."""
+        assert result.batches == []  # Record was skipped
+        assert result.truncated_count == 1  # Truncation was attempted
+        assert result.skipped_count == 1  # But ultimately skipped
+
+    def test_create_batches_mixed_sizes(self):
         resource = ClayWebhookResource(
             webhook_url="https://api.clay.com/webhook/123",
             api_key="test-key",
             max_batch_bytes=100,
+            max_records_per_batch=10,
         )
         small_record = {"d": "a.com"}
         oversized_record = {"domain": "example.com", "data": "x" * 200}
 
-        with pytest.raises(ValueError, match="Single record exceeds max_batch_bytes"):
-            resource.send_batched([small_record, oversized_record])
+        result = resource.create_batches([small_record, oversized_record, small_record])
+
+        # Only small records should be included
+        assert len(result.batches) == 1
+        assert len(result.batches[0]) == 2
+        assert all(r["d"] == "a.com" for r in result.batches[0])
+        assert result.truncated_count == 1
+        assert result.skipped_count == 1
+
+    @parameterized.expand(
+        [
+            ("single_record_fits", 1, 10, 10000, 1, [1]),
+            ("exact_batch_boundary", 10, 10, 10000, 1, [10]),
+            ("one_over_boundary", 11, 10, 10000, 2, [10, 1]),
+            ("many_small_batches", 25, 3, 10000, 9, [3, 3, 3, 3, 3, 3, 3, 3, 1]),
+        ]
+    )
+    def test_create_batches_boundary_conditions(
+        self,
+        name: str,
+        num_records: int,
+        max_per_batch: int,
+        max_bytes: int,
+        expected_batch_count: int,
+        expected_batch_sizes: list[int],
+    ):
+        resource = ClayWebhookResource(
+            webhook_url="https://api.clay.com/webhook/123",
+            api_key="test-key",
+            max_records_per_batch=max_per_batch,
+            max_batch_bytes=max_bytes,
+        )
+        data = [{"domain": f"{i}.com"} for i in range(num_records)]
+
+        result = resource.create_batches(data)
+
+        assert len(result.batches) == expected_batch_count
+        assert [len(b) for b in result.batches] == expected_batch_sizes

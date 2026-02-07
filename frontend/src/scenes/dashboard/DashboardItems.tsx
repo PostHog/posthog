@@ -37,6 +37,7 @@ export function DashboardItems(): JSX.Element {
         highlightedInsightId,
         refreshStatus,
         itemsLoading,
+        dashboardStreaming,
         effectiveEditBarFilters,
         effectiveDashboardVariableOverrides,
         temporaryBreakdownColors,
@@ -321,7 +322,7 @@ export function DashboardItems(): JSX.Element {
                     })}
                 </ReactGridLayout>
             )}
-            {itemsLoading && (
+            {dashboardStreaming && (
                 <div className="mt-4 flex items-center justify-center">
                     <div className="flex items-center gap-2 text-muted">
                         <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600" />

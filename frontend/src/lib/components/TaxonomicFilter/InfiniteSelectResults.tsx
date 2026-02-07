@@ -24,20 +24,19 @@ export interface InfiniteSelectResultsProps {
     useVerticalLayout?: boolean
 }
 
-function CategoryPill({
+// CategoryPillContent uses useValues(infiniteListLogic) without props, relying on BindLogic context
+// This ensures proper logic mounting and prevents "Can not find path" KEA errors
+function CategoryPillContent({
     isActive,
     groupType,
-    taxonomicFilterLogicProps,
     onClick,
 }: {
     isActive: boolean
     groupType: TaxonomicFilterGroupType
-    taxonomicFilterLogicProps: TaxonomicFilterLogicProps
     onClick: () => void
 }): JSX.Element {
-    const logic = infiniteListLogic({ ...taxonomicFilterLogicProps, listGroupType: groupType })
     const { taxonomicGroups } = useValues(taxonomicFilterLogic)
-    const { totalResultCount, totalListCount, isLoading, hasRemoteDataSource } = useValues(logic)
+    const { totalResultCount, totalListCount, isLoading, hasRemoteDataSource, hasMore } = useValues(infiniteListLogic)
 
     const group = taxonomicGroups.find((g) => g.type === groupType)
 
@@ -64,9 +63,33 @@ function CategoryPill({
                     ) : (
                         totalResultCount
                     )}
+                    {/* This is a workaround. We need to make the logic fetch more results when querying from clickhouse*/}
+                    <span aria-label={hasMore ? `${totalResultCount} or more` : `${totalResultCount}`}>
+                        {hasMore ? '+' : ''}
+                    </span>
                 </>
             )}
         </LemonTag>
+    )
+}
+
+// CategoryPill wraps CategoryPillContent with BindLogic to ensure infiniteListLogic is properly mounted
+// before accessing its values. Without BindLogic, KEA throws "Can not find path" errors.
+function CategoryPill({
+    isActive,
+    groupType,
+    taxonomicFilterLogicProps,
+    onClick,
+}: {
+    isActive: boolean
+    groupType: TaxonomicFilterGroupType
+    taxonomicFilterLogicProps: TaxonomicFilterLogicProps
+    onClick: () => void
+}): JSX.Element {
+    return (
+        <BindLogic logic={infiniteListLogic} props={{ ...taxonomicFilterLogicProps, listGroupType: groupType }}>
+            <CategoryPillContent isActive={isActive} groupType={groupType} onClick={onClick} />
+        </BindLogic>
     )
 }
 

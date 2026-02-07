@@ -5,6 +5,7 @@ import {
     IconBookmark,
     IconBookmarkSolid,
     IconCheck,
+    IconPencil,
     IconPin,
     IconPinFilled,
     IconPlus,
@@ -21,16 +22,34 @@ import {
     Popover,
 } from '@posthog/lemon-ui'
 
+import { IconSync } from 'lib/lemon-ui/icons'
+
 import { WebAnalyticsFilterPresetType } from '~/types'
 
 import { webAnalyticsFilterPresetsLogic } from './webAnalyticsFilterPresetsLogic'
 
 export const FilterPresetsDropdown = (): JSX.Element => {
     const [dropdownOpen, setDropdownOpen] = useState(false)
-    const { pinnedPresets, recentPresets, presetsLoading, activePreset, hasPresets, presetToDelete } =
-        useValues(webAnalyticsFilterPresetsLogic)
-    const { applyPreset, deletePreset, updatePreset, openSaveModal, clearPreset, openDeleteModal, closeDeleteModal } =
-        useActions(webAnalyticsFilterPresetsLogic)
+    const {
+        pinnedPresets,
+        recentPresets,
+        presetsLoading,
+        activePreset,
+        hasPresets,
+        presetToDelete,
+        hasUnsavedChanges,
+    } = useValues(webAnalyticsFilterPresetsLogic)
+    const {
+        applyPreset,
+        deletePreset,
+        updatePreset,
+        openSaveModal,
+        clearPreset,
+        openDeleteModal,
+        closeDeleteModal,
+        openEditModal,
+        updateAppliedPresetFilters,
+    } = useActions(webAnalyticsFilterPresetsLogic)
 
     const handleTogglePin = (preset: WebAnalyticsFilterPresetType, e: React.MouseEvent): void => {
         e.stopPropagation()
@@ -41,6 +60,12 @@ export const FilterPresetsDropdown = (): JSX.Element => {
         e.stopPropagation()
         setDropdownOpen(false)
         openDeleteModal(preset)
+    }
+
+    const handleEdit = (preset: WebAnalyticsFilterPresetType, e: React.MouseEvent): void => {
+        e.stopPropagation()
+        setDropdownOpen(false)
+        openEditModal(preset)
     }
 
     const renderPresetItem = (preset: WebAnalyticsFilterPresetType): JSX.Element => {
@@ -71,6 +96,12 @@ export const FilterPresetsDropdown = (): JSX.Element => {
                     />
                     <LemonButton
                         size="xsmall"
+                        icon={<IconPencil />}
+                        onClick={(e) => handleEdit(preset, e)}
+                        tooltip="Edit"
+                    />
+                    <LemonButton
+                        size="xsmall"
                         icon={<IconTrash />}
                         onClick={(e) => handleDelete(preset, e)}
                         tooltip="Delete"
@@ -83,18 +114,48 @@ export const FilterPresetsDropdown = (): JSX.Element => {
 
     const dropdownContent = (
         <div className="w-72 max-h-96 overflow-y-auto">
-            <div className="p-2">
-                <LemonButton
-                    fullWidth
-                    size="small"
-                    icon={<IconPlus />}
-                    onClick={() => {
-                        setDropdownOpen(false)
-                        openSaveModal()
-                    }}
-                >
-                    Save current filters
-                </LemonButton>
+            <div className="px-2 pt-2 pb-1 ">
+                {activePreset && hasUnsavedChanges ? (
+                    <>
+                        <LemonButton
+                            fullWidth
+                            size="small"
+                            type="primary"
+                            icon={<IconSync />}
+                            onClick={() => {
+                                setDropdownOpen(false)
+                                updateAppliedPresetFilters()
+                            }}
+                        >
+                            Update "{activePreset.name}"
+                        </LemonButton>
+                        <LemonDivider className="mt-2 mb-2" />
+                        <LemonButton
+                            fullWidth
+                            size="small"
+                            type="tertiary"
+                            icon={<IconPlus />}
+                            onClick={() => {
+                                setDropdownOpen(false)
+                                openSaveModal()
+                            }}
+                        >
+                            Save as new preset
+                        </LemonButton>
+                    </>
+                ) : (
+                    <LemonButton
+                        fullWidth
+                        size="small"
+                        icon={<IconPlus />}
+                        onClick={() => {
+                            setDropdownOpen(false)
+                            openSaveModal()
+                        }}
+                    >
+                        Save current filters
+                    </LemonButton>
+                )}
             </div>
 
             {presetsLoading ? (
@@ -164,7 +225,14 @@ export const FilterPresetsDropdown = (): JSX.Element => {
                             : undefined
                     }
                 >
-                    {activePreset ? <span className="max-w-32 truncate">{activePreset.name}</span> : 'Presets'}
+                    {activePreset ? (
+                        <span className="flex items-center gap-1">
+                            <span className="max-w-32 truncate">{activePreset.name}</span>
+                            {hasUnsavedChanges && <span className="text-warning shrink-0">(modified)</span>}
+                        </span>
+                    ) : (
+                        'Presets'
+                    )}
                 </LemonButton>
             </Popover>
             <SaveFilterPresetModal />
@@ -178,22 +246,38 @@ export const FilterPresetsDropdown = (): JSX.Element => {
 }
 
 const SaveFilterPresetModal = (): JSX.Element | null => {
-    const { saveModalOpen, savedPresetLoading, presetFormName, presetFormDescription, canSavePreset } =
-        useValues(webAnalyticsFilterPresetsLogic)
-    const { closeSaveModal, saveCurrentFiltersAsPreset, setPresetFormName, setPresetFormDescription } =
+    const {
+        saveModalOpen,
+        savedPresetLoading,
+        presetFormName,
+        presetFormDescription,
+        canSavePreset,
+        isEditMode,
+        editingPreset,
+    } = useValues(webAnalyticsFilterPresetsLogic)
+    const { closeSaveModal, saveCurrentFiltersAsPreset, setPresetFormName, setPresetFormDescription, updatePreset } =
         useActions(webAnalyticsFilterPresetsLogic)
 
     const handleSave = (): void => {
         if (canSavePreset) {
-            saveCurrentFiltersAsPreset(presetFormName.trim(), presetFormDescription.trim() || undefined)
+            if (isEditMode && editingPreset) {
+                updatePreset(editingPreset.short_id, {
+                    name: presetFormName.trim(),
+                    description: presetFormDescription.trim() || undefined,
+                })
+            } else {
+                saveCurrentFiltersAsPreset(presetFormName.trim(), presetFormDescription.trim() || undefined)
+            }
         }
     }
 
+    const isOpen = saveModalOpen || isEditMode
+
     return (
         <LemonModal
-            isOpen={saveModalOpen}
+            isOpen={isOpen}
             onClose={closeSaveModal}
-            title="Save filter preset"
+            title={isEditMode ? `Edit "${editingPreset?.name}"` : 'Save filter preset'}
             footer={
                 <>
                     <LemonButton type="secondary" onClick={closeSaveModal}>
@@ -205,7 +289,7 @@ const SaveFilterPresetModal = (): JSX.Element | null => {
                         loading={savedPresetLoading}
                         disabledReason={!canSavePreset ? 'Name is required' : undefined}
                     >
-                        Save preset
+                        {isEditMode ? 'Update preset' : 'Save preset'}
                     </LemonButton>
                 </>
             }

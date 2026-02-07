@@ -60,6 +60,11 @@ export function getDefaultConfig(): PluginsServerConfig {
         POSTGRES_BEHAVIORAL_COHORTS_HOST: 'localhost',
         POSTGRES_BEHAVIORAL_COHORTS_USER: 'postgres',
         POSTGRES_BEHAVIORAL_COHORTS_PASSWORD: '',
+        CLICKHOUSE_HOST: 'localhost',
+        CLICKHOUSE_PORT: 8123,
+        CLICKHOUSE_DATABASE: isTestEnv() ? 'posthog_test' : isDevEnv() ? 'default' : '',
+        CLICKHOUSE_USERNAME: 'default',
+        CLICKHOUSE_PASSWORD: '',
         EVENT_OVERFLOW_BUCKET_CAPACITY: 1000,
         EVENT_OVERFLOW_BUCKET_REPLENISH_RATE: 1.0,
         KAFKA_BATCH_START_LOGGING_ENABLED: false,
@@ -99,6 +104,9 @@ export function getDefaultConfig(): PluginsServerConfig {
         INGESTION_OVERFLOW_ENABLED: false,
         INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID: '',
         INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY: false,
+        INGESTION_STATEFUL_OVERFLOW_ENABLED: false,
+        INGESTION_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS: 300, // 5 minutes
+        INGESTION_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS: 60, // 1 minute
         LOG_LEVEL: isTestEnv() ? 'warn' : 'info',
         HTTP_SERVER_PORT: DEFAULT_HTTP_SERVER_PORT,
         SCHEDULE_LOCK_TTL: 60,
@@ -120,6 +128,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         PERSON_INFO_CACHE_TTL: 5 * 60, // 5 min
         KAFKA_HEALTHCHECK_SECONDS: 20,
         PLUGIN_SERVER_MODE: null,
+        NODEJS_CAPABILITY_GROUPS: null, // Set via hogli dev:setup - e.g. "cdp_workflows,session_replay"
         PLUGIN_SERVER_EVENTS_INGESTION_PIPELINE: null,
         PLUGIN_LOAD_SEQUENTIALLY: false,
         MAX_TEAM_ID_TO_BUFFER_ANONYMOUS_EVENTS_FOR: 0,
@@ -231,13 +240,16 @@ export function getDefaultConfig(): PluginsServerConfig {
             : 'postgres://posthog:posthog@localhost:5432/cyclotron',
 
         CYCLOTRON_SHARD_DEPTH_LIMIT: 1000000,
+        CYCLOTRON_SHADOW_DATABASE_URL: isTestEnv()
+            ? 'postgres://posthog:posthog@localhost:5432/test_cyclotron_shadow'
+            : 'postgres://posthog:posthog@localhost:5432/cyclotron_shadow',
+        CDP_CYCLOTRON_SHADOW_WRITE_ENABLED: false,
 
         // New IngestionConsumer config
         INGESTION_CONSUMER_GROUP_ID: 'events-ingestion-consumer',
         INGESTION_CONSUMER_CONSUME_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION,
         INGESTION_CONSUMER_OVERFLOW_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
         INGESTION_CONSUMER_DLQ_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION_DLQ,
-        INGESTION_JOINED_PIPELINE: false,
 
         // PropertyDefsConsumer config
         PROPERTY_DEFS_CONSUMER_GROUP_ID: 'property-defs-consumer',

@@ -1,5 +1,6 @@
 """Anthropic provider for unified LLM client."""
 
+import json
 import uuid
 import logging
 from collections.abc import Generator
@@ -11,8 +12,9 @@ import anthropic
 import posthoganalytics
 from anthropic.types import MessageParam, TextBlockParam, ThinkingConfigEnabledParam
 from posthoganalytics.ai.anthropic import Anthropic
+from pydantic import BaseModel
 
-from products.llm_analytics.backend.llm.errors import AuthenticationError
+from products.llm_analytics.backend.llm.errors import AuthenticationError, QuotaExceededError, RateLimitError
 from products.llm_analytics.backend.llm.types import (
     AnalyticsContext,
     CompletionRequest,
@@ -33,40 +35,33 @@ class AnthropicConfig:
     TIMEOUT: float = 300.0
 
     SUPPORTED_MODELS: list[str] = [
+        "claude-haiku-4-5",
         "claude-sonnet-4-5",
-        "claude-sonnet-4-5-20250929",
+        "claude-opus-4-5",
+        "claude-opus-4-1",
         "claude-sonnet-4-0",
         "claude-opus-4-0",
-        "claude-opus-4-20250514",
-        "claude-opus-4-1-20250805",
-        "claude-sonnet-4-20250514",
         "claude-3-7-sonnet-latest",
-        "claude-3-7-sonnet-20250219",
-        "claude-3-5-sonnet-20241022",
-        "claude-3-5-haiku-20241022",
-        "claude-haiku-4-5-20251001",
     ]
 
     SUPPORTED_MODELS_WITH_CACHE_CONTROL: list[str] = [
+        "claude-haiku-4-5",
         "claude-sonnet-4-5",
-        "claude-sonnet-4-5-20250929",
-        "claude-opus-4-20250514",
-        "claude-opus-4-1-20250805",
-        "claude-sonnet-4-20250514",
-        "claude-3-7-sonnet-20250219",
-        "claude-3-5-sonnet-20241022",
-        "claude-3-5-haiku-20241022",
-        "claude-3-opus-20240229",
-        "claude-3-haiku-20240307",
+        "claude-opus-4-5",
+        "claude-opus-4-1",
+        "claude-sonnet-4-0",
+        "claude-opus-4-0",
+        "claude-3-7-sonnet-latest",
     ]
 
     SUPPORTED_MODELS_WITH_THINKING: list[str] = [
+        "claude-haiku-4-5",
         "claude-sonnet-4-5",
-        "claude-sonnet-4-5-20250929",
-        "claude-3-7-sonnet-20250219",
-        "claude-sonnet-4-20250514",
-        "claude-opus-4-20250514",
-        "claude-opus-4-1-20250805",
+        "claude-opus-4-5",
+        "claude-opus-4-1",
+        "claude-sonnet-4-0",
+        "claude-opus-4-0",
+        "claude-3-7-sonnet-latest",
     ]
 
 
@@ -80,8 +75,9 @@ class AnthropicAdapter:
         request: CompletionRequest,
         api_key: str | None,
         analytics: AnalyticsContext,
+        _base_url: str | None = None,
     ) -> CompletionResponse:
-        """Non-streaming completion."""
+        """Non-streaming completion with optional structured output."""
         effective_api_key = api_key or self._get_default_api_key()
 
         posthog_client = posthoganalytics.default_client
@@ -95,10 +91,21 @@ class AnthropicAdapter:
 
         messages: Any = request.messages
 
+        # Handle structured output by appending JSON schema instructions
+        system_prompt = request.system or ""
+        if request.response_format and issubclass(request.response_format, BaseModel):
+            json_schema = request.response_format.model_json_schema()
+            system_prompt = f"""{system_prompt}
+
+You must respond with valid JSON that matches this schema:
+{json.dumps(json_schema, indent=2)}
+
+Return ONLY the JSON object, no other text or markdown formatting."""
+
         try:
             response = client.messages.create(
                 model=request.model,
-                system=request.system or "",
+                system=system_prompt,
                 messages=messages,
                 max_tokens=request.max_tokens or AnthropicConfig.MAX_TOKENS,
                 temperature=request.temperature if request.temperature is not None else AnthropicConfig.TEMPERATURE,
@@ -113,21 +120,42 @@ class AnthropicAdapter:
                 output_tokens=response.usage.output_tokens,
                 total_tokens=response.usage.input_tokens + response.usage.output_tokens,
             )
+
+            # Parse structured output if response_format was specified
+            parsed: BaseModel | None = None
+            if request.response_format and issubclass(request.response_format, BaseModel):
+                try:
+                    # Clean up the content - remove markdown code blocks if present
+                    clean_content = content.strip()
+                    if clean_content.startswith("```"):
+                        lines = clean_content.split("\n")
+                        # Remove first and last lines (code block markers)
+                        clean_content = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
+                    parsed = request.response_format.model_validate_json(clean_content)
+                except Exception as e:
+                    logger.warning(f"Failed to parse structured output from Anthropic: {e}")
+                    raise ValueError(f"Failed to parse structured output: {e}") from e
+
             return CompletionResponse(
                 content=content,
                 model=request.model,
                 usage=usage,
+                parsed=parsed,
             )
-        except Exception as e:
-            if "authentication" in str(e).lower() or "invalid api key" in str(e).lower():
-                raise AuthenticationError(str(e))
-            raise
+        except anthropic.AuthenticationError as e:
+            raise AuthenticationError(str(e))
+        except anthropic.RateLimitError as e:
+            error_message = str(e).lower()
+            if "quota" in error_message or "credit" in error_message or "billing" in error_message:
+                raise QuotaExceededError(str(e))
+            raise RateLimitError(str(e))
 
     def stream(
         self,
         request: CompletionRequest,
         api_key: str | None,
         analytics: AnalyticsContext,
+        _base_url: str | None = None,
     ) -> Generator[StreamChunk, None, None]:
         """Streaming completion."""
         effective_api_key = api_key or self._get_default_api_key()
@@ -261,7 +289,7 @@ class AnthropicAdapter:
         try:
             client = anthropic.Anthropic(api_key=api_key)
             client.messages.create(
-                model="claude-3-5-haiku-20241022",
+                model="claude-haiku-4-5",
                 max_tokens=1,
                 messages=[{"role": "user", "content": "hi"}],
             )

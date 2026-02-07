@@ -63,8 +63,11 @@ PRODUCTS: dict[Product, ProductInfo | None] = {
         "description": "Monitor LLM/AI application performance, costs, and quality.",
         "best_for": "Teams building AI features, tracking token usage, evaluating model outputs.",
     },
+    Product.WORKFLOWS: {
+        "description": "Build no-code, drag-and-drop logic that automates processes or sends messages to users.",
+        "best_for": "Teams building communication workflows and/or who need processes automation.",
+    },
     Product.REVENUE_ANALYTICS: None,
-    Product.WORKFLOWS: None,
     Product.LOGS: None,
     Product.ENDPOINTS: None,
 }
@@ -153,7 +156,7 @@ class OnboardingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         try:
             user_distinct_id = cast("User", request.user).distinct_id
-            client = get_llm_client()
+            client = get_llm_client("growth")
             model = "gpt-5-mini"
 
             logger.debug(
@@ -187,6 +190,10 @@ class OnboardingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 raise ValueError("Failed to parse LLM response")
 
             valid_products = [p for p in result.products if p in VALID_PRODUCTS][:PRODUCTS_LIMIT]
+
+            # Fallback to product_analytics if no valid products were recommended
+            if not valid_products:
+                valid_products = [Product.PRODUCT_ANALYTICS]
 
             return response.Response(
                 {

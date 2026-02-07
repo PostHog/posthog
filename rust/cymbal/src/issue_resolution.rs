@@ -6,6 +6,7 @@ use common_kafka::kafka_messages::internal_events::{InternalEvent, InternalEvent
 use common_kafka::kafka_producer::{send_iter_to_kafka, KafkaProduceError};
 
 use rdkafka::types::RDKafkaErrorCode;
+use serde::{Deserialize, Serialize};
 use sqlx::{Acquire, PgConnection};
 use uuid::Uuid;
 
@@ -38,7 +39,8 @@ pub struct Issue {
     pub created_at: DateTime<Utc>,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum IssueStatus {
     Archived,
     Active,

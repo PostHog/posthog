@@ -17,6 +17,7 @@ import { encodeParams, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
+import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { isDomain, isURL } from 'lib/utils'
 import { apiHostOrigin } from 'lib/utils/apiHost'
@@ -419,6 +420,7 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
                 if (launch) {
                     actions.launchAtUrl(url)
                 }
+                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.AddAuthorizedDomain)
             },
         ],
         removeUrl: sharedListeners.saveUrls,

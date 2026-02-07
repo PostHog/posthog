@@ -16,9 +16,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Result;
-use aws_config::BehaviorVersion;
-use aws_sdk_s3::config::Region;
-use aws_sdk_s3::Client as AwsS3Client;
 use axum::async_trait;
 use chrono::Utc;
 use rdkafka::{
@@ -35,7 +32,7 @@ use tokio::sync::oneshot;
 use tracing::info;
 use uuid::Uuid;
 
-use common_types::{CapturedEvent, RawEvent};
+use common_types::CapturedEvent;
 use kafka_deduplicator::checkpoint::{
     CheckpointConfig, CheckpointExporter, CheckpointImporter, CheckpointWorker, S3Downloader,
     S3Uploader,
@@ -48,66 +45,23 @@ use kafka_deduplicator::kafka::{
 use kafka_deduplicator::processor_rebalance_handler::ProcessorRebalanceHandler;
 use kafka_deduplicator::store::{DeduplicationStore, DeduplicationStoreConfig};
 use kafka_deduplicator::store_manager::StoreManager;
+use kafka_deduplicator::test_utils::create_test_tracker;
+use kafka_deduplicator::test_utils::test_helpers::TestRawEventBuilder;
 
-// Infrastructure configuration matching docker-compose.dev.yml
+mod common;
+use common::{
+    cleanup_bucket, create_minio_client, ensure_bucket_exists, MINIO_ACCESS_KEY, MINIO_ENDPOINT,
+    MINIO_SECRET_KEY,
+};
+
+// Infrastructure configuration
 const KAFKA_BROKERS: &str = "localhost:9092";
-const MINIO_ENDPOINT: &str = "http://localhost:19000";
-const MINIO_ACCESS_KEY: &str = "object_storage_root_user";
-const MINIO_SECRET_KEY: &str = "object_storage_root_password";
 const TEST_BUCKET: &str = "test-kafka-deduplicator-e2e";
-
 const TEST_TOPIC_BASE: &str = "kdedup-e2e-rebalance-test";
 
 // ============================================================================
 // Helper Functions
 // ============================================================================
-
-async fn create_minio_client() -> AwsS3Client {
-    let config = aws_config::defaults(BehaviorVersion::latest())
-        .endpoint_url(MINIO_ENDPOINT)
-        .region(Region::new("us-east-1"))
-        .credentials_provider(aws_sdk_s3::config::Credentials::new(
-            MINIO_ACCESS_KEY,
-            MINIO_SECRET_KEY,
-            None,
-            None,
-            "test",
-        ))
-        .load()
-        .await;
-
-    let s3_config = aws_sdk_s3::config::Builder::from(&config)
-        .force_path_style(true)
-        .build();
-
-    AwsS3Client::from_conf(s3_config)
-}
-
-async fn ensure_bucket_exists(client: &AwsS3Client) {
-    let _ = client.create_bucket().bucket(TEST_BUCKET).send().await;
-}
-
-async fn cleanup_bucket(client: &AwsS3Client, prefix: &str) {
-    let list_result = client
-        .list_objects_v2()
-        .bucket(TEST_BUCKET)
-        .prefix(prefix)
-        .send()
-        .await;
-
-    if let Ok(response) = list_result {
-        for object in response.contents() {
-            if let Some(key) = object.key() {
-                let _ = client
-                    .delete_object()
-                    .bucket(TEST_BUCKET)
-                    .key(key)
-                    .send()
-                    .await;
-            }
-        }
-    }
-}
 
 async fn create_topic_with_partitions(topic: &str, num_partitions: i32) -> Result<()> {
     let admin_client: AdminClient<DefaultClientContext> = ClientConfig::new()
@@ -176,24 +130,6 @@ fn create_captured_event() -> CapturedEvent {
         timestamp: chrono::Utc::now(),
         is_cookieless_mode: false,
         historical_migration: false,
-    }
-}
-
-fn create_test_raw_event(distinct_id: &str, event_name: &str) -> RawEvent {
-    RawEvent {
-        uuid: Some(Uuid::now_v7()),
-        event: event_name.to_string(),
-        distinct_id: Some(serde_json::json!(distinct_id)),
-        token: Some("test_token".to_string()),
-        properties: std::collections::HashMap::new(),
-        timestamp: Some(
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_secs()
-                .to_string(),
-        ),
-        ..Default::default()
     }
 }
 
@@ -275,10 +211,10 @@ async fn test_rebalance_with_checkpoint_import() -> Result<()> {
 
     // Setup MinIO
     let minio_client = create_minio_client().await;
-    ensure_bucket_exists(&minio_client).await;
+    ensure_bucket_exists(&minio_client, TEST_BUCKET).await;
 
     let checkpoint_prefix = format!("checkpoints/{}", test_topic);
-    cleanup_bucket(&minio_client, &checkpoint_prefix).await;
+    cleanup_bucket(&minio_client, TEST_BUCKET, &checkpoint_prefix).await;
 
     // Create temp directories
     let tmp_store_dir = TempDir::new()?;
@@ -295,9 +231,17 @@ async fn test_rebalance_with_checkpoint_import() -> Result<()> {
     let store = DeduplicationStore::new(store_config, test_topic.clone(), test_partition)?;
 
     // Add some test records to the store
+    use common_types::RawEvent;
     use kafka_deduplicator::store::{TimestampKey, TimestampMetadata};
     let test_events: Vec<RawEvent> = (0..5)
-        .map(|i| create_test_raw_event(&format!("user_{i}"), &format!("event_{i}")))
+        .map(|i| {
+            TestRawEventBuilder::new()
+                .random_uuid()
+                .distinct_id(&format!("user_{i}"))
+                .event(&format!("event_{i}"))
+                .current_timestamp()
+                .build()
+        })
         .collect();
 
     for event in &test_events {
@@ -355,8 +299,12 @@ async fn test_rebalance_with_checkpoint_import() -> Result<()> {
         path: tmp_consumer_store_dir.path().to_path_buf(),
         max_capacity: 1_000_000,
     };
-    let store_manager = Arc::new(StoreManager::new(consumer_store_config));
-    let offset_tracker = Arc::new(OffsetTracker::new());
+    let coordinator = create_test_tracker();
+    let store_manager = Arc::new(StoreManager::new(
+        consumer_store_config,
+        coordinator.clone(),
+    ));
+    let offset_tracker = Arc::new(OffsetTracker::new(coordinator.clone()));
     let processor = Arc::new(CountingProcessor::new());
 
     // Create checkpoint importer
@@ -366,6 +314,7 @@ async fn test_rebalance_with_checkpoint_import() -> Result<()> {
         Box::new(downloader),
         tmp_consumer_store_dir.path().to_path_buf(),
         import_config.checkpoint_import_attempt_depth,
+        import_config.checkpoint_partition_import_timeout,
     ));
 
     // Create router and rebalance handler with checkpoint import
@@ -378,9 +327,11 @@ async fn test_rebalance_with_checkpoint_import() -> Result<()> {
     let rebalance_handler: Arc<ProcessorRebalanceHandler<CapturedEvent, CountingProcessor>> =
         Arc::new(ProcessorRebalanceHandler::with_router(
             store_manager.clone(),
+            coordinator.clone(),
             router.clone(),
             offset_tracker.clone(),
             Some(importer),
+            16, // rebalance_cleanup_parallelism
         ));
 
     // Create routing processor
@@ -469,7 +420,7 @@ async fn test_rebalance_with_checkpoint_import() -> Result<()> {
     // Cleanup
     let _ = shutdown_tx.send(());
     let _ = consumer_handle.await;
-    cleanup_bucket(&minio_client, &checkpoint_prefix).await;
+    cleanup_bucket(&minio_client, TEST_BUCKET, &checkpoint_prefix).await;
 
     info!("Test completed successfully");
     Ok(())
@@ -495,12 +446,19 @@ async fn test_messages_dropped_for_revoked_partition() -> Result<()> {
         path: tmp_store_dir.path().to_path_buf(),
         max_capacity: 1_000_000,
     };
-    let store_manager = Arc::new(StoreManager::new(store_config));
-    let offset_tracker = Arc::new(OffsetTracker::new());
+    let coordinator = create_test_tracker();
+    let store_manager = Arc::new(StoreManager::new(store_config, coordinator.clone()));
+    let offset_tracker = Arc::new(OffsetTracker::new(coordinator.clone()));
 
     // Create the ProcessorRebalanceHandler
     let handler: ProcessorRebalanceHandler<CapturedEvent, CountingProcessor> =
-        ProcessorRebalanceHandler::new(store_manager.clone(), offset_tracker.clone(), None);
+        ProcessorRebalanceHandler::new(
+            store_manager.clone(),
+            coordinator,
+            offset_tracker.clone(),
+            None,
+            16, // rebalance_cleanup_parallelism
+        );
 
     // Assign partition 0
     let mut partitions = TopicPartitionList::new();
@@ -513,9 +471,7 @@ async fn test_messages_dropped_for_revoked_partition() -> Result<()> {
     let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
 
     // Async setup (creates stores, sends resume)
-    handler
-        .async_setup_assigned_partitions(&partitions, &tx)
-        .await?;
+    handler.async_setup_assigned_partitions(&tx).await?;
 
     // Verify store exists
     assert!(
@@ -578,11 +534,18 @@ async fn test_rapid_revoke_assign_preserves_new_store() -> Result<()> {
         path: tmp_store_dir.path().to_path_buf(),
         max_capacity: 1_000_000,
     };
-    let store_manager = Arc::new(StoreManager::new(store_config));
-    let offset_tracker = Arc::new(OffsetTracker::new());
+    let coordinator = create_test_tracker();
+    let store_manager = Arc::new(StoreManager::new(store_config, coordinator.clone()));
+    let offset_tracker = Arc::new(OffsetTracker::new(coordinator.clone()));
 
     let handler: ProcessorRebalanceHandler<CapturedEvent, CountingProcessor> =
-        ProcessorRebalanceHandler::new(store_manager.clone(), offset_tracker.clone(), None);
+        ProcessorRebalanceHandler::new(
+            store_manager.clone(),
+            coordinator,
+            offset_tracker.clone(),
+            None,
+            16, // rebalance_cleanup_parallelism
+        );
 
     let mut partitions = TopicPartitionList::new();
     partitions.add_partition_offset(&test_topic, 0, Offset::Beginning)?;
@@ -592,9 +555,7 @@ async fn test_rapid_revoke_assign_preserves_new_store() -> Result<()> {
     handler.setup_assigned_partitions(&partitions);
 
     let (tx1, _rx1) = tokio::sync::mpsc::unbounded_channel();
-    handler
-        .async_setup_assigned_partitions(&partitions, &tx1)
-        .await?;
+    handler.async_setup_assigned_partitions(&tx1).await?;
 
     assert!(
         store_manager.get(&test_topic, 0).is_some(),
@@ -615,9 +576,7 @@ async fn test_rapid_revoke_assign_preserves_new_store() -> Result<()> {
     handler.setup_assigned_partitions(&partitions);
 
     let (tx2, mut rx2) = tokio::sync::mpsc::unbounded_channel();
-    handler
-        .async_setup_assigned_partitions(&partitions, &tx2)
-        .await?;
+    handler.async_setup_assigned_partitions(&tx2).await?;
 
     // Step 4: Now run the stale cleanup from Step 2
     info!("Step 4: Run stale cleanup (should be no-op for re-assigned partition)");

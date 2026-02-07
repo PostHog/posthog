@@ -42,7 +42,7 @@ class TestGetLlmClient:
         [
             ("django", "/django/v1/"),
             ("llm_gateway", "/llm_gateway/v1/"),
-            ("array", "/array/v1/"),
+            ("twig", "/twig/v1/"),
             ("wizard", "/wizard/v1/"),
         ],
     )

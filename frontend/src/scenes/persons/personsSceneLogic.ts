@@ -17,7 +17,9 @@ import { Breadcrumb } from '~/types'
 
 import type { personsSceneLogicType } from './personsSceneLogicType'
 
-const defaultQuery = {
+export const PEOPLE_LIST_CONTEXT_KEY = 'people-list'
+
+export const PEOPLE_LIST_DEFAULT_QUERY = {
     kind: NodeKind.DataTableNode,
     source: {
         kind: NodeKind.ActorsQuery,
@@ -25,8 +27,7 @@ const defaultQuery = {
     },
     full: true,
     propertiesViaUrl: true,
-    showPersistentColumnConfigurator: true,
-    contextKey: 'people-list',
+    contextKey: PEOPLE_LIST_CONTEXT_KEY,
 } as DataTableNode
 
 export const personsSceneLogic = kea<personsSceneLogicType>([
@@ -36,10 +37,24 @@ export const personsSceneLogic = kea<personsSceneLogicType>([
     actions({
         setQuery: (query: DataTableNode) => ({ query }),
         resetDeletedDistinctId: (distinct_id: string) => ({ distinct_id }),
+        setShowDisplayNameNudge: (showDisplayNameNudge: boolean) => ({ showDisplayNameNudge }),
+        setIsBannerLoading: (isBannerLoading: boolean) => ({ isBannerLoading }),
     }),
 
     reducers({
-        query: [defaultQuery, { setQuery: (_, { query }) => query }],
+        query: [PEOPLE_LIST_DEFAULT_QUERY, { setQuery: (_, { query }) => query }],
+        showDisplayNameNudge: [
+            false,
+            {
+                setShowDisplayNameNudge: (_, { showDisplayNameNudge }) => showDisplayNameNudge,
+            },
+        ],
+        isBannerLoading: [
+            false,
+            {
+                setIsBannerLoading: (_, { isBannerLoading }) => isBannerLoading,
+            },
+        ],
     }),
 
     listeners({
@@ -66,7 +81,7 @@ export const personsSceneLogic = kea<personsSceneLogicType>([
         setQuery: () => [
             urls.persons(),
             {},
-            equal(values.query, defaultQuery) ? {} : { q: values.query },
+            equal(values.query, PEOPLE_LIST_DEFAULT_QUERY) ? {} : { q: values.query },
             { replace: true },
         ],
     })),

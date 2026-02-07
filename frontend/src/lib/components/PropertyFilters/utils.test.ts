@@ -3,6 +3,7 @@ import {
     convertPropertiesToPropertyGroup,
     convertPropertyGroupToProperties,
     isValidPropertyFilter,
+    normalizePropertyFilterValue,
     propertyFilterTypeToTaxonomicFilterType,
 } from 'lib/components/PropertyFilters/utils'
 
@@ -197,5 +198,37 @@ describe('convertPropertiesToPropertyGroup', () => {
             type: FilterLogicalOperator.And,
             values: [],
         })
+    })
+})
+
+describe('normalizePropertyFilterValue()', () => {
+    it('wraps string values in arrays for multi-select operators', () => {
+        expect(normalizePropertyFilterValue('test', PropertyOperator.Exact)).toEqual(['test'])
+        expect(normalizePropertyFilterValue('test', PropertyOperator.IsNot)).toEqual(['test'])
+    })
+
+    it('wraps number values in arrays for multi-select operators', () => {
+        expect(normalizePropertyFilterValue(123, PropertyOperator.Exact)).toEqual([123])
+    })
+
+    it('does not wrap values that are already arrays', () => {
+        expect(normalizePropertyFilterValue(['test'], PropertyOperator.Exact)).toEqual(['test'])
+        expect(normalizePropertyFilterValue(['a', 'b'], PropertyOperator.Exact)).toEqual(['a', 'b'])
+    })
+
+    it('does not wrap values for non-multi-select operators', () => {
+        expect(normalizePropertyFilterValue('test', PropertyOperator.IContains)).toEqual('test')
+        expect(normalizePropertyFilterValue('test', PropertyOperator.Regex)).toEqual('test')
+        expect(normalizePropertyFilterValue('test', PropertyOperator.IsSet)).toEqual('test')
+    })
+
+    it('handles null and undefined values', () => {
+        expect(normalizePropertyFilterValue(null, PropertyOperator.Exact)).toEqual(null)
+        expect(normalizePropertyFilterValue(undefined, PropertyOperator.Exact)).toEqual(undefined)
+    })
+
+    it('handles null and undefined operators', () => {
+        expect(normalizePropertyFilterValue('test', null)).toEqual('test')
+        expect(normalizePropertyFilterValue('test', undefined)).toEqual('test')
     })
 })

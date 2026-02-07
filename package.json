@@ -62,7 +62,7 @@
         "@trivago/prettier-plugin-sort-imports": "^5.2.2",
         "@types/uuid": "^10.0.0",
         "markdownlint-cli2": "^0.18.1",
-        "orval": "8.0.0-rc.5",
+        "orval": "8.0.3",
         "oxlint": "^1.8.0",
         "playwright": "1.45.0",
         "prettier": "^3.6.2",
@@ -77,13 +77,19 @@
         "fsevents": "^2.3.3"
     },
     "pnpm": {
+        "// Fix Typescript and React version to a fixed known good version across the monorepo": "",
         "overrides": {
-            "typescript": "5.2.2",
+            "typescript": "5.4.5",
+            "react": "18.3.1",
+            "react-dom": "18.3.1",
+            "@types/react": "18.3.27",
+            "@types/react-dom": "18.3.7",
             "node-forge": "1.3.2",
             "pbkdf2": ">=3.1.3",
             "cipher-base": ">=1.0.5",
             "sha.js": ">=2.4.12",
-            "form-data": ">=4.0.4"
+            "form-data": ">=4.0.4",
+            "@modelcontextprotocol/sdk": "^1.26.0"
         },
         "patchedDependencies": {
             "heatmap.js@2.0.5": "patches/heatmap.js@2.0.5.patch",
@@ -92,30 +98,35 @@
         },
         "// Known dependencies that we need preinstall scripts for, add new ones with caution": "",
         "onlyBuiltDependencies": [
-            "re2",
+            "@modelcontextprotocol/ext-apps",
+            "@parcel/watcher",
+            "@swc/core",
+            "core-js",
+            "core-js-pure",
+            "cpu-features",
+            "esbuild",
+            "lmdb",
+            "lz4",
+            "msgpackr-extract",
+            "msw",
             "node-gyp",
             "node-rdkafka",
-            "@parcel/watcher",
-            "msgpackr-extract",
-            "@swc/core",
-            "esbuild",
-            "core-js-pure",
-            "core-js",
-            "msw",
-            "unrs-resolver",
             "protobufjs",
-            "cpu-features",
-            "lz4",
-            "workerd",
+            "re2",
             "sharp",
             "ssh2",
-            "lmdb"
+            "unrs-resolver",
+            "workerd"
         ]
     },
     "lint-staged": {
+        "products/**/manifest.tsx": [
+            "bin/hogli format:js",
+            "sh -c 'pnpm build:products && git add frontend/src/products.tsx frontend/src/products.json'"
+        ],
         "*.{json,yaml,yml}": "bin/hogli format:yaml",
         "*.{css,scss}": "bin/hogli format:css",
-        "{playwright,frontend,products,common,ee}/**/*.{js,jsx,mjs,ts,tsx}": "bin/hogli format:js",
+        "{playwright,frontend,products,common,ee,services}/**/*.{js,jsx,mjs,ts,tsx}": "bin/hogli format:js",
         "nodejs/**/*.{js,jsx,mjs,ts,tsx}": "bin/hogli format:nodejs",
         "funnel-udf/**/*.rs": "bin/hogli format:rust",
         "!(posthog/hogql/grammar/*)*.{py,pyi}": [

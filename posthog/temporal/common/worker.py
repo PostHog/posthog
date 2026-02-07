@@ -5,7 +5,7 @@ import collections.abc
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 
-from prometheus_client import CollectorRegistry
+from prometheus_client import REGISTRY
 from temporalio.runtime import PrometheusConfig, Runtime, TelemetryConfig
 from temporalio.worker import ResourceBasedSlotConfig, UnsandboxedWorkflowRunner, Worker, WorkerTuner
 
@@ -14,6 +14,7 @@ from posthog.temporal.common.combined_metrics_server import CombinedMetricsServe
 from posthog.temporal.common.liveness_tracker import LivenessInterceptor
 from posthog.temporal.common.logger import get_write_only_logger
 from posthog.temporal.common.posthog_client import PostHogClientInterceptor
+from posthog.temporal.llm_analytics.metrics import EvalsMetricsInterceptor
 
 from products.batch_exports.backend.temporal.metrics import BatchExportsMetricsInterceptor
 
@@ -36,6 +37,24 @@ BATCH_EXPORTS_LATENCY_HISTOGRAM_BUCKETS = [
     21_600_000.0,  # 6 hours
     43_200_000.0,  # 12 hours
     86_400_000.0,  # 24 hours
+]
+
+EVALS_LATENCY_HISTOGRAM_METRICS = (
+    "llma_eval_activity_execution_latency",
+    "llma_eval_workflow_execution_latency",
+    "llma_eval_activity_schedule_to_start_latency",
+)
+EVALS_LATENCY_HISTOGRAM_BUCKETS = [
+    100.0,  # 100ms
+    500.0,  # 500ms
+    1_000.0,  # 1 second
+    2_000.0,  # 2 seconds
+    5_000.0,  # 5 seconds
+    10_000.0,  # 10 seconds
+    30_000.0,  # 30 seconds
+    60_000.0,  # 1 minute
+    120_000.0,  # 2 minutes
+    300_000.0,  # 5 minutes
 ]
 
 
@@ -119,15 +138,10 @@ async def create_worker(
         temporal_metrics_port = get_free_port()
         temporal_metrics_bind_address = f"127.0.0.1:{temporal_metrics_port}"
 
-        # Create a separate CollectorRegistry for the metrics server to avoid lock contention
-        # with any other parts of the application that might use the global REGISTRY.
-        # This ensures the metrics server thread cannot deadlock with other threads.
-        metrics_server_registry = CollectorRegistry()
-
         metrics_server = CombinedMetricsServer(
             port=metrics_port,
             temporal_metrics_url=f"http://{temporal_metrics_bind_address}/metrics",
-            registry=metrics_server_registry,
+            registry=REGISTRY,
         )
     else:
         # Expose Temporal SDK metrics directly on the public metrics port.
@@ -146,6 +160,12 @@ async def create_worker(
                     zip(
                         BATCH_EXPORTS_LATENCY_HISTOGRAM_METRICS,
                         itertools.repeat(BATCH_EXPORTS_LATENCY_HISTOGRAM_BUCKETS),
+                    )
+                )
+                | dict(
+                    zip(
+                        EVALS_LATENCY_HISTOGRAM_METRICS,
+                        itertools.repeat(EVALS_LATENCY_HISTOGRAM_BUCKETS),
                     )
                 )
                 | {"batch_exports_activity_attempt": [1.0, 5.0, 10.0, 100.0]},
@@ -171,7 +191,12 @@ async def create_worker(
             activities=activities,
             workflow_runner=UnsandboxedWorkflowRunner(),
             graceful_shutdown_timeout=graceful_shutdown_timeout or dt.timedelta(minutes=5),
-            interceptors=[LivenessInterceptor(), PostHogClientInterceptor(), BatchExportsMetricsInterceptor()],
+            interceptors=[
+                LivenessInterceptor(),
+                PostHogClientInterceptor(),
+                BatchExportsMetricsInterceptor(),
+                EvalsMetricsInterceptor(),
+            ],
             activity_executor=ThreadPoolExecutor(max_workers=max_concurrent_activities or 50),
             tuner=WorkerTuner.create_resource_based(
                 target_memory_usage=target_memory_usage,
@@ -191,7 +216,12 @@ async def create_worker(
             activities=activities,
             workflow_runner=UnsandboxedWorkflowRunner(),
             graceful_shutdown_timeout=graceful_shutdown_timeout or dt.timedelta(minutes=5),
-            interceptors=[LivenessInterceptor(), PostHogClientInterceptor(), BatchExportsMetricsInterceptor()],
+            interceptors=[
+                LivenessInterceptor(),
+                PostHogClientInterceptor(),
+                BatchExportsMetricsInterceptor(),
+                EvalsMetricsInterceptor(),
+            ],
             activity_executor=ThreadPoolExecutor(max_workers=max_concurrent_activities or 50),
             max_concurrent_activities=max_concurrent_activities or 50,
             max_concurrent_workflow_tasks=max_concurrent_workflow_tasks or 50,

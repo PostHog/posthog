@@ -107,10 +107,11 @@ type PostHogEvent struct {
 	Properties map[string]interface{} `json:"properties"`
 	Timestamp  interface{}            `json:"timestamp,omitempty"`
 
-	Uuid       string
-	DistinctId string
-	Lat        float64
-	Lng        float64
+	Uuid        string
+	DistinctId  string
+	Lat         float64
+	Lng         float64
+	CountryCode string
 }
 
 type KafkaConsumerInterface interface {
@@ -218,6 +219,14 @@ func parse(geolocator geo.GeoLocator, kafkaMessage []byte) PostHogEvent {
 		log.Printf("Error decoding JSON %s: %v", err, string(kafkaMessage))
 	}
 
+	if wrapperMessage.Timestamp != "" {
+		if eventTime, err := time.Parse(time.RFC3339Nano, wrapperMessage.Timestamp); err == nil {
+			if lag := time.Since(eventTime).Seconds(); lag >= 0 {
+				metrics.EventLagHistogram.Observe(lag)
+			}
+		}
+	}
+
 	phEvent := PostHogEvent{
 		Timestamp:  wrapperMessage.Timestamp,
 		Token:      "",
@@ -253,12 +262,13 @@ func parse(geolocator geo.GeoLocator, kafkaMessage []byte) PostHogEvent {
 	}
 
 	if ipStr != "" {
-		var err error
-		phEvent.Lat, phEvent.Lng, err = geolocator.Lookup(ipStr)
-		if err != nil && err.Error() != "invalid IP address" { // An invalid IP address is not an error on our side
-			// TODO capture error to PostHog
-			_ = err
+		geoResult, err := geolocator.Lookup(ipStr)
+		if err != nil {
+			metrics.GeoIPLookupFailures.Inc()
 		}
+		phEvent.Lat = geoResult.Latitude
+		phEvent.Lng = geoResult.Longitude
+		phEvent.CountryCode = geoResult.CountryCode
 	}
 
 	return phEvent

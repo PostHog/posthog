@@ -14,6 +14,7 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { ProductKey } from '~/queries/schema/schema-general'
 
 import { AssigneeIconDisplay, AssigneeLabelDisplay, AssigneeSelect } from '../../components/Assignee'
 import { ChannelsTag } from '../../components/Channels/ChannelsTag'
@@ -28,6 +29,7 @@ import { supportTicketSceneLogic } from './supportTicketSceneLogic'
 export const scene: SceneExport<{ ticketId: string }> = {
     component: SupportTicketScene,
     logic: supportTicketSceneLogic,
+    productKey: ProductKey.CONVERSATIONS,
     paramsToProps: ({ params: { ticketId } }) => ({ ticketId: ticketId || 'new' }),
 }
 
@@ -45,7 +47,6 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         hasMoreMessages,
         olderMessagesLoading,
         eventsQuery,
-        personLoading,
         previousTickets,
         previousTicketsLoading,
         exceptionsQuery,
@@ -120,6 +121,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                         olderMessagesLoading={olderMessagesLoading}
                         onSendMessage={sendMessage}
                         onLoadOlderMessages={loadOlderMessages}
+                        showPrivateOption
                     />
                     <div className="hidden lg:block">
                         <Resizer {...resizerLogicProps} />
@@ -142,7 +144,26 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                         View person
                                     </LemonButton>
                                 </div>
-                                <PersonDisplay person={{ distinct_id: ticket.distinct_id }} withIcon />
+                                <PersonDisplay
+                                    person={
+                                        ticket.person
+                                            ? {
+                                                  id: ticket.person.id,
+                                                  distinct_id: ticket.distinct_id,
+                                                  distinct_ids: ticket.person.distinct_ids,
+                                                  // Merge anonymous_traits as fallback for missing person properties
+                                                  properties: {
+                                                      ...ticket.anonymous_traits,
+                                                      ...ticket.person.properties,
+                                                  },
+                                              }
+                                            : {
+                                                  distinct_id: ticket.distinct_id,
+                                                  properties: ticket.anonymous_traits || {},
+                                              }
+                                    }
+                                    withIcon
+                                />
                                 <div className="my-3 border-t" />
                             </>
                         )}
@@ -239,7 +260,6 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                     {/* Recent Events Panel */}
                     <RecentEventsPanel
                         eventsQuery={eventsQuery}
-                        personLoading={personLoading}
                         distinctId={ticket?.distinct_id}
                         sessionId={ticket?.session_id}
                     />

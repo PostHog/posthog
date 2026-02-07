@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 
 import { IconFlag, IconQuestion, IconTrash, IconX } from '@posthog/icons'
 import {
@@ -15,6 +15,7 @@ import {
     Link,
 } from '@posthog/lemon-ui'
 
+import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { FlagSelector } from 'lib/components/FlagSelector'
 import { NotFound } from 'lib/components/NotFound'
 import { SceneFile } from 'lib/components/Scenes/SceneFile'
@@ -27,6 +28,7 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { JSONEditorInput } from 'scenes/feature-flags/JSONEditorInput'
 import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions'
+import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -44,6 +46,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Query } from '~/queries/Query/Query'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { Node, NodeKind, ProductIntentContext, ProductKey, QuerySchema } from '~/queries/schema/schema-general'
+import { QueryContext } from '~/queries/types'
 import {
     CyclotronJobFiltersType,
     EarlyAccessFeatureStage,
@@ -68,7 +71,7 @@ export const scene: SceneExport<EarlyAccessFeatureLogicProps> = {
     paramsToProps: ({ params: { id } }) => ({
         id: id && id !== 'new' ? id : 'new',
     }),
-    settingSectionId: 'environment-feature-flags',
+    productKey: ProductKey.EARLY_ACCESS_FEATURES,
 }
 
 export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.Element {
@@ -149,21 +152,12 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
                     resourceType={{
                         type: 'early_access_feature',
                     }}
-                    canEdit
-                    renameDebounceMs={isNewEarlyAccessFeature ? undefined : 1000}
+                    canEdit={isNewEarlyAccessFeature || isEditingFeature}
                     onNameChange={(name) => {
-                        if (isNewEarlyAccessFeature) {
-                            setEarlyAccessFeatureValue('name', name)
-                        } else {
-                            saveEarlyAccessFeature({ ...earlyAccessFeature, name })
-                        }
+                        setEarlyAccessFeatureValue('name', name)
                     }}
                     onDescriptionChange={(description) => {
-                        if (isNewEarlyAccessFeature) {
-                            setEarlyAccessFeatureValue('description', description)
-                        } else {
-                            saveEarlyAccessFeature({ ...earlyAccessFeature, description })
-                        }
+                        setEarlyAccessFeatureValue('description', description)
                     }}
                     forceEdit={isEditingFeature || isNewEarlyAccessFeature}
                     actions={
@@ -679,6 +673,33 @@ function PersonsTableByFilter({ recordingsFilters, properties }: PersonsTableByF
 
     const { addProductIntentForCrossSell } = useActions(teamLogic)
 
+    const context: QueryContext = useMemo(
+        () => ({
+            columns: {
+                person_display_name: {
+                    render: ({ value }) => {
+                        const person = value as { id: string; display_name: string }
+                        return (
+                            <CopyToClipboardInline
+                                explicitValue={person.display_name}
+                                iconSize="small"
+                                iconStyle={{ color: 'var(--color-accent)' }}
+                            >
+                                <PersonDisplay
+                                    withIcon
+                                    person={{ id: person.id }}
+                                    displayName={person.display_name}
+                                    noPopover
+                                />
+                            </CopyToClipboardInline>
+                        )
+                    },
+                },
+            },
+        }),
+        []
+    )
+
     return (
         <div className="relative">
             {/* NOTE: This is a bit of a placement hack - ideally we would be able to add it to the Query */}
@@ -698,7 +719,7 @@ function PersonsTableByFilter({ recordingsFilters, properties }: PersonsTableByF
                     View recordings
                 </LemonButton>
             </div>
-            <Query query={query} setQuery={setQuery} />
+            <Query query={query} setQuery={setQuery} context={context} />
         </div>
     )
 }

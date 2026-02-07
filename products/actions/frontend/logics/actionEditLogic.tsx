@@ -4,6 +4,7 @@ import { loaders } from 'kea-loaders'
 import { beforeUnload, router, urlToAction } from 'kea-router'
 
 import api from 'lib/api'
+import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Link } from 'lib/lemon-ui/Link'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
@@ -121,6 +122,8 @@ export const actionEditLogic = kea<actionEditLogicType>([
                 actions.resetAction(updatedAction)
                 refreshTreeItem('action', String(action.id))
                 if (!props.id) {
+                    // Mark task complete when creating a new action
+                    globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.DefineActions)
                     router.actions.push(urls.action(action.id))
                 } else {
                     const id = parseInt(props.id.toString()) // props.id can be a string

@@ -32,7 +32,7 @@ export function ProjectNotice({ className }: { className?: string }): JSX.Elemen
     const { closeProjectNotice } = useActions(navigationLogic)
     const { showInviteModal } = useActions(inviteLogic)
     const { requestVerificationLink } = useActions(verifyEmailLogic)
-    const { sceneConfig, productFromUrl } = useValues(sceneLogic)
+    const { sceneConfig, activeSceneProductKey } = useValues(sceneLogic)
 
     if (!projectNoticeVariant) {
         return null
@@ -68,7 +68,7 @@ export function ProjectNotice({ className }: { className?: string }): JSX.Elemen
                     This project has no events yet. Go to the{' '}
                     <Link
                         to={urls.onboarding({
-                            productKey: productFromUrl ?? ProductKey.PRODUCT_ANALYTICS,
+                            productKey: activeSceneProductKey ?? ProductKey.PRODUCT_ANALYTICS,
                             stepKey: OnboardingStepKey.INSTALL,
                         })}
                         data-attr="real_project_with_no_events-ingestion_link"
@@ -84,7 +84,7 @@ export function ProjectNotice({ className }: { className?: string }): JSX.Elemen
             ),
             action: {
                 to: urls.onboarding({
-                    productKey: productFromUrl ?? ProductKey.PRODUCT_ANALYTICS,
+                    productKey: activeSceneProductKey ?? ProductKey.PRODUCT_ANALYTICS,
                     stepKey: OnboardingStepKey.INSTALL,
                 }),
                 'data-attr': 'demo-warning-cta',

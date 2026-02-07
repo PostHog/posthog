@@ -39,9 +39,8 @@ import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
 import { EventDebugMenu } from '~/toolbar/debug/EventDebugMenu'
 import { ExperimentsToolbarMenu } from '~/toolbar/experiments/ExperimentsToolbarMenu'
 import { FlagsToolbarMenu } from '~/toolbar/flags/FlagsToolbarMenu'
-import { ProductToursEditingBar } from '~/toolbar/product-tours/ProductToursEditingBar'
+import { ProductToursSidebar } from '~/toolbar/product-tours/ProductToursSidebar'
 import { ProductToursToolbarMenu } from '~/toolbar/product-tours/ProductToursToolbarMenu'
-import { TourGoalModal } from '~/toolbar/product-tours/TourGoalModal'
 import { productToursLogic } from '~/toolbar/product-tours/productToursLogic'
 import { HeatmapToolbarMenu } from '~/toolbar/stats/HeatmapToolbarMenu'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
@@ -389,12 +388,11 @@ export function Toolbar(): JSX.Element | null {
         return null
     }
 
-    const showEditingBar = selectedTourId !== null && !isPreviewing
+    const showSidebar = selectedTourId !== null && !isPreviewing
 
     return (
         <>
-            <TourGoalModal />
-            {showEditingBar && <ProductToursEditingBar />}
+            {showSidebar && <ProductToursSidebar />}
             <ToolbarInfoMenu />
             <div
                 ref={ref}

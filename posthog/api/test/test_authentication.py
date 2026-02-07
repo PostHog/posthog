@@ -637,7 +637,7 @@ class TestTwoFactorAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("Passkeys are not enabled for 2FA", response.json()["error"])
 
-    @patch("posthog.api.authentication.verify_authentication_response")
+    @patch("posthog.api.authentication.verify_passkey_authentication_response")
     def test_passkey_2fa_begin_returns_options(self, mock_verify):
         """Test that passkey 2FA begin returns authentication options"""
         from webauthn.helpers import bytes_to_base64url
@@ -743,7 +743,7 @@ class TestTwoFactorAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("No pending 2FA session", response.json()["error"])
 
-    @patch("posthog.api.authentication.verify_authentication_response")
+    @patch("posthog.api.authentication.verify_passkey_authentication_response")
     def test_passkey_2fa_complete_success(self, mock_verify):
         """Test successful passkey 2FA completion"""
         from webauthn.helpers import bytes_to_base64url
@@ -915,7 +915,7 @@ class TestTwoFactorAPI(APIBaseTest):
         self.assertEqual(begin_response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("No passkeys found", begin_response.json()["error"])
 
-    @patch("posthog.api.authentication.verify_authentication_response")
+    @patch("posthog.api.authentication.verify_passkey_authentication_response")
     def test_passkey_2fa_complete_with_multiple_passkeys(self, mock_verify):
         """Test passkey 2FA works with multiple passkeys"""
         from webauthn.helpers import bytes_to_base64url

@@ -1,19 +1,22 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import { IconClock } from '@posthog/icons'
+import { IconClock, IconDownload } from '@posthog/icons'
 
 import api from 'lib/api'
 import { commandLogic } from 'lib/components/Command/commandLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { toSentenceCase } from 'lib/utils'
+import { GroupQueryResult, mapGroupQueryResponse } from 'lib/utils/groups'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 
 import { splitPath, unescapePath } from '~/layout/panel-layout/ProjectTree/utils'
 import { groupsModel } from '~/models/groupsModel'
-import { getTreeItemsMetadata, getTreeItemsProducts } from '~/products'
+import { getTreeItemsMetadata, getTreeItemsNew, getTreeItemsProducts } from '~/products'
 import { FileSystemEntry, FileSystemViewLogEntry, GroupsQueryResponse } from '~/queries/schema/schema-general'
-import { ActivityTab, Group, GroupTypeIndex, PersonType, SearchResponse } from '~/types'
+import { SETTINGS_MAP } from '~/scenes/settings/SettingsMap'
+import { ActivityTab, GroupTypeIndex, PersonType, SearchResponse } from '~/types'
 
 import type { searchLogicType } from './searchLogicType'
 
@@ -43,25 +46,14 @@ export interface SearchLogicProps {
     logicKey: string
 }
 
-export type GroupQueryResult = Pick<Group, 'group_key' | 'group_properties'>
-
 export const RECENTS_LIMIT = 5
 const SEARCH_LIMIT = 5
-
-function mapGroupQueryResponse(response: GroupsQueryResponse): GroupQueryResult[] {
-    return response.results.map((row) => ({
-        group_key: row[response.columns.indexOf('key')],
-        group_properties: {
-            name: row[response.columns.indexOf('group_name')],
-        },
-    }))
-}
 
 export const searchLogic = kea<searchLogicType>([
     path((logicKey) => ['lib', 'components', 'Search', 'searchLogic', logicKey]),
     props({} as SearchLogicProps),
     key((props) => props.logicKey),
-    connect({
+    connect(() => ({
         values: [
             groupsModel,
             ['groupTypes', 'aggregationLabel'],
@@ -72,7 +64,7 @@ export const searchLogic = kea<searchLogicType>([
             preflightLogic,
             ['isDev'],
         ],
-    }),
+    })),
     actions({
         setSearch: (search: string) => ({ search }),
     }),
@@ -230,6 +222,13 @@ export const searchLogic = kea<searchLogicType>([
             {
                 loadSceneLogViewsSuccess: () => true,
                 loadSceneLogViewsFailure: () => true,
+            },
+        ],
+        isAppsLoading: [
+            true,
+            {
+                loadSceneLogViewsSuccess: () => false,
+                loadSceneLogViewsFailure: () => false,
             },
         ],
     }),
@@ -405,6 +404,55 @@ export const searchLogic = kea<searchLogicType>([
                 })
             },
         ],
+        newItems: [
+            (s) => [s.featureFlags, s.isDev],
+            (featureFlags, isDev): SearchItem[] => {
+                const allNewItems = getTreeItemsNew()
+                const filteredItems = allNewItems.filter((item) => {
+                    if (!isDev && item.category === 'Unreleased') {
+                        return false
+                    }
+                    if (item.flag && !(featureFlags as Record<string, boolean>)[item.flag]) {
+                        return false
+                    }
+                    return true
+                })
+
+                return filteredItems.map((item) => {
+                    // Format display name:
+                    // "Insight/Lifecycle" -> "New Lifecycle insight"
+                    // "Data/Destination" -> "New Destination" (no suffix for Data)
+                    const pathParts = item.path.split('/')
+                    let displayName: string
+                    if (pathParts.length > 1) {
+                        const suffix = pathParts[0].toLowerCase()
+                        // Don't append "data" suffix for data pipeline items
+                        displayName =
+                            suffix === 'data'
+                                ? `New ${pathParts.slice(1).join(' ')}`
+                                : `New ${pathParts.slice(1).join(' ')} ${suffix}`
+                    } else {
+                        displayName = `New ${item.path}`
+                    }
+
+                    return {
+                        id: `new-${item.path}`,
+                        name: displayName,
+                        displayName,
+                        category: 'create',
+                        productCategory: item.category || null,
+                        href: item.href || '#',
+                        itemType: item.iconType || item.type || null,
+                        tags: item.tags,
+                        record: {
+                            type: item.type || item.iconType,
+                            iconType: item.iconType,
+                            iconColor: item.iconColor,
+                        },
+                    }
+                })
+            },
+        ],
         groupItems: [
             (s) => [s.groupSearchResults, s.aggregationLabel],
             (groupSearchResults, aggregationLabel): SearchItem[] => {
@@ -473,6 +521,119 @@ export const searchLogic = kea<searchLogicType>([
                         record: item as unknown as Record<string, unknown>,
                     }
                 })
+            },
+        ],
+        healthItems: [
+            (s) => [s.sceneLogViewsByRef],
+            (sceneLogViewsByRef): SearchItem[] => [
+                {
+                    id: 'health-pipeline-status',
+                    name: 'Pipeline status',
+                    displayName: 'Pipeline status',
+                    category: 'health',
+                    href: urls.pipelineStatus(),
+                    itemType: 'pipeline_status',
+                    lastViewedAt: sceneLogViewsByRef['PipelineStatus'] ?? null,
+                    record: { type: 'pipeline_status', iconType: 'pipeline_status' },
+                },
+                {
+                    id: 'health-sdk-doctor',
+                    name: 'SDK doctor',
+                    displayName: 'SDK doctor',
+                    category: 'health',
+                    href: urls.sdkDoctor(),
+                    itemType: 'sdk_doctor',
+                    lastViewedAt: sceneLogViewsByRef['SdkDoctor'] ?? null,
+                    record: { type: 'sdk_doctor', iconType: 'sdk_doctor' },
+                },
+            ],
+        ],
+        miscItems: [
+            (s) => [s.sceneLogViewsByRef],
+            (sceneLogViewsByRef): SearchItem[] => [
+                {
+                    id: 'misc-exports',
+                    name: 'Exports',
+                    displayName: 'Exports',
+                    category: 'misc',
+                    href: urls.exports(),
+                    icon: <IconDownload />,
+                    itemType: null,
+                    lastViewedAt: sceneLogViewsByRef['Exports'] ?? null,
+                    record: { type: 'exports' },
+                },
+            ],
+        ],
+        settingsItems: [
+            (s) => [s.featureFlags],
+            (featureFlags): SearchItem[] => {
+                const items: SearchItem[] = []
+
+                const checkFlag = (flag: string): boolean => {
+                    const isNegated = flag.startsWith('!')
+                    const flagName = isNegated ? flag.slice(1) : flag
+                    const flagValue = (featureFlags as Record<string, boolean>)[flagName]
+                    return isNegated ? !flagValue : !!flagValue
+                }
+
+                for (const section of SETTINGS_MAP) {
+                    if (section.level === 'environment') {
+                        // temporary until we finish removing environments entirely
+                        continue
+                    }
+
+                    // Filter by feature flag if required
+                    if (section.flag) {
+                        if (Array.isArray(section.flag)) {
+                            // All flags in the array must pass
+                            if (!section.flag.every(checkFlag)) {
+                                continue
+                            }
+                        } else {
+                            if (!checkFlag(section.flag)) {
+                                continue
+                            }
+                        }
+                    }
+
+                    // Create a search item for each settings section
+                    const levelPrefix = toSentenceCase(section.level)
+
+                    const settings = section.settings
+                        .filter((setting) => !!setting.title)
+                        .flatMap((setting) => [
+                            toSentenceCase(setting.id.replace(/[-]/g, ' ')),
+                            ...(typeof setting.title === 'string' ? [setting.title] : []),
+                            ...(typeof setting.description === 'string' ? [setting.description] : []),
+                        ])
+
+                    // Create the display name for each settings section
+                    const displayName =
+                        typeof section.title === 'string'
+                            ? section.title
+                            : toSentenceCase(section.id.replace(/[-]/g, ' '))
+
+                    const displayNameSuffix =
+                        displayName === 'General' || displayName === 'Danger zone'
+                            ? ` (${toSentenceCase(section.level)})`
+                            : ''
+
+                    items.push({
+                        id: `settings-${section.id}`,
+                        name: `${levelPrefix}: ${displayName} (${settings})`,
+                        displayName: `${displayName}${displayNameSuffix}`,
+                        category: 'settings',
+                        href: section.to || urls.settings(section.id),
+                        itemType: 'settings',
+                        record: {
+                            type: 'settings',
+                            level: section.level,
+                            sectionId: section.id,
+                        },
+                    })
+                }
+
+                return items
             },
         ],
         unifiedSearchItems: [
@@ -560,43 +721,83 @@ export const searchLogic = kea<searchLogicType>([
                 return categoryItems
             },
         ],
+        loadingStates: [
+            (s) => [
+                s.unifiedSearchResultsLoading,
+                s.recentsLoading,
+                s.recentsHasLoaded,
+                s.isAppsLoading,
+                s.personSearchResultsLoading,
+                s.groupSearchResultsLoading,
+                s.playlistSearchResultsLoading,
+            ],
+            (
+                unifiedSearchResultsLoading: boolean,
+                recentsLoading: boolean,
+                recentsHasLoaded: boolean,
+                isAppsLoading: boolean,
+                personSearchResultsLoading: boolean,
+                groupSearchResultsLoading: boolean,
+                playlistSearchResultsLoading: boolean
+            ) => ({
+                unifiedSearchResultsLoading,
+                recentsLoading,
+                recentsHasLoaded,
+                isAppsLoading,
+                personSearchResultsLoading,
+                groupSearchResultsLoading,
+                playlistSearchResultsLoading,
+            }),
+        ],
         allCategories: [
             (s) => [
                 s.recentItems,
                 s.appsItems,
                 s.dataManagementItems,
+                s.healthItems,
+                s.miscItems,
+                s.settingsItems,
+                s.newItems,
                 s.personItems,
                 s.groupItems,
                 s.playlistItems,
                 s.unifiedSearchItems,
-                s.recentsLoading,
-                s.recentsHasLoaded,
-                s.sceneLogViewsLoading,
-                s.sceneLogViewsHasLoaded,
-                s.personSearchResultsLoading,
-                s.groupSearchResultsLoading,
-                s.playlistSearchResultsLoading,
-                s.unifiedSearchResultsLoading,
+                s.loadingStates,
                 s.search,
             ],
             (
-                recentItems,
-                appsItems,
-                dataManagementItems,
-                personItems,
-                groupItems,
-                playlistItems,
-                unifiedSearchItems,
-                recentsLoading,
-                recentsHasLoaded,
-                sceneLogViewsLoading,
-                sceneLogViewsHasLoaded,
-                personSearchResultsLoading,
-                groupSearchResultsLoading,
-                playlistSearchResultsLoading,
-                unifiedSearchResultsLoading,
-                search
+                recentItems: SearchItem[],
+                appsItems: SearchItem[],
+                dataManagementItems: SearchItem[],
+                healthItems: SearchItem[],
+                miscItems: SearchItem[],
+                settingsItems: SearchItem[],
+                newItems: SearchItem[],
+                personItems: SearchItem[],
+                groupItems: SearchItem[],
+                playlistItems: SearchItem[],
+                unifiedSearchItems: Record<string, SearchItem[]>,
+                loadingStates: {
+                    unifiedSearchResultsLoading: boolean
+                    recentsLoading: boolean
+                    recentsHasLoaded: boolean
+                    isAppsLoading: boolean
+                    personSearchResultsLoading: boolean
+                    groupSearchResultsLoading: boolean
+                    playlistSearchResultsLoading: boolean
+                },
+                search: string
             ): SearchCategory[] => {
+                const {
+                    unifiedSearchResultsLoading,
+                    recentsLoading,
+                    recentsHasLoaded,
+                    isAppsLoading,
+                    personSearchResultsLoading,
+                    groupSearchResultsLoading,
+                    playlistSearchResultsLoading,
+                } = loadingStates
+
                 const categories: SearchCategory[] = []
                 const hasSearch = search.trim() !== ''
 
@@ -624,7 +825,6 @@ export const searchLogic = kea<searchLogicType>([
                 })
 
                 // Filter apps and data management by search
-                const isAppsLoading = sceneLogViewsLoading || !sceneLogViewsHasLoaded
                 const filteredApps = filterBySearch(appsItems)
                 const filteredDataManagement = filterBySearch(dataManagementItems)
 
@@ -644,6 +844,80 @@ export const searchLogic = kea<searchLogicType>([
                         items: isAppsLoading ? [] : filteredDataManagement,
                         isLoading: isAppsLoading,
                     })
+                }
+
+                // Show health items if searching with matching results
+                const filteredHealth = filterBySearch(healthItems)
+                if (hasSearch && filteredHealth.length > 0) {
+                    categories.push({
+                        key: 'health',
+                        items: filteredHealth,
+                        isLoading: false,
+                    })
+                }
+
+                // Show misc items if searching with matching results
+                const filteredMisc = filterBySearch(miscItems)
+                if (hasSearch && filteredMisc.length > 0) {
+                    categories.push({
+                        key: 'misc',
+                        items: filteredMisc,
+                        isLoading: false,
+                    })
+                }
+
+                // Filter and show settings if searching with matching results
+                const filteredSettings = filterBySearch(settingsItems)
+                if (hasSearch && filteredSettings.length > 0) {
+                    categories.push({
+                        key: 'settings',
+                        items: filteredSettings,
+                        isLoading: false,
+                    })
+                }
+
+                // Show "create" category only when searching and matching "new" or relevant keywords
+                if (hasSearch) {
+                    const searchLower = search.toLowerCase()
+                    const searchChunks = searchLower.split(' ').filter((s) => s)
+
+                    // Filter new items - ALL search chunks must match
+                    const filteredNewItems = newItems.filter((item) => {
+                        const nameLower = (item.displayName || item.name || '').toLowerCase()
+                        const typeLower = (item.itemType || '').toLowerCase()
+                        // Also search against the original path (stored in id as "new-{path}")
+                        const idLower = item.id.toLowerCase()
+
+                        // Every chunk must match either "new"/"create" or be found in the item name/type/id
+                        return searchChunks.every((chunk) => {
+                            if (
+                                chunk === 'new' ||
+                                chunk === 'create' ||
+                                chunk.startsWith('new') ||
+                                chunk.startsWith('create')
+                            ) {
+                                return true
+                            }
+                            if (nameLower.includes(chunk)) {
+                                return true
+                            }
+                            if (typeLower.includes(chunk)) {
+                                return true
+                            }
+                            if (idLower.includes(chunk)) {
+                                return true
+                            }
+                            return false
+                        })
+                    })
+
+                    if (filteredNewItems.length > 0) {
+                        categories.push({
+                            key: 'create',
+                            items: filteredNewItems,
+                            isLoading: false,
+                        })
+                    }
                 }
 
                 // Only show unified search results when searching

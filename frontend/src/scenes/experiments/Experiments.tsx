@@ -62,6 +62,7 @@ import { isLegacyExperiment } from './utils'
 export const scene: SceneExport = {
     component: Experiments,
     logic: experimentsLogic,
+    productKey: ProductKey.EXPERIMENTS,
 }
 
 export const EXPERIMENTS_PRODUCT_DESCRIPTION =
@@ -468,27 +469,32 @@ const ExperimentsTable = ({
                     </span>
                 </div>
             ) : null}
-            <LemonTable
-                dataSource={experiments.results}
-                columns={columns}
-                rowKey="id"
-                loading={experimentsLoading}
-                defaultSorting={{
-                    columnKey: 'created_at',
-                    order: -1,
-                }}
-                noSortingCancellation
-                pagination={pagination}
-                nouns={['experiment', 'experiments']}
-                data-attr="experiment-table"
-                emptyState="No results for this filter, change filter or create a new experiment."
-                onSort={(newSorting) =>
-                    setExperimentsFilters({
-                        order: newSorting ? `${newSorting.order === -1 ? '-' : ''}${newSorting.columnKey}` : undefined,
-                        page: 1,
-                    })
-                }
-            />
+
+            <div data-attr="experiments-table-container">
+                <LemonTable
+                    dataSource={experiments.results}
+                    columns={columns}
+                    rowKey="id"
+                    loading={experimentsLoading}
+                    defaultSorting={{
+                        columnKey: 'created_at',
+                        order: -1,
+                    }}
+                    noSortingCancellation
+                    pagination={pagination}
+                    nouns={['experiment', 'experiments']}
+                    data-attr="experiment-table"
+                    emptyState="No results for this filter, change filter or create a new experiment."
+                    onSort={(newSorting) =>
+                        setExperimentsFilters({
+                            order: newSorting
+                                ? `${newSorting.order === -1 ? '-' : ''}${newSorting.columnKey}`
+                                : undefined,
+                            page: 1,
+                        })
+                    }
+                />
+            </div>
         </SceneContent>
     )
 }

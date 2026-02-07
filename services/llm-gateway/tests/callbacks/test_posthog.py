@@ -3,7 +3,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from llm_gateway.auth.models import AuthenticatedUser
-from llm_gateway.callbacks.posthog import PostHogCallback
+from llm_gateway.callbacks.posthog import PostHogCallback, _replace_binary_content
 
 
 class TestPostHogCallback:
@@ -121,7 +121,7 @@ class TestPostHogCallback:
 
         with (
             patch("llm_gateway.callbacks.posthog.get_auth_user", return_value=auth_user),
-            patch("llm_gateway.callbacks.posthog.get_product", return_value="array"),
+            patch("llm_gateway.callbacks.posthog.get_product", return_value="twig"),
             patch("llm_gateway.callbacks.posthog.posthoganalytics") as mock_posthog,
         ):
             await callback._on_failure(kwargs, None, 0.0, 1.0, end_user_id=None)
@@ -136,7 +136,7 @@ class TestPostHogCallback:
             assert props["$ai_model"] == "claude-3-opus"
             assert props["$ai_is_error"] is True
             assert props["$ai_error"] == "Rate limit exceeded"
-            assert props["ai_product"] == "array"
+            assert props["ai_product"] == "twig"
 
     @pytest.mark.asyncio
     async def test_on_success_without_optional_fields(
@@ -167,7 +167,7 @@ class TestPostHogCallback:
         assert callback.callback_name == "posthog"
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("product", ["wizard", "array", "llm_gateway"])
+    @pytest.mark.parametrize("product", ["wizard", "twig", "llm_gateway"])
     async def test_on_success_includes_ai_product(
         self, callback: PostHogCallback, auth_user: AuthenticatedUser, standard_logging_object: dict, product: str
     ) -> None:
@@ -187,7 +187,7 @@ class TestPostHogCallback:
             assert props["ai_product"] == product
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("product", ["wizard", "array", "llm_gateway"])
+    @pytest.mark.parametrize("product", ["wizard", "twig", "llm_gateway"])
     async def test_on_failure_includes_ai_product(
         self, callback: PostHogCallback, auth_user: AuthenticatedUser, product: str
     ) -> None:
@@ -256,3 +256,56 @@ class TestPostHogCallback:
             call_kwargs = mock_posthog.capture.call_args.kwargs
             assert call_kwargs["distinct_id"] == "openai-end-user-789"
             assert call_kwargs["properties"]["$ai_trace_id"] == "trace-id-from-metadata"
+
+
+class TestReplaceBinaryContent:
+    @pytest.mark.parametrize(
+        "input_data,expected",
+        [
+            # Primitives pass through unchanged
+            (None, None),
+            (42, 42),
+            (3.14, 3.14),
+            (True, True),
+            ("hello world", "hello world"),
+            # Raw bytes replaced with metadata
+            (b"\x00\x00\x00", {"type": "binary", "size_bytes": 3}),
+            # Stringified bytes get parsed and replaced
+            ("b'\\x00\\x00'", {"type": "binary", "size_bytes": 2}),
+            # File tuple (filename, bytes) - bytes replaced, structure preserved
+            (
+                ("recording.m4a", b"\x00\x00\x00\x00"),
+                ("recording.m4a", {"type": "binary", "size_bytes": 4}),
+            ),
+            # Stringified file tuple - format LiteLLM sends for audio transcription
+            (
+                "('file.m4a', b'\\x00\\x01\\x02')",
+                ("file.m4a", {"type": "binary", "size_bytes": 3}),
+            ),
+            # Lists with mixed content
+            (
+                [{"role": "user", "content": "hello"}, {"role": "assistant", "content": "hi"}],
+                [{"role": "user", "content": "hello"}, {"role": "assistant", "content": "hi"}],
+            ),
+            # List with bytes
+            (
+                [b"\x00", "text", 123],
+                [{"type": "binary", "size_bytes": 1}, "text", 123],
+            ),
+            # Nested dict with bytes
+            (
+                {"file": b"content", "name": "test.txt"},
+                {"file": {"type": "binary", "size_bytes": 7}, "name": "test.txt"},
+            ),
+            # Stringified file tuple nested in message list
+            (
+                [{"role": "user", "content": "('audio.m4a', b'\\x00\\x01\\x02')"}],
+                [{"role": "user", "content": ("audio.m4a", {"type": "binary", "size_bytes": 3})}],
+            ),
+            # Invalid Python literal strings pass through unchanged
+            ("not a python literal", "not a python literal"),
+            ("Hello, how are you?", "Hello, how are you?"),
+        ],
+    )
+    def test_replace_binary_content(self, input_data, expected):
+        assert _replace_binary_content(input_data) == expected

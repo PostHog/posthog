@@ -18,6 +18,7 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { cn } from 'lib/utils/css-classes'
 import { appLogic } from 'scenes/appLogic'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -46,7 +47,6 @@ import { MaxThreadLogicProps, maxThreadLogic } from './maxThreadLogic'
 export const scene: SceneExport = {
     component: Max,
     logic: maxLogic,
-    settingSectionId: 'environment-max',
 }
 
 export function Max({ tabId }: { tabId?: string }): JSX.Element {
@@ -162,116 +162,127 @@ export const MaxInstance = React.memo(function MaxInstance({
             </BindLogic>
         </BindLogic>
     )
+    const header = (
+        <SidePanelPaneHeader
+            className="transition-all duration-200"
+            onClose={() => {
+                exitAIOnlyMode()
+                startNewConversation()
+            }}
+            showCloseButton={false}
+        >
+            <div className="flex flex-1 min-w-0 overflow-hidden">
+                <div className="flex items-center flex-1 min-w-0">
+                    <AnimatedBackButton in={!backButtonDisabled}>
+                        <LemonButton
+                            size="small"
+                            icon={<IconChevronLeft />}
+                            onClick={() => goBack()}
+                            tooltip="Go back"
+                            tooltipPlacement="bottom-end"
+                            disabledReason={backButtonDisabled ? 'You are already at home' : undefined}
+                        />
+                    </AnimatedBackButton>
+
+                    <Tooltip title={chatTitle || undefined} placement="bottom">
+                        <h3
+                            className={cn('flex-1 font-semibold mb-0 truncate text-sm ml-1', {
+                                'ml-0': isRemovingSidePanelFlag,
+                            })}
+                        >
+                            {chatTitle || 'PostHog AI'}
+                        </h3>
+                    </Tooltip>
+                </div>
+                {conversationId && !conversationHistoryVisible && !threadVisible && !isAIOnlyMode && (
+                    <LemonButton
+                        size="small"
+                        icon={<IconPlus />}
+                        onClick={() => startNewConversation()}
+                        tooltip="Start a new chat"
+                        tooltipPlacement="bottom"
+                    />
+                )}
+                {conversationId && (
+                    <>
+                        {isRemovingSidePanelFlag ? (
+                            <ButtonPrimitive
+                                onClick={() => {
+                                    copyToClipboard(
+                                        urls.absolute(urls.currentProject(urls.ai(conversationId))),
+                                        'conversation sharing link'
+                                    )
+                                }}
+                                tooltip="Copy link to chat"
+                                tooltipPlacement="bottom-end"
+                                iconOnly
+                            >
+                                <IconShare className="text-tertiary size-3 group-hover:text-primary z-10" />
+                            </ButtonPrimitive>
+                        ) : (
+                            <LemonButton
+                                size="small"
+                                icon={<IconShare />}
+                                onClick={() => {
+                                    copyToClipboard(
+                                        urls.absolute(urls.currentProject(urls.ai(conversationId))),
+                                        'conversation sharing link'
+                                    )
+                                }}
+                                tooltip={
+                                    <>
+                                        Copy link to chat
+                                        <br />
+                                        <em>
+                                            <IconLock /> Requires organization access
+                                        </em>
+                                    </>
+                                }
+                                tooltipPlacement="bottom-end"
+                            />
+                        )}
+                    </>
+                )}
+                {isRemovingSidePanelFlag ? (
+                    <Link
+                        buttonProps={{
+                            iconOnly: true,
+                        }}
+                        to={urls.ai(conversationId ?? undefined)}
+                        onClick={() => {
+                            closeSidePanel()
+                        }}
+                        target="_blank"
+                        tooltip="Open as main focus"
+                        tooltipPlacement="bottom-end"
+                    >
+                        <IconExpand45 className="text-tertiary size-3 group-hover:text-primary z-10" />
+                    </Link>
+                ) : (
+                    <LemonButton
+                        size="small"
+                        sideIcon={<IconExpand45 />}
+                        to={urls.ai(conversationId ?? undefined)}
+                        onClick={() => {
+                            closeSidePanel()
+                            startNewConversation()
+                        }}
+                        targetBlank
+                        tooltip="Open as main focus"
+                        tooltipPlacement="bottom-end"
+                    />
+                )}
+            </div>
+        </SidePanelPaneHeader>
+    )
 
     return sidePanel ? (
         <>
-            <SidePanelPaneHeader
-                className="transition-all duration-200"
-                onClose={() => {
-                    exitAIOnlyMode()
-                    startNewConversation()
-                }}
-            >
-                <div className="flex flex-1 min-w-0 overflow-hidden">
-                    <div className="flex items-center flex-1 min-w-0">
-                        <AnimatedBackButton in={!backButtonDisabled}>
-                            <LemonButton
-                                size="small"
-                                icon={<IconChevronLeft />}
-                                onClick={() => goBack()}
-                                tooltip="Go back"
-                                tooltipPlacement="bottom-end"
-                                disabledReason={backButtonDisabled ? 'You are already at home' : undefined}
-                            />
-                        </AnimatedBackButton>
-
-                        <Tooltip title={chatTitle || undefined} placement="bottom">
-                            <h3 className="flex-1 font-semibold mb-0 truncate text-sm ml-1">
-                                {chatTitle || 'PostHog AI'}
-                            </h3>
-                        </Tooltip>
-                    </div>
-                    {conversationId && !conversationHistoryVisible && !threadVisible && !isAIOnlyMode && (
-                        <LemonButton
-                            size="small"
-                            icon={<IconPlus />}
-                            onClick={() => startNewConversation()}
-                            tooltip="Start a new chat"
-                            tooltipPlacement="bottom"
-                        />
-                    )}
-                    {conversationId && (
-                        <>
-                            {isRemovingSidePanelFlag ? (
-                                <ButtonPrimitive
-                                    onClick={() => {
-                                        copyToClipboard(
-                                            urls.absolute(urls.currentProject(urls.ai(conversationId))),
-                                            'conversation sharing link'
-                                        )
-                                    }}
-                                    tooltip="Copy link to chat"
-                                    tooltipPlacement="bottom-end"
-                                    iconOnly
-                                >
-                                    <IconShare className="text-tertiary size-3 group-hover:text-primary z-10" />
-                                </ButtonPrimitive>
-                            ) : (
-                                <LemonButton
-                                    size="small"
-                                    icon={<IconShare />}
-                                    onClick={() => {
-                                        copyToClipboard(
-                                            urls.absolute(urls.currentProject(urls.ai(conversationId))),
-                                            'conversation sharing link'
-                                        )
-                                    }}
-                                    tooltip={
-                                        <>
-                                            Copy link to chat
-                                            <br />
-                                            <em>
-                                                <IconLock /> Requires organization access
-                                            </em>
-                                        </>
-                                    }
-                                    tooltipPlacement="bottom-end"
-                                />
-                            )}
-                        </>
-                    )}
-                    {isRemovingSidePanelFlag ? (
-                        <Link
-                            buttonProps={{
-                                iconOnly: true,
-                            }}
-                            to={urls.ai(conversationId ?? undefined)}
-                            onClick={() => {
-                                closeSidePanel()
-                            }}
-                            target="_blank"
-                            tooltip="Open as main focus"
-                            tooltipPlacement="bottom-end"
-                        >
-                            <IconExpand45 className="text-tertiary size-3 group-hover:text-primary z-10" />
-                        </Link>
-                    ) : (
-                        <LemonButton
-                            size="small"
-                            sideIcon={<IconExpand45 />}
-                            to={urls.ai(conversationId ?? undefined)}
-                            onClick={() => {
-                                closeSidePanel()
-                                startNewConversation()
-                            }}
-                            targetBlank
-                            tooltip="Open as main focus"
-                            tooltipPlacement="bottom-end"
-                        />
-                    )}
-                </div>
-            </SidePanelPaneHeader>
-            <SidePanelContentContainer flagOffClassName="contents">{content}</SidePanelContentContainer>
+            {!isRemovingSidePanelFlag ? header : null}
+            <SidePanelContentContainer flagOffClassName="contents">
+                {isRemovingSidePanelFlag ? header : null}
+                {content}
+            </SidePanelContentContainer>
         </>
     ) : (
         <SceneContent className="pt-4 px-4 min-h-[calc(100vh-var(--scene-layout-header-height))]">
@@ -302,7 +313,7 @@ export const MaxInstance = React.memo(function MaxInstance({
                                 sideIcon={<IconOpenSidebar />}
                                 onClick={() => {
                                     openSidePanelMax(conversationId ?? undefined)
-                                    closeTabId(tabId)
+                                    closeTabId(tabId, { source: 'open_in_side_panel' })
                                 }}
                             >
                                 Open in side panel

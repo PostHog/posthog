@@ -99,7 +99,9 @@ const COLUMNS: LemonTableColumns<AugmentedTeamSdkVersionsInfoRelease> = [
                                 posthog.capture('sdk doctor view events', {
                                     sdkType: record.type,
                                 })
-                                newInternalTab(urls.sqlEditor(queryForSdkVersion(record.type, record.version)))
+                                newInternalTab(
+                                    urls.sqlEditor({ query: queryForSdkVersion(record.type, record.version) })
+                                )
                             }}
                         >
                             <code className="text-xs font-mono bg-muted-highlight rounded-sm">{record.version}</code>
@@ -313,7 +315,7 @@ export const SidePanelSdkDoctorIcon = (props: { className?: string }): JSX.Eleme
     )
 }
 
-function SdkSection({ sdkType }: { sdkType: SdkType }): JSX.Element {
+export function SdkSection({ sdkType }: { sdkType: SdkType }): JSX.Element {
     const { augmentedData, rawDataLoading: loading } = useValues(sidePanelSdkDoctorLogic)
 
     const sdk = augmentedData[sdkType]!

@@ -23,7 +23,11 @@ from ee.hogai.artifacts.types import ModelArtifactResult
 from ee.hogai.chat_agent.sql.mixins import HogQLDatabaseMixin
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.context.dashboard.context import DashboardContext, DashboardInsightContext
+from ee.hogai.context.error_tracking import ErrorTrackingIssueContext
+from ee.hogai.context.experiment import ExperimentContext
+from ee.hogai.context.feature_flag import FeatureFlagContext
 from ee.hogai.context.insight.context import InsightContext
+from ee.hogai.context.survey import SurveyContext
 from ee.hogai.tool import MaxTool, ToolMessagesArtifact
 from ee.hogai.tool_errors import MaxToolFatalError, MaxToolRetryableError
 from ee.hogai.tools.read_billing_tool.tool import ReadBillingTool
@@ -96,6 +100,29 @@ class ReadErrorTrackingIssue(BaseModel):
     issue_id: str = Field(description="The UUID of the error tracking issue.")
 
 
+class ReadSurvey(BaseModel):
+    """Retrieves survey details including questions, targeting, and response summary."""
+
+    kind: Literal["survey"] = "survey"
+    survey_id: str = Field(description="The UUID of the survey.")
+
+
+class ReadFeatureFlag(BaseModel):
+    """Retrieves a feature flag by its numeric ID or key (slug)."""
+
+    kind: Literal["feature_flag"] = "feature_flag"
+    id: int | None = Field(default=None, description="The numeric ID of the feature flag.")
+    key: str | None = Field(default=None, description="The key (slug) of the feature flag.")
+
+
+class ReadExperiment(BaseModel):
+    """Retrieves an experiment by its numeric ID or by its feature flag's key."""
+
+    kind: Literal["experiment"] = "experiment"
+    id: int | None = Field(default=None, description="The numeric ID of the experiment.")
+    feature_flag_key: str | None = Field(default=None, description="The key of the experiment's feature flag.")
+
+
 ReadDataQuery = (
     ReadDataWarehouseSchema
     | ReadDataWarehouseTableSchema
@@ -104,6 +131,9 @@ ReadDataQuery = (
     | ReadBillingInfo
     | ReadErrorTrackingIssue
     | ReadArtifact
+    | ReadSurvey
+    | ReadFeatureFlag
+    | ReadExperiment
 )
 
 
@@ -154,6 +184,9 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
             ReadDashboard,
             ReadErrorTrackingIssue,
             ReadArtifact,
+            ReadSurvey,
+            ReadFeatureFlag,
+            ReadExperiment,
         )
         ReadDataKind = Union[tuple(base_kinds + tuple(kinds))]  # type: ignore[valid-type]
 
@@ -207,6 +240,12 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
                 return await self._read_dashboard(schema.dashboard_id, schema.execute)
             case ReadErrorTrackingIssue() as schema:
                 return await self._read_error_tracking_issue(schema.issue_id), None
+            case ReadSurvey() as schema:
+                return await self._read_survey(schema.survey_id), None
+            case ReadFeatureFlag() as schema:
+                return await self._read_feature_flag(schema.id, schema.key), None
+            case ReadExperiment() as schema:
+                return await self._read_experiment(schema.id, schema.feature_flag_key), None
 
     async def _read_insight(
         self, artifact_or_insight_id: str, execute: bool
@@ -216,6 +255,9 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
 
         if result is None:
             raise MaxToolRetryableError(INSIGHT_NOT_FOUND_PROMPT.format(short_id=artifact_or_insight_id))
+
+        if isinstance(result, ModelArtifactResult):
+            await self.check_object_access(result.model, "viewer", action="read")
 
         insight_name = result.content.name or f"Insight {artifact_or_insight_id}"
 
@@ -277,6 +319,7 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
 
         warehouse_tables = database.get_warehouse_table_names()
         views = database.get_view_names()
+        system_tables = database.get_system_table_names()
 
         listify = lambda items: "\n".join(f"- {item}" for item in sorted(items))
 
@@ -285,6 +328,7 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
             template_format="mustache",
             posthog_tables="\n".join(system_table_lines),
             data_warehouse_tables=listify(warehouse_tables),
+            system_tables=listify(system_tables),
             data_warehouse_views=listify(views),
         )
 
@@ -293,6 +337,7 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
         # Load tables on demand: warehouse first, then views, then posthog tables
         table_sources: list[Callable[[], list[str]]] = [
             database.get_warehouse_table_names,
+            database.get_system_table_names,
             database.get_view_names,
             database.get_posthog_table_names,
         ]
@@ -331,6 +376,8 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
             )
         except (Dashboard.DoesNotExist, ValueError):
             raise MaxToolFatalError(DASHBOARD_NOT_FOUND_PROMPT.format(dashboard_id=dashboard_id))
+
+        await self.check_object_access(dashboard, "viewer", action="read")
 
         dashboard_name = dashboard.name or f"Dashboard {dashboard_id}"
         tiles = [
@@ -394,13 +441,22 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
         return text_result, None
 
     async def _read_error_tracking_issue(self, issue_id: str) -> str:
-        from ee.hogai.context.error_tracking import ErrorTrackingIssueContext
-
         context = ErrorTrackingIssueContext(
             team=self._team,
             issue_id=issue_id,
         )
         return await context.execute_and_format()
+
+    async def _read_survey(self, survey_id: str) -> str:
+        context = SurveyContext(
+            team=self._team,
+            survey_id=survey_id,
+        )
+        survey = await context.aget_survey()
+        if survey is None:
+            raise MaxToolRetryableError(f"Survey with id={survey_id} not found.")
+        await self.check_object_access(survey, "viewer", resource="survey", action="read")
+        return await context.execute_and_format(survey)
 
     async def _read_artifact(self, artifact_id: str) -> str:
         try:
@@ -429,3 +485,37 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
                 return "\n\n".join(lines)
 
         raise MaxToolFatalError(f"Unknown artifact type: {type(content).__name__}")
+
+    async def _read_feature_flag(self, flag_id: int | None, flag_key: str | None) -> str:
+        if flag_id is None and flag_key is None:
+            raise MaxToolRetryableError("You must provide either 'id' or 'key' to read a feature flag.")
+
+        context = FeatureFlagContext(
+            team=self._team,
+            flag_id=flag_id,
+            flag_key=flag_key,
+        )
+
+        flag = await context.aget_feature_flag()
+        if flag is None:
+            raise MaxToolRetryableError(context.get_not_found_message())
+
+        await self.check_object_access(flag, "viewer", resource="feature flag", action="read")
+        return await context.format_feature_flag(flag)
+
+    async def _read_experiment(self, experiment_id: int | None, feature_flag_key: str | None) -> str:
+        if experiment_id is None and feature_flag_key is None:
+            raise MaxToolRetryableError("You must provide either 'id' or 'feature_flag_key' to read an experiment.")
+
+        context = ExperimentContext(
+            team=self._team,
+            experiment_id=experiment_id,
+            feature_flag_key=feature_flag_key,
+        )
+
+        experiment = await context.aget_experiment()
+        if experiment is None:
+            raise MaxToolRetryableError(context.get_not_found_message())
+
+        await self.check_object_access(experiment, "viewer", resource="experiment", action="read")
+        return await context.format_experiment(experiment)

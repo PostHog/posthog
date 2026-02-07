@@ -33,6 +33,7 @@ import { CohortType, FilterLogicalOperator, PropertyFilterType, PropertyOperator
 export const scene: SceneExport = {
     component: Cohorts,
     logic: cohortsSceneLogic,
+    productKey: ProductKey.PRODUCT_ANALYTICS,
 }
 
 export function Cohorts(): JSX.Element {

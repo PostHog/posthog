@@ -21,14 +21,26 @@ from temporalio.client import (
 from posthog.hogql_queries.ai.vector_search_query_runner import LATEST_ACTIONS_EMBEDDING_VERSION
 from posthog.temporal.ai import SyncVectorsInputs
 from posthog.temporal.ai.sync_vectors import EmbeddingVersion
+from posthog.temporal.ai.video_segment_clustering.schedule import create_video_segment_clustering_coordinator_schedule
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.schedule import a_create_schedule, a_schedule_exists, a_update_schedule
 from posthog.temporal.delete_recordings.types import DeleteRecordingMetadataInput
 from posthog.temporal.ducklake.compaction_types import DucklakeCompactionInput
 from posthog.temporal.enforce_max_replay_retention.types import EnforceMaxReplayRetentionInput
-from posthog.temporal.experiments.schedule import create_experiment_regular_metrics_schedules
-from posthog.temporal.llm_analytics.trace_clustering.schedule import create_trace_clustering_coordinator_schedule
-from posthog.temporal.llm_analytics.trace_summarization.schedule import create_batch_trace_summarization_schedule
+from posthog.temporal.experiments.schedule import (
+    create_experiment_regular_metrics_schedules,
+    create_experiment_saved_metrics_schedules,
+)
+from posthog.temporal.ingestion_acceptance_test.schedule import create_ingestion_acceptance_test_schedule
+from posthog.temporal.llm_analytics.trace_clustering.schedule import (
+    create_generation_clustering_coordinator_schedule,
+    create_trace_clustering_coordinator_schedule,
+)
+from posthog.temporal.llm_analytics.trace_summarization.schedule import (
+    create_batch_generation_summarization_schedule,
+    create_batch_trace_summarization_schedule,
+)
+from posthog.temporal.messaging.schedule import create_realtime_cohort_calculation_schedule
 from posthog.temporal.product_analytics.upgrade_queries_workflow import UpgradeQueriesWorkflowInputs
 from posthog.temporal.quota_limiting.run_quota_limiting import RunQuotaLimitingInputs
 from posthog.temporal.salesforce_enrichment.workflow import SalesforceEnrichmentInputs
@@ -304,10 +316,16 @@ schedules = [
     create_enforce_max_replay_retention_schedule,
     create_weekly_digest_schedule,
     create_batch_trace_summarization_schedule,
+    create_batch_generation_summarization_schedule,
     create_trace_clustering_coordinator_schedule,
+    create_generation_clustering_coordinator_schedule,
+    create_video_segment_clustering_coordinator_schedule,
     create_ducklake_compaction_schedule,
     create_delete_recording_metadata_schedule,
     create_experiment_regular_metrics_schedules,
+    create_experiment_saved_metrics_schedules,
+    create_realtime_cohort_calculation_schedule,
+    create_ingestion_acceptance_test_schedule,
 ]
 
 if settings.EE_AVAILABLE:

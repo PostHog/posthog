@@ -66,11 +66,19 @@ jobs:
                   node-version: 24.13.0
                   cache: pnpm
 
+            - name: Install Ninja
+              run: sudo apt-get update && sudo apt-get install -y ninja-build unzip
+
+            - name: Setup Emscripten for WASM build
+              uses: mymindstorm/setup-emsdk@6ab9eb1bda2574c4ddb79809fc9247783eaf9021 # v14
+              with:
+                  version: '4.0.23'
+
             - name: Install dependencies
               run: pnpm --filter=@posthog/storybook... install --frozen-lockfile
 
-            - name: Cache webpack build
-              uses: actions/cache@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
+            - name: Restore webpack build cache
+              uses: actions/cache/restore@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
               with:
                   path: common/storybook/node_modules/.cache/
                   key: ${{ runner.os }}-webpack-storybook-${{ hashFiles('pnpm-lock.yaml') }}
@@ -82,6 +90,13 @@ jobs:
               run: |
                   bin/turbo --filter=@posthog/storybook prepare
                   pnpm --filter=@posthog/storybook build --test
+
+            - name: Save webpack build cache
+              if: github.ref == 'refs/heads/master'
+              uses: actions/cache/save@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
+              with:
+                  path: common/storybook/node_modules/.cache/
+                  key: ${{ runner.os }}-webpack-storybook-${{ hashFiles('pnpm-lock.yaml') }}
 
             - name: Upload Storybook build artifact
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
@@ -127,6 +142,8 @@ jobs:
         strategy:
             fail-fast: false
             matrix:
+                # Shard counts and worker config (maxWorkers in common/storybook/package.json)
+                # are tuned for runner CPU — consult #team-devex before changing
                 include:
                     - browser: chromium
                       shard_count: 16
@@ -176,16 +193,18 @@ jobs:
                     - browser: chromium
                       shard_count: 16
                       shard: 16
-                    # WebKit is much faster, so we run with only 3 shards
                     - browser: webkit
-                      shard_count: 3
+                      shard_count: 4
                       shard: 1
                     - browser: webkit
-                      shard_count: 3
+                      shard_count: 4
                       shard: 2
                     - browser: webkit
-                      shard_count: 3
+                      shard_count: 4
                       shard: 3
+                    - browser: webkit
+                      shard_count: 4
+                      shard: 4
         env:
             NODE_OPTIONS: --max-old-space-size=16384
             OPT_OUT_CAPTURE: 1
@@ -203,6 +222,14 @@ jobs:
               with:
                   node-version: 24.13.0
                   cache: pnpm
+
+            - name: Install build dependencies
+              run: apt-get update && apt-get install -y ninja-build unzip xz-utils
+
+            - name: Setup Emscripten for WASM build
+              uses: mymindstorm/setup-emsdk@6ab9eb1bda2574c4ddb79809fc9247783eaf9021 # v14
+              with:
+                  version: '4.0.23'
 
             - name: Install package.json dependencies with pnpm
               run: pnpm --filter=@posthog/storybook... install --frozen-lockfile
@@ -266,45 +293,40 @@ jobs:
                   HOME: /root
                   STORYBOOK_SKIP_TAGS: 'test-skip,test-skip-${{ matrix.browser }}'
               run: |
-                  set +e  # Allow snapshot update retry
-                  # Attempt 1: Always verify (fast path when snapshots match)
-                  echo "Attempt 1: Running @storybook/test-runner (verify)"
-                  set -o pipefail
-                  pnpm --filter=@posthog/storybook test:visual:ci:verify --browsers ${{ matrix.browser }} --shard ${{ matrix.shard }}/${{ matrix.shard_count }} 2>&1 | tee /tmp/test-output-${{ matrix.browser }}-${{ matrix.shard }}-attempt1.log
-                  EXIT_CODE=$?
-                  set +o pipefail
+                  set +e
+                  MAX_VERIFY_ATTEMPTS=3
+                  EXIT_CODE=1
 
-                  if [ $EXIT_CODE -ne 0 ]; then
-                    # Attempt 1 failed for any reason - verify again to check if flaky
-                    echo "Attempt 1 failed - verifying it's not flaky"
-                    # Attempt 2: Verify again to confirm failure is consistent, not flaky
-                    echo "Attempt 2: Running @storybook/test-runner (verify again to confirm)"
+                  for attempt in $(seq 1 $MAX_VERIFY_ATTEMPTS); do
+                    echo "Attempt $attempt/$MAX_VERIFY_ATTEMPTS: Running @storybook/test-runner (verify)"
                     set -o pipefail
-                    pnpm --filter=@posthog/storybook test:visual:ci:verify --browsers ${{ matrix.browser }} --shard ${{ matrix.shard }}/${{ matrix.shard_count }} 2>&1 | tee /tmp/test-output-${{ matrix.browser }}-${{ matrix.shard }}-attempt2.log
+                    pnpm --filter=@posthog/storybook test:visual:ci:verify --browsers ${{ matrix.browser }} --shard ${{ matrix.shard }}/${{ matrix.shard_count }} 2>&1 | tee /tmp/test-output-${{ matrix.browser }}-${{ matrix.shard }}-attempt${attempt}.log
                     EXIT_CODE=$?
                     set +o pipefail
 
-                    if [ $EXIT_CODE -ne 0 ]; then
-                      # Still failing - check if we should update snapshots
-                      if [ "${{ needs.detect-snapshot-mode.outputs.mode }}" == "update" ] && grep -Eqi "(snapshot.*(failed|was not written)|Expected image to)" /tmp/test-output-${{ matrix.browser }}-${{ matrix.shard }}-attempt2.log 2>/dev/null; then
-                        echo "Snapshot failure confirmed on attempt 2 - updating snapshots"
-                        # Attempt 3: Update snapshots
-                        echo "Attempt 3: Running @storybook/test-runner (update)"
-                        set -o pipefail
-                        pnpm --filter=@posthog/storybook test:visual:ci:update --browsers ${{ matrix.browser }} --shard ${{ matrix.shard }}/${{ matrix.shard_count }} 2>&1 | tee /tmp/test-output-${{ matrix.browser }}-${{ matrix.shard }}-attempt3.log
-                        EXIT_CODE=$?
-                        set +o pipefail
-
-                        if [ $EXIT_CODE -ne 0 ]; then
-                          echo "Test runner failed after 3 attempts"
-                          exit 1
-                        fi
-                      else
-                        echo "Non-snapshot failure on attempt 2 - not retrying further"
-                        exit 1
+                    if [ $EXIT_CODE -eq 0 ]; then
+                      if [ $attempt -gt 1 ]; then
+                        echo "Attempt $attempt passed - previous failure was flaky"
                       fi
-                    else
-                      echo "Attempt 2 passed - failure on attempt 1 was flaky"
+                      break
+                    fi
+                    echo "Attempt $attempt failed (exit code $EXIT_CODE)"
+                  done
+
+                  # All verify attempts failed - try snapshot update if applicable
+                  if [ $EXIT_CODE -ne 0 ]; then
+                    LAST_LOG="/tmp/test-output-${{ matrix.browser }}-${{ matrix.shard }}-attempt${MAX_VERIFY_ATTEMPTS}.log"
+                    if [ "${{ needs.detect-snapshot-mode.outputs.mode }}" == "update" ] && grep -Eqi "(snapshot.*(failed|was not written)|Expected image to)" "$LAST_LOG" 2>/dev/null; then
+                      echo "Snapshot failure confirmed - updating snapshots"
+                      set -o pipefail
+                      pnpm --filter=@posthog/storybook test:visual:ci:update --browsers ${{ matrix.browser }} --shard ${{ matrix.shard }}/${{ matrix.shard_count }} 2>&1 | tee /tmp/test-output-${{ matrix.browser }}-${{ matrix.shard }}-update.log
+                      EXIT_CODE=$?
+                      set +o pipefail
+                    fi
+
+                    if [ $EXIT_CODE -ne 0 ]; then
+                      echo "Test runner failed after $MAX_VERIFY_ATTEMPTS verify attempts"
+                      exit 1
                     fi
                   fi
 
@@ -461,6 +483,7 @@ jobs:
         needs: [visual-regression, changes]
         runs-on: ubuntu-latest
         if: # Run on pull requests to PostHog/posthog + on PostHog/posthog outside of PRs - but never on forks
+            always() &&
             needs.changes.outputs.frontend == 'true' && (
             (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog') ||
             (github.event_name != 'pull_request' && github.repository == 'PostHog/posthog'))
@@ -473,3 +496,4 @@ jobs:
                   capture-run-duration: true
                   capture-job-durations: true
                   github-token: ${{ secrets.GITHUB_TOKEN }}
+                  status-job: 'Visual regression tests pass'

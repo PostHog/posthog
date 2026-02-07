@@ -354,10 +354,20 @@ export function SidePanelSupport(): JSX.Element {
                 contents: isRemovingSidePanelFlag,
             })}
         >
-            <SidePanelPaneHeader title={isEmailFormOpen ? supportPanelTitle : 'Help'} />
+            {!isRemovingSidePanelFlag && <SidePanelPaneHeader title={isEmailFormOpen ? supportPanelTitle : 'Help'} />}
 
             <SidePanelContentContainer flagOffClassName="overflow-y-auto flex flex-col h-full">
-                <div className="p-3 max-w-160 w-full mx-auto flex-1 flex flex-col justify-center">
+                {isRemovingSidePanelFlag && (
+                    <SidePanelPaneHeader
+                        showCloseButton={false}
+                        title={isEmailFormOpen ? supportPanelTitle : isRemovingSidePanelFlag ? 'Support' : 'Help'}
+                    />
+                )}
+                <div
+                    className={cn('p-3 max-w-160 w-full mx-auto flex-1 flex flex-col justify-center', {
+                        'p-0 justify-start flex-none': isRemovingSidePanelFlag,
+                    })}
+                >
                     {isEmailFormOpen && showEmailSupport && isBillingLoaded && !useProductSupportSidePanel ? (
                         <SupportFormBlock
                             onCancel={() => {

@@ -1,7 +1,10 @@
-import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+
 import { StepDefinition } from '../steps'
 
-export const getWebflowSteps = (CodeBlock: any, Markdown: any, dedent: any, snippets: any): StepDefinition[] => {
+export const getWebflowSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
+    const { CodeBlock, Markdown, dedent, snippets } = ctx
+
     const JSEventCapture = snippets?.JSEventCapture
 
     return [
@@ -38,7 +41,8 @@ export const getWebflowSteps = (CodeBlock: any, Markdown: any, dedent: any, snip
                 <>
                     <Markdown>
                         Go to your Webflow site settings by clicking on the menu icon in the top left. If you haven't
-                        already, sign up for at least the **Basic** site plan. This enables you to add custom code. Then:
+                        already, sign up for at least the **Basic** site plan. This enables you to add custom code.
+                        Then:
                     </Markdown>
                     <Markdown>
                         {`1. Go to the **Custom code** tab in site settings.
@@ -55,17 +59,4 @@ export const getWebflowSteps = (CodeBlock: any, Markdown: any, dedent: any, snip
     ]
 }
 
-export const WebflowInstallation = (): JSX.Element => {
-    const { Steps, Step, CodeBlock, Markdown, dedent, snippets } = useMDXComponents()
-    const steps = getWebflowSteps(CodeBlock, Markdown, dedent, snippets)
-
-    return (
-        <Steps>
-            {steps.map((step, index) => (
-                <Step key={index} title={step.title} badge={step.badge}>
-                    {step.content}
-                </Step>
-            ))}
-        </Steps>
-    )
-}
+export const WebflowInstallation = createInstallation(getWebflowSteps)

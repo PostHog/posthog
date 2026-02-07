@@ -81,11 +81,11 @@ async fn setup_router_with_limits(
     // bootstrap for the CaptureQuotaLimiter. Defines which
     // global limiter will be applied for this token ("events" or "recordings")
     let mut cfg = DEFAULT_CONFIG.clone();
-    cfg.capture_mode = capture_mode.clone();
+    cfg.capture_mode = capture_mode;
 
     // Set up global billing limit for the specific token using zrangebyscore
     // using the same CaptureMode (QuotaResource) as set above in the app Config
-    let global_billing_resource = CaptureQuotaLimiter::get_resource_for_mode(capture_mode.clone());
+    let global_billing_resource = CaptureQuotaLimiter::get_resource_for_mode(capture_mode);
     let global_billing_key = format!(
         "{}{}",
         QUOTA_LIMITER_CACHE_KEY,
@@ -131,6 +131,7 @@ async fn setup_router_with_limits(
         None,
         quota_limiter,
         TokenDropper::default(),
+        None,  // event_restriction_service
         false, // metrics
         CaptureMode::Events,
         String::from("capture"),
@@ -1174,6 +1175,7 @@ async fn test_survey_quota_cross_batch_first_submission_allowed() {
         None,
         quota_limiter,
         TokenDropper::default(),
+        None, // event_restriction_service
         false,
         CaptureMode::Events,
         String::from("capture"),
@@ -1255,6 +1257,7 @@ async fn test_survey_quota_cross_batch_duplicate_submission_dropped() {
         None,
         quota_limiter,
         TokenDropper::default(),
+        None, // event_restriction_service
         false,
         CaptureMode::Events,
         String::from("capture"),
@@ -1340,6 +1343,7 @@ async fn test_survey_quota_cross_batch_redis_error_fail_open() {
         None,
         quota_limiter,
         TokenDropper::default(),
+        None, // event_restriction_service
         false,
         CaptureMode::Events,
         String::from("capture"),
@@ -1762,6 +1766,7 @@ async fn test_ai_quota_cross_batch_redis_error_fail_open() {
         None,
         quota_limiter,
         TokenDropper::default(),
+        None, // event_restriction_service
         false,
         CaptureMode::Events,
         String::from("capture"),

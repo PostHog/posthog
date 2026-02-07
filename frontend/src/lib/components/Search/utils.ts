@@ -3,9 +3,11 @@ import { pluralize } from 'lib/utils'
 
 export const getCategoryDisplayName = (category: string): string => {
     const displayNames: Record<string, string> = {
+        create: 'Create new',
         'create-new': 'Create new',
         apps: 'Apps',
         'data-management': 'Data management',
+        settings: 'Settings',
         early_access_feature: 'Early access features',
         recents: 'Recents',
         folders: 'Folders',
@@ -26,6 +28,8 @@ export const getCategoryDisplayName = (category: string): string => {
         property_definition: 'Property definitions',
         session_recording_playlist: 'Session recording filter',
         hog_flow: 'Workflows',
+        health: 'Health',
+        misc: 'Misc',
     }
 
     return displayNames[category] || category

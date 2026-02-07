@@ -13,7 +13,10 @@ import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { FilterBar } from 'lib/components/FilterBar'
 import { LiveUserCount } from 'lib/components/LiveUserCount'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { isEventPersonOrSessionPropertyFilter } from 'lib/components/PropertyFilters/utils'
+import {
+    convertPropertyGroupToProperties,
+    isEventPersonOrSessionPropertyFilter,
+} from 'lib/components/PropertyFilters/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonSegmentedSelect } from 'lib/lemon-ui/LemonSegmentedSelect'
@@ -37,6 +40,7 @@ import {
     getWebAnalyticsTaxonomicGroupTypes,
 } from './WebPropertyFilters'
 import { ProductTab, faviconUrl } from './common'
+import { webAnalyticsDateMapping } from './constants'
 import { webAnalyticsFilterPresetsLogic } from './webAnalyticsFilterPresetsLogic'
 import { webAnalyticsLogic } from './webAnalyticsLogic'
 
@@ -57,7 +61,13 @@ const CondensedWebAnalyticsFilterBar = ({ tabs }: { tabs: JSX.Element }): JSX.El
                 left={
                     <>
                         <ReloadAll iconOnly />
-                        <DateFilter allowTimePrecision dateFrom={dateFrom} dateTo={dateTo} onChange={setDates} />
+                        <DateFilter
+                            dateOptions={webAnalyticsDateMapping}
+                            allowTimePrecision
+                            dateFrom={dateFrom}
+                            dateTo={dateTo}
+                            onChange={setDates}
+                        />
                         <WebAnalyticsCompareFilter />
                     </>
                 }
@@ -93,37 +103,46 @@ export const WebAnalyticsFilters = ({ tabs }: { tabs: JSX.Element }): JSX.Elemen
     return (
         <>
             <IncompatibleFiltersWarning />
-            <FilterBar
-                top={tabs}
-                left={
-                    <>
-                        <ReloadAll iconOnly />
-                        <DateFilter allowTimePrecision dateFrom={dateFrom} dateTo={dateTo} onChange={setDates} />
 
-                        <WebAnalyticsDomainSelector />
-                        <WebAnalyticsDeviceToggle />
-                        <LiveUserCount
-                            docLink="https://posthog.com/docs/web-analytics/faq#i-am-online-but-the-online-user-count-is-not-reflecting-my-user"
-                            dataAttr="web-analytics-live-user-count"
-                        />
-                    </>
-                }
-                right={
-                    <>
-                        <WebAnalyticsCompareFilter />
+            <div data-attr="web-analytics-filters">
+                <FilterBar
+                    top={tabs}
+                    left={
+                        <>
+                            <ReloadAll iconOnly />
+                            <DateFilter
+                                dateOptions={webAnalyticsDateMapping}
+                                allowTimePrecision
+                                dateFrom={dateFrom}
+                                dateTo={dateTo}
+                                onChange={setDates}
+                            />
 
-                        <WebConversionGoal />
-                        <TableSortingIndicator />
+                            <WebAnalyticsDomainSelector />
+                            <WebAnalyticsDeviceToggle />
+                            <LiveUserCount
+                                docLink="https://posthog.com/docs/web-analytics/faq#i-am-online-but-the-online-user-count-is-not-reflecting-my-user"
+                                dataAttr="web-analytics-live-user-count"
+                            />
+                        </>
+                    }
+                    right={
+                        <>
+                            <WebAnalyticsCompareFilter />
 
-                        <WebVitalsPercentileToggle />
-                        <PathCleaningToggle value={isPathCleaningEnabled} onChange={setIsPathCleaningEnabled} />
+                            <WebConversionGoal />
+                            <TableSortingIndicator />
 
-                        <WebAnalyticsAIFilters>
-                            <WebPropertyFilters />
-                        </WebAnalyticsAIFilters>
-                    </>
-                }
-            />
+                            <WebVitalsPercentileToggle />
+                            <PathCleaningToggle value={isPathCleaningEnabled} onChange={setIsPathCleaningEnabled} />
+
+                            <WebAnalyticsAIFilters>
+                                <WebPropertyFilters />
+                            </WebAnalyticsAIFilters>
+                        </>
+                    }
+                />
+            </div>
         </>
     )
 }
@@ -156,7 +175,8 @@ const WebAnalyticsAIFilters = ({ children }: { children: JSX.Element }): JSX.Ele
             }}
             callback={(toolOutput: Record<string, any>) => {
                 if (toolOutput.properties !== undefined) {
-                    setWebAnalyticsFilters(toolOutput.properties)
+                    const flattenedProperties = convertPropertyGroupToProperties(toolOutput.properties)
+                    setWebAnalyticsFilters(flattenedProperties?.filter(isEventPersonOrSessionPropertyFilter) ?? [])
                 }
                 if (toolOutput.date_from !== undefined && toolOutput.date_to !== undefined) {
                     setDates(toolOutput.date_from, toolOutput.date_to)
@@ -209,23 +229,31 @@ const WebAnalyticsDomainSelector = (): JSX.Element => {
                                   },
                               ]
                             : []),
-                        ...authorizedDomains.map((domain) => ({
-                            label: domain,
-                            value: domain,
-                            ...(featureFlags[FEATURE_FLAGS.SHOW_REFERRER_FAVICON]
-                                ? {
-                                      icon: (
-                                          <img
-                                              src={faviconUrl(domain)}
-                                              width={16}
-                                              height={16}
-                                              alt={`${domain} favicon`}
-                                              onError={(e) => (e.currentTarget.style.display = 'none')}
-                                          />
-                                      ),
-                                  }
-                                : {}),
-                        })),
+                        ...authorizedDomains.map((domain) => {
+                            let hostname: string | null = null
+                            try {
+                                hostname = new URL(domain).hostname
+                            } catch {
+                                // skip favicon for malformed URLs
+                            }
+                            return {
+                                label: domain,
+                                value: domain,
+                                ...(hostname && featureFlags[FEATURE_FLAGS.SHOW_REFERRER_FAVICON]
+                                    ? {
+                                          icon: (
+                                              <img
+                                                  src={faviconUrl(hostname)}
+                                                  width={16}
+                                                  height={16}
+                                                  alt={`${domain} favicon`}
+                                                  onError={(e) => (e.currentTarget.style.display = 'none')}
+                                              />
+                                          ),
+                                      }
+                                    : {}),
+                            }
+                        }),
                     ],
                     footer: showProposedURLForm ? <AddAuthorizedUrlForm /> : <AddSuggestedAuthorizedUrlList />,
                 },
@@ -540,18 +568,17 @@ const IncompatibleFiltersWarning = (): JSX.Element | null => {
     const filterNames = incompatibleFilters.map((filter) => filter.key).join(', ')
 
     return (
-        <LemonBanner type="warning" className="mb-2">
-            <div className="flex items-center justify-between w-full">
-                <div>
-                    <div className="font-semibold">Some filters are slowing down your queries</div>
-                    <div className="text-sm mt-0.5">
-                        The following filters are not supported by the new query engine and are causing your queries to
-                        slow down: <strong>{filterNames}</strong>
-                    </div>
+        <LemonBanner
+            type="warning"
+            className="mb-2"
+            action={{ children: 'Remove unsupported filters', onClick: removeIncompatibleFilters }}
+        >
+            <div>
+                <div className="font-semibold">Some filters are slowing down your queries</div>
+                <div className="text-sm mt-0.5">
+                    The following filters are not supported by the new query engine and are causing your queries to slow
+                    down: <strong>{filterNames}</strong>
                 </div>
-                <LemonButton type="primary" size="small" onClick={removeIncompatibleFilters}>
-                    Remove unsupported filters
-                </LemonButton>
             </div>
         </LemonBanner>
     )

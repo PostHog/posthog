@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import os
-from typing import TypedDict
+from typing import TYPE_CHECKING, TypedDict
 
 import duckdb
 import psycopg
 from psycopg import sql
+
+if TYPE_CHECKING:
+    from posthog.ducklake.models import DuckLakeCatalog
 
 DEFAULTS: dict[str, str] = {
     "DUCKLAKE_RDS_HOST": "localhost",
@@ -22,7 +25,66 @@ DEFAULTS: dict[str, str] = {
 
 
 def get_config() -> dict[str, str]:
-    return {key: os.environ.get(key, default) or default for key, default in DEFAULTS.items()}
+    """Get DuckLake configuration from environment variables.
+
+    In dev mode, returns sensible localhost defaults. In production,
+    requires environment variables to be set.
+    """
+    if is_dev_mode():
+        return {key: os.environ.get(key, default) or default for key, default in DEFAULTS.items()}
+
+    return _get_config_from_env_strict()
+
+
+def get_team_config(team_id: int) -> dict[str, str]:
+    """Get DuckLake configuration for a specific team from DuckLakeCatalog."""
+    if is_dev_mode():
+        return get_config()
+
+    catalog = get_ducklake_catalog_for_team(team_id)
+    if catalog is not None:
+        config = catalog.to_public_config()
+        config["DUCKLAKE_RDS_PASSWORD"] = catalog.db_password
+        return config
+    raise ValueError(f"No DuckLakeCatalog configured for team {team_id}")
+
+
+def is_dev_mode() -> bool:
+    """Check if running in development mode."""
+    try:
+        from posthog.settings import USE_LOCAL_SETUP
+
+        return USE_LOCAL_SETUP
+    except ImportError:
+        return True
+
+
+def _get_config_from_env_strict() -> dict[str, str]:
+    """Get config from environment variables, raising if required vars are missing."""
+    config = {}
+    required_keys = {"DUCKLAKE_RDS_HOST", "DUCKLAKE_RDS_PASSWORD", "DUCKLAKE_BUCKET"}
+    for key, default in DEFAULTS.items():
+        value = os.environ.get(key) or ""
+        if key in required_keys and not value:
+            raise ValueError(f"Required environment variable {key} is not set")
+        config[key] = value or default
+    return config
+
+
+def get_ducklake_catalog_for_team(team_id: int) -> DuckLakeCatalog | None:
+    """Look up DuckLakeCatalog for a team.
+
+    Returns None if no team-specific catalog is configured or in dev mode.
+    """
+    if is_dev_mode():
+        return None
+
+    from posthog.ducklake.models import DuckLakeCatalog
+
+    try:
+        return DuckLakeCatalog.objects.get(team_id=team_id)
+    except DuckLakeCatalog.DoesNotExist:
+        return None
 
 
 def get_ducklake_connection_string(config: dict[str, str] | None = None) -> str:
@@ -39,7 +101,10 @@ def get_ducklake_connection_string(config: dict[str, str] | None = None) -> str:
     if not host or not password:
         raise ValueError("DUCKLAKE_RDS_HOST and DUCKLAKE_RDS_PASSWORD must be set")
 
-    return f"postgres:dbname={database} host={host} port={port} user={username} password={password}"
+    conn_str = f"postgres:dbname={database} host={host} port={port} user={username} password={password}"
+    if not is_dev_mode():
+        conn_str += " sslmode=require"
+    return conn_str
 
 
 def get_ducklake_data_path(config: dict[str, str] | None = None) -> str:
@@ -78,7 +143,14 @@ def attach_catalog(
 
     catalog_uri = get_ducklake_connection_string(config)
     data_path = get_ducklake_data_path(config)
-    conn.sql(f"ATTACH '{escape(catalog_uri)}' AS {alias} (TYPE ducklake, DATA_PATH '{escape(data_path)}')")
+    try:
+        conn.sql(f"ATTACH '{escape(catalog_uri)}' AS {alias} (TYPE ducklake, DATA_PATH '{escape(data_path)}')")
+    except Exception as e:
+        password = config.get("DUCKLAKE_RDS_PASSWORD", "")
+        if password:
+            scrubbed_msg = str(e).replace(password, "***")
+            raise type(e)(scrubbed_msg) from None
+        raise
 
 
 def run_smoke_check(conn: duckdb.DuckDBPyConnection, *, alias: str = "ducklake") -> None:
@@ -179,9 +251,11 @@ __all__ = [
     "escape",
     "get_config",
     "get_ducklake_connection_string",
+    "get_team_config",
     "get_ducklake_data_path",
     "ensure_ducklake_catalog",
     "initialize_ducklake",
     "parse_postgres_dsn",
+    "is_dev_mode",
     "run_smoke_check",
 ]

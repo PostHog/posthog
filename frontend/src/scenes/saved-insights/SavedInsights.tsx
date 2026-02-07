@@ -1,6 +1,7 @@
 import './SavedInsights.scss'
 
 import { useActions, useValues } from 'kea'
+import { ComponentType } from 'react'
 
 import {
     IconAI,
@@ -38,13 +39,15 @@ import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TZLabel } from 'lib/components/TZLabel'
+import { dayjs } from 'lib/dayjs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
-import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { IconAction, IconTableChart } from 'lib/lemon-ui/icons'
 import { isNonEmptyObject } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
@@ -60,7 +63,7 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { NodeKind } from '~/queries/schema/schema-general'
+import { NodeKind, ProductKey } from '~/queries/schema/schema-general'
 import { isNodeWithSource } from '~/queries/utils'
 import {
     AccessControlLevel,
@@ -83,7 +86,7 @@ export interface InsightTypeMetadata {
     description?: string
     /** Override the description on the insight page tab, for additional info. */
     tooltipDescription?: string
-    icon: (props?: any) => JSX.Element | null
+    icon: React.ComponentType<any>
     inMenu: boolean
     tooltipDocLink?: string
 }
@@ -134,8 +137,7 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     [NodeKind.LifecycleQuery]: {
         name: 'Lifecycle',
         description: 'Understand growth by breaking down new, resurrected, returning and dormant users.',
-        tooltipDescription:
-            "Understand growth by breaking down new, resurrected, returning and dormant users. Doesn't include anonymous events and users/groups appear as new when they are first identified.",
+        tooltipDescription: 'Understand growth by breaking down new, resurrected, returning and dormant users.',
         icon: IconLifecycle,
         inMenu: true,
         tooltipDocLink: 'https://posthog.com/docs/product-analytics/lifecycle',
@@ -496,6 +498,11 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconLlmAnalytics,
         inMenu: false,
     },
+    [NodeKind.TraceNeighborsQuery]: {
+        name: 'LLM Analytics Trace Neighbors',
+        icon: IconLlmAnalytics,
+        inMenu: false,
+    },
     [NodeKind.TraceQuery]: {
         name: 'LLM Analytics Trace',
         icon: IconLlmAnalytics,
@@ -581,6 +588,7 @@ export const INSIGHT_TYPES_METADATA: Record<InsightType, InsightTypeMetadata> = 
         description: 'Use SQL to query your data.',
         icon: IconHogQL,
         inMenu: true,
+        tooltipDocLink: 'https://posthog.com/docs/data-warehouse/sql',
     },
     [InsightType.JSON]: {
         name: 'Custom',
@@ -614,7 +622,7 @@ export const INSIGHT_TYPE_OPTIONS: LemonSelectOptions<string> = [
 export const scene: SceneExport = {
     component: SavedInsights,
     logic: savedInsightsLogic,
-    settingSectionId: 'environment-product-analytics',
+    productKey: ProductKey.PRODUCT_ANALYTICS,
 }
 
 export function InsightIcon({
@@ -624,7 +632,7 @@ export function InsightIcon({
     insight: QueryBasedInsightModel
     className?: string
 }): JSX.Element | null {
-    let Icon: (props?: any) => JSX.Element | null = () => null
+    let Icon: ComponentType<any> | null = null
 
     if ('query' in insight && isNonEmptyObject(insight.query)) {
         const insightType = isNodeWithSource(insight.query) ? insight.query.source.kind : insight.query.kind
@@ -636,6 +644,8 @@ export function InsightIcon({
 }
 
 export function NewInsightButton({ dataAttr }: NewInsightButtonProps): JSX.Element {
+    const useInsightOptionsPage = useFeatureFlag('INSIGHT_OPTIONS_PAGE', 'test')
+
     return (
         <AccessControlAction
             resourceType={AccessControlResourceType.Insight}
@@ -651,7 +661,7 @@ export function NewInsightButton({ dataAttr }: NewInsightButtonProps): JSX.Eleme
             >
                 <LemonButton
                     type="primary"
-                    to={urls.insightNew()}
+                    to={useInsightOptionsPage ? urls.insightOptions() : urls.insightNew()}
                     sideAction={{
                         dropdown: {
                             placement: 'bottom-end',
@@ -744,15 +754,37 @@ export function SavedInsights(): JSX.Element {
                 return <ObjectTags tags={tags} staticOnly />
             },
         },
-        ...(tab === SavedInsightsTabs.Yours
-            ? []
-            : [
-                  createdByColumn() as LemonTableColumn<
-                      QueryBasedInsightModel,
-                      keyof QueryBasedInsightModel | undefined
-                  >,
-              ]),
-        createdAtColumn() as LemonTableColumn<QueryBasedInsightModel, keyof QueryBasedInsightModel | undefined>,
+        {
+            title: 'Created by',
+            dataIndex: 'created_by' as keyof QueryBasedInsightModel,
+            render: function Render(_: any, item: QueryBasedInsightModel) {
+                const { created_by } = item
+                return (
+                    <div className="flex flex-row items-center flex-nowrap">
+                        {created_by && <ProfilePicture user={created_by} size="md" showName />}
+                    </div>
+                )
+            },
+            sorter: (a, b) =>
+                (a.created_by?.first_name || a.created_by?.email || '').localeCompare(
+                    b.created_by?.first_name || b.created_by?.email || ''
+                ),
+        },
+        {
+            title: 'Created',
+            dataIndex: 'created_at',
+            render: function RenderCreated(created_at: string) {
+                return created_at ? (
+                    <div className="whitespace-nowrap text-right">
+                        <TZLabel time={created_at} />
+                    </div>
+                ) : (
+                    <span className="text-secondary">—</span>
+                )
+            },
+            align: 'right',
+            sorter: (a, b) => dayjs(a.created_at || 0).diff(b.created_at || 0),
+        },
         {
             title: 'Last modified',
             sorter: true,
@@ -866,13 +898,11 @@ export function SavedInsights(): JSX.Element {
                 onChange={(tab) => setSavedInsightsFilters({ tab })}
                 tabs={[
                     { key: SavedInsightsTabs.All, label: 'All insights' },
-                    { key: SavedInsightsTabs.Yours, label: 'My insights' },
-                    { key: SavedInsightsTabs.Favorites, label: 'Favorites' },
-                    { key: SavedInsightsTabs.History, label: 'History' },
                     {
                         key: SavedInsightsTabs.Alerts,
                         label: <div className="flex items-center gap-2">Alerts</div>,
                     },
+                    { key: SavedInsightsTabs.History, label: 'History' },
                 ]}
                 sceneInset
             />
@@ -884,31 +914,34 @@ export function SavedInsights(): JSX.Element {
             ) : (
                 <>
                     <SavedInsightsFilters filters={filters} setFilters={setSavedInsightsFilters} />
-                    {!insightsLoading && insights.count < 1 ? (
-                        <SavedInsightsEmptyState filters={filters} usingFilters={usingFilters} />
-                    ) : (
-                        <>
-                            <ReloadInsight />
-                            <LemonTable
-                                loading={insightsLoading}
-                                columns={columns}
-                                dataSource={insights.results}
-                                pagination={pagination}
-                                noSortingCancellation
-                                sorting={sorting}
-                                onSort={(newSorting) =>
-                                    setSavedInsightsFilters({
-                                        order: newSorting
-                                            ? `${newSorting.order === -1 ? '-' : ''}${newSorting.columnKey}`
-                                            : undefined,
-                                    })
-                                }
-                                rowKey="id"
-                                loadingSkeletonRows={15}
-                                nouns={['insight', 'insights']}
-                            />
-                        </>
-                    )}
+
+                    <ReloadInsight />
+                    <LemonTable
+                        loading={insightsLoading}
+                        columns={columns}
+                        dataSource={insights.results}
+                        pagination={pagination}
+                        noSortingCancellation
+                        sorting={sorting}
+                        onSort={(newSorting) =>
+                            setSavedInsightsFilters({
+                                order: newSorting
+                                    ? `${newSorting.order === -1 ? '-' : ''}${newSorting.columnKey}`
+                                    : undefined,
+                            })
+                        }
+                        rowKey="id"
+                        loadingSkeletonRows={15}
+                        nouns={['insight', 'insights']}
+                        hideSortingIndicatorWhenInactive
+                        emptyState={
+                            !insightsLoading && insights.count < 1 ? (
+                                <div className="py-8">
+                                    <SavedInsightsEmptyState filters={filters} usingFilters={usingFilters} />
+                                </div>
+                            ) : undefined
+                        }
+                    />
                 </>
             )}
         </SceneContent>

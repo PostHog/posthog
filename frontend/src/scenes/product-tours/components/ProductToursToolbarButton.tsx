@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useActions, useValues } from 'kea'
 
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 
@@ -7,6 +7,8 @@ import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authoriz
 
 import { ToolbarUserIntent } from '~/types'
 
+import { productTourLogic } from '../productTourLogic'
+
 type ToolbarButtonMode = 'edit' | 'preview'
 
 interface ToolbarButtonProps {
@@ -14,6 +16,8 @@ interface ToolbarButtonProps {
     mode?: ToolbarButtonMode
     type?: 'primary' | 'secondary' | 'tertiary'
     size?: 'xsmall' | 'small' | 'medium' | 'large'
+    saveFirst?: boolean
+    label?: JSX.Element
 }
 
 const MODE_CONFIG: Record<
@@ -27,7 +31,7 @@ const MODE_CONFIG: Record<
         intent: 'edit-product-tour',
     },
     preview: {
-        label: 'Preview in toolbar',
+        label: 'Preview',
         title: 'Preview product tour',
         description: 'Select a URL to launch the toolbar and preview your product tour on your site',
         intent: 'preview-product-tour',
@@ -39,20 +43,28 @@ export function ProductToursToolbarButton({
     mode = 'edit',
     type = 'secondary',
     size = 'small',
+    saveFirst = false,
+    label,
 }: ToolbarButtonProps): JSX.Element {
-    const [isModalOpen, setIsModalOpen] = useState(false)
+    const { pendingToolbarOpen, isToolbarModalOpen } = useValues(productTourLogic({ id: tourId }))
+    const { openToolbarModal, closeToolbarModal, submitAndOpenToolbar } = useActions(productTourLogic({ id: tourId }))
     const config = MODE_CONFIG[mode]
 
     return (
         <>
-            <LemonButton size={size} type={type} onClick={() => setIsModalOpen(true)}>
-                {config.label}
+            <LemonButton
+                size={size}
+                type={type}
+                onClick={saveFirst ? submitAndOpenToolbar : openToolbarModal}
+                loading={pendingToolbarOpen}
+            >
+                {label ? label : config.label}
             </LemonButton>
             <LemonModal
                 title={config.title}
                 description={config.description}
-                isOpen={isModalOpen}
-                onClose={() => setIsModalOpen(false)}
+                isOpen={isToolbarModalOpen}
+                onClose={closeToolbarModal}
                 width={600}
             >
                 <div className="mt-4">
@@ -61,6 +73,7 @@ export function ProductToursToolbarButton({
                         addText="Add authorized URL"
                         productTourId={tourId}
                         userIntent={config.intent}
+                        launchInSameTab
                     />
                 </div>
             </LemonModal>

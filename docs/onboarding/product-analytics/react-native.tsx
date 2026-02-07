@@ -1,7 +1,10 @@
-import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+
 import { StepDefinition } from '../steps'
 
-export const getReactNativeSteps = (CodeBlock: any, Markdown: any, dedent: any): StepDefinition[] => {
+export const getReactNativeSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
+    const { CodeBlock, Markdown, dedent } = ctx
+
     return [
         {
             title: 'Install the package',
@@ -49,7 +52,8 @@ export const getReactNativeSteps = (CodeBlock: any, Markdown: any, dedent: any):
             content: (
                 <>
                     <Markdown>
-                        PostHog is most easily used via the `PostHogProvider` component. Wrap your app with the provider:
+                        PostHog is most easily used via the `PostHogProvider` component. Wrap your app with the
+                        provider:
                     </Markdown>
                     <CodeBlock
                         blocks={[
@@ -116,17 +120,4 @@ export const getReactNativeSteps = (CodeBlock: any, Markdown: any, dedent: any):
     ]
 }
 
-export const ReactNativeInstallation = (): JSX.Element => {
-    const { Steps, Step, CodeBlock, Markdown, dedent } = useMDXComponents()
-    const steps = getReactNativeSteps(CodeBlock, Markdown, dedent)
-
-    return (
-        <Steps>
-            {steps.map((step, index) => (
-                <Step key={index} title={step.title} badge={step.badge}>
-                    {step.content}
-                </Step>
-            ))}
-        </Steps>
-    )
-}
+export const ReactNativeInstallation = createInstallation(getReactNativeSteps)

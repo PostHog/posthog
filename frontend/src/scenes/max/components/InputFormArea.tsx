@@ -185,7 +185,9 @@ function DangerousOperationInput({ operation }: DangerousOperationInputProps): J
                 <p className="text-xs text-secondary m-0">This operation will make the following changes:</p>
             )}
             <LemonDivider className="my-0 -mx-3 w-[calc(100%+var(--spacing)*6)]" />
-            <MarkdownMessage content={operation.preview} id={`approval-${operation.proposalId}`} />
+            <div className="max-h-60 overflow-y-auto">
+                <MarkdownMessage content={operation.preview} id={`approval-${operation.proposalId}`} />
+            </div>
             <LemonDivider className="my-0 -mx-3 w-[calc(100%+var(--spacing)*6)]" />
             <OptionSelector
                 options={options}

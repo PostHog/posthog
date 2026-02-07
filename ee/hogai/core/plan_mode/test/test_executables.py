@@ -2,14 +2,20 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, patch
 
+from langchain_core.messages import BaseMessage
 from langchain_core.runnables import RunnableConfig
 from parameterized import parameterized
 
 from posthog.schema import AgentMode, AssistantMessage, AssistantToolCall, AssistantToolCallMessage, HumanMessage
 
-from ee.hogai.chat_agent.executables import SWITCH_TO_EXECUTION_MODE_PROMPT, ChatAgentPlanToolsExecutable
+from ee.hogai.chat_agent.executables import (
+    SWITCH_TO_EXECUTION_MODE_PROMPT,
+    ChatAgentPlanExecutable,
+    ChatAgentPlanToolsExecutable,
+)
 from ee.hogai.chat_agent.toolkit import ChatAgentToolkitManager
 from ee.hogai.context import AssistantContextManager
+from ee.hogai.core.agent_modes.prompt_builder import AgentPromptBuilder
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from ee.hogai.utils.types.base import (
     CLEAR_SUPERMODE,
@@ -18,6 +24,11 @@ from ee.hogai.utils.types.base import (
     replace_if_not_none,
     replace_supermode,
 )
+
+
+class DummyChatAgentPromptBuilder(AgentPromptBuilder):
+    async def get_prompts(self, state: AssistantState, config: RunnableConfig) -> list[BaseMessage]:
+        return [BaseMessage(content="Dummy prompt")]
 
 
 class TestSupermodeReducer(BaseTest):
@@ -96,6 +107,7 @@ class TestSupermodeReducer(BaseTest):
 class TestPlanModeToolsExecutable(BaseTest):
     @pytest.mark.asyncio
     async def test_transitions_when_should_transition_true(self):
+        """Test that ChatAgentPlanToolsExecutable transitions when switch_mode(execution) is called."""
         config = RunnableConfig(configurable={})
         node_path = (NodePath(name=AssistantNodeName.ROOT, message_id="test_id", tool_call_id="test_tool_call_id"),)
         context_manager = AssistantContextManager(team=self.team, user=self.user, config=config)
@@ -129,7 +141,7 @@ class TestPlanModeToolsExecutable(BaseTest):
             root_tool_call_id="tool-1",
         )
 
-        # Patch AgentToolsExecutable.arun (the grandparent class)
+        # Patch AgentToolsExecutable.arun (the parent class)
         with patch(
             "ee.hogai.core.agent_modes.executables.AgentToolsExecutable.arun",
             new_callable=AsyncMock,
@@ -150,13 +162,11 @@ class TestPlanModeToolsExecutable(BaseTest):
 
             self.assertIsInstance(result, PartialAssistantState)
             self.assertEqual(result.supermode, CLEAR_SUPERMODE)  # ChatAgent uses CLEAR_SUPERMODE to exit plan mode
-            self.assertEqual(result.agent_mode, AgentMode.PRODUCT_ANALYTICS)
-            last_message = result.messages[-1]
-            assert isinstance(last_message, AssistantToolCallMessage)
-            self.assertEqual(last_message.content, SWITCH_TO_EXECUTION_MODE_PROMPT)
+            self.assertEqual(result.agent_mode, AgentMode.PRODUCT_ANALYTICS)  # Default when exiting plan mode
 
     @pytest.mark.asyncio
     async def test_no_transition_when_should_transition_false(self):
+        """Test that ChatAgentPlanToolsExecutable does not transition for non-switch_mode tools."""
         config = RunnableConfig(configurable={})
         node_path = (NodePath(name=AssistantNodeName.ROOT, message_id="test_id", tool_call_id="test_tool_call_id"),)
         context_manager = AssistantContextManager(team=self.team, user=self.user, config=config)
@@ -189,7 +199,7 @@ class TestPlanModeToolsExecutable(BaseTest):
             root_tool_call_id="tool-1",
         )
 
-        # Patch AgentToolsExecutable.arun (the grandparent class)
+        # Patch AgentToolsExecutable.arun (the parent class)
         with patch(
             "ee.hogai.core.agent_modes.executables.AgentToolsExecutable.arun",
             new_callable=AsyncMock,
@@ -215,7 +225,8 @@ class TestPlanModeToolsExecutable(BaseTest):
             self.assertEqual(last_message.content, "Search results")
 
     @pytest.mark.asyncio
-    async def test_raises_value_error_if_last_message_not_tool_call(self):
+    async def test_transitions_with_non_tool_call_message(self):
+        """Test that ChatAgentPlanToolsExecutable transitions even when last message is not a tool call message."""
         config = RunnableConfig(configurable={})
         node_path = (NodePath(name=AssistantNodeName.ROOT, message_id="test_id", tool_call_id="test_tool_call_id"),)
         context_manager = AssistantContextManager(team=self.team, user=self.user, config=config)
@@ -248,7 +259,7 @@ class TestPlanModeToolsExecutable(BaseTest):
             root_tool_call_id="tool-1",
         )
 
-        # Patch AgentToolsExecutable.arun (the grandparent class)
+        # Patch AgentToolsExecutable.arun (the parent class)
         with patch(
             "ee.hogai.core.agent_modes.executables.AgentToolsExecutable.arun",
             new_callable=AsyncMock,
@@ -259,10 +270,11 @@ class TestPlanModeToolsExecutable(BaseTest):
                 agent_mode=AgentMode.EXECUTION,
             )
 
-            with self.assertRaises(ValueError) as context:
-                await executable.arun(state, config)
-
-            self.assertIn("AssistantToolCallMessage", str(context.exception))
+            # PlanModeToolsExecutable transitions even with non-tool-call messages
+            result = await executable.arun(state, config)
+            self.assertIsInstance(result, PartialAssistantState)
+            self.assertEqual(result.supermode, CLEAR_SUPERMODE)
+            self.assertEqual(result.agent_mode, AgentMode.PRODUCT_ANALYTICS)  # Default when exiting plan mode
 
 
 class TestChatAgentPlanToolsExecutableProperties(BaseTest):
@@ -270,22 +282,24 @@ class TestChatAgentPlanToolsExecutableProperties(BaseTest):
         """Test that transition_supermode returns CLEAR_SUPERMODE sentinel to exit plan mode."""
         node_path = (NodePath(name=AssistantNodeName.ROOT, message_id="test_id", tool_call_id="test_tool_call_id"),)
 
-        executable = ChatAgentPlanToolsExecutable(
+        executable = ChatAgentPlanExecutable(
             team=self.team,
             user=self.user,
             toolkit_manager_class=ChatAgentToolkitManager,
             node_path=node_path,
+            prompt_builder_class=DummyChatAgentPromptBuilder,
         )
 
         self.assertEqual(executable.transition_supermode, CLEAR_SUPERMODE)
 
     def test_transition_prompt_returns_expected_value(self):
-        from ee.hogai.chat_agent.executables import SWITCH_TO_EXECUTION_MODE_PROMPT, ChatAgentPlanToolsExecutable
+        from ee.hogai.chat_agent.executables import ChatAgentPlanToolsExecutable
         from ee.hogai.chat_agent.toolkit import ChatAgentToolkitManager
         from ee.hogai.utils.types.base import AssistantNodeName, NodePath
 
         node_path = (NodePath(name=AssistantNodeName.ROOT, message_id="test_id", tool_call_id="test_tool_call_id"),)
 
+        # ChatAgentPlanToolsExecutable has transition_prompt, not ChatAgentPlanExecutable
         executable = ChatAgentPlanToolsExecutable(
             team=self.team,
             user=self.user,
@@ -305,6 +319,7 @@ class TestChatAgentPlanToolsExecutableProperties(BaseTest):
         ]
     )
     def test_should_transition_logic(self, supermode, result_agent_mode, expected):
+        """Test _should_transition on ChatAgentPlanToolsExecutable (where it's now defined)."""
         node_path = (NodePath(name=AssistantNodeName.ROOT, message_id="test_id", tool_call_id="test_tool_call_id"),)
 
         executable = ChatAgentPlanToolsExecutable(

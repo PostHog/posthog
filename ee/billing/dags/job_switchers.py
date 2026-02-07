@@ -1,5 +1,4 @@
 import json
-import hashlib
 from typing import Any
 
 import polars as pl
@@ -11,25 +10,39 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.dags.common import JobOwners
 from posthog.dags.common.resources import ClayWebhookResource
+from posthog.dags.common.utils import compute_dataframe_hashes
 from posthog.models import Team
 
 # PostHog Cloud US team where JobSwitchers_v3 saved query exists
 JOB_SWITCHERS_TEAM_ID = 2
 
-# Column definitions matching JobSwitchers_v3 schema
-COLUMNS = [
-    "email_domain",
-    "emails",
-    "bounce_count",
-    "first_bounce_at",
-    "last_bounce_at",
-    "subjects",
+# Array fields to progressively truncate when a record exceeds Clay's batch
+# size limit, ordered by priority (least important truncated first).
+TRUNCATABLE_FIELDS = [
     "bounce_reasons",
-    "organization_ids",
-    "organization_names",
+    "subjects",
     "removal_timestamps",
     "removal_types",
     "source_type",
+    "emails",
+    "contacts",
+]
+
+# Column definitions matching JobSwitchers_v3 schema
+COLUMNS = [
+    "bounce_count",
+    "bounce_reasons",
+    "contacts",
+    "email_domain",
+    "emails",
+    "first_bounce_at",
+    "last_bounce_at",
+    "organization_id",
+    "organization_name",
+    "removal_timestamps",
+    "removal_types",
+    "source_type",
+    "subjects",
 ]
 
 
@@ -39,18 +52,6 @@ def clickhouse_to_dataframe(results: list[tuple]) -> pl.DataFrame:
         return pl.DataFrame(schema=dict.fromkeys(COLUMNS, pl.Object))
 
     return pl.DataFrame(results, schema=COLUMNS, orient="row")
-
-
-def compute_dataframe_hashes(df: pl.DataFrame) -> pl.DataFrame:
-    """Add data_hash column for change detection."""
-
-    def row_hash(row: dict) -> str:
-        serialized = json.dumps(row, sort_keys=True, default=str)
-        return hashlib.sha256(serialized.encode()).hexdigest()[:16]
-
-    # Convert each row to dict and compute hash
-    hashes = [row_hash(row) for row in df.to_dicts()]
-    return df.with_columns(pl.Series("data_hash", hashes))
 
 
 def filter_changed_domains(df: pl.DataFrame, prior_hashes: dict[str, str]) -> pl.DataFrame:
@@ -69,17 +70,25 @@ def dataframe_to_clay_payload(df: pl.DataFrame) -> list[dict[str, Any]]:
     """Convert DataFrame to Clay webhook payload format."""
     payload = []
     for row in df.to_dicts():
+        contacts_raw = row.get("contacts") or []
+        if isinstance(contacts_raw, str):
+            try:
+                contacts_raw = json.loads(contacts_raw) if contacts_raw else []
+            except json.JSONDecodeError:
+                contacts_raw = []
+
         payload.append(
             {
                 "domain": row["email_domain"],
                 "emails": row.get("emails", []) or [],
+                "contacts": contacts_raw,
                 "bounce_count": row.get("bounce_count", 0),
-                "first_bounce_at": (row["first_bounce_at"].isoformat() if row["first_bounce_at"] else None),
-                "last_bounce_at": (row["last_bounce_at"].isoformat() if row["last_bounce_at"] else None),
+                "first_bounce_at": (row["first_bounce_at"].isoformat() if row.get("first_bounce_at") else None),
+                "last_bounce_at": (row["last_bounce_at"].isoformat() if row.get("last_bounce_at") else None),
                 "subjects": row.get("subjects", []) or [],
                 "bounce_reasons": row.get("bounce_reasons", []) or [],
-                "organization_ids": row.get("organization_ids", []) or [],
-                "organization_names": row.get("organization_names", []) or [],
+                "organization_id": row.get("organization_id", "") or "",
+                "organization_name": row.get("organization_name", "") or "",
                 "removal_timestamps": row.get("removal_timestamps", []) or [],
                 "removal_types": row.get("removal_types", []) or [],
                 "source_type": row.get("source_type", []) or [],
@@ -114,13 +123,15 @@ def get_prior_hashes_from_metadata(
 )
 def job_switchers_to_clay(
     context: dagster.AssetExecutionContext,
-    clay_webhook: dagster.ResourceParam[ClayWebhookResource],
+    clay_webhook_job_switchers: dagster.ResourceParam[ClayWebhookResource],
 ) -> None:
     """
-    Incrementally sync job switchers to Clay webhook using Polars.
+    Incrementally sync job switchers to Clay webhook.
 
     Uses Dagster asset metadata to track domain hashes between runs,
-    preserving Clay's 50k lifetime submission limit.
+    only syncing new or changed domains to preserve Clay's 50k lifetime
+    submission limit. Batches are sent sequentially to respect Clay's
+    rate limits.
     """
     context.log.info("Querying JobSwitchers_v3 saved query")
 
@@ -173,7 +184,6 @@ def job_switchers_to_clay(
 
     if len(changed_df) == 0:
         context.log.info("No new or changed domains to sync")
-        # Still store metadata to persist state
         context.add_output_metadata(
             {
                 "domain_hashes": MetadataValue.json(current_hashes),
@@ -185,10 +195,18 @@ def job_switchers_to_clay(
 
     context.log.info("Sending %d new/changed domains to Clay webhook", len(changed_df))
 
-    # Convert to payload and send in batches
+    # Convert to payload and create batches
     payload = dataframe_to_clay_payload(changed_df)
-    responses = clay_webhook.send_batched(payload)
-    context.log.info("Sent %d batches to Clay webhook", len(responses))
+    batch_result = clay_webhook_job_switchers.create_batches(
+        payload, logger=context.log, truncatable_fields=TRUNCATABLE_FIELDS
+    )
+
+    # Send batches sequentially
+    for i, batch in enumerate(batch_result.batches):
+        clay_webhook_job_switchers.send(batch)
+        context.log.info("Sent batch %d/%d with %d records", i + 1, len(batch_result.batches), len(batch))
+
+    context.log.info("Sent %d batches to Clay webhook", len(batch_result.batches))
 
     # Store domain hashes in asset metadata for next run
     context.add_output_metadata(
@@ -196,14 +214,15 @@ def job_switchers_to_clay(
             "domain_hashes": MetadataValue.json(current_hashes),
             "domains_synced": MetadataValue.int(len(changed_df)),
             "total_domains": MetadataValue.int(len(df)),
-            "batches_sent": MetadataValue.int(len(responses)),
+            "batches_sent": MetadataValue.int(len(batch_result.batches)),
+            "records_truncated": MetadataValue.int(batch_result.truncated_count),
+            "records_skipped": MetadataValue.int(batch_result.skipped_count),
         }
     )
 
     context.log.info("Synced %d domains, stored %d hashes in metadata", len(changed_df), len(current_hashes))
 
 
-# Define the job
 job_switchers_job = dagster.define_asset_job(
     name="job_switchers_to_clay_job",
     selection=["job_switchers_to_clay"],

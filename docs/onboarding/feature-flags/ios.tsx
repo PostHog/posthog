@@ -1,10 +1,13 @@
+import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+
 import { getIOSSteps as getIOSStepsPA } from '../product-analytics/ios'
-import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 import { StepDefinition } from '../steps'
 
-export const getIOSSteps = (CodeBlock: any, Markdown: any, dedent: any): StepDefinition[] => {
+export const getIOSSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
+    const { CodeBlock, Markdown, dedent } = ctx
+
     // Get installation steps from product-analytics
-    const installationSteps = getIOSStepsPA(CodeBlock, Markdown, dedent)
+    const installationSteps = getIOSStepsPA(ctx)
 
     // Add flag-specific steps
     const flagSteps: StepDefinition[] = [
@@ -82,17 +85,4 @@ export const getIOSSteps = (CodeBlock: any, Markdown: any, dedent: any): StepDef
     return [...installationSteps, ...flagSteps]
 }
 
-export const IOSInstallation = (): JSX.Element => {
-    const { Steps, Step, CodeBlock, Markdown, dedent } = useMDXComponents()
-    const steps = getIOSSteps(CodeBlock, Markdown, dedent)
-
-    return (
-        <Steps>
-            {steps.map((step, index) => (
-                <Step key={index} title={step.title} badge={step.badge}>
-                    {step.content}
-                </Step>
-            ))}
-        </Steps>
-    )
-}
+export const IOSInstallation = createInstallation(getIOSSteps)

@@ -24,10 +24,14 @@ import { Link } from '@posthog/lemon-ui'
 import { AccountMenu } from 'lib/components/Account/AccountMenu'
 import { NewAccountMenu } from 'lib/components/Account/NewAccountMenu'
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
+import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
+import { useAppShortcut } from 'lib/components/AppShortcuts/useAppShortcut'
 import { commandLogic } from 'lib/components/Command/commandLogic'
 import { DebugNotice } from 'lib/components/DebugNotice'
+import { HealthMenu } from 'lib/components/HealthMenu/HealthMenu'
 import { HelpMenu } from 'lib/components/HelpMenu/HelpMenu'
 import { NavPanelAdvertisement } from 'lib/components/NavPanelAdvertisement/NavPanelAdvertisement'
+import { PosthogStatusShownOnlyIfNotOperational } from 'lib/components/PosthogStatus/PosthogStatusShownOnlyIfNotOperational'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -53,14 +57,10 @@ import { PinnedFolder } from '~/layout/panel-layout/PinnedFolder/PinnedFolder'
 import { BrowserLikeMenuItems } from '~/layout/panel-layout/ProjectTree/menus/BrowserLikeMenuItems'
 import { PanelLayoutNavIdentifier, panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { ConfigurePinnedTabsModal } from '~/layout/scenes/ConfigurePinnedTabsModal'
-import { SidePanelTab } from '~/types'
 
 import { OrganizationMenu } from '../../lib/components/Account/OrganizationMenu'
 import { ProjectMenu } from '../../lib/components/Account/ProjectMenu'
 import { navigation3000Logic } from '../navigation-3000/navigationLogic'
-import { SidePanelActivationIcon } from '../navigation-3000/sidepanel/panels/activation/SidePanelActivation'
-import { sidePanelLogic } from '../navigation-3000/sidepanel/sidePanelLogic'
-import { sidePanelStateLogic } from '../navigation-3000/sidepanel/sidePanelStateLogic'
 import { RecentItemsMenu } from './ProjectTree/menus/RecentItemsMenu'
 
 const navBarStyles = cva({
@@ -99,8 +99,6 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
     } = useValues(panelLayoutLogic)
     const { mobileLayout: isMobileLayout } = useValues(navigation3000Logic)
     const { user } = useValues(userLogic)
-    const { visibleTabs, sidePanelOpen, selectedTab } = useValues(sidePanelLogic)
-    const { openSidePanel, closeSidePanel } = useActions(sidePanelStateLogic)
     const { firstTabIsActive } = useValues(sceneLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { toggleCommand } = useActions(commandLogic)
@@ -152,6 +150,14 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
 
         return false
     }
+
+    useAppShortcut({
+        name: 'ToggleLeftNav',
+        keybind: [keyBinds.toggleLeftNav],
+        intent: 'Toggle collapse left navigation',
+        interaction: 'function',
+        callback: toggleLayoutNavCollapsed,
+    })
 
     const navItems: {
         identifier: string
@@ -325,7 +331,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                     />
                                     <ProjectMenu
                                         buttonProps={{
-                                            className: 'max-w-[175px]',
+                                            className: 'max-w-full flex-1',
                                             variant: 'panel',
                                             tooltipCloseDelayMs: 0,
                                             iconOnly: isLayoutNavCollapsed,
@@ -516,25 +522,6 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                         )}
                                     </ButtonPrimitive>
 
-                                    {visibleTabs.includes(SidePanelTab.Activation) && (
-                                        <ButtonPrimitive
-                                            menuItem={!isLayoutNavCollapsed}
-                                            onClick={() =>
-                                                sidePanelOpen && selectedTab === SidePanelTab.Activation
-                                                    ? closeSidePanel()
-                                                    : openSidePanel(SidePanelTab.Activation)
-                                            }
-                                            data-attr="activation-button"
-                                            tooltip={isLayoutNavCollapsed ? 'Quick start' : undefined}
-                                            tooltipPlacement="right"
-                                            iconOnly={isLayoutNavCollapsed}
-                                        >
-                                            <span>
-                                                <SidePanelActivationIcon size={16} />
-                                            </span>
-                                            {!isLayoutNavCollapsed && 'Quick start'}
-                                        </ButtonPrimitive>
-                                    )}
                                     <Link
                                         buttonProps={{
                                             menuItem: !isLayoutNavCollapsed,
@@ -549,7 +536,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                         tooltip={isLayoutNavCollapsed ? 'Toolbar' : undefined}
                                         tooltipDocLink="https://posthog.com/docs/toolbar"
                                         tooltipPlacement="right"
-                                        data-attr="menu-item-toolbar"
+                                        data-attr="navbar-toolbar"
                                     >
                                         <span className="flex text-tertiary group-hover:text-primary">
                                             <IconToolbar />
@@ -611,7 +598,15 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                     />
                                 </>
                             ) : (
-                                <HelpMenu />
+                                <div
+                                    className={cn('flex gap-1', {
+                                        'items-center flex-col-reverse': isLayoutNavCollapsed,
+                                    })}
+                                >
+                                    <HelpMenu />
+                                    <HealthMenu />
+                                    <PosthogStatusShownOnlyIfNotOperational />
+                                </div>
                             )}
                         </div>
                     </div>
