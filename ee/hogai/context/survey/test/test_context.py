@@ -139,20 +139,13 @@ class TestSurveyContext(BaseTest):
             mock_count.return_value = 42
 
             context = SurveyContext(team=self.team, survey_id=str(self.survey.id))
-            result = await context.execute_and_format()
+            result = await context.execute_and_format(self.survey)
 
             assert "Test NPS Survey" in result
             assert "popover" in result
             assert "draft" in result
             assert "How likely are you to recommend us?" in result
             assert "Total responses: 42" in result
-
-    @pytest.mark.asyncio
-    async def test_execute_and_format_not_found(self):
-        context = SurveyContext(team=self.team, survey_id="00000000-0000-0000-0000-000000000000")
-        result = await context.execute_and_format()
-
-        assert "not found" in result
 
 
 class TestSurveyContextChoiceQuestions(BaseTest):

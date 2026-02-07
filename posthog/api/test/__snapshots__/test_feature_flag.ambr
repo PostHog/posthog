@@ -559,7 +559,9 @@
              LIMIT 1)
           OR ("posthog_team"."parent_team_id" IS NULL
               AND "posthog_featureflag"."team_id" = 99999))
-         AND NOT ("posthog_featureflag"."is_remote_configuration"
+         AND NOT ("posthog_featureflag"."has_encrypted_payloads"
+                  AND "posthog_featureflag"."has_encrypted_payloads" IS NOT NULL
+                  AND "posthog_featureflag"."is_remote_configuration"
                   AND "posthog_featureflag"."is_remote_configuration" IS NOT NULL)
          AND NOT "posthog_featureflag"."deleted")
   '''
@@ -821,7 +823,9 @@
              LIMIT 1)
           OR ("posthog_team"."parent_team_id" IS NULL
               AND "posthog_featureflag"."team_id" = 99999))
-         AND NOT ("posthog_featureflag"."is_remote_configuration"
+         AND NOT ("posthog_featureflag"."has_encrypted_payloads"
+                  AND "posthog_featureflag"."has_encrypted_payloads" IS NOT NULL
+                  AND "posthog_featureflag"."is_remote_configuration"
                   AND "posthog_featureflag"."is_remote_configuration" IS NOT NULL)
          AND NOT "posthog_featureflag"."deleted")
   '''
@@ -917,7 +921,9 @@
              LIMIT 1)
           OR ("posthog_team"."parent_team_id" IS NULL
               AND "posthog_featureflag"."team_id" = 99999))
-         AND NOT ("posthog_featureflag"."is_remote_configuration"
+         AND NOT ("posthog_featureflag"."has_encrypted_payloads"
+                  AND "posthog_featureflag"."has_encrypted_payloads" IS NOT NULL
+                  AND "posthog_featureflag"."is_remote_configuration"
                   AND "posthog_featureflag"."is_remote_configuration" IS NOT NULL)
          AND NOT "posthog_featureflag"."deleted")
   '''
@@ -1255,7 +1261,9 @@
              LIMIT 1)
           OR ("posthog_team"."parent_team_id" IS NULL
               AND "posthog_featureflag"."team_id" = 99999))
-         AND NOT ("posthog_featureflag"."is_remote_configuration"
+         AND NOT ("posthog_featureflag"."has_encrypted_payloads"
+                  AND "posthog_featureflag"."has_encrypted_payloads" IS NOT NULL
+                  AND "posthog_featureflag"."is_remote_configuration"
                   AND "posthog_featureflag"."is_remote_configuration" IS NOT NULL)
          AND NOT "posthog_featureflag"."deleted")
   '''
@@ -1335,7 +1343,9 @@
              LIMIT 1)
           OR ("posthog_team"."parent_team_id" IS NULL
               AND "posthog_featureflag"."team_id" = 99999))
-         AND NOT ("posthog_featureflag"."is_remote_configuration"
+         AND NOT ("posthog_featureflag"."has_encrypted_payloads"
+                  AND "posthog_featureflag"."has_encrypted_payloads" IS NOT NULL
+                  AND "posthog_featureflag"."is_remote_configuration"
                   AND "posthog_featureflag"."is_remote_configuration" IS NOT NULL)
          AND NOT "posthog_featureflag"."deleted")
   '''
@@ -1431,7 +1441,9 @@
              LIMIT 1)
           OR ("posthog_team"."parent_team_id" IS NULL
               AND "posthog_featureflag"."team_id" = 99999))
-         AND NOT ("posthog_featureflag"."is_remote_configuration"
+         AND NOT ("posthog_featureflag"."has_encrypted_payloads"
+                  AND "posthog_featureflag"."has_encrypted_payloads" IS NOT NULL
+                  AND "posthog_featureflag"."is_remote_configuration"
                   AND "posthog_featureflag"."is_remote_configuration" IS NOT NULL)
          AND NOT "posthog_featureflag"."deleted")
   '''
@@ -1936,7 +1948,9 @@
              LIMIT 1)
           OR ("posthog_team"."parent_team_id" IS NULL
               AND "posthog_featureflag"."team_id" = 99999))
-         AND NOT ("posthog_featureflag"."is_remote_configuration"
+         AND NOT ("posthog_featureflag"."has_encrypted_payloads"
+                  AND "posthog_featureflag"."has_encrypted_payloads" IS NOT NULL
+                  AND "posthog_featureflag"."is_remote_configuration"
                   AND "posthog_featureflag"."is_remote_configuration" IS NOT NULL)
          AND NOT "posthog_featureflag"."deleted")
   '''
@@ -2385,7 +2399,9 @@
              LIMIT 1)
           OR ("posthog_team"."parent_team_id" IS NULL
               AND "posthog_featureflag"."team_id" = 99999))
-         AND NOT ("posthog_featureflag"."is_remote_configuration"
+         AND NOT ("posthog_featureflag"."has_encrypted_payloads"
+                  AND "posthog_featureflag"."has_encrypted_payloads" IS NOT NULL
+                  AND "posthog_featureflag"."is_remote_configuration"
                   AND "posthog_featureflag"."is_remote_configuration" IS NOT NULL)
          AND NOT "posthog_featureflag"."deleted")
   '''
@@ -2599,7 +2615,9 @@
              LIMIT 1)
           OR ("posthog_team"."parent_team_id" IS NULL
               AND "posthog_featureflag"."team_id" = 99999))
-         AND NOT ("posthog_featureflag"."is_remote_configuration"
+         AND NOT ("posthog_featureflag"."has_encrypted_payloads"
+                  AND "posthog_featureflag"."has_encrypted_payloads" IS NOT NULL
+                  AND "posthog_featureflag"."is_remote_configuration"
                   AND "posthog_featureflag"."is_remote_configuration" IS NOT NULL)
          AND NOT "posthog_featureflag"."deleted")
   '''
@@ -2847,7 +2865,9 @@
              LIMIT 1)
           OR ("posthog_team"."parent_team_id" IS NULL
               AND "posthog_featureflag"."team_id" = 99999))
-         AND NOT ("posthog_featureflag"."is_remote_configuration"
+         AND NOT ("posthog_featureflag"."has_encrypted_payloads"
+                  AND "posthog_featureflag"."has_encrypted_payloads" IS NOT NULL
+                  AND "posthog_featureflag"."is_remote_configuration"
                   AND "posthog_featureflag"."is_remote_configuration" IS NOT NULL)
          AND NOT "posthog_featureflag"."deleted")
   '''
@@ -2984,7 +3004,9 @@
              LIMIT 1)
           OR ("posthog_team"."parent_team_id" IS NULL
               AND "posthog_featureflag"."team_id" = 99999))
-         AND NOT ("posthog_featureflag"."is_remote_configuration"
+         AND NOT ("posthog_featureflag"."has_encrypted_payloads"
+                  AND "posthog_featureflag"."has_encrypted_payloads" IS NOT NULL
+                  AND "posthog_featureflag"."is_remote_configuration"
                   AND "posthog_featureflag"."is_remote_configuration" IS NOT NULL)
          AND NOT "posthog_featureflag"."deleted")
   '''
@@ -3350,7 +3372,9 @@
              LIMIT 1)
           OR ("posthog_team"."parent_team_id" IS NULL
               AND "posthog_featureflag"."team_id" = 99999))
-         AND NOT ("posthog_featureflag"."is_remote_configuration"
+         AND NOT ("posthog_featureflag"."has_encrypted_payloads"
+                  AND "posthog_featureflag"."has_encrypted_payloads" IS NOT NULL
+                  AND "posthog_featureflag"."is_remote_configuration"
                   AND "posthog_featureflag"."is_remote_configuration" IS NOT NULL)
          AND NOT "posthog_featureflag"."deleted")
   '''

@@ -85,7 +85,19 @@ async def consolidate_video_segments_activity(
         else:
             json_str = response_text
 
-        parsed = json.loads(json_str)
+        try:
+            parsed = json.loads(json_str)
+        except json.JSONDecodeError as e:
+            temporalio.activity.logger.error(
+                f"Failed to parse LLM response as JSON: {e}",
+                extra={
+                    "session_id": inputs.session_id,
+                    "response_text": response_text[:2000] if response_text else None,
+                    "json_str": json_str[:2000] if json_str else None,
+                    "signals_type": "session-summaries",
+                },
+            )
+            raise
 
         # Parse using Pydantic model validation
         consolidated_analysis = ConsolidatedVideoAnalysis.model_validate(parsed)
