@@ -7,6 +7,34 @@ import { SessionRecordingPlayer } from 'scenes/session-recordings/player/Session
 import { SessionRecordingPlayerLogicProps, sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 import { sessionPlayerModalLogic } from './sessionPlayerModalLogic'
 
+function SessionRecordingPlayerModalContent({
+    logicProps,
+    onClose,
+}: {
+    logicProps: SessionRecordingPlayerLogicProps
+    onClose: () => void
+}): JSX.Element {
+    const { isFullScreen } = useValues(sessionRecordingPlayerLogic(logicProps))
+
+    return (
+        <LemonModal
+            isOpen={true}
+            onClose={onClose}
+            simple
+            title=""
+            width={1600}
+            fullScreen={isFullScreen}
+            closable={!isFullScreen}
+            zIndex="1161"
+            hideCloseButton={true}
+        >
+            <LemonModal.Content embedded>
+                <SessionRecordingPlayer {...logicProps} noBorder />
+            </LemonModal.Content>
+        </LemonModal>
+    )
+}
+
 /**
  * When SessionPlayerModal is present in the page you can call `openSessionPlayer` action to open the modal
  * and play a given session
@@ -19,18 +47,22 @@ export function SessionPlayerModal(): JSX.Element | null {
     const { activeSessionRecording } = useValues(sessionPlayerModalLogic())
     const { closeSessionPlayer } = useActions(sessionPlayerModalLogic())
 
+    if (!activeSessionRecording?.id) {
+        return null
+    }
+
     // activeSessionRecording?.matching_events should always be a single element array
     // but, we're filtering and using flatMap just in case
     const matchedEvents =
-        activeSessionRecording?.matching_events
+        activeSessionRecording.matching_events
             ?.filter((matchingEvents) => {
-                return matchingEvents.session_id === activeSessionRecording?.id
+                return matchingEvents.session_id === activeSessionRecording.id
             })
             .flatMap((matchedRecording) => matchedRecording.events) || []
 
     const logicProps: SessionRecordingPlayerLogicProps = {
         playerKey: 'modal',
-        sessionRecordingId: activeSessionRecording?.id || '',
+        sessionRecordingId: activeSessionRecording.id,
         autoPlay: true,
         matchingEventsMatchType: {
             matchType: 'uuid',
@@ -38,23 +70,5 @@ export function SessionPlayerModal(): JSX.Element | null {
         },
     }
 
-    const { isFullScreen } = useValues(sessionRecordingPlayerLogic(logicProps))
-
-    return (
-        <LemonModal
-            isOpen={!!activeSessionRecording}
-            onClose={closeSessionPlayer}
-            simple
-            title=""
-            width={1600}
-            fullScreen={isFullScreen}
-            closable={!isFullScreen}
-            zIndex="1161"
-            hideCloseButton={true}
-        >
-            <LemonModal.Content embedded>
-                {activeSessionRecording?.id && <SessionRecordingPlayer {...logicProps} noBorder />}
-            </LemonModal.Content>
-        </LemonModal>
-    )
+    return <SessionRecordingPlayerModalContent logicProps={logicProps} onClose={closeSessionPlayer} />
 }

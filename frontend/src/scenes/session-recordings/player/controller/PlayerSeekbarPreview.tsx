@@ -99,7 +99,8 @@ export const PlayerSeekbarPreview = memo(function PlayerSeekbarPreview({
     const canShowPreview = typeof activeMs === 'number' && activeMs < TWENTY_MINUTES_IN_MS
 
     useEffect(() => {
-        if (!seekBarRef?.current) {
+        const seekBarElement = seekBarRef?.current
+        if (!seekBarElement) {
             return
         }
 
@@ -117,10 +118,8 @@ export const PlayerSeekbarPreview = memo(function PlayerSeekbarPreview({
             }
         }
 
-        seekBarRef.current.addEventListener('mousemove', handleMouseMove)
-        // fixes react-hooks/exhaustive-deps warning about stale ref elements
-        const { current } = ref
-        return () => current?.removeEventListener('mousemove', handleMouseMove)
+        seekBarElement.addEventListener('mousemove', handleMouseMove)
+        return () => seekBarElement.removeEventListener('mousemove', handleMouseMove)
     }, [seekBarRef, percentage])
 
     return (
