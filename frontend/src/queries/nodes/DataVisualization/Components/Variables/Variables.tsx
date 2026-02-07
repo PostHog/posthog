@@ -310,34 +310,12 @@ export const VariableComponent = ({
     onRemove,
     variableSettingsOnClick,
     onInsertAtCursor,
-    insightsUsingVariable,
     emptyState = '',
     size = 'medium',
 }: VariableComponentProps): JSX.Element => {
     const [isPopoverOpen, setPopoverOpen] = useState(false)
 
     const variableAsHogQL = `{variables.${variable.code_name}}`
-
-    const tooltip =
-        insightsUsingVariable && insightsUsingVariable.length > 0 ? (
-            <div className="flex flex-col gap-1">
-                <span>Insights using this variable: {insightsUsingVariable.join(', ')}</span>
-            </div>
-        ) : undefined
-
-    // Don't show the popover overlay for list variables not in edit mode
-    if (!showEditingUI && variable.type === 'List') {
-        return (
-            <LemonField.Pure label={variable.name} className="gap-0" info={tooltip}>
-                <LemonSelect
-                    disabledReason={variableOverridesAreSet && 'Discard dashboard variables to change'}
-                    value={variable.value ?? variable.default_value}
-                    onChange={(value) => onChange(variable.id, value, variable.isNull ?? false)}
-                    options={variable.values.map((n) => ({ label: n, value: n }))}
-                />
-            </LemonField.Pure>
-        )
-    }
 
     return (
         <Popover
