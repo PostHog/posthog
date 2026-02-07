@@ -38,9 +38,10 @@ MAX_TRACE_EVENTS_LIMIT = 50
 # in a trace. Traces exceeding this are excluded during sampling, preventing
 # oversized traces from reaching the CPU-intensive formatting activity — even if
 # they have few events. Complements MAX_TRACE_EVENTS_LIMIT which only filters
-# by event count. Set to match MAX_RAW_TRACE_SIZE so traces that would be
-# rejected by the activity are filtered out before the expensive fetch.
-MAX_TRACE_PROPERTIES_SIZE = MAX_RAW_TRACE_SIZE
+# by event count. Set lower than MAX_RAW_TRACE_SIZE (5M) to be conservative —
+# formatting traces in the 2-5M range is still CPU-intensive enough to block
+# workers for minutes.
+MAX_TRACE_PROPERTIES_SIZE = 2_000_000
 
 # Schedule configuration
 SCHEDULE_INTERVAL_HOURS = 1  # How often the coordinator runs
