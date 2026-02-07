@@ -18,6 +18,7 @@
         "common/hogvm/__tests__/__snapshots__/**",
         "frontend/src/queries/validators.js",
         "frontend/src/generated/**",
+        "frontend/scripts/**",
         "services/mcp/**/generated.ts",
         "services/mcp/schema/tool-inputs.json",
         "products/**/frontend/generated/**"
