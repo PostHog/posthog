@@ -513,6 +513,9 @@ quality:
     format:python:
         cmd: ./bin/ruff.sh format
         description: Format Python files
+    lint:skills:
+        cmd: uv run python products/posthog_ai/scripts/build_skills.py --lint
+        description: Validate agent skill sources (syntax, frontmatter, depth constraints)
     lint:python:fix:
         cmd: ./bin/ruff.sh check --fix
         description: Fix Python code quality issues

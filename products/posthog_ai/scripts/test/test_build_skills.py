@@ -9,13 +9,16 @@ from pathlib import Path
 import pytest
 
 from products.posthog_ai.scripts.build_skills import (
+    DiscoveredSkill,
     _json_schema_type_label,
     _make_jinja_env,
     build_manifest,
     build_skill,
     discover_product_skills,
+    lint_all,
     parse_frontmatter,
     render_skill,
+    validate_skill_depths,
 )
 
 # ---------------------------------------------------------------------------
@@ -83,7 +86,7 @@ def test_parse_frontmatter(text: str, expected_meta: dict, expected_body_starts_
 
 
 # ---------------------------------------------------------------------------
-# discover_product_skills
+# discover_product_skills — depth 1 (directories)
 # ---------------------------------------------------------------------------
 
 
@@ -109,25 +112,125 @@ def test_discover_finds_j2_and_md(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     # Product D: empty skills dir — no results
     (products / "delta" / "skills").mkdir(parents=True)
 
-    # Product E: skills dir with a file (not directory) — skip
-    (products / "epsilon" / "skills").mkdir(parents=True)
-    (products / "epsilon" / "skills" / "not-a-dir.md").write_text("skip me")
-
     monkeypatch.setattr("products.posthog_ai.scripts.build_skills.PRODUCTS_DIR", products)
 
     skills = discover_product_skills()
 
-    names = [(name, src.name) for name, src, _ in skills]
+    names = [(s.name, s.source_file.name, s.depth) for s in skills]
     assert names == [
-        ("skill-one", "SKILL.md.j2"),
-        ("skill-two", "SKILL.md"),
-        ("skill-three", "SKILL.md.j2"),
+        ("skill-one", "SKILL.md.j2", 1),
+        ("skill-two", "SKILL.md", 1),
+        ("skill-three", "SKILL.md.j2", 1),
     ]
 
 
 def test_discover_no_products_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("products.posthog_ai.scripts.build_skills.PRODUCTS_DIR", tmp_path / "nonexistent")
     assert discover_product_skills() == []
+
+
+# ---------------------------------------------------------------------------
+# discover_product_skills — depth 0 (loose files)
+# ---------------------------------------------------------------------------
+
+
+def test_discover_depth_0_loose_files(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    products = tmp_path / "products"
+    skills_dir = products / "alpha" / "skills"
+    skills_dir.mkdir(parents=True)
+
+    (skills_dir / "loose-skill.md").write_text("---\nname: loose\ndescription: Loose\n---\nBody\n")
+    (skills_dir / "template-skill.md.j2").write_text("---\nname: tmpl\ndescription: T\n---\nBody\n")
+
+    monkeypatch.setattr("products.posthog_ai.scripts.build_skills.PRODUCTS_DIR", products)
+
+    skills = discover_product_skills()
+
+    names = [(s.name, s.source_file.name, s.depth) for s in skills]
+    assert names == [
+        ("loose-skill", "loose-skill.md", 0),
+        ("template-skill", "template-skill.md.j2", 0),
+    ]
+
+
+def test_discover_depth_0_j2_priority(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    products = tmp_path / "products"
+    skills_dir = products / "alpha" / "skills"
+    skills_dir.mkdir(parents=True)
+
+    (skills_dir / "my-skill.md").write_text("md content")
+    (skills_dir / "my-skill.md.j2").write_text("j2 content")
+
+    monkeypatch.setattr("products.posthog_ai.scripts.build_skills.PRODUCTS_DIR", products)
+
+    skills = discover_product_skills()
+
+    assert len(skills) == 1
+    assert skills[0].source_file.name == "my-skill.md.j2"
+    assert skills[0].depth == 0
+
+
+def test_discover_mixed_depths(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    products = tmp_path / "products"
+    skills_dir = products / "alpha" / "skills"
+    skills_dir.mkdir(parents=True)
+
+    # Depth 0: loose file
+    (skills_dir / "loose.md").write_text("---\nname: loose\ndescription: L\n---\nBody\n")
+
+    # Depth 1: directory
+    dir_skill = skills_dir / "dir-skill"
+    dir_skill.mkdir()
+    (dir_skill / "SKILL.md").write_text("---\nname: dir\ndescription: D\n---\nBody\n")
+
+    monkeypatch.setattr("products.posthog_ai.scripts.build_skills.PRODUCTS_DIR", products)
+
+    skills = discover_product_skills()
+
+    names = [(s.name, s.depth) for s in skills]
+    # Directories come before files in sorted order since 'd' < 'l'
+    assert names == [("dir-skill", 1), ("loose", 0)]
+
+
+# ---------------------------------------------------------------------------
+# validate_skill_depths — depth 2+ detection
+# ---------------------------------------------------------------------------
+
+
+def test_validate_depth_2_raises(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("products.posthog_ai.scripts.build_skills.PRODUCTS_DIR", tmp_path / "products")
+
+    skill_dir = tmp_path / "products" / "alpha" / "skills" / "nested-skill"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text("content")
+    nested = skill_dir / "sub"
+    nested.mkdir()
+
+    skill = DiscoveredSkill(
+        name="nested-skill",
+        source_file=skill_dir / "SKILL.md",
+        product_dir=tmp_path / "products" / "alpha",
+        depth=1,
+    )
+    errors = validate_skill_depths([skill])
+    assert len(errors) == 1
+    assert "Nested subdirectory not allowed" in errors[0]
+    assert "sub" in errors[0]
+
+
+def test_validate_depth_0_skips_validation(tmp_path: Path) -> None:
+    skills_dir = tmp_path / "products" / "alpha" / "skills"
+    skills_dir.mkdir(parents=True)
+    (skills_dir / "loose.md").write_text("content")
+
+    skill = DiscoveredSkill(
+        name="loose",
+        source_file=skills_dir / "loose.md",
+        product_dir=tmp_path / "products" / "alpha",
+        depth=0,
+    )
+    errors = validate_skill_depths([skill])
+    assert errors == []
 
 
 # ---------------------------------------------------------------------------
@@ -188,7 +291,8 @@ def test_build_skill_extracts_frontmatter(tmp_path: Path, monkeypatch: pytest.Mo
     md_file.write_text("---\nname: bar\ndescription: Bar skill\n---\n# Skill body\n")
 
     env = _make_jinja_env()
-    result = build_skill("bar", md_file, env)
+    skill = DiscoveredSkill(name="bar", source_file=md_file, product_dir=tmp_path / "products" / "foo", depth=1)
+    result = build_skill(skill, env)
 
     assert result["id"] == "bar"
     assert result["name"] == "bar"
@@ -207,7 +311,8 @@ def test_build_skill_defaults_without_frontmatter(tmp_path: Path, monkeypatch: p
     md_file.write_text("# No frontmatter\nJust body.\n")
 
     env = _make_jinja_env()
-    result = build_skill("my-skill", md_file, env)
+    skill = DiscoveredSkill(name="my-skill", source_file=md_file, product_dir=tmp_path / "products" / "foo", depth=1)
+    result = build_skill(skill, env)
 
     assert result["name"] == "my-skill"
     assert result["resource"]["description"] == "Skill: my-skill"
@@ -430,3 +535,69 @@ def test_check_detects_missing_manifest(tmp_path: Path, monkeypatch: pytest.Monk
     from products.posthog_ai.scripts.build_skills import check_all
 
     assert check_all() is False
+
+
+# ---------------------------------------------------------------------------
+# lint_all
+# ---------------------------------------------------------------------------
+
+
+def test_lint_all_passes_for_valid_skills(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("products.posthog_ai.scripts.build_skills.REPO_ROOT", tmp_path)
+    monkeypatch.setattr("products.posthog_ai.scripts.build_skills.PRODUCTS_DIR", tmp_path / "products")
+
+    skill_dir = tmp_path / "products" / "alpha" / "skills" / "good-skill"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text("---\nname: good-skill\ndescription: A good skill\n---\n# Body\n")
+
+    j2_dir = tmp_path / "products" / "alpha" / "skills" / "template-skill"
+    j2_dir.mkdir(parents=True)
+    (j2_dir / "SKILL.md.j2").write_text("---\nname: tmpl\ndescription: T\n---\n# {{ 'hello' }}\n")
+
+    assert lint_all() is True
+
+
+def test_lint_all_catches_missing_frontmatter(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("products.posthog_ai.scripts.build_skills.REPO_ROOT", tmp_path)
+    monkeypatch.setattr("products.posthog_ai.scripts.build_skills.PRODUCTS_DIR", tmp_path / "products")
+
+    skill_dir = tmp_path / "products" / "alpha" / "skills" / "bad-skill"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text("# No frontmatter at all\n")
+
+    assert lint_all() is False
+
+
+def test_lint_all_catches_bad_jinja2_syntax(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("products.posthog_ai.scripts.build_skills.REPO_ROOT", tmp_path)
+    monkeypatch.setattr("products.posthog_ai.scripts.build_skills.PRODUCTS_DIR", tmp_path / "products")
+
+    skill_dir = tmp_path / "products" / "alpha" / "skills" / "broken-j2"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md.j2").write_text("{% if unclosed %}\n")
+
+    assert lint_all() is False
+
+
+def test_lint_all_catches_duplicate_skill_names(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("products.posthog_ai.scripts.build_skills.REPO_ROOT", tmp_path)
+    monkeypatch.setattr("products.posthog_ai.scripts.build_skills.PRODUCTS_DIR", tmp_path / "products")
+
+    for product in ("alpha", "beta"):
+        skill_dir = tmp_path / "products" / product / "skills" / "same-name"
+        skill_dir.mkdir(parents=True)
+        (skill_dir / "SKILL.md").write_text("---\nname: same\ndescription: Duplicate\n---\nBody\n")
+
+    assert lint_all() is False
+
+
+def test_lint_all_catches_depth_2_violations(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("products.posthog_ai.scripts.build_skills.REPO_ROOT", tmp_path)
+    monkeypatch.setattr("products.posthog_ai.scripts.build_skills.PRODUCTS_DIR", tmp_path / "products")
+
+    skill_dir = tmp_path / "products" / "alpha" / "skills" / "nested"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text("---\nname: nested\ndescription: N\n---\nBody\n")
+    (skill_dir / "subdir").mkdir()
+
+    assert lint_all() is False

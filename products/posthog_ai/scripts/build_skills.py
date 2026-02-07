@@ -16,9 +16,10 @@ Requires the project's Python environment (managed by uv) for template rendering
 that imports Pydantic models from product code.
 
 Usage:
-    uv run python products/posthog_ai/scripts/build_skills.py          # Build all product skills
-    uv run python products/posthog_ai/scripts/build_skills.py --check  # Check if built skills are up-to-date (for CI)
-    uv run python products/posthog_ai/scripts/build_skills.py --list   # List discovered skills without building
+    hogli build:skills          # Build all product skills
+    hogli build:skills --check  # Check if built skills are up-to-date (for CI)
+    hogli build:skills --list   # List discovered skills without building
+    hogli lint:skills           # Validate skill sources without rendering
 """
 
 from __future__ import annotations
@@ -30,6 +31,7 @@ import json
 import argparse
 import textwrap
 import importlib
+import dataclasses
 from pathlib import Path
 from typing import Any
 
@@ -37,7 +39,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
 try:
-    from jinja2 import Environment, StrictUndefined
+    from jinja2 import Environment, StrictUndefined, TemplateSyntaxError
 except ImportError:
     print("ERROR: jinja2 is required. Install with: pip install jinja2", file=sys.stderr)
     sys.exit(1)
@@ -203,18 +205,31 @@ def parse_frontmatter(text: str) -> tuple[dict[str, str], str]:
 # ---------------------------------------------------------------------------
 
 PRODUCTS_DIR = REPO_ROOT / "products"
-OUTPUT_DIR = REPO_ROOT / "services" / "mcp" / "dist-skills"
+OUTPUT_DIR = REPO_ROOT / "services" / "mcp" / "skills"
 
 MANIFEST_VERSION = "1.0.0"
 
 
-def discover_product_skills() -> list[tuple[str, Path, Path]]:
+@dataclasses.dataclass
+class DiscoveredSkill:
+    name: str
+    source_file: Path
+    product_dir: Path
+    depth: int
+
+
+def discover_product_skills() -> list[DiscoveredSkill]:
     """Discover skill sources from products/*/skills/.
 
-    Returns list of (skill_name, source_file, product_dir) tuples.
-    source_file is either SKILL.md or SKILL.md.j2.
+    Supports two depth levels relative to products/*/skills/:
+    - Depth 0: Loose files directly in skills/ (e.g., my-skill.md or my-skill.md.j2).
+      Skill name = filename stem (without .md or .md.j2 extension).
+    - Depth 1: Directories containing SKILL.md(.j2) (e.g., my-skill/SKILL.md).
+      Skill name = directory name.
+
+    For both depths, .j2 files take priority over plain .md when both exist.
     """
-    skills: list[tuple[str, Path, Path]] = []
+    skills: list[DiscoveredSkill] = []
 
     if not PRODUCTS_DIR.exists():
         return skills
@@ -226,19 +241,45 @@ def discover_product_skills() -> list[tuple[str, Path, Path]]:
         if not skills_dir.exists():
             continue
 
-        for skill_dir in sorted(skills_dir.iterdir()):
-            if not skill_dir.is_dir():
-                continue
-
-            # Prefer .j2 template over plain .md
-            j2_file = skill_dir / "SKILL.md.j2"
-            md_file = skill_dir / "SKILL.md"
-            if j2_file.exists():
-                skills.append((skill_dir.name, j2_file, product_dir))
-            elif md_file.exists():
-                skills.append((skill_dir.name, md_file, product_dir))
+        for entry in sorted(skills_dir.iterdir()):
+            if entry.is_dir():
+                # Depth 1: directory containing SKILL.md(.j2)
+                j2_file = entry / "SKILL.md.j2"
+                md_file = entry / "SKILL.md"
+                if j2_file.exists():
+                    skills.append(
+                        DiscoveredSkill(name=entry.name, source_file=j2_file, product_dir=product_dir, depth=1)
+                    )
+                elif md_file.exists():
+                    skills.append(
+                        DiscoveredSkill(name=entry.name, source_file=md_file, product_dir=product_dir, depth=1)
+                    )
+            elif entry.is_file() and (entry.name.endswith(".md.j2") or entry.name.endswith(".md")):
+                # Depth 0: loose file — skip .md if a .j2 variant exists
+                if entry.name.endswith(".md") and (entry.parent / (entry.name + ".j2")).exists():
+                    continue
+                skill_name = entry.name.removesuffix(".j2").removesuffix(".md")
+                skills.append(DiscoveredSkill(name=skill_name, source_file=entry, product_dir=product_dir, depth=0))
 
     return skills
+
+
+def validate_skill_depths(skills: list[DiscoveredSkill]) -> list[str]:
+    """Check for depth 2+ violations (subdirectories inside depth-1 skill directories).
+
+    Returns a list of error messages. Empty list means validation passed.
+    """
+    errors: list[str] = []
+    for skill in skills:
+        if skill.depth != 1:
+            continue
+        skill_dir = skill.source_file.parent
+        for child in skill_dir.iterdir():
+            if child.is_dir():
+                errors.append(
+                    f"Nested subdirectory not allowed in skill directory: {child.relative_to(PRODUCTS_DIR.parent)}"
+                )
+    return errors
 
 
 def _make_jinja_env() -> Environment:
@@ -266,36 +307,36 @@ def render_skill(source_file: Path, jinja_env: Environment) -> str:
     return raw
 
 
-def build_skill(skill_name: str, source_file: Path, jinja_env: Environment) -> dict[str, Any]:
+def build_skill(skill: DiscoveredSkill, jinja_env: Environment) -> dict[str, Any]:
     """Build a single skill and return a ContextMillResource dict.
 
     Parses YAML frontmatter for name/description, renders the template,
     and produces a manifest resource entry with the skill text inlined.
     """
-    rendered = render_skill(source_file, jinja_env)
+    rendered = render_skill(skill.source_file, jinja_env)
     metadata, body = parse_frontmatter(rendered)
 
-    display_name = metadata.get("name", skill_name)
-    description = metadata.get("description", f"Skill: {skill_name}")
+    display_name = metadata.get("name", skill.name)
+    description = metadata.get("description", f"Skill: {skill.name}")
 
     return {
-        "id": skill_name,
+        "id": skill.name,
         "name": display_name,
-        "uri": f"skill://posthog/{skill_name}",
+        "uri": f"skill://posthog/{skill.name}",
         "resource": {
             "mimeType": "text/markdown",
             "description": description,
             "text": body.strip(),
         },
-        "source": str(source_file.relative_to(REPO_ROOT)),
+        "source": str(skill.source_file.relative_to(REPO_ROOT)),
     }
 
 
-def build_manifest(skills: list[tuple[str, Path, Path]], jinja_env: Environment) -> dict[str, Any]:
+def build_manifest(skills: list[DiscoveredSkill], jinja_env: Environment) -> dict[str, Any]:
     """Build the full ContextMillManifest dict from discovered skills."""
     resources: list[dict[str, Any]] = []
-    for skill_name, source_file, _product_dir in skills:
-        resource = build_skill(skill_name, source_file, jinja_env)
+    for skill in skills:
+        resource = build_skill(skill, jinja_env)
         resources.append(resource)
 
     return {
@@ -310,6 +351,13 @@ def build_all(*, dry_run: bool = False) -> dict[str, Any]:
     Returns the manifest dict.
     """
     skills = discover_product_skills()
+
+    depth_errors = validate_skill_depths(skills)
+    if depth_errors:
+        for err in depth_errors:
+            print(f"ERROR: {err}", file=sys.stderr)
+        raise SystemExit(1)
+
     jinja_env = _make_jinja_env()
     manifest = build_manifest(skills, jinja_env)
 
@@ -363,6 +411,65 @@ def check_all() -> bool:
     return True
 
 
+def lint_all() -> bool:
+    """Validate skill sources without rendering (no Django needed).
+
+    Checks:
+    - Depth validation (no depth 2+)
+    - Duplicate skill name detection (across products)
+    - Jinja2 syntax validation via parse-only
+    - Frontmatter validation for static .md files (required: name, description)
+
+    Returns True if all checks pass, False otherwise.
+    """
+    skills = discover_product_skills()
+    errors: list[str] = []
+
+    # Depth validation
+    errors.extend(validate_skill_depths(skills))
+
+    # Duplicate skill name detection
+    seen: dict[str, DiscoveredSkill] = {}
+    for skill in skills:
+        if skill.name in seen:
+            first = seen[skill.name]
+            errors.append(
+                f"Duplicate skill name '{skill.name}': "
+                f"{first.source_file.relative_to(REPO_ROOT)} and "
+                f"{skill.source_file.relative_to(REPO_ROOT)}"
+            )
+        else:
+            seen[skill.name] = skill
+
+    jinja_env = _make_jinja_env()
+
+    for skill in skills:
+        raw = skill.source_file.read_text()
+
+        if skill.source_file.suffix == ".j2":
+            # Jinja2 syntax validation (parse-only, no rendering)
+            try:
+                jinja_env.parse(raw)
+            except TemplateSyntaxError as e:
+                errors.append(f"Jinja2 syntax error in {skill.source_file.relative_to(REPO_ROOT)}: {e}")
+        else:
+            # Frontmatter validation for static .md files
+            metadata, _body = parse_frontmatter(raw)
+            for field in ("name", "description"):
+                if field not in metadata:
+                    errors.append(
+                        f"Missing required frontmatter field '{field}' in {skill.source_file.relative_to(REPO_ROOT)}"
+                    )
+
+    if errors:
+        for err in errors:
+            print(f"ERROR: {err}", file=sys.stderr)
+        return False
+
+    print(f"OK: {len(skills)} skill(s) passed lint checks.")
+    return True
+
+
 def list_skills() -> None:
     """List all discovered product skills."""
     skills = discover_product_skills()
@@ -372,11 +479,12 @@ def list_skills() -> None:
         return
 
     print(f"Found {len(skills)} product skill(s):\n")
-    for skill_name, source_file, product_dir in skills:
-        product = product_dir.name
-        is_template = source_file.suffix == ".j2"
+    for skill in skills:
+        product = skill.product_dir.name
+        is_template = skill.source_file.suffix == ".j2"
         kind = "template" if is_template else "static"
-        print(f"  {skill_name:<40} product={product:<20} ({kind})")
+        depth_label = f"depth={skill.depth}"
+        print(f"  {skill.name:<40} product={product:<20} ({kind}, {depth_label})")
 
 
 # ---------------------------------------------------------------------------
@@ -399,7 +507,18 @@ def main() -> None:
         action="store_true",
         help="List discovered product skills without building",
     )
+    parser.add_argument(
+        "--lint",
+        action="store_true",
+        help="Validate skill sources without rendering (no Django needed)",
+    )
     args = parser.parse_args()
+
+    if args.lint:
+        ok = lint_all()
+        if not ok:
+            sys.exit(1)
+        return
 
     if args.list:
         list_skills()
@@ -408,7 +527,7 @@ def main() -> None:
     if args.check:
         ok = check_all()
         if not ok:
-            print("\nSkills are out of date. Run `python products/posthog_ai/scripts/build_skills.py` to rebuild.")
+            print("\nSkills are out of date. Run `hogli build:skills` to rebuild.")
             sys.exit(1)
         else:
             print("\nAll product skills are up-to-date.")

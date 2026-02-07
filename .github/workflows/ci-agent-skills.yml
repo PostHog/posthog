@@ -7,7 +7,7 @@ on:
             - master
         paths:
             - 'products/*/skills/**'
-            - 'services/mcp/dist-skills/**'
+            - 'services/mcp/skills/**'
             - 'products/posthog_ai/scripts/build_skills.py'
             - '.github/workflows/ci-agent-skills.yml'
 
@@ -36,7 +36,7 @@ jobs:
                       skills:
                         - 'products/*/skills/**'
                         - 'products/*/backend/max_tools.py'
-                        - 'services/mcp/dist-skills/**'
+                        - 'services/mcp/skills/**'
                         - 'products/posthog_ai/scripts/build_skills.py'
                         - '.github/workflows/ci-agent-skills.yml'
 
@@ -66,5 +66,22 @@ jobs:
             - name: Install python dependencies
               run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
 
-            - name: Check skills are built
-              run: uv run python products/posthog_ai/scripts/build_skills.py --check
+            - name: Lint skills
+              run: ./bin/hogli lint:skills
+
+            - name: Check skills are up to date
+              run: |
+                  ./bin/hogli build:skills
+                  if ! git diff --exit-code; then
+                      echo ""
+                      echo "::error::Agent skills are out of date!"
+                      echo ""
+                      echo "The skill manifest in services/mcp/skills/ is auto-generated"
+                      echo "from skill templates in products/*/skills/. When you modify"
+                      echo "skill sources, you need to regenerate the manifest."
+                      echo ""
+                      echo "To fix, run locally:  hogli build:skills"
+                      echo "Then commit the updated generated files."
+                      echo ""
+                      exit 1
+                  fi
