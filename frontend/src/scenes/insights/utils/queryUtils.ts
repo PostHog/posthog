@@ -195,7 +195,6 @@ export const cleanInsightQuery = (query: InsightQueryNode, opts?: CompareQueryOp
             movingAverageIntervals: undefined,
             stacked: undefined,
             detailedResultsAggregationType: undefined,
-            incompletePeriodDisplay: undefined,
             showFullUrls: undefined,
             selectedInterval: undefined,
             funnelStepReference: undefined,

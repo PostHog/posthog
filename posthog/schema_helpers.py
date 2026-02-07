@@ -109,7 +109,6 @@ def to_dict(query: BaseModel) -> dict:
                         "movingAverageIntervals",
                         "stacked",
                         "detailedResultsAggregationType",
-                        "incompletePeriodDisplay",
                         "showFullUrls",
                         "selectedInterval",
                         "funnelStepReference",
