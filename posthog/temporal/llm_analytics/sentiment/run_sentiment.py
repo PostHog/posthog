@@ -104,6 +104,7 @@ async def classify_sentiment_activity(input: SentimentClassificationInput) -> di
 
     # Emit $ai_sentiment event
     trace_id = properties.get("$ai_trace_id")
+    session_id = properties.get("$ai_session_id")
     generation_event_uuid = event_data.get("uuid")
     # Use the generation's logical ID so the sentiment event can nest under it
     # in the trace tree. The frontend resolves $ai_parent_id against
@@ -120,6 +121,7 @@ async def classify_sentiment_activity(input: SentimentClassificationInput) -> di
 
         sentiment_properties: dict[str, Any] = {
             "$ai_trace_id": trace_id,
+            "$ai_session_id": session_id,
             "$ai_parent_id": generation_parent_id,
             "$ai_generation_event_uuid": generation_event_uuid,
             "$ai_sentiment_label": result.label,
