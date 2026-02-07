@@ -31,6 +31,7 @@ export const VALID_SELF_MANAGED_MARKETING_SOURCES: ManualLinkSourceType[] = [
 // Map of native sources that require feature flags to be enabled
 export const NATIVE_SOURCE_FEATURE_FLAGS: Partial<Record<NativeMarketingSource, FeatureFlagKey>> = {
     BingAds: FEATURE_FLAGS.BING_ADS_SOURCE,
+    SnapchatAds: FEATURE_FLAGS.SNAPCHAT_ADS_SOURCE,
 }
 
 /**
@@ -415,6 +416,53 @@ const sourceTileConfigs: Record<NativeMarketingSource, SourceTileConfig> = {
                     return {
                         math: 'hogql' as any,
                         math_hogql: 'SUM(ifNull(toFloat(revenue), 0))',
+                    }
+                }
+                return {
+                    math: 'hogql' as any,
+                    math_hogql: '0',
+                }
+            }
+            return null
+        },
+    },
+    SnapchatAds: {
+        idField: 'id',
+        timestampField: 'start_time',
+        columnMappings: {
+            cost: 'spend',
+            impressions: 'impressions',
+            clicks: 'swipes',
+            reportedConversion: 'conversion_purchases',
+            reportedConversionValue: 'conversion_purchases_value',
+            costNeedsDivision: true,
+            currencyColumn: 'currency',
+        },
+        specialConversionLogic: (table, tileColumnSelection) => {
+            // Use conversion fields from centralized config
+            const { conversionFields, conversionValueFields } = MARKETING_INTEGRATION_CONFIGS.SnapchatAds
+
+            if (tileColumnSelection === MarketingAnalyticsColumnsSchemaNames.ReportedConversion) {
+                const availableFields = conversionFields.filter((field) => table.fields && field in table.fields)
+                if (availableFields.length > 0) {
+                    const sumExpr = availableFields.map((field) => `ifNull(toFloat(${field}), 0)`).join(' + ')
+                    return {
+                        math: 'hogql' as any,
+                        math_hogql: `SUM(${sumExpr})`,
+                    }
+                }
+                return {
+                    math: 'hogql' as any,
+                    math_hogql: '0',
+                }
+            }
+            if (tileColumnSelection === MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue) {
+                const availableFields = conversionValueFields.filter((field) => table.fields && field in table.fields)
+                if (availableFields.length > 0) {
+                    const sumExpr = availableFields.map((field) => `ifNull(toFloat(${field}), 0)`).join(' + ')
+                    return {
+                        math: 'hogql' as any,
+                        math_hogql: `SUM(${sumExpr})`,
                     }
                 }
                 return {

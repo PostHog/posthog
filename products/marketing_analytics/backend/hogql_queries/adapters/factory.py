@@ -16,6 +16,7 @@ from products.marketing_analytics.backend.hogql_queries.adapters.bing_ads import
 from products.marketing_analytics.backend.hogql_queries.adapters.linkedin_ads import LinkedinAdsAdapter
 from products.marketing_analytics.backend.hogql_queries.adapters.meta_ads import MetaAdsAdapter
 from products.marketing_analytics.backend.hogql_queries.adapters.reddit_ads import RedditAdsAdapter
+from products.marketing_analytics.backend.hogql_queries.adapters.snapchat_ads import SnapchatAdsAdapter
 from products.marketing_analytics.backend.hogql_queries.adapters.tiktok_ads import TikTokAdsAdapter
 
 from ..constants import (
@@ -34,6 +35,7 @@ from .base import (
     MetaAdsConfig,
     QueryContext,
     RedditAdsConfig,
+    SnapchatAdsConfig,
     TikTokAdsConfig,
 )
 from .bigquery import BigQueryAdapter
@@ -55,6 +57,7 @@ class MarketingSourceFactory:
         "MetaAds": MetaAdsAdapter,
         "TikTokAds": TikTokAdsAdapter,
         "BingAds": BingAdsAdapter,
+        "SnapchatAds": SnapchatAdsAdapter,
         # Non-native adapters
         "BigQuery": BigQueryAdapter,
         # Self-managed adapters
@@ -72,6 +75,7 @@ class MarketingSourceFactory:
         "MetaAds": "_create_metaads_config",
         "TikTokAds": "_create_tiktokads_config",
         "BingAds": "_create_bingads_config",
+        "SnapchatAds": "_create_snapchatads_config",
     }
 
     @classmethod
@@ -366,6 +370,38 @@ class MarketingSourceFactory:
             return None
 
         config = BingAdsConfig(
+            source_type=source.source_type,
+            campaign_table=campaign_table,
+            stats_table=campaign_stats_table,
+            source_id=str(source.id),
+        )
+
+        return config
+
+    def _create_snapchatads_config(
+        self, source: ExternalDataSource, tables: list[DataWarehouseTable]
+    ) -> Optional[SnapchatAdsConfig]:
+        """Create Snapchat Ads adapter config with campaign and stats tables"""
+        patterns = TABLE_PATTERNS[NativeMarketingSource.SNAPCHAT_ADS]
+        campaign_table = None
+        campaign_stats_table = None
+
+        for table in tables:
+            table_suffix = table.name.split(".")[-1].lower()
+
+            # Check for campaign table
+            if any(kw in table_suffix for kw in patterns["campaign_table_keywords"]) and not any(
+                ex in table_suffix for ex in patterns["campaign_table_exclusions"]
+            ):
+                campaign_table = table
+            # Check for stats table
+            elif any(kw in table_suffix for kw in patterns["stats_table_keywords"]):
+                campaign_stats_table = table
+
+        if not (campaign_table and campaign_stats_table):
+            return None
+
+        config = SnapchatAdsConfig(
             source_type=source.source_type,
             campaign_table=campaign_table,
             stats_table=campaign_stats_table,
