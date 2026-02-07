@@ -847,6 +847,8 @@ const EventContent = React.memo(
         const { displayOption, lineNumber, initialTab, viewMode } = useValues(llmAnalyticsTraceLogic)
         const { handleTextViewFallback, copyLinePermalink, setViewMode } = useActions(llmAnalyticsTraceLogic)
 
+        const { sentimentByEventId } = useValues(llmAnalyticsTraceDataLogic)
+
         const node = event && isLLMEvent(event) ? findNodeForEvent(tree, event.id) : null
         const aggregation = node?.aggregation || null
 
@@ -1077,6 +1079,13 @@ const EventContent = React.memo(
                                                                 httpStatus={event.properties.$ai_http_status}
                                                                 raisedError={event.properties.$ai_is_error}
                                                                 searchQuery={searchQuery}
+                                                                messageSentiments={
+                                                                    sentimentByEventId.get(
+                                                                        event.properties.$ai_generation_id ??
+                                                                            event.properties.$ai_span_id ??
+                                                                            event.id
+                                                                    )?.properties.$ai_sentiment_messages
+                                                                }
                                                             />
                                                         ) : event.event === '$ai_embedding' ? (
                                                             <EventContentDisplayAsync

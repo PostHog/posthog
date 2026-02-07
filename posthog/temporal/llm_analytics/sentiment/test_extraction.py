@@ -1,6 +1,10 @@
 """Tests for sentiment text extraction utilities."""
 
-from posthog.temporal.llm_analytics.sentiment.extraction import extract_user_messages, truncate_to_token_limit
+from posthog.temporal.llm_analytics.sentiment.extraction import (
+    extract_user_messages,
+    extract_user_messages_individually,
+    truncate_to_token_limit,
+)
 
 
 class TestExtractUserMessages:
@@ -61,6 +65,70 @@ class TestExtractUserMessages:
             {"role": "user", "content": "Real message"},
         ]
         assert extract_user_messages(ai_input) == "Real message"
+
+
+class TestExtractUserMessagesIndividually:
+    def test_openai_format_returns_list(self):
+        ai_input = [
+            {"role": "system", "content": "You are a helpful assistant"},
+            {"role": "user", "content": "Hello, I need help"},
+            {"role": "assistant", "content": "Hi! How can I help?"},
+            {"role": "user", "content": "I'm frustrated with this feature"},
+        ]
+        result = extract_user_messages_individually(ai_input)
+        assert result == ["Hello, I need help", "I'm frustrated with this feature"]
+
+    def test_anthropic_format(self):
+        ai_input = [
+            {"role": "user", "content": [{"type": "text", "text": "Hello"}]},
+            {"role": "assistant", "content": [{"type": "text", "text": "Hi"}]},
+            {"role": "user", "content": [{"type": "text", "text": "Help me"}]},
+        ]
+        result = extract_user_messages_individually(ai_input)
+        assert result == ["Hello", "Help me"]
+
+    def test_none_input(self):
+        assert extract_user_messages_individually(None) == []
+
+    def test_empty_list(self):
+        assert extract_user_messages_individually([]) == []
+
+    def test_empty_string(self):
+        assert extract_user_messages_individually("") == []
+
+    def test_string_input(self):
+        assert extract_user_messages_individually("raw text") == ["raw text"]
+
+    def test_no_user_messages(self):
+        ai_input = [
+            {"role": "system", "content": "You are helpful"},
+            {"role": "assistant", "content": "Hello!"},
+        ]
+        assert extract_user_messages_individually(ai_input) == []
+
+    def test_empty_user_messages_filtered(self):
+        ai_input = [
+            {"role": "user", "content": ""},
+            {"role": "user", "content": ""},
+        ]
+        assert extract_user_messages_individually(ai_input) == []
+
+    def test_single_dict_user(self):
+        assert extract_user_messages_individually({"role": "user", "content": "Hello"}) == ["Hello"]
+
+    def test_single_dict_non_user(self):
+        assert extract_user_messages_individually({"role": "system", "content": "Instructions"}) == []
+
+    def test_mixed_empty_and_nonempty(self):
+        ai_input = [
+            {"role": "user", "content": ""},
+            {"role": "user", "content": "Real message"},
+        ]
+        assert extract_user_messages_individually(ai_input) == ["Real message"]
+
+    def test_single_user_message(self):
+        ai_input = [{"role": "user", "content": "Just one message"}]
+        assert extract_user_messages_individually(ai_input) == ["Just one message"]
 
 
 class TestTruncateToTokenLimit:

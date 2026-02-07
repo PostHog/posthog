@@ -109,6 +109,40 @@ export function UserSentimentBar({ scores }: { scores: [number, number, number, 
     )
 }
 
+export interface MessageSentiment {
+    text: string
+    label: string
+    score: number
+    scores: Record<string, number>
+}
+
+export function MessageSentimentBar({ sentiment }: { sentiment: MessageSentiment }): JSX.Element | null {
+    const label = sentiment.label as SentimentLabel
+    if (!SENTIMENT_BAR_COLOR[label]) {
+        return null
+    }
+    const widthPercent = typeof sentiment.score === 'number' ? Math.round(sentiment.score * 100) : 50
+    const barColor = SENTIMENT_BAR_COLOR[label]
+    const scores = sentiment.scores
+    const tooltipText = scores
+        ? `Positive: ${formatScore(scores.positive)} / Neutral: ${formatScore(scores.neutral)} / Negative: ${formatScore(scores.negative)}`
+        : `Sentiment: ${label}`
+
+    return (
+        <Tooltip title={tooltipText}>
+            <span className="flex items-center gap-1">
+                <span className="w-10 h-1.5 bg-border-light rounded-full overflow-hidden inline-block">
+                    <span
+                        className={`block h-full rounded-full ${barColor}`}
+                        // eslint-disable-next-line react/forbid-dom-props
+                        style={{ width: `${widthPercent}%` }}
+                    />
+                </span>
+            </span>
+        </Tooltip>
+    )
+}
+
 export function SentimentBar({ event }: { event: LLMTraceEvent }): JSX.Element | null {
     const label = getSentimentLabel(event)
     if (!label) {

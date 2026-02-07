@@ -20,7 +20,11 @@ from posthog.models.event.util import create_event
 from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.llm_analytics.sentiment.extraction import extract_user_messages, truncate_to_token_limit
+from posthog.temporal.llm_analytics.sentiment.extraction import (
+    extract_user_messages,
+    extract_user_messages_individually,
+    truncate_to_token_limit,
+)
 from posthog.temporal.llm_analytics.sentiment.model import MODEL_NAME, classify
 
 logger = structlog.get_logger(__name__)
@@ -85,22 +89,38 @@ async def classify_sentiment_activity(input: SentimentClassificationInput) -> di
             "skip_reason": "no_ai_input",
         }
 
-    user_text = extract_user_messages(ai_input)
-    if not user_text.strip():
+    individual_messages = extract_user_messages_individually(ai_input)
+    if not individual_messages:
         logger.info("Skipping sentiment: no user messages")
         return {
             "skipped": True,
             "skip_reason": "no_user_messages",
         }
 
-    # Truncate to model limit
-    truncated_text = truncate_to_token_limit(user_text)
-
-    # Classify (run in thread to avoid blocking the Temporal event loop).
-    # The async lock ensures only one coroutine loads the model at a time,
-    # preventing concurrent torch ONNX exports which are not thread-safe.
+    # Classify each user message individually
+    per_message_results: list[dict[str, Any]] = []
     async with _classify_lock:
-        result = await asyncio.to_thread(classify, truncated_text)
+        for text in individual_messages:
+            truncated = truncate_to_token_limit(text)
+            msg_result = await asyncio.to_thread(classify, truncated)
+            per_message_results.append(
+                {
+                    "text": truncated,
+                    "label": msg_result.label,
+                    "score": msg_result.score,
+                    "scores": msg_result.scores,
+                }
+            )
+
+    # Overall sentiment = "worst" (negative > neutral > positive) for backward compat
+    SEVERITY = {"negative": 2, "neutral": 1, "positive": 0}
+    worst = max(per_message_results, key=lambda r: SEVERITY.get(r["label"], 0))
+    overall_label = worst["label"]
+    overall_score = worst["score"]
+    overall_scores = worst["scores"]
+
+    # Build concatenated text for backward compat ($ai_sentiment_text)
+    truncated_text = truncate_to_token_limit(extract_user_messages(ai_input))
 
     # Emit $ai_sentiment event
     trace_id = properties.get("$ai_trace_id")
@@ -124,11 +144,12 @@ async def classify_sentiment_activity(input: SentimentClassificationInput) -> di
             "$ai_session_id": session_id,
             "$ai_parent_id": generation_parent_id,
             "$ai_generation_event_uuid": generation_event_uuid,
-            "$ai_sentiment_label": result.label,
-            "$ai_sentiment_score": result.score,
-            "$ai_sentiment_scores": result.scores,
+            "$ai_sentiment_label": overall_label,
+            "$ai_sentiment_score": overall_score,
+            "$ai_sentiment_scores": overall_scores,
             "$ai_sentiment_text": truncated_text,
             "$ai_sentiment_model": MODEL_NAME,
+            "$ai_sentiment_messages": per_message_results,
         }
 
         person_id = uuid.UUID(event_data["person_id"]) if event_data.get("person_id") else None
@@ -147,9 +168,10 @@ async def classify_sentiment_activity(input: SentimentClassificationInput) -> di
 
     return {
         "skipped": False,
-        "label": result.label,
-        "score": result.score,
-        "scores": result.scores,
+        "label": overall_label,
+        "score": overall_score,
+        "scores": overall_scores,
+        "per_message": per_message_results,
     }
 
 

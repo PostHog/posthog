@@ -38,6 +38,36 @@ def extract_user_messages(ai_input: Union[str, list, dict, None]) -> str:
     return ""
 
 
+def extract_user_messages_individually(ai_input: Union[str, list, dict, None]) -> list[str]:
+    """Extract individual user messages from $ai_input as a list.
+
+    Same filtering logic as extract_user_messages, but returns each
+    user message as a separate item instead of concatenating.
+    """
+    if not ai_input:
+        return []
+
+    if isinstance(ai_input, str):
+        return [ai_input] if ai_input else []
+
+    if isinstance(ai_input, dict):
+        if ai_input.get("role") == "user":
+            text = _extract_content_text(ai_input.get("content", ""))
+            return [text] if text else []
+        return []
+
+    if isinstance(ai_input, list):
+        result = []
+        for msg in ai_input:
+            if isinstance(msg, dict) and msg.get("role") == "user":
+                text = _extract_content_text(msg.get("content", ""))
+                if text:
+                    result.append(text)
+        return result
+
+    return []
+
+
 def truncate_to_token_limit(text: str, max_chars: int = 1500) -> str:
     """Truncate text to approximate token limit.
 
