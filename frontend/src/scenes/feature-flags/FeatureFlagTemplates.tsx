@@ -38,7 +38,7 @@ export function FeatureFlagTemplates(): JSX.Element | null {
                     panels={[
                         {
                             key: 'templates',
-                            header: 'Start with a template',
+                            header: 'Choose a template',
                             content: (
                                 <div className="flex gap-3 overflow-x-auto pt-2">
                                     {templates.map((template) => (
