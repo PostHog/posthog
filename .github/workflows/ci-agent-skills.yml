@@ -8,7 +8,7 @@ on:
         paths:
             - 'products/*/skills/**'
             - 'services/mcp/skills/**'
-            - 'products/posthog_ai/scripts/build_skills.py'
+            - 'products/posthog_ai/scripts/**'
             - '.github/workflows/ci-agent-skills.yml'
 
 concurrency:
@@ -37,7 +37,7 @@ jobs:
                         - 'products/*/skills/**'
                         - 'products/*/backend/max_tools.py'
                         - 'services/mcp/skills/**'
-                        - 'products/posthog_ai/scripts/build_skills.py'
+                        - 'products/posthog_ai/**'
                         - '.github/workflows/ci-agent-skills.yml'
 
     check-skills:
