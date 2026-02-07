@@ -1285,14 +1285,10 @@ export function dateFilterToText(
             return formatDateRange(dayjs(dateFrom, 'YYYY-MM-DD'), dayjs(dateTo, 'YYYY-MM-DD'))
         }
         if (dateFrom?.includes('T') || dateTo?.includes('T')) {
-            // Parse each date individually - dates without a time component use 'YYYY-MM-DD' (midnight),
-            // while datetimes use 'YYYY-MM-DD HH:mm' to preserve the time
-            const parsedFrom = dateFrom?.includes('T')
-                ? dayjs(dateFrom, 'YYYY-MM-DD HH:mm')
-                : dayjs(dateFrom, 'YYYY-MM-DD')
-            const parsedTo = dateTo?.includes('T')
-                ? dayjs(dateTo, 'YYYY-MM-DD HH:mm')
-                : dayjs(dateTo, 'YYYY-MM-DD')
+            // Parse each date individually - ISO 8601 datetimes (with T) use native parsing
+            // to correctly handle seconds/milliseconds, plain dates use 'YYYY-MM-DD'
+            const parsedFrom = dateFrom?.includes('T') ? dayjs(dateFrom) : dayjs(dateFrom, 'YYYY-MM-DD')
+            const parsedTo = dateTo?.includes('T') ? dayjs(dateTo) : dayjs(dateTo, 'YYYY-MM-DD')
             return formatDateTimeRange(parsedFrom, parsedTo)
         }
         return `${dateFrom} - ${dateTo}`
