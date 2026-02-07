@@ -53,20 +53,6 @@ export class DashboardPage {
         await this.page.getByTestId('create-dashboard-blank').click()
     }
 
-    async addInsightToDashboard(dashboardName: string): Promise<void> {
-        await this.page.getByTestId('info-actions-panel').click()
-        const addButton = this.page.getByTestId('insight-add-to-dashboard-button')
-        await expect(addButton).toBeVisible()
-        await addButton.click()
-
-        const modal = this.page.locator('.LemonModal').filter({ hasText: 'Add to dashboard' })
-        await expect(modal).toBeVisible()
-
-        const row = modal.locator('[data-attr="dashboard-list-item"]').filter({ hasText: dashboardName })
-        const btn = row.getByRole('button', { name: 'Add to dashboard' })
-        btn.click()
-    }
-
     async closeSidePanels(): Promise<void> {
         await this.page.keyboard.press('Escape')
 
@@ -125,18 +111,5 @@ export class DashboardPage {
             .locator('.Popover')
             .getByRole(option === 'Edit' ? 'link' : 'button', { name: option })
         await editLink.click()
-    }
-
-    async renameFirstTile(newTileName: string): Promise<void> {
-        await this.openFirstTileMenu()
-        await this.selectTileMenuOption('Rename')
-
-        const renameModal = this.page.locator('.LemonModal').filter({ has: this.page.getByTestId('insight-name') })
-        await renameModal.getByTestId('insight-name').fill(newTileName)
-        await renameModal.getByText('Submit').click()
-
-        await expect(this.page.locator('.InsightCard').first().getByText(newTileName)).toBeVisible()
-
-        await this.page.keyboard.press('Escape')
     }
 }
