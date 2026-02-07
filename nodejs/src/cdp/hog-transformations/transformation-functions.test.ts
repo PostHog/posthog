@@ -7,7 +7,7 @@ describe('transformation-functions', () => {
             ['null', null, false],
             ['undefined', undefined, false],
             ['empty string', '', false],
-            ['random private IP', '192.168.1.1', false],
+            ['random public IP', '1.2.3.4', false],
             ['exact match from list', '5.39.1.224', true],
             ['IPv4 within CIDR /24 range', '17.22.237.100', true],
             ['IPv4 within CIDR /27 range', '17.241.208.170', true],
