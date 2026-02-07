@@ -322,6 +322,9 @@ build:
     build:products:
         cmd: pnpm --filter=@posthog/frontend run build:products
         description: Build products manifest from TypeScript/JSX files
+    build:skills:
+        cmd: uv run python products/posthog_ai/scripts/build_skills.py
+        description: Build agent skills from products/*/skills/ into MCP distribution manifest
 docker:
     # docker:services:up is a Python command in common/hogli/devenv/cli.py that respects intent config
     docker:services:down:
