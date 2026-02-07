@@ -5,7 +5,6 @@ import calendar
 from datetime import timedelta
 from typing import TypedDict, cast
 
-from django.core.exceptions import ObjectDoesNotExist
 from django.http import JsonResponse
 from django.utils import timezone
 from django.utils.decorators import method_decorator
@@ -493,15 +492,21 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
     if the client_id and client_secret are provided, the request is
     authenticated using client credentials and does not require the `introspection` scope.
 
-    Self-introspection: A token can always introspect itself without requiring
-    the `introspection` scope. This allows MCP clients to discover their own
-    token's scopes and permissions during initialization.
+    Self-introspection: An access token can always introspect itself without
+    requiring the `introspection` scope. This allows MCP clients to discover
+    their own token's scopes and permissions during initialization. Refresh
+    tokens cannot self-introspect (they are not usable as Bearer credentials).
     """
 
     required_scopes = ["introspection"]
 
     def _is_self_introspection(self, request) -> bool:
-        """Check if the request is a self-introspection (token introspecting itself)."""
+        """
+        Check if the request is an access token introspecting itself.
+
+        Self-introspection only applies to access tokens — refresh tokens cannot
+        be used as Bearer tokens per OAuth 2.0, so they never reach this path.
+        """
         auth_header = request.headers.get("Authorization", "")
         if not auth_header.startswith("Bearer "):
             return False
@@ -517,19 +522,25 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
                 except (json.JSONDecodeError, ValueError):
                     pass
 
-        return bearer_token and token_to_introspect and bearer_token == token_to_introspect
+        return bool(bearer_token and token_to_introspect and bearer_token == token_to_introspect)
 
     def verify_request(self, request):
-        """Allow self-introspection without the introspection scope."""
+        """
+        Allow self-introspection without the introspection scope.
+
+        Only access tokens can self-introspect (they're the only token type
+        usable as Bearer credentials). We validate the Bearer token is a valid
+        access token before granting access.
+        """
         if self._is_self_introspection(request):
             bearer_token = request.headers.get("Authorization", "")[7:]
+            token_checksum = hashlib.sha256(bearer_token.encode("utf-8")).hexdigest()
             try:
-                token_checksum = hashlib.sha256(bearer_token.encode("utf-8")).hexdigest()
-                token = OAuthAccessToken.objects.get(token_checksum=token_checksum)
-                if token.is_valid():
-                    return True, request
-            except ObjectDoesNotExist:
-                pass
+                access_token = OAuthAccessToken.objects.get(token_checksum=token_checksum)
+            except OAuthAccessToken.DoesNotExist:
+                return False, request
+            if access_token.is_valid():
+                return True, request
             return False, request
         return super().verify_request(request)
 
