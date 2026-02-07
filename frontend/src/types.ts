@@ -6363,6 +6363,14 @@ export interface EmailSenderDomainStatus {
               recordValue: string
               status: 'pending' | 'success'
           }
+        | {
+              type: 'mail_from'
+              recordType: 'TXT' | 'MX'
+              recordHostname: string
+              recordValue: string
+              status: 'pending' | 'success'
+              priority?: number
+          }
     )[]
 }
 

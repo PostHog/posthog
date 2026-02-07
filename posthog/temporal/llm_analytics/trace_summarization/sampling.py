@@ -16,6 +16,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
+from posthog.temporal.llm_analytics.trace_summarization.constants import MAX_TRACE_EVENTS_LIMIT
 from posthog.temporal.llm_analytics.trace_summarization.models import BatchSummarizationInputs, SampledItem
 from posthog.temporal.llm_analytics.trace_summarization.utils import format_datetime_for_clickhouse
 
@@ -107,18 +108,22 @@ async def sample_items_in_window_activity(inputs: BatchSummarizationInputs) -> l
 
             return items
         else:
-            # Trace-level: sample trace IDs and first timestamps
+            # Trace-level: sample trace IDs and first timestamps.
+            # Filters out traces with more than MAX_TRACE_EVENTS_LIMIT events
+            # to prevent CPU-intensive formatting from blocking the worker.
             traces_query = parse_select(
                 """
                 SELECT
                     properties.$ai_trace_id as trace_id,
-                    min(timestamp) as first_timestamp
+                    min(timestamp) as first_timestamp,
+                    count() as event_count
                 FROM events
                 WHERE event IN ('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')
                     AND timestamp >= toDateTime({start_ts}, 'UTC')
                     AND timestamp < toDateTime({end_ts}, 'UTC')
                     AND properties.$ai_trace_id != ''
                 GROUP BY trace_id
+                HAVING event_count <= {max_events}
                 ORDER BY first_timestamp DESC
                 LIMIT {limit}
                 """
@@ -131,6 +136,7 @@ async def sample_items_in_window_activity(inputs: BatchSummarizationInputs) -> l
                     "start_ts": ast.Constant(value=start_dt_str),
                     "end_ts": ast.Constant(value=end_dt_str),
                     "limit": ast.Constant(value=max_items),
+                    "max_events": ast.Constant(value=MAX_TRACE_EVENTS_LIMIT),
                 },
                 team=team,
                 limit_context=LimitContext.QUERY_ASYNC,
@@ -142,6 +148,7 @@ async def sample_items_in_window_activity(inputs: BatchSummarizationInputs) -> l
                 start_ts=start_dt_str,
                 end_ts=end_dt_str,
                 team_id=team_id,
+                max_events_filter=MAX_TRACE_EVENTS_LIMIT,
             )
 
             return [
