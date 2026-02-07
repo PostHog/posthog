@@ -187,6 +187,10 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
             return {
                 evaluationScheduler: true,
             }
+        case PluginServerMode.sentiment_scheduler:
+            return {
+                sentimentScheduler: true,
+            }
         case PluginServerMode.ingestion_logs:
             return {
                 logsIngestion: true,
