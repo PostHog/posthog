@@ -12,14 +12,46 @@ import {
     ActionType,
     CohortType,
     EventDefinition,
+    EventPropertyFilter,
     PersonProperty,
+    PersonPropertyFilter,
     PropertyDefinition,
     PropertyFilterType,
+    PropertyOperator,
 } from '~/types'
 
 export interface SimpleOption {
     name: string
     propertyFilterType?: PropertyFilterType
+}
+
+export interface QuickFilterItem {
+    name: string
+    filterValue: string
+    operator: PropertyOperator
+    propertyKey: string
+    propertyFilterType: PropertyFilterType.Event | PropertyFilterType.Person
+    eventName?: string
+    badge?: string
+}
+
+export function isQuickFilterItem(item: unknown): item is QuickFilterItem {
+    return (
+        item != null &&
+        typeof item === 'object' &&
+        'filterValue' in item &&
+        'operator' in item &&
+        'propertyKey' in item &&
+        'propertyFilterType' in item
+    )
+}
+
+export function quickFilterToPropertyFilter(item: QuickFilterItem): EventPropertyFilter | PersonPropertyFilter {
+    const base = { key: item.propertyKey, value: item.filterValue, operator: item.operator }
+    if (item.propertyFilterType === PropertyFilterType.Event) {
+        return { ...base, type: PropertyFilterType.Event }
+    }
+    return { ...base, type: PropertyFilterType.Person }
 }
 
 export type TaxonomicFilterGroupValueMap = { [key in TaxonomicFilterGroupType]?: (PropertyKey | null)[] }
@@ -180,6 +212,7 @@ export enum TaxonomicFilterGroupType {
     MaxAIContext = 'max_ai_context',
     // Workflows execution variables
     WorkflowVariables = 'workflow_variables',
+    QuickFilters = 'quick_filters',
     Empty = 'empty',
 }
 
@@ -219,3 +252,4 @@ export type TaxonomicDefinitionTypes =
     | DataWarehouseTableForInsight
     | MaxContextTaxonomicFilterOption
     | ReplayTaxonomicFilterProperty
+    | QuickFilterItem

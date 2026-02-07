@@ -4,7 +4,7 @@ import { BuiltLogic, actions, connect, kea, key, listeners, path, props, reducer
 import { combineUrl } from 'kea-router'
 import posthog from 'posthog-js'
 
-import { IconFlag, IconServer } from '@posthog/icons'
+import { IconEye, IconFlag, IconPerson, IconServer } from '@posthog/icons'
 
 import { infiniteListLogic } from 'lib/components/TaxonomicFilter/infiniteListLogic'
 import { infiniteListLogicType } from 'lib/components/TaxonomicFilter/infiniteListLogicType'
@@ -13,6 +13,7 @@ import {
     DataWarehousePopoverField,
     ExcludedProperties,
     ListStorage,
+    QuickFilterItem,
     SelectedProperties,
     SimpleOption,
     TaxonomicDefinitionTypes,
@@ -20,6 +21,7 @@ import {
     TaxonomicFilterGroupType,
     TaxonomicFilterLogicProps,
     TaxonomicFilterValue,
+    isQuickFilterItem,
 } from 'lib/components/TaxonomicFilter/types'
 import { Link } from 'lib/lemon-ui/Link'
 import { IconCohort } from 'lib/lemon-ui/icons'
@@ -53,7 +55,7 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { propertyDefinitionsModel, updatePropertyDefinitions } from '~/models/propertyDefinitionsModel'
 import { AnyDataNode, DatabaseSchemaField, DatabaseSchemaTable, NodeKind } from '~/queries/schema/schema-general'
-import { getCoreFilterDefinition } from '~/taxonomy/helpers'
+import { getCoreFilterDefinition, getFilterLabel } from '~/taxonomy/helpers'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
 import {
     ActionType,
@@ -68,6 +70,8 @@ import {
     PersonType,
     PropertyDefinition,
     PropertyDefinitionType,
+    PropertyFilterType,
+    PropertyOperator,
     QueryBasedInsightModel,
     TeamType,
 } from '~/types'
@@ -167,7 +171,14 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         ],
         activeTab: [
             (state: any): TaxonomicFilterGroupType => {
-                return selectors.groupType(state) || selectors.taxonomicGroupTypes(state)[0]
+                if (selectors.groupType(state)) {
+                    return selectors.groupType(state)
+                }
+                const groupTypes = selectors.taxonomicGroupTypes(state)
+                return (
+                    groupTypes.find((t: TaxonomicFilterGroupType) => t !== TaxonomicFilterGroupType.QuickFilters) ||
+                    groupTypes[0]
+                )
             },
             {
                 setActiveTab: (_, { activeTab }) => activeTab,
@@ -239,7 +250,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             (endpointFilters: Record<string, any>) => endpointFilters,
         ],
         taxonomicGroups: [
-            (s) => [
+            (s, p) => [
                 s.currentTeam,
                 s.currentProjectId,
                 s.groupAnalyticsTaxonomicGroups,
@@ -253,6 +264,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 s.maxContextOptions,
                 s.hideBehavioralCohorts,
                 s.endpointFilters,
+                p.taxonomicGroupTypes,
             ],
             (
                 currentTeam: TeamType,
@@ -267,7 +279,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 eventOrdering: string | null,
                 maxContextOptions: MaxContextTaxonomicFilterOption[],
                 hideBehavioralCohorts: boolean,
-                endpointFilters: Record<string, any> | undefined
+                endpointFilters: Record<string, any> | undefined,
+                propGroupTypes: TaxonomicFilterGroupType[] | undefined
             ): TaxonomicFilterGroup[] => {
                 const { id: teamId } = currentTeam
                 const { excludedProperties, propertyAllowList } = propertyFilters
@@ -901,6 +914,129 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         },
                         getPopoverHeader: () => 'On this page',
                     },
+                    {
+                        name: 'Quick filters',
+                        searchPlaceholder: 'quick filters',
+                        categoryLabel: (count: number) => 'Quick filters' + (count > 0 ? `: ${count}` : ''),
+                        type: TaxonomicFilterGroupType.QuickFilters,
+                        options: [],
+                        localItemsSearch: (_items: TaxonomicDefinitionTypes[], q: string): QuickFilterItem[] => {
+                            if (!q) {
+                                return []
+                            }
+
+                            const isEventMode =
+                                !!propGroupTypes &&
+                                (propGroupTypes.includes(TaxonomicFilterGroupType.Events) ||
+                                    propGroupTypes.includes(TaxonomicFilterGroupType.Actions))
+
+                            const pageviewLabel = getFilterLabel('$pageview', TaxonomicFilterGroupType.Events)
+                            const currentUrlLabel = getFilterLabel(
+                                '$current_url',
+                                TaxonomicFilterGroupType.EventProperties
+                            )
+                            const screenLabel = getFilterLabel('$screen', TaxonomicFilterGroupType.Events)
+                            const screenNameLabel = getFilterLabel(
+                                '$screen_name',
+                                TaxonomicFilterGroupType.EventProperties
+                            )
+                            const emailLabel = getFilterLabel('email', TaxonomicFilterGroupType.PersonProperties)
+
+                            const operatorLabel = (op: PropertyOperator): string =>
+                                op === PropertyOperator.Exact ? '=' : 'containing'
+
+                            const pageview = { key: '$pageview', label: pageviewLabel }
+                            const screen = { key: '$screen', label: screenLabel }
+                            const emailContexts = isEventMode ? [pageview, screen] : [undefined]
+
+                            const makeItem = (
+                                propertyKey: string,
+                                propertyLabel: string,
+                                propertyFilterType: PropertyFilterType.Event | PropertyFilterType.Person,
+                                op: PropertyOperator,
+                                event?: { key: string; label: string }
+                            ): QuickFilterItem => ({
+                                name:
+                                    isEventMode && event
+                                        ? `${event.label} with ${propertyLabel} ${operatorLabel(op)} "${q}"`
+                                        : `${propertyLabel} ${operatorLabel(op)} "${q}"`,
+                                filterValue: q,
+                                operator: op,
+                                propertyKey,
+                                propertyFilterType,
+                                ...(event ? { eventName: event.key } : {}),
+                            })
+
+                            const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(q)
+                            const isUrl = /^https?:\/\/.+/.test(q)
+
+                            const results: QuickFilterItem[] = []
+
+                            if (isEmail) {
+                                emailContexts.forEach((ctx) =>
+                                    results.push(
+                                        makeItem(
+                                            'email',
+                                            emailLabel,
+                                            PropertyFilterType.Person,
+                                            PropertyOperator.Exact,
+                                            ctx
+                                        )
+                                    )
+                                )
+                            }
+
+                            if (isUrl) {
+                                results.push(
+                                    makeItem(
+                                        '$current_url',
+                                        currentUrlLabel,
+                                        PropertyFilterType.Event,
+                                        PropertyOperator.Exact,
+                                        pageview
+                                    )
+                                )
+                            }
+
+                            results.push(
+                                makeItem(
+                                    '$current_url',
+                                    currentUrlLabel,
+                                    PropertyFilterType.Event,
+                                    PropertyOperator.IContains,
+                                    pageview
+                                ),
+                                makeItem(
+                                    '$screen_name',
+                                    screenNameLabel,
+                                    PropertyFilterType.Event,
+                                    PropertyOperator.IContains,
+                                    screen
+                                )
+                            )
+
+                            if (!isEmail) {
+                                emailContexts.forEach((ctx) =>
+                                    results.push(
+                                        makeItem(
+                                            'email',
+                                            emailLabel,
+                                            PropertyFilterType.Person,
+                                            PropertyOperator.IContains,
+                                            ctx
+                                        )
+                                    )
+                                )
+                            }
+
+                            return results
+                        },
+                        getIcon: (item: QuickFilterItem) =>
+                            item.propertyFilterType === PropertyFilterType.Person ? <IconPerson /> : <IconEye />,
+                        getName: (item: QuickFilterItem) => item.name,
+                        getValue: (item: QuickFilterItem) => item.filterValue,
+                        getPopoverHeader: () => 'Quick filters',
+                    },
                     ...groupAnalyticsTaxonomicGroups,
                     ...groupAnalyticsTaxonomicGroupNames,
                 ]
@@ -916,7 +1052,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             (s, p) => [p.taxonomicGroupTypes, s.taxonomicGroups],
             (groupTypes, taxonomicGroups): TaxonomicFilterGroupType[] => {
                 const availableGroupTypes = new Set(taxonomicGroups.map((group) => group.type))
-                const resolvedGroupTypes = groupTypes || taxonomicGroups.map((group) => group.type)
+                const resolvedGroupTypes: TaxonomicFilterGroupType[] =
+                    groupTypes || taxonomicGroups.map((group) => group.type)
                 return resolvedGroupTypes.filter((groupType) => availableGroupTypes.has(groupType))
             },
         ],
@@ -1035,6 +1172,17 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                             item,
                         })
                     }
+                    if (isQuickFilterItem(item)) {
+                        posthog.capture('taxonomic quick filter selected', {
+                            query: originalQuery,
+                            filterName: item.name,
+                            propertyKey: item.propertyKey,
+                            operator: item.operator,
+                            filterValue: item.filterValue,
+                            propertyFilterType: item.propertyFilterType,
+                            eventName: item.eventName,
+                        })
+                    }
                 } catch (e) {
                     posthog.captureException(e, { posthog_feature: 'taxonomic_filter_swapped_in_query' })
                 }
@@ -1132,11 +1280,24 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         },
 
         infiniteListResultsReceived: ({ groupType, results }) => {
-            // Open the next tab if no results on an active tab.
+            if (
+                groupType === TaxonomicFilterGroupType.QuickFilters &&
+                results.count > 0 &&
+                values.activeTab !== TaxonomicFilterGroupType.QuickFilters
+            ) {
+                actions.setActiveTab(TaxonomicFilterGroupType.QuickFilters)
+                return
+            }
+
             const activeTabHasNoResults = groupType === values.activeTab && !results.count && !results.expandedCount
 
             if (activeTabHasNoResults) {
-                actions.tabRight()
+                const quickFiltersCount = values.infiniteListCounts[TaxonomicFilterGroupType.QuickFilters] ?? 0
+                if (quickFiltersCount > 0) {
+                    actions.setActiveTab(TaxonomicFilterGroupType.QuickFilters)
+                } else {
+                    actions.tabRight()
+                }
             }
 
             // Update app-wide cached property metadata
