@@ -530,12 +530,11 @@ class SessionReplaySummaryTool(MaxTool):
                 # Convert to RecordingsQuery and count
                 try:
                     query = filter_from_params_to_query(filters)
+                    query.limit = 100
 
                     @database_sync_to_async
                     def count_recordings(query=query):
-                        recordings, has_more, _, _ = list_recordings_from_query(
-                            query=query, user=None, team=self._team, limit=100
-                        )
+                        recordings, has_more, _, _ = list_recordings_from_query(query=query, user=None, team=self._team)
                         # If has_more, there are 100+ recordings
                         return len(recordings) if not has_more else 100
 
