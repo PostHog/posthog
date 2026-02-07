@@ -94,16 +94,43 @@ export function getWidthValue(maxWidth: ProductTourStep['maxWidth']): number {
     return PRODUCT_TOUR_STEP_WIDTHS.default
 }
 
+export function normalizeStep(step: ProductTourStep): ProductTourStep {
+    if (step.elementTargeting !== undefined) {
+        return step
+    }
+
+    if (step.useManualSelector === true) {
+        return { ...step, elementTargeting: 'manual' }
+    }
+    if (step.inferenceData) {
+        return { ...step, elementTargeting: 'auto' }
+    }
+    if (step.type === 'element') {
+        return { ...step, elementTargeting: 'auto', type: 'modal' }
+    }
+    return step
+}
+
+export function normalizeSteps(steps: ProductTourStep[]): ProductTourStep[] {
+    return steps.map(normalizeStep)
+}
+
+export function prepareStepForSave(step: ProductTourStep): ProductTourStep {
+    return {
+        ...step,
+        useManualSelector: step.elementTargeting === 'manual' ? true : undefined,
+    }
+}
+
 export function hasElementTarget(step: ProductTourStep): boolean {
-    if (step.useManualSelector) {
+    if (step.elementTargeting === 'manual') {
         return !!step.selector
     }
     return !!step.inferenceData
 }
 
 export function hasIncompleteTargeting(step: ProductTourStep): boolean {
-    const needsTarget = step.type === 'element' || !!step.useManualSelector
-    return needsTarget && !hasElementTarget(step)
+    return step.elementTargeting !== undefined && !hasElementTarget(step)
 }
 
 export function createDefaultStep(type: ProductTourStepType): ProductTourStep {

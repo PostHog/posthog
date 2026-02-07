@@ -32,7 +32,7 @@ import { DEFAULT_APPEARANCE } from './constants'
 import { prepareStepsForRender } from './editor/generateStepHtml'
 import type { productTourLogicType } from './productTourLogicType'
 import { isAnnouncement, productToursLogic } from './productToursLogic'
-import { hasIncompleteTargeting } from './stepUtils'
+import { hasIncompleteTargeting, normalizeSteps, prepareStepForSave } from './stepUtils'
 
 export const DEFAULT_TARGETING_FILTERS: FeatureFlagType['filters'] = {
     ...NEW_FLAG.filters,
@@ -146,9 +146,9 @@ export const productTourLogic = kea<productTourLogicType>([
         launchProductTour: true,
         stopProductTour: true,
         resumeProductTour: true,
-        openToolbarModal: true,
+        openToolbarModal: (toolbarMode?: 'preview' | 'edit') => ({ toolbarMode: toolbarMode ?? 'edit' }),
         closeToolbarModal: true,
-        submitAndOpenToolbar: true,
+        submitAndOpenToolbar: (toolbarMode?: 'preview' | 'edit') => ({ toolbarMode: toolbarMode ?? 'edit' }),
     }),
     loaders(({ props, values }) => ({
         productTour: {
@@ -337,9 +337,10 @@ export const productTourLogic = kea<productTourLogicType>([
                     }
 
                     if (hasIncompleteTargeting(step)) {
-                        error = step.useManualSelector
-                            ? `Step ${index + 1} missing element selector`
-                            : `Select an element for step ${index + 1}`
+                        error =
+                            step.elementTargeting === 'manual'
+                                ? `Step ${index + 1} missing element selector`
+                                : `Select an element for step ${index + 1}`
                     }
 
                     if (error) {
@@ -351,9 +352,12 @@ export const productTourLogic = kea<productTourLogicType>([
                 return errors
             },
             submit: async (formValues: ProductTourForm) => {
+                const stepsForSave = formValues.content.steps
+                    ? prepareStepsForRender(formValues.content.steps.map(prepareStepForSave))
+                    : []
                 const processedContent: ProductTourContent = {
                     ...formValues.content,
-                    steps: formValues.content.steps ? prepareStepsForRender(formValues.content.steps) : [],
+                    steps: stepsForSave,
                 }
 
                 const payload = {
@@ -420,6 +424,13 @@ export const productTourLogic = kea<productTourLogicType>([
             {
                 openToolbarModal: () => true,
                 closeToolbarModal: () => false,
+            },
+        ],
+        toolbarMode: [
+            'edit' as 'preview' | 'edit',
+            {
+                openToolbarModal: (_, { toolbarMode }) => toolbarMode,
+                submitAndOpenToolbar: (_, { toolbarMode }) => toolbarMode,
             },
         ],
     }),
@@ -497,11 +508,15 @@ export const productTourLogic = kea<productTourLogicType>([
             }
             // Populate form with loaded data
             if (productTour) {
+                const normalizedContent = {
+                    ...productTour.content,
+                    steps: normalizeSteps(productTour.content?.steps ?? []),
+                }
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 ;(actions.setProductTourFormValues as any)({
                     name: productTour.name,
                     description: productTour.description,
-                    content: productTour.content,
+                    content: normalizedContent,
                     auto_launch: productTour.auto_launch,
                     targeting_flag_filters: productTour.targeting_flag_filters,
                     linked_flag: productTour.linked_flag,
@@ -512,11 +527,15 @@ export const productTourLogic = kea<productTourLogicType>([
         editingProductTour: ({ editing }) => {
             // Only reset form when transitioning from not-editing to editing
             if (editing && !values.isEditingProductTour && values.productTour) {
+                const normalizedContent = {
+                    ...values.productTour.content,
+                    steps: normalizeSteps(values.productTour.content?.steps ?? []),
+                }
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 ;(actions.setProductTourFormValues as any)({
                     name: values.productTour.name,
                     description: values.productTour.description,
-                    content: values.productTour.content,
+                    content: normalizedContent,
                     auto_launch: values.productTour.auto_launch,
                     targeting_flag_filters: values.productTour.targeting_flag_filters,
                     linked_flag: values.productTour.linked_flag,

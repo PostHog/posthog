@@ -40,7 +40,7 @@ export function StepCard({
     const { removeStep, updateStep, setEditorState } = useActions(productToursLogic)
 
     const hasTarget = hasElementTarget(step)
-    const shouldShowElementSettings = hasTarget || step.useManualSelector
+    const shouldShowElementSettings = step.elementTargeting !== undefined
     const isSelecting = selectingStepIndex === index
     const elementNotFound = hasTarget && isExpanded && selectingStepIndex === null && expandedStepRect === null
     const isMissingElement = hasIncompleteTargeting(step)
@@ -110,10 +110,10 @@ export function StepCard({
                     {isMissingElement && (
                         <span className="text-[10px] text-danger flex items-center gap-1">
                             <IconWarning className="w-3 h-3" />{' '}
-                            {step.useManualSelector ? 'Enter a selector' : 'Select an element'}
+                            {step.elementTargeting === 'manual' ? 'Enter a selector' : 'Select an element'}
                         </span>
                     )}
-                    {hasTarget && step.useManualSelector && step.selector && !isExpanded && (
+                    {hasTarget && step.elementTargeting === 'manual' && step.selector && !isExpanded && (
                         <span
                             title={step.selector}
                             className="text-[10px] font-mono text-muted-3000 overflow-hidden text-ellipsis whitespace-nowrap"
@@ -123,7 +123,7 @@ export function StepCard({
                     )}
                 </div>
 
-                {!step.useManualSelector && screenshotUrl && !isExpanded && (
+                {step.elementTargeting !== 'manual' && screenshotUrl && !isExpanded && (
                     <div className="w-8 h-6 rounded overflow-hidden border border-border-3000 flex-shrink-0 bg-secondary-3000">
                         <img
                             src={screenshotUrl}
@@ -147,7 +147,7 @@ export function StepCard({
 
             {isExpanded && (
                 <div className="px-3 pb-3 pt-1 flex flex-col gap-3">
-                    {!step.useManualSelector && hasTarget && (
+                    {step.elementTargeting !== 'manual' && hasTarget && (
                         <div className="group relative rounded-md overflow-hidden border border-border-3000 bg-secondary-3000">
                             {screenshotUrl ? (
                                 <img
@@ -191,8 +191,10 @@ export function StepCard({
                                 <LemonSegmentedButton
                                     size="xsmall"
                                     fullWidth
-                                    value={step.useManualSelector ? 'manual' : 'auto'}
-                                    onChange={(value) => updateStep(index, { useManualSelector: value === 'manual' })}
+                                    value={step.elementTargeting ?? 'auto'}
+                                    onChange={(value) =>
+                                        updateStep(index, { elementTargeting: value as 'auto' | 'manual' })
+                                    }
                                     options={[
                                         { value: 'auto', label: 'Auto' },
                                         { value: 'manual', label: 'Manual' },
@@ -200,7 +202,7 @@ export function StepCard({
                                 />
                             </div>
 
-                            {step.useManualSelector ? (
+                            {step.elementTargeting === 'manual' ? (
                                 <div>
                                     <label className="block text-[11px] font-medium text-muted-3000 mb-1.5">
                                         CSS selector
@@ -298,7 +300,7 @@ export function StepCard({
                                     fullWidth
                                     sideIcon={<IconArrowRight />}
                                     onClick={() => {
-                                        updateStep(index, { useManualSelector: true })
+                                        updateStep(index, { elementTargeting: 'manual' })
                                         setEditorState({ mode: 'idle' })
                                     }}
                                 >

@@ -14,6 +14,8 @@ import {
     getDefaultStepContent,
     hasElementTarget,
     hasIncompleteTargeting,
+    normalizeSteps,
+    prepareStepForSave,
 } from 'scenes/product-tours/stepUtils'
 import { urls } from 'scenes/urls'
 
@@ -70,7 +72,7 @@ function tourToForm(tour: ProductTour): TourForm {
     return {
         id: tour.id,
         name: tour.name,
-        steps: (tour.content?.steps ?? []).map((step) => ({
+        steps: normalizeSteps(tour.content?.steps ?? []).map((step) => ({
             ...step,
             id: step.id || uuid(),
         })),
@@ -88,9 +90,7 @@ export function getStepElement(step: TourStep): HTMLElement | null {
         return step.element
     }
 
-    const useManualSelector = step.useManualSelector ?? false
-
-    if (useManualSelector) {
+    if (step.elementTargeting === 'manual') {
         if (!step.selector) {
             return null
         }
@@ -333,8 +333,10 @@ export const productToursLogic = kea<productToursLogicType>([
                 const { id, name, steps } = formValues
                 const isUpdate = !!id
 
-                // Strip element references and add pre-computed HTML for SDK consumption
-                const stepsForApi = steps.map(({ element: _, ...step }) => prepareStepForRender(step))
+                // Strip element references, sync useManualSelector, and add pre-computed HTML for SDK consumption
+                const stepsForApi = steps.map(({ element: _, ...step }) =>
+                    prepareStepForRender(prepareStepForSave(step))
+                )
 
                 // Get existing step_order_history if updating an existing tour
                 const existingTour = id ? values.tours.find((t: ProductTour) => t.id === id) : null
@@ -505,7 +507,7 @@ export const productToursLogic = kea<productToursLogicType>([
                 content: existingStep?.content ?? getDefaultStepContent(),
                 element,
                 inferenceData,
-                useManualSelector: false,
+                elementTargeting: 'auto',
                 progressionTrigger: existingStep?.progressionTrigger ?? 'button',
                 ...(screenshot ? { screenshotMediaId: screenshot.mediaId } : {}),
             }

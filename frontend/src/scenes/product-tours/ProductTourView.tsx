@@ -40,7 +40,6 @@ import {
 } from '~/types'
 
 import { ProductTourStatsSummary } from './components/ProductTourStatsSummary'
-import { ProductToursToolbarButton } from './components/ProductToursToolbarButton'
 import { productTourLogic } from './productTourLogic'
 import { getProductTourStatus, isAnnouncement, isProductTourRunning, productToursLogic } from './productToursLogic'
 
@@ -48,9 +47,14 @@ export function ProductTourView({ id }: { id: string }): JSX.Element {
     const { productTour, productTourLoading, tourStats, tourStatsLoading, dateRange, targetingFlagFilters } = useValues(
         productTourLogic({ id })
     )
-    const { editingProductTour, launchProductTour, stopProductTour, resumeProductTour, setDateRange } = useActions(
-        productTourLogic({ id })
-    )
+    const {
+        editingProductTour,
+        launchProductTour,
+        stopProductTour,
+        resumeProductTour,
+        setDateRange,
+        openToolbarModal,
+    } = useActions(productTourLogic({ id }))
     const { deleteProductTour } = useActions(productToursLogic)
 
     const [tabKey, setTabKey] = useState('overview')
@@ -108,7 +112,9 @@ export function ProductTourView({ id }: { id: string }): JSX.Element {
                 isLoading={productTourLoading}
                 actions={
                     <>
-                        <ProductToursToolbarButton tourId={id} mode="preview" />
+                        <LemonButton type="secondary" size="small" onClick={() => openToolbarModal('preview')}>
+                            Preview
+                        </LemonButton>
                         <LemonButton type="secondary" size="small" onClick={() => editingProductTour(true)}>
                             Edit
                         </LemonButton>
