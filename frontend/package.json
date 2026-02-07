@@ -205,6 +205,7 @@
         "mdast-util-find-and-replace": "^3.0.2",
         "modern-screenshot": "^4.6.7",
         "monaco-editor": "^0.55.1",
+        "monaco-vim": "^0.4.4",
         "motion": "^12.26.1",
         "natural-orderby": "^3.0.2",
         "openai": "^4.81.0",
