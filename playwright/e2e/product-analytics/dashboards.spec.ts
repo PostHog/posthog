@@ -14,7 +14,7 @@ test.describe('Dashboards', () => {
         await playwrightSetup.login(page, workspace!)
     })
 
-    test('Can createa a new dashboard with an insight', async ({ page }) => {
+    test('Can create a new dashboard with an insight', async ({ page }) => {
         const dashboard = new DashboardPage(page)
         const dashboardName = randomString('dash-edit')
 
@@ -33,9 +33,10 @@ test.describe('Dashboards', () => {
         const insight = new InsightPage(page)
         const updatedName = randomString('dash-updated')
 
-        await test.step('navigate to the dashboard', async () => {
-            await page.goto(`/project/${workspace?.team_id}/dashboard`)
-            await page.getByTestId('dashboard-name').first().click()
+        await test.step('create a dashboard with an insight', async () => {
+            await dashboard.createNew()
+            await dashboard.addInsightToNewDashboard()
+            await expect(page.locator('.InsightCard')).toBeVisible()
         })
 
         await test.step('select to edit an insight', async () => {
@@ -46,9 +47,6 @@ test.describe('Dashboards', () => {
 
         await test.step('edit the insight name', async () => {
             await insight.editName(updatedName)
-            // Name is saved on blur via metadata API (not the full Save button),
-            // so wait for the API call to complete before navigating back
-            await page.waitForLoadState('networkidle')
             await expect(insight.topBarName).toContainText(updatedName)
         })
 
@@ -89,16 +87,16 @@ test.describe('Dashboards', () => {
         const dashboard = new DashboardPage(page)
         const newTileName = randomString('tile-name')
 
-        await test.step('navigate to the dashboard', async () => {
-            await page.goto(`/project/${workspace?.team_id}/dashboard`)
-            await page.getByTestId('dashboard-name').first().click()
+        await test.step('create a dashboard with an insight', async () => {
+            await dashboard.createNew()
+            await dashboard.addInsightToNewDashboard()
+            await expect(page.locator('.InsightCard')).toBeVisible()
         })
 
         await test.step('duplicate the tile', async () => {
-            await page.waitForLoadState('networkidle')
-            const title = (
-                await page.locator('.InsightCard').first().getByTestId('insight-card-title').textContent()
-            )?.replace('Loading', '')
+            const titleLocator = page.locator('.InsightCard').first().getByTestId('insight-card-title')
+            await expect(titleLocator).not.toContainText('Loading')
+            const title = await titleLocator.textContent()
             await dashboard.openFirstTileMenu()
             await dashboard.selectTileMenuOption('Duplicate')
 
