@@ -263,6 +263,13 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
             },
         ],
 
+        incompletePeriodDisplay: [
+            (s) => [s.trendsFilter],
+            (trendsFilter: TrendsFilter | undefined | null) => {
+                return trendsFilter?.incompletePeriodDisplay ?? 'dashed'
+            },
+        ],
+
         incompletenessOffsetFromEnd: [
             (s) => [s.results, s.interval],
             (results, interval) => {
@@ -270,6 +277,22 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                     return 0
                 }
                 return computeIncompleteOffset(results[0].days, interval ?? 'd')
+            },
+        ],
+
+        visibleIndexedResults: [
+            (s) => [s.indexedResults, s.incompletePeriodDisplay, s.incompletenessOffsetFromEnd],
+            (indexedResults, incompletePeriodDisplay, incompletenessOffsetFromEnd): IndexedTrendResult[] => {
+                if (incompletePeriodDisplay !== 'hidden' || incompletenessOffsetFromEnd >= 0) {
+                    return indexedResults
+                }
+                const truncateCount = Math.abs(incompletenessOffsetFromEnd)
+                return indexedResults.map((result) => ({
+                    ...result,
+                    data: result.data.slice(0, result.data.length - truncateCount),
+                    days: result.days?.slice(0, result.days.length - truncateCount),
+                    labels: result.labels?.slice(0, result.labels.length - truncateCount),
+                }))
             },
         ],
 

@@ -1315,6 +1315,7 @@ export type TrendsFilter = {
     movingAverageIntervals?: number
     /** detailed results table */
     detailedResultsAggregationType?: 'total' | 'average' | 'median'
+    incompletePeriodDisplay?: IncompletePeriodDisplay
 }
 
 export type CalendarHeatmapFilter = {
@@ -1337,6 +1338,7 @@ export const TRENDS_FILTER_PROPERTIES = new Set<keyof TrendsFilter>([
     'showPercentStackView',
     'yAxisScaleType',
     'hiddenLegendIndexes',
+    'incompletePeriodDisplay',
 ])
 
 export interface TrendsQueryResponse extends AnalyticsQueryResponseBase {

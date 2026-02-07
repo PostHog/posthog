@@ -32189,6 +32189,9 @@
                     },
                     "type": "array"
                 },
+                "incompletePeriodDisplay": {
+                    "$ref": "#/definitions/IncompletePeriodDisplay"
+                },
                 "minDecimalPlaces": {
                     "type": "number"
                 },
