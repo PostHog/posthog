@@ -107,6 +107,31 @@ class TestSampleItemsInWindowActivity:
 
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.asyncio
+    async def test_sample_traces_passes_size_filter(self, mock_team):
+        from posthog.temporal.llm_analytics.trace_summarization.constants import (
+            MAX_TRACE_EVENTS_LIMIT,
+            MAX_TRACE_PROPERTIES_SIZE,
+        )
+
+        inputs = BatchSummarizationInputs(
+            team_id=mock_team.id,
+            max_items=10,
+            window_minutes=60,
+            window_start="2025-01-15T11:00:00",
+            window_end="2025-01-15T12:00:00",
+        )
+
+        with patch("posthog.temporal.llm_analytics.trace_summarization.sampling.execute_hogql_query") as mock_execute:
+            mock_execute.return_value.results = []
+
+            await sample_items_in_window_activity(inputs)
+
+            placeholders = mock_execute.call_args.kwargs["placeholders"]
+            assert placeholders["max_events"].value == MAX_TRACE_EVENTS_LIMIT
+            assert placeholders["max_properties_size"].value == MAX_TRACE_PROPERTIES_SIZE
+
+    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.asyncio
     async def test_sample_generations_success(self, mock_team):
         inputs = BatchSummarizationInputs(
             team_id=mock_team.id,
@@ -128,6 +153,32 @@ class TestSampleItemsInWindowActivity:
             assert isinstance(result[0], SampledItem)
             assert result[0].trace_id == "trace_0"
             assert result[0].generation_id == "gen-uuid-0"
+
+    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.asyncio
+    async def test_sample_generations_passes_size_filter(self, mock_team):
+        from posthog.temporal.llm_analytics.trace_summarization.constants import (
+            MAX_TRACE_EVENTS_LIMIT,
+            MAX_TRACE_PROPERTIES_SIZE,
+        )
+
+        inputs = BatchSummarizationInputs(
+            team_id=mock_team.id,
+            max_items=50,
+            analysis_level="generation",
+            window_minutes=60,
+            window_start="2025-01-15T11:00:00",
+            window_end="2025-01-15T12:00:00",
+        )
+
+        with patch("posthog.temporal.llm_analytics.trace_summarization.sampling.execute_hogql_query") as mock_execute:
+            mock_execute.return_value.results = []
+
+            await sample_items_in_window_activity(inputs)
+
+            placeholders = mock_execute.call_args.kwargs["placeholders"]
+            assert placeholders["max_events"].value == MAX_TRACE_EVENTS_LIMIT
+            assert placeholders["max_properties_size"].value == MAX_TRACE_PROPERTIES_SIZE
 
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.asyncio

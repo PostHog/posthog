@@ -33,6 +33,15 @@ MAX_RAW_TRACE_SIZE = 5_000_000
 # from ever reaching the CPU-intensive formatting activity.
 MAX_TRACE_EVENTS_LIMIT = 50
 
+# Max total estimated properties size (in characters) per trace for sampling.
+# Estimated at the ClickHouse level as sum(length(properties)) across all events
+# in a trace. Traces exceeding this are excluded during sampling, preventing
+# oversized traces from reaching the CPU-intensive formatting activity — even if
+# they have few events. Complements MAX_TRACE_EVENTS_LIMIT which only filters
+# by event count. Set to match MAX_RAW_TRACE_SIZE so traces that would be
+# rejected by the activity are filtered out before the expensive fetch.
+MAX_TRACE_PROPERTIES_SIZE = MAX_RAW_TRACE_SIZE
+
 # Schedule configuration
 SCHEDULE_INTERVAL_HOURS = 1  # How often the coordinator runs
 
