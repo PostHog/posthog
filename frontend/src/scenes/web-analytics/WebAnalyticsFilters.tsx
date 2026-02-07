@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { useState } from 'react'
 
-import { IconFilter, IconGlobe, IconPhone, IconPlus } from '@posthog/icons'
+import { IconFilter, IconGlobe, IconPhone, IconPlus, IconX } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDivider, LemonInput, LemonSelect, Popover, Tooltip } from '@posthog/lemon-ui'
 
 import { baseModifier } from 'lib/components/AppShortcuts/shortcuts'
@@ -13,6 +13,7 @@ import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { FilterBar } from 'lib/components/FilterBar'
 import { LiveUserCount } from 'lib/components/LiveUserCount'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
+import { PropertyFilterButton } from 'lib/components/PropertyFilters/components/PropertyFilterButton'
 import {
     convertPropertyGroupToProperties,
     isEventPersonOrSessionPropertyFilter,
@@ -83,6 +84,7 @@ const CondensedWebAnalyticsFilterBar = ({ tabs }: { tabs: JSX.Element }): JSX.El
                     </>
                 }
             />
+            <WebAnalyticsActiveFilters />
         </>
     )
 }
@@ -142,6 +144,7 @@ export const WebAnalyticsFilters = ({ tabs }: { tabs: JSX.Element }): JSX.Elemen
                         </>
                     }
                 />
+                <WebAnalyticsActiveFilters />
             </div>
         </>
     )
@@ -552,6 +555,77 @@ const AddSuggestedAuthorizedUrlList = (): JSX.Element => {
             )}
             <LemonButton size="small" icon={<IconPlus />} onClick={newAuthorizedUrl} fullWidth>
                 Add authorized URL
+            </LemonButton>
+        </div>
+    )
+}
+
+const WebAnalyticsActiveFilters = (): JSX.Element | null => {
+    const { rawWebAnalyticsFilters, deviceTypeFilter, conversionGoal } = useValues(webAnalyticsLogic)
+    const { setWebAnalyticsFilters, setDeviceTypeFilter, setConversionGoal, clearFilters } =
+        useActions(webAnalyticsLogic)
+
+    const hasPropertyFilters = rawWebAnalyticsFilters.length > 0
+    const hasDeviceFilter = deviceTypeFilter !== null
+    const hasConversionGoal = conversionGoal !== null
+    const hasAnyFilters = hasPropertyFilters || hasDeviceFilter || hasConversionGoal
+
+    if (!hasAnyFilters) {
+        return null
+    }
+
+    const conversionGoalLabel = conversionGoal
+        ? 'actionId' in conversionGoal
+            ? `Action #${conversionGoal.actionId}`
+            : `Event: ${conversionGoal.customEventName}`
+        : null
+
+    return (
+        <div className="flex flex-wrap items-center gap-1 px-2 py-1">
+            {rawWebAnalyticsFilters.map((filter, index) => (
+                <PropertyFilterButton
+                    key={`${filter.key}-${index}`}
+                    item={filter}
+                    onClose={() => {
+                        const newFilters = rawWebAnalyticsFilters.filter((_, i) => i !== index)
+                        setWebAnalyticsFilters(newFilters)
+                    }}
+                />
+            ))}
+
+            {hasDeviceFilter && (
+                <div className="PropertyFilterButton PropertyFilterButton--closeable ph-no-capture">
+                    {deviceTypeFilter === 'Desktop' ? (
+                        <IconMonitor className="text-base shrink-0" />
+                    ) : (
+                        <IconPhone className="text-base shrink-0" />
+                    )}
+                    <span className="PropertyFilterButton-content">{deviceTypeFilter}</span>
+                    <LemonButton
+                        size="xsmall"
+                        icon={<IconX />}
+                        onClick={() => setDeviceTypeFilter(null)}
+                        className="p-0.5"
+                    />
+                </div>
+            )}
+
+            {hasConversionGoal && conversionGoalLabel && (
+                <div className="PropertyFilterButton PropertyFilterButton--closeable ph-no-capture">
+                    <span className="PropertyFilterButton-content" title={conversionGoalLabel}>
+                        {conversionGoalLabel}
+                    </span>
+                    <LemonButton
+                        size="xsmall"
+                        icon={<IconX />}
+                        onClick={() => setConversionGoal(null)}
+                        className="p-0.5"
+                    />
+                </div>
+            )}
+
+            <LemonButton type="tertiary" size="xsmall" onClick={() => clearFilters()}>
+                Clear all
             </LemonButton>
         </div>
     )
