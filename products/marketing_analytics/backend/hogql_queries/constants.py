@@ -236,7 +236,7 @@ VALID_NON_NATIVE_MARKETING_SOURCES = ["BigQuery"]
 VALID_SELF_MANAGED_MARKETING_SOURCES = ["aws", "google-cloud", "cloudflare-r2", "azure"]
 
 # Map generated config models to NativeMarketingSource using sourceType field
-_ALL_CONFIG_MODELS = [
+_ALL_CONFIG_MODELS: list[type[BaseModel]] = [
     MarketingIntegrationConfig1,
     MarketingIntegrationConfig2,
     MarketingIntegrationConfig3,
