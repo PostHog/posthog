@@ -49,7 +49,9 @@ _BINARY_CHECK_SIZE = 8192
 
 def _create_jinja_env(**extra_globals: object) -> Environment:
     """Create a Jinja2 Environment with the standard skill rendering settings."""
+    # nosemgrep: python.jinja2.security.audit.missing-autoescape-disabled -- output is Markdown for a JSON manifest, not HTML
     env = Environment(
+        autoescape=False,
         undefined=StrictUndefined,
         keep_trailing_newline=True,
         lstrip_blocks=True,
@@ -462,6 +464,7 @@ def _setup_django() -> None:
     module requires at import time. The build script never connects to these services
     — it only needs the Django ORM metadata and model imports to work.
     """
+    os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
     try:
         import django
 
