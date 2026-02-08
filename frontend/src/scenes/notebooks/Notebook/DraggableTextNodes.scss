@@ -1,0 +1,32 @@
+.draggable-text-node__drag-handle {
+    position: absolute;
+    left: -20px;
+    display: inline-flex;
+    align-items: center;
+    cursor: grab;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+
+    &:active {
+        cursor: grabbing;
+    }
+}
+
+// Show drag handle on hover of the parent heading or paragraph
+.ProseMirror {
+    > h1:hover,
+    > h2:hover,
+    > h3:hover,
+    > h4:hover,
+    > h5:hover,
+    > h6:hover,
+    > p:hover {
+        > .ProseMirror-widget .draggable-text-node__drag-handle {
+            opacity: 1;
+        }
+    }
+
+    > p > .ProseMirror-widget .draggable-text-node__drag-handle {
+        margin-top: 0.25rem;
+    }
+}
