@@ -1,0 +1,32 @@
+{
+    "results": [
+        {
+            "action_id": "$pageview",
+            "name": "$pageview",
+            "custom_name": "Signup pageviews",
+            "order": 0,
+            "people": [],
+            "count": 4520,
+            "type": "events",
+            "average_conversion_time": null,
+            "median_conversion_time": null,
+            "converted_people_url": "/api/person/funnel/?funnel_step=1",
+            "dropped_people_url": null
+        },
+        {
+            "action_id": "user_signed_up",
+            "name": "user_signed_up",
+            "custom_name": "Signups",
+            "order": 1,
+            "people": [],
+            "count": 1870,
+            "type": "events",
+            "average_conversion_time": 86400,
+            "median_conversion_time": 43200,
+            "converted_people_url": "/api/person/funnel/?funnel_step=2",
+            "dropped_people_url": "/api/person/funnel/?funnel_step=-2"
+        }
+    ],
+    "timezone": "UTC",
+    "timings": []
+}
