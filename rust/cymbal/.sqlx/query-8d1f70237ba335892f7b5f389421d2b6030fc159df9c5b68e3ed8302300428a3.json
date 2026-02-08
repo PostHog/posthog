@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE posthog_team SET ingested_event = true WHERE id = ANY($1)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int4Array"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "8d1f70237ba335892f7b5f389421d2b6030fc159df9c5b68e3ed8302300428a3"
+}

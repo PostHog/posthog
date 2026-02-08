@@ -30,6 +30,8 @@ pub struct Team {
     pub updated_at: DateTime<Utc>,
     #[serde(default)]
     pub anonymize_ips: bool,
+    #[serde(default)]
+    pub ingested_event: bool,
     pub person_processing_opt_out: Option<bool>,
     pub autocapture_opt_out: Option<bool>,
     pub autocapture_exceptions_opt_in: Option<bool>,
@@ -92,6 +94,7 @@ impl Team {
                     created_at,
                     updated_at,
                     anonymize_ips,
+                    ingested_event,
                     person_processing_opt_out,
                     autocapture_opt_out,
                     autocapture_exceptions_opt_in,
@@ -150,6 +153,7 @@ impl Team {
                     created_at,
                     updated_at,
                     anonymize_ips,
+                    ingested_event,
                     person_processing_opt_out,
                     autocapture_opt_out,
                     autocapture_exceptions_opt_in,
