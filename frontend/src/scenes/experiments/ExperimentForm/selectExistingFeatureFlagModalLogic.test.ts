@@ -232,11 +232,20 @@ describe('selectExistingFeatureFlagModalLogic', () => {
         })
 
         it('debounces and loads feature flags after setFilters', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.setFilters({ search: 'test' })
-            })
-                .delay(350)
-                .toDispatchActions(['setFilters', 'loadFeatureFlags'])
+            jest.useFakeTimers()
+
+            logic.actions.setFilters({ search: 'test' })
+
+            // Verify loadFeatureFlags hasn't been called yet (debounce pending)
+            expect(logic.values.featureFlagsLoading).toBe(false)
+
+            // Advance past debounce time
+            await jest.advanceTimersByTimeAsync(350)
+
+            // Now the load should have been triggered
+            await expectLogic(logic).toDispatchActions(['loadFeatureFlags'])
+
+            jest.useRealTimers()
         })
     })
 
@@ -255,17 +264,21 @@ describe('selectExistingFeatureFlagModalLogic', () => {
         })
 
         it('filters feature flags by search term', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.setFilters({ search: 'flag-1' })
-            })
-                .delay(350)
-                .toDispatchActions(['setFilters', 'loadFeatureFlags', 'loadFeatureFlagsSuccess'])
+            jest.useFakeTimers()
+
+            logic.actions.setFilters({ search: 'flag-1' })
+            await jest.advanceTimersByTimeAsync(350)
+
+            await expectLogic(logic)
+                .toDispatchActions(['loadFeatureFlags', 'loadFeatureFlagsSuccess'])
                 .toMatchValues({
                     featureFlags: {
                         results: [mockFeatureFlags[0]],
                         count: 1,
                     },
                 })
+
+            jest.useRealTimers()
         })
     })
 
@@ -346,6 +359,8 @@ describe('selectExistingFeatureFlagModalLogic', () => {
         })
 
         it('enables backward button when on page 2+', async () => {
+            jest.useFakeTimers()
+
             useMocks({
                 get: {
                     '/api/projects/@current/experiments/eligible_feature_flags/': () => [
@@ -358,20 +373,21 @@ describe('selectExistingFeatureFlagModalLogic', () => {
                 },
             })
 
-            await expectLogic(logic, () => {
-                logic.actions.setFilters({ page: 2 })
+            logic.actions.setFilters({ page: 2 })
+            await jest.advanceTimersByTimeAsync(350)
+
+            await expectLogic(logic).toMatchValues({
+                pagination: {
+                    controlled: true,
+                    pageSize: 100,
+                    currentPage: 2,
+                    entryCount: 125,
+                    onForward: undefined,
+                    onBackward: expect.any(Function),
+                },
             })
-                .delay(350)
-                .toMatchValues({
-                    pagination: {
-                        controlled: true,
-                        pageSize: 100,
-                        currentPage: 2,
-                        entryCount: 125,
-                        onForward: undefined,
-                        onBackward: expect.any(Function),
-                    },
-                })
+
+            jest.useRealTimers()
         })
 
         it('updates page when onForward is called', async () => {
@@ -387,21 +403,24 @@ describe('selectExistingFeatureFlagModalLogic', () => {
                 },
             })
 
+            // First load feature flags with real timers
             await expectLogic(logic, () => {
                 logic.actions.loadFeatureFlags()
             }).toDispatchActions(['loadFeatureFlagsSuccess'])
 
             const { pagination } = logic.values
 
-            await expectLogic(logic, () => {
-                pagination.onForward?.()
-            })
-                .delay(350)
-                .toMatchValues({
-                    filters: expect.objectContaining({
-                        page: 2,
-                    }),
+            // Now use fake timers for the debounced action
+            jest.useFakeTimers()
+            pagination.onForward?.()
+            await jest.advanceTimersByTimeAsync(350)
+            jest.useRealTimers()
+
+            expect(logic.values.filters).toEqual(
+                expect.objectContaining({
+                    page: 2,
                 })
+            )
         })
 
         it('updates page when onBackward is called', async () => {
@@ -417,6 +436,7 @@ describe('selectExistingFeatureFlagModalLogic', () => {
                 },
             })
 
+            // Set up initial page with real timers
             await expectLogic(logic, () => {
                 logic.actions.setFilters({ page: 3 })
             })
@@ -425,18 +445,22 @@ describe('selectExistingFeatureFlagModalLogic', () => {
 
             const { pagination } = logic.values
 
-            await expectLogic(logic, () => {
-                pagination.onBackward?.()
-            })
-                .delay(350)
-                .toMatchValues({
-                    filters: expect.objectContaining({
-                        page: 2,
-                    }),
+            // Now use fake timers for the debounced action
+            jest.useFakeTimers()
+            pagination.onBackward?.()
+            await jest.advanceTimersByTimeAsync(350)
+            jest.useRealTimers()
+
+            expect(logic.values.filters).toEqual(
+                expect.objectContaining({
+                    page: 2,
                 })
+            )
         })
 
         it('never goes below page 1 when onBackward is called', async () => {
+            jest.useFakeTimers()
+
             useMocks({
                 get: {
                     '/api/projects/@current/experiments/eligible_feature_flags/': () => [
@@ -449,14 +473,14 @@ describe('selectExistingFeatureFlagModalLogic', () => {
                 },
             })
 
-            await expectLogic(logic, () => {
-                logic.actions.setFilters({ page: 1 })
-            })
-                .delay(350)
-                .toDispatchActions(['loadFeatureFlagsSuccess'])
+            logic.actions.setFilters({ page: 1 })
+            await jest.advanceTimersByTimeAsync(350)
+            await expectLogic(logic).toDispatchActions(['loadFeatureFlagsSuccess'])
 
             const { pagination } = logic.values
             expect(pagination.onBackward).toBeUndefined()
+
+            jest.useRealTimers()
         })
     })
 

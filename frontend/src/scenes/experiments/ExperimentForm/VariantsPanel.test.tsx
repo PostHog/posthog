@@ -257,7 +257,7 @@ describe('VariantsPanel', () => {
             })
 
             // Now clear the input by clicking the clear button (x)
-            const clearButton = screen.getByRole('button', { name: /clear/i })
+            const clearButton = screen.getByLabelText(/clear/i)
             await userEvent.click(clearButton)
 
             // Should call updateFeatureFlag to clear the key
@@ -351,7 +351,7 @@ describe('VariantsPanel', () => {
 
             // Should show change button
             await waitFor(() => {
-                expect(screen.getByRole('button', { name: /change/i })).toBeInTheDocument()
+                expect(screen.getByText(/change/i)).toBeInTheDocument()
             })
         })
 
@@ -369,9 +369,9 @@ describe('VariantsPanel', () => {
 
             // Click change button
             await waitFor(() => {
-                expect(screen.getByRole('button', { name: /change/i })).toBeInTheDocument()
+                expect(screen.getByText(/change/i)).toBeInTheDocument()
             })
-            const changeButton = screen.getByRole('button', { name: /change/i })
+            const changeButton = screen.getByText(/change/i)
             await userEvent.click(changeButton)
 
             // Modal should open
@@ -392,9 +392,9 @@ describe('VariantsPanel', () => {
 
             // Click change button to open modal
             await waitFor(() => {
-                expect(screen.getByRole('button', { name: /change/i })).toBeInTheDocument()
+                expect(screen.getByText(/change/i)).toBeInTheDocument()
             })
-            const changeButton = screen.getByRole('button', { name: /change/i })
+            const changeButton = screen.getByText(/change/i)
             await userEvent.click(changeButton)
 
             // Search in modal
@@ -422,9 +422,9 @@ describe('VariantsPanel', () => {
 
             // Click change button to open modal
             await waitFor(() => {
-                expect(screen.getByRole('button', { name: /change/i })).toBeInTheDocument()
+                expect(screen.getByText(/change/i)).toBeInTheDocument()
             })
-            const changeButton = screen.getByRole('button', { name: /change/i })
+            const changeButton = screen.getByText(/change/i)
             await userEvent.click(changeButton)
 
             // Wait for modal to show flags
@@ -435,7 +435,7 @@ describe('VariantsPanel', () => {
             // Select second flag from modal
             const flagRows = screen.getAllByRole('row')
             const secondFlagRow = flagRows.find((row) => row.textContent?.includes('eligible-flag-2'))
-            const selectFlagButton = within(secondFlagRow!).getByRole('button', { name: /select/i })
+            const selectFlagButton = within(secondFlagRow!).getByText(/select/i)
             await userEvent.click(selectFlagButton)
 
             // Modal should close

@@ -41,6 +41,9 @@ import {
     mockStream,
 } from './testUtils'
 
+// Faster than setTimeout(resolve, 0) - flushes microtask queue without timer overhead
+const flushPromises = (): Promise<void> => Promise.resolve().then(() => Promise.resolve())
+
 describe('maxThreadLogic', () => {
     let logic: ReturnType<typeof maxThreadLogic.build>
     let maxLogicInstance: ReturnType<typeof maxLogic.build>
@@ -548,10 +551,10 @@ describe('maxThreadLogic', () => {
             const streamSpy = mockStream()
 
             logic.actions.setConversation(MOCK_IN_PROGRESS_CONVERSATION)
-            await new Promise((resolve) => setTimeout(resolve, 0))
+            await flushPromises()
 
             logic.actions.askMax('Queued prompt')
-            await new Promise((resolve) => setTimeout(resolve, 0))
+            await flushPromises()
 
             expect(streamSpy).not.toHaveBeenCalled()
             expect(enqueueSpy).toHaveBeenCalledWith(
@@ -576,10 +579,10 @@ describe('maxThreadLogic', () => {
 
             logic.actions.setAgentMode(AgentMode.SQL)
             logic.actions.setConversation(MOCK_IN_PROGRESS_CONVERSATION)
-            await new Promise((resolve) => setTimeout(resolve, 0))
+            await flushPromises()
 
             logic.actions.askMax('Queued prompt', true, { form_answers: { q1: 'answer1' } })
-            await new Promise((resolve) => setTimeout(resolve, 0))
+            await flushPromises()
 
             expect(enqueueSpy).toHaveBeenCalledWith(
                 MOCK_CONVERSATION_ID,
@@ -601,10 +604,10 @@ describe('maxThreadLogic', () => {
             ])
             logic.actions.setQueueLimit(2)
             logic.actions.setConversation(MOCK_IN_PROGRESS_CONVERSATION)
-            await new Promise((resolve) => setTimeout(resolve, 0))
+            await flushPromises()
 
             logic.actions.askMax('Queued prompt')
-            await new Promise((resolve) => setTimeout(resolve, 0))
+            await flushPromises()
 
             expect(enqueueSpy).not.toHaveBeenCalled()
             expect(toastSpy).toHaveBeenCalledWith('You can only queue two messages at a time.')
@@ -626,7 +629,7 @@ describe('maxThreadLogic', () => {
             logic.actions.setQueueLimit(2)
 
             logic.actions.updateQueuedMessage('queue-1', 'Updated')
-            await new Promise((resolve) => setTimeout(resolve, 0))
+            await flushPromises()
 
             expect(logic.values.queuedMessages).toEqual([{ ...queueMessage, content: 'Updated' }])
         })
@@ -647,7 +650,7 @@ describe('maxThreadLogic', () => {
             logic.actions.setQueueLimit(2)
 
             logic.actions.deleteQueuedMessage(queueMessage.id)
-            await new Promise((resolve) => setTimeout(resolve, 0))
+            await flushPromises()
 
             expect(logic.values.queuedMessages).toEqual([])
         })
@@ -693,7 +696,7 @@ describe('maxThreadLogic', () => {
             logic.unmount()
             logic = maxThreadLogic({ conversationId: MOCK_CONVERSATION_ID, tabId: 'test' })
             logic.mount()
-            await new Promise((resolve) => setTimeout(resolve, 0))
+            await flushPromises()
 
             expect(logic.values.queuedMessages).toEqual([])
         })
@@ -737,7 +740,7 @@ describe('maxThreadLogic', () => {
                 ...MOCK_IN_PROGRESS_CONVERSATION,
                 id: 'new-conversation-id',
             })
-            await new Promise((resolve) => setTimeout(resolve, 0))
+            await flushPromises()
 
             expect(logic.values.queuedMessages).toEqual([])
             expect(listSpy).toHaveBeenCalledWith('new-conversation-id')
@@ -1895,11 +1898,6 @@ describe('maxThreadLogic', () => {
     })
 
     describe('enhanceThreadToolCalls', () => {
-        beforeEach(() => {
-            logic = maxThreadLogic({ conversationId: MOCK_CONVERSATION_ID, tabId: 'test' })
-            logic.mount()
-        })
-
         it('marks tool call as completed when corresponding tool call message exists', async () => {
             const toolCallId = 'tool-123'
 

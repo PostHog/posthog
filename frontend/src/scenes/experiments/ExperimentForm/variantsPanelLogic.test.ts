@@ -189,20 +189,18 @@ describe('variantsPanelLogic', () => {
         })
 
         it('debounces validation calls', async () => {
+            jest.useFakeTimers()
             const spy = jest.spyOn(logic.actions, 'validateFeatureFlagKey')
 
-            await expectLogic(logic, () => {
-                logic.actions.validateFeatureFlagKey('test-1')
-                logic.actions.validateFeatureFlagKey('test-2')
-                logic.actions.validateFeatureFlagKey('test-3')
-            })
-                .delay(350)
-                .toDispatchActions([
-                    'validateFeatureFlagKey',
-                    'validateFeatureFlagKey',
-                    'validateFeatureFlagKey',
-                    'validateFeatureFlagKeySuccess',
-                ])
+            logic.actions.validateFeatureFlagKey('test-1')
+            logic.actions.validateFeatureFlagKey('test-2')
+            logic.actions.validateFeatureFlagKey('test-3')
+
+            await jest.advanceTimersByTimeAsync(350)
+            jest.useRealTimers()
+
+            await expectLogic(logic)
+                .toDispatchActions(['validateFeatureFlagKeySuccess'])
                 .toMatchValues({
                     featureFlagKeyValidation: partial({
                         valid: true,

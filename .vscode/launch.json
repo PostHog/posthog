@@ -216,7 +216,7 @@
         {
             "name": "Frontend: Debug Jest Tests",
             "type": "node-terminal",
-            "command": "pnpm test:unit --runInBand",
+            "command": "pnpm --filter=@posthog/frontend test --runInBand",
             "request": "launch",
             "cwd": "${workspaceFolder}"
         },
