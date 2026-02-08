@@ -6,8 +6,10 @@ import { useActions, useValues } from 'kea'
 import { LemonDivider, ProfilePicture } from '@posthog/lemon-ui'
 
 import { DefinitionPopoverState, definitionPopoverLogic } from 'lib/components/DefinitionPopover/definitionPopoverLogic'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { ImageCarousel } from 'lib/components/ImageCarousel/ImageCarousel'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { Link } from 'lib/lemon-ui/Link'
@@ -104,7 +106,7 @@ function DescriptionEmpty(): JSX.Element {
 }
 
 function Example({ value }: { value?: string }): JSX.Element {
-    const { type, examples, examplesLoading } = useValues(definitionPopoverLogic)
+    const { type, mediaPreviews, mediaPreviewsLoading } = useValues(definitionPopoverLogic)
 
     let data: CoreFilterDefinition | null = null
 
@@ -129,14 +131,14 @@ function Example({ value }: { value?: string }): JSX.Element {
         <></>
     )
 
-    const imageExample = <ImageCarousel imageUrls={examples} loading={examplesLoading} />
-
-    const hasContent = data?.examples?.[0] || examples.length > 0
+    const hasContent = data?.examples?.[0] || mediaPreviews.length > 0
 
     return (
         <div className={clsx('flex flex-col gap-2', hasContent && 'mb-4')}>
             {textExample}
-            {imageExample}
+            <FlaggedFeature flag={FEATURE_FLAGS.EVENT_MEDIA_PREVIEWS}>
+                <ImageCarousel imageUrls={mediaPreviews} loading={mediaPreviewsLoading} />
+            </FlaggedFeature>
         </div>
     )
 }

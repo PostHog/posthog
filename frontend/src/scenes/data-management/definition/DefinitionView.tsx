@@ -88,7 +88,6 @@ export function DefinitionView(props: DefinitionLogicProps): JSX.Element {
         definition,
         definitionLoading,
         definitionMissing,
-        hasTaxonomyFeatures,
         singular,
         isEvent,
         isProperty,
@@ -251,16 +250,12 @@ export function DefinitionView(props: DefinitionLogicProps): JSX.Element {
             />
 
             <div className="deprecated-space-y-2">
-                {definition.description || isProperty || hasTaxonomyFeatures ? (
-                    <>
-                        <h5>Description</h5>
-                        <div className="definition-description my-2" data-attr="definition-description-view">
-                            {definition.description || (
-                                <span className="text-muted italic">Add a description for this event</span>
-                            )}
-                        </div>
-                    </>
-                ) : null}
+                <h5>Description</h5>
+                <div className="definition-description my-2" data-attr="definition-description-view">
+                    {definition.description || (
+                        <span className="text-muted italic">Add a description for this {singular}</span>
+                    )}
+                </div>
                 {definition.tags && definition.tags.length > 0 && (
                     <ObjectTags
                         tags={definition.tags}
@@ -270,8 +265,8 @@ export function DefinitionView(props: DefinitionLogicProps): JSX.Element {
                     />
                 )}
 
-                {(previews && previews.length > 0) ||
-                    (previewsLoading && (
+                <FlaggedFeature flag={FEATURE_FLAGS.EVENT_MEDIA_PREVIEWS}>
+                    {((previews && previews.length > 0) || previewsLoading) && (
                         <div className="mt-4">
                             <h5 className="mb-2">
                                 Preview{' '}
@@ -284,7 +279,8 @@ export function DefinitionView(props: DefinitionLogicProps): JSX.Element {
                                 loading={previewsLoading}
                             />
                         </div>
-                    ))}
+                    )}
+                </FlaggedFeature>
                 <UserActivityIndicator at={definition.updated_at} by={definition.updated_by} />
             </div>
 

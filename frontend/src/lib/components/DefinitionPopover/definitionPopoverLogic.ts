@@ -1,5 +1,5 @@
 import equal from 'fast-deep-equal'
-import { actions, events, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, events, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -43,7 +43,7 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
     props({} as DefinitionPopoverLogicProps),
     path(['lib', 'components', 'DefinitionPanel', 'definitionPopoverLogic']),
     connect(() => ({
-        values: [userLogic, ['hasAvailableFeature'], featureFlagLogic, ['featureFlags']],
+        values: [featureFlagLogic, ['featureFlags']],
     })),
     actions(({ values }) => ({
         setDefinition: (item: Partial<TaxonomicDefinitionTypes>) => ({ item, isDataWarehouse: values.isDataWarehouse }),
@@ -112,10 +112,10 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
                 },
             },
         ],
-        examples: [
+        mediaPreviews: [
             [] as string[],
             {
-                loadExamples: async () => {
+                loadMediaPreviews: async () => {
                     if (
                         values.type === TaxonomicFilterGroupType.Events &&
                         values.definition &&
@@ -290,12 +290,6 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
                 return undefined
             },
         ],
-        showExampleMedia: [
-            (s) => [s.featureFlags],
-            (featureFlags) => {
-                return !!featureFlags[FEATURE_FLAGS.EVENT_EXAMPLES]
-            },
-        ],
     }),
     listeners(({ actions, selectors, values, props, cache }) => ({
         setDefinition: ({ item }, __, ___, previousState) => {
@@ -308,8 +302,14 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
                 actions.recordHoverActivity()
             }
 
-            if (values.type === TaxonomicFilterGroupType.Events && item && 'id' in item && item.id) {
-                actions.loadExamples()
+            if (
+                !!values.featureFlags[FEATURE_FLAGS.EVENT_MEDIA_PREVIEWS] &&
+                values.type === TaxonomicFilterGroupType.Events &&
+                item &&
+                'id' in item &&
+                item.id
+            ) {
+                actions.loadMediaPreviews()
             }
         },
         handleSave: () => {

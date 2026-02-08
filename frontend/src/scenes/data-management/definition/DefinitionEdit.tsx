@@ -6,9 +6,11 @@ import { IconImage } from '@posthog/icons'
 import { LemonSkeleton, LemonTag, Spinner } from '@posthog/lemon-ui'
 
 import { PropertyStatusControl } from 'lib/components/DefinitionPopover/DefinitionPopoverContents'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { ImageCarousel } from 'lib/components/ImageCarousel/ImageCarousel'
 import { NotFound } from 'lib/components/NotFound'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useUploadFiles } from 'lib/hooks/useUploadFiles'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -40,7 +42,7 @@ export const scene: SceneExport<DefinitionLogicProps> = {
 export function DefinitionEdit(props: DefinitionLogicProps): JSX.Element {
     const logic = definitionEditLogic(props)
     const definitionLogicInstance = definitionLogic(props)
-    const { definitionLoading, definitionMissing, hasTaxonomyFeatures, isProperty } = useValues(definitionLogicInstance)
+    const { definitionLoading, definitionMissing, isProperty } = useValues(definitionLogicInstance)
     const { editDefinition } = useValues(logic)
     const { saveDefinition } = useActions(logic)
     const { tags, tagsLoading } = useValues(tagsModel)
@@ -48,7 +50,7 @@ export function DefinitionEdit(props: DefinitionLogicProps): JSX.Element {
 
     const allowVerification = !isCoreFilter(editDefinition.name) && 'verified' in editDefinition
 
-    const showHiddenOption = hasTaxonomyFeatures && 'hidden' in editDefinition
+    const showHiddenOption = 'hidden' in editDefinition
 
     const { previews, previewsLoading } = useValues(definitionLogicInstance)
     const { createMediaPreview, deleteMediaPreview } = useActions(definitionLogicInstance)
@@ -156,71 +158,73 @@ export function DefinitionEdit(props: DefinitionLogicProps): JSX.Element {
                             </LemonField>
                         </div>
 
-                        {objectStorageAvailable && (
-                            <div className="ph-ignore-input">
-                                <LemonField
-                                    name="media_preview"
-                                    label={
-                                        <LemonLabel info="Previews show where a client side event is triggered. Upload a screenshot or design.">
-                                            Media preview
-                                        </LemonLabel>
-                                    }
-                                >
-                                    <div>
-                                        {previewsLoading && (
-                                            <div className="flex items-center gap-2">
-                                                <Spinner />
-                                                <span className="text-secondary">Loading preview...</span>
-                                            </div>
-                                        )}
+                        <FlaggedFeature flag={FEATURE_FLAGS.EVENT_MEDIA_PREVIEWS}>
+                            {objectStorageAvailable && (
+                                <div className="ph-ignore-input">
+                                    <LemonField
+                                        name="media_preview"
+                                        label={
+                                            <LemonLabel info="Previews show where a client side event is triggered. Upload a screenshot or design.">
+                                                Media preview
+                                            </LemonLabel>
+                                        }
+                                    >
+                                        <div>
+                                            {previewsLoading && (
+                                                <div className="flex items-center gap-2">
+                                                    <Spinner />
+                                                    <span className="text-secondary">Loading preview...</span>
+                                                </div>
+                                            )}
 
-                                        <div className="mb-4">
-                                            <div
-                                                ref={mediaPreviewDragTarget}
-                                                className="border-2 border-dashed rounded p-4 flex items-center justify-center cursor-pointer"
-                                                onClick={(e) => {
-                                                    if (e.target === e.currentTarget) {
-                                                        const input = mediaPreviewDragTarget.current?.querySelector(
-                                                            'input[type="file"]'
-                                                        ) as HTMLInputElement
-                                                        input?.click()
-                                                    }
-                                                }}
-                                            >
-                                                <LemonFileInput
-                                                    accept="image/*"
-                                                    multiple={false}
-                                                    onChange={setFilesToUpload}
-                                                    loading={uploading}
-                                                    value={filesToUpload}
-                                                    alternativeDropTargetRef={mediaPreviewDragTarget}
-                                                    callToAction={
-                                                        <div className="flex items-center gap-2">
-                                                            <IconImage />
-                                                            <span>Click or drag and drop to upload an image</span>
-                                                        </div>
-                                                    }
+                                            <div className="mb-4">
+                                                <div
+                                                    ref={mediaPreviewDragTarget}
+                                                    className="border-2 border-dashed rounded p-4 flex items-center justify-center cursor-pointer"
+                                                    onClick={(e) => {
+                                                        if (e.target === e.currentTarget) {
+                                                            const input = mediaPreviewDragTarget.current?.querySelector(
+                                                                'input[type="file"]'
+                                                            ) as HTMLInputElement
+                                                            input?.click()
+                                                        }
+                                                    }}
+                                                >
+                                                    <LemonFileInput
+                                                        accept="image/*"
+                                                        multiple={false}
+                                                        onChange={setFilesToUpload}
+                                                        loading={uploading}
+                                                        value={filesToUpload}
+                                                        alternativeDropTargetRef={mediaPreviewDragTarget}
+                                                        callToAction={
+                                                            <div className="flex items-center gap-2">
+                                                                <IconImage />
+                                                                <span>Click or drag and drop to upload an image</span>
+                                                            </div>
+                                                        }
+                                                    />
+                                                </div>
+                                            </div>
+
+                                            {previews && previews.length > 0 && (
+                                                <ImageCarousel
+                                                    imageUrls={previews.map((p: ObjectMediaPreview) => p.media_url)}
+                                                    onDelete={(url: string) => {
+                                                        const preview = previews.find(
+                                                            (p: ObjectMediaPreview) => p.media_url === url
+                                                        )
+                                                        if (preview) {
+                                                            deleteMediaPreview(preview.id)
+                                                        }
+                                                    }}
                                                 />
-                                            </div>
+                                            )}
                                         </div>
-
-                                        {previews && previews.length > 0 && (
-                                            <ImageCarousel
-                                                imageUrls={previews.map((p: ObjectMediaPreview) => p.media_url)}
-                                                onDelete={(url: string) => {
-                                                    const preview = previews.find(
-                                                        (p: ObjectMediaPreview) => p.media_url === url
-                                                    )
-                                                    if (preview) {
-                                                        deleteMediaPreview(preview.id)
-                                                    }
-                                                }}
-                                            />
-                                        )}
-                                    </div>
-                                </LemonField>
-                            </div>
-                        )}
+                                    </LemonField>
+                                </div>
+                            )}
+                        </FlaggedFeature>
 
                         {(allowVerification || showHiddenOption) && (
                             <div className="ph-ignore-input">
