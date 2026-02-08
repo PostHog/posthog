@@ -189,6 +189,15 @@ On Apple Silicon Macs, you may get build errors related to OpenSSL. For nodejs: 
 **Nodejs services rebuild**
 If the nodejs won't start, try `cd nodejs && pnpm rebuild && pnpm i`.
 
+**Node modules corruption**
+If services still won't start after a rebuild, you may need to completely reset your node_modules. This is especially common when switching between Flox environments or after major dependency updates:
+
+```bash
+rm -rf node_modules
+pnpm store prune
+pnpm install --force
+```
+
 **Python setuptools error**
 If you see `import gyp  # noqa: E402` during nodejs install, run `brew install python-setuptools`.
 
