@@ -30,6 +30,7 @@ import { KafkaProducerWrapper } from './kafka/producer'
 import { onShutdown } from './lifecycle'
 import { LogsIngestionConsumer } from './logs-ingestion/logs-ingestion-consumer'
 import { RecordingApi } from './recording-api/recording-api'
+import { startSentimentScheduler } from './sentiment-scheduler/sentiment-scheduler'
 import { SessionRecordingIngester } from './session-recording/consumer'
 import { Hub, PluginServerService, PluginsServerConfig } from './types'
 import { ServerCommands } from './utils/commands'
@@ -138,6 +139,10 @@ export class PluginServer {
 
             if (capabilities.evaluationScheduler) {
                 serviceLoaders.push(() => startEvaluationScheduler(hub))
+            }
+
+            if (capabilities.sentimentScheduler) {
+                serviceLoaders.push(() => startSentimentScheduler(hub))
             }
 
             if (capabilities.sessionRecordingBlobIngestionV2) {

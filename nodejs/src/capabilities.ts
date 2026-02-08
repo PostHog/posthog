@@ -56,6 +56,11 @@ export const CAPABILITIES_FEATURE_FLAGS: PluginServerCapabilities = {
     evaluationScheduler: true,
 }
 
+/** LLM Analytics - sentiment classification scheduler */
+export const CAPABILITIES_LLM_ANALYTICS: PluginServerCapabilities = {
+    sentimentScheduler: true,
+}
+
 /** Ingestion Only - basic event ingestion without CDP processing */
 export const CAPABILITIES_INGESTION_ONLY: PluginServerCapabilities = {
     ingestionV2Combined: true,
@@ -82,6 +87,7 @@ const CAPABILITY_GROUP_MAP: Record<string, PluginServerCapabilities> = {
     recording_api: CAPABILITIES_RECORDING_API,
     logs: CAPABILITIES_LOGS,
     feature_flags: CAPABILITIES_FEATURE_FLAGS,
+    llm_analytics: CAPABILITIES_LLM_ANALYTICS,
 }
 
 export function getPluginServerCapabilities(config: PluginsServerConfig): PluginServerCapabilities {
@@ -126,7 +132,8 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 { sessionRecordingBlobIngestionV2Overflow: config.SESSION_RECORDING_OVERFLOW_ENABLED },
                 CAPABILITIES_RECORDING_API,
                 CAPABILITIES_LOGS,
-                CAPABILITIES_FEATURE_FLAGS
+                CAPABILITIES_FEATURE_FLAGS,
+                CAPABILITIES_LLM_ANALYTICS
             )
 
         case PluginServerMode.local_cdp:
@@ -193,6 +200,10 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
         case PluginServerMode.evaluation_scheduler:
             return {
                 evaluationScheduler: true,
+            }
+        case PluginServerMode.sentiment_scheduler:
+            return {
+                sentimentScheduler: true,
             }
         case PluginServerMode.ingestion_logs:
             return {
