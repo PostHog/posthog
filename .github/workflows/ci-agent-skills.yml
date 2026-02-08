@@ -1,0 +1,104 @@
+name: Agent Skills
+
+on:
+    pull_request:
+    push:
+        branches:
+            - master
+        paths:
+            - 'products/*/skills/**'
+            - 'services/mcp/skills/**'
+            - 'products/posthog_ai/scripts/**'
+            - '.github/workflows/ci-agent-skills.yml'
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+    cancel-in-progress: true
+
+jobs:
+    changes:
+        permissions:
+            contents: read
+            pull-requests: read
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        name: Determine need to run skill checks
+        outputs:
+            skills: ${{ steps.filter.outputs.skills || 'true' }}
+        steps:
+            - uses: actions/checkout@v6
+
+            - uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
+              id: filter
+              if: github.event_name != 'push'
+              with:
+                  filters: |
+                      skills:
+                        - 'products/*/skills/**'
+                        - 'products/*/backend/max_tools.py'
+                        - 'services/mcp/skills/**'
+                        - 'products/posthog_ai/**'
+                        - '.github/workflows/ci-agent-skills.yml'
+
+    check-skills:
+        name: Check built skills are up-to-date
+        runs-on: ubuntu-latest
+        needs: changes
+        if: needs.changes.outputs.skills == 'true'
+        permissions:
+            contents: read
+
+        steps:
+            - uses: actions/checkout@v6
+
+            - name: Set up Python
+              uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548 # v6.1.0
+              with:
+                  python-version-file: 'pyproject.toml'
+
+            - name: Install uv
+              uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b # v7.2.0
+              with:
+                  enable-cache: true
+                  save-cache: ${{ github.ref == 'refs/heads/master' }}
+                  version: 0.9.9
+
+            - name: Install pnpm
+              uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.2.0
+
+            - name: Set up Node.js
+              uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
+              with:
+                  node-version: 24.13.0
+
+            - name: Install node dependencies
+              run: pnpm install --frozen-lockfile
+
+            - name: Install python dependencies
+              run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+
+            - name: Lint skills
+              run: ./bin/hogli lint:skills
+
+            - name: Check skills are up to date
+              env:
+                  SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # For testing only
+                  DATABASE_URL: 'postgres://localhost:5432/posthog'
+                  REDIS_URL: 'redis://localhost'
+                  TEST: 1
+              run: |
+                  ./bin/hogli build:skills
+                  git add services/mcp/skills/
+                  if ! git diff --cached --exit-code; then
+                      echo ""
+                      echo "::error::Agent skills are out of date!"
+                      echo ""
+                      echo "The skill manifest in services/mcp/skills/ is auto-generated"
+                      echo "from skill templates in products/*/skills/. When you modify"
+                      echo "skill sources, you need to regenerate the manifest."
+                      echo ""
+                      echo "To fix, run locally:  hogli build:skills"
+                      echo "Then commit the updated generated files."
+                      echo ""
+                      exit 1
+                  fi
