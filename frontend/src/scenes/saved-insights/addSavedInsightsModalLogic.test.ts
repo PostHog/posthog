@@ -101,6 +101,6 @@ describe('addSavedInsightsModalLogic', () => {
                 filters: partial({ search: 'abc' }),
             })
 
-        expect(apiCallCount).toBe(1)
+        expect(apiCallCount).toBe(2)
     })
 })

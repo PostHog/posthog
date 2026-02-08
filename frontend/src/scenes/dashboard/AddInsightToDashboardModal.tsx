@@ -25,12 +25,16 @@ export function AddInsightToDashboardModal(): JSX.Element {
         return <AddInsightToDashboardModalNew />
     }
 
+    if (!addInsightToDashboardModalVisible) {
+        return null
+    }
+
     return (
         <BindLogic logic={addSavedInsightsModalLogic} props={{}}>
             <LemonModal
                 title="Add insight to dashboard"
                 onClose={hideAddInsightToDashboardModal}
-                isOpen={addInsightToDashboardModalVisible}
+                isOpen
                 footer={
                     <>
                         <LemonButton
