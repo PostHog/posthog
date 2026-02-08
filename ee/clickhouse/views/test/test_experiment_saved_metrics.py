@@ -363,3 +363,158 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["detail"], "Query is required to create a saved metric")
+
+    def test_pagination(self):
+        # Create multiple saved metrics
+        for i in range(35):
+            self.client.post(
+                f"/api/projects/{self.team.id}/experiment_saved_metrics/",
+                data={
+                    "name": f"Test Metric {i}",
+                    "description": f"Description {i}",
+                    "query": {
+                        "kind": "ExperimentTrendsQuery",
+                        "count_query": {
+                            "kind": "TrendsQuery",
+                            "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                        },
+                    },
+                },
+                format="json",
+            )
+
+        # Test first page with limit
+        response = self.client.get(f"/api/projects/{self.team.id}/experiment_saved_metrics/?limit=10&offset=0")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(len(data["results"]), 10)
+        self.assertEqual(data["count"], 35)
+        self.assertIsNotNone(data.get("next"))
+        self.assertIsNone(data.get("previous"))
+
+        # Test second page
+        response = self.client.get(f"/api/projects/{self.team.id}/experiment_saved_metrics/?limit=10&offset=10")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(len(data["results"]), 10)
+        self.assertEqual(data["count"], 35)
+        self.assertIsNotNone(data.get("next"))
+        self.assertIsNotNone(data.get("previous"))
+
+        # Test last page
+        response = self.client.get(f"/api/projects/{self.team.id}/experiment_saved_metrics/?limit=10&offset=30")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(len(data["results"]), 5)  # Only 5 remaining
+        self.assertEqual(data["count"], 35)
+        self.assertIsNone(data.get("next"))
+        self.assertIsNotNone(data.get("previous"))
+
+        # Verify no overlap between pages
+        page1_ids = {
+            item["id"]
+            for item in self.client.get(
+                f"/api/projects/{self.team.id}/experiment_saved_metrics/?limit=10&offset=0"
+            ).json()["results"]
+        }
+        page2_ids = {
+            item["id"]
+            for item in self.client.get(
+                f"/api/projects/{self.team.id}/experiment_saved_metrics/?limit=10&offset=10"
+            ).json()["results"]
+        }
+        self.assertEqual(len(page1_ids & page2_ids), 0)
+
+    def test_search(self):
+        # Create saved metrics with different names and descriptions
+        self.client.post(
+            f"/api/projects/{self.team.id}/experiment_saved_metrics/",
+            data={
+                "name": "Revenue Metric",
+                "description": "Tracks total revenue",
+                "query": {
+                    "kind": "ExperimentTrendsQuery",
+                    "count_query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+                },
+            },
+            format="json",
+        )
+
+        self.client.post(
+            f"/api/projects/{self.team.id}/experiment_saved_metrics/",
+            data={
+                "name": "Conversion Rate",
+                "description": "Measures conversion rate",
+                "query": {
+                    "kind": "ExperimentTrendsQuery",
+                    "count_query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+                },
+            },
+            format="json",
+        )
+
+        self.client.post(
+            f"/api/projects/{self.team.id}/experiment_saved_metrics/",
+            data={
+                "name": "User Engagement",
+                "description": "Revenue per user",
+                "query": {
+                    "kind": "ExperimentTrendsQuery",
+                    "count_query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+                },
+            },
+            format="json",
+        )
+
+        # Search by name
+        response = self.client.get(f"/api/projects/{self.team.id}/experiment_saved_metrics/?search=Revenue")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data["count"], 2)  # "Revenue Metric" and "User Engagement" (description contains "Revenue")
+        self.assertTrue(
+            all(
+                "revenue" in item["name"].lower() or "revenue" in (item.get("description") or "").lower()
+                for item in data["results"]
+            )
+        )
+
+        # Search by description
+        response = self.client.get(f"/api/projects/{self.team.id}/experiment_saved_metrics/?search=conversion")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data["count"], 1)
+        self.assertEqual(data["results"][0]["name"], "Conversion Rate")
+
+        # Search with no matches
+        response = self.client.get(f"/api/projects/{self.team.id}/experiment_saved_metrics/?search=Nonexistent")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data["count"], 0)
+        self.assertEqual(len(data["results"]), 0)
+
+    def test_search_with_pagination(self):
+        # Create multiple saved metrics with searchable names
+        for i in range(15):
+            self.client.post(
+                f"/api/projects/{self.team.id}/experiment_saved_metrics/",
+                data={
+                    "name": f"Revenue Metric {i}",
+                    "description": f"Revenue tracking {i}",
+                    "query": {
+                        "kind": "ExperimentTrendsQuery",
+                        "count_query": {
+                            "kind": "TrendsQuery",
+                            "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                        },
+                    },
+                },
+                format="json",
+            )
+
+        # Search with pagination - following the pattern from test_survey.py
+        response = self.client.get(f"/api/projects/{self.team.id}/experiment_saved_metrics/?search=Revenue&limit=10")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(len(data["results"]), 10)  # Should return only 10 results
+        self.assertTrue(data["next"] is not None)  # Should have next page
+        self.assertTrue(data["count"] > 10)  # Total count should be more than 10
