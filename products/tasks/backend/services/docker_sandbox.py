@@ -1,5 +1,8 @@
 import os
+import json
 import uuid
+import shlex
+import base64
 import shutil
 import logging
 import tempfile
@@ -381,6 +384,51 @@ class DockerSandbox:
                 )
 
         return _DockerExecutionStream(process, timeout_seconds, self.id)
+
+    def write_file(self, path: str, payload: bytes) -> ExecutionResult:
+        if not self.is_running():
+            raise SandboxExecutionError(
+                "Sandbox not in running state.",
+                {"sandbox_id": self.id},
+                cause=RuntimeError(f"Sandbox {self.id} is not running"),
+            )
+
+        chunk_size = 50000
+        encoded_payload = base64.b64encode(payload).decode("utf-8")
+        temp_path = f"{path}.tmp-{uuid.uuid4().hex}"
+        result = ExecutionResult(stdout="", stderr="", exit_code=0, error=None)
+        for index in range(0, len(encoded_payload), chunk_size):
+            chunk = encoded_payload[index : index + chunk_size]
+            write_mode = "wb" if index == 0 else "ab"
+            command = (
+                "python3 - <<'EOF_SANDBOX_WRITE'\n"
+                "import base64\n"
+                "from pathlib import Path\n"
+                f"path = Path({json.dumps(temp_path)})\n"
+                "path.parent.mkdir(parents=True, exist_ok=True)\n"
+                f"payload = base64.b64decode('{chunk}')\n"
+                f"with path.open({json.dumps(write_mode)}) as response_file:\n"
+                "    response_file.write(payload)\n"
+                "EOF_SANDBOX_WRITE"
+            )
+            result = self.execute(command, timeout_seconds=self.config.default_execution_timeout_seconds)
+            if result.exit_code != 0:
+                logger.warning(
+                    "sandbox_write_failed",
+                    extra={"stdout": result.stdout, "stderr": result.stderr, "sandbox_id": self.id},
+                )
+                break
+
+        if result.exit_code == 0:
+            move_command = f"mv {shlex.quote(temp_path)} {shlex.quote(path)}"
+            result = self.execute(move_command, timeout_seconds=self.config.default_execution_timeout_seconds)
+            if result.exit_code != 0:
+                logger.warning(
+                    "sandbox_write_failed",
+                    extra={"stdout": result.stdout, "stderr": result.stderr, "sandbox_id": self.id},
+                )
+
+        return result
 
     def clone_repository(self, repository: str, github_token: Optional[str] = "") -> ExecutionResult:
         if not self.is_running():

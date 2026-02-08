@@ -15,12 +15,12 @@ import { notebookNodeLogic } from './notebookNodeLogic'
 import { PythonExecutionMedia, PythonExecutionResult } from './pythonExecution'
 import { buildMediaSource, renderAnsiText } from './utils'
 
-export type NotebookNodeDuckSQLAttributes = {
+export type NotebookNodeHogQLAttributes = {
     code: string
     returnVariable: string
-    duckExecution?: PythonExecutionResult | null
-    duckExecutionCodeHash?: number | null
-    duckExecutionSandboxId?: string | null
+    hogqlExecution?: PythonExecutionResult | null
+    hogqlExecutionCodeHash?: number | null
+    hogqlExecutionSandboxId?: string | null
     showSettings?: boolean
 }
 
@@ -61,19 +61,19 @@ const MediaBlock = ({ media }: { media: PythonExecutionMedia }): JSX.Element | n
             <div className="text-[10px] uppercase tracking-wide text-muted">Image</div>
             <img
                 src={source}
-                alt="SQL (DuckDB) output"
+                alt="SQL (HogQL) output"
                 className="mt-2 max-w-full border border-border rounded bg-bg-light"
             />
         </div>
     )
 }
 
-const DEFAULT_DUCK_SQL_NODE_HEIGHT = 100
+const DEFAULT_HOGQL_SQL_NODE_HEIGHT = 100
 
 const Component = ({
     attributes,
     updateAttributes,
-}: NotebookNodeProps<NotebookNodeDuckSQLAttributes>): JSX.Element | null => {
+}: NotebookNodeProps<NotebookNodeHogQLAttributes>): JSX.Element | null => {
     const nodeLogic = useMountedLogic(notebookNodeLogic)
     const {
         dataframePage,
@@ -81,7 +81,7 @@ const Component = ({
         dataframeLoading,
         dataframeResult,
         dataframeVariableName,
-        duckSqlReturnVariableUsage,
+        hogqlReturnVariableUsage,
         expanded,
     } = useValues(nodeLogic)
     const { navigateToNode, setDataframePage, setDataframePageSize } = useActions(nodeLogic)
@@ -90,16 +90,16 @@ const Component = ({
     const lastAutoHeightRef = useRef<number | null>(null)
     const lastExecutionCodeHashRef = useRef<number | null>(null)
 
-    const duckExecution = attributes.duckExecution ?? null
-    const hasResult = duckExecution?.result !== undefined && duckExecution?.result !== null
+    const hogqlExecution = attributes.hogqlExecution ?? null
+    const hasResult = hogqlExecution?.result !== undefined && hogqlExecution?.result !== null
     const hasExecution =
-        duckExecution &&
-        (duckExecution.stdout ||
-            duckExecution.stderr ||
+        hogqlExecution &&
+        (hogqlExecution.stdout ||
+            hogqlExecution.stderr ||
             hasResult ||
-            duckExecution.media?.length ||
-            duckExecution.traceback?.length)
-    const executionCodeHash = attributes.duckExecutionCodeHash ?? null
+            hogqlExecution.media?.length ||
+            hogqlExecution.traceback?.length)
+    const executionCodeHash = attributes.hogqlExecutionCodeHash ?? null
 
     const debouncedUpdateHeight = useDebouncedCallback((height: number) => {
         updateAttributes({ height })
@@ -122,7 +122,7 @@ const Component = ({
         }
         const footerHeight = footerRef.current?.offsetHeight ?? 0
         const desiredHeight = output.scrollHeight + footerHeight + 8
-        const currentHeight = typeof attributes.height === 'number' ? attributes.height : DEFAULT_DUCK_SQL_NODE_HEIGHT
+        const currentHeight = typeof attributes.height === 'number' ? attributes.height : DEFAULT_HOGQL_SQL_NODE_HEIGHT
         const lastExecutionCodeHash = lastExecutionCodeHashRef.current
         const executionChanged = executionCodeHash !== lastExecutionCodeHash
 
@@ -150,14 +150,14 @@ const Component = ({
         dataframeLoading,
         dataframePageSize,
         dataframeResult,
-        duckExecution?.media?.length,
-        duckExecution?.result,
-        duckExecution?.stderr,
-        duckExecution?.stdout,
-        duckExecution?.traceback?.length,
         executionCodeHash,
         hasExecution,
         debouncedUpdateHeight,
+        hogqlExecution?.media?.length,
+        hogqlExecution?.result,
+        hogqlExecution?.stderr,
+        hogqlExecution?.stdout,
+        hogqlExecution?.traceback?.length,
     ])
 
     const isSettingsVisible = attributes.showSettings ?? false
@@ -177,7 +177,7 @@ const Component = ({
     }
 
     return (
-        <div data-attr="notebook-node-duck-sql" className="flex h-full flex-col">
+        <div data-attr="notebook-node-hogql-sql" className="flex h-full flex-col">
             {expanded ? (
                 <div
                     ref={outputRef}
@@ -187,20 +187,20 @@ const Component = ({
                 >
                     {hasExecution ? (
                         <>
-                            {duckExecution?.stdout ? (
+                            {hogqlExecution?.stdout ? (
                                 <OutputBlock
                                     title="Output"
                                     className="p-2"
                                     toneClassName="text-default"
-                                    value={duckExecution.stdout ?? ''}
+                                    value={hogqlExecution.stdout ?? ''}
                                 />
                             ) : null}
-                            {duckExecution?.stderr ? (
+                            {hogqlExecution?.stderr ? (
                                 <OutputBlock
                                     title="stderr"
                                     className="p-2"
                                     toneClassName="text-danger"
-                                    value={duckExecution.stderr ?? ''}
+                                    value={hogqlExecution.stderr ?? ''}
                                 />
                             ) : null}
                             {hasResult && !showDataframeTable ? (
@@ -208,7 +208,7 @@ const Component = ({
                                     title="Result"
                                     className="p-2"
                                     toneClassName="text-default"
-                                    value={duckExecution.result ?? ''}
+                                    value={hogqlExecution.result ?? ''}
                                 />
                             ) : null}
                             {showDataframeTable ? (
@@ -222,15 +222,15 @@ const Component = ({
                                     onPageSizeChange={setDataframePageSize}
                                 />
                             ) : null}
-                            {duckExecution?.media?.map((media, index) => (
-                                <MediaBlock key={`duck-sql-media-${index}`} media={media} />
+                            {hogqlExecution?.media?.map((media, index) => (
+                                <MediaBlock key={`hogql-sql-media-${index}`} media={media} />
                             ))}
-                            {duckExecution?.status === 'error' && duckExecution.traceback?.length ? (
+                            {hogqlExecution?.status === 'error' && hogqlExecution.traceback?.length ? (
                                 <OutputBlock
                                     title="Error"
                                     className="p-2"
                                     toneClassName="text-danger"
-                                    value={duckExecution.traceback.join('\n')}
+                                    value={hogqlExecution.traceback.join('\n')}
                                 />
                             ) : null}
                         </>
@@ -257,10 +257,10 @@ const Component = ({
                             onChange={(event) => updateAttributes({ returnVariable: event.target.value })}
                             spellCheck={false}
                         />
-                        {duckSqlReturnVariableUsage.length > 0 ? (
+                        {hogqlReturnVariableUsage.length > 0 ? (
                             <span className="text-muted">
                                 Used in{' '}
-                                {duckSqlReturnVariableUsage.map((usage) => (
+                                {hogqlReturnVariableUsage.map((usage) => (
                                     <button
                                         key={usage.nodeId}
                                         type="button"
@@ -282,17 +282,17 @@ const Component = ({
 const Settings = ({
     attributes,
     updateAttributes,
-}: NotebookNodeAttributeProperties<NotebookNodeDuckSQLAttributes>): JSX.Element => {
+}: NotebookNodeAttributeProperties<NotebookNodeHogQLAttributes>): JSX.Element => {
     const nodeLogic = useMountedLogic(notebookNodeLogic)
-    const { runDuckSqlNodeWithMode } = useActions(nodeLogic)
+    const { runHogqlSqlNodeWithMode } = useActions(nodeLogic)
 
     return (
         <CodeEditorResizeable
             language="sql"
-            value={typeof attributes.code === 'string' ? attributes.code : ''}
+            value={attributes.code}
             onChange={(value) => updateAttributes({ code: value ?? '' })}
             onPressCmdEnter={() => {
-                void runDuckSqlNodeWithMode({ mode: 'auto' })
+                void runHogqlSqlNodeWithMode({ mode: 'auto' })
             }}
             allowManualResize={false}
             minHeight={160}
@@ -301,9 +301,9 @@ const Settings = ({
     )
 }
 
-export const NotebookNodeDuckSQL = createPostHogWidgetNode<NotebookNodeDuckSQLAttributes>({
-    nodeType: NotebookNodeType.DuckSQL,
-    titlePlaceholder: 'SQL (DuckDB)',
+export const NotebookNodeHogQL = createPostHogWidgetNode<NotebookNodeHogQLAttributes>({
+    nodeType: NotebookNodeType.HogQLSQL,
+    titlePlaceholder: 'SQL (HogQL)',
     Component,
     heightEstimate: 120,
     minHeight: 80,
@@ -314,15 +314,15 @@ export const NotebookNodeDuckSQL = createPostHogWidgetNode<NotebookNodeDuckSQLAt
             default: '',
         },
         returnVariable: {
-            default: 'duck_df',
+            default: 'hogql_df',
         },
-        duckExecution: {
+        hogqlExecution: {
             default: null,
         },
-        duckExecutionCodeHash: {
+        hogqlExecutionCodeHash: {
             default: null,
         },
-        duckExecutionSandboxId: {
+        hogqlExecutionSandboxId: {
             default: null,
         },
         showSettings: {

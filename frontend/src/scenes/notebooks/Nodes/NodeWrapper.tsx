@@ -26,6 +26,7 @@ import { posthogNodeInputRule, posthogNodePasteRule, useSyncedAttributes } from 
 import { KNOWN_NODES } from '../utils'
 import { NotebookNodeTitle } from './components/NotebookNodeTitle'
 import { DuckSqlRunMenu } from './components/DuckSqlRunMenu'
+import { HogqlSqlRunMenu } from './components/HogqlSqlRunMenu'
 import { PythonRunMenu } from './components/PythonRunMenu'
 import { SlashCommandsPopover } from '../Notebook/SlashCommands'
 import posthog from 'posthog-js'
@@ -86,10 +87,13 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
         pythonRunLoading,
         duckSqlRunLoading,
         duckSqlRunQueued,
+        hogqlSqlRunLoading,
+        hogqlSqlRunQueued,
         pythonRunQueued,
         settingsPlacement: resolvedSettingsPlacement,
         sourceComment,
         duckSqlReturnVariable,
+        hogqlSqlReturnVariable,
         customMenuItems,
         kernelInfo,
     } = useValues(nodeLogic)
@@ -104,6 +108,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
         convertToBacklink,
         runPythonNodeWithMode,
         runDuckSqlNodeWithMode,
+        runHogqlSqlNodeWithMode,
     } = useActions(nodeLogic)
 
     const { ref: inViewRef, inView } = useInView({ triggerOnce: true })
@@ -162,6 +167,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
     const isDraggable = !!(isEditable && getPos)
     const isPythonNode = nodeType === NotebookNodeType.Python
     const isDuckSqlNode = nodeType === NotebookNodeType.DuckSQL
+    const isHogqlSqlNode = nodeType === NotebookNodeType.HogQLSQL
     const runDisabledReason = !notebook ? 'Notebook not loaded' : undefined
     const pythonAttributes = attributes as {
         code?: string
@@ -196,6 +202,26 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
     const duckSqlIsFresh =
         duckSqlHasExecution && duckSqlExecutionCodeHash === duckSqlCodeHash && duckSqlSandboxMatches && kernelIsRunning
     const duckSqlIsStale = duckSqlHasExecution && !duckSqlIsFresh
+    const hogqlSqlAttributes = attributes as {
+        code?: string
+        hogqlExecutionCodeHash?: number | null
+        hogqlExecutionSandboxId?: string | null
+        returnVariable?: string
+    }
+    const hogqlSqlExecutionCodeHash = hogqlSqlAttributes.hogqlExecutionCodeHash ?? null
+    const hogqlSqlCodeHash = hashCodeForString(`${hogqlSqlAttributes.code ?? ''}\n${hogqlSqlReturnVariable}`)
+    const hogqlSqlExecutionSandboxId = hogqlSqlAttributes.hogqlExecutionSandboxId ?? null
+    const hogqlSqlHasExecution = hogqlSqlExecutionCodeHash !== null
+    const hogqlSqlSandboxMatches =
+        hogqlSqlExecutionSandboxId !== null &&
+        kernelSandboxId !== null &&
+        hogqlSqlExecutionSandboxId === kernelSandboxId
+    const hogqlSqlIsFresh =
+        hogqlSqlHasExecution &&
+        hogqlSqlExecutionCodeHash === hogqlSqlCodeHash &&
+        hogqlSqlSandboxMatches &&
+        kernelIsRunning
+    const hogqlSqlIsStale = hogqlSqlHasExecution && !hogqlSqlIsFresh
 
     const defaultMenuItems: LemonMenuItems = [
         !NON_COPYABLE_NODES.includes(nodeType)
@@ -297,6 +323,16 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                                                         queued={duckSqlRunQueued}
                                                         disabledReason={runDisabledReason}
                                                         onRun={(mode) => void runDuckSqlNodeWithMode({ mode })}
+                                                    />
+                                                ) : null}
+                                                {isHogqlSqlNode ? (
+                                                    <HogqlSqlRunMenu
+                                                        isFresh={hogqlSqlIsFresh}
+                                                        isStale={hogqlSqlIsStale}
+                                                        loading={hogqlSqlRunLoading}
+                                                        queued={hogqlSqlRunQueued}
+                                                        disabledReason={runDisabledReason}
+                                                        onRun={(mode) => void runHogqlSqlNodeWithMode({ mode })}
                                                     />
                                                 ) : null}
 
