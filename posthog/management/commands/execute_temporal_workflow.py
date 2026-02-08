@@ -19,6 +19,7 @@ from posthog.temporal.enforce_max_replay_retention import WORKFLOWS as ENFORCE_M
 from posthog.temporal.export_recording import WORKFLOWS as EXPORT_RECORDING_WORKFLOWS
 from posthog.temporal.import_recording import WORKFLOWS as IMPORT_RECORDING_WORKFLOWS
 from posthog.temporal.llm_analytics import WORKFLOWS as LLM_ANALYTICS_WORKFLOWS
+from posthog.temporal.event_screenshots import WORKFLOWS as EVENT_SCREENSHOTS_WORKFLOWS
 from posthog.temporal.proxy_service import WORKFLOWS as PROXY_SERVICE_WORKFLOWS
 from posthog.temporal.quota_limiting import WORKFLOWS as QUOTA_LIMITING_WORKFLOWS
 from posthog.temporal.salesforce_enrichment import WORKFLOWS as SALESFORCE_ENRICHMENT_WORKFLOWS
@@ -147,6 +148,7 @@ class Command(BaseCommand):
             + WEEKLY_DIGEST_WORKFLOWS
             + DATA_MODELING_WORKFLOWS
             + LLM_ANALYTICS_WORKFLOWS
+            + EVENT_SCREENSHOTS_WORKFLOWS
         )
         try:
             workflow = next(workflow for workflow in WORKFLOWS if workflow.is_named(workflow_name))

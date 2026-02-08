@@ -4086,6 +4086,15 @@ export interface EventDefinitionMetrics {
     query_usage_30_day: number
 }
 
+export interface ObjectMediaPreview {
+    id: string
+    created_at: string
+    updated_at: string
+    media_url: string
+    media_type: 'uploaded' | 'exported'
+    metadata?: Record<string, any>
+}
+
 export enum PropertyType {
     DateTime = 'DateTime',
     String = 'String',

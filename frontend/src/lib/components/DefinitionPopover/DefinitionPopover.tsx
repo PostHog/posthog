@@ -6,6 +6,7 @@ import { useActions, useValues } from 'kea'
 import { LemonDivider, ProfilePicture } from '@posthog/lemon-ui'
 
 import { DefinitionPopoverState, definitionPopoverLogic } from 'lib/components/DefinitionPopover/definitionPopoverLogic'
+import { ImageCarousel } from 'lib/components/ImageCarousel/ImageCarousel'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { dayjs } from 'lib/dayjs'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
@@ -103,7 +104,8 @@ function DescriptionEmpty(): JSX.Element {
 }
 
 function Example({ value }: { value?: string }): JSX.Element {
-    const { type } = useValues(definitionPopoverLogic)
+    const { type, examples, examplesLoading } = useValues(definitionPopoverLogic)
+
     let data: CoreFilterDefinition | null = null
 
     if (
@@ -121,10 +123,21 @@ function Example({ value }: { value?: string }): JSX.Element {
         data = getCoreFilterDefinition(value, type)
     }
 
-    return data?.examples?.[0] ? (
+    const textExample = data?.examples?.[0] ? (
         <div className="definition-popover-examples">Example: {data?.examples?.join(', ')}</div>
     ) : (
         <></>
+    )
+
+    const imageExample = <ImageCarousel imageUrls={examples} loading={examplesLoading} />
+
+    const hasContent = data?.examples?.[0] || examples.length > 0
+
+    return (
+        <div className={clsx('flex flex-col gap-2', hasContent && 'mb-4')}>
+            {textExample}
+            {imageExample}
+        </div>
     )
 }
 
@@ -176,7 +189,7 @@ function Owner({ user }: { user?: UserBasicType | null }): JSX.Element {
             {user?.uuid ? (
                 <div className="flex items-center flex-row">
                     <ProfilePicture user={user} size="sm" />
-                    <span className="pl-2 inline-flex font-semibold pl-1 whitespace-nowrap">{user.first_name}</span>
+                    <span className="pl-2 inline-flex font-semibold whitespace-nowrap">{user.first_name}</span>
                 </div>
             ) : (
                 <span className="text-secondary italic inline-flex font-semibold pl-1 whitespace-nowrap">No owner</span>

@@ -5,7 +5,9 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { getSingularType } from 'lib/components/DefinitionPopover/utils'
 import { TaxonomicDefinitionTypes, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { DataWarehouseTableForInsight } from 'scenes/data-warehouse/types'
@@ -40,6 +42,9 @@ export interface DefinitionPopoverLogicProps {
 export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
     props({} as DefinitionPopoverLogicProps),
     path(['lib', 'components', 'DefinitionPanel', 'definitionPopoverLogic']),
+    connect(() => ({
+        values: [userLogic, ['hasAvailableFeature'], featureFlagLogic, ['featureFlags']],
+    })),
     actions(({ values }) => ({
         setDefinition: (item: Partial<TaxonomicDefinitionTypes>) => ({ item, isDataWarehouse: values.isDataWarehouse }),
         setLocalDefinition: (item: Partial<TaxonomicDefinitionTypes>) => ({ item }),
@@ -104,6 +109,29 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
                     // Update item in infinite list
                     props.updateRemoteItem?.(definition)
                     return definition
+                },
+            },
+        ],
+        examples: [
+            [] as string[],
+            {
+                loadExamples: async () => {
+                    if (
+                        values.type === TaxonomicFilterGroupType.Events &&
+                        values.definition &&
+                        'id' in values.definition &&
+                        values.definition.id
+                    ) {
+                        try {
+                            const response = await api.objectMediaPreviews.list(
+                                (values.definition as EventDefinition).id
+                            )
+                            return response.results.map((preview) => preview.media_url)
+                        } catch {
+                            return []
+                        }
+                    }
+                    return []
                 },
             },
         ],
@@ -262,9 +290,15 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
                 return undefined
             },
         ],
+        showExampleMedia: [
+            (s) => [s.featureFlags],
+            (featureFlags) => {
+                return !!featureFlags[FEATURE_FLAGS.EVENT_EXAMPLES]
+            },
+        ],
     }),
     listeners(({ actions, selectors, values, props, cache }) => ({
-        setDefinition: (_, __, ___, previousState) => {
+        setDefinition: ({ item }, __, ___, previousState) => {
             // Reset definition popover to view mode if context is switched
             if (
                 selectors.definition(previousState)?.name &&
@@ -272,6 +306,10 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
             ) {
                 actions.setPopoverState(DefinitionPopoverState.View)
                 actions.recordHoverActivity()
+            }
+
+            if (values.type === TaxonomicFilterGroupType.Events && item && 'id' in item && item.id) {
+                actions.loadExamples()
             }
         },
         handleSave: () => {

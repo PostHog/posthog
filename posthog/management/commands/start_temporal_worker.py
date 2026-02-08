@@ -66,6 +66,10 @@ from posthog.temporal.export_recording import (
     ACTIVITIES as EXPORT_RECORDING_ACTIVITIES,
     WORKFLOWS as EXPORT_RECORDING_WORKFLOWS,
 )
+from posthog.temporal.event_screenshots import (
+    ACTIVITIES as EVENT_SCREENSHOTS_ACTIVITIES,
+    WORKFLOWS as EVENT_SCREENSHOTS_WORKFLOWS,
+)
 from posthog.temporal.exports_video import (
     ACTIVITIES as VIDEO_EXPORT_ACTIVITIES,
     WORKFLOWS as VIDEO_EXPORT_WORKFLOWS,
@@ -253,6 +257,11 @@ _task_queue_specs = [
         settings.LLMA_TASK_QUEUE,
         LLM_ANALYTICS_WORKFLOWS,
         LLM_ANALYTICS_ACTIVITIES,
+    ),
+    (
+        settings.EVENT_SCREENSHOTS_TASK_QUEUE,
+        EVENT_SCREENSHOTS_WORKFLOWS,
+        EVENT_SCREENSHOTS_ACTIVITIES,
     ),
 ]
 
