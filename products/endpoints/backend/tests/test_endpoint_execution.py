@@ -709,6 +709,35 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("$browser", response.json()["detail"])
         self.assertIn("required", response.json()["detail"].lower())
 
+    def test_materialized_insight_endpoint_accepts_filters_override_instead_of_variable(self):
+        """Materialized insight endpoint accepts filters_override as alternative to variables.
+
+        For backwards compatibility, filters_override bypasses the required variable check.
+        This ensures existing integrations using the deprecated filters_override API continue to work.
+        """
+        endpoint = create_endpoint_with_version(
+            name="mat_trends_filters_fallback",
+            team=self.team,
+            query=TrendsQuery(
+                series=[EventsNode(event="$pageview")],
+                breakdownFilter={"breakdowns": [{"property": "$browser", "type": "event"}]},
+            ).model_dump(),
+            created_by=self.user,
+            is_active=True,
+        )
+        self._materialize_endpoint(endpoint)
+
+        # Using filters_override instead of variables should work (backwards compat)
+        with mock.patch.object(EndpointViewSet, "_execute_query_and_respond", return_value=Response({})) as mock_exec:
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/",
+                {"filters_override": {"properties": [{"key": "$browser", "value": "Chrome", "type": "event"}]}},
+                format="json",
+            )
+
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            mock_exec.assert_called()
+
     def test_materialized_insight_endpoint_direct_refresh_bypasses_materialization(self):
         """refresh: direct bypasses materialized table for insight endpoints."""
         endpoint = create_endpoint_with_version(
