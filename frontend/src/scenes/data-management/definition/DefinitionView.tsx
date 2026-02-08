@@ -33,7 +33,12 @@ import { Query } from '~/queries/Query/Query'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { getFilterLabel } from '~/taxonomy/helpers'
-import { FilterLogicalOperator, PropertyDefinition, PropertyDefinitionVerificationStatus } from '~/types'
+import {
+    EventDefinition,
+    FilterLogicalOperator,
+    PropertyDefinition,
+    PropertyDefinitionVerificationStatus,
+} from '~/types'
 
 import { getEventDefinitionIcon, getPropertyDefinitionIcon } from '../events/DefinitionHeader'
 
@@ -251,7 +256,7 @@ export function DefinitionView(props: DefinitionLogicProps): JSX.Element {
                 )}
 
                 <FlaggedFeature flag={FEATURE_FLAGS.EVENT_MEDIA_PREVIEWS}>
-                    {definition.media_preview_urls && definition.media_preview_urls.length > 0 && (
+                    {!!(definition as EventDefinition).media_preview_urls?.length && (
                         <div className="mt-4">
                             <h5 className="mb-2">
                                 Preview{' '}
@@ -259,7 +264,7 @@ export function DefinitionView(props: DefinitionLogicProps): JSX.Element {
                                     <IconInfo className="text-sm" />
                                 </Tooltip>
                             </h5>
-                            <ImageCarousel imageUrls={definition.media_preview_urls} />
+                            <ImageCarousel imageUrls={(definition as EventDefinition).media_preview_urls!} />
                         </div>
                     )}
                 </FlaggedFeature>
