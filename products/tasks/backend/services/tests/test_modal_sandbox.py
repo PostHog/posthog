@@ -3,7 +3,8 @@ from unittest.mock import MagicMock, patch
 
 from requests.exceptions import ConnectionError, Timeout
 
-from products.tasks.backend.services.modal_sandbox import SANDBOX_IMAGE, _get_sandbox_image_reference
+from products.tasks.backend.services.modal_sandbox import SANDBOX_IMAGE, ModalSandbox, _get_sandbox_image_reference
+from products.tasks.backend.services.sandbox import SandboxConfig
 
 
 def _mock_token_response(status_code: int = 200, token: str | None = "test-token"):
@@ -112,3 +113,62 @@ class TestGetSandboxImageReferenceIntegration:
         digest_part = result.split("@")[1]
         assert digest_part.startswith("sha256:")
         assert len(digest_part) == 71  # "sha256:" + 64 hex chars
+
+
+class TestModalSandboxCommandEscaping:
+    @pytest.mark.parametrize(
+        "task_id,run_id,repo_path",
+        [
+            ("task-123", "run-456", "/tmp/workspace/repos/org/repo"),
+            ("task; echo hacked", "run-789", "/tmp/workspace/repos/org/repo"),
+            ("task-abc", "run; rm -rf /", "/tmp/workspace/repos/org/repo"),
+            ("task-xyz", "run-123", "/tmp/workspace/repos/org'; echo hacked; echo '/repo"),
+            ("task$(whoami)", "run-123", "/tmp/workspace/repos/org/repo"),
+            ("task-123", "run`id`", "/tmp/workspace/repos/org/repo"),
+        ],
+    )
+    def test_task_command_shell_injection_prevention(self, task_id, run_id, repo_path):
+        import shlex
+
+        sandbox = ModalSandbox.__new__(ModalSandbox)
+        sandbox.id = "sb-123"
+        sandbox.config = SandboxConfig(name="test")
+
+        command = sandbox._get_task_command(task_id, run_id, repo_path, create_pr=True)
+
+        assert shlex.quote(task_id) in command
+        assert shlex.quote(run_id) in command
+        assert shlex.quote(repo_path) in command
+
+    @pytest.mark.parametrize(
+        "repository",
+        [
+            "PostHog/posthog",
+            "org/repo-name",
+            "org/repo; echo hacked",
+            "org/repo$(whoami)",
+            "org'/repo",
+            "org/repo`id`",
+        ],
+    )
+    def test_clone_repository_command_escaping(self, repository):
+        import shlex
+
+        sandbox = ModalSandbox.__new__(ModalSandbox)
+        sandbox.id = "sb-123"
+        sandbox.config = SandboxConfig(name="test")
+        sandbox._sandbox = MagicMock()
+
+        with patch.object(sandbox, "is_running", return_value=True):
+            with patch.object(sandbox, "execute") as mock_execute:
+                sandbox.clone_repository(repository, github_token="test-token")
+                call_args = mock_execute.call_args
+                command = call_args[0][0]
+
+                org, repo = repository.lower().split("/")
+                target_path = f"/tmp/workspace/repos/{org}/{repo}"
+                org_path = f"/tmp/workspace/repos/{org}"
+
+                assert shlex.quote(target_path) in command
+                assert shlex.quote(org_path) in command
+                assert shlex.quote(repo) in command

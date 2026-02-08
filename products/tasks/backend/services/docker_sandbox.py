@@ -1,5 +1,6 @@
 import os
 import uuid
+import shlex
 import shutil
 import logging
 import tempfile
@@ -394,12 +395,13 @@ class DockerSandbox:
         )
 
         target_path = f"/tmp/workspace/repos/{org}/{repo}"
+        org_path = f"/tmp/workspace/repos/{org}"
 
         clone_command = (
-            f"rm -rf {target_path} && "
-            f"mkdir -p /tmp/workspace/repos/{org} && "
-            f"cd /tmp/workspace/repos/{org} && "
-            f"git clone {repo_url} {repo}"
+            f"rm -rf {shlex.quote(target_path)} && "
+            f"mkdir -p {shlex.quote(org_path)} && "
+            f"cd {shlex.quote(org_path)} && "
+            f"git clone {shlex.quote(repo_url)} {shlex.quote(repo)}"
         )
 
         logger.info(f"Cloning repository {repository} to {target_path} in sandbox {self.id}")
@@ -412,12 +414,12 @@ class DockerSandbox:
         org, repo = repository.lower().split("/")
         repo_path = f"/tmp/workspace/repos/{org}/{repo}"
 
-        check_result = self.execute(f"test -d {repo_path} && echo 'exists' || echo 'missing'")
+        check_result = self.execute(f"test -d {shlex.quote(repo_path)} && echo 'exists' || echo 'missing'")
         if "missing" in check_result.stdout:
             raise RuntimeError(f"Repository path {repo_path} does not exist. Clone the repository first.")
 
         agent_setup_command = self._get_setup_command(repo_path)
-        setup_command = f"cd {repo_path} && {agent_setup_command}"
+        setup_command = f"cd {shlex.quote(repo_path)} && {agent_setup_command}"
 
         logger.info(f"Setting up repository {repository} in sandbox {self.id}")
         result = self.execute(setup_command, timeout_seconds=15 * 60)
@@ -436,7 +438,7 @@ class DockerSandbox:
         org, repo = repository.lower().split("/")
         repo_path = f"/tmp/workspace/repos/{org}/{repo}"
 
-        result = self.execute(f"cd {repo_path} && git status --porcelain")
+        result = self.execute(f"cd {shlex.quote(repo_path)} && git status --porcelain")
         is_clean = not result.stdout.strip()
 
         return is_clean, result.stdout
@@ -449,7 +451,7 @@ class DockerSandbox:
         repo_path = f"/tmp/workspace/repos/{org}/{repo}"
 
         task_command = self._get_task_command(task_id, run_id, repo_path, create_pr)
-        command = f"cd {repo_path} && {task_command}"
+        command = f"cd {shlex.quote(repo_path)} && {task_command}"
 
         logger.info(f"Executing task {task_id} for run {run_id} in {repo_path} in sandbox {self.id}")
         logger.info(f"Task command: {task_command}")
@@ -468,10 +470,11 @@ class DockerSandbox:
 
     def _get_task_command(self, task_id: str, run_id: str, repo_path: str, create_pr: bool = True) -> str:
         create_pr_flag = "true" if create_pr else "false"
-        return f"git reset --hard HEAD && IS_SANDBOX=True node /scripts/runAgent.mjs --taskId {task_id} --runId {run_id} --repositoryPath {repo_path} --createPR {create_pr_flag}"
+        return f"git reset --hard HEAD && IS_SANDBOX=True node /scripts/runAgent.mjs --taskId {shlex.quote(task_id)} --runId {shlex.quote(run_id)} --repositoryPath {shlex.quote(repo_path)} --createPR {shlex.quote(create_pr_flag)}"
 
     def _get_setup_command(self, repo_path: str) -> str:
-        return f"git reset --hard HEAD && IS_SANDBOX=True && node /scripts/runAgent.mjs --repositoryPath {repo_path} --prompt '{SETUP_REPOSITORY_PROMPT.format(cwd=repo_path, repository=repo_path)}' --max-turns 20"
+        prompt = SETUP_REPOSITORY_PROMPT.format(cwd=repo_path, repository=repo_path)
+        return f"git reset --hard HEAD && IS_SANDBOX=True && node /scripts/runAgent.mjs --repositoryPath {shlex.quote(repo_path)} --prompt {shlex.quote(prompt)} --max-turns 20"
 
     def create_snapshot(self) -> str:
         if not self.is_running():
