@@ -62,7 +62,7 @@ import { EvalsTabContent } from './components/EvalsTabContent'
 import { EventContentDisplayAsync, EventContentGeneration } from './components/EventContentWithAsyncData'
 import { FeedbackTag } from './components/FeedbackTag'
 import { MetricTag } from './components/MetricTag'
-import { SentimentDot } from './components/SentimentTag'
+import { SENTIMENT_COLOR, SentimentDot } from './components/SentimentTag'
 import { SaveToDatasetButton } from './datasets/SaveToDatasetButton'
 import { FeedbackViewDisplay } from './feedback-view/FeedbackViewDisplay'
 import { useAIData } from './hooks/useAIData'
@@ -391,12 +391,6 @@ function TraceMetadata({
     )
 }
 
-const SENTIMENT_CHIP_COLOR: Record<string, string> = {
-    positive: 'bg-success',
-    negative: 'bg-danger',
-    neutral: 'bg-border',
-}
-
 function TraceSentimentChip({
     sentimentByEventId,
 }: {
@@ -443,7 +437,7 @@ function TraceSentimentChip({
     }
 
     const widthPercent = Math.round(avgScore * 100)
-    const barColor = SENTIMENT_CHIP_COLOR[label] ?? 'bg-border'
+    const barColor = SENTIMENT_COLOR[label as keyof typeof SENTIMENT_COLOR] ?? 'bg-border'
     const prefix = count > 1 ? `Avg of ${count} generations — ` : ''
     const tooltipText = `Sentiment — ${prefix}Positive: ${Math.round(avgPositive * 100)}% / Neutral: ${Math.round(avgNeutral * 100)}% / Negative: ${Math.round(avgNegative * 100)}%`
 

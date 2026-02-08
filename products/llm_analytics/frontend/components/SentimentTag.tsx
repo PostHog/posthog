@@ -2,18 +2,18 @@ import { LemonTag, LemonTagProps, Tooltip } from '@posthog/lemon-ui'
 
 import { LLMTraceEvent } from '~/queries/schema/schema-general'
 
-type SentimentLabel = 'positive' | 'neutral' | 'negative'
+export type SentimentLabel = 'positive' | 'neutral' | 'negative'
+
+export const SENTIMENT_COLOR: Record<SentimentLabel, string> = {
+    positive: 'bg-success',
+    negative: 'bg-danger',
+    neutral: 'bg-border',
+}
 
 const SENTIMENT_TAG_TYPE: Record<SentimentLabel, LemonTagProps['type']> = {
     positive: 'success',
     negative: 'danger',
     neutral: 'none',
-}
-
-const SENTIMENT_DOT_COLOR: Record<SentimentLabel, string> = {
-    positive: 'bg-success',
-    negative: 'bg-danger',
-    neutral: 'bg-border',
 }
 
 function getSentimentLabel(event: LLMTraceEvent): SentimentLabel | null {
@@ -62,19 +62,13 @@ export function SentimentDot({ event }: { event: LLMTraceEvent }): JSX.Element |
     if (!label) {
         return null
     }
-    const dotColor = SENTIMENT_DOT_COLOR[label]
+    const dotColor = SENTIMENT_COLOR[label]
 
     return (
         <Tooltip title={buildTooltip(event)}>
             <span className={`inline-block w-2 h-2 rounded-full ${dotColor} shrink-0`} />
         </Tooltip>
     )
-}
-
-const SENTIMENT_BAR_COLOR: Record<SentimentLabel, string> = {
-    positive: 'bg-success',
-    negative: 'bg-danger',
-    neutral: 'bg-border',
 }
 
 export function UserSentimentBar({ scores }: { scores: [number, number, number, number] }): JSX.Element | null {
@@ -91,7 +85,7 @@ export function UserSentimentBar({ scores }: { scores: [number, number, number, 
         label = 'negative'
     }
 
-    const barColor = SENTIMENT_BAR_COLOR[label]
+    const barColor = SENTIMENT_COLOR[label]
     const widthPercent = Math.round(maxScore * 100)
 
     return (
@@ -116,11 +110,11 @@ export interface MessageSentiment {
 
 export function MessageSentimentBar({ sentiment }: { sentiment: MessageSentiment }): JSX.Element | null {
     const label = sentiment.label as SentimentLabel
-    if (!SENTIMENT_BAR_COLOR[label]) {
+    if (!SENTIMENT_COLOR[label]) {
         return null
     }
     const widthPercent = typeof sentiment.score === 'number' ? Math.round(sentiment.score * 100) : 50
-    const barColor = SENTIMENT_BAR_COLOR[label]
+    const barColor = SENTIMENT_COLOR[label]
     const tooltipText = `${label} (${formatScore(sentiment.score)})`
 
     return (
@@ -145,7 +139,7 @@ export function SentimentBar({ event }: { event: LLMTraceEvent }): JSX.Element |
     }
     const score = event.properties.$ai_sentiment_score
     const widthPercent = typeof score === 'number' ? Math.round(score * 100) : 50
-    const barColor = SENTIMENT_BAR_COLOR[label]
+    const barColor = SENTIMENT_COLOR[label]
 
     return (
         <Tooltip title={buildTooltip(event)}>
