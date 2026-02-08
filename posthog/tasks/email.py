@@ -282,6 +282,8 @@ def send_password_changed_email(user_id: int) -> None:
 @shared_task(**EMAIL_TASK_KWARGS)
 def send_email_verification(user_id: int, token: str, next_url: str | None = None) -> None:
     user: User = User.objects.get(pk=user_id)
+    # URL-encode next_url to preserve query parameters (e.g., OAuth authorize URLs)
+    next_query = f"?next={quote(next_url, safe='')}" if next_url else ""
     message = EmailMessage(
         use_http=True,
         campaign_key=f"email-verification-{user.uuid}-{timezone.now().timestamp()}",
@@ -289,9 +291,9 @@ def send_email_verification(user_id: int, token: str, next_url: str | None = Non
         template_name="email_verification",
         template_context={
             "preheader": "Please follow the link inside to verify your account.",
-            "link": f"/verify_email/{user.uuid}/{token}{f'?next={next_url}' if next_url else ''}",
+            "link": f"/verify_email/{user.uuid}/{token}{next_query}",
             "site_url": settings.SITE_URL,
-            "url": f"{settings.SITE_URL}/verify_email/{user.uuid}/{token}{f'?next={next_url}' if next_url else ''}",
+            "url": f"{settings.SITE_URL}/verify_email/{user.uuid}/{token}{next_query}",
         },
     )
     message.add_user_recipient(user, email_override=user.pending_email)
