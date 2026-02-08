@@ -36,3 +36,4 @@ frontend/src/taxonomy/core-filter-definitions-by-group.json
 frontend/dist/
 frontend/**/*LogicType.ts
 bin/validate-setup-tasks.mjs
+frontend/bin/docs/build-survey-sdk-docs.ts
