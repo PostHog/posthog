@@ -82,6 +82,16 @@ export function ManagedMigration(): JSX.Element {
                                 ),
                             },
                             {
+                                value: 's3_gzip',
+                                label: 'S3 (gzipped JSONL)',
+                                icon: (
+                                    <img
+                                        src="https://a0.awsstatic.com/libra-css/images/site/fav/favicon.ico"
+                                        className="w-4 h-4"
+                                    />
+                                ),
+                            },
+                            {
                                 value: 'mixpanel',
                                 label: 'Mixpanel',
                                 icon: <img src="https://mixpanel.com/favicon.ico" className="w-4 h-4" />,
@@ -95,7 +105,7 @@ export function ManagedMigration(): JSX.Element {
                     />
                 </LemonField>
 
-                {managedMigration.source_type === 's3' && (
+                {(managedMigration.source_type === 's3' || managedMigration.source_type === 's3_gzip') && (
                     <>
                         <LemonField name="content_type" label="Content Type">
                             <LemonSelect
@@ -111,7 +121,7 @@ export function ManagedMigration(): JSX.Element {
                     </>
                 )}
 
-                {managedMigration.source_type === 's3' && (
+                {(managedMigration.source_type === 's3' || managedMigration.source_type === 's3_gzip') && (
                     <>
                         <div className="flex gap-4">
                             <LemonField name="s3_region" label="S3 Region" className="flex-1">
@@ -278,6 +288,11 @@ export function ManagedMigrations(): JSX.Element {
                                             icon: 'https://a0.awsstatic.com/libra-css/images/site/fav/favicon.ico',
                                             label: 'AWS S3',
                                             alt: 'S3',
+                                        },
+                                        s3_gzip: {
+                                            icon: 'https://a0.awsstatic.com/libra-css/images/site/fav/favicon.ico',
+                                            label: 'S3 (gzipped JSONL)',
+                                            alt: 'S3 Gzip',
                                         },
                                         mixpanel: {
                                             icon: 'https://mixpanel.com/favicon.ico',
