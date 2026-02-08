@@ -1222,6 +1222,11 @@ export const dateMapping: DateMappingOption[] = [
         defaultInterval: 'month',
     },
     {
+        key: 'This week',
+        values: ['-0wStart', '-0wEnd'],
+        defaultInterval: 'day',
+    },
+    {
         key: 'Last week',
         values: ['-1wStart', '-1wEnd'],
         defaultInterval: 'day',
