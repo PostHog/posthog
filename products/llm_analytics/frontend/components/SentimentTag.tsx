@@ -7,7 +7,7 @@ type SentimentLabel = 'positive' | 'neutral' | 'negative'
 const SENTIMENT_TAG_TYPE: Record<SentimentLabel, LemonTagProps['type']> = {
     positive: 'success',
     negative: 'danger',
-    neutral: 'muted',
+    neutral: 'none',
 }
 
 const SENTIMENT_DOT_COLOR: Record<SentimentLabel, string> = {
