@@ -21,7 +21,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.constants import EventDefinitionType
 from posthog.event_usage import report_user_action
 from posthog.filters import TermSearchFilterBackend, term_search_filter_sql
-from posthog.models import EventDefinition, ObjectMediaPreview, Team
+from posthog.models import EventDefinition, Team
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.user import User
 from posthog.models.utils import UUIDT
@@ -90,7 +90,6 @@ class EventDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSeri
     last_calculated_at = serializers.DateTimeField(read_only=True)
     last_updated_at = serializers.DateTimeField(read_only=True)
     post_to_slack = serializers.BooleanField(default=False)
-    media_preview_urls = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = EventDefinition
@@ -108,7 +107,6 @@ class EventDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSeri
             "last_calculated_at",
             "created_by",
             "post_to_slack",
-            "media_preview_urls",
         )
 
     def validate_name(self, value):
@@ -163,16 +161,6 @@ class EventDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSeri
 
     def get_is_action(self, obj):
         return hasattr(obj, "action_id") and obj.action_id is not None
-
-    def get_media_preview_urls(self, obj) -> list[str]:
-        if not obj.id:
-            return []
-        previews = (
-            ObjectMediaPreview.objects.filter(event_definition_id=obj.id)
-            .select_related("uploaded_media", "exported_asset")
-            .order_by("-updated_at")
-        )
-        return [p.media_url for p in previews if p.media_url]
 
 
 @extend_schema(tags=["core"])
