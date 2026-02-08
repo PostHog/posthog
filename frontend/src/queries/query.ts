@@ -34,6 +34,8 @@ export const QUERY_TIMEOUT_ERROR_MESSAGE = 'Query timed out'
  * Parse error message that may be in ErrorDetail string format.
  * Backend sometimes serializes ValidationError.detail as a string like:
  * "[ErrorDetail(string='Message', code='code')]"
+ * or with double quotes:
+ * "[ErrorDetail(string=\"Message\", code='code')]"
  *
  * This function safely extracts the message and code, falling back to the
  * original string if parsing fails.
@@ -43,16 +45,34 @@ export function parseErrorMessage(errorMessage: string | undefined): { message: 
         return { message: errorMessage || '', code: null }
     }
 
-    // Try to match list format: [ErrorDetail(string='...', code='...')]
-    const listMatch = errorMessage.match(/\[ErrorDetail\(string='([^']*)',\s*code='([^']*)'\)\]/)
-    if (listMatch) {
-        return { message: listMatch[1], code: listMatch[2] }
+    // Try to match list format with single quotes: [ErrorDetail(string='...', code='...')]
+    // Supports escaped single quotes (\')
+    const listMatchSingle = errorMessage.match(/\[ErrorDetail\(string='((?:[^'\\]|\\.)*)',\s*code='([^']*)'\)\]/)
+    if (listMatchSingle) {
+        // Unescape single quotes in the message
+        const message = listMatchSingle[1].replace(/\\'/g, "'")
+        return { message, code: listMatchSingle[2] }
     }
 
-    // Try to match single format: ErrorDetail(string='...', code='...')
-    const singleMatch = errorMessage.match(/ErrorDetail\(string='([^']*)',\s*code='([^']*)'\)/)
-    if (singleMatch) {
-        return { message: singleMatch[1], code: singleMatch[2] }
+    // Try to match list format with double quotes: [ErrorDetail(string="...", code='...')]
+    const listMatchDouble = errorMessage.match(/\[ErrorDetail\(string="([^"]*)",\s*code='([^']*)'\)\]/)
+    if (listMatchDouble) {
+        return { message: listMatchDouble[1], code: listMatchDouble[2] }
+    }
+
+    // Try to match single format with single quotes: ErrorDetail(string='...', code='...')
+    // Supports escaped single quotes (\')
+    const singleMatchSingle = errorMessage.match(/ErrorDetail\(string='((?:[^'\\]|\\.)*)',\s*code='([^']*)'\)/)
+    if (singleMatchSingle) {
+        // Unescape single quotes in the message
+        const message = singleMatchSingle[1].replace(/\\'/g, "'")
+        return { message, code: singleMatchSingle[2] }
+    }
+
+    // Try to match single format with double quotes: ErrorDetail(string="...", code='...')
+    const singleMatchDouble = errorMessage.match(/ErrorDetail\(string="([^"]*)",\s*code='([^']*)'\)/)
+    if (singleMatchDouble) {
+        return { message: singleMatchDouble[1], code: singleMatchDouble[2] }
     }
 
     // Fallback: return original string unchanged
