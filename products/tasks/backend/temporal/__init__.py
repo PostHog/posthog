@@ -13,6 +13,7 @@ from .process_task.activities import (
     get_sandbox_for_repository,
     get_task_processing_context,
     post_slack_update,
+    start_agent_server,
     track_workflow_event,
     update_task_run_status,
 )
@@ -28,6 +29,7 @@ ACTIVITIES = [
     get_task_processing_context,
     get_sandbox_for_repository,
     execute_task_in_sandbox,
+    start_agent_server,
     cleanup_sandbox,
     track_workflow_event,
     post_slack_update,
