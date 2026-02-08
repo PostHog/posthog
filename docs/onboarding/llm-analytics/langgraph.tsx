@@ -2,8 +2,8 @@ import { OnboardingComponentsContext, createInstallation } from 'scenes/onboardi
 
 import { StepDefinition } from '../steps'
 
-export const getLangChainSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
-    const { CodeBlock, CalloutBox, Markdown, Blockquote, dedent, snippets } = ctx
+export const getLangGraphSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
+    const { CodeBlock, CalloutBox, Markdown, dedent, snippets } = ctx
 
     const NotableGenerationProperties = snippets?.NotableGenerationProperties
 
@@ -40,13 +40,13 @@ export const getLangChainSteps = (ctx: OnboardingComponentsContext): StepDefinit
             ),
         },
         {
-            title: 'Install LangChain and OpenAI SDKs',
+            title: 'Install LangGraph',
             badge: 'required',
             content: (
                 <>
                     <Markdown>
-                        Install LangChain. The PostHog SDK instruments your LLM calls by wrapping LangChain. The PostHog
-                        SDK **does not** proxy your calls.
+                        Install LangGraph and LangChain. PostHog instruments your LLM calls through LangChain-compatible
+                        callback handlers that LangGraph supports.
                     </Markdown>
 
                     <CodeBlock
@@ -55,42 +55,29 @@ export const getLangChainSteps = (ctx: OnboardingComponentsContext): StepDefinit
                                 language: 'bash',
                                 file: 'Python',
                                 code: dedent`
-                                    pip install langchain openai langchain-openai
+                                    pip install langgraph langchain-openai
                                 `,
                             },
                             {
                                 language: 'bash',
                                 file: 'Node',
                                 code: dedent`
-                                    npm install langchain @langchain/core @langchain/openai @posthog/ai
+                                    npm install @langchain/langgraph @langchain/openai @langchain/core
                                 `,
                             },
                         ]}
                     />
-
-                    <CalloutBox type="fyi" icon="IconInfo" title="Proxy note">
-                        <Markdown>
-                            These SDKs **do not** proxy your calls. They only fire off an async call to PostHog in the
-                            background to send the data. You can also use LLM analytics with other SDKs or our API, but
-                            you will need to capture the data in the right format. See the schema in the [manual capture
-                            section](https://posthog.com/docs/llm-analytics/installation/manual-capture) for more
-                            details.
-                        </Markdown>
-                    </CalloutBox>
                 </>
             ),
         },
         {
-            title: 'Initialize PostHog and LangChain',
+            title: 'Initialize PostHog',
             badge: 'required',
             content: (
                 <>
                     <Markdown>
                         Initialize PostHog with your project API key and host from [your project
-                        settings](https://app.posthog.com/settings/project), then pass it to the LangChain
-                        `CallbackHandler` wrapper. Optionally, you can provide a user distinct ID, trace ID, PostHog
-                        properties, [groups](https://posthog.com/docs/product-analytics/group-analytics), and privacy
-                        mode.
+                        settings](https://app.posthog.com/settings/project), then create a LangChain `CallbackHandler`.
                     </Markdown>
 
                     <CodeBlock
@@ -100,8 +87,6 @@ export const getLangChainSteps = (ctx: OnboardingComponentsContext): StepDefinit
                                 file: 'Python',
                                 code: dedent`
                                     from posthog.ai.langchain import CallbackHandler
-                                    from langchain_openai import ChatOpenAI
-                                    from langchain_core.prompts import ChatPromptTemplate
                                     from posthog import Posthog
 
                                     posthog = Posthog(
@@ -110,7 +95,7 @@ export const getLangChainSteps = (ctx: OnboardingComponentsContext): StepDefinit
                                     )
 
                                     callback_handler = CallbackHandler(
-                                        client=posthog, # This is an optional parameter. If it is not provided, a default client will be used.
+                                        client=posthog,
                                         distinct_id="user_123", # optional
                                         trace_id="trace_456", # optional
                                         properties={"conversation_id": "abc123"}, # optional
@@ -125,8 +110,6 @@ export const getLangChainSteps = (ctx: OnboardingComponentsContext): StepDefinit
                                 code: dedent`
                                     import { PostHog } from 'posthog-node';
                                     import { LangChainCallbackHandler } from '@posthog/ai';
-                                    import { ChatOpenAI } from '@langchain/openai';
-                                    import { ChatPromptTemplate } from '@langchain/core/prompts';
 
                                     const phClient = new PostHog(
                                       '<ph_project_api_key>',
@@ -140,31 +123,30 @@ export const getLangChainSteps = (ctx: OnboardingComponentsContext): StepDefinit
                                       properties: { conversationId: 'abc123' }, // optional
                                       groups: { company: 'company_id_in_your_db' }, // optional
                                       privacyMode: false, // optional
-                                      debug: false // optional - when true, logs all events to console
                                     });
                                 `,
                             },
                         ]}
                     />
 
-                    <Blockquote>
+                    <CalloutBox type="fyi" icon="IconInfo" title="How this works">
                         <Markdown>
-                            **Note:** If you want to capture LLM events anonymously, **don't** pass a distinct ID to the
-                            `CallbackHandler`. See our docs on [anonymous vs identified
-                            events](https://posthog.com/docs/data/anonymous-vs-identified-events) to learn more.
+                            LangGraph is built on LangChain, so it supports LangChain-compatible callback handlers.
+                            PostHog's `CallbackHandler` captures `$ai_generation` events and trace hierarchy
+                            automatically without proxying your calls.
                         </Markdown>
-                    </Blockquote>
+                    </CalloutBox>
                 </>
             ),
         },
         {
-            title: 'Call LangChain',
+            title: 'Run your graph',
             badge: 'required',
             content: (
                 <>
                     <Markdown>
-                        When you invoke your chain, pass the `callback_handler` in the `config` as part of your
-                        `callbacks`:
+                        Pass the `callback_handler` in the `config` when invoking your LangGraph graph. PostHog
+                        automatically captures generation events for each LLM call.
                     </Markdown>
 
                     <CodeBlock
@@ -173,45 +155,55 @@ export const getLangChainSteps = (ctx: OnboardingComponentsContext): StepDefinit
                                 language: 'python',
                                 file: 'Python',
                                 code: dedent`
-                                    prompt = ChatPromptTemplate.from_messages([
-                                        ("system", "You are a helpful assistant."),
-                                        ("user", "{input}")
-                                    ])
+                                    from langgraph.prebuilt import create_react_agent
+                                    from langchain_openai import ChatOpenAI
+                                    from langchain_core.tools import tool
 
-                                    model = ChatOpenAI(openai_api_key="your_openai_api_key")
-                                    chain = prompt | model
+                                    @tool
+                                    def get_weather(city: str) -> str:
+                                        """Get the weather for a given city."""
+                                        return f"It's always sunny in {city}!"
 
-                                    # Execute the chain with the callback handler
-                                    response = chain.invoke(
-                                        {"input": "Tell me a joke about programming"},
+                                    model = ChatOpenAI(api_key="your_openai_api_key")
+                                    agent = create_react_agent(model, tools=[get_weather])
+
+                                    result = agent.invoke(
+                                        {"messages": [{"role": "user", "content": "What's the weather in Paris?"}]},
                                         config={"callbacks": [callback_handler]}
                                     )
 
-                                    print(response.content)
+                                    print(result["messages"][-1].content)
                                 `,
                             },
                             {
                                 language: 'typescript',
                                 file: 'Node',
                                 code: dedent`
-                                    const prompt = ChatPromptTemplate.fromMessages([
-                                      ["system", "You are a helpful assistant."],
-                                      ["user", "{input}"]
-                                    ]);
+                                    import { createReactAgent } from '@langchain/langgraph/prebuilt';
+                                    import { ChatOpenAI } from '@langchain/openai';
+                                    import { tool } from '@langchain/core/tools';
+                                    import { z } from 'zod';
 
-                                    const model = new ChatOpenAI({
-                                      apiKey: "your_openai_api_key"
-                                    });
+                                    const getWeather = tool(
+                                      (input) => \`It's always sunny in \${input.city}!\`,
+                                      {
+                                        name: 'get_weather',
+                                        description: 'Get the weather for a given city',
+                                        schema: z.object({
+                                          city: z.string().describe('The city to get the weather for'),
+                                        }),
+                                      }
+                                    );
 
-                                    const chain = prompt.pipe(model);
+                                    const model = new ChatOpenAI({ apiKey: 'your_openai_api_key' });
+                                    const agent = createReactAgent({ llm: model, tools: [getWeather] });
 
-                                    // Execute the chain with the callback handler
-                                    const response = await chain.invoke(
-                                      { input: "Tell me a joke about programming" },
+                                    const result = await agent.invoke(
+                                      { messages: [{ role: 'user', content: "What's the weather in Paris?" }] },
                                       { callbacks: [callbackHandler] }
                                     );
 
-                                    console.log(response.content);
+                                    console.log(result.messages[result.messages.length - 1].content);
                                     phClient.shutdown();
                                 `,
                             },
@@ -219,18 +211,16 @@ export const getLangChainSteps = (ctx: OnboardingComponentsContext): StepDefinit
                     />
 
                     <Markdown>
-                        PostHog automatically captures an `$ai_generation` event along with these properties:
+                        {dedent`
+                            PostHog automatically captures \`$ai_generation\` events and creates a trace hierarchy based on how LangGraph components are nested. You can expect captured events to have the following properties:
+                        `}
                     </Markdown>
 
                     {NotableGenerationProperties && <NotableGenerationProperties />}
-
-                    <Markdown>
-                        It also automatically creates a trace hierarchy based on how LangChain components are nested.
-                    </Markdown>
                 </>
             ),
         },
     ]
 }
 
-export const LangChainInstallation = createInstallation(getLangChainSteps)
+export const LangGraphInstallation = createInstallation(getLangGraphSteps)

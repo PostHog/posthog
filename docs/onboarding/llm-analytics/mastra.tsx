@@ -1,7 +1,7 @@
 import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 import { StepDefinition } from '../steps'
 
-export const getVercelAISteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
+export const getMastraSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
     const { CodeBlock, CalloutBox, Markdown, Blockquote, dedent, snippets } = ctx
 
     const NotableGenerationProperties = snippets?.NotableGenerationProperties
@@ -26,19 +26,18 @@ export const getVercelAISteps = (ctx: OnboardingComponentsContext): StepDefiniti
             ),
         },
         {
-            title: 'Install the Vercel AI SDK',
+            title: 'Install Mastra',
             badge: 'required',
             content: (
                 <>
                     <Markdown>
-                        Install the Vercel AI SDK. The PostHog SDK instruments your LLM calls by wrapping the Vercel AI client.
-                        The PostHog SDK **does not** proxy your calls.
+                        Install Mastra and a model provider SDK. Mastra uses the Vercel AI SDK under the hood, so you can use any Vercel AI-compatible model provider.
                     </Markdown>
 
                     <CodeBlock
                         language="bash"
                         code={dedent`
-                            npm install ai @ai-sdk/openai
+                            npm install @mastra/core @ai-sdk/openai
                         `}
                     />
 
@@ -53,21 +52,21 @@ export const getVercelAISteps = (ctx: OnboardingComponentsContext): StepDefiniti
             ),
         },
         {
-            title: 'Initialize PostHog and Vercel AI',
+            title: 'Initialize PostHog and wrap your model',
             badge: 'required',
             content: (
                 <>
                     <Markdown>
-                        Initialize PostHog with your project API key and host from [your project settings](https://app.posthog.com/settings/project), then pass the Vercel AI OpenAI client and the PostHog client to the `withTracing` wrapper.
+                        Initialize PostHog with your project API key and host from [your project settings](https://app.posthog.com/settings/project), then use `withTracing` from `@posthog/ai` to wrap the model you pass to your Mastra agent.
                     </Markdown>
 
                     <CodeBlock
                         language="typescript"
                         code={dedent`
+                            import { Agent } from "@mastra/core/agent";
                             import { PostHog } from "posthog-node";
-                            import { withTracing } from "@posthog/ai"
-                            import { generateText } from "ai"
-                            import { createOpenAI } from "@ai-sdk/openai"
+                            import { withTracing } from "@posthog/ai";
+                            import { createOpenAI } from "@ai-sdk/openai";
 
                             const phClient = new PostHog(
                               '<ph_project_api_key>',
@@ -79,15 +78,17 @@ export const getVercelAISteps = (ctx: OnboardingComponentsContext): StepDefiniti
                               compatibility: 'strict'
                             });
 
-                            const model = withTracing(openaiClient("gpt-4-turbo"), phClient, {
-                              posthogDistinctId: "user_123", // optional
-                              posthogTraceId: "trace_123", // optional
-                              posthogProperties: { conversationId: "abc123", paid: true }, // optional
-                              posthogPrivacyMode: false, // optional
-                              posthogGroups: { company: "companyIdInYourDb" }, // optional
+                            const agent = new Agent({
+                              name: "my-agent",
+                              instructions: "You are a helpful assistant.",
+                              model: withTracing(openaiClient("gpt-4o"), phClient, {
+                                posthogDistinctId: "user_123", // optional
+                                posthogTraceId: "trace_123", // optional
+                                posthogProperties: { conversationId: "abc123" }, // optional
+                                posthogPrivacyMode: false, // optional
+                                posthogGroups: { company: "companyIdInYourDb" }, // optional
+                              }),
                             });
-
-                            phClient.shutdown()
                         `}
                     />
 
@@ -98,25 +99,22 @@ export const getVercelAISteps = (ctx: OnboardingComponentsContext): StepDefiniti
             ),
         },
         {
-            title: 'Call Vercel AI',
+            title: 'Use your Mastra agent',
             badge: 'required',
             content: (
                 <>
                     <Markdown>
-                        Now, when you use the Vercel AI SDK to call LLMs, PostHog automatically captures an `$ai_generation` event.
-
-                        This works for both `text` and `image` message types.
+                        Now, when your Mastra agent makes LLM calls, PostHog automatically captures an `$ai_generation` event for each one.
                     </Markdown>
 
                     <CodeBlock
                         language="typescript"
                         code={dedent`
-                            const { text } = await generateText({
-                              model: model,
-                              prompt: message
-                            });
+                            const result = await agent.generate("What is the capital of France?");
 
-                            console.log(text)
+                            console.log(result.text);
+
+                            phClient.shutdown();
                         `}
                     />
 
@@ -139,4 +137,4 @@ export const getVercelAISteps = (ctx: OnboardingComponentsContext): StepDefiniti
     ]
 }
 
-export const VercelAIInstallation = createInstallation(getVercelAISteps)
+export const MastraInstallation = createInstallation(getMastraSteps)
