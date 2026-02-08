@@ -9,12 +9,14 @@ import { WebVitalsToolbarMenu } from './WebVitalsToolbarMenu'
 describe('WebVitalsToolbarMenu', () => {
     beforeEach(() => {
         initKeaTests()
-        toolbarConfigLogic({
-            posthog: {
-                config: { ui_host: 'https://us.posthog.com/' },
-                webVitalsAutocapture: { isEnabled: false },
-            } as any,
-        } as any).mount()
+        toolbarConfigLogic
+            .build({
+                posthog: {
+                    config: { ui_host: 'https://us.posthog.com/' },
+                    webVitalsAutocapture: { isEnabled: false },
+                } as any,
+            } as any)
+            .mount()
     })
 
     it('uses the PostHog ui host for the settings link', () => {

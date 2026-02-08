@@ -16,7 +16,7 @@ describe('toolbar toolbarLogic', () => {
 
     beforeEach(() => {
         initKeaTests()
-        logic = toolbarConfigLogic({ apiURL: 'http://localhost' })
+        logic = toolbarConfigLogic.build({ apiURL: 'http://localhost' })
         logic.mount()
     })
 
@@ -25,7 +25,7 @@ describe('toolbar toolbarLogic', () => {
     })
 
     it('normalizes uiHost to not end with a slash', () => {
-        const logicWithUiHost = toolbarConfigLogic({
+        const logicWithUiHost = toolbarConfigLogic.build({
             posthog: { config: { ui_host: 'https://us.posthog.com/' } } as any,
         } as any)
         logicWithUiHost.mount()
