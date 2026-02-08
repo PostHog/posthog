@@ -21,6 +21,43 @@ updates:
                   - 'minor'
                   - 'patch'
 
+    # Rust/Cargo dependencies - main workspace
+    # Configured to update from workspace root only to prevent subdirectory update failures
+    - package-ecosystem: 'cargo'
+      directory: '/rust'
+      schedule:
+          interval: weekly
+      open-pull-requests-limit: 5
+      groups:
+          cargo-rust:
+              patterns:
+                  - '*'
+              applies-to: 'security-updates'
+
+    # Rust/Cargo dependencies - CLI tool (standalone project)
+    - package-ecosystem: 'cargo'
+      directory: '/cli'
+      schedule:
+          interval: weekly
+      open-pull-requests-limit: 5
+      groups:
+          cargo-cli:
+              patterns:
+                  - '*'
+              applies-to: 'security-updates'
+
+    # Rust/Cargo dependencies - Funnel UDF (standalone project)
+    - package-ecosystem: 'cargo'
+      directory: '/funnel-udf'
+      schedule:
+          interval: weekly
+      open-pull-requests-limit: 5
+      groups:
+          cargo-funnel-udf:
+              patterns:
+                  - '*'
+              applies-to: 'security-updates'
+
     # Python dependencies for main PostHog application (uv updates both pyproject.toml and uv.lock)
     - package-ecosystem: 'uv'
       directory: '/'
