@@ -1,14 +1,13 @@
 import re
 from datetime import timedelta
 from functools import cached_property
-from typing import TYPE_CHECKING, cast
+from typing import cast
 
 from django.db.models import Prefetch
 from django.utils.timezone import now
 
 import orjson
 import structlog
-import posthoganalytics
 
 from posthog.schema import CachedEventsQueryResponse, DashboardFilter, EventsQuery, EventsQueryResponse
 
@@ -30,9 +29,6 @@ from posthog.models.person.person import READ_DB_FOR_PERSONS, PersonDistinctId, 
 from posthog.models.person.util import get_persons_by_distinct_ids
 from posthog.utils import relative_date_parse
 
-if TYPE_CHECKING:
-    from posthog.models import Team
-
 logger = structlog.get_logger(__name__)
 
 # Allow-listed fields returned when you select "*" from events. Person and group fields will be nested later.
@@ -50,25 +46,6 @@ SELECT_STAR_FROM_EVENTS_FIELDS = [
 
 # Wide columns that defeat presorted optimization
 WIDE_COLUMNS = {"elements_chain", "properties"}
-
-
-def use_presorted_events_query(team: "Team") -> bool:
-    return posthoganalytics.feature_enabled(
-        "presorted-events-query",
-        str(team.uuid),
-        groups={
-            "organization": str(team.organization_id),
-            "project": str(team.id),
-        },
-        group_properties={
-            "organization": {
-                "id": str(team.organization_id),
-            },
-            "project": {
-                "id": str(team.id),
-            },
-        },
-    )
 
 
 class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
@@ -311,11 +288,7 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
 
                 # Presorted optimization: sort narrow data (uuid) first, then fetch wide data for matched rows.
                 # Avoids sorting giant rows with properties and elements_chain cols - instead sorts uuids.
-                if (
-                    self._can_use_presorted_optimization(order_by)
-                    and not has_any_aggregation
-                    and use_presorted_events_query(self.team)
-                ):
+                if self._can_use_presorted_optimization(order_by) and not has_any_aggregation:
                     logger.info(
                         "events_query_runner_presorted_optimization",
                         team_id=self.team.pk,
@@ -324,7 +297,7 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                     assert isinstance(inner_query, ast.SelectQuery)
                     inner_query.where = where
                     inner_query.order_by = order_by
-                    self.paginator.paginate(inner_query)
+                    inner_query.limit = ast.Constant(value=self.paginator.limit + self.paginator.offset + 1)
 
                     prefilter_sorted = parse_expr("uuid in ({inner_query})", {"inner_query": inner_query})
 
