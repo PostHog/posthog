@@ -7,7 +7,6 @@ import dataclasses
 from django.conf import settings
 from django.db import close_old_connections
 
-import posthoganalytics
 from structlog.contextvars import bind_contextvars
 from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
@@ -48,7 +47,6 @@ from posthog.temporal.ducklake.ducklake_copy_data_imports_workflow import (
     DuckLakeCopyDataImportsWorkflow,
 )
 from posthog.temporal.utils import CDPProducerWorkflowInputs, ExternalDataWorkflowInputs
-from posthog.utils import get_machine_id
 
 from products.data_warehouse.backend.data_load.source_templates import create_warehouse_templates_for_source
 from products.data_warehouse.backend.external_data_source.jobs import update_external_job_status
@@ -134,18 +132,18 @@ def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInputs) ->
 
         has_non_retryable_error = any(error in internal_error_normalized for error in non_retryable_errors.keys())
         if has_non_retryable_error:
-            posthoganalytics.capture(
-                distinct_id=get_machine_id(),
-                event="schema non-retryable error",
-                properties={
-                    "schemaId": inputs.schema_id,
-                    "sourceId": inputs.source_id,
-                    "sourceType": source.source_type,
-                    "jobId": inputs.job_id,
-                    "teamId": inputs.team_id,
-                    "error": inputs.internal_error,
-                },
-            )
+            # posthoganalytics.capture(
+            #     distinct_id=get_machine_id(),
+            #     event="schema non-retryable error",
+            #     properties={
+            #         "schemaId": inputs.schema_id,
+            #         "sourceId": inputs.source_id,
+            #         "sourceType": source.source_type,
+            #         "jobId": inputs.job_id,
+            #         "teamId": inputs.team_id,
+            #         "error": inputs.internal_error,
+            #     },
+            # )
             update_should_sync(schema_id=inputs.schema_id, team_id=inputs.team_id, should_sync=False)
 
             friendly_errors = [
