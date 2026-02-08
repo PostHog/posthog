@@ -343,6 +343,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 'reportExperimentTimeseriesViewed',
                 'reportExperimentTimeseriesRecalculated',
                 'reportExperimentAiSummaryRequested',
+                'reportExperimentSessionReplaySummaryRequested',
                 'reportExperimentMetricsRefreshed',
                 'reportExperimentAutoRefreshToggled',
                 'reportExperimentMetricBreakdownAdded',
