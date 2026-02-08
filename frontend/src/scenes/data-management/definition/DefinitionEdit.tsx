@@ -9,7 +9,6 @@ import { PropertyStatusControl } from 'lib/components/DefinitionPopover/Definiti
 import { ImageCarousel } from 'lib/components/ImageCarousel/ImageCarousel'
 import { NotFound } from 'lib/components/NotFound'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
-import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { useUploadFiles } from 'lib/hooks/useUploadFiles'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -28,7 +27,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { tagsModel } from '~/models/tagsModel'
 import { isCoreFilter } from '~/taxonomy/helpers'
-import { AvailableFeature, ObjectMediaPreview } from '~/types'
+import { ObjectMediaPreview } from '~/types'
 
 import { getEventDefinitionIcon, getPropertyDefinitionIcon } from '../events/DefinitionHeader'
 
@@ -151,84 +150,77 @@ export function DefinitionEdit(props: DefinitionLogicProps): JSX.Element {
                             </div>
                         )}
 
-                                <div className="ph-ignore-input">
-                                    <LemonField
-                                        name="description"
-                                        label="Description"
-                                        data-attr="definition-description"
-                                    >
-                                        <LemonTextArea value={editDefinition.description} />
-                                    </LemonField>
-                                </div>
+                        <div className="ph-ignore-input">
+                            <LemonField name="description" label="Description" data-attr="definition-description">
+                                <LemonTextArea value={editDefinition.description} />
+                            </LemonField>
+                        </div>
 
-                                {objectStorageAvailable && (
-                                    <div className="ph-ignore-input">
-                                        <LemonField
-                                            name="media_preview"
-                                            label={
-                                                <LemonLabel info="Previews show where a client side event is triggered. Upload a screenshot or design.">
-                                                    Media preview
-                                                </LemonLabel>
-                                            }
-                                        >
-                                            <div>
-                                                {previewsLoading && (
-                                                    <div className="flex items-center gap-2">
-                                                        <Spinner />
-                                                        <span className="text-secondary">Loading preview...</span>
-                                                    </div>
-                                                )}
-
-                                                <div className="mb-4">
-                                                    <div
-                                                        ref={mediaPreviewDragTarget}
-                                                        className="border-2 border-dashed rounded p-4 flex items-center justify-center cursor-pointer"
-                                                        onClick={(e) => {
-                                                            if (e.target === e.currentTarget) {
-                                                                const input =
-                                                                    mediaPreviewDragTarget.current?.querySelector(
-                                                                        'input[type="file"]'
-                                                                    ) as HTMLInputElement
-                                                                input?.click()
-                                                            }
-                                                        }}
-                                                    >
-                                                        <LemonFileInput
-                                                            accept="image/*"
-                                                            multiple={false}
-                                                            onChange={setFilesToUpload}
-                                                            loading={uploading}
-                                                            value={filesToUpload}
-                                                            alternativeDropTargetRef={mediaPreviewDragTarget}
-                                                            callToAction={
-                                                                <div className="flex items-center gap-2">
-                                                                    <IconImage />
-                                                                    <span>
-                                                                        Click or drag and drop to upload an image
-                                                                    </span>
-                                                                </div>
-                                                            }
-                                                        />
-                                                    </div>
-                                                </div>
-
-                                                {previews && previews.length > 0 && (
-                                                    <ImageCarousel
-                                                        imageUrls={previews.map((p: ObjectMediaPreview) => p.media_url)}
-                                                        onDelete={(url: string) => {
-                                                            const preview = previews.find(
-                                                                (p: ObjectMediaPreview) => p.media_url === url
-                                                            )
-                                                            if (preview) {
-                                                                deleteMediaPreview(preview.id)
-                                                            }
-                                                        }}
-                                                    />
-                                                )}
+                        {objectStorageAvailable && (
+                            <div className="ph-ignore-input">
+                                <LemonField
+                                    name="media_preview"
+                                    label={
+                                        <LemonLabel info="Previews show where a client side event is triggered. Upload a screenshot or design.">
+                                            Media preview
+                                        </LemonLabel>
+                                    }
+                                >
+                                    <div>
+                                        {previewsLoading && (
+                                            <div className="flex items-center gap-2">
+                                                <Spinner />
+                                                <span className="text-secondary">Loading preview...</span>
                                             </div>
-                                        </LemonField>
+                                        )}
+
+                                        <div className="mb-4">
+                                            <div
+                                                ref={mediaPreviewDragTarget}
+                                                className="border-2 border-dashed rounded p-4 flex items-center justify-center cursor-pointer"
+                                                onClick={(e) => {
+                                                    if (e.target === e.currentTarget) {
+                                                        const input = mediaPreviewDragTarget.current?.querySelector(
+                                                            'input[type="file"]'
+                                                        ) as HTMLInputElement
+                                                        input?.click()
+                                                    }
+                                                }}
+                                            >
+                                                <LemonFileInput
+                                                    accept="image/*"
+                                                    multiple={false}
+                                                    onChange={setFilesToUpload}
+                                                    loading={uploading}
+                                                    value={filesToUpload}
+                                                    alternativeDropTargetRef={mediaPreviewDragTarget}
+                                                    callToAction={
+                                                        <div className="flex items-center gap-2">
+                                                            <IconImage />
+                                                            <span>Click or drag and drop to upload an image</span>
+                                                        </div>
+                                                    }
+                                                />
+                                            </div>
+                                        </div>
+
+                                        {previews && previews.length > 0 && (
+                                            <ImageCarousel
+                                                imageUrls={previews.map((p: ObjectMediaPreview) => p.media_url)}
+                                                onDelete={(url: string) => {
+                                                    const preview = previews.find(
+                                                        (p: ObjectMediaPreview) => p.media_url === url
+                                                    )
+                                                    if (preview) {
+                                                        deleteMediaPreview(preview.id)
+                                                    }
+                                                }}
+                                            />
+                                        )}
                                     </div>
-                                )}
+                                </LemonField>
+                            </div>
+                        )}
 
                         {(allowVerification || showHiddenOption) && (
                             <div className="ph-ignore-input">

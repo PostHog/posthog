@@ -34,12 +34,10 @@ import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { getFilterLabel } from '~/taxonomy/helpers'
 import {
-    AvailableFeature,
     FilterLogicalOperator,
     ObjectMediaPreview,
     PropertyDefinition,
     PropertyDefinitionVerificationStatus,
-    ReplayTabs,
 } from '~/types'
 
 import { getEventDefinitionIcon, getPropertyDefinitionIcon } from '../events/DefinitionHeader'
@@ -99,12 +97,6 @@ export function DefinitionView(props: DefinitionLogicProps): JSX.Element {
         previews,
         previewsLoading,
     } = useValues(logic)
-    const { guardAvailableFeature } = useValues(upgradeModalLogic)
-    const onGuardClick = (callback: () => void): void => {
-        guardAvailableFeature(AvailableFeature.INGESTION_TAXONOMY, () => {
-            callback()
-        })
-    }
     const { deleteDefinition } = useActions(logic)
 
     const memoizedQuery = useMemo(() => {

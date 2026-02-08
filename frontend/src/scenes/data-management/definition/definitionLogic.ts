@@ -10,14 +10,7 @@ import { urls } from 'scenes/urls'
 
 import { updatePropertyDefinitions } from '~/models/propertyDefinitionsModel'
 import { getFilterLabel } from '~/taxonomy/helpers'
-import {
-    AvailableFeature,
-    Breadcrumb,
-    Definition,
-    EventDefinitionMetrics,
-    ObjectMediaPreview,
-    PropertyDefinition,
-} from '~/types'
+import { Breadcrumb, Definition, EventDefinitionMetrics, ObjectMediaPreview, PropertyDefinition } from '~/types'
 
 import { DataManagementTab } from '../DataManagementScene'
 import { eventDefinitionsTableLogic } from '../events/eventDefinitionsTableLogic'

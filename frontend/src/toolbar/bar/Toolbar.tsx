@@ -219,9 +219,8 @@ function MoreMenu(): JSX.Element {
         }, false)
     }, [posthog])
 
+    // KLUDGE: if there is no theme, assume light mode, which shouldn't be, but seems to be, necessary
     const currentlyLightMode = !theme || theme === 'light'
-
-    const { logout } = useActions(toolbarConfigLogic)
 
     const handleScreenshotClick = async (): Promise<void> => {
         setIsTakingScreenshot(true)
@@ -290,7 +289,7 @@ function MoreMenu(): JSX.Element {
                                 window.open(HELP_URL, '_blank')?.focus()
                             },
                         },
-                        { icon: <IconX />, label: 'Close toolbar', onClick: logout },
+                        { icon: <IconX />, label: 'Close toolbar', onClick: startGracefulExit },
                     ].filter(Boolean) as LemonMenuItems
                 }
                 maxContentWidth={true}
