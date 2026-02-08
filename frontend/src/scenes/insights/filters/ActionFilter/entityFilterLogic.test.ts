@@ -93,6 +93,61 @@ describe('entityFilterLogic', () => {
         })
     })
 
+    describe('setLocalFilters preserves UUIDs', () => {
+        let uuidCounter: number
+
+        beforeEach(() => {
+            uuidCounter = 0
+            ;(libUtils as any).uuid = jest.fn(() => `uuid-${uuidCounter++}`)
+
+            logic.unmount()
+            logic = entityFilterLogic({
+                setFilters: jest.fn(),
+                filters: filtersJson,
+                typeKey: 'uuid_test',
+            })
+            logic.mount()
+        })
+
+        it('preserves UUIDs when called with identical filters', () => {
+            const originalUuids = logic.values.localFilters.map((f) => f.uuid)
+
+            logic.actions.setLocalFilters(filtersJson as FilterType)
+
+            expect(logic.values.localFilters.map((f) => f.uuid)).toEqual(originalUuids)
+        })
+
+        it('preserves existing UUIDs when a filter is added', () => {
+            const originalUuids = logic.values.localFilters.map((f) => f.uuid)
+
+            logic.actions.setLocalFilters({
+                ...filtersJson,
+                events: [...filtersJson.events, { id: '$autocapture', name: '$autocapture', type: 'events', order: 3 }],
+            } as FilterType)
+
+            const newFilters = logic.values.localFilters
+            expect(newFilters).toHaveLength(4)
+            expect(newFilters[0].uuid).toBe(originalUuids[0])
+            expect(newFilters[1].uuid).toBe(originalUuids[1])
+            expect(newFilters[2].uuid).toBe(originalUuids[2])
+            expect(originalUuids).not.toContain(newFilters[3].uuid)
+        })
+
+        it('preserves UUIDs for remaining filters when one is removed', () => {
+            const originalUuids = logic.values.localFilters.map((f) => f.uuid)
+
+            logic.actions.setLocalFilters({
+                ...filtersJson,
+                events: [filtersJson.events[1]],
+            } as FilterType)
+
+            const newFilters = logic.values.localFilters
+            expect(newFilters).toHaveLength(2)
+            expect(originalUuids).toContain(newFilters[0].uuid)
+            expect(originalUuids).toContain(newFilters[1].uuid)
+        })
+    })
+
     describe('duplicating filters', () => {
         it('preserves custom_name when duplicating', async () => {
             await expectLogic(logic, () => {
