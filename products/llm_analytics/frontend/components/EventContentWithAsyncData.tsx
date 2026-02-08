@@ -5,6 +5,7 @@ import { ConversationMessagesDisplay } from '../ConversationDisplay/Conversation
 import { useAIData } from '../hooks/useAIData'
 import { normalizeMessages } from '../utils'
 import { AIDataLoading } from './AIDataLoading'
+import { MessageSentiment } from './SentimentTag'
 
 interface EventContentGenerationProps {
     eventId: string
@@ -15,6 +16,7 @@ interface EventContentGenerationProps {
     httpStatus: unknown
     raisedError: boolean
     searchQuery?: string
+    messageSentiments?: MessageSentiment[]
 }
 
 export function EventContentGeneration({
@@ -26,6 +28,7 @@ export function EventContentGeneration({
     httpStatus,
     raisedError,
     searchQuery,
+    messageSentiments,
 }: EventContentGenerationProps): JSX.Element {
     const { input, output, isLoading } = useAIData({
         uuid: eventId,
@@ -45,6 +48,7 @@ export function EventContentGeneration({
             httpStatus={typeof httpStatus === 'number' ? httpStatus : undefined}
             raisedError={raisedError}
             searchQuery={searchQuery}
+            messageSentiments={messageSentiments}
         />
     )
 }
