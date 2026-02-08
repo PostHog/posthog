@@ -7,7 +7,13 @@ import structlog
 from openai.types.chat import ChatCompletionMessageParam
 from pydantic import BaseModel, Field
 
-from products.signals.backend.temporal.types import ExistingReportMatch, MatchResult, NewReportMatch, SignalCandidate
+from products.signals.backend.temporal.types import (
+    ExistingReportMatch,
+    MatchResult,
+    NewReportMatch,
+    SignalCandidate,
+    SignalData,
+)
 
 from ee.hogai.session_summaries.llm.call import get_async_openai_client
 
@@ -343,7 +349,7 @@ Be specific and actionable. Avoid generic phrases like "various issues detected"
 Respond with a JSON object containing "title" and "summary" fields."""
 
 
-def _build_summarize_prompt(signals: list) -> str:
+def _build_summarize_prompt(signals: list[SignalData]) -> str:
     prompt = "SIGNALS TO SUMMARIZE:\n\n"
 
     for i, signal in enumerate(signals):
@@ -360,7 +366,7 @@ def _build_summarize_prompt(signals: list) -> str:
     return prompt
 
 
-async def summarize_signals(signals: list) -> tuple[str, str]:
+async def summarize_signals(signals: list[SignalData]) -> tuple[str, str]:
     """
     Summarize a list of signals into a title and summary.
 

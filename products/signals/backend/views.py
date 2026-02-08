@@ -1,9 +1,10 @@
-import asyncio
+import uuid
 from typing import cast
 
 from django.conf import settings
 from django.db.models import Count
 
+from asgiref.sync import async_to_sync
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import serializers, status, viewsets
 from rest_framework.authentication import SessionAuthentication
@@ -25,7 +26,6 @@ from products.signals.backend.serializers import SignalReportArtefactSerializer,
 class EmitSignalSerializer(serializers.Serializer):
     source_product = serializers.CharField(max_length=100)
     source_type = serializers.CharField(max_length=100)
-    source_id = serializers.CharField(max_length=255)
     description = serializers.CharField()
     weight = serializers.FloatField(default=0.5, min_value=0.0, max_value=1.0)
     extra = serializers.DictField(required=False, default=dict)
@@ -45,16 +45,14 @@ class SignalViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
         data = serializer.validated_data
 
-        asyncio.run(
-            emit_signal(
-                team=self.team,
-                source_product=data["source_product"],
-                source_type=data["source_type"],
-                source_id=data["source_id"],
-                description=data["description"],
-                weight=data["weight"],
-                extra=data["extra"],
-            )
+        async_to_sync(emit_signal)(
+            team=self.team,
+            source_product=data["source_product"],
+            source_type=data["source_type"],
+            source_id=str(uuid.uuid4()),
+            description=data["description"],
+            weight=data["weight"],
+            extra=data["extra"],
         )
 
         return Response({"status": "ok"}, status=status.HTTP_202_ACCEPTED)

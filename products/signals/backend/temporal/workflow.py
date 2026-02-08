@@ -258,16 +258,9 @@ class SignalResearchWorkflow(PostHogWorkflow):
             )
 
         except Exception as e:
-            error_message = str(e)
-            cause = e.__cause__
-            while cause:
-                if hasattr(cause, "message"):
-                    error_message = cause.message
-                cause = cause.__cause__
-
             await workflow.execute_activity(
                 mark_report_failed_activity,
-                MarkReportFailedInput(report_id=inputs.report_id, error=error_message),
+                MarkReportFailedInput(report_id=inputs.report_id, error=str(e)),
                 start_to_close_timeout=timedelta(minutes=1),
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
