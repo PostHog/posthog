@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 
 import { IconChevronLeft, IconChevronRight, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonDialog, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog } from '@posthog/lemon-ui'
 
 interface ImageCarouselProps {
     imageUrls: string[]
@@ -19,7 +19,7 @@ export function ImageCarousel({ imageUrls, loading, onDelete }: ImageCarouselPro
         }
     }, [imageUrls.length, currentIndex])
 
-    if (!loading && imageUrls.length === 0) {
+    if (loading || imageUrls.length === 0) {
         return <></>
     }
 
@@ -36,9 +36,9 @@ export function ImageCarousel({ imageUrls, loading, onDelete }: ImageCarouselPro
 
     return (
         <div className="relative group border rounded bg-bg-light w-full max-w-[600px] aspect-[3/2] flex items-center justify-center overflow-hidden">
-            {loading ? <Spinner /> : <img src={currentImageUrl} className="max-w-[96%] max-h-[96%] object-contain" />}
+            <img src={currentImageUrl} className="max-w-[96%] max-h-[96%] object-contain" />
 
-            {onDelete && !loading && (
+            {onDelete && (
                 <LemonButton
                     icon={<IconTrash />}
                     type="secondary"
@@ -63,7 +63,7 @@ export function ImageCarousel({ imageUrls, loading, onDelete }: ImageCarouselPro
                 />
             )}
 
-            {showArrows && !loading && (
+            {showArrows && (
                 <>
                     <LemonButton
                         icon={<IconChevronLeft />}
