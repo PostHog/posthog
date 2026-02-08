@@ -490,6 +490,7 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
                                                 className="w-fit mt-4"
                                                 type="primary"
                                                 onClick={showAddPersonToCohortModal}
+                                                data-attr="cohort-add-users-modal-open"
                                             >
                                                 Add Users
                                             </LemonButton>

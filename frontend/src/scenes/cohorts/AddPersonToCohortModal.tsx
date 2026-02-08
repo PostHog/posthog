@@ -18,7 +18,11 @@ export function AddPersonToCohortModal({ id, tabId }: AddPersonToCohortModalProp
                 isOpen={addPersonToCohortModalVisible}
                 footer={
                     <div className="flex items-center justify-end gap-2">
-                        <LemonButton type="secondary" onClick={() => hideAddPersonToCohortModal()}>
+                        <LemonButton
+                            type="secondary"
+                            onClick={() => hideAddPersonToCohortModal()}
+                            data-attr="cohort-add-users-modal-cancel"
+                        >
                             Cancel
                         </LemonButton>
                         <LemonButton
@@ -30,6 +34,7 @@ export function AddPersonToCohortModal({ id, tabId }: AddPersonToCohortModalProp
                             disabledReason={
                                 Object.keys(personsToAddToCohort).length === 0 ? 'Select at least one user' : undefined
                             }
+                            data-attr="cohort-add-users-modal-save"
                         >
                             Save
                         </LemonButton>
