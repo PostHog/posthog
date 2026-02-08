@@ -310,12 +310,18 @@ jobs:
                       fi
                       break
                     fi
+                    # Missing snapshots will never pass on retry — skip straight to update
+                    if grep -qi "was not written" /tmp/test-output-${{ matrix.browser }}-${{ matrix.shard }}-attempt${attempt}.log 2>/dev/null; then
+                      echo "Missing snapshot detected - skipping remaining verify attempts"
+                      break
+                    fi
+
                     echo "Attempt $attempt failed (exit code $EXIT_CODE)"
                   done
 
                   # All verify attempts failed - try snapshot update if applicable
                   if [ $EXIT_CODE -ne 0 ]; then
-                    LAST_LOG="/tmp/test-output-${{ matrix.browser }}-${{ matrix.shard }}-attempt${MAX_VERIFY_ATTEMPTS}.log"
+                    LAST_LOG="/tmp/test-output-${{ matrix.browser }}-${{ matrix.shard }}-attempt${attempt}.log"
                     if [ "${{ needs.detect-snapshot-mode.outputs.mode }}" == "update" ] && grep -Eqi "(snapshot.*(failed|was not written)|Expected image to)" "$LAST_LOG" 2>/dev/null; then
                       echo "Snapshot failure confirmed - updating snapshots"
                       set -o pipefail
@@ -325,7 +331,7 @@ jobs:
                     fi
 
                     if [ $EXIT_CODE -ne 0 ]; then
-                      echo "Test runner failed after $MAX_VERIFY_ATTEMPTS verify attempts"
+                      echo "Test runner failed after verify and update attempts"
                       exit 1
                     fi
                   fi

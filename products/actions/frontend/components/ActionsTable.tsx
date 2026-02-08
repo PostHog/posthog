@@ -33,6 +33,7 @@ import {
 } from '~/types'
 
 import { actionsLogic } from '../logics/actionsLogic'
+import { SCREEN_NAME_MATCHING_LABEL, type ScreenNameMatching, isScreenNameFilter } from '../utils/screenName'
 import { NewActionButton } from './NewActionButton'
 
 export function ActionsTable(): JSX.Element {
@@ -134,6 +135,22 @@ export function ActionsTable(): JSX.Element {
                                                             </>
                                                         )
                                                 }
+                                            case '$screen': {
+                                                const screenFilter = step.properties?.find(isScreenNameFilter)
+                                                if (screenFilter && 'value' in screenFilter && screenFilter.value) {
+                                                    const operator =
+                                                        'operator' in screenFilter
+                                                            ? (screenFilter.operator as ScreenNameMatching)
+                                                            : 'icontains'
+                                                    return (
+                                                        <>
+                                                            Screen name {SCREEN_NAME_MATCHING_LABEL[operator]}{' '}
+                                                            <strong>{String(screenFilter.value)}</strong>
+                                                        </>
+                                                    )
+                                                }
+                                                return 'Screen'
+                                            }
                                             case '':
                                             case null:
                                             case undefined:
