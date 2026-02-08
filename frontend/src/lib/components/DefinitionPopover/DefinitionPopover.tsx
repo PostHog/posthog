@@ -106,7 +106,7 @@ function DescriptionEmpty(): JSX.Element {
 }
 
 function Example({ value }: { value?: string }): JSX.Element {
-    const { type, mediaPreviews, mediaPreviewsLoading } = useValues(definitionPopoverLogic)
+    const { type, mediaPreviews } = useValues(definitionPopoverLogic)
 
     let data: CoreFilterDefinition | null = null
 
@@ -137,7 +137,7 @@ function Example({ value }: { value?: string }): JSX.Element {
         <div className={clsx('flex flex-col gap-2', hasContent && 'mb-4')}>
             {textExample}
             <FlaggedFeature flag={FEATURE_FLAGS.EVENT_MEDIA_PREVIEWS}>
-                <ImageCarousel imageUrls={mediaPreviews} loading={mediaPreviewsLoading} />
+                <ImageCarousel imageUrls={mediaPreviews} />
             </FlaggedFeature>
         </div>
     )

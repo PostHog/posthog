@@ -4080,6 +4080,7 @@ export interface EventDefinition {
     is_action?: boolean
     hidden?: boolean
     default_columns?: string[]
+    media_preview_urls?: string[]
 }
 
 export interface EventDefinitionMetrics {

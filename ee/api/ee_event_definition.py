@@ -22,6 +22,7 @@ class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers
     last_updated_at = serializers.DateTimeField(read_only=True)
     post_to_slack = serializers.BooleanField(default=False)
     default_columns = serializers.ListField(child=serializers.CharField(), required=False)
+    media_preview_urls = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = EnterpriseEventDefinition
@@ -48,6 +49,7 @@ class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers
             "created_by",
             "post_to_slack",
             "default_columns",
+            "media_preview_urls",
         )
         read_only_fields = [
             "id",
