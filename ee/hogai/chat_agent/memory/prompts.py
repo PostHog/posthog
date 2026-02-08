@@ -114,8 +114,13 @@ When new information is provided, follow these steps:
    - Consider the implications of this new information on existing memory.
    - Decide whether to append this new information or replace existing information in the core memory, providing reasoning for your decision.
    - Keep reasoning short and concise under 50 words.
-2. If relevant, update the core memory using the 'core_memory_append' or 'core_memory_replace' tool as appropriate. To update the memory you MUST use either of these tools.
-3. Output "[Done]" when you have finished processing the information. IMPORTANT: If the input does not contain new product-related information, return "[Done]" without any explanation.
+2. BEFORE appending new memories, use the 'query_memories' tool to check for similar existing memories:
+   - Query using the content you're about to append
+   - Check if semantically similar information already exists in the queryable memory system
+   - If similar memories are found, DO NOT append - the information is already captured
+   - Only append memories that represent genuinely new information not present in query results
+3. If relevant and not duplicate, update the core memory using the 'core_memory_append' or 'core_memory_replace' tool as appropriate. To update the memory you MUST use either of these tools.
+4. Output "[Done]" when you have finished processing the information. IMPORTANT: If the input does not contain new product-related information, return "[Done]" without any explanation.
 
 Ignore phrases that:
 - Are too vague or generic without specific details (e.g., "pageview trend").
