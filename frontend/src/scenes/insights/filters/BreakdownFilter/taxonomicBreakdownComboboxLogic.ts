@@ -1,4 +1,3 @@
-import Fuse from 'fuse.js'
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { combineUrl } from 'kea-router'
@@ -23,6 +22,7 @@ export interface BreakdownComboboxItem {
     name: string
     groupType: TaxonomicFilterGroupType
     taxonomicGroup: TaxonomicFilterGroup
+    isRemote: boolean
     icon?: JSX.Element
 }
 
@@ -30,6 +30,7 @@ export interface BreakdownComboboxGroup {
     type: TaxonomicFilterGroupType
     name: string
     items: BreakdownComboboxItem[]
+    isRemote: boolean
 }
 
 export interface TaxonomicBreakdownComboboxLogicProps {
@@ -44,6 +45,7 @@ export interface RemoteGroupResults {
     [groupType: string]: any[]
 }
 
+// Provides raw (unfiltered) items. Filtering happens in the component via useMemo.
 export const taxonomicBreakdownComboboxLogic = kea<taxonomicBreakdownComboboxLogicType>([
     props({} as TaxonomicBreakdownComboboxLogicProps),
     key((props) => `${keyForInsightLogicProps('new')(props.insightProps)}`),
@@ -86,7 +88,6 @@ export const taxonomicBreakdownComboboxLogic = kea<taxonomicBreakdownComboboxLog
                     )
 
                     const results: RemoteGroupResults = {}
-
                     const promises = relevantGroups.map(async (group) => {
                         try {
                             const searchAlias = group.searchAlias || 'search'
@@ -104,7 +105,6 @@ export const taxonomicBreakdownComboboxLogic = kea<taxonomicBreakdownComboboxLog
 
                     await Promise.all(promises)
                     breakpoint()
-
                     return results
                 },
             },
@@ -116,40 +116,10 @@ export const taxonomicBreakdownComboboxLogic = kea<taxonomicBreakdownComboboxLog
             (taxonomicGroups, taxonomicGroupTypes): TaxonomicFilterGroup[] =>
                 taxonomicGroups.filter((g) => taxonomicGroupTypes.includes(g.type)),
         ],
-        localItems: [
-            (s) => [s.relevantTaxonomicGroups, s.searchQuery],
-            (groups, searchQuery): RemoteGroupResults => {
-                const results: RemoteGroupResults = {}
-                for (const group of groups) {
-                    if (!group.options || group.endpoint) {
-                        continue
-                    }
-                    if (group.type === TaxonomicFilterGroupType.HogQLExpression) {
-                        continue
-                    }
-
-                    let items = group.options as any[]
-
-                    if (searchQuery) {
-                        if (group.localItemsSearch) {
-                            items = group.localItemsSearch(items, searchQuery)
-                        } else {
-                            const fuse = new Fuse(items, {
-                                keys: ['name', 'id'],
-                                threshold: 0.3,
-                            })
-                            items = fuse.search(searchQuery).map((r) => r.item)
-                        }
-                    }
-
-                    results[group.type] = items
-                }
-                return results
-            },
-        ],
-        allGroupedItems: [
-            (s) => [s.relevantTaxonomicGroups, s.localItems, s.remoteResults],
-            (groups, localItems, remoteResults): BreakdownComboboxGroup[] => {
+        // Raw items grouped by taxonomy type. No search filtering applied.
+        rawGroupedItems: [
+            (s) => [s.relevantTaxonomicGroups, s.remoteResults],
+            (groups, remoteResults): BreakdownComboboxGroup[] => {
                 const result: BreakdownComboboxGroup[] = []
 
                 for (const group of groups) {
@@ -157,7 +127,9 @@ export const taxonomicBreakdownComboboxLogic = kea<taxonomicBreakdownComboboxLog
                         continue
                     }
 
-                    const rawItems = localItems[group.type] || remoteResults[group.type] || []
+                    const isRemote = !!group.endpoint
+                    const rawItems = isRemote ? remoteResults[group.type] || [] : (group.options as any[]) || []
+
                     const getName = group.getName || ((item: any) => item.name || String(item))
                     const getValue = group.getValue || ((item: any) => item.name || item.value || item.id)
                     const getIcon = group.getIcon
@@ -171,6 +143,7 @@ export const taxonomicBreakdownComboboxLogic = kea<taxonomicBreakdownComboboxLog
                             name: String(name),
                             groupType: group.type,
                             taxonomicGroup: group,
+                            isRemote,
                             icon: getIcon ? getIcon(item) : undefined,
                         }
                     })
@@ -180,6 +153,7 @@ export const taxonomicBreakdownComboboxLogic = kea<taxonomicBreakdownComboboxLog
                             type: group.type,
                             name: group.name,
                             items,
+                            isRemote,
                         })
                     }
                 }
@@ -187,7 +161,7 @@ export const taxonomicBreakdownComboboxLogic = kea<taxonomicBreakdownComboboxLog
                 return result
             },
         ],
-        allItems: [(s) => [s.allGroupedItems], (groups): BreakdownComboboxItem[] => groups.flatMap((g) => g.items)],
+        allRawItems: [(s) => [s.rawGroupedItems], (groups): BreakdownComboboxItem[] => groups.flatMap((g) => g.items)],
         hasHogQLGroup: [
             (_s, p) => [p.taxonomicGroupTypes],
             (taxonomicGroupTypes): boolean => taxonomicGroupTypes.includes(TaxonomicFilterGroupType.HogQLExpression),

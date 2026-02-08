@@ -1,13 +1,11 @@
 import { Combobox } from '@base-ui/react/combobox'
 import { BindLogic, useActions, useValues } from 'kea'
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { IconCheck, IconEllipsis, IconSearch, IconX } from '@posthog/icons'
-import { LemonButtonWithDropdown } from '@posthog/lemon-ui'
+import { IconCheck, IconSearch, IconX } from '@posthog/icons'
 
 import { HogQLEditor } from 'lib/components/HogQLEditor/HogQLEditor'
-import { HoqQLPropertyInfo } from 'lib/components/HoqQLPropertyInfo'
-import { PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE } from 'lib/components/PropertyFilters/utils'
+import { taxonomicFilterTypeToPropertyFilterType } from 'lib/components/PropertyFilters/utils'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -15,22 +13,18 @@ import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { Label } from 'lib/ui/Label/Label'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
-import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
-import { extractDisplayLabel } from '~/queries/nodes/DataTable/utils'
 import { BreakdownFilter } from '~/queries/schema/schema-general'
 import { isInsightVizNode, isRetentionQuery } from '~/queries/utils'
-import { ChartDisplayType, GroupTypeIndex, InsightLogicProps } from '~/types'
+import { ChartDisplayType, InsightLogicProps } from '~/types'
 
-import { BreakdownTagMenu } from './BreakdownTagMenu'
-import { breakdownTagLogic } from './breakdownTagLogic'
 import {
+    BreakdownComboboxGroup,
     BreakdownComboboxItem,
     TaxonomicBreakdownComboboxLogicProps,
     taxonomicBreakdownComboboxLogic,
 } from './taxonomicBreakdownComboboxLogic'
 import { taxonomicBreakdownFilterLogic } from './taxonomicBreakdownFilterLogic'
-import { isAllCohort, isCohort } from './taxonomicBreakdownFilterUtils'
 
 interface TaxonomicBreakdownComboboxProps {
     insightProps: InsightLogicProps
@@ -122,63 +116,56 @@ interface TaxonomicBreakdownComboboxInnerProps {
     removeBreakdown: (value: string | number, type: string) => void
 }
 
+/** Filter groups by search text. Remote groups are already API-filtered; local groups use simple string match. */
+function filterGroups(groups: BreakdownComboboxGroup[], search: string): BreakdownComboboxGroup[] {
+    if (!search) {
+        return groups
+    }
+    const lower = search.toLowerCase()
+    return groups
+        .map((group) => ({
+            ...group,
+            // Remote groups: API already returned search-filtered results, show as-is
+            // Local groups: filter by display name
+            items: group.isRemote ? group.items : group.items.filter((item) => item.name.toLowerCase().includes(lower)),
+        }))
+        .filter((g) => g.items.length > 0)
+}
+
 function TaxonomicBreakdownComboboxInner({
-    insightProps,
-    isTrends,
     disabledReason,
     disablePropertyInfo,
-    size,
     inputRef,
     breakdownArray,
     isAddBreakdownDisabled,
     addBreakdown,
     removeBreakdown,
 }: TaxonomicBreakdownComboboxInnerProps): JSX.Element {
-    const { allGroupedItems, allItems, searchQuery, hasHogQLGroup, remoteResultsLoading } = useValues(
-        taxonomicBreakdownComboboxLogic
-    )
-    const { setSearchQuery } = useActions(taxonomicBreakdownComboboxLogic)
+    const { rawGroupedItems, hasHogQLGroup, remoteResultsLoading } = useValues(taxonomicBreakdownComboboxLogic)
+    const { setSearchQuery, loadRemoteResults } = useActions(taxonomicBreakdownComboboxLogic)
+
+    const [searchValue, setSearchValue] = useState('')
     const [open, setOpen] = useState(false)
+    const hasLoadedRemote = useRef(false)
 
-    const handleSelect = useCallback(
-        (item: BreakdownComboboxItem) => {
-            addBreakdown(item.value, item.taxonomicGroup)
-            if (!isTrends) {
-                setOpen(false)
-            }
-            setSearchQuery('')
-            inputRef.current?.focus()
-        },
-        [addBreakdown, isTrends, setSearchQuery, inputRef]
-    )
-
-    const handleHogQLSubmit = useCallback(
-        (value: string | number | null) => {
-            if (!value) {
-                return
-            }
-            const taxonomicGroup = {
-                type: TaxonomicFilterGroupType.HogQLExpression,
-                name: 'SQL expression',
-                searchPlaceholder: null,
-                getPopoverHeader: () => 'SQL expression',
-            }
-
-            addBreakdown(value, taxonomicGroup)
-            if (!isTrends) {
-                setOpen(false)
-            }
-        },
-        [addBreakdown, isTrends]
-    )
-
-    const getItemString = useCallback((item: BreakdownComboboxItem | null): string => {
-        if (!item) {
-            return ''
+    // Trigger remote load on first open
+    useEffect(() => {
+        if (open && !hasLoadedRemote.current) {
+            hasLoadedRemote.current = true
+            loadRemoteResults({})
         }
-        return item.name
-    }, [])
+    }, [open, loadRemoteResults])
 
+    // Sync search to kea for remote API calls
+    useEffect(() => {
+        setSearchQuery(searchValue)
+    }, [searchValue, setSearchQuery])
+
+    // Frontend filtering: local groups filtered by display name, remote groups shown as-is
+    const filteredGroups = useMemo(() => filterGroups(rawGroupedItems, searchValue), [rawGroupedItems, searchValue])
+    const filteredItems = useMemo(() => filteredGroups.flatMap((g) => g.items), [filteredGroups])
+
+    // Track which breakdowns are currently selected
     const selectedBreakdownIds = useMemo(() => {
         const ids = new Set<string>()
         for (const breakdown of breakdownArray) {
@@ -191,17 +178,80 @@ function TaxonomicBreakdownComboboxInner({
         return ids
     }, [breakdownArray])
 
+    // Map breakdownArray to BreakdownComboboxItem[] for base-ui's value prop
+    const selectedItems = useMemo(() => {
+        const items: BreakdownComboboxItem[] = []
+        for (const breakdown of breakdownArray) {
+            const id =
+                typeof breakdown === 'object' && breakdown.property != null
+                    ? `${breakdown.type || 'event'}::${breakdown.property}`
+                    : `event::${breakdown}`
+            const found =
+                filteredItems.find((i) => i.id === id) ||
+                rawGroupedItems.flatMap((g) => g.items).find((i) => i.id === id)
+            if (found) {
+                items.push(found)
+            }
+        }
+        return items
+    }, [breakdownArray, filteredItems, rawGroupedItems])
+
+    const handleValueChange = useCallback(
+        (newValues: BreakdownComboboxItem[]) => {
+            const newIds = new Set(newValues.map((v) => v.id))
+            const oldIds = new Set(selectedItems.map((v) => v.id))
+
+            // Added items
+            for (const item of newValues) {
+                if (!oldIds.has(item.id)) {
+                    addBreakdown(item.value, item.taxonomicGroup)
+                }
+            }
+            // Removed items
+            for (const item of selectedItems) {
+                if (!newIds.has(item.id)) {
+                    const breakdownType = taxonomicFilterTypeToPropertyFilterType(item.taxonomicGroup.type) || 'event'
+                    removeBreakdown(item.value as string | number, breakdownType)
+                }
+            }
+
+            setSearchValue('')
+            inputRef.current?.focus()
+        },
+        [selectedItems, addBreakdown, removeBreakdown, inputRef]
+    )
+
+    const handleHogQLSubmit = useCallback(
+        (value: string | number | null) => {
+            if (!value) {
+                return
+            }
+            addBreakdown(value, {
+                type: TaxonomicFilterGroupType.HogQLExpression,
+                name: 'SQL expression',
+                searchPlaceholder: null,
+                getPopoverHeader: () => 'SQL expression',
+            })
+        },
+        [addBreakdown]
+    )
+
     return (
         <Combobox.Root
-            items={allItems}
-            filter={null}
-            itemToStringValue={getItemString}
+            multiple
+            items={filteredItems}
+            value={selectedItems}
+            onValueChange={handleValueChange}
+            isItemEqualToValue={(a, b) => a.id === b.id}
+            itemToStringValue={(item) => item.name}
             open={open}
             onOpenChange={setOpen}
+            inputValue={searchValue}
+            onInputValueChange={setSearchValue}
+            filter={() => true}
             autoHighlight
         >
             <div className="flex flex-col gap-2">
-                {/* Input area with chips */}
                 <div
                     className="group input-like flex gap-1 items-center flex-wrap relative w-full bg-fill-input border border-primary focus-within:ring-primary py-1 px-2 cursor-text"
                     onClick={() => {
@@ -213,23 +263,76 @@ function TaxonomicBreakdownComboboxInner({
                 >
                     <IconSearch className="size-4 text-tertiary shrink-0" />
 
-                    {breakdownArray.map((breakdown) => (
-                        <BreakdownChip
-                            key={typeof breakdown === 'object' ? breakdown.property : breakdown}
-                            breakdown={breakdown}
-                            isTrends={isTrends}
-                            insightProps={insightProps}
-                            disablePropertyInfo={disablePropertyInfo}
-                            onRemove={removeBreakdown}
-                            size={size}
-                        />
+                    {/* Chips for selected breakdowns */}
+                    {selectedItems.map((item) => (
+                        <span
+                            key={item.id}
+                            className="inline-flex items-center gap-0.5 bg-fill-button-tertiary rounded-sm px-1.5 py-0.5 text-xs font-medium max-w-[200px]"
+                        >
+                            <span className="truncate">
+                                <PropertyKeyInfo
+                                    value={item.name}
+                                    disablePopover={disablePropertyInfo}
+                                    type={item.groupType}
+                                />
+                            </span>
+                            <ButtonPrimitive
+                                iconOnly
+                                size="xs"
+                                onClick={(e) => {
+                                    e.stopPropagation()
+                                    const breakdownType =
+                                        taxonomicFilterTypeToPropertyFilterType(item.taxonomicGroup.type) || 'event'
+                                    removeBreakdown(item.value as string | number, breakdownType)
+                                }}
+                                aria-label="Remove breakdown"
+                                className="p-0"
+                            >
+                                <IconX className="size-3 text-tertiary" />
+                            </ButtonPrimitive>
+                        </span>
                     ))}
+
+                    {/* Render plain chips for breakdowns not found in the items list */}
+                    {breakdownArray.map((breakdown) => {
+                        const id =
+                            typeof breakdown === 'object' && breakdown.property != null
+                                ? `${breakdown.type || 'event'}::${breakdown.property}`
+                                : `event::${breakdown}`
+                        if (selectedItems.find((i) => i.id === id)) {
+                            return null // Already rendered above
+                        }
+                        const displayValue =
+                            typeof breakdown === 'object' ? String(breakdown.property) : String(breakdown)
+                        const breakdownType = typeof breakdown === 'object' ? breakdown.type || 'event' : 'event'
+                        return (
+                            <span
+                                key={id}
+                                className="inline-flex items-center gap-0.5 bg-fill-button-tertiary rounded-sm px-1.5 py-0.5 text-xs font-medium max-w-[200px]"
+                            >
+                                <span className="truncate">{displayValue}</span>
+                                <ButtonPrimitive
+                                    iconOnly
+                                    size="xs"
+                                    onClick={(e) => {
+                                        e.stopPropagation()
+                                        removeBreakdown(
+                                            typeof breakdown === 'object' ? breakdown.property : breakdown,
+                                            breakdownType
+                                        )
+                                    }}
+                                    aria-label="Remove breakdown"
+                                    className="p-0"
+                                >
+                                    <IconX className="size-3 text-tertiary" />
+                                </ButtonPrimitive>
+                            </span>
+                        )
+                    })}
 
                     {!isAddBreakdownDisabled && (
                         <Combobox.Input
                             ref={inputRef}
-                            value={searchQuery}
-                            onChange={(e) => setSearchQuery(e.target.value)}
                             aria-label="Search breakdown properties"
                             placeholder={breakdownArray.length === 0 ? 'Add breakdown...' : ''}
                             className="flex-1 min-w-[80px] px-1 py-0.5 text-sm focus:outline-none border-transparent bg-transparent"
@@ -238,13 +341,12 @@ function TaxonomicBreakdownComboboxInner({
                     )}
                 </div>
 
-                {/* Dropdown popup */}
                 <Combobox.Portal>
                     <Combobox.Positioner className="z-[var(--z-popover)]" sideOffset={4}>
                         <Combobox.Popup className="primitive-menu-content min-w-[300px] max-w-[400px] flex flex-col max-h-[min(400px,var(--available-height))]">
                             <ScrollableShadows innerClassName="overflow-y-auto" direction="vertical" styledScrollbars>
                                 <Combobox.List className="flex flex-col gap-px p-1">
-                                    {allGroupedItems.map((group) => (
+                                    {filteredGroups.map((group) => (
                                         <Combobox.Group
                                             key={group.type}
                                             items={group.items}
@@ -258,20 +360,28 @@ function TaxonomicBreakdownComboboxInner({
                                                     const isSelected =
                                                         selectedBreakdownIds.has(item.id) ||
                                                         selectedBreakdownIds.has(String(item.value))
+                                                    const isAtLimit = isAddBreakdownDisabled && !isSelected
                                                     return (
                                                         <Combobox.Item
                                                             key={item.id}
                                                             value={item}
-                                                            onClick={() => handleSelect(item)}
+                                                            disabled={isAtLimit}
                                                             render={(props) => (
                                                                 <ButtonPrimitive
                                                                     {...props}
                                                                     menuItem
                                                                     fullWidth
                                                                     active={isSelected}
+                                                                    disabled={isAtLimit}
                                                                 >
-                                                                    {item.icon && (
-                                                                        <span className="shrink-0">{item.icon}</span>
+                                                                    {isSelected ? (
+                                                                        <IconCheck className="size-4 text-success shrink-0" />
+                                                                    ) : (
+                                                                        item.icon && (
+                                                                            <span className="shrink-0">
+                                                                                {item.icon}
+                                                                            </span>
+                                                                        )
                                                                     )}
                                                                     <span className="truncate flex-1">
                                                                         <PropertyKeyInfo
@@ -280,9 +390,6 @@ function TaxonomicBreakdownComboboxInner({
                                                                             type={item.groupType}
                                                                         />
                                                                     </span>
-                                                                    {isSelected && (
-                                                                        <IconCheck className="size-4 text-success shrink-0" />
-                                                                    )}
                                                                 </ButtonPrimitive>
                                                             )}
                                                         />
@@ -292,18 +399,17 @@ function TaxonomicBreakdownComboboxInner({
                                         </Combobox.Group>
                                     ))}
 
-                                    {allGroupedItems.length === 0 && !remoteResultsLoading && (
+                                    {filteredGroups.length === 0 && !remoteResultsLoading && (
                                         <div className="px-3 py-4 text-center text-sm text-muted">
-                                            {searchQuery ? 'No results found' : 'No properties available'}
+                                            {searchValue ? 'No results found' : 'No properties available'}
                                         </div>
                                     )}
 
-                                    {remoteResultsLoading && allGroupedItems.length === 0 && (
+                                    {remoteResultsLoading && filteredGroups.length === 0 && (
                                         <div className="px-3 py-4 text-center text-sm text-muted">Loading...</div>
                                     )}
                                 </Combobox.List>
 
-                                {/* HogQL Expression section */}
                                 {hasHogQLGroup && (
                                     <div className="border-t border-primary">
                                         <div className="px-2 py-1">
@@ -325,99 +431,5 @@ function TaxonomicBreakdownComboboxInner({
                 </Combobox.Portal>
             </div>
         </Combobox.Root>
-    )
-}
-
-interface BreakdownChipProps {
-    breakdown: any
-    isTrends: boolean
-    insightProps: InsightLogicProps
-    disablePropertyInfo?: boolean
-    onRemove: (value: string | number, type: string) => void
-    size: 'small' | 'medium'
-}
-
-function BreakdownChip({
-    breakdown,
-    isTrends,
-    insightProps,
-    disablePropertyInfo,
-    onRemove,
-}: BreakdownChipProps): JSX.Element {
-    const isMultiBreakdown = typeof breakdown === 'object'
-    const breakdownValue = isMultiBreakdown ? breakdown.property : breakdown
-    const breakdownType = isMultiBreakdown ? breakdown.type || 'event' : 'event'
-
-    const { cohortsById } = useValues(cohortsModel)
-    const { groupTypes } = useValues(groupsModel)
-
-    const logicProps = { insightProps, breakdown: breakdownValue, breakdownType, isTrends }
-    const { isHistogramable, isNormalizeable } = useValues(breakdownTagLogic(logicProps))
-
-    const showMenu = isHistogramable || isNormalizeable
-
-    let displayName: string | number = breakdownValue
-
-    if (isAllCohort(breakdownValue)) {
-        displayName = 'All Users'
-    } else if (isCohort(breakdownValue)) {
-        displayName = cohortsById[breakdownValue]?.name || `Cohort ${breakdownValue}`
-    } else if (breakdownType === 'event_metadata' && String(breakdownValue).startsWith('$group_')) {
-        const group = groupTypes.get(
-            parseInt(String(breakdownValue).replace('$group_', '')) as unknown as GroupTypeIndex
-        )
-        if (group) {
-            displayName = group.name_singular || group.group_type
-        }
-    } else {
-        displayName = extractDisplayLabel(String(breakdownValue))
-    }
-
-    return (
-        <BindLogic logic={breakdownTagLogic} props={logicProps}>
-            <span className="inline-flex items-center gap-0.5 bg-fill-button-tertiary rounded-sm px-1.5 py-0.5 text-xs font-medium max-w-[200px]">
-                <span className="truncate">
-                    {breakdownType === 'hogql' ? (
-                        <HoqQLPropertyInfo value={String(displayName)} />
-                    ) : (
-                        <PropertyKeyInfo
-                            value={String(displayName)}
-                            disablePopover={disablePropertyInfo}
-                            type={
-                                breakdownType
-                                    ? PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[breakdownType]
-                                    : TaxonomicFilterGroupType.EventProperties
-                            }
-                        />
-                    )}
-                </span>
-
-                {showMenu && (
-                    <LemonButtonWithDropdown
-                        size="xsmall"
-                        icon={<IconEllipsis />}
-                        onClick={(e) => e.stopPropagation()}
-                        dropdown={{
-                            overlay: <BreakdownTagMenu />,
-                            closeOnClickInside: false,
-                        }}
-                        className="p-0.5"
-                    />
-                )}
-
-                <ButtonPrimitive
-                    iconOnly
-                    size="xs"
-                    onClick={(e) => {
-                        e.stopPropagation()
-                        onRemove(breakdownValue, breakdownType)
-                    }}
-                    aria-label="Remove breakdown"
-                    className="p-0"
-                >
-                    <IconX className="size-3 text-tertiary" />
-                </ButtonPrimitive>
-            </span>
-        </BindLogic>
     )
 }
