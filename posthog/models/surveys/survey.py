@@ -187,6 +187,32 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
             "index": 2
         }
         ```
+
+        Translations: Each question can include inline translations.
+        - `translations`: Object mapping language codes to translated fields.
+        - Language codes: Any string - allows customers to use their own language keys (e.g., "es", "es-MX", "english", "french")
+        - Translatable fields: `question`, `description`, `buttonText`, `choices`, `lowerBoundLabel`, `upperBoundLabel`, `link`
+
+        Example with translations:
+        ```json
+        {
+            "id": "uuid",
+            "type": "rating",
+            "question": "How satisfied are you?",
+            "lowerBoundLabel": "Not satisfied",
+            "upperBoundLabel": "Very satisfied",
+            "translations": {
+                "es": {
+                    "question": "¿Qué tan satisfecho estás?",
+                    "lowerBoundLabel": "No satisfecho",
+                    "upperBoundLabel": "Muy satisfecho"
+                },
+                "fr": {
+                    "question": "Dans quelle mesure êtes-vous satisfait?"
+                }
+            }
+        }
+        ```
         """,
     )
     appearance = models.JSONField(blank=True, null=True)
@@ -249,6 +275,11 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
     # AI-generated per-question summaries
     # Format: { [questionId]: { summary: string, responseCount: number, generatedAt: string } }
     question_summaries = models.JSONField(blank=True, null=True)
+
+    # Translations for multi-language support
+    # Format: { [languageCode]: { name: string, description: string, thankYouMessageHeader: string, thankYouMessageDescription: string, thankYouMessageCloseButtonText: string, ... } }
+    # Language codes: Any string - allows customers to use their own language keys (e.g., "es", "es-MX", "english", "french")
+    translations = models.JSONField(blank=True, null=True)
 
     # Use the survey_type instead. If it's external_survey, it's publicly shareable.
     is_publicly_shareable = deprecate_field(

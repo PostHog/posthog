@@ -3550,6 +3550,16 @@ export interface Survey extends WithAccessControl {
     _create_in_folder?: string | null
     headline_summary?: string | null
     headline_response_count?: number | null
+    translations?: Record<
+        string,
+        {
+            name?: string
+            description?: string
+            thankYouMessageHeader?: string
+            thankYouMessageDescription?: string
+            thankYouMessageCloseButtonText?: string
+        }
+    > | null
 }
 
 export enum SurveyMatchType {
@@ -3655,6 +3665,18 @@ export interface SurveyQuestionBase {
         | ConfirmationMessageBranching
         | ResponseBasedBranching
         | SpecificQuestionBranching
+    translations?: Record<
+        string,
+        {
+            question?: string
+            description?: string
+            buttonText?: string
+            lowerBoundLabel?: string
+            upperBoundLabel?: string
+            choices?: string[]
+            link?: string
+        }
+    > | null
 }
 
 export interface BasicSurveyQuestion extends SurveyQuestionBase {
