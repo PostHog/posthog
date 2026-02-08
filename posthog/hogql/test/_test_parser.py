@@ -1,7 +1,6 @@
 import math
 from typing import Optional, cast
 
-import unittest
 from posthog.test.base import BaseTest, MemoryLeakTestMixin
 
 from posthog.hogql import ast
@@ -2944,7 +2943,6 @@ def parser_test_factory(backend: HogQLParserBackend):
 
             self.assertEqual(self._select("SELECT 1 UNION ALL SELECT 2;"), self._select("SELECT 1 UNION ALL SELECT 2"))
 
-        @unittest.skipIf(backend == "cpp", "Postgres-style casts are not supported in the legacy C++ backend")
         def test_postgres_style_cast(self):
             self.assertEqual(
                 self._expr("x::int"),
