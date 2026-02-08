@@ -3,7 +3,7 @@ import { Form } from 'kea-forms'
 import { createRef } from 'react'
 
 import { IconImage } from '@posthog/icons'
-import { LemonSkeleton, LemonTag, Spinner } from '@posthog/lemon-ui'
+import { LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 
 import { PropertyStatusControl } from 'lib/components/DefinitionPopover/DefinitionPopoverContents'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
@@ -170,13 +170,6 @@ export function DefinitionEdit(props: DefinitionLogicProps): JSX.Element {
                                         }
                                     >
                                         <div>
-                                            {previewsLoading && (
-                                                <div className="flex items-center gap-2">
-                                                    <Spinner />
-                                                    <span className="text-secondary">Loading preview...</span>
-                                                </div>
-                                            )}
-
                                             <div className="mb-4">
                                                 <div
                                                     ref={mediaPreviewDragTarget}
@@ -207,9 +200,12 @@ export function DefinitionEdit(props: DefinitionLogicProps): JSX.Element {
                                                 </div>
                                             </div>
 
-                                            {previews && previews.length > 0 && (
+                                            {(previewsLoading || (previews && previews.length > 0)) && (
                                                 <ImageCarousel
-                                                    imageUrls={previews.map((p: ObjectMediaPreview) => p.media_url)}
+                                                    loading={previewsLoading}
+                                                    imageUrls={
+                                                        previews?.map((p: ObjectMediaPreview) => p.media_url) ?? []
+                                                    }
                                                     onDelete={(url: string) => {
                                                         const preview = previews.find(
                                                             (p: ObjectMediaPreview) => p.media_url === url

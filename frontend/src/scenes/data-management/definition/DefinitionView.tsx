@@ -33,12 +33,7 @@ import { Query } from '~/queries/Query/Query'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { getFilterLabel } from '~/taxonomy/helpers'
-import {
-    FilterLogicalOperator,
-    ObjectMediaPreview,
-    PropertyDefinition,
-    PropertyDefinitionVerificationStatus,
-} from '~/types'
+import { FilterLogicalOperator, PropertyDefinition, PropertyDefinitionVerificationStatus } from '~/types'
 
 import { getEventDefinitionIcon, getPropertyDefinitionIcon } from '../events/DefinitionHeader'
 
@@ -84,18 +79,8 @@ const getStatusProps = (isProperty: boolean): Record<PropertyDefinitionVerificat
 
 export function DefinitionView(props: DefinitionLogicProps): JSX.Element {
     const logic = definitionLogic(props)
-    const {
-        definition,
-        definitionLoading,
-        definitionMissing,
-        singular,
-        isEvent,
-        isProperty,
-        metrics,
-        metricsLoading,
-        previews,
-        previewsLoading,
-    } = useValues(logic)
+    const { definition, definitionLoading, definitionMissing, singular, isEvent, isProperty, metrics, metricsLoading } =
+        useValues(logic)
     const { deleteDefinition } = useActions(logic)
 
     const memoizedQuery = useMemo(() => {
@@ -266,7 +251,7 @@ export function DefinitionView(props: DefinitionLogicProps): JSX.Element {
                 )}
 
                 <FlaggedFeature flag={FEATURE_FLAGS.EVENT_MEDIA_PREVIEWS}>
-                    {((previews && previews.length > 0) || previewsLoading) && (
+                    {definition.media_preview_urls && definition.media_preview_urls.length > 0 && (
                         <div className="mt-4">
                             <h5 className="mb-2">
                                 Preview{' '}
@@ -274,10 +259,7 @@ export function DefinitionView(props: DefinitionLogicProps): JSX.Element {
                                     <IconInfo className="text-sm" />
                                 </Tooltip>
                             </h5>
-                            <ImageCarousel
-                                imageUrls={previews.map((p: ObjectMediaPreview) => p.media_url)}
-                                loading={previewsLoading}
-                            />
+                            <ImageCarousel imageUrls={definition.media_preview_urls} />
                         </div>
                     )}
                 </FlaggedFeature>
