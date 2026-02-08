@@ -3,6 +3,7 @@
 !.kearc
 !bin
 !common/hogvm
+!common/hogql_parser
 !common/esbuilder
 !common/migration_utils
 !common/plugin_transpiler/*.*
@@ -56,6 +57,8 @@ common/*/*/node_modules
 common/*/node_modules
 common/*/*/dist
 common/*/dist
+common/*/build
+common/*/build_wasm
 products/**/node_modules
 nodejs/node_modules
 ee/**/node_modules

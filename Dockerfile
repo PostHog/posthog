@@ -28,12 +28,36 @@ FROM node:24.13.0-bookworm-slim AS frontend-build
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
+# Install build tools for WASM compilation
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    ca-certificates \
+    cmake \
+    ninja-build \
+    python3 \
+    git \
+    xz-utils \
+    libatomic1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Emscripten (matching version from CI)
+ENV EMSDK=/emsdk
+ENV EMSDK_VERSION=4.0.23
+RUN git clone --depth 1 https://github.com/emscripten-core/emsdk.git ${EMSDK} && \
+    cd ${EMSDK} && \
+    ./emsdk install ${EMSDK_VERSION} && \
+    ./emsdk activate ${EMSDK_VERSION} && \
+    echo "source ${EMSDK}/emsdk_env.sh" >> /etc/profile
+ENV PATH="${EMSDK}:${EMSDK}/upstream/emscripten:${PATH}"
+ENV EMSDK_NODE="${EMSDK}/node/16.20.0_64bit/bin/node"
+
 COPY turbo.json package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.json ./
 COPY frontend/package.json frontend/
 COPY frontend/bin/ frontend/bin/
 COPY bin/ bin/
 COPY patches/ patches/
 COPY common/hogvm/typescript/ common/hogvm/typescript/
+COPY common/hogql_parser/ common/hogql_parser/
 COPY common/esbuilder/ common/esbuilder/
 COPY common/tailwind/ common/tailwind/
 COPY products/ products/
