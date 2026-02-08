@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
+import { router } from 'kea-router'
 
 import { IconExternal } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonLabel, LemonSelect } from '@posthog/lemon-ui'
@@ -379,14 +380,22 @@ export function EndpointPlayground({ tabId }: EndpointPlaygroundProps): JSX.Elem
                         value={activeCodeExampleTab}
                     />
                     <LemonButton
-                        to={urls.settings('user', 'personal-api-keys')}
                         type="secondary"
                         size="small"
                         icon={<IconExternal />}
-                        targetBlank
+                        onClick={() => {
+                            router.actions.push(urls.settings('user'))
+                            setTimeout(() => {
+                                const el = document.getElementById('personal-api-keys')
+                                if (el) {
+                                    el.scrollIntoView({ behavior: 'smooth' })
+                                }
+                            }, 100)
+                        }}
                     >
                         API keys
                     </LemonButton>
+
                 </div>
                 <div>
                     <CodeSnippet language={getLanguage(activeCodeExampleTab)} wrap={true}>
