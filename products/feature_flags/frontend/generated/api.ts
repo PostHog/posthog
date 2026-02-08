@@ -397,6 +397,28 @@ export const featureFlagsActivityRetrieve = async (
 }
 
 /**
+ * Bulk delete feature flags by IDs.
+Accepts a list of feature flag IDs and soft-deletes them.
+Returns success/error per flag.
+ */
+export const getFeatureFlagsBulkDeleteCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/feature_flags/bulk_delete/`
+}
+
+export const featureFlagsBulkDeleteCreate = async (
+    projectId: string,
+    featureFlagApi: NonReadonly<FeatureFlagApi>,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getFeatureFlagsBulkDeleteCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(featureFlagApi),
+    })
+}
+
+/**
  * Get feature flag keys by IDs.
 Accepts a list of feature flag IDs and returns a mapping of ID to key.
  */
