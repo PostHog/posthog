@@ -198,6 +198,8 @@ dependencies = [
     "botocore[crt]~=1.40.49",
     "defusedxml>=0.7.1",
     "confluent-kafka>=2.13.0",
+    "transformers>=4.36,<4.52",
+    "optimum[onnxruntime]~=1.25.0",
 ]
 
 [dependency-groups]
