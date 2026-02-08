@@ -1,7 +1,7 @@
 from typing import Any, Literal, Optional, cast
 
 from django.core.cache import cache
-from django.db.models import Manager
+from django.db.models import Manager, Q
 
 import orjson
 from drf_spectacular.types import OpenApiTypes
@@ -264,17 +264,15 @@ class EventDefinitionViewSet(
         return results
 
     def dangerously_get_object(self):
-        return self._get_event_definition(id=self.kwargs["id"], team__project_id=self.project_id)
-
-    def _get_event_definition(self, **filters) -> EventDefinition:
+        id = self.kwargs["id"]
         if EE_AVAILABLE:
             from ee.models.event_definition import EnterpriseEventDefinition
 
-            enterprise_event = EnterpriseEventDefinition.objects.filter(**filters).first()
+            enterprise_event = EnterpriseEventDefinition.objects.filter(id=id, team__project_id=self.project_id).first()
             if enterprise_event:
                 return enterprise_event
 
-            non_enterprise_event = EventDefinition.objects.get(**filters)
+            non_enterprise_event = EventDefinition.objects.get(id=id, team__project_id=self.project_id)
             new_enterprise_event = EnterpriseEventDefinition(
                 eventdefinition_ptr_id=non_enterprise_event.id, description=""
             )
@@ -282,7 +280,7 @@ class EventDefinitionViewSet(
             new_enterprise_event.save()
             return new_enterprise_event
 
-        return EventDefinition.objects.get(**filters)
+        return EventDefinition.objects.get(id=id, team__project_id=self.project_id)
 
     def get_serializer_class(self) -> type[serializers.ModelSerializer]:
         serializer_class = self.serializer_class
@@ -450,10 +448,18 @@ class EventDefinitionViewSet(
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        try:
-            event_def = self._get_event_definition(name=event_name, team__project_id=self.project_id)
-        except EventDefinition.DoesNotExist:
-            event_def = None
+        event_definition_object_manager: Manager
+        if EE_AVAILABLE:
+            from ee.models.event_definition import EnterpriseEventDefinition
+
+            event_definition_object_manager = EnterpriseEventDefinition.objects
+        else:
+            event_definition_object_manager = EventDefinition.objects
+
+        event_def = event_definition_object_manager.filter(
+            Q(project_id=self.project_id) | Q(project_id__isnull=True, team_id=self.project_id),
+            name=event_name,
+        ).first()
 
         if not event_def:
             return response.Response(

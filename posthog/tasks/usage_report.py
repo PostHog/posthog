@@ -64,6 +64,15 @@ logger.setLevel(logging.INFO)
 # Changes to the AIEventType enum will impact usage reporting
 AI_EVENTS = [event.value for event in AIEventType]
 
+# System-generated AI events that should not count toward the llm_events billing quota.
+# These are automatically produced by PostHog from user-emitted events (e.g. $ai_generation)
+# so billing them would effectively double-charge users.
+NON_BILLABLE_AI_EVENTS = {
+    AIEventType.FIELD_AI_SENTIMENT,
+}
+
+BILLABLE_AI_EVENTS = [e for e in AI_EVENTS if e not in NON_BILLABLE_AI_EVENTS]
+
 
 class Period(TypedDict):
     start_inclusive: str
@@ -1030,7 +1039,7 @@ def get_teams_with_ai_event_count_in_period(
         WHERE event IN %(ai_events)s AND timestamp >= %(begin)s AND timestamp < %(end)s
         GROUP BY team_id
     """,
-        {"begin": begin, "end": end, "ai_events": AI_EVENTS},
+        {"begin": begin, "end": end, "ai_events": BILLABLE_AI_EVENTS},
         workload=Workload.OFFLINE,
         settings=CH_BILLING_SETTINGS,
     )
@@ -1698,8 +1707,8 @@ def capture_report(
             name="organization usage report",
             organization_id=organization_id,
             properties=full_report_dict,
-            group_properties={"has_non_zero_usage": full_report_dict.get("has_non_zero_usage")},
             timestamp=at_date,
+            set_on_organization=True,
         )
 
     except Exception as err:

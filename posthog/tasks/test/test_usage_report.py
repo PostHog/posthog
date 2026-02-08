@@ -3556,6 +3556,54 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
         self.assertEqual(result[0][0], self.org_1_team_1.id)
         self.assertEqual(result[0][1], 240)
 
+    def test_non_billable_ai_events_excluded_from_ai_event_count(self) -> None:
+        from posthog.tasks.usage_report import (
+            get_teams_with_ai_event_count_in_period,
+            get_teams_with_billable_event_count_in_period,
+        )
+
+        self._setup_teams()
+
+        period = get_previous_day(at=now() + relativedelta(days=1))
+        period_start, period_end = period
+
+        # Create billable AI events
+        for i in range(3):
+            _create_event(
+                distinct_id="test_id",
+                event="$ai_generation",
+                properties={"$ai_trace_id": "some_id", "$ai_model": "gpt-4o"},
+                timestamp=period_start + relativedelta(hours=i + 1),
+                team=self.org_1_team_1,
+            )
+
+        # Create non-billable AI events (system-generated from $ai_generation)
+        for i in range(5):
+            _create_event(
+                distinct_id="test_id",
+                event="$ai_sentiment",
+                properties={
+                    "$ai_trace_id": "some_id",
+                    "$ai_sentiment_label": "positive",
+                    "$ai_sentiment_score": 0.9,
+                },
+                timestamp=period_start + relativedelta(hours=i + 1),
+                team=self.org_1_team_1,
+            )
+
+        flush_persons_and_events()
+
+        ai_result = get_teams_with_ai_event_count_in_period(period_start, period_end)
+        billable_result = get_teams_with_billable_event_count_in_period(period_start, period_end)
+
+        ai_count = dict(ai_result).get(self.org_1_team_1.id, 0)
+        billable_count = dict(billable_result).get(self.org_1_team_1.id, 0)
+
+        # Only the 3 $ai_generation events should be counted as AI events
+        self.assertEqual(ai_count, 3)
+        # $ai_sentiment should not appear in standard billing either
+        self.assertEqual(billable_count, 0)
+
 
 class TestSendUsage(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest):
     def setUp(self) -> None:
@@ -3782,40 +3830,6 @@ class TestSendUsage(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
             timestamp="2021-10-10T23:01:00.00Z",
         )
         assert mock_client.capture.call_args[1]["timestamp"] == datetime(2021, 10, 10, 23, 1, tzinfo=tzutc())
-
-    @patch("posthog.tasks.report_utils.is_cloud", return_value=True)
-    def test_capture_event_calls_group_identify_with_group_properties(self, mock_is_cloud: MagicMock) -> None:
-        organization = Organization.objects.create()
-        mock_client = MagicMock()
-        group_props = {"org_name": "Test Org", "plan": "enterprise"}
-
-        capture_event(
-            pha_client=mock_client,
-            name="test event",
-            organization_id=str(organization.id),
-            properties={"prop1": "val1"},
-            group_properties=group_props,
-        )
-
-        mock_client.group_identify.assert_called_once_with(
-            "organization",
-            str(organization.id),
-            properties=group_props,
-        )
-
-    @patch("posthog.tasks.report_utils.is_cloud", return_value=True)
-    def test_capture_event_skips_group_identify_without_group_properties(self, mock_is_cloud: MagicMock) -> None:
-        organization = Organization.objects.create()
-        mock_client = MagicMock()
-
-        capture_event(
-            pha_client=mock_client,
-            name="test event",
-            organization_id=str(organization.id),
-            properties={"prop1": "val1"},
-        )
-
-        mock_client.group_identify.assert_not_called()
 
 
 class TestSendNoUsage(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest):
