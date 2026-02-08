@@ -16,6 +16,7 @@
         "common/plugin_transpiler/dist",
         "common/hogvm/__tests__/__snapshots__",
         "common/hogvm/__tests__/__snapshots__/**",
+        "frontend/scripts/**",
         "frontend/src/queries/validators.js",
         "frontend/src/generated/**",
         "services/mcp/**/generated.ts",
