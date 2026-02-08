@@ -359,6 +359,7 @@ Output: {output_data}"""
     config = get_eval_config(provider) if provider_key is None else None
     # Override base_url if provided
     if base_url:
+        config = config or {}
         config["base_url"] = base_url
     # Create unified Client with analytics disabled to prevent eval loops
     client = Client(
