@@ -5764,7 +5764,7 @@ export enum SDKKey {
     REMIX = 'remix',
     RETOOL = 'retool',
     RUBY = 'ruby',
-    RUBY_RAILS = 'ruby_rails',
+    RUBY_ON_RAILS = 'ruby_on_rails',
     RUDDERSTACK = 'rudderstack',
     RUST = 'rust',
     SEGMENT = 'segment',
