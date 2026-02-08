@@ -291,7 +291,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
     def calculate_people_ch(self, pending_version: int, *, initiating_user_id: Optional[int] = None):
         from posthog.models.cohort.util import recalculate_cohortpeople
 
-        logger.info(
+        logger.warn(
             "cohort_calculation_started",
             id=self.pk,
             current_version=self.version,
@@ -338,7 +338,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         )
         self.refresh_from_db()
 
-        logger.info(
+        logger.warn(
             "cohort_calculation_completed",
             id=self.pk,
             version=pending_version,
@@ -386,11 +386,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         return uuids
 
     def insert_users_by_list(
-        self,
-        items: list[str],
-        *,
-        team_id: Optional[int] = None,
-        batch_size: int = DEFAULT_COHORT_INSERT_BATCH_SIZE,
+        self, items: list[str], *, team_id: Optional[int] = None, batch_size: int = DEFAULT_COHORT_INSERT_BATCH_SIZE
     ) -> int:
         """
         Insert a list of users identified by their distinct ID into the cohort, for the given team.
@@ -452,6 +448,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         *,
         team_id: Optional[int] = None,
         batch_size: int = DEFAULT_COHORT_INSERT_BATCH_SIZE,
+        email_property_key: str | None = None,
     ) -> int:
         """
         Insert a list of users identified by their email address into the cohort, for the given team.
@@ -459,6 +456,8 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             items: List of email addresses of users to be inserted into the cohort.
             team_id: ID of the team for which to insert the users. Defaults to `self.team`, because of a lot of existing usage in tests.
             batch_size: Number of records to process in each batch. Defaults to 1000.
+            email_property_key: Exact email property key format from CSV (e.g., 'email', 'Email', 'EMAIL').
+                               If None, defaults to 'email' for backward compatibility.
         """
         if team_id is None:
             team_id = self.team_id
@@ -470,7 +469,8 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             flush_persons_and_events()
 
         # Check feature flag once for the entire import process
-        use_clickhouse = posthoganalytics.feature_enabled(
+        # Note: ClickHouse optimization currently only supports lowercase 'email' property
+        use_clickhouse = email_property_key in (None, "email") and posthoganalytics.feature_enabled(
             "cohort-email-lookup-clickhouse",
             str(team_id),
             groups={"project": str(team_id)},
@@ -488,7 +488,9 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             start_idx = batch_index * batch_size
             end_idx = start_idx + batch_size
             batch_emails = items[start_idx:end_idx]
-            uuids = self._get_uuids_for_emails_batch(batch_emails, team_id, use_clickhouse=use_clickhouse)
+            uuids = self._get_uuids_for_emails_batch(
+                batch_emails, team_id, email_property_key=email_property_key, use_clickhouse=use_clickhouse
+            )
             return uuids
 
         # Use FunctionBatchIterator to process emails in batches
@@ -497,13 +499,17 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         # Call the batching method with ClickHouse insertion enabled
         return self._insert_users_list_with_batching(batch_iterator, insert_in_clickhouse=True, team_id=team_id)
 
-    def _get_uuids_for_emails_batch(self, emails: list[str], team_id: int, use_clickhouse: bool = False) -> list[str]:
+    def _get_uuids_for_emails_batch(
+        self, emails: list[str], team_id: int, email_property_key: str | None = None, use_clickhouse: bool = False
+    ) -> list[str]:
         """
         Get UUIDs for a batch of email addresses, excluding those already in this cohort.
 
         Args:
             emails: List of email addresses to convert to UUIDs
             team_id: Team ID to filter by
+            email_property_key: Exact email property key format (e.g., 'email', 'Email', 'EMAIL').
+                               If None, defaults to 'email' for backward compatibility.
             use_clickhouse: Whether to use ClickHouse instead of PostgreSQL
 
         Returns:
@@ -515,16 +521,20 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         if use_clickhouse:
             return self._get_uuids_for_emails_batch_ch(emails, team_id)
 
-        # Default to PostgreSQL method
-        return self._get_uuids_for_emails_batch_pg(emails, team_id)
+        # Default to PostgreSQL method with case-sensitive property key
+        return self._get_uuids_for_emails_batch_pg(emails, team_id, email_property_key)
 
-    def _get_uuids_for_emails_batch_pg(self, emails: list[str], team_id: int) -> list[str]:
+    def _get_uuids_for_emails_batch_pg(
+        self, emails: list[str], team_id: int, email_property_key: str | None = None
+    ) -> list[str]:
         """
         Get UUIDs for email addresses using PostgreSQL (fallback path).
 
         Args:
             emails: List of email addresses to convert to UUIDs
             team_id: Team ID to filter by
+            email_property_key: Exact email property key format (e.g., 'email', 'Email', 'EMAIL').
+                               If None, defaults to 'email' for backward compatibility.
 
         Returns:
             List of UUIDs for persons with the given email addresses
@@ -532,11 +542,19 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         if not emails:
             return []
 
+        # Use the exact email property key format from the CSV file
+        # This ensures we only match against the same format used in the CSV
+        if email_property_key is None:
+            # Fallback to 'email' for backward compatibility
+            email_property_key = "email"
+
+        filter_kwargs = {f"properties__{email_property_key}__in": emails}
+
         uuids = [
             str(uuid)
             for uuid in Person.objects.db_manager(READ_DB_FOR_PERSONS)
             .filter(team_id=team_id)
-            .filter(properties__email__in=emails)
+            .filter(**filter_kwargs)
             .values_list("uuid", flat=True)
         ]
         return uuids
@@ -545,6 +563,9 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         """
         Get UUIDs for email addresses using ClickHouse (fast path).
         Uses direct ClickHouse SQL for optimal performance.
+
+        Note: This method currently only supports the lowercase 'email' property key
+        via the pmat_email materialized column.
 
         Args:
             emails: List of email addresses to convert to UUIDs
@@ -578,8 +599,8 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
                 team_id=team_id,
                 email_count=len(emails),
             )
-            # Fallback to PostgreSQL method
-            return self._get_uuids_for_emails_batch_pg(emails, team_id)
+            # Fallback to PostgreSQL method with default 'email' key
+            return self._get_uuids_for_emails_batch_pg(emails, team_id, email_property_key="email")
 
     def insert_users_list_by_uuid_into_pg_only(
         self,
@@ -598,11 +619,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         return self._insert_users_list_with_batching(batch_iterator, insert_in_clickhouse=False, team_id=team_id)
 
     def _insert_users_list_with_batching(
-        self,
-        batch_iterator: BatchIterator[str],
-        insert_in_clickhouse: bool = False,
-        *,
-        team_id: int,
+        self, batch_iterator: BatchIterator[str], insert_in_clickhouse: bool = False, *, team_id: int
     ) -> int:
         """
         Insert a list of users identified by their UUID into the cohort, for the given team.
@@ -667,11 +684,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             # Add batch index context to the exception
             capture_exception(
                 err,
-                additional_properties={
-                    "cohort_id": self.id,
-                    "team_id": team_id,
-                    "batch_index": current_batch_index,
-                },
+                additional_properties={"cohort_id": self.id, "team_id": team_id, "batch_index": current_batch_index},
             )
         finally:
             # Always update the count and cohort state, even if processing failed
@@ -681,15 +694,8 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
                 self.count = count
             except Exception as count_err:
                 # If count calculation fails, log the error but don't override the processing error
-                logger.exception(
-                    "Failed to calculate static cohort size",
-                    cohort_id=self.id,
-                    team_id=team_id,
-                )
-                capture_exception(
-                    count_err,
-                    additional_properties={"cohort_id": self.id, "team_id": team_id},
-                )
+                logger.exception("Failed to calculate static cohort size", cohort_id=self.id, team_id=team_id)
+                capture_exception(count_err, additional_properties={"cohort_id": self.id, "team_id": team_id})
                 # Leave existing count unchanged - it's better than None
 
             self._safe_save_cohort_state(team_id=team_id, processing_error=processing_error)
@@ -750,15 +756,8 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
                 self.count = count
                 self.save(update_fields=["count"])
             except Exception as count_err:
-                logger.exception(
-                    "Failed to update cohort count after removal",
-                    cohort_id=self.id,
-                    team_id=team_id,
-                )
-                capture_exception(
-                    count_err,
-                    additional_properties={"cohort_id": self.id, "team_id": team_id},
-                )
+                logger.exception("Failed to update cohort count after removal", cohort_id=self.id, team_id=team_id)
+                capture_exception(count_err, additional_properties={"cohort_id": self.id, "team_id": team_id})
 
             return True
 
@@ -766,18 +765,10 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             return False
         except Exception as err:
             logger.exception(
-                "Failed to remove user from cohort",
-                cohort_id=self.id,
-                team_id=team_id,
-                user_uuid=user_uuid,
+                "Failed to remove user from cohort", cohort_id=self.id, team_id=team_id, user_uuid=user_uuid
             )
             capture_exception(
-                err,
-                additional_properties={
-                    "cohort_id": self.id,
-                    "team_id": team_id,
-                    "user_uuid": user_uuid,
-                },
+                err, additional_properties={"cohort_id": self.id, "team_id": team_id, "user_uuid": user_uuid}
             )
             raise
 
@@ -825,20 +816,13 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             self.save()
         except Exception as save_err:
             logger.exception("Failed to save cohort state", cohort_id=self.id, team_id=team_id)
-            capture_exception(
-                save_err,
-                additional_properties={"cohort_id": self.id, "team_id": team_id},
-            )
+            capture_exception(save_err, additional_properties={"cohort_id": self.id, "team_id": team_id})
 
             # Single retry for transient issues
             try:
                 self.save()
             except Exception:
-                logger.exception(
-                    "Failed to save cohort state on retry",
-                    cohort_id=self.id,
-                    team_id=team_id,
-                )
+                logger.exception("Failed to save cohort state on retry", cohort_id=self.id, team_id=team_id)
                 # If both attempts fail, the cohort may remain in an inconsistent state
 
     def enqueue_calculation(self, *, initiating_user=None) -> None:
@@ -882,9 +866,7 @@ def cohort_people_changed(sender, instance: "CohortPeople", **kwargs):
         cohort = Cohort.objects.get(id=cohort_id)
         # Use write database to avoid replication lag after delete
         cohort.count = get_static_cohort_size(
-            cohort_id=cohort.id,
-            team_id=cohort.team_id,
-            using_database=PERSONS_DB_FOR_WRITE,
+            cohort_id=cohort.id, team_id=cohort.team_id, using_database=PERSONS_DB_FOR_WRITE
         )
 
         # Clear cohort_type if count exceeds the realtime threshold
