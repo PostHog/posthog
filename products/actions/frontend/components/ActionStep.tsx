@@ -459,20 +459,24 @@ function ScreenNameField({
             ? (existingFilter.operator as ScreenNameMatching)
             : PropertyOperator.IContains
 
-    const updateScreenName = (name: string | null, op: ScreenNameMatching = operator): void => {
+    const setFilter = (name: string, op: ScreenNameMatching): void => {
         const otherProperties = (step.properties || []).filter((p) => !isScreenNameFilter(p))
-        const newProperties: AnyPropertyFilter[] = name
-            ? [
-                  ...otherProperties,
-                  {
-                      key: SCREEN_NAME_PROPERTY,
-                      value: name,
-                      operator: op as PropertyOperator,
-                      type: PropertyFilterType.Event,
-                  },
-              ]
-            : otherProperties
-        sendStep({ ...step, properties: newProperties })
+        sendStep({
+            ...step,
+            properties: [
+                ...otherProperties,
+                {
+                    key: SCREEN_NAME_PROPERTY,
+                    value: name,
+                    operator: op as PropertyOperator,
+                    type: PropertyFilterType.Event,
+                },
+            ],
+        })
+    }
+
+    const clearFilter = (): void => {
+        sendStep({ ...step, properties: (step.properties || []).filter((p) => !isScreenNameFilter(p)) })
     }
 
     return (
@@ -481,7 +485,7 @@ function ScreenNameField({
                 <LemonLabel>Screen name</LemonLabel>
                 <div className="flex flex-1 justify-end">
                     <LemonSegmentedButton
-                        onChange={(value) => updateScreenName(screenName || null, value as ScreenNameMatching)}
+                        onChange={(value) => setFilter(screenName, value as ScreenNameMatching)}
                         value={operator}
                         options={Object.entries(MATCHING_LABEL).map(([value, label]) => ({
                             value,
@@ -495,7 +499,7 @@ function ScreenNameField({
             <LemonInput
                 data-attr="edit-action-screen-name-input"
                 allowClear
-                onChange={(val) => updateScreenName(val || null)}
+                onChange={(val) => (val ? setFilter(val, operator) : clearFilter())}
                 value={screenName}
                 placeholder="e.g. HomeScreen, Settings"
                 disabledReason={disabledReason}
