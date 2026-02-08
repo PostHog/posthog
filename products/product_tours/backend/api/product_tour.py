@@ -644,14 +644,15 @@ class ProductTourViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, view
     def safely_get_queryset(self, queryset):
         return queryset.filter(team_id=self.team_id)
 
-    def perform_destroy(self, instance: ProductTour) -> None:
-        """Soft delete: archive the tour instead of deleting."""
+    def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Hard delete: permanently remove the tour."""
         from django.utils import timezone
+
+        instance = self.get_object()
 
         # Delete the internal targeting flag
         if instance.internal_targeting_flag:
             instance.internal_targeting_flag.delete()
-            instance.internal_targeting_flag = None
 
         # End any linked surveys
         content = instance.content or {}
@@ -665,9 +666,6 @@ class ProductTourViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, view
                         survey.save(update_fields=["end_date", "updated_at"])
                 except Survey.DoesNotExist:
                     pass
-
-        instance.archived = True
-        instance.save(update_fields=["archived", "internal_targeting_flag", "updated_at"])
 
         log_activity(
             organization_id=self.organization.id,
@@ -687,10 +685,7 @@ class ProductTourViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, view
             self.team,
         )
 
-    def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        instance = self.get_object()
-        self.perform_destroy(instance)
-        return Response(status=204)
+        return super().destroy(request, *args, **kwargs)
 
     @action(detail=False, methods=["POST"])
     def generate(self, request: Request, *args: Any, **kwargs: Any) -> Response:

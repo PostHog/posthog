@@ -15,6 +15,7 @@ import { urls } from 'scenes/urls'
 
 import { ProductTour, ProgressStatus } from '~/types'
 
+import { canDeleteProductTour, openArchiveProductTourDialog, openDeleteProductTourDialog } from '../productTourDialogs'
 import {
     ProductToursTabs,
     getProductTourStatus,
@@ -244,70 +245,40 @@ export function ProductToursTable(): JSX.Element {
                                                     Unarchive
                                                 </LemonButton>
                                             )}
-                                            {tour.end_date && !tour.archived && (
+                                            {tour.start_date && !tour.archived && (
                                                 <LemonButton
                                                     fullWidth
-                                                    onClick={() => {
-                                                        LemonDialog.open({
-                                                            title: 'Archive this product tour?',
-                                                            content: (
-                                                                <div className="text-sm text-secondary">
-                                                                    This action will remove the tour from your active
-                                                                    tours list. It can be restored at any time.
-                                                                </div>
-                                                            ),
-                                                            primaryButton: {
-                                                                children: 'Archive',
-                                                                type: 'primary',
-                                                                onClick: () => {
-                                                                    updateProductTour({
-                                                                        id: tour.id,
-                                                                        updatePayload: {
-                                                                            archived: true,
-                                                                        },
-                                                                    })
-                                                                },
-                                                                size: 'small',
-                                                            },
-                                                            secondaryButton: {
-                                                                children: 'Cancel',
-                                                                type: 'tertiary',
-                                                                size: 'small',
-                                                            },
+                                                    onClick={() =>
+                                                        openArchiveProductTourDialog(tour, () => {
+                                                            const updatePayload: Partial<ProductTour> = {
+                                                                archived: true,
+                                                            }
+                                                            if (isProductTourRunning(tour)) {
+                                                                updatePayload.end_date = dayjs().toISOString()
+                                                            }
+                                                            updateProductTour({
+                                                                id: tour.id,
+                                                                updatePayload,
+                                                            })
                                                         })
-                                                    }}
+                                                    }
                                                 >
                                                     Archive
                                                 </LemonButton>
                                             )}
-                                            <LemonButton
-                                                status="danger"
-                                                onClick={() => {
-                                                    LemonDialog.open({
-                                                        title: 'Delete this product tour?',
-                                                        content: (
-                                                            <div className="text-sm text-secondary">
-                                                                This action cannot be undone. All tour data will be
-                                                                permanently removed.
-                                                            </div>
-                                                        ),
-                                                        primaryButton: {
-                                                            children: 'Delete',
-                                                            type: 'primary',
-                                                            onClick: () => deleteProductTour(tour.id),
-                                                            size: 'small',
-                                                        },
-                                                        secondaryButton: {
-                                                            children: 'Cancel',
-                                                            type: 'tertiary',
-                                                            size: 'small',
-                                                        },
-                                                    })
-                                                }}
-                                                fullWidth
-                                            >
-                                                Delete
-                                            </LemonButton>
+                                            {canDeleteProductTour(tour) && (
+                                                <LemonButton
+                                                    status="danger"
+                                                    onClick={() =>
+                                                        openDeleteProductTourDialog(tour, () =>
+                                                            deleteProductTour(tour.id)
+                                                        )
+                                                    }
+                                                    fullWidth
+                                                >
+                                                    Delete
+                                                </LemonButton>
+                                            )}
                                         </>
                                     }
                                 />
