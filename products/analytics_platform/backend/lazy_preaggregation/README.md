@@ -129,7 +129,7 @@ Each waiter tracks their own attempt count locally. After a configurable number 
 
 ### Stale pending jobs
 
-If an executor crashes while a job is PENDING, other waiters detect this via the `updated_at` timestamp. When a PENDING job hasn't been updated for longer than the stale threshold (default 10 minutes, based on ClickHouse max execution time plus buffer), waiters mark it as FAILED and trigger the normal replacement flow. This ensures the system recovers from executor crashes without manual intervention.
+If an executor crashes while a job is PENDING, other waiters detect this via the `updated_at` timestamp. When a PENDING job hasn't been updated for longer than the stale threshold (default 10 minutes, DEFAULT_STALE_PENDING_THRESHOLD_SECONDS), waiters mark it as FAILED and trigger the normal replacement flow. This means that we can recover from crashes of the process we were waiting for.
 
 ## Limitations
 
