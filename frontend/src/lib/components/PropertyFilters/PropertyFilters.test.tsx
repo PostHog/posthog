@@ -7,7 +7,7 @@ import { useMocks } from '~/mocks/jest'
 import { actionsModel } from '~/models/actionsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { initKeaTests } from '~/test/init'
-import { mockActionDefinition, mockEventDefinitions, mockEventPropertyDefinitions } from '~/test/mocks'
+import { mockActionDefinition, mockGetEventDefinitions, mockGetPropertyDefinitions } from '~/test/mocks'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
 import { TaxonomicFilterGroupType } from '../TaxonomicFilter/types'
@@ -18,26 +18,12 @@ jest.mock('lib/components/AutoSizer', () => ({
         renderProp({ height: 400, width: 400 }),
 }))
 
-const eventDefinitionsResponse = (url: URL): [number, Record<string, any>] => {
-    const search = url.searchParams.get('search') ?? ''
-    const results = search ? mockEventDefinitions.filter((e) => e.name.includes(search)) : mockEventDefinitions
-    return [200, { results, count: results.length }]
-}
-
-const propertyDefinitionsResponse = (url: URL): [number, Record<string, any>] => {
-    const search = url.searchParams.get('search') ?? ''
-    const results = search
-        ? mockEventPropertyDefinitions.filter((p) => p.name.includes(search))
-        : mockEventPropertyDefinitions
-    return [200, { results, count: results.length }]
-}
-
 describe('PropertyFilters', () => {
     beforeEach(() => {
         useMocks({
             get: {
-                '/api/projects/:team/event_definitions': (req) => eventDefinitionsResponse(req.url),
-                '/api/projects/:team/property_definitions': (req) => propertyDefinitionsResponse(req.url),
+                '/api/projects/:team/event_definitions': mockGetEventDefinitions,
+                '/api/projects/:team/property_definitions': mockGetPropertyDefinitions,
                 '/api/projects/:team/actions': { results: [mockActionDefinition] },
                 '/api/environments/:team/persons/properties': [
                     { id: 1, name: 'location', count: 1 },

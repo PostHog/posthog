@@ -9,7 +9,7 @@ import { useMocks } from '~/mocks/jest'
 import { actionsModel } from '~/models/actionsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { initKeaTests } from '~/test/init'
-import { mockEventDefinitions } from '~/test/mocks'
+import { mockGetEventDefinitions } from '~/test/mocks'
 
 import { TaxonomicPopover, TaxonomicStringPopover } from './TaxonomicPopover'
 
@@ -22,13 +22,7 @@ describe('TaxonomicPopover', () => {
     beforeEach(() => {
         useMocks({
             get: {
-                '/api/projects/:team/event_definitions': (res) => {
-                    const search = res.url.searchParams.get('search')
-                    const results = search
-                        ? mockEventDefinitions.filter((e) => e.name.includes(search))
-                        : mockEventDefinitions
-                    return [200, { results, count: results.length }]
-                },
+                '/api/projects/:team/event_definitions': mockGetEventDefinitions,
             },
             post: {
                 '/api/environments/:team/query': { results: [] },
