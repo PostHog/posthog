@@ -21,8 +21,8 @@ from posthog.clickhouse.preaggregation.sql import DISTRIBUTED_PREAGGREGATION_RES
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 
 from products.analytics_platform.backend.lazy_preaggregation.lazy_preaggregation_executor import (
-    DEFAULT_MAX_ATTEMPTS,
     DEFAULT_POLL_INTERVAL_SECONDS,
+    DEFAULT_RETRIES,
     DEFAULT_TTL_SECONDS,
     DEFAULT_WAIT_TIMEOUT_SECONDS,
     NON_RETRYABLE_CLICKHOUSE_ERROR_CODES,
@@ -1032,19 +1032,19 @@ class TestPreaggregationExecutor(BaseTest):
         default_executor = PreaggregationExecutor()
         assert default_executor.wait_timeout_seconds == DEFAULT_WAIT_TIMEOUT_SECONDS
         assert default_executor.poll_interval_seconds == DEFAULT_POLL_INTERVAL_SECONDS
-        assert default_executor.max_attempts == DEFAULT_MAX_ATTEMPTS
+        assert default_executor.max_retries == DEFAULT_RETRIES
         assert default_executor.ttl_seconds == DEFAULT_TTL_SECONDS
 
         # Test custom settings
         custom_executor = PreaggregationExecutor(
             wait_timeout_seconds=60.0,
             poll_interval_seconds=0.5,
-            max_attempts=5,
+            max_retries=5,
             ttl_seconds=3600,
         )
         assert custom_executor.wait_timeout_seconds == 60.0
         assert custom_executor.poll_interval_seconds == 0.5
-        assert custom_executor.max_attempts == 5
+        assert custom_executor.max_retries == 5
         assert custom_executor.ttl_seconds == 3600
 
 
@@ -1053,7 +1053,7 @@ class TestTryCreateReplacementJob(BaseTest):
 
     def test_creates_replacement_when_no_pending_exists(self):
         """Test that replacement job is created when no pending job exists for the range."""
-        executor = PreaggregationExecutor(max_attempts=3)
+        executor = PreaggregationExecutor(max_retries=3)
 
         failed_job = PreaggregationJob.objects.create(
             team=self.team,
@@ -1076,7 +1076,7 @@ class TestTryCreateReplacementJob(BaseTest):
 
     def test_returns_none_when_pending_already_exists(self):
         """Test that returns None when another pending job already exists for the range."""
-        executor = PreaggregationExecutor(max_attempts=3)
+        executor = PreaggregationExecutor(max_retries=3)
 
         # Create a failed job
         failed_job = PreaggregationJob.objects.create(
@@ -1109,7 +1109,7 @@ class TestRaceConditionHandling(BaseTest):
 
     def test_second_replacement_attempt_fails_due_to_unique_constraint(self):
         """Verify that a second replacement attempt fails when one already exists."""
-        executor = PreaggregationExecutor(max_attempts=3)
+        executor = PreaggregationExecutor(max_retries=3)
 
         # Create a failed job
         failed_job = PreaggregationJob.objects.create(
@@ -1141,7 +1141,7 @@ class TestRaceConditionHandling(BaseTest):
         assert pending_count == 1
 
     def test_replacement_allowed_after_previous_replacement_completes(self):
-        executor = PreaggregationExecutor(max_attempts=5)
+        executor = PreaggregationExecutor(max_retries=5)
 
         # Create a failed job
         failed_job = PreaggregationJob.objects.create(
@@ -1255,8 +1255,8 @@ class TestPreaggregationExecutorWaiting(BaseTest):
         assert pending_job.id in [j.id for j in result.ready_jobs]
         assert result.timed_out is False
 
-    def test_gives_up_at_max_attempts(self):
-        executor = PreaggregationExecutor(wait_timeout_seconds=2.0, poll_interval_seconds=0.05, max_attempts=2)
+    def test_gives_up_at_max_retries(self):
+        executor = PreaggregationExecutor(wait_timeout_seconds=2.0, poll_interval_seconds=0.05, max_retries=2)
 
         failed_job = PreaggregationJob.objects.create(
             team=self.team,
@@ -1276,7 +1276,7 @@ class TestPreaggregationExecutorWaiting(BaseTest):
 
         result = executor._wait_for_pending_jobs(self.team, [failed_job], failing_insert)
 
-        # max_attempts=2 means 2 INSERT attempts before giving up
+        # max_retries=2 means 2 retries before giving up
         assert insert_call_count[0] == 2
         assert result.success is False
         assert len(result.ready_jobs) == 0
@@ -1287,7 +1287,7 @@ class TestPreaggregationExecutorWaiting(BaseTest):
         executor = PreaggregationExecutor(
             wait_timeout_seconds=5.0,
             poll_interval_seconds=0.05,
-            max_attempts=2,
+            max_retries=2,
         )
 
         # Three pending jobs for different ranges
@@ -1487,7 +1487,7 @@ class TestPreaggregationExecutorWaiting(BaseTest):
         executor = PreaggregationExecutor(
             wait_timeout_seconds=0.5,
             poll_interval_seconds=0.05,
-            max_attempts=2,
+            max_retries=2,
         )
 
         pending_job = PreaggregationJob.objects.create(
@@ -1549,7 +1549,7 @@ class TestPreaggregationExecutorWaiting(BaseTest):
             stale_pending_threshold_seconds=0.1,
             wait_timeout_seconds=2.0,
             poll_interval_seconds=0.05,
-            max_attempts=3,
+            max_retries=3,
         )
 
         pending_job = PreaggregationJob.objects.create(
@@ -1626,7 +1626,7 @@ class TestPreaggregationExecutorWaiting(BaseTest):
         executor = PreaggregationExecutor(
             wait_timeout_seconds=5.0,
             poll_interval_seconds=0.1,
-            max_attempts=3,
+            max_retries=3,
         )
 
         failed_job = PreaggregationJob.objects.create(
@@ -1660,7 +1660,7 @@ class TestPreaggregationExecutorWaiting(BaseTest):
         executor = PreaggregationExecutor(
             wait_timeout_seconds=5.0,
             poll_interval_seconds=0.1,
-            max_attempts=3,
+            max_retries=3,
         )
 
         # First call: INSERT always fails with a syntax error (non-retryable)
@@ -1699,7 +1699,7 @@ class TestPreaggregationExecutorWaiting(BaseTest):
         executor = PreaggregationExecutor(
             wait_timeout_seconds=5.0,
             poll_interval_seconds=0.05,
-            max_attempts=3,
+            max_retries=3,
         )
 
         failed_job = PreaggregationJob.objects.create(
@@ -1729,7 +1729,7 @@ class TestPreaggregationExecutorWaiting(BaseTest):
         executor = PreaggregationExecutor(
             wait_timeout_seconds=2.0,
             poll_interval_seconds=0.05,
-            max_attempts=4,
+            max_retries=4,
         )
 
         failed_job = PreaggregationJob.objects.create(
@@ -1813,7 +1813,7 @@ class TestPreaggregationExecutorWaiting(BaseTest):
             wait_timeout_seconds=10.0,
             poll_interval_seconds=0.5,
             max_poll_interval_seconds=8.0,
-            max_attempts=4,
+            max_retries=4,
         )
 
         # Start PENDING so we build up backoff, then fail, then replacement also
