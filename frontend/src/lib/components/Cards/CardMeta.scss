@@ -85,9 +85,14 @@
         left: 0;
         max-height: 24rem;
         margin-top: -1px; // To cause overlap with the divider when closed
+        margin-right: -1px; // To align with the CardMeta borders
+        margin-left: -1px; // To align with the CardMeta borders
         overflow-y: auto;
         background: var(--color-bg-surface-primary);
-        border-bottom-width: 1px;
+        border-right: 1px solid var(--color-border-primary);
+        border-bottom: 1px solid var(--color-border-primary);
+        border-left: 1px solid var(--color-border-primary);
+        border-radius: var(--radius);
         transition:
             box-shadow 200ms ease,
             height 200ms ease,
