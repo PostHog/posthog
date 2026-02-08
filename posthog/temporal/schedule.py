@@ -43,6 +43,7 @@ from posthog.temporal.llm_analytics.trace_summarization.schedule import (
 from posthog.temporal.messaging.schedule import create_realtime_cohort_calculation_schedule
 from posthog.temporal.product_analytics.upgrade_queries_workflow import UpgradeQueriesWorkflowInputs
 from posthog.temporal.quota_limiting.run_quota_limiting import RunQuotaLimitingInputs
+from posthog.temporal.salesforce_enrichment.usage_workflow import UsageEnrichmentInputs
 from posthog.temporal.salesforce_enrichment.workflow import SalesforceEnrichmentInputs
 from posthog.temporal.subscriptions.subscription_scheduling_workflow import ScheduleAllSubscriptionsWorkflowInputs
 from posthog.temporal.weekly_digest.types import WeeklyDigestInput
@@ -166,6 +167,41 @@ async def create_salesforce_enrichment_schedule(client: Client):
     else:
         await a_create_schedule(
             client, "salesforce-enrichment-schedule", salesforce_enrichment_schedule, trigger_immediately=False
+        )
+
+
+async def create_salesforce_usage_enrichment_schedule(client: Client):
+    """Create or update the schedule for the Salesforce usage enrichment workflow.
+
+    This schedule runs every Sunday at 6 AM UTC to enrich Salesforce accounts with
+    PostHog usage signals.
+    """
+    salesforce_usage_enrichment_schedule = Schedule(
+        action=ScheduleActionStartWorkflow(
+            "salesforce-usage-enrichment",
+            asdict(UsageEnrichmentInputs()),
+            id="salesforce-usage-enrichment-schedule",
+            task_queue=settings.BILLING_TASK_QUEUE,
+        ),
+        spec=ScheduleSpec(
+            calendars=[
+                ScheduleCalendarSpec(
+                    comment="Sunday at 6 AM UTC",
+                    hour=[ScheduleRange(start=6, end=6)],
+                    day_of_week=[ScheduleRange(start=0, end=0)],
+                )
+            ]
+        ),
+    )
+
+    if await a_schedule_exists(client, "salesforce-usage-enrichment-schedule"):
+        await a_update_schedule(client, "salesforce-usage-enrichment-schedule", salesforce_usage_enrichment_schedule)
+    else:
+        await a_create_schedule(
+            client,
+            "salesforce-usage-enrichment-schedule",
+            salesforce_usage_enrichment_schedule,
+            trigger_immediately=False,
         )
 
 
@@ -332,6 +368,7 @@ if settings.EE_AVAILABLE:
     schedules.append(create_schedule_all_subscriptions_schedule)
     if settings.CLOUD_DEPLOYMENT == "US":
         schedules.append(create_salesforce_enrichment_schedule)
+        schedules.append(create_salesforce_usage_enrichment_schedule)
 
 
 async def a_init_general_queue_schedules():
