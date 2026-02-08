@@ -58,6 +58,10 @@ from posthog.temporal.enforce_max_replay_retention import (
     ACTIVITIES as ENFORCE_MAX_REPLAY_RETENTION_ACTIVITIES,
     WORKFLOWS as ENFORCE_MAX_REPLAY_RETENTION_WORKFLOWS,
 )
+from posthog.temporal.event_screenshots import (
+    ACTIVITIES as EVENT_SCREENSHOTS_ACTIVITIES,
+    WORKFLOWS as EVENT_SCREENSHOTS_WORKFLOWS,
+)
 from posthog.temporal.experiments import (
     ACTIVITIES as EXPERIMENTS_ACTIVITIES,
     WORKFLOWS as EXPERIMENTS_WORKFLOWS,
@@ -65,10 +69,6 @@ from posthog.temporal.experiments import (
 from posthog.temporal.export_recording import (
     ACTIVITIES as EXPORT_RECORDING_ACTIVITIES,
     WORKFLOWS as EXPORT_RECORDING_WORKFLOWS,
-)
-from posthog.temporal.event_screenshots import (
-    ACTIVITIES as EVENT_SCREENSHOTS_ACTIVITIES,
-    WORKFLOWS as EVENT_SCREENSHOTS_WORKFLOWS,
 )
 from posthog.temporal.exports_video import (
     ACTIVITIES as VIDEO_EXPORT_ACTIVITIES,
