@@ -1,7 +1,8 @@
 import './PropertyFilters.scss'
 
 import { BindLogic, useActions, useValues } from 'kea'
-import React, { useEffect, useState } from 'react'
+import isEqual from 'lodash.isequal'
+import React, { useEffect, useRef, useState } from 'react'
 
 import { TaxonomicPropertyFilter } from 'lib/components/PropertyFilters/components/TaxonomicPropertyFilter'
 import {
@@ -95,10 +96,31 @@ export function PropertyFilters({
     const { remove, setFilters, setFilter } = useActions(propertyFilterLogic(logicProps))
     const [allowOpenOnInsert, setAllowOpenOnInsert] = useState<boolean>(false)
 
-    // Update the logic's internal filters when the props change
+    // Update the logic's internal filters when the props change, but only if
+    // the content actually changed (not just the reference).
+    const prevPropertyFiltersRef = useRef(propertyFilters)
     useEffect(() => {
-        setFilters(propertyFilters ?? [])
+        if (!isEqual(prevPropertyFiltersRef.current, propertyFilters)) {
+            prevPropertyFiltersRef.current = propertyFilters
+            setFilters(propertyFilters ?? [])
+        }
     }, [propertyFilters, setFilters])
+
+    // Stable keys for filter rows so that deleting a filter doesn't remount siblings.
+    const filterKeyCounterRef = useRef(0)
+    const filterKeysRef = useRef<number[]>([])
+
+    const displayedFilters = allowNew && editable ? filtersWithNew : filters
+
+    // Grow keys array as filters are added
+    while (filterKeysRef.current.length < displayedFilters.length) {
+        filterKeysRef.current.push(filterKeyCounterRef.current++)
+    }
+
+    const handleRemove = (index: number): void => {
+        filterKeysRef.current.splice(index, 1)
+        remove(index)
+    }
 
     // do not open on initial render, only open if newly inserted
     useOnMountEffect(() => setAllowOpenOnInsert(true))
@@ -112,14 +134,13 @@ export function PropertyFilters({
             )}
             <div className="PropertyFilters__content max-w-full">
                 <BindLogic logic={propertyFilterLogic} props={logicProps}>
-                    {(allowNew && editable ? filtersWithNew : filters).map((item: AnyPropertyFilter, index: number) => {
+                    {displayedFilters.map((item: AnyPropertyFilter, index: number) => {
                         return (
-                            <React.Fragment key={index}>
+                            <React.Fragment key={filterKeysRef.current[index]}>
                                 {logicalRowDivider && index > 0 && index !== filtersWithNew.length - 1 && (
                                     <LogicalRowDivider logicalOperator={FilterLogicalOperator.And} />
                                 )}
                                 <FilterRow
-                                    key={index}
                                     item={item}
                                     index={index}
                                     totalCount={filtersWithNew.length - 1} // empty state
@@ -129,12 +150,11 @@ export function PropertyFilters({
                                     disablePopover={disablePopover || orFiltering}
                                     label={buttonText}
                                     size={buttonSize}
-                                    onRemove={remove}
+                                    onRemove={handleRemove}
                                     orFiltering={orFiltering}
                                     editable={editable}
                                     filterComponent={(onComplete) => (
                                         <TaxonomicPropertyFilter
-                                            key={index}
                                             pageKey={pageKey}
                                             index={index}
                                             filters={filters}

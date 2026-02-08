@@ -171,4 +171,59 @@ describe('PropertyFilters', () => {
         const pill = screen.getByTestId('property-filter-0').querySelector('.PropertyFilterButton-content')
         expect(pill?.textContent).toMatch(/Browser/)
     })
+
+    it('preserves filter row DOM identity when a filter is removed from the middle', async () => {
+        const { onChange } = renderPropertyFilters({
+            propertyFilters: [BROWSER_FILTER, OS_FILTER],
+        })
+
+        const secondFilterButton = screen.getByTestId('property-filter-1').querySelector('.PropertyFilterButton')
+
+        const firstRow = screen.getByTestId('property-filter-0')
+        const closeButton = firstRow.querySelector('.PropertyFilterButton--closeable .LemonButton')
+        userEvent.click(closeButton!)
+
+        await waitFor(() => {
+            expect(onChange).toHaveBeenCalled()
+        })
+
+        const remainingButton = screen.getByTestId('property-filter-0').querySelector('.PropertyFilterButton')
+        expect(remainingButton).toBe(secondFilterButton)
+    })
+
+    it('does not call setFilters when re-rendered with same filter values', () => {
+        const filters = [BROWSER_FILTER]
+        const onChange = jest.fn()
+
+        const { rerender } = render(
+            <Provider>
+                <PropertyFilters
+                    pageKey="test-rerender"
+                    onChange={onChange}
+                    propertyFilters={[...filters]}
+                    taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties]}
+                />
+            </Provider>
+        )
+
+        expect(screen.getByTestId('property-filter-0')).toBeInTheDocument()
+
+        const { propertyFilterLogic } = require('./propertyFilterLogic')
+        const logic = propertyFilterLogic({ pageKey: 'test-rerender', onChange, sendAllKeyUpdates: false })
+        const setFiltersSpy = jest.spyOn(logic.actions, 'setFilters')
+
+        rerender(
+            <Provider>
+                <PropertyFilters
+                    pageKey="test-rerender"
+                    onChange={onChange}
+                    propertyFilters={[...filters]}
+                    taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties]}
+                />
+            </Provider>
+        )
+
+        expect(setFiltersSpy).not.toHaveBeenCalled()
+        expect(screen.getByTestId('property-filter-0')).toBeInTheDocument()
+    })
 })
