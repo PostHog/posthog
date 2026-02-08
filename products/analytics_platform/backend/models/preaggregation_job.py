@@ -7,7 +7,6 @@ class PreaggregationJob(CreatedMetaFields, UUIDModel):
     class Status(models.TextChoices):
         PENDING = "pending", "Pending"
         READY = "ready", "Ready"
-        STALE = "stale", "Stale"
         FAILED = "failed", "Failed"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, editable=False)
