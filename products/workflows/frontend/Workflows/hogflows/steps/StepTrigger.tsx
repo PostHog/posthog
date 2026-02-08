@@ -1,23 +1,29 @@
 import { Node } from '@xyflow/react'
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
+import { useEffect, useMemo, useState } from 'react'
 
 import {
     IconBolt,
     IconButton,
     IconClock,
     IconLeave,
+    IconMessage,
     IconPeople,
+    IconPlus,
     IconPlusSmall,
+    IconRefresh,
     IconTarget,
     IconWebhooks,
 } from '@posthog/icons'
 import {
+    LemonBanner,
     LemonButton,
     LemonCalendarSelectInput,
     LemonCheckbox,
     LemonCollapse,
     LemonDivider,
+    LemonInput,
     LemonLabel,
     LemonSelect,
     LemonTag,
@@ -33,19 +39,53 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
-import { IconAdsClick } from 'lib/lemon-ui/icons'
+import { Link } from 'lib/lemon-ui/Link'
+import { IconAdsClick, IconOpenInNew } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyNumber } from 'lib/utils'
 import { publicWebhooksHostOrigin } from 'lib/utils/apiHost'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter/TestAccountFilter'
+import { urls } from 'scenes/urls'
 
-import { PropertyFilterType } from '~/types'
+import { PropertyFilterType, SurveyEventName } from '~/types'
 
 import { workflowLogic } from '../../workflowLogic'
 import { HogFlowEventFilters } from '../filters/HogFlowFilters'
 import { HogFlowAction } from '../types'
 import { batchTriggerLogic } from './batchTriggerLogic'
 import { HogFlowFunctionConfiguration } from './components/HogFlowFunctionConfiguration'
+import { surveyTriggerLogic } from './surveyTriggerLogic'
+
+function isSurveyTriggerConfig(config: HogFlowAction['config']): boolean {
+    if (!('type' in config) || config.type !== 'event') {
+        return false
+    }
+    const events = config.filters?.events ?? []
+    return events.length === 1 && events[0]?.id === SurveyEventName.SENT
+}
+
+function getSelectedSurveyId(config: HogFlowAction['config']): string | null | 'any' {
+    if (!('type' in config) || config.type !== 'event') {
+        return null
+    }
+    const surveyIdProp = config.filters?.properties?.find((p: any) => p.key === '$survey_id')
+    if (!surveyIdProp) {
+        return null // No selection made
+    }
+    // If operator is 'is_set', it means "Any survey" was selected
+    if (surveyIdProp.operator === 'is_set') {
+        return 'any'
+    }
+    return surveyIdProp.value ?? null
+}
+
+function getCompletedResponsesOnly(config: HogFlowAction['config']): boolean {
+    if (!('type' in config) || config.type !== 'event') {
+        return false
+    }
+    const completedProp = config.filters?.properties?.find((p: any) => p.key === '$survey_completed')
+    return completedProp?.value === true
+}
 
 export function StepTriggerConfiguration({
     node,
@@ -56,7 +96,7 @@ export function StepTriggerConfiguration({
     const { actionValidationErrorsById } = useValues(workflowLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const type = node.data.config.type
+    const type = 'type' in node.data.config ? node.data.config.type : undefined
     const validationResult = actionValidationErrorsById[node.id]
 
     const triggerOptions = [
@@ -135,6 +175,21 @@ export function StepTriggerConfiguration({
         })
     }
 
+    triggerOptions.splice(1, 0, {
+        label: 'Survey',
+        value: 'survey',
+        icon: <IconMessage />,
+        labelInMenu: (
+            <div className="flex flex-col my-1">
+                <div className="font-semibold">Survey</div>
+                <p className="text-xs text-muted">Trigger when a user submits a survey response</p>
+            </div>
+        ),
+    })
+
+    // For display purposes, detect if this is a survey trigger (event trigger with 'survey sent' event)
+    const displayType = isSurveyTriggerConfig(node.data.config) ? 'survey' : type
+
     return (
         <div className="flex flex-col items-start w-full gap-2" data-attr="workflow-trigger">
             <span className="flex gap-1">
@@ -145,39 +200,31 @@ export function StepTriggerConfiguration({
             <LemonField.Pure error={validationResult?.errors?.type}>
                 <LemonSelect
                     options={triggerOptions}
-                    value={type}
+                    value={displayType}
                     placeholder="Select trigger type"
                     onChange={(value) => {
                         value === 'event'
                             ? setWorkflowActionConfig(node.id, { type: 'event', filters: {} })
-                            : value === 'webhook'
+                            : value === 'survey'
                               ? setWorkflowActionConfig(node.id, {
-                                    type: 'webhook',
-                                    template_id: 'template-source-webhook',
-                                    inputs: {},
+                                    type: 'event',
+                                    filters: {
+                                        events: [{ id: SurveyEventName.SENT, type: 'events', name: 'Survey sent' }],
+                                        // Default to completed responses only
+                                        properties: [
+                                            { key: '$survey_completed', value: true, operator: 'exact', type: 'event' },
+                                        ],
+                                    },
                                 })
-                              : value === 'manual'
+                              : value === 'webhook'
                                 ? setWorkflowActionConfig(node.id, {
-                                      type: 'manual',
+                                      type: 'webhook',
                                       template_id: 'template-source-webhook',
-                                      inputs: {
-                                          event: {
-                                              order: 0,
-                                              value: '$workflow_triggered',
-                                          },
-                                          distinct_id: {
-                                              order: 1,
-                                              value: '{request.body.user_id}',
-                                          },
-                                          method: {
-                                              order: 2,
-                                              value: 'POST',
-                                          },
-                                      },
+                                      inputs: {},
                                   })
-                                : value === 'schedule'
+                                : value === 'manual'
                                   ? setWorkflowActionConfig(node.id, {
-                                        type: 'schedule',
+                                        type: 'manual',
                                         template_id: 'template-source-webhook',
                                         inputs: {
                                             event: {
@@ -193,27 +240,51 @@ export function StepTriggerConfiguration({
                                                 value: 'POST',
                                             },
                                         },
-                                        scheduled_at: undefined,
                                     })
-                                  : value === 'batch'
+                                  : value === 'schedule'
                                     ? setWorkflowActionConfig(node.id, {
-                                          type: 'batch',
-                                          filters: {
-                                              properties: [],
+                                          type: 'schedule',
+                                          template_id: 'template-source-webhook',
+                                          inputs: {
+                                              event: {
+                                                  order: 0,
+                                                  value: '$workflow_triggered',
+                                              },
+                                              distinct_id: {
+                                                  order: 1,
+                                                  value: '{request.body.user_id}',
+                                              },
+                                              method: {
+                                                  order: 2,
+                                                  value: 'POST',
+                                              },
                                           },
                                           scheduled_at: undefined,
                                       })
-                                    : value === 'tracking_pixel'
+                                    : value === 'batch'
                                       ? setWorkflowActionConfig(node.id, {
-                                            type: 'tracking_pixel',
-                                            template_id: 'template-source-webhook-pixel',
-                                            inputs: {},
+                                            type: 'batch',
+                                            filters: {
+                                                properties: [],
+                                            },
+                                            scheduled_at: undefined,
                                         })
-                                      : null
+                                      : value === 'tracking_pixel'
+                                        ? setWorkflowActionConfig(node.id, {
+                                              type: 'tracking_pixel',
+                                              template_id: 'template-source-webhook-pixel',
+                                              inputs: {},
+                                          })
+                                        : null
                     }}
                 />
             </LemonField.Pure>
-            {node.data.config.type === 'event' ? (
+            {isSurveyTriggerConfig(node.data.config) ? (
+                <StepTriggerConfigurationSurvey
+                    action={node.data}
+                    config={node.data.config as Extract<HogFlowAction['config'], { type: 'event' }>}
+                />
+            ) : node.data.config.type === 'event' ? (
                 <StepTriggerConfigurationEvents action={node.data} config={node.data.config} />
             ) : node.data.config.type === 'webhook' ? (
                 <StepTriggerConfigurationWebhook action={node.data} config={node.data.config} />
@@ -262,6 +333,313 @@ function StepTriggerConfigurationEvents({
                     buttonCopy="Add trigger event"
                 />
             </LemonField.Pure>
+
+            <TestAccountFilter
+                filters={{ filter_test_accounts: filterTestAccounts }}
+                onChange={({ filter_test_accounts }) =>
+                    setWorkflowActionConfig(action.id, {
+                        type: 'event',
+                        filters: { ...config.filters, filter_test_accounts },
+                    })
+                }
+            />
+
+            <LemonDivider />
+            <FrequencySection />
+            <LemonDivider />
+            <ConversionGoalSection />
+            <LemonDivider />
+            <ExitConditionSection />
+        </>
+    )
+}
+
+function StepTriggerConfigurationSurvey({
+    action,
+    config,
+}: {
+    action: Extract<HogFlowAction, { type: 'trigger' }>
+    config: Extract<HogFlowAction['config'], { type: 'event' }>
+}): JSX.Element {
+    const { setWorkflowActionConfig } = useActions(workflowLogic)
+    const { actionValidationErrorsById } = useValues(workflowLogic)
+    const { allSurveys, surveysLoading, moreSurveysLoading, hasMoreSurveys, responseCounts } =
+        useValues(surveyTriggerLogic)
+    const { loadSurveys, loadMoreSurveys } = useActions(surveyTriggerLogic)
+    const validationResult = actionValidationErrorsById[action.id]
+    const selectedSurveyId = getSelectedSurveyId(config)
+    const completedOnly = getCompletedResponsesOnly(config)
+    const filterTestAccounts = config.filters?.filter_test_accounts ?? false
+
+    // Helper to build properties array based on current settings
+    // surveyId can be: specific UUID, 'any' for any survey, or null for no selection
+    const buildProperties = (surveyId: string | null | 'any', completedResponsesOnly: boolean): any[] => {
+        const properties: any[] = []
+        if (surveyId === 'any') {
+            // "Any survey" - use is_set operator to match all survey events
+            properties.push({ key: '$survey_id', operator: 'is_set', type: 'event' })
+        } else if (surveyId) {
+            properties.push({ key: '$survey_id', value: surveyId, operator: 'exact', type: 'event' })
+        }
+        if (completedResponsesOnly) {
+            properties.push({ key: '$survey_completed', value: true, operator: 'exact', type: 'event' })
+        }
+        return properties
+    }
+
+    // Search state for filtering surveys
+    const [searchTerm, setSearchTerm] = useState('')
+
+    useEffect(() => {
+        loadSurveys()
+    }, [loadSurveys])
+
+    // Filter surveys based on search term
+    const filteredSurveys = useMemo(() => {
+        if (!searchTerm) {
+            return allSurveys
+        }
+        const lower = searchTerm.toLowerCase()
+        return allSurveys.filter((s) => s.name.toLowerCase().includes(lower))
+    }, [allSurveys, searchTerm])
+
+    // Label for selected survey; fallback when not in list so we never show raw UUID (reset effect clears selection)
+    const selectedSurveyLabel = (() => {
+        if (!selectedSurveyId) {
+            return null
+        }
+        const survey = allSurveys.find((s) => s.id === selectedSurveyId)
+        if (survey) {
+            return survey.name
+        }
+        if (surveysLoading) {
+            return 'Loading...'
+        }
+        return 'Survey not found'
+    })()
+
+    // Build options - always include a fallback for the selected survey at the start
+    const surveyOptions = [
+        // Always include selected survey option first so LemonSelect can find its label
+        ...(selectedSurveyId && selectedSurveyLabel
+            ? [
+                  {
+                      label: selectedSurveyLabel,
+                      value: selectedSurveyId,
+                      hidden: true, // Mark as hidden - we'll filter it from display
+                  },
+              ]
+            : []),
+        // Search input - only show if surveys exist
+        ...(allSurveys.length > 0
+            ? [
+                  {
+                      label: '',
+                      value: '__search__' as string | null,
+                      labelInMenu: (
+                          <LemonInput
+                              type="search"
+                              placeholder="Search surveys..."
+                              autoFocus
+                              value={searchTerm}
+                              onChange={setSearchTerm}
+                              fullWidth
+                              onClick={(e) => e.stopPropagation()}
+                              onKeyDown={(e) => {
+                                  // Allow Escape to bubble up so the menu can close
+                                  if (e.key !== 'Escape') {
+                                      e.stopPropagation()
+                                  }
+                              }}
+                              className="mb-1"
+                          />
+                      ),
+                  },
+              ]
+            : []),
+        // Show "Any survey" option only if surveys exist
+        ...(allSurveys.length > 0
+            ? [
+                  {
+                      label: 'Any survey',
+                      value: 'any' as string | null,
+                      labelInMenu: (
+                          <div className="flex flex-col py-1">
+                              <span className="font-medium">Any survey</span>
+                              <span className="text-xs text-muted">Trigger on any survey response</span>
+                          </div>
+                      ),
+                  },
+              ]
+            : []),
+        // Show "Create survey" link when no surveys exist
+        ...(!surveysLoading && allSurveys.length === 0
+            ? [
+                  {
+                      label: 'No surveys yet',
+                      value: '__create__' as string | null,
+                      labelInMenu: (
+                          <Link
+                              to={urls.surveyTemplates()}
+                              target="_blank"
+                              className="flex items-center gap-2 py-2 text-primary font-medium"
+                              onClick={(e) => e.stopPropagation()}
+                          >
+                              Create your first survey <IconOpenInNew className="text-sm" />
+                          </Link>
+                      ),
+                  },
+              ]
+            : []),
+        ...filteredSurveys.map((s) => {
+            const responseCount = responseCounts[s.id] ?? 0
+            return {
+                label: s.name,
+                value: s.id,
+                labelInMenu: (
+                    <div className="flex flex-col py-1">
+                        <span className="font-medium truncate">{s.name}</span>
+                        <span className="flex items-center gap-2 text-xs text-muted">
+                            <span className="flex items-center gap-1">
+                                <span
+                                    className={`inline-block w-1.5 h-1.5 rounded-full ${s.start_date ? 'bg-success' : 'bg-muted-alt'}`}
+                                />
+                                {s.start_date ? 'Active' : 'Draft'}
+                            </span>
+                            {responseCount > 0 && <span>· {responseCount.toLocaleString()} responses</span>}
+                        </span>
+                    </div>
+                ),
+            }
+        }),
+        ...(hasMoreSurveys && !searchTerm
+            ? [
+                  {
+                      label: 'Load more...',
+                      value: '__load_more__' as string | null,
+                      labelInMenu: (
+                          <div className="flex items-center justify-center py-2 text-primary font-medium">
+                              {moreSurveysLoading ? (
+                                  <>
+                                      <Spinner className="mr-2" />
+                                      Loading...
+                                  </>
+                              ) : (
+                                  'Load more surveys...'
+                              )}
+                          </div>
+                      ),
+                  },
+              ]
+            : []),
+    ]
+
+    const noSurveys = !surveysLoading && allSurveys.length === 0
+
+    return (
+        <>
+            <LemonField.Pure label="Select a survey" error={validationResult?.errors?.filters}>
+                {noSurveys ? (
+                    <div className="flex items-center gap-2">
+                        <LemonButton
+                            type="secondary"
+                            icon={<IconPlus />}
+                            onClick={() => window.open(urls.surveyTemplates(), '_blank')}
+                        >
+                            Create survey
+                        </LemonButton>
+                        <LemonButton
+                            type="secondary"
+                            icon={surveysLoading ? <Spinner className="size-4" /> : <IconRefresh />}
+                            onClick={() => loadSurveys()}
+                            disabled={surveysLoading}
+                        >
+                            Refresh
+                        </LemonButton>
+                    </div>
+                ) : (
+                    <LemonSelect
+                        options={surveyOptions}
+                        value={selectedSurveyId}
+                        loading={surveysLoading}
+                        onChange={(surveyId) => {
+                            if (surveyId === '__search__' || surveyId === '__create__') {
+                                return // Ignore non-selectable options
+                            }
+                            if (surveyId === '__load_more__') {
+                                loadMoreSurveys()
+                                return
+                            }
+                            setSearchTerm('') // Clear search on selection
+                            setWorkflowActionConfig(action.id, {
+                                type: 'event',
+                                filters: {
+                                    events: [{ id: SurveyEventName.SENT, type: 'events', name: 'Survey sent' }],
+                                    properties: buildProperties(surveyId, completedOnly),
+                                    filter_test_accounts: filterTestAccounts,
+                                },
+                            })
+                        }}
+                        placeholder="Select a survey"
+                    />
+                )}
+            </LemonField.Pure>
+
+            <LemonField.Pure label="Trigger on">
+                <LemonRadio
+                    value={completedOnly ? 'completed' : 'any'}
+                    onChange={(value) => {
+                        const newCompletedOnly = value === 'completed'
+                        setWorkflowActionConfig(action.id, {
+                            type: 'event',
+                            filters: {
+                                events: [{ id: SurveyEventName.SENT, type: 'events', name: 'Survey sent' }],
+                                properties: buildProperties(selectedSurveyId, newCompletedOnly),
+                                filter_test_accounts: filterTestAccounts,
+                            },
+                        })
+                    }}
+                    options={[
+                        {
+                            value: 'completed',
+                            label: 'Completed responses only',
+                            description: 'Trigger only when the survey is fully completed',
+                        },
+                        {
+                            value: 'any',
+                            label: 'Any response (including partial)',
+                            description:
+                                "Trigger on every response, including partial submissions when a user answers some questions but doesn't complete the survey",
+                        },
+                    ]}
+                />
+            </LemonField.Pure>
+
+            {/* Info: "Any survey" selected */}
+            {selectedSurveyId === 'any' && (
+                <p className="text-xs text-muted">
+                    This workflow will be triggered when someone submits a response to any of your surveys.
+                </p>
+            )}
+
+            {/* Warning: Selected survey is not active */}
+            {(() => {
+                const survey =
+                    selectedSurveyId && selectedSurveyId !== 'any'
+                        ? allSurveys.find((s) => s.id === selectedSurveyId)
+                        : null
+                if (survey && !survey.start_date) {
+                    return (
+                        <LemonBanner type="warning" className="w-full">
+                            <p>
+                                This survey is not active yet. The workflow won't be triggered until the survey is
+                                launched and actively receiving responses.
+                            </p>
+                        </LemonBanner>
+                    )
+                }
+                return null
+            })()}
 
             <TestAccountFilter
                 filters={{ filter_test_accounts: filterTestAccounts }}
