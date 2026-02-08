@@ -27,6 +27,8 @@ from posthog.models.alert import (
     are_alerts_supported_for_insight,
 )
 from posthog.models.signals import model_activity_signal, mutable_receiver
+from posthog.schema_migrations.upgrade_manager import upgrade_query
+from posthog.tasks.alerts.utils import compute_insight_query_hash
 from posthog.utils import relative_date_parse
 
 
@@ -69,6 +71,7 @@ class ThresholdSerializer(serializers.ModelSerializer):
 
 class AlertCheckSerializer(serializers.ModelSerializer):
     targets_notified = serializers.SerializerMethodField()
+    query_has_changed = serializers.SerializerMethodField()
 
     class Meta:
         model = AlertCheck
@@ -78,11 +81,28 @@ class AlertCheckSerializer(serializers.ModelSerializer):
             "calculated_value",
             "state",
             "targets_notified",
+            "query_has_changed",
         ]
         read_only_fields = fields
 
     def get_targets_notified(self, instance: AlertCheck) -> bool:
         return instance.targets_notified != {}
+
+    def get_query_has_changed(self, instance: AlertCheck) -> Optional[bool]:
+        """
+        Returns True if the insight query has changed since this check was created.
+        Returns None if we cannot determine (hash was not recorded for legacy checks).
+        """
+        if instance.insight_query_hash is None:
+            return None
+
+        # Get the current insight query hash
+        alert_config = instance.alert_configuration
+        insight = alert_config.insight
+        with upgrade_query(insight):
+            current_hash = compute_insight_query_hash(insight.query, alert_config.team)
+
+        return instance.insight_query_hash != current_hash
 
 
 class AlertSubscriptionSerializer(serializers.ModelSerializer):
@@ -208,6 +228,10 @@ class AlertSerializer(serializers.ModelSerializer):
                 instance.state = AlertState.SNOOZED
                 instance.snoozed_until = snoozed_until
 
+            # Compute insight query hash for the snooze check
+            with upgrade_query(instance.insight):
+                insight_query_hash = compute_insight_query_hash(instance.insight.query, instance.team)
+
             AlertCheck.objects.create(
                 alert_configuration=instance,
                 calculated_value=None,
@@ -215,6 +239,7 @@ class AlertSerializer(serializers.ModelSerializer):
                 targets_notified={},
                 state=instance.state,
                 error=None,
+                insight_query_hash=insight_query_hash,
             )
 
         conditions_or_threshold_changed = False

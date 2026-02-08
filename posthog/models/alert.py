@@ -157,6 +157,8 @@ class AlertCheck(UUIDTModel):
     error = models.JSONField(null=True, blank=True)
 
     state = models.CharField(max_length=10, choices=ALERT_STATE_CHOICES, default=AlertState.NOT_FIRING)
+    # SHA256 hash of the insight query at check time, for detecting if insight definition changed
+    insight_query_hash = models.CharField(max_length=64, null=True, blank=True)
 
     def __str__(self):
         return f"AlertCheck for {self.alert_configuration.name} at {self.created_at}"

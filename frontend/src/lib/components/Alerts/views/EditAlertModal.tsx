@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { Form, Group } from 'kea-forms'
 import { useCallback } from 'react'
 
-import { IconChevronLeft, IconInfo } from '@posthog/icons'
+import { IconChevronLeft, IconInfo, IconWarning } from '@posthog/icons'
 import {
     LemonBanner,
     LemonCheckbox,
@@ -82,7 +82,16 @@ export function AlertStateTable({ alert }: { alert: AlertType }): JSX.Element | 
                             <td className="text-right">
                                 <TZLabel time={check.created_at} />
                             </td>
-                            <td className="text-right pr-4">{check.calculated_value}</td>
+                            <td className="text-right pr-4">
+                                <div className="inline-flex items-center gap-1">
+                                    {check.calculated_value}
+                                    {check.query_has_changed && check.calculated_value !== null && (
+                                        <Tooltip title="The insight definition has changed since this check was run. This value was calculated with the previous query.">
+                                            <IconWarning className="text-warning" />
+                                        </Tooltip>
+                                    )}
+                                </div>
+                            </td>
                             <td>{check.targets_notified ? 'Yes' : 'No'}</td>
                         </tr>
                     ))}
