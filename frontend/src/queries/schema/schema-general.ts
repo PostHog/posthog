@@ -3980,6 +3980,7 @@ export type AIEventType =
     | '$ai_generation_summary'
     | '$ai_trace_clusters'
     | '$ai_generation_clusters'
+    | '$ai_sentiment'
 
 export interface LLMTraceEvent {
     id: string
