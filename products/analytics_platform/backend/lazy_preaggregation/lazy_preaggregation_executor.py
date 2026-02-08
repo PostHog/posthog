@@ -7,7 +7,6 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
-from typing import TypedDict
 
 from django.db import IntegrityError, transaction
 from django.db.models import Q
@@ -38,7 +37,7 @@ EXPIRY_BUFFER_SECONDS = 1 * 60 * 60  # 1 hour
 DEFAULT_WAIT_TIMEOUT_SECONDS = 180  # 3 minutes
 DEFAULT_POLL_INTERVAL_SECONDS = 1.0  # Initial poll interval (doubles each iteration)
 DEFAULT_MAX_POLL_INTERVAL_SECONDS = 30.0  # Cap for exponential backoff
-DEFAULT_MAX_ATTEMPTS = 2  # Maximum retry attempts for failed jobs
+DEFAULT_RETRIES = 1  # Maximum retry attempts for failed jobs
 
 # How long to wait for another executor to insert a job, before we assume it has failed. See README about improving this behaviour
 DEFAULT_STALE_PENDING_THRESHOLD_SECONDS = 600  # 10 minutes
@@ -130,9 +129,10 @@ class WaitResult:
     timed_out: bool = False
 
 
-class _WaitEntry(TypedDict):
+@dataclass
+class WaitEntry:
     job: PreaggregationJob
-    attempts: int
+    retries: int
 
 
 def compute_query_hash(query_info: QueryInfo) -> str:
@@ -445,7 +445,7 @@ class PreaggregationExecutor:
     - wait_timeout_seconds: Max time to wait for pending jobs (default 180s)
     - poll_interval_seconds: Initial poll interval, doubles each iteration (default 1s)
     - max_poll_interval_seconds: Cap for exponential backoff (default 30s)
-    - max_attempts: Max retry attempts for failed jobs (default 2)
+    - max_retries: Max retries for failed jobs (default 1, meaning 2 total attempts)
     - ttl_seconds: How long preaggregated data persists (default 7 days)
     - stale_pending_threshold_seconds: How long before a PENDING job is considered stale
     """
@@ -455,14 +455,14 @@ class PreaggregationExecutor:
         wait_timeout_seconds: float = DEFAULT_WAIT_TIMEOUT_SECONDS,
         poll_interval_seconds: float = DEFAULT_POLL_INTERVAL_SECONDS,
         max_poll_interval_seconds: float = DEFAULT_MAX_POLL_INTERVAL_SECONDS,
-        max_attempts: int = DEFAULT_MAX_ATTEMPTS,
+        max_retries: int = DEFAULT_RETRIES,
         ttl_seconds: int = DEFAULT_TTL_SECONDS,
         stale_pending_threshold_seconds: float = DEFAULT_STALE_PENDING_THRESHOLD_SECONDS,
     ):
         self.wait_timeout_seconds = wait_timeout_seconds
         self.poll_interval_seconds = poll_interval_seconds
         self.max_poll_interval_seconds = max_poll_interval_seconds
-        self.max_attempts = max_attempts
+        self.max_retries = max_retries
         self.ttl_seconds = ttl_seconds
         self.stale_pending_threshold_seconds = stale_pending_threshold_seconds
 
@@ -663,7 +663,7 @@ class PreaggregationExecutor:
 
         If a job fails and this waiter wins the race to create a replacement, execute the retry.
         If another waiter wins, continue waiting for their replacement.
-        If max_attempts exceeded, mark as permanently failed.
+        If max_retries exceeded, mark as permanently failed.
 
         Attempt tracking is per-waiter (not stored on jobs), so new queries get fresh attempts.
 
@@ -673,7 +673,7 @@ class PreaggregationExecutor:
         current_poll_interval = self.poll_interval_seconds
         # Track jobs we're waiting for: maps tracking key -> (current job, attempt count)
         # The tracking key stays constant even as the job changes on replacement
-        waiting_for: dict[uuid.UUID, _WaitEntry] = {job.id: {"job": job, "attempts": 0} for job in pending_jobs}
+        waiting_for: dict[uuid.UUID, WaitEntry] = {job.id: WaitEntry(job=job, retries=0) for job in pending_jobs}
         ready_jobs: list[PreaggregationJob] = []
         failed_jobs: list[PreaggregationJob] = []
 
@@ -688,14 +688,14 @@ class PreaggregationExecutor:
                 )
 
             # Check status of all jobs we're waiting for
-            job_ids_to_check = [entry["job"].id for entry in waiting_for.values()]
+            job_ids_to_check = [entry.job.id for entry in waiting_for.values()]
             jobs_by_id = {job.id: job for job in PreaggregationJob.objects.filter(id__in=job_ids_to_check)}
 
             for tracking_key, entry in list(waiting_for.items()):
-                job = jobs_by_id.get(entry["job"].id)
+                job = jobs_by_id.get(entry.job.id)
                 if job is None:
                     # Job was deleted from DB — treat as permanently failed
-                    failed_jobs.append(entry["job"])
+                    failed_jobs.append(entry.job)
                     del waiting_for[tracking_key]
                     continue
 
@@ -704,9 +704,9 @@ class PreaggregationExecutor:
                     del waiting_for[tracking_key]
 
                 elif job.status == PreaggregationJob.Status.FAILED:
-                    entry["attempts"] += 1
+                    entry.retries += 1
 
-                    if entry["attempts"] > self.max_attempts:
+                    if entry.retries > self.max_retries:
                         failed_jobs.append(job)
                         del waiting_for[tracking_key]
                     else:
@@ -733,12 +733,12 @@ class PreaggregationExecutor:
                                     failed_jobs.append(replacement)
                                     del waiting_for[tracking_key]
                                 else:
-                                    entry["job"] = replacement
+                                    entry.job = replacement
                         else:
                             # Another waiter created a replacement - find it and wait for it
                             existing_replacement = self._find_replacement_job(job)
                             if existing_replacement is not None:
-                                entry["job"] = existing_replacement
+                                entry.job = existing_replacement
 
                 elif job.status == PreaggregationJob.Status.PENDING:
                     stale_threshold = django_timezone.now() - timedelta(seconds=self.stale_pending_threshold_seconds)
