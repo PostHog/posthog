@@ -17,7 +17,13 @@ import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { IconOpenInNew, IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { UnexpectedNeverError, humanFriendlyDuration, percentage, tryDecodeURIComponent } from 'lib/utils'
+import {
+    UnexpectedNeverError,
+    capitalizeFirstLetter,
+    humanFriendlyDuration,
+    percentage,
+    tryDecodeURIComponent,
+} from 'lib/utils'
 import {
     COUNTRY_CODE_TO_LONG_NAME,
     LANGUAGE_CODE_TO_NAME,
@@ -599,7 +605,9 @@ export const WebStatsTrendTile = ({
         hasCountryFilter,
         dateFilter: { interval },
     } = useValues(webAnalyticsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const worldMapPropertyName = webStatsBreakdownToPropertyName(WebStatsBreakdown.Country)?.key
+    const showComparisonLabels = !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_TOOLTIP_COMPARISON_LABELS]
 
     const onWorldMapClick = useCallback(
         (breakdownValue: string) => {
@@ -614,13 +622,30 @@ export const WebStatsTrendTile = ({
     )
 
     const context = useMemo((): QueryContext => {
+        const compareFilter = 'compareFilter' in query.source ? query.source.compareFilter : undefined
+
         const baseContext: QueryContext = {
             ...webAnalyticsDataTableQueryContext,
             insightProps: {
                 ...insightProps,
                 query,
             },
-            compareFilter: 'compareFilter' in query.source ? query.source.compareFilter : undefined,
+            compareFilter,
+            ...(showComparisonLabels
+                ? {
+                      formatCompareLabel: (label: string, dateLabel?: string) => {
+                          const lowerLabel = label.toLowerCase()
+                          const dateSuffix = dateLabel ? ` (${dateLabel})` : ''
+                          if (lowerLabel === 'previous') {
+                              return `Previous${dateSuffix}`
+                          }
+                          if (lowerLabel === 'current') {
+                              return `Current${dateSuffix}`
+                          }
+                          return capitalizeFirstLetter(label)
+                      },
+                  }
+                : {}),
         }
 
         // World maps need custom click handler for country filtering, trend lines use default persons modal
@@ -640,7 +665,7 @@ export const WebStatsTrendTile = ({
         }
 
         return baseContext
-    }, [onWorldMapClick, insightProps, query])
+    }, [onWorldMapClick, insightProps, query, showComparisonLabels])
 
     return (
         <div className="border rounded bg-surface-primary flex-1 flex flex-col">

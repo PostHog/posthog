@@ -202,6 +202,7 @@ export function ActionsLineGraph({
                     : {
                           groupTypeLabel: context?.groupTypeLabel,
                           filter: (s) => !s.hideTooltip,
+                          formatCompareLabel: context?.formatCompareLabel,
                       }
             }
             isInProgress={!isStickiness && incompletenessOffsetFromEnd < 0}
