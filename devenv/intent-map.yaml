@@ -119,6 +119,11 @@ capabilities:
         requires: [flag_evaluation]
         docker_profiles: []
 
+    nodejs_llm_analytics:
+        description: 'Node.js LLM Analytics - sentiment classification scheduler'
+        requires: [event_ingestion]
+        docker_profiles: []
+
     batch_imports:
         description: 'Batch data import worker'
         requires: [event_ingestion]
@@ -171,7 +176,8 @@ intents:
 
     llm_analytics:
         description: 'LLM/AI observability and analytics'
-        capabilities: [event_ingestion, ai_capture, llm_gateway, property_definitions, temporal_workflows]
+        capabilities:
+            [event_ingestion, ai_capture, llm_gateway, property_definitions, temporal_workflows, nodejs_llm_analytics]
 
     web_analytics:
         description: 'Web analytics, traffic analysis, and heatmaps'
