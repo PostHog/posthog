@@ -257,5 +257,20 @@ describe('query', () => {
             const result = parseErrorMessage("[ErrorDetail(string='Test error',   code='test_code')]")
             expect(result).toEqual({ message: 'Test error', code: 'test_code' })
         })
+
+        it('parses ErrorDetail with double quotes in list format', () => {
+            const result = parseErrorMessage(
+                "[ErrorDetail(string=\"Invalid metric configuration: breakdown property 'user_id' does not exist.\", code='invalid')]"
+            )
+            expect(result).toEqual({
+                message: "Invalid metric configuration: breakdown property 'user_id' does not exist.",
+                code: 'invalid',
+            })
+        })
+
+        it('parses ErrorDetail with double quotes in single format', () => {
+            const result = parseErrorMessage('ErrorDetail(string="Database error occurred", code=\'db_error\')')
+            expect(result).toEqual({ message: 'Database error occurred', code: 'db_error' })
+        })
     })
 })
