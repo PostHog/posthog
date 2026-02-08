@@ -191,7 +191,7 @@ class MySQLSourceConfig(config.Config):
 
 @config.config
 class PolarSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
