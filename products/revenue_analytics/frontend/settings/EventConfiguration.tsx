@@ -164,7 +164,18 @@ export function EventConfiguration({ buttonRef }: { buttonRef?: React.RefObject<
                                             {item.subscriptionProperty}
                                         </code>
                                         <div className="text-xs text-muted-alt">
-                                            Drop subscription after {item.subscriptionDropoffDays} days
+                                            Dropoff days:{' '}
+                                            {item.subscriptionDropoffDaysProperty ? (
+                                                <>
+                                                    from{' '}
+                                                    <code className="bg-bg-lighter px-1 rounded text-xs">
+                                                        {item.subscriptionDropoffDaysProperty}
+                                                    </code>{' '}
+                                                    (fallback {item.subscriptionDropoffDays})
+                                                </>
+                                            ) : (
+                                                item.subscriptionDropoffDays
+                                            )}
                                         </div>
                                         <div className="text-xs text-muted-alt">
                                             Subscription ends on the day{' '}

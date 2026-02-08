@@ -101,6 +101,10 @@ export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicTy
         updateEventRevenueProperty: (eventName: string, property: string) => ({ eventName, property }),
         updateEventSubscriptionProperty: (eventName: string, property: string) => ({ eventName, property }),
         updateEventSubscriptionDropoffDays: (eventName: string, property: number) => ({ eventName, property }),
+        updateEventSubscriptionDropoffDaysProperty: (eventName: string, property: string) => ({
+            eventName,
+            property,
+        }),
         updateEventSubscriptionDropoffMode: (eventName: string, property: SubscriptionDropoffMode) => ({
             eventName,
             property,
@@ -160,6 +164,9 @@ export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicTy
                 updateEventRevenueProperty: updatePropertyReducerBuilder('revenueProperty'),
                 updateEventSubscriptionProperty: updatePropertyReducerBuilder('subscriptionProperty'),
                 updateEventSubscriptionDropoffDays: updatePropertyReducerBuilder('subscriptionDropoffDays'),
+                updateEventSubscriptionDropoffDaysProperty: updatePropertyReducerBuilder(
+                    'subscriptionDropoffDaysProperty'
+                ),
                 updateEventSubscriptionDropoffMode: updatePropertyReducerBuilder('subscriptionDropoffMode'),
 
                 addGoal: (state: RevenueAnalyticsConfig | null, { goal }) => {

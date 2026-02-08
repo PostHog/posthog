@@ -5791,6 +5791,13 @@ class RevenueAnalyticsEventItem(BaseModel):
             " event for the current month."
         ),
     )
+    subscriptionDropoffDaysProperty: str | None = Field(
+        default=None,
+        description=(
+            "Property used to override the subscription dropoff days for the event."
+            " If set, this value takes precedence over subscriptionDropoffDays."
+        ),
+    )
     subscriptionDropoffMode: SubscriptionDropoffMode | None = Field(
         default=SubscriptionDropoffMode.LAST_EVENT,
         description=(
