@@ -9,6 +9,7 @@ export interface ModelConfiguration {
     model: string
     provider_key_id: string | null
     provider_key_name?: string | null
+    base_url?: string | null
 }
 
 export interface EvaluationOutputConfig {

@@ -52,6 +52,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         setAllowsNA: (allowsNA: boolean) => ({ allowsNA }),
         setTriggerConditions: (conditions: EvaluationConditionSet[]) => ({ conditions }),
         setModelConfiguration: (modelConfiguration: ModelConfiguration | null) => ({ modelConfiguration }),
+        setBaseUrl: (baseUrl: string) => ({ baseUrl }),
 
         // Evaluation management actions
         saveEvaluation: true,
@@ -67,6 +68,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         setSelectedProvider: (provider: LLMProvider) => ({ provider }),
         setSelectedKeyId: (keyId: string | null) => ({ keyId }),
         setSelectedModel: (model: string) => ({ model }),
+        setBaseUrl: (baseUrl: string) => ({ baseUrl }),
 
         // Evaluation summary actions
         setEvaluationSummaryFilter: (filter: EvaluationSummaryFilter, previousFilter: EvaluationSummaryFilter) => ({
@@ -153,6 +155,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         originalEvaluation: [
             null as EvaluationConfig | null,
             {
+                setBaseUrl: (_, { baseUrl }) => baseUrl,
                 loadEvaluationSuccess: (_, { evaluation }) => evaluation,
                 saveEvaluationSuccess: (_, { evaluation }) => evaluation,
             },
@@ -193,6 +196,13 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
             {
                 setSelectedModel: (_, { model }) => model,
                 loadEvaluationSuccess: (_, { evaluation }) => evaluation?.model_configuration?.model || '',
+            },
+        ],
+        baseUrl: [
+            '' as string,
+            {
+                setBaseUrl: (_, { baseUrl }) => baseUrl,
+                loadEvaluationSuccess: (_, { evaluation }) => evaluation?.model_configuration?.base_url || '',
             },
         ],
         isForceRefresh: [
@@ -461,6 +471,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     provider: values.selectedProvider,
                     model,
                     provider_key_id: values.selectedKeyId,
+                    base_url: values.baseUrl || null,
                 }
                 actions.setModelConfiguration(modelConfig)
             } else {

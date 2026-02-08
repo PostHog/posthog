@@ -150,6 +150,7 @@ async def fetch_evaluation_activity(inputs: RunEvaluationInputs) -> dict[str, An
                     "provider": mc.provider,
                     "model": mc.model,
                     "provider_key_id": str(mc.provider_key_id) if mc.provider_key_id else None,
+                    "base_url": mc.base_url,
                 }
 
             return {
@@ -302,6 +303,7 @@ async def execute_llm_judge_activity(evaluation: dict[str, Any], event_data: dic
     if model_configuration:
         provider = model_configuration["provider"]
         model = model_configuration["model"]
+        base_url = model_configuration.get("base_url")
         provider_key_id = model_configuration.get("provider_key_id")
 
         if provider_key_id:
@@ -355,7 +357,9 @@ Output: {output_data}"""
 
     # Get eval-specific config when using PostHog defaults (no provider_key)
     config = get_eval_config(provider) if provider_key is None else None
-
+    # Override base_url if provided
+    if base_url:
+        config["base_url"] = base_url
     # Create unified Client with analytics disabled to prevent eval loops
     client = Client(
         provider_key=provider_key,

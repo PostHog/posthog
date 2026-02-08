@@ -26,6 +26,7 @@ class LLMModelConfiguration(UUIDTModel):
         blank=True,
         related_name="model_configurations",
     )
+    base_url = models.CharField(max_length=500, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

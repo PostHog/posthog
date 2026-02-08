@@ -49,6 +49,7 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
         availableModels,
         availableModelsLoading,
         providerKeysLoading,
+        baseUrl,
     } = useValues(llmEvaluationLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const {
@@ -61,6 +62,7 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
         setSelectedProvider,
         setSelectedKeyId,
         setSelectedModel,
+        setBaseUrl,
     } = useActions(llmEvaluationLogic)
     const { push } = useActions(router)
     const triggersRef = useRef<HTMLDivElement>(null)
@@ -259,6 +261,16 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
                                         fullWidth
                                     />
                                 </Field>
+                                {}
+                                <Field name="base_url" label="Base URL (optional)">
+                                    <LemonInput
+                                        value={baseUrl}
+                                        onChange={setBaseUrl}
+                                        placeholder="e.g. https://api.openai.com/v1"
+                                        fullWidth
+                                    />
+                                </Field>
+                                {}
 
                                 <Field name="model" label="Model">
                                     <>
