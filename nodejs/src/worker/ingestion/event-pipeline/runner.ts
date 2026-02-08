@@ -17,7 +17,6 @@ import { GroupStoreForBatch } from '../groups/group-store-for-batch.interface'
 import { MergeMode, PersonMergeLimitExceededError, determineMergeMode } from '../persons/person-merge-types'
 import { PersonsStore } from '../persons/persons-store'
 import { EventsProcessor } from '../process-event'
-import { dropOldEventsStep } from './dropOldEventsStep'
 import {
     pipelineLastStepCounter,
     pipelineStepErrorCounter,
@@ -201,28 +200,9 @@ export class EventPipelineRunner {
         const kafkaAcks: Promise<unknown>[] = []
         const warnings: PipelineWarning[] = []
 
-        const dropOldResult = await this.runStep<PluginEvent | null, typeof dropOldEventsStep>(
-            dropOldEventsStep,
-            [this.kafkaProducer, event, team],
-            team.id,
-            true,
-            kafkaAcks,
-            warnings
-        )
-        if (!isOkResult(dropOldResult)) {
-            // TODO: We pass kafkaAcks, so the side effects should be merged, but this needs to be refactored
-            return dropOldResult
-        }
-        const dropOldEventsResult = dropOldResult.value
-
-        if (dropOldEventsResult == null) {
-            // TODO: We pass kafkaAcks, so the side effects should be merged, but this needs to be refactored
-            return drop('event_too_old', kafkaAcks, warnings)
-        }
-
         const transformResult = await this.runStep<TransformationResult, typeof transformEventStep>(
             transformEventStep,
-            [dropOldEventsResult, this.hogTransformer],
+            [event, this.hogTransformer],
             team.id,
             true,
             kafkaAcks,

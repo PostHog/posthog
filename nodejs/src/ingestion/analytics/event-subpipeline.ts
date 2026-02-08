@@ -9,6 +9,7 @@ import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
 import { GroupStoreForBatch } from '../../worker/ingestion/groups/group-store-for-batch.interface'
 import { PersonsStore } from '../../worker/ingestion/persons/persons-store'
 import { createCreateEventStep } from '../event-processing/create-event-step'
+import { createDropOldEventsStep } from '../event-processing/drop-old-events-step'
 import { createEmitEventStep } from '../event-processing/emit-event-step'
 import { createEventPipelineRunnerV1Step } from '../event-processing/event-pipeline-runner-v1-step'
 import { createExtractHeatmapDataStep } from '../event-processing/extract-heatmap-data-step'
@@ -44,6 +45,7 @@ export function createEventSubpipeline<TInput extends EventSubpipelineInput, TCo
 
     return builder
         .pipe(createNormalizeProcessPersonFlagStep())
+        .pipe(createDropOldEventsStep())
         .pipe(
             createEventPipelineRunnerV1Step(
                 options,
