@@ -191,7 +191,7 @@ describe('PropertyFilters', () => {
         expect(remainingButton).toBe(secondFilterButton)
     })
 
-    it('does not call setFilters when re-rendered with same filter values', () => {
+    it('does not change reducer state when re-rendered with same filter values', () => {
         const filters = [BROWSER_FILTER]
         const onChange = jest.fn()
 
@@ -210,7 +210,7 @@ describe('PropertyFilters', () => {
 
         const { propertyFilterLogic } = require('./propertyFilterLogic')
         const logic = propertyFilterLogic({ pageKey: 'test-rerender', onChange, sendAllKeyUpdates: false })
-        const setFiltersSpy = jest.spyOn(logic.actions, 'setFilters')
+        const stateBefore = logic.values._filtersState
 
         rerender(
             <Provider>
@@ -223,7 +223,7 @@ describe('PropertyFilters', () => {
             </Provider>
         )
 
-        expect(setFiltersSpy).not.toHaveBeenCalled()
+        expect(logic.values._filtersState).toBe(stateBefore)
         expect(screen.getByTestId('property-filter-0')).toBeInTheDocument()
     })
 })
