@@ -1,5 +1,6 @@
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+import { SchemaEnforcementMode } from '~/types'
 
 import { schemaManagementLogic } from '../schema/schemaManagementLogic'
 import { eventDefinitionSchemaLogic } from './eventDefinitionSchemaLogic'
@@ -61,7 +62,10 @@ describe('eventDefinitionSchemaLogic', () => {
 
         // Build the logic instances with the same key
         schemaLogic = schemaManagementLogic({ key: 'event-event-def-1' })
-        logic = eventDefinitionSchemaLogic({ eventDefinitionId: 'event-def-1' })
+        logic = eventDefinitionSchemaLogic({
+            eventDefinitionId: 'event-def-1',
+            enforcementMode: SchemaEnforcementMode.Allow,
+        })
     })
 
     it('should reload event schemas when property group is updated', () => {

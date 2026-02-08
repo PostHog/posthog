@@ -4,6 +4,8 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
+import { SchemaEnforcementMode } from '~/types'
+
 import { type SchemaPropertyGroup, schemaManagementLogic } from '../schema/schemaManagementLogic'
 import type { eventDefinitionSchemaLogicType } from './eventDefinitionSchemaLogicType'
 
@@ -55,6 +57,7 @@ export interface EventSchema {
 
 export interface EventDefinitionSchemaLogicProps {
     eventDefinitionId: string
+    enforcementMode: SchemaEnforcementMode
 }
 
 export const eventDefinitionSchemaLogic = kea<eventDefinitionSchemaLogicType>([
@@ -70,6 +73,9 @@ export const eventDefinitionSchemaLogic = kea<eventDefinitionSchemaLogicType>([
     actions({
         addPropertyGroup: (propertyGroupId: string) => ({ propertyGroupId }),
         removePropertyGroup: (eventSchemaId: string) => ({ eventSchemaId }),
+        updateSchemaEnforcementMode: (mode: SchemaEnforcementMode) => ({ mode }),
+        updateSchemaEnforcementModeSuccess: (mode: SchemaEnforcementMode) => ({ mode }),
+        setSchemaEnforcementModeUpdating: (updating: boolean) => ({ updating }),
     }),
     loaders(({ props }) => ({
         eventSchemas: {
@@ -87,12 +93,27 @@ export const eventDefinitionSchemaLogic = kea<eventDefinitionSchemaLogicType>([
             },
         },
     })),
-    reducers({
-        eventSchemas: {
-            removePropertyGroup: (state, { eventSchemaId }) =>
-                state.filter((schema: EventSchema) => schema.id !== eventSchemaId),
-        },
-    }),
+    reducers(({ props }) => ({
+        eventSchemas: [
+            [] as EventSchema[],
+            {
+                removePropertyGroup: (state, { eventSchemaId }) =>
+                    state.filter((schema: EventSchema) => schema.id !== eventSchemaId),
+            },
+        ],
+        schemaEnforcementMode: [
+            (props.enforcementMode ?? SchemaEnforcementMode.Allow) as SchemaEnforcementMode,
+            {
+                updateSchemaEnforcementModeSuccess: (_, { mode }) => mode,
+            },
+        ],
+        schemaEnforcementModeUpdating: [
+            false,
+            {
+                setSchemaEnforcementModeUpdating: (_, { updating }) => updating,
+            },
+        ],
+    })),
     selectors({
         availablePropertyGroups: [
             (s) => [s.allPropertyGroups, s.eventSchemas],
@@ -102,7 +123,7 @@ export const eventDefinitionSchemaLogic = kea<eventDefinitionSchemaLogicType>([
             },
         ],
     }),
-    listeners(({ actions, props }) => ({
+    listeners(({ actions, props, values }) => ({
         addPropertyGroup: async ({ propertyGroupId }) => {
             try {
                 await api.eventSchemas.create({
@@ -123,6 +144,31 @@ export const eventDefinitionSchemaLogic = kea<eventDefinitionSchemaLogicType>([
             } catch (error: any) {
                 const errorMessage = getErrorMessage(error, 'Failed to remove property group')
                 lemonToast.error(errorMessage)
+            }
+        },
+        updateSchemaEnforcementMode: async ({ mode }) => {
+            if (values.eventSchemas.length === 0) {
+                lemonToast.info('Add a property group first to enable schema enforcement')
+                return
+            }
+
+            actions.setSchemaEnforcementModeUpdating(true)
+            try {
+                await api.eventDefinitions.update({
+                    eventDefinitionId: props.eventDefinitionId,
+                    eventDefinitionData: { enforcement_mode: mode },
+                })
+                actions.updateSchemaEnforcementModeSuccess(mode)
+                if (mode === SchemaEnforcementMode.Reject) {
+                    lemonToast.success('Schema enforcement enabled. Events that fail validation will be rejected.')
+                } else {
+                    lemonToast.success('Schema enforcement disabled. All events will be accepted.')
+                }
+            } catch (error: any) {
+                const errorMessage = getErrorMessage(error, 'Failed to update schema enforcement mode')
+                lemonToast.error(errorMessage)
+            } finally {
+                actions.setSchemaEnforcementModeUpdating(false)
             }
         },
         updatePropertyGroupSuccess: async () => {

@@ -4063,6 +4063,11 @@ export type HotKey =
     | 'delete'
 export type HotKeyOrModifier = HotKey | 'shift' | 'option' | 'command'
 
+export enum SchemaEnforcementMode {
+    Allow = 'allow',
+    Reject = 'reject',
+}
+
 export interface EventDefinition {
     id: string
     name: string
@@ -4080,6 +4085,7 @@ export interface EventDefinition {
     is_action?: boolean
     hidden?: boolean
     default_columns?: string[]
+    enforcement_mode?: SchemaEnforcementMode
 }
 
 export interface EventDefinitionMetrics {

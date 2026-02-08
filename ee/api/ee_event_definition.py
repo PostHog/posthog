@@ -40,6 +40,7 @@ class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers
             "verified_at",
             "verified_by",
             "hidden",
+            "enforcement_mode",
             # Action fields
             "is_action",
             "action_id",

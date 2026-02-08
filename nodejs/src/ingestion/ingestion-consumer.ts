@@ -17,6 +17,7 @@ import {
     PluginsServerConfig,
 } from '../types'
 import { EventIngestionRestrictionManager } from '../utils/event-ingestion-restrictions'
+import { EventSchemaEnforcementManager } from '../utils/event-schema-enforcement-manager'
 import { logger } from '../utils/logger'
 import { PromiseScheduler } from '../utils/promise-scheduler'
 import { BatchWritingGroupStore } from '../worker/ingestion/groups/batch-writing-group-store'
@@ -65,6 +66,8 @@ export type IngestionConsumerHub = HogTransformerHub &
         | 'personRepository'
         // GroupTypeManager
         | 'groupTypeManager'
+        // EventSchemaEnforcementManager
+        | 'postgres'
     >
 
 const latestOffsetTimestampGauge = new Gauge({
@@ -93,6 +96,7 @@ export class IngestionConsumer {
     private personsStore: PersonsStore
     public groupStore: BatchWritingGroupStore
     private eventIngestionRestrictionManager: EventIngestionRestrictionManager
+    private eventSchemaEnforcementManager: EventSchemaEnforcementManager
     public readonly promiseScheduler = new PromiseScheduler()
 
     private joinedPipeline!: BatchPipeline<
@@ -132,6 +136,7 @@ export class IngestionConsumer {
             staticSkipPersonTokens: this.tokenDistinctIdsToSkipPersons,
             staticForceOverflowTokens: this.tokenDistinctIdsToForceOverflow,
         })
+        this.eventSchemaEnforcementManager = new EventSchemaEnforcementManager(hub.postgres)
 
         this.name = `ingestion-consumer-${this.topic}`
 
@@ -209,6 +214,7 @@ export class IngestionConsumer {
             personsStore: this.personsStore,
             hogTransformer: this.hogTransformer,
             eventIngestionRestrictionManager: this.eventIngestionRestrictionManager,
+            eventSchemaEnforcementManager: this.eventSchemaEnforcementManager,
             overflowEnabled: this.overflowEnabled(),
             overflowTopic: this.overflowTopic || '',
             dlqTopic: this.dlqTopic,
