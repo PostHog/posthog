@@ -192,7 +192,20 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
             toLocalFilters(props.filters ?? {}),
             {
                 setFilters: (_, { filters }) => filters,
-                setLocalFilters: (_, { filters }) => toLocalFilters(filters),
+                setLocalFilters: (currentFilters, { filters }) => {
+                    const newFilters = toLocalFilters(filters)
+                    const usedUuids = new Set<string>()
+                    return newFilters.map((newFilter) => {
+                        const existing = currentFilters.find(
+                            (f) => f.id === newFilter.id && f.type === newFilter.type && !usedUuids.has(f.uuid)
+                        )
+                        if (existing) {
+                            usedUuids.add(existing.uuid)
+                            return { ...newFilter, uuid: existing.uuid }
+                        }
+                        return newFilter
+                    })
+                },
             },
         ],
         entityFilterVisible: [
