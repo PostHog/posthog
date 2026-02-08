@@ -1,10 +1,13 @@
+from __future__ import annotations
+
 import json
 import math
 import uuid
 import decimal
 import hashlib
 import datetime
-from collections.abc import Iterator, Sequence
+from collections.abc import Callable, Iterator, Sequence
+from functools import _make_key, wraps
 from ipaddress import IPv4Address, IPv6Address
 from typing import TYPE_CHECKING, Any, Optional, cast
 
@@ -13,6 +16,7 @@ import orjson
 import pyarrow as pa
 import deltalake as deltalake
 import pyarrow.compute as pc
+from circular_dict import CircularDict
 from dateutil import parser
 from dlt.common.data_types.typing import TDataType
 from dlt.common.libs.deltalake import ensure_delta_compatible_arrow_schema
@@ -20,6 +24,7 @@ from dlt.common.normalizers.naming.snake_case import NamingConvention
 from dlt.sources import DltResource
 from structlog.types import FilteringBoundLogger
 
+from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
 from posthog.temporal.data_imports.pipelines.pipeline.typings import PartitionFormat, PartitionMode, SourceResponse
 
@@ -300,10 +305,10 @@ def normalize_table_column_names(table: pa.Table) -> pa.Table:
 PARTITION_DATETIME_COLUMN_NAMES = ["created_at", "inserted_at", "createdAt"]
 
 
-def setup_partitioning(
+async def setup_partitioning(
     pa_table: pa.Table,
     existing_delta_table: deltalake.DeltaTable | None,
-    schema: "ExternalDataSchema",
+    schema: ExternalDataSchema,
     resource: SourceResponse,
     logger: FilteringBoundLogger,
 ) -> pa.Table:
@@ -345,7 +350,7 @@ def setup_partitioning(
             logger.debug(
                 f"Setting partitioning_enabled on schema with: partition_keys={partition_keys}. partition_count={partition_count}. partition_mode={partition_mode}. partition_format={partition_format}"
             )
-            schema.set_partitioning_enabled(
+            await database_sync_to_async_pool(schema.set_partitioning_enabled)(
                 updated_partition_keys, partition_count, partition_size, partition_mode, partition_format
             )
 
@@ -863,3 +868,36 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
                 arrow_schema = arrow_schema.remove(arrow_schema.get_field_index(str(column)))
 
     return pa.Table.from_pydict(columnar_table_data, schema=arrow_schema)
+
+
+# from `conditional-cache`, but changed to be made async
+def conditional_lru_cache_async(
+    maxsize: int = 128, typed: bool = False, condition: Callable[[Any], bool] = lambda x: True
+):
+    cache = CircularDict(maxlen=maxsize)
+
+    def decorator(func):
+        @wraps(func)
+        async def wrapper(*args, **kwargs):
+            key = _make_key(args, kwargs, typed)
+
+            if key in cache:
+                return cache[key]
+
+            result = await func(*args, **kwargs)
+
+            if condition(result):
+                cache[key] = result
+
+            return result
+
+        def cache_remove(*args, **kwargs):
+            key = _make_key(args, kwargs, typed)
+            cache.pop(key, None)
+
+        wrapper.cache_remove = cache_remove
+        wrapper.cache_clear = lambda: cache.clear()
+
+        return wrapper
+
+    return decorator

@@ -5,6 +5,8 @@ from typing import Any
 import pytest
 from unittest import mock
 
+from asgiref.sync import sync_to_async
+
 from posthog.models.team.team import Team
 from posthog.tasks.test.test_usage_report import freeze_time
 from posthog.temporal.data_imports.settings import import_data_activity_sync
@@ -19,6 +21,7 @@ from products.data_warehouse.backend.models.table import DataWarehouseTable
 from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
+@sync_to_async
 def _setup(team: Team, job_inputs: dict[Any, Any]) -> ImportDataActivityInputs:
     source = ExternalDataSource.objects.create(
         team=team,
@@ -62,7 +65,8 @@ def _setup(team: Team, job_inputs: dict[Any, Any]) -> ImportDataActivityInputs:
 
 
 @pytest.mark.django_db(transaction=True)
-def test_job_inputs_with_whitespace(activity_environment, team, **kwargs):
+@pytest.mark.asyncio
+async def test_job_inputs_with_whitespace(activity_environment, team, **kwargs):
     job_inputs = {
         "host": " host.com   ",
         "port": 5432,
@@ -72,13 +76,13 @@ def test_job_inputs_with_whitespace(activity_environment, team, **kwargs):
         "schema": "schema       ",
     }
 
-    activity_inputs = _setup(team, job_inputs)
+    activity_inputs = await _setup(team, job_inputs)
 
     with (
         mock.patch("posthog.temporal.data_imports.sources.postgres.source.postgres_source") as mock_postgres_source,
         mock.patch("posthog.temporal.data_imports.workflow_activities.import_data_sync._run"),
     ):
-        activity_environment.run(import_data_activity_sync, activity_inputs)
+        await activity_environment.run(import_data_activity_sync, activity_inputs)
 
         mock_postgres_source.assert_called_once_with(
             tunnel=mock.ANY,
@@ -99,7 +103,8 @@ def test_job_inputs_with_whitespace(activity_environment, team, **kwargs):
 
 
 @pytest.mark.django_db(transaction=True)
-def test_postgres_source_without_ssh_tunnel(activity_environment, team, **kwargs):
+@pytest.mark.asyncio
+async def test_postgres_source_without_ssh_tunnel(activity_environment, team, **kwargs):
     job_inputs = {
         "host": "host.com",
         "port": 5432,
@@ -109,13 +114,13 @@ def test_postgres_source_without_ssh_tunnel(activity_environment, team, **kwargs
         "schema": "schema",
     }
 
-    activity_inputs = _setup(team, job_inputs)
+    activity_inputs = await _setup(team, job_inputs)
 
     with (
         mock.patch("posthog.temporal.data_imports.sources.postgres.source.postgres_source") as mock_postgres_source,
         mock.patch("posthog.temporal.data_imports.workflow_activities.import_data_sync._run"),
     ):
-        activity_environment.run(import_data_activity_sync, activity_inputs)
+        await activity_environment.run(import_data_activity_sync, activity_inputs)
 
         mock_postgres_source.assert_called_once_with(
             tunnel=mock.ANY,
@@ -136,7 +141,8 @@ def test_postgres_source_without_ssh_tunnel(activity_environment, team, **kwargs
 
 
 @pytest.mark.django_db(transaction=True)
-def test_postgres_source_with_ssh_tunnel_disabled(activity_environment, team, **kwargs):
+@pytest.mark.asyncio
+async def test_postgres_source_with_ssh_tunnel_disabled(activity_environment, team, **kwargs):
     job_inputs = {
         "host": "host.com",
         "port": "5432",
@@ -158,13 +164,13 @@ def test_postgres_source_with_ssh_tunnel_disabled(activity_environment, team, **
         },
     }
 
-    activity_inputs = _setup(team, job_inputs)
+    activity_inputs = await _setup(team, job_inputs)
 
     with (
         mock.patch("posthog.temporal.data_imports.sources.postgres.source.postgres_source") as mock_postgres_source,
         mock.patch("posthog.temporal.data_imports.workflow_activities.import_data_sync._run"),
     ):
-        activity_environment.run(import_data_activity_sync, activity_inputs)
+        await activity_environment.run(import_data_activity_sync, activity_inputs)
 
         mock_postgres_source.assert_called_once_with(
             tunnel=mock.ANY,
@@ -187,7 +193,7 @@ def test_postgres_source_with_ssh_tunnel_disabled(activity_environment, team, **
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 @pytest.mark.flaky(reruns=2)
-def test_postgres_source_with_ssh_tunnel_enabled(activity_environment, team, **kwargs):
+async def test_postgres_source_with_ssh_tunnel_enabled(activity_environment, team, **kwargs):
     job_inputs = {
         "host": "host.com",
         "port": "5432",
@@ -209,7 +215,7 @@ def test_postgres_source_with_ssh_tunnel_enabled(activity_environment, team, **k
         },
     }
 
-    activity_inputs = _setup(team, job_inputs)
+    activity_inputs = await _setup(team, job_inputs)
 
     def mock_get_tunnel(self_class, host, port):
         class MockedTunnel:
@@ -229,7 +235,7 @@ def test_postgres_source_with_ssh_tunnel_enabled(activity_environment, team, **k
         mock.patch("posthog.temporal.data_imports.workflow_activities.import_data_sync._run"),
         mock.patch.object(SSHTunnel, "get_tunnel", mock_get_tunnel),
     ):
-        activity_environment.run(import_data_activity_sync, activity_inputs)
+        await activity_environment.run(import_data_activity_sync, activity_inputs)
 
         mock_postgres_source.assert_called_once_with(
             tunnel=mock.ANY,

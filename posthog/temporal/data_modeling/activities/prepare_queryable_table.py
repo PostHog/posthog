@@ -57,7 +57,7 @@ async def prepare_queryable_table_activity(inputs: PrepareQueryableTableInputs):
         f"Copying query files to S3: folder_path={saved_query.folder_path} table_name={saved_query.normalized_name} "
         f"existing_queryable_folder={queryable_folder}"
     )
-    folder_path = prepare_s3_files_for_querying(
+    folder_path = await prepare_s3_files_for_querying(
         folder_path=saved_query.folder_path,
         table_name=saved_query.normalized_name,
         file_uris=inputs.file_uris,
