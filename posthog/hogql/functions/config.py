@@ -22,15 +22,6 @@ HOGQL_PERMITTED_PARAMETRIC_FUNCTIONS: set[str] = {
     "uniqMapState",
 }
 
-# TODO: Make the below details part of function meta
-# Functions where we use a -OrNull variant by default
-ADD_OR_NULL_DATETIME_FUNCTIONS = (
-    "toDateTime",
-    "toDateTimeUS",
-    "parseDateTime",
-    "parseDateTimeBestEffort",
-)
-
 # Functions where the first argument needs to be DateTime and not DateTime64
 FIRST_ARG_DATETIME_FUNCTIONS = (
     "tumble",
