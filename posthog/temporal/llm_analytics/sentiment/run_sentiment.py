@@ -146,6 +146,9 @@ async def classify_sentiment_activity(input: SentimentClassificationInput) -> di
     # $ai_generation_id ?? $ai_span_id ?? event.id.
     generation_parent_id = properties.get("$ai_generation_id") or properties.get("$ai_span_id") or generation_event_uuid
     distinct_id = event_data.get("distinct_id", "")
+    # Use the original generation event's timestamp so the sentiment event
+    # aligns with trace time windows rather than classification time.
+    generation_timestamp = event_data.get("timestamp")
 
     def _emit():
         try:
@@ -173,7 +176,7 @@ async def classify_sentiment_activity(input: SentimentClassificationInput) -> di
             event="$ai_sentiment",
             team=team,
             distinct_id=distinct_id,
-            timestamp=datetime.now(UTC),
+            timestamp=generation_timestamp or datetime.now(UTC),
             properties=sentiment_properties,
             person_id=person_id,
         )

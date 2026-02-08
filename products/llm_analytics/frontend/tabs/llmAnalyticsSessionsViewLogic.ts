@@ -2,6 +2,8 @@ import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea
 
 import api from 'lib/api'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { groupsModel } from '~/models/groupsModel'
 import { DataTableNode, LLMTrace, NodeKind, TraceQuery, TracesQuery } from '~/queries/schema/schema-general'
@@ -18,6 +20,8 @@ export const llmAnalyticsSessionsViewLogic = kea<llmAnalyticsSessionsViewLogicTy
             ['dateFilter', 'shouldFilterTestAccounts', 'propertyFilters'],
             groupsModel,
             ['groupsTaxonomicTypes'],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
         actions: [llmAnalyticsSharedLogic, ['setDates', 'setPropertyFilters', 'setShouldFilterTestAccounts']],
     })),
@@ -281,13 +285,15 @@ export const llmAnalyticsSessionsViewLogic = kea<llmAnalyticsSessionsViewLogicTy
                 s.propertyFilters,
                 s.sessionsSort,
                 s.groupsTaxonomicTypes,
+                s.featureFlags,
             ],
             (
                 dateFilter: { dateFrom: string | null; dateTo: string | null },
                 shouldFilterTestAccounts: boolean,
                 propertyFilters,
                 sessionsSort: { column: string; direction: 'ASC' | 'DESC' },
-                groupsTaxonomicTypes: TaxonomicFilterGroupType[]
+                groupsTaxonomicTypes: TaxonomicFilterGroupType[],
+                featureFlags: Record<string, boolean | string | undefined>
             ): DataTableNode => ({
                 kind: NodeKind.DataTableNode,
                 source: {
@@ -330,7 +336,7 @@ export const llmAnalyticsSessionsViewLogic = kea<llmAnalyticsSessionsViewLogicTy
                 },
                 columns: [
                     'session_id',
-                    'sentiment',
+                    ...(featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT] ? ['sentiment'] : []),
                     'traces',
                     'spans',
                     'generations',

@@ -28,6 +28,7 @@ def _make_event_data(
     uuid="test-uuid",
     distinct_id="user-1",
     person_id=None,
+    timestamp="2024-06-15 12:00:00.000000",
     extra_properties=None,
 ):
     properties = {}
@@ -36,13 +37,16 @@ def _make_event_data(
     properties["$ai_trace_id"] = "trace-123"
     if extra_properties:
         properties.update(extra_properties)
-    return {
+    data = {
         "team_id": team_id,
         "uuid": uuid,
         "distinct_id": distinct_id,
         "person_id": person_id,
         "properties": properties,
     }
+    if timestamp is not None:
+        data["timestamp"] = timestamp
+    return data
 
 
 class TestSentimentClassificationInput:
@@ -177,6 +181,8 @@ class TestClassifySentimentActivity:
         assert len(props["$ai_sentiment_messages"]) == 2
         assert props["$ai_sentiment_messages"][0]["label"] == "positive"
         assert props["$ai_sentiment_messages"][1]["label"] == "negative"
+        # Uses generation event timestamp, not now()
+        assert call_kwargs.kwargs.get("timestamp") or call_kwargs[1].get("timestamp") == "2024-06-15 12:00:00.000000"
 
     @pytest.mark.asyncio
     @patch("posthog.temporal.llm_analytics.sentiment.run_sentiment.database_sync_to_async")
@@ -239,3 +245,38 @@ class TestClassifySentimentActivity:
         call_kwargs = mock_create_event.call_args
         sentiment_properties = call_kwargs.kwargs.get("properties") or call_kwargs[1].get("properties")
         assert sentiment_properties["$ai_parent_id"] == expected_parent_id
+
+    @parameterized.expand(
+        [
+            ("uses_event_timestamp", "2024-06-15 12:00:00.000000", "2024-06-15 12:00:00.000000"),
+            ("fallback_to_now_when_missing", None, None),
+        ]
+    )
+    @pytest.mark.asyncio
+    @patch("posthog.temporal.llm_analytics.sentiment.run_sentiment.create_event")
+    @patch("posthog.temporal.llm_analytics.sentiment.run_sentiment.Team")
+    @patch("posthog.temporal.llm_analytics.sentiment.run_sentiment.classify")
+    async def test_timestamp_passthrough(
+        self, _name, event_timestamp, expected_timestamp, mock_classify, mock_team_cls, mock_create_event
+    ):
+        mock_classify.return_value = SentimentResult(
+            label="neutral", score=0.9, scores={"positive": 0.05, "neutral": 0.9, "negative": 0.05}
+        )
+        mock_team_cls.objects.get.return_value = mock_team_cls
+
+        ai_input = [{"role": "user", "content": "hello"}]
+        event_data = _make_event_data(ai_input=ai_input, timestamp=event_timestamp)
+        input = SentimentClassificationInput(event_data=event_data)
+
+        await classify_sentiment_activity(input)
+
+        mock_create_event.assert_called_once()
+        call_kwargs = mock_create_event.call_args
+        actual_timestamp = call_kwargs.kwargs.get("timestamp") or call_kwargs[1].get("timestamp")
+        if expected_timestamp is not None:
+            assert actual_timestamp == expected_timestamp
+        else:
+            # Falls back to datetime.now(UTC) — just check it's a datetime, not a string
+            from datetime import datetime
+
+            assert isinstance(actual_timestamp, datetime)

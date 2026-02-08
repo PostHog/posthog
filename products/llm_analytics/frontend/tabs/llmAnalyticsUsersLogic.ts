@@ -1,6 +1,8 @@
 import { actions, connect, kea, path, reducers, selectors } from 'kea'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { groupsModel } from '~/models/groupsModel'
 import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
@@ -16,6 +18,8 @@ export const llmAnalyticsUsersLogic = kea<llmAnalyticsUsersLogicType>([
             ['dateFilter', 'shouldFilterTestAccounts', 'propertyFilters'],
             groupsModel,
             ['groupsTaxonomicTypes'],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
     })),
 
@@ -34,13 +38,21 @@ export const llmAnalyticsUsersLogic = kea<llmAnalyticsUsersLogicType>([
 
     selectors({
         usersQuery: [
-            (s) => [s.dateFilter, s.shouldFilterTestAccounts, s.propertyFilters, s.usersSort, s.groupsTaxonomicTypes],
+            (s) => [
+                s.dateFilter,
+                s.shouldFilterTestAccounts,
+                s.propertyFilters,
+                s.usersSort,
+                s.groupsTaxonomicTypes,
+                s.featureFlags,
+            ],
             (
                 dateFilter,
                 shouldFilterTestAccounts,
                 propertyFilters,
                 usersSort,
-                groupsTaxonomicTypes
+                groupsTaxonomicTypes,
+                featureFlags: Record<string, boolean | string | undefined>
             ): DataTableNode => ({
                 kind: NodeKind.DataTableNode,
                 source: {
@@ -95,7 +107,7 @@ export const llmAnalyticsUsersLogic = kea<llmAnalyticsUsersLogicType>([
                 },
                 columns: [
                     '__llm_person',
-                    'sentiment',
+                    ...(featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT] ? ['sentiment'] : []),
                     'traces',
                     'generations',
                     'errors',
