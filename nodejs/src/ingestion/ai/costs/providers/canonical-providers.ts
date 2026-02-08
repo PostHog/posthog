@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-02-06 10:12:37 UTC
+// Generated at: 2026-02-06 20:04:40 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -111,6 +111,7 @@ export type CanonicalProvider =
     | 'sambanova-turbo'
     | 'seed-fp8'
     | 'siliconflow-fp8'
+    | 'stealth'
     | 'stepfun-fp8'
     | 'streamlake-fp16'
     | 'switchpoint'
