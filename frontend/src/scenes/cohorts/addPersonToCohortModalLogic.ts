@@ -138,5 +138,8 @@ export const addPersonToCohortModalLogic = kea<addPersonToCohortModalLogicType>(
         showAddPersonToCohortModal: () => {
             actions.loadCohortPersons()
         },
+        hideAddPersonToCohortModal: () => {
+            actions.resetPersons()
+        },
     })),
 ])

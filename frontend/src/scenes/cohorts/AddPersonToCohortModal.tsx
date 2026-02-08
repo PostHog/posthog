@@ -15,12 +15,14 @@ export function AddPersonToCohortModal({ id, tabId }: AddPersonToCohortModalProp
             <LemonModal
                 title="Add users to cohort"
                 onClose={hideAddPersonToCohortModal}
+                closable={!isCohortUpdating}
                 isOpen={addPersonToCohortModalVisible}
                 footer={
                     <div className="flex items-center justify-end gap-2">
                         <LemonButton
                             type="secondary"
                             onClick={() => hideAddPersonToCohortModal()}
+                            disabled={isCohortUpdating}
                             data-attr="cohort-add-users-modal-cancel"
                         >
                             Cancel
