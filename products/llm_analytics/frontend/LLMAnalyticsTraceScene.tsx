@@ -394,7 +394,7 @@ function TraceMetadata({
 const SENTIMENT_CHIP_COLOR: Record<string, string> = {
     positive: 'bg-success',
     negative: 'bg-danger',
-    neutral: 'bg-muted-alt',
+    neutral: 'bg-border',
 }
 
 function TraceSentimentChip({
@@ -443,7 +443,7 @@ function TraceSentimentChip({
     }
 
     const widthPercent = Math.round(avgScore * 100)
-    const barColor = SENTIMENT_CHIP_COLOR[label] ?? 'bg-muted-alt'
+    const barColor = SENTIMENT_CHIP_COLOR[label] ?? 'bg-border'
     const prefix = count > 1 ? `Avg of ${count} generations — ` : ''
     const tooltipText = `Sentiment — ${prefix}Positive: ${Math.round(avgPositive * 100)}% / Neutral: ${Math.round(avgNeutral * 100)}% / Negative: ${Math.round(avgNegative * 100)}%`
 
