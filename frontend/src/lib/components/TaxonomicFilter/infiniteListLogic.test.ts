@@ -388,6 +388,22 @@ describe('infiniteListLogic', () => {
         })
     })
 
+    it('unmounts cleanly while loading remote items', async () => {
+        const logicInstance = infiniteListLogic({
+            taxonomicFilterLogicKey: 'test-unmount',
+            listGroupType: TaxonomicFilterGroupType.Events,
+            taxonomicGroupTypes: [TaxonomicFilterGroupType.Events],
+            showNumericalPropsOnly: false,
+        })
+        logicInstance.mount()
+
+        await expectLogic(logicInstance).toDispatchActions(['loadRemoteItems'])
+
+        logicInstance.unmount()
+
+        expect(logicInstance.isMounted()).toBe(false)
+    })
+
     it('searches autocapture elements using posthog property', async () => {
         const logicWithProps = infiniteListLogic({
             taxonomicFilterLogicKey: 'test-element-list',
