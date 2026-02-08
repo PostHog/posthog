@@ -136,7 +136,7 @@ from products.revenue_analytics.backend.views import RevenueAnalyticsBaseView
 from products.revenue_analytics.backend.views.orchestrator import build_all_revenue_analytics_views
 
 if TYPE_CHECKING:
-    from posthog.models import Team
+    from posthog.models import Team, User
 
 tracer = trace.get_tracer(__name__)
 
@@ -258,6 +258,7 @@ class Database(BaseModel):
     _warehouse_table_names: list[str] = []
     _warehouse_self_managed_table_names: list[str] = []
     _view_table_names: list[str] = []
+    _denied_tables: set[str] = set()  # Tables user doesn't have permission to access
 
     _timezone: str | None
     _week_start_day: WeekStartDay | None
@@ -302,6 +303,8 @@ class Database(BaseModel):
         except ResolutionError as e:
             if isinstance(table_name, list):
                 table_name = ".".join(table_name)
+            if table_name in self._denied_tables:
+                raise QueryError(f"You don't have access to table `{table_name}`.") from e
             raise QueryError(f"Unknown table `{table_name}`.") from e
 
     def get_all_table_names(self) -> list[str]:
@@ -350,6 +353,44 @@ class Database(BaseModel):
         self.tables.merge_with(node)
         for name in sorted(node.resolve_all_table_names()):
             self._view_table_names.append(name)
+
+    def _filter_system_tables_for_user(self, user: "User", team: "Team") -> None:
+        """Remove system tables user doesn't have resource access to."""
+        from posthog.hogql.database.schema.system import SYSTEM_TABLE_TO_RESOURCE
+
+        from posthog.models import OrganizationMembership
+        from posthog.rbac.user_access_control import NO_ACCESS_LEVEL, UserAccessControl
+
+        org_membership = OrganizationMembership.objects.filter(user=user, organization=team.organization).first()
+
+        # Org admins keep all tables
+        if org_membership and org_membership.level >= OrganizationMembership.Level.ADMIN:
+            return
+
+        uac = UserAccessControl(user=user, team=team)
+
+        # Get the system TableNode
+        system_node = self.tables.children.get("system")
+        if not system_node or not hasattr(system_node, "children"):
+            return
+
+        # Filter children based on access
+        filtered: dict[str, TableNode] = {}
+        denied: set[str] = set()
+        for table_name, table_node in system_node.children.items():
+            resource = SYSTEM_TABLE_TO_RESOURCE.get(table_name)
+            if resource is None:
+                filtered[table_name] = table_node  # Not access-controlled
+            else:
+                access_level = uac.access_level_for_resource(resource)
+                if access_level and access_level != NO_ACCESS_LEVEL:
+                    filtered[table_name] = table_node
+                else:
+                    denied.add(f"system.{table_name}")
+
+        # Replace children with filtered set
+        system_node.children = filtered
+        self._denied_tables = denied
 
     def serialize(
         self,
@@ -566,6 +607,7 @@ class Database(BaseModel):
         team_id: int | None = None,
         *,
         team: Optional["Team"] = None,
+        user: Optional["User"] = None,
         modifiers: HogQLQueryModifiers | None = None,
         timings: HogQLTimings | None = None,
     ) -> "Database":
@@ -618,6 +660,11 @@ class Database(BaseModel):
 
         with timings.measure("database"):
             database = Database(timezone=team.timezone, week_start_day=team.week_start_day)
+
+        # Filter system tables based on user access control
+        if user is not None and team is not None:
+            with timings.measure("filter_system_tables_for_user"):
+                database._filter_system_tables_for_user(user, team)
 
         with timings.measure("modifiers"):
             modifiers = create_default_modifiers_for_team(team, modifiers)

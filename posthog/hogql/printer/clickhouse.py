@@ -893,6 +893,22 @@ class ClickHousePrinter(HogQLPrinter):
         ):
             return team_id_guard_for_table(node_type, self.context)
 
+    def _ensure_access_control_where_clause(
+        self,
+        table_type: ast.TableType | ast.LazyTableType,
+        node_type: ast.TableOrSelectType | None,
+    ):
+        """Add access control guard for system tables (PostgresTable)."""
+        from posthog.hogql.database.postgres_table import PostgresTable
+        from posthog.hogql.printer.access_control import build_access_control_guard
+
+        if not isinstance(table_type.table, PostgresTable):
+            return None
+        if node_type is None:
+            return None
+
+        return build_access_control_guard(table_type.table, node_type, self.context)
+
     def _print_table_ref(self, table_type: ast.TableType | ast.LazyTableType, node: ast.JoinExpr) -> str:
         sql = table_type.table.to_printed_clickhouse(self.context)
 

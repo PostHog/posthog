@@ -165,8 +165,8 @@ def process_query_model(
             result = metadata_response
         elif isinstance(query, DatabaseSchemaQuery):
             joins = DataWarehouseJoin.objects.filter(team_id=team.pk).exclude(deleted=True)
-            database = Database.create_for(team=team, modifiers=create_default_modifiers_for_team(team))
-            context = HogQLContext(team_id=team.pk, team=team, database=database)
+            database = Database.create_for(team=team, modifiers=create_default_modifiers_for_team(team), user=user)
+            context = HogQLContext(team_id=team.pk, team=team, database=database, user=user)
             result = DatabaseSchemaQueryResponse(
                 tables=database.serialize(context, include_hidden_posthog_tables=True),
                 joins=[
