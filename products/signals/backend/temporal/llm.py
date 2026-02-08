@@ -178,9 +178,12 @@ def _parse_match_response(data: dict) -> LLMMatchResponse:
         raise ValueError(f"Invalid match_type: {match_type}")
 
 
-MATCHING_SYSTEM_PROMPT = """You are a signal grouping assistant. Your job is to determine if a new signal is related to an existing group of signals, or if it should start a new group. Respond with JSON.
+MATCHING_SYSTEM_PROMPT = """
+You are a signal grouping assistant. Your job is to determine if a new signal is related to an existing group of signals,
+or if it should start a new group. Respond with JSON.
 
-Signals come from diverse sources: exceptions, experiments, insight alerts, session behaviour analysis, and more. Your task is to identify signals that are RELATED - they may be different signal types but connected by the same underlying cause, feature, or user journey.
+Signals come from diverse sources: exceptions, experiments, insight alerts, session behaviour analysis, and more.
+Your task is to identify signals that are RELATED - they may be different signal types but connected by the same underlying cause, feature, or user journey.
 
 IMPORTANT: Signals should be grouped if they are meaningfully related, not just superficially similar:
 - An experiment reaching significance AND an error spike on the same feature SHOULD match (related by feature)
@@ -335,7 +338,8 @@ class SummarizeSignalsResponse(BaseModel):
 
 SUMMARIZE_SYSTEM_PROMPT = """You are a product analytics assistant. Your job is to summarize a collection of related signals into a concise report.
 
-Signals come from diverse sources: exceptions, experiments, insight alerts, session behaviour analysis, and more. They have been grouped together because they share a common underlying cause, feature, or user journey.
+Signals come from diverse sources: exceptions, experiments, insight alerts, session behaviour analysis, and more.
+They have been grouped together because they share a common underlying cause, feature, or user journey.
 
 Given a list of signals, produce:
 1. A short, descriptive title (max 100 characters) that captures the essence of what these signals are about
