@@ -171,3 +171,56 @@ class TestSubscriptionEventsBuilder(EventsSourceBaseTest):
 
         query_sql = query.query.to_hogql()
         assert "properties.``" not in query_sql, "Should not generate invalid HogQL with empty property name"
+
+    def test_subscription_dropoff_days_property_override(self):
+        """Test using an event property to override subscription dropoff days."""
+        [event_config] = self.configure_events(
+            [
+                {
+                    "eventName": "subscription_event",
+                    "revenueProperty": "amount",
+                    "subscriptionProperty": "subscription_id",
+                    "subscriptionDropoffDays": 30,
+                    "subscriptionDropoffDaysProperty": "dropoff_days",
+                    "currencyAwareDecimal": True,
+                    "revenueCurrencyProperty": {"static": "USD"},
+                }
+            ]
+        )
+
+        handle = SourceHandle(type="events", team=self.team, event=event_config)
+        query = build(handle)
+        query_sql = query.query.to_hogql()
+
+        assert "argMax(properties.dropoff_days, timestamp)" in query_sql
+        assert "toString" in query_sql
+        assert "toIntOrZero" in query_sql
+        assert "nullIf" in query_sql
+        assert "least(" not in query_sql
+        assert "greatest(" not in query_sql
+        assert "addDays(max_timestamp" in query_sql
+
+    def test_subscription_dropoff_days_uses_static_value_without_property(self):
+        """Test that dropoff days uses the static value when no property is configured."""
+        [event_config] = self.configure_events(
+            [
+                {
+                    "eventName": "subscription_event",
+                    "revenueProperty": "amount",
+                    "subscriptionProperty": "subscription_id",
+                    "subscriptionDropoffDays": 30,
+                    "currencyAwareDecimal": True,
+                    "revenueCurrencyProperty": {"static": "USD"},
+                }
+            ]
+        )
+
+        handle = SourceHandle(type="events", team=self.team, event=event_config)
+        query = build(handle)
+        query_sql = query.query.to_hogql()
+
+        assert "argMax(properties." not in query_sql
+        assert "toIntOrZero" not in query_sql
+        assert "nullIf" not in query_sql
+        assert "least(" not in query_sql
+        assert "greatest(" not in query_sql

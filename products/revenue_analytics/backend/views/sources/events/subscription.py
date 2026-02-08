@@ -24,6 +24,44 @@ def build(handle: SourceHandle) -> BuiltQuery:
             test_comments="no_property",
         )
 
+    default_dropoff_days = event.subscriptionDropoffDays or 45
+    dropoff_days_expr: ast.Expr = ast.Constant(value=default_dropoff_days)
+    if event.subscriptionDropoffDaysProperty:
+        dropoff_days_expr = ast.Call(
+            name="ifNull",
+            args=[
+                ast.Call(
+                    name="nullIf",
+                    args=[
+                        ast.Call(
+                            name="toIntOrZero",
+                            args=[
+                                ast.Call(
+                                    name="toString",
+                                    args=[
+                                        ast.Call(
+                                            name="argMax",
+                                            args=[
+                                                ast.Field(
+                                                    chain=[
+                                                        "properties",
+                                                        event.subscriptionDropoffDaysProperty,
+                                                    ]
+                                                ),
+                                                ast.Field(chain=["timestamp"]),
+                                            ],
+                                        )
+                                    ],
+                                )
+                            ],
+                        ),
+                        ast.Constant(value=0),
+                    ],
+                ),
+                ast.Constant(value=default_dropoff_days),
+            ],
+        )
+
     events_query = ast.SelectQuery(
         select=[
             ast.Alias(alias="person_id", expr=ast.Field(chain=["person", "id"])),
@@ -42,7 +80,7 @@ def build(handle: SourceHandle) -> BuiltQuery:
                     name="addDays",
                     args=[
                         ast.Field(chain=["max_timestamp"]),
-                        ast.Constant(value=event.subscriptionDropoffDays),
+                        dropoff_days_expr,
                     ],
                 ),
             ),

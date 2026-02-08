@@ -4275,6 +4275,12 @@ export interface RevenueAnalyticsEventItem {
     subscriptionDropoffDays: number
 
     /**
+     * Property used to override the subscription dropoff days for the event.
+     * If set, this value takes precedence over subscriptionDropoffDays.
+     */
+    subscriptionDropoffDaysProperty?: string
+
+    /**
      * After a subscription has dropped off, when should we consider it to have ended?
      * It should either be at the date of the last event (will alter past periods, the default),
      * or at the date of the last event plus the dropoff period.

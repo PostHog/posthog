@@ -43,7 +43,12 @@ class TeamRevenueAnalyticsConfig(models.Model):
             dumped_value = [RevenueAnalyticsEventItem.model_validate(event).model_dump() for event in value]
             # Sanitize empty strings to None for optional property fields
             for event in dumped_value:
-                for key in ("subscriptionProperty", "productProperty", "couponProperty"):
+                for key in (
+                    "subscriptionProperty",
+                    "subscriptionDropoffDaysProperty",
+                    "productProperty",
+                    "couponProperty",
+                ):
                     if event.get(key) == "":
                         event[key] = None
             self._events = dumped_value
