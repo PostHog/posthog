@@ -48,28 +48,28 @@ self.date_range = get_experiment_date_range(self.experiment, self.team, self.ove
 
 ### Step 2: Check for preaggregated exposures
 
-Before building the exposures CTE, call `ensure_preaggregated()` with the exposures SELECT query:
+Before building the exposures CTE, the runner calls `_ensure_exposures_preaggregated()` which gets the exposure query from the builder and passes it to the preaggregation system:
 
 ```python
-from posthog.hogql_queries.experiments.experiment_exposures_preaggregation import (
-    ensure_experiment_exposures_preaggregated,
-)
+# From experiment_query_runner.py
+def _ensure_exposures_preaggregated(self, builder: ExperimentQueryBuilder) -> PreaggregationResult:
+    query_string, placeholders = builder.get_exposure_query_for_preaggregation()
 
-preagg_result = ensure_experiment_exposures_preaggregated(
-    team=self.team,
-    feature_flag_key=self.feature_flag.key,
-    variants=self.variants,
-    entity_math="persons",
-    multiple_variant_handling=MultipleVariantHandling.FIRST_SEEN,
-    filter_test_accounts=False,
-    date_from=self.date_range.date_from,
-    date_to=self.date_range.date_to,
-)
+    date_from = self.experiment.start_date
+    date_to = self.override_end_date or self.experiment.end_date or datetime.now(UTC)
+
+    return ensure_preaggregated(
+        team=self.team,
+        insert_query=query_string,
+        time_range_start=date_from,
+        time_range_end=date_to,
+        ttl_seconds=DEFAULT_EXPOSURE_TTL_SECONDS,
+        table=PreaggregationTable.EXPERIMENT_EXPOSURES_PREAGGREGATED,
+        placeholders=placeholders,
+    )
 ```
 
-Under the hood, this builds a HogQL query with `{time_window_min}` and `{time_window_max}` placeholders that get filled in automatically by the preaggregation system for each time window.
-
-See `experiment_exposures_preaggregation.py` for the full query template and placeholder details.
+The builder's `get_exposure_query_for_preaggregation()` returns a query template with `{time_window_min}` and `{time_window_max}` placeholders that get filled in automatically by the preaggregation system for each daily bucket. Other placeholders (entity_key, variant_expr, etc.) are returned in a dict and passed to `ensure_preaggregated()`.
 
 ---
 
@@ -259,12 +259,12 @@ GROUP BY variant
 
 ## Key files
 
-| File                              | Purpose                                                             |
-| --------------------------------- | ------------------------------------------------------------------- |
-| `experiment_query_runner.py`      | Orchestrates experiment query execution                             |
-| `experiment_query_builder.py`     | Builds the SQL query, including `_build_exposure_select_query()`    |
-| `lazy_preaggregation_executor.py` | Core preaggregation logic: `ensure_preaggregated()`, job management |
-| `models/preaggregation_job.py`    | PostgreSQL model for tracking preaggregation jobs                   |
+| File                              | Purpose                                                                                                              |
+| --------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `experiment_query_runner.py`      | Orchestrates experiment query execution, including `_ensure_exposures_preaggregated()` which triggers preaggregation |
+| `experiment_query_builder.py`     | Builds the SQL query, including `get_exposure_query_for_preaggregation()` and `_build_exposure_select_query()`       |
+| `lazy_preaggregation_executor.py` | Core preaggregation logic: `ensure_preaggregated()`, job management                                                  |
+| `models/preaggregation_job.py`    | PostgreSQL model for tracking preaggregation jobs                                                                    |
 
 ---
 
