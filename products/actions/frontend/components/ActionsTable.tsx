@@ -33,6 +33,7 @@ import {
 } from '~/types'
 
 import { actionsLogic } from '../logics/actionsLogic'
+import { SCREEN_NAME_MATCHING_LABEL, type ScreenNameMatching, isScreenNameFilter } from '../utils/screenName'
 import { NewActionButton } from './NewActionButton'
 
 export function ActionsTable(): JSX.Element {
@@ -135,20 +136,15 @@ export function ActionsTable(): JSX.Element {
                                                         )
                                                 }
                                             case '$screen': {
-                                                const screenFilter = step.properties?.find(
-                                                    (p) => 'key' in p && p.key === '$screen_name'
-                                                )
+                                                const screenFilter = step.properties?.find(isScreenNameFilter)
                                                 if (screenFilter && 'value' in screenFilter && screenFilter.value) {
-                                                    const matching =
-                                                        'operator' in screenFilter && screenFilter.operator === 'regex'
-                                                            ? 'matches regex'
-                                                            : 'operator' in screenFilter &&
-                                                                screenFilter.operator === 'exact'
-                                                              ? 'matches exactly'
-                                                              : 'contains'
+                                                    const operator =
+                                                        'operator' in screenFilter
+                                                            ? (screenFilter.operator as ScreenNameMatching)
+                                                            : 'icontains'
                                                     return (
                                                         <>
-                                                            Screen name {matching}{' '}
+                                                            Screen name {SCREEN_NAME_MATCHING_LABEL[operator]}{' '}
                                                             <strong>{String(screenFilter.value)}</strong>
                                                         </>
                                                     )

@@ -22,6 +22,12 @@ import {
 } from '~/types'
 
 import { URL_MATCHING_HINTS } from '../utils/hints'
+import {
+    SCREEN_NAME_MATCHING_LABEL,
+    SCREEN_NAME_PROPERTY,
+    type ScreenNameMatching,
+    isScreenNameFilter,
+} from '../utils/screenName'
 import { EventName } from './EventName'
 
 const learnMoreLink = 'https://posthog.com/docs/data/actions?utm_medium=in-product&utm_campaign=action-page'
@@ -45,11 +51,8 @@ export function ActionStep({
     identifier,
     disabledReason,
     onDelete,
-    onChange,
+    onChange: sendStep,
 }: Props): JSX.Element {
-    const sendStep = (stepToSend: ActionStepType): void => {
-        onChange(stepToSend)
-    }
     const { groupsTaxonomicTypes } = useValues(groupsModel)
 
     return (
@@ -174,7 +177,7 @@ function Option({
     label,
     placeholder = 'Specify a value to match on this',
     caption,
-    labelExtra: extra_options,
+    labelExtra,
     disabledReason,
 }: {
     step: ActionStepType
@@ -197,7 +200,7 @@ function Option({
         <div className="deprecated-space-y-1">
             <div className="flex flex-wrap gap-1">
                 <LemonLabel>{label}</LemonLabel>
-                {extra_options}
+                {labelExtra}
             </div>
             {caption && <div className="action-step-caption">{caption}</div>}
             <LemonInput
@@ -369,18 +372,14 @@ function TypeSwitcher({
     disabledReason?: string
 }): JSX.Element {
     const handleChange = (type: string): void => {
-        if (type === '$autocapture') {
-            sendStep({ ...step, event: '$autocapture' })
-        } else if (type === 'event') {
-            sendStep({ ...step, event: null })
-        } else if (type === '$pageview') {
-            sendStep({
-                ...step,
-                event: '$pageview',
-                url: step.url,
-            })
-        } else if (type === '$screen') {
-            sendStep({ ...step, event: '$screen', url: null, url_matching: null })
+        const overrides: Record<string, Partial<ActionStepType>> = {
+            $autocapture: { event: '$autocapture' },
+            event: { event: null },
+            $pageview: { event: '$pageview' },
+            $screen: { event: '$screen', url: null, url_matching: null },
+        }
+        if (type in overrides) {
+            sendStep({ ...step, ...overrides[type] })
         }
     }
 
@@ -429,20 +428,6 @@ function TypeSwitcher({
     )
 }
 
-const SCREEN_NAME_PROPERTY = '$screen_name'
-
-function isScreenNameFilter(p: AnyPropertyFilter): boolean {
-    return 'key' in p && p.key === SCREEN_NAME_PROPERTY && p.type === PropertyFilterType.Event
-}
-
-type ScreenNameMatching = 'exact' | 'icontains' | 'regex'
-
-const MATCHING_LABEL: Record<ScreenNameMatching, string> = {
-    exact: 'matches exactly',
-    regex: 'matches regex',
-    icontains: 'contains',
-}
-
 function ScreenNameField({
     step,
     sendStep,
@@ -487,7 +472,7 @@ function ScreenNameField({
                     <LemonSegmentedButton
                         onChange={(value) => setFilter(screenName, value as ScreenNameMatching)}
                         value={operator}
-                        options={Object.entries(MATCHING_LABEL).map(([value, label]) => ({
+                        options={Object.entries(SCREEN_NAME_MATCHING_LABEL).map(([value, label]) => ({
                             value,
                             label,
                             disabledReason,
