@@ -626,4 +626,79 @@ describe('insightVizDataLogic', () => {
             }).toMatchValues({ isSingleSeries: false })
         })
     })
+
+    describe('hasOnlyOneSeries', () => {
+        it('returns true for single series without breakdown', () => {
+            expectLogic(builtInsightVizDataLogic, () => {
+                builtInsightVizDataLogic.actions.updateQuerySource({
+                    series: [
+                        {
+                            kind: NodeKind.EventsNode,
+                            name: '$pageview',
+                            event: '$pageview',
+                        },
+                    ],
+                } as Partial<TrendsQuery>)
+            }).toMatchValues({ hasOnlyOneSeries: true })
+        })
+
+        it('returns false for multiple series', () => {
+            expectLogic(builtInsightVizDataLogic, () => {
+                builtInsightVizDataLogic.actions.updateQuerySource({
+                    series: [
+                        {
+                            kind: NodeKind.EventsNode,
+                            name: '$pageview',
+                            event: '$pageview',
+                        },
+                        {
+                            kind: NodeKind.EventsNode,
+                            name: '$autocapture',
+                            event: '$autocapture',
+                        },
+                    ],
+                } as Partial<TrendsQuery>)
+            }).toMatchValues({ hasOnlyOneSeries: false })
+        })
+
+        it('returns true for single series WITH breakdown (unlike isSingleSeries)', () => {
+            expectLogic(builtInsightVizDataLogic, () => {
+                builtInsightVizDataLogic.actions.updateQuerySource({
+                    series: [
+                        {
+                            kind: NodeKind.EventsNode,
+                            name: '$pageview',
+                            event: '$pageview',
+                        },
+                    ],
+                    breakdownFilter: {
+                        breakdown: '$browser',
+                        breakdown_type: 'event',
+                    },
+                } as Partial<TrendsQuery>)
+            }).toMatchValues({ hasOnlyOneSeries: true })
+        })
+
+        it('returns true for multiple series with single formula', () => {
+            expectLogic(builtInsightVizDataLogic, () => {
+                builtInsightVizDataLogic.actions.updateQuerySource({
+                    series: [
+                        {
+                            kind: NodeKind.EventsNode,
+                            name: '$pageview',
+                            event: '$pageview',
+                        },
+                        {
+                            kind: NodeKind.EventsNode,
+                            name: '$autocapture',
+                            event: '$autocapture',
+                        },
+                    ],
+                    trendsFilter: {
+                        formula: 'A + B',
+                    },
+                } as Partial<TrendsQuery>)
+            }).toMatchValues({ hasOnlyOneSeries: true })
+        })
+    })
 })
