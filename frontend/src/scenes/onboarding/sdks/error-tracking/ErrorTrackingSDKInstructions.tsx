@@ -22,7 +22,7 @@ export const ErrorTrackingSDKInstructions: SDKInstructionsMap = {
     [SDKKey.NUXT_JS]: NuxtInstructions,
     [SDKKey.PYTHON]: PythonInstructions,
     [SDKKey.REACT]: ReactInstructions,
-    [SDKKey.RUBY_RAILS]: RubyRailsInstructions,
+    [SDKKey.RUBY_ON_RAILS]: RubyRailsInstructions,
     [SDKKey.SVELTE]: SvelteInstructions,
     [SDKKey.TANSTACK_START]: ReactInstructions,
     [SDKKey.VITE]: ReactInstructions,
