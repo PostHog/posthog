@@ -636,6 +636,14 @@ export class ApiRequest {
         return this.hogFunctions(teamId).addPathComponent(id)
     }
 
+
+    public hogFunctionGroups(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('hog_function_groups')
+    }
+
+    public hogFunctionGroup(id: string, teamId?: TeamType['id']): ApiRequest {
+        return this.hogFunctionGroups(teamId).addPathComponent(id)
+    }
     public hogFunctionTemplates(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('hog_function_templates')
     }

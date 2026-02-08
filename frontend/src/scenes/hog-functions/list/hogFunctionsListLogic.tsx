@@ -73,8 +73,18 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
         addHogFunction: (hogFunction: HogFunctionType) => ({ hogFunction }),
         setReorderModalOpen: (open: boolean) => ({ open }),
         saveHogFunctionOrder: (newOrders: Record<string, number>) => ({ newOrders }),
+        moveToGroup: (hogFunction: HogFunctionType, groupId: string | null) => ({ hogFunction, groupId }),
+        setCreateGroupModalOpen: (isOpen: boolean) => ({ isOpen }),
+        createGroup: (name: string) => ({ name }),
     }),
     reducers(() => ({
+        isCreateGroupModalOpen: [
+            false,
+            {
+                setCreateGroupModalOpen: (_, { isOpen }) => isOpen,
+                createGroup: () => false,
+            },
+        ],
         filters: [
             {} as HogFunctionListFilters,
             {
@@ -93,6 +103,14 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
         ],
     })),
     loaders(({ values, actions, props }) => ({
+        hogFunctionGroups: [
+            [] as any[],
+            {
+                loadHogFunctionGroups: async () => {
+                    return (await api.hogFunctionGroups.list()).results
+                },
+            },
+        ],
         hogFunctions: [
             [] as HogFunctionType[],
             {
@@ -129,6 +147,12 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
                     })
 
                     return values.hogFunctions.filter((x) => x.id !== hogFunction.id)
+                },
+                moveToGroup: async ({ hogFunction, groupId }) => {
+                    const response = await api.hogFunctions.update(hogFunction.id, { group_id: groupId })
+                    const { hogFunctions } = values
+                    const index = hogFunctions.findIndex((hf) => hf.id === hogFunction.id)
+                    return [...hogFunctions.slice(0, index), response, ...hogFunctions.slice(index + 1)]
                 },
                 toggleEnabled: async ({ hogFunction, enabled }) => {
                     const { hogFunctions } = values
@@ -198,6 +222,31 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
             },
         ],
 
+        hogFunctionsByGroup: [
+            (s) => [s.filteredHogFunctions, s.hogFunctionGroups],
+            (hogFunctions, groups): Record<string, { group: any | null; items: HogFunctionType[] }> => {
+                const groupsMap: Record<string, { group: any | null; items: HogFunctionType[] }> = {}
+
+                // Initialize known groups
+                for (const group of groups) {
+                    groupsMap[group.id] = { group, items: [] }
+                }
+                // Default group for unclassified
+                groupsMap['unclassified'] = { group: null, items: [] }
+
+                for (const func of hogFunctions) {
+                    // Use 'group' if it exists, otherwise 'unclassified'
+                    // Note: API returns group ID as 'group' field currently
+                    const groupId = func.group?.id || 'unclassified'
+                    if (groupsMap[groupId]) {
+                        groupsMap[groupId].items.push(func)
+                    } else {
+                        groupsMap['unclassified'].items.push(func)
+                    }
+                }
+                return groupsMap
+            },
+        ],
         hiddenHogFunctions: [
             (s) => [s.sortedHogFunctions, s.filteredHogFunctions],
             (sortedHogFunctions, filteredHogFunctions): HogFunctionType[] => {
