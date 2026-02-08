@@ -72,10 +72,11 @@ class TestMatrixManager(ClickhouseDestroyTablesMixin):
     def test_create_team(self):
         manager = MatrixManager(self.matrix)
 
-        demo_team = manager.create_team(self.organization)
+        demo_team = manager.create_team(self.organization, initiating_user=self.user)
 
+        # Verify the team was created with is_demo=True
+        # Note: create_team only creates the team, run_on_team is called separately by ensure_account_and_save
         assert demo_team.organization == self.organization
-        assert demo_team.ingested_event
         assert demo_team.is_demo
 
     def test_run_on_team(self):
