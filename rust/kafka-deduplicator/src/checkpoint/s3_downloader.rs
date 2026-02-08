@@ -6,6 +6,7 @@ use tokio_util::bytes::Bytes;
 
 use super::config::CheckpointConfig;
 use super::downloader::CheckpointDownloader;
+use super::error::DownloadCancelledError;
 use super::metadata::{DATE_PLUS_HOURS_ONLY_FORMAT, METADATA_FILENAME};
 use super::s3_client::create_s3_client;
 use crate::metrics_const::{
@@ -165,9 +166,11 @@ impl CheckpointDownloader for S3Downloader {
         // Check cancellation before starting the request
         if let Some(token) = cancel_token {
             if token.is_cancelled() {
-                return Err(anyhow::anyhow!(
-                    "Download cancelled before starting: {remote_key}"
-                ));
+                warn!("Download cancelled before starting: {remote_key}");
+                return Err(DownloadCancelledError {
+                    reason: format!("before starting: {remote_key}"),
+                }
+                .into());
             }
         }
 
@@ -218,7 +221,10 @@ impl CheckpointDownloader for S3Downloader {
                     metrics::counter!(CHECKPOINT_FILE_DOWNLOADS_COUNTER, "status" => "cancelled")
                         .increment(1);
                     warn!("Download of {remote_key} cancelled mid-stream");
-                    return Err(anyhow::anyhow!("Download cancelled: {remote_key}"));
+                    return Err(DownloadCancelledError {
+                        reason: format!("mid-stream: {remote_key}"),
+                    }
+                    .into());
                 }
                 ChunkResult::Error(e) => {
                     metrics::counter!(CHECKPOINT_FILE_DOWNLOADS_COUNTER, "status" => "error")
@@ -256,7 +262,10 @@ impl CheckpointDownloader for S3Downloader {
         if let Some(token) = cancel_token {
             if token.is_cancelled() {
                 warn!("Download cancelled before starting");
-                return Err(anyhow::anyhow!("Download cancelled before starting"));
+                return Err(DownloadCancelledError {
+                    reason: "before starting batch".to_string(),
+                }
+                .into());
             }
         }
 

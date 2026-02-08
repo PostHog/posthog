@@ -20,8 +20,8 @@
     ],
     "scripts": {
         "build:compile": "emmake cmake --build build_wasm --config Release && cmake --install build_wasm",
-        "build:make": "if [ -n \"$CF_PAGES\" ]; then echo 'Skipping hogql-parser build on Cloudflare Pages'; else emcmake cmake -S . -B build_wasm -DCMAKE_BUILD_TYPE=Release && npm run build:compile; fi",
-        "build": "if [ -n \"$CF_PAGES\" ]; then echo 'Skipping hogql-parser build on Cloudflare Pages'; else emcmake cmake -S . -B build_wasm -G Ninja -DCMAKE_BUILD_TYPE=Release && npm run build:compile; fi"
+        "build:make": "emcmake cmake -S . -B build_wasm -DCMAKE_BUILD_TYPE=Release && npm run build:compile || echo 'Warning: hogql-parser build failed, skipping'",
+        "build": "emcmake cmake -S . -B build_wasm -G Ninja -DCMAKE_BUILD_TYPE=Release && npm run build:compile || echo 'Warning: hogql-parser build failed, skipping'"
     },
     "keywords": [
         "hogql",

@@ -508,6 +508,13 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
             'Monitor and maintain your PostHog SDK integrations by automatically detecting version issues, configuration problems, and implementation patterns across your applications.',
         defaultDocsPath: '/docs/sdk-doctor',
     },
+    [Scene.Exports]: {
+        projectBased: true,
+        name: 'Exports',
+        iconType: 'exports',
+        description:
+            'Retrieve your exports here. Exports are generated asynchronously and may take a few seconds to complete.',
+    },
     [Scene.SessionAttributionExplorer]: { projectBased: true, name: 'Session attribution explorer (beta)' },
     [Scene.SessionProfile]: { projectBased: true, name: 'Session profile' },
     [Scene.Settings]: { projectBased: true, name: 'Settings' },
@@ -907,6 +914,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.health()]: [Scene.Health, 'health'],
     [urls.pipelineStatus()]: [Scene.PipelineStatus, 'pipelineStatus'],
     [urls.sdkDoctor()]: [Scene.SdkDoctor, 'sdkDoctor'],
+    [urls.exports()]: [Scene.Exports, 'exports'],
     [urls.startups()]: [Scene.StartupProgram, 'startupProgram'],
     [urls.startups(':referrer')]: [Scene.StartupProgram, 'startupProgramWithReferrer'],
     [urls.oauthAuthorize()]: [Scene.OAuthAuthorize, 'oauthAuthorize'],

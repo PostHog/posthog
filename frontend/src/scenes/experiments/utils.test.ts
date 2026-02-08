@@ -32,6 +32,7 @@ import {
     filterToExposureConfig,
     getViewRecordingFilters,
     getViewRecordingFiltersLegacy,
+    isEvenlyDistributed,
     isLegacyExperiment,
     isLegacyExperimentQuery,
     percentageDistribution,
@@ -61,6 +62,44 @@ describe('utils', () => {
             expect(percentageDistribution(18)).toEqual([6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 5, 5, 5, 5, 5, 5, 5, 5])
             expect(percentageDistribution(19)).toEqual([6, 6, 6, 6, 6, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5])
             expect(percentageDistribution(20)).toEqual([5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5])
+        })
+    })
+
+    describe('isEvenlyDistributed', () => {
+        it.each([
+            {
+                variants: [
+                    { key: 'control', rollout_percentage: 50 },
+                    { key: 'test', rollout_percentage: 50 },
+                ],
+                expected: true,
+            },
+            {
+                variants: [
+                    { key: 'control', rollout_percentage: 34 },
+                    { key: 'test', rollout_percentage: 33 },
+                    { key: 'test-2', rollout_percentage: 33 },
+                ],
+                expected: true,
+            },
+            {
+                variants: [
+                    { key: 'control', rollout_percentage: 20 },
+                    { key: 'test', rollout_percentage: 80 },
+                ],
+                expected: false,
+            },
+            {
+                variants: [
+                    { key: 'control', rollout_percentage: 50 },
+                    { key: 'test', rollout_percentage: 30 },
+                    { key: 'test-2', rollout_percentage: 20 },
+                ],
+                expected: false,
+            },
+            { variants: [], expected: true },
+        ])('returns $expected for variants with percentages $variants', ({ variants, expected }) => {
+            expect(isEvenlyDistributed(variants)).toBe(expected)
         })
     })
 

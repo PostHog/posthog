@@ -232,6 +232,7 @@ export const urls = {
     health: (): string => '/health',
     pipelineStatus: (): string => '/health/pipeline-status',
     sdkDoctor: (): string => '/health/sdk-doctor',
+    exports: (): string => '/exports',
 }
 
 export interface UrlMatcher {
