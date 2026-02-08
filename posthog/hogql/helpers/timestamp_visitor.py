@@ -196,6 +196,8 @@ class IsTimeOrIntervalConstantVisitor(Visitor[bool]):
             "toDateTime64",
             "toTimeZone",
             "assumeNotNull",
+            "UUIDv7ToDateTime",
+            "toUUID",
         ] or any(node.name.startswith(prefix) for prefix in ["toInterval", "toStartOf"]):
             return self.visit(node.args[0])
 
