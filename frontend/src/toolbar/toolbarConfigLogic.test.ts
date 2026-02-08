@@ -23,4 +23,13 @@ describe('toolbar toolbarLogic', () => {
     it('is not authenticated', () => {
         expectLogic(logic).toMatchValues({ isAuthenticated: false })
     })
+
+    it('normalizes uiHost to not end with a slash', () => {
+        const logicWithUiHost = toolbarConfigLogic({
+            posthog: { config: { ui_host: 'https://us.posthog.com/' } } as any,
+        } as any)
+        logicWithUiHost.mount()
+        expect(logicWithUiHost.values.uiHost.endsWith('/')).toBe(false)
+        expect(logicWithUiHost.values.uiHost).toBe('https://us.posthog.com')
+    })
 })

@@ -20,6 +20,7 @@ import { ToolbarMenu } from '~/toolbar/bar/ToolbarMenu'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { heatmapToolbarMenuLogic } from '~/toolbar/elements/heatmapToolbarMenuLogic'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
+import { joinWithUiHost } from '~/toolbar/utils'
 
 import { toolbarConfigLogic } from '../toolbarConfigLogic'
 
@@ -37,7 +38,7 @@ const HeatmapsJSWarning = (): JSX.Element | null => {
             ) : !posthog.heatmaps.isEnabled ? (
                 <>
                     You can enable heatmap collection in your posthog-js configuration or{' '}
-                    <Link to={`${uiHost}${urls.settings()}#heatmaps`} target="_blank">
+                    <Link to={joinWithUiHost(uiHost, `${urls.settings()}#heatmaps`)} target="_blank">
                         in your project config
                     </Link>
                     .

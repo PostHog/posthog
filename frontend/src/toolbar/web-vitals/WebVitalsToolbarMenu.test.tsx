@@ -11,7 +11,7 @@ describe('WebVitalsToolbarMenu', () => {
         initKeaTests()
         toolbarConfigLogic({
             posthog: {
-                config: { ui_host: 'https://us.posthog.com' },
+                config: { ui_host: 'https://us.posthog.com/' },
                 webVitalsAutocapture: { isEnabled: false },
             } as any,
         } as any).mount()

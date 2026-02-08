@@ -13,6 +13,7 @@ import {
 } from '~/queries/nodes/WebVitals/definitions'
 import { WebVitalsMetric } from '~/queries/schema/schema-general'
 import { ToolbarMenu } from '~/toolbar/bar/ToolbarMenu'
+import { joinWithUiHost } from '~/toolbar/utils'
 
 import { toolbarConfigLogic } from '../toolbarConfigLogic'
 import { WebVitalsMetrics, webVitalsToolbarLogic } from './webVitalsToolbarLogic'
@@ -31,7 +32,7 @@ export const WebVitalsToolbarMenu = (): JSX.Element => {
                     {!posthog?.webVitalsAutocapture?.isEnabled && !inStorybookTestRunner() && !inStorybook() && (
                         <LemonBanner type="warning">
                             Web vitals are not enabled for this project so you won't see any data here. Enable it on the{' '}
-                            <Link to={`${uiHost}${urls.settings()}`} target="_blank">
+                            <Link to={joinWithUiHost(uiHost, urls.settings())} target="_blank">
                                 settings page
                             </Link>{' '}
                             to start capturing web vitals.
@@ -76,7 +77,7 @@ export const WebVitalsToolbarMenu = (): JSX.Element => {
 
             <ToolbarMenu.Footer>
                 <div className="flex flex-row justify-between w-full">
-                    <Link to={`${uiHost}${urls.webAnalyticsWebVitals()}`} target="_blank">
+                    <Link to={joinWithUiHost(uiHost, urls.webAnalyticsWebVitals())} target="_blank">
                         View all metrics
                     </Link>
                     <Link to="https://posthog.com/docs/web-analytics/web-vitals" target="_blank">
