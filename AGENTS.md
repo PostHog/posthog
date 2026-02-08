@@ -21,6 +21,10 @@
   - Frontend: `pnpm --filter=@posthog/frontend build`
   - Start dev: `./bin/start`
 
+## API Type Generation
+
+`hogli build:openapi` syncs DRF serializers/ViewSets → TypeScript via drf-spectacular + Orval. Generated files (`api.schemas.ts`, `api.ts`) live at `frontend/src/generated/core/` and `products/{product}/frontend/generated/`. Don't edit these manually — change the serializers and rerun the command.
+
 ## Commits and Pull Requests
 
 Use [conventional commits](https://www.conventionalcommits.org/en/v1.0.0/) for all commit messages and PR titles.
