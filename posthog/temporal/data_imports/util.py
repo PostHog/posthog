@@ -1,4 +1,5 @@
 import re
+import time
 from datetime import datetime
 from typing import Literal, Optional
 
@@ -12,6 +13,10 @@ from posthog.settings.utils import get_from_env
 from posthog.utils import str_to_bool
 
 from products.data_warehouse.backend.s3 import get_s3_client
+
+# Yield to other threads periodically during large S3 copy operations
+# to prevent starving the heartbeat thread
+S3_COPY_YIELD_INTERVAL = 50  # Yield every N files
 
 
 class NonRetryableException(Exception):
@@ -124,10 +129,15 @@ def prepare_s3_files_for_querying(
             if s3.exists(s3_path_for_querying):
                 files_to_delete.append(s3_path_for_querying)
 
-    for file in file_uris:
+    total_files = len(file_uris)
+    for index, file in enumerate(file_uris):
         file_name = file.replace(f"{s3_folder_for_schema}/", "")
-        _log(f"Copying file {file} to {s3_path_for_querying}/{file_name}")
+        _log(f"Copying file ({index + 1}/{total_files}) {file} to {s3_path_for_querying}/{file_name}")
         s3.copy(file, f"{s3_path_for_querying}/{file_name}")
+
+        # Yield to other threads periodically to prevent starving the heartbeat thread
+        if (index + 1) % S3_COPY_YIELD_INTERVAL == 0:
+            time.sleep(0.05)  # 50ms yield
 
     # Delete existing files after copying new ones. In the event of a pod OOM during file
     # copying, the queryable_folder can get out of date and attempt to query deleted files.

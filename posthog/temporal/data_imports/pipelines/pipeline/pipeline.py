@@ -5,10 +5,10 @@ from typing import Any, Generic, Literal
 
 import pyarrow as pa
 import deltalake as deltalake
-import posthoganalytics
 from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions_capture import capture_exception
+from posthog.temporal.common.posthog_analytics import capture_in_background
 from posthog.temporal.common.shutdown import ShutdownMonitor
 from posthog.temporal.data_imports.pipelines.common.extract import (
     cdp_producer_clear_chunks,
@@ -410,7 +410,7 @@ def _notify_revenue_analytics_that_sync_has_completed(schema: ExternalDataSchema
             # This will trigger a Campaign in PostHog and send an email
             for user in schema.team.all_users_with_access():
                 if user.distinct_id is not None:
-                    posthoganalytics.capture(
+                    capture_in_background(
                         distinct_id=user.distinct_id,
                         event="revenue_analytics_ready",
                         properties={"source_type": schema.source.source_type},

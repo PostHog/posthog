@@ -1,8 +1,9 @@
+import logging
 from dataclasses import is_dataclass
 from typing import Any, Optional
 
 import temporalio.exceptions
-from posthoganalytics import api_key, capture_exception
+from posthoganalytics import api_key
 from temporalio import activity, workflow
 from temporalio.worker import (
     ActivityInboundInterceptor,
@@ -14,14 +15,18 @@ from temporalio.worker import (
 )
 
 from posthog.temporal.common.logger import get_write_only_logger
+from posthog.temporal.common.posthog_analytics import capture_exception_async, capture_exception_in_background
 
 logger = get_write_only_logger()
+# Sync logger for workflow context where async logging fails
+sync_logger = logging.getLogger(__name__)
 
 
 async def _add_inputs_to_capture_kwargs(
     capture_kwargs: dict[str, Any],
     input: ExecuteActivityInput | ExecuteWorkflowInput,
 ):
+    """Async version for activity context."""
     try:
         if len(input.args) == 1 and is_dataclass(input.args[0]):
             if hasattr(input.args[0], "properties_to_log"):
@@ -34,7 +39,25 @@ async def _add_inputs_to_capture_kwargs(
         await logger.awarning(
             "Failed to add inputs to properties for class %s", type(input.args[0]).__name__, exc_info=e
         )
-        capture_exception(e, **capture_kwargs)
+        await capture_exception_async(e, **capture_kwargs)
+
+
+def _add_inputs_to_capture_kwargs_sync(
+    capture_kwargs: dict[str, Any],
+    input: ExecuteActivityInput | ExecuteWorkflowInput,
+):
+    """Sync version for workflow context where async operations are not allowed."""
+    try:
+        if len(input.args) == 1 and is_dataclass(input.args[0]):
+            if hasattr(input.args[0], "properties_to_log"):
+                if "properties" not in capture_kwargs:
+                    capture_kwargs["properties"] = {}
+                capture_kwargs["properties"].update(input.args[0].properties_to_log)
+            if hasattr(input.args[0], "user_distinct_id_to_log"):
+                capture_kwargs["distinct_id"] = input.args[0].user_distinct_id_to_log
+    except Exception as e:
+        sync_logger.warning("Failed to add inputs to properties for class %s", type(input.args[0]).__name__, exc_info=e)
+        capture_exception_in_background(e, **capture_kwargs)
 
 
 class _PostHogClientActivityInboundInterceptor(ActivityInboundInterceptor):
@@ -60,7 +83,7 @@ class _PostHogClientActivityInboundInterceptor(ActivityInboundInterceptor):
             await _add_inputs_to_capture_kwargs(capture_kwargs, input)
             if api_key:
                 try:
-                    capture_exception(e, **capture_kwargs)  # type: ignore[arg-type]
+                    await capture_exception_async(e, **capture_kwargs)
                 except Exception as capture_error:
                     await logger.awarning("Failed to capture exception", exc_info=capture_error)
             raise
@@ -92,13 +115,15 @@ class _PostHogClientWorkflowInterceptor(WorkflowInboundInterceptor):
                     "temporal.workflow.id": workflow_info.workflow_id,
                 }
             }
-            await _add_inputs_to_capture_kwargs(capture_kwargs, input)
+            # Note: We use sync helpers here because workflows run in a sandboxed
+            # environment where asyncio.run_in_executor() raises NotImplementedError.
+            _add_inputs_to_capture_kwargs_sync(capture_kwargs, input)
             if api_key and not workflow.unsafe.is_replaying():
                 with workflow.unsafe.sandbox_unrestricted():
                     try:
-                        capture_exception(e, **capture_kwargs)  # type: ignore[arg-type]
+                        capture_exception_in_background(e, **capture_kwargs)
                     except Exception as capture_error:
-                        await logger.awarning("Failed to capture exception", exc_info=capture_error)
+                        sync_logger.warning("Failed to capture exception in workflow", exc_info=capture_error)
             raise
 
 
