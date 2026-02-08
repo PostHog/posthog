@@ -32,13 +32,7 @@ export function AddPersonToCohortModalBody(): JSX.Element {
                     const isAdded = personsToAddToCohort[id] != null
 
                     if (isInCohort) {
-                        return (
-                            <LemonCheckbox
-                                checked={true}
-                                disabled
-                                data-attr="cohort-person-checkbox"
-                            />
-                        )
+                        return <LemonCheckbox checked disabled data-attr="cohort-person-checkbox" />
                     }
 
                     return (

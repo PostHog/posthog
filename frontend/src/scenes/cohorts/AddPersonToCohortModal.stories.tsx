@@ -53,11 +53,7 @@ const mockPersons = [
     },
 ]
 
-function PersonRow({
-    person,
-}: {
-    person: (typeof mockPersons)[0]
-}): JSX.Element {
+function PersonRow({ person }: { person: (typeof mockPersons)[0] }): JSX.Element {
     const isChecked = person.isInCohort || person.isAdded
 
     return (
