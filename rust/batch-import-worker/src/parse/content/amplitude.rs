@@ -10,6 +10,7 @@ use uuid::Uuid;
 
 use super::TransformContext;
 use crate::cache::{group_cache::GroupChanges, GroupCache};
+use crate::parse::format::{extract_between, extract_field_name, UserFacingParseError};
 
 mod identify;
 
@@ -115,6 +116,83 @@ pub struct AmplitudeEvent {
     pub version_name: Option<String>,
 }
 
+/// Implement schema-specific error messages for AmplitudeEvent
+/// That we can surface to the user to let them know what's wrong with the
+/// data set they are trying to import
+impl UserFacingParseError for AmplitudeEvent {
+    fn user_facing_schema_error(err: &serde_json::Error) -> String {
+        let err_str = err.to_string();
+
+        // Handle missing required fields (though most Amplitude fields are optional)
+        if err_str.contains("missing field") {
+            if let Some(field_name) = extract_field_name(&err_str, "missing field `", "`") {
+                return format!(
+                    "Missing field '{field_name}'. Please check that your Amplitude export includes this field."
+                );
+            }
+        }
+
+        if err_str.contains("invalid type:") {
+            let got = extract_between(&err_str, "invalid type: ", ", expected");
+            let expected = extract_between(&err_str, "expected ", " at line");
+
+            if let (Some(got), Some(expected)) = (got, expected) {
+                if err_str.contains("event_type") {
+                    return format!(
+                        "The 'event_type' field must be a string (e.g., \"event_type\": \"button_click\"), but got {got}."
+                    );
+                }
+                if err_str.contains("user_id") {
+                    return format!(
+                        "The 'user_id' field must be a string (e.g., \"user_id\": \"user123\"), but got {got}."
+                    );
+                }
+                if err_str.contains("device_id") {
+                    return format!(
+                        "The 'device_id' field must be a string (e.g., \"device_id\": \"device456\"), but got {got}."
+                    );
+                }
+                if err_str.contains("event_time") {
+                    return format!(
+                        "The 'event_time' field must be a string in format 'YYYY-MM-DD HH:MM:SS' (e.g., \"event_time\": \"2023-10-15 14:30:00\"), but got {got}."
+                    );
+                }
+                if err_str.contains("event_properties") {
+                    return format!(
+                        "The 'event_properties' field must be a JSON object (e.g., \"event_properties\": {{\"key\": \"value\"}}), but got {got}."
+                    );
+                }
+                if err_str.contains("user_properties") {
+                    return format!(
+                        "The 'user_properties' field must be a JSON object (e.g., \"user_properties\": {{\"name\": \"John\"}}), but got {got}."
+                    );
+                }
+                if expected.contains("i64") {
+                    return format!(
+                        "Expected an integer value but got {got}. Check that numeric fields contain valid integers."
+                    );
+                }
+                if expected.contains("map") || expected.contains("struct") {
+                    return format!(
+                        "Expected a JSON object but got {got}. This field must be a JSON object like {{\"key\": \"value\"}}."
+                    );
+                }
+            }
+        }
+
+        if err_str.contains("unknown field") {
+            if let Some(field_name) = extract_field_name(&err_str, "unknown field `", "`") {
+                return format!(
+                    "Unknown field '{field_name}' in Amplitude event. This field will be ignored, but check if this is a typo."
+                );
+            }
+        }
+
+        // Generic message to fallback to if we can't determine something specific surface to the user
+        "The JSON structure doesn't match the expected Amplitude event format. Events should have 'event_type' (string), and optionally 'user_id', 'device_id', 'event_time', 'event_properties', etc.".to_string()
+    }
+}
+
 /// Detect which groups have changed properties since last seen
 fn detect_group_changes(
     team_id: i32,
@@ -209,6 +287,7 @@ fn create_group_identify_event(
     let captured_event = CapturedEvent {
         uuid: event_uuid,
         distinct_id,
+        session_id: None,
         ip: "".to_string(),
         data: serde_json::to_string(&raw_event)?,
         now: timestamp.format("%Y-%m-%d %H:%M:%S%.3f").to_string(),
@@ -259,7 +338,9 @@ impl AmplitudeEvent {
             };
 
             let event_type = match event_type_raw.as_str() {
-                "session_start" => return Ok(vec![]),
+                // Amplitude generates synthetic session_start and session_end events as markers.
+                // PostHog calculates sessions from timestamp gaps, so these have no meaning and should be filtered.
+                "session_start" | "session_end" => return Ok(vec![]),
                 "[Amplitude] Page Viewed" => "$pageview".to_string(),
                 "[Amplitude] Element Clicked" | "[Amplitude] Element Changed" => {
                     "$autocapture".to_string()
@@ -586,6 +667,7 @@ impl AmplitudeEvent {
                 let inner = CapturedEvent {
                     uuid: event_uuid,
                     distinct_id,
+                    session_id: None,
                     ip: amp.ip_address.unwrap_or_else(|| "127.0.0.1".to_string()),
                     data: serde_json::to_string(&raw_event)?,
                     now: Utc::now().to_rfc3339(),
@@ -761,17 +843,21 @@ mod tests {
     }
 
     #[test]
-    fn test_session_start_filtered_out() {
-        let amp_event = AmplitudeEvent {
-            event_type: Some("session_start".to_string()),
-            user_id: Some("user123".to_string()),
-            ..Default::default()
-        };
+    fn test_synthetic_session_events_filtered_out() {
+        // Amplitude generates synthetic session_start and session_end events.
+        // PostHog calculates sessions from timestamp gaps, so these should be filtered.
+        for event_type in ["session_start", "session_end"] {
+            let amp_event = AmplitudeEvent {
+                event_type: Some(event_type.to_string()),
+                user_id: Some("user123".to_string()),
+                ..Default::default()
+            };
 
-        let parser = AmplitudeEvent::parse_fn(create_test_context(), identity_transform);
-        let result = parser(amp_event).unwrap();
+            let parser = AmplitudeEvent::parse_fn(create_test_context(), identity_transform);
+            let result = parser(amp_event).unwrap();
 
-        assert!(result.is_empty());
+            assert!(result.is_empty(), "{} should be filtered out", event_type);
+        }
     }
 
     #[test]

@@ -179,9 +179,7 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
         _create_event(distinct_id=f"id-{self.random_uuid}-3", event="clicky-3", team=self.team)
         flush_persons_and_events()
 
-        query = (
-            "select count() from events where " "{variables.bar ? sql(event = 'clicky-3') : sql(event = 'clicky-4')}"
-        )
+        query = "select count() from events where {variables.bar ? sql(event = 'clicky-3') : sql(event = 'clicky-4')}"
 
         runner_true = self._create_runner(
             HogQLQuery(

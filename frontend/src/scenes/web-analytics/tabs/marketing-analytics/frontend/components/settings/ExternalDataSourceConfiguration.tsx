@@ -2,14 +2,18 @@ import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconGear, IconPencil, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
 import { urls } from 'scenes/urls'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
-import { MarketingAnalyticsColumnsSchemaNames } from '~/queries/schema/schema-general'
+import {
+    MarketingAnalyticsColumnsSchemaNames,
+    NativeMarketingSource,
+    VALID_NATIVE_MARKETING_SOURCES,
+} from '~/queries/schema/schema-general'
 import { ExternalDataSchemaStatus, ExternalDataSource, ManualLinkSourceType } from '~/types'
 
 import { useSortedPaginatedList } from '../../hooks/useSortedPaginatedList'
@@ -23,9 +27,7 @@ import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsS
 import {
     MAX_ITEMS_TO_SHOW,
     NEEDED_FIELDS_FOR_NATIVE_MARKETING_ANALYTICS,
-    NativeMarketingSource,
     NonNativeMarketingSource,
-    VALID_NATIVE_MARKETING_SOURCES,
     VALID_NON_NATIVE_MARKETING_SOURCES,
     VALID_SELF_MANAGED_MARKETING_SOURCES,
 } from '../../logic/utils'
@@ -54,7 +56,7 @@ type UnifiedSource = {
 }
 
 export function ExternalDataSourceConfiguration(): JSX.Element {
-    const { allExternalTablesWithStatus, loading } = useValues(marketingAnalyticsLogic)
+    const { allExternalTablesWithStatus, loading, hasNoConfiguredSources } = useValues(marketingAnalyticsLogic)
     const { updateSourceMapping } = useActions(marketingAnalyticsSettingsLogic)
     const [editingTable, setEditingTable] = useState<ExternalTable | null>(null)
 
@@ -174,6 +176,12 @@ export function ExternalDataSourceConfiguration(): JSX.Element {
             title="Data source configuration"
             description="Connect and configure data sources to enable marketing analytics. Native sources sync automatically, while warehouse and self-managed sources need column mapping."
         >
+            {hasNoConfiguredSources && (
+                <LemonBanner type="error" className="mb-4">
+                    To use the Marketing analytics dashboard, you need at least one data source properly configured. Add
+                    a native integration (like Google Ads or Facebook Ads) or connect a data warehouse source below.
+                </LemonBanner>
+            )}
             <PaginationControls
                 hasMoreItems={hasMoreSources}
                 showAll={showAll}

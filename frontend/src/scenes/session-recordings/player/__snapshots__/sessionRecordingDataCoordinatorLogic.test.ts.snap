@@ -10,7 +10,7 @@ exports[`sessionRecordingDataCoordinatorLogic deduplicateSnapshots should match 
     },
     "timestamp": 1682952380877,
     "type": 4,
-    "windowId": "187d7c761a0525d-05f175487d4b65-1d525634-384000-187d7c761a149d0",
+    "windowId": 1,
   },
   {
     "data": {
@@ -577,7 +577,7 @@ exports[`sessionRecordingDataCoordinatorLogic deduplicateSnapshots should match 
     },
     "timestamp": 1682952380882,
     "type": 2,
-    "windowId": "187d7c761a0525d-05f175487d4b65-1d525634-384000-187d7c761a149d0",
+    "windowId": 1,
   },
   {
     "data": {
@@ -593,7 +593,7 @@ exports[`sessionRecordingDataCoordinatorLogic deduplicateSnapshots should match 
     },
     "timestamp": 1682952383040,
     "type": 3,
-    "windowId": "187d7c761a0525d-05f175487d4b65-1d525634-384000-187d7c761a149d0",
+    "windowId": 1,
   },
   {
     "data": {
@@ -605,7 +605,7 @@ exports[`sessionRecordingDataCoordinatorLogic deduplicateSnapshots should match 
     },
     "timestamp": 1682952383262,
     "type": 3,
-    "windowId": "187d7c761a0525d-05f175487d4b65-1d525634-384000-187d7c761a149d0",
+    "windowId": 1,
   },
   {
     "data": {
@@ -617,7 +617,7 @@ exports[`sessionRecordingDataCoordinatorLogic deduplicateSnapshots should match 
     },
     "timestamp": 1682952383263,
     "type": 3,
-    "windowId": "187d7c761a0525d-05f175487d4b65-1d525634-384000-187d7c761a149d0",
+    "windowId": 1,
   },
   {
     "data": {
@@ -630,7 +630,7 @@ exports[`sessionRecordingDataCoordinatorLogic deduplicateSnapshots should match 
     },
     "timestamp": 1682952383264,
     "type": 3,
-    "windowId": "187d7c761a0525d-05f175487d4b65-1d525634-384000-187d7c761a149d0",
+    "windowId": 1,
   },
   {
     "data": {
@@ -652,7 +652,7 @@ exports[`sessionRecordingDataCoordinatorLogic deduplicateSnapshots should match 
     },
     "timestamp": 1682952383543,
     "type": 3,
-    "windowId": "187d7c761a0525d-05f175487d4b65-1d525634-384000-187d7c761a149d0",
+    "windowId": 1,
   },
   {
     "data": {
@@ -692,7 +692,7 @@ exports[`sessionRecordingDataCoordinatorLogic deduplicateSnapshots should match 
     },
     "timestamp": 1682952384050,
     "type": 3,
-    "windowId": "187d7c761a0525d-05f175487d4b65-1d525634-384000-187d7c761a149d0",
+    "windowId": 1,
   },
   {
     "data": {
@@ -704,7 +704,7 @@ exports[`sessionRecordingDataCoordinatorLogic deduplicateSnapshots should match 
     },
     "timestamp": 1682952384230,
     "type": 3,
-    "windowId": "187d7c761a0525d-05f175487d4b65-1d525634-384000-187d7c761a149d0",
+    "windowId": 1,
   },
   {
     "data": {
@@ -714,7 +714,7 @@ exports[`sessionRecordingDataCoordinatorLogic deduplicateSnapshots should match 
     },
     "timestamp": 1682952384231,
     "type": 3,
-    "windowId": "187d7c761a0525d-05f175487d4b65-1d525634-384000-187d7c761a149d0",
+    "windowId": 1,
   },
   {
     "data": {
@@ -726,7 +726,7 @@ exports[`sessionRecordingDataCoordinatorLogic deduplicateSnapshots should match 
     },
     "timestamp": 1682952384310,
     "type": 3,
-    "windowId": "187d7c761a0525d-05f175487d4b65-1d525634-384000-187d7c761a149d0",
+    "windowId": 1,
   },
   {
     "data": {
@@ -739,7 +739,7 @@ exports[`sessionRecordingDataCoordinatorLogic deduplicateSnapshots should match 
     },
     "timestamp": 1682952384313,
     "type": 3,
-    "windowId": "187d7c761a0525d-05f175487d4b65-1d525634-384000-187d7c761a149d0",
+    "windowId": 1,
   },
   {
     "data": {
@@ -751,7 +751,7 @@ exports[`sessionRecordingDataCoordinatorLogic deduplicateSnapshots should match 
     },
     "timestamp": 1682952384447,
     "type": 3,
-    "windowId": "187d7c761a0525d-05f175487d4b65-1d525634-384000-187d7c761a149d0",
+    "windowId": 1,
   },
   {
     "data": {
@@ -763,7 +763,7 @@ exports[`sessionRecordingDataCoordinatorLogic deduplicateSnapshots should match 
     },
     "timestamp": 1682952384460,
     "type": 3,
-    "windowId": "187d7c761a0525d-05f175487d4b65-1d525634-384000-187d7c761a149d0",
+    "windowId": 1,
   },
   {
     "data": {
@@ -776,7 +776,7 @@ exports[`sessionRecordingDataCoordinatorLogic deduplicateSnapshots should match 
     },
     "timestamp": 1682952384463,
     "type": 3,
-    "windowId": "187d7c761a0525d-05f175487d4b65-1d525634-384000-187d7c761a149d0",
+    "windowId": 1,
   },
   {
     "data": {
@@ -788,7 +788,7 @@ exports[`sessionRecordingDataCoordinatorLogic deduplicateSnapshots should match 
     },
     "timestamp": 1682952384464,
     "type": 3,
-    "windowId": "187d7c761a0525d-05f175487d4b65-1d525634-384000-187d7c761a149d0",
+    "windowId": 1,
   },
   {
     "data": {
@@ -822,7 +822,7 @@ exports[`sessionRecordingDataCoordinatorLogic deduplicateSnapshots should match 
     },
     "timestamp": 1682952384555,
     "type": 3,
-    "windowId": "187d7c761a0525d-05f175487d4b65-1d525634-384000-187d7c761a149d0",
+    "windowId": 1,
   },
   {
     "data": {
@@ -834,7 +834,7 @@ exports[`sessionRecordingDataCoordinatorLogic deduplicateSnapshots should match 
     },
     "timestamp": 1682952384559,
     "type": 3,
-    "windowId": "187d7c761a0525d-05f175487d4b65-1d525634-384000-187d7c761a149d0",
+    "windowId": 1,
   },
   {
     "data": {
@@ -846,7 +846,7 @@ exports[`sessionRecordingDataCoordinatorLogic deduplicateSnapshots should match 
     },
     "timestamp": 1682952384675,
     "type": 3,
-    "windowId": "187d7c761a0525d-05f175487d4b65-1d525634-384000-187d7c761a149d0",
+    "windowId": 1,
   },
   {
     "data": {
@@ -859,7 +859,7 @@ exports[`sessionRecordingDataCoordinatorLogic deduplicateSnapshots should match 
     },
     "timestamp": 1682952384676,
     "type": 3,
-    "windowId": "187d7c761a0525d-05f175487d4b65-1d525634-384000-187d7c761a149d0",
+    "windowId": 1,
   },
   {
     "data": {
@@ -871,7 +871,7 @@ exports[`sessionRecordingDataCoordinatorLogic deduplicateSnapshots should match 
     },
     "timestamp": 1682952384709,
     "type": 3,
-    "windowId": "187d7c761a0525d-05f175487d4b65-1d525634-384000-187d7c761a149d0",
+    "windowId": 1,
   },
   {
     "data": {
@@ -883,7 +883,7 @@ exports[`sessionRecordingDataCoordinatorLogic deduplicateSnapshots should match 
     },
     "timestamp": 1682952384810,
     "type": 3,
-    "windowId": "187d7c761a0525d-05f175487d4b65-1d525634-384000-187d7c761a149d0",
+    "windowId": 1,
   },
   {
     "data": {
@@ -896,7 +896,7 @@ exports[`sessionRecordingDataCoordinatorLogic deduplicateSnapshots should match 
     },
     "timestamp": 1682952384811,
     "type": 3,
-    "windowId": "187d7c761a0525d-05f175487d4b65-1d525634-384000-187d7c761a149d0",
+    "windowId": 1,
   },
   {
     "data": {
@@ -912,7 +912,7 @@ exports[`sessionRecordingDataCoordinatorLogic deduplicateSnapshots should match 
     },
     "timestamp": 1682952385058,
     "type": 3,
-    "windowId": "187d7c761a0525d-05f175487d4b65-1d525634-384000-187d7c761a149d0",
+    "windowId": 1,
   },
   {
     "data": {
@@ -928,7 +928,7 @@ exports[`sessionRecordingDataCoordinatorLogic deduplicateSnapshots should match 
     },
     "timestamp": 1682952385562,
     "type": 3,
-    "windowId": "187d7c761a0525d-05f175487d4b65-1d525634-384000-187d7c761a149d0",
+    "windowId": 1,
   },
   {
     "data": {
@@ -938,7 +938,7 @@ exports[`sessionRecordingDataCoordinatorLogic deduplicateSnapshots should match 
     },
     "timestamp": 1682952385719,
     "type": 3,
-    "windowId": "187d7c761a0525d-05f175487d4b65-1d525634-384000-187d7c761a149d0",
+    "windowId": 1,
   },
   {
     "data": {
@@ -948,7 +948,7 @@ exports[`sessionRecordingDataCoordinatorLogic deduplicateSnapshots should match 
     },
     "timestamp": 1682952385738,
     "type": 3,
-    "windowId": "187d7c761a0525d-05f175487d4b65-1d525634-384000-187d7c761a149d0",
+    "windowId": 1,
   },
   {
     "data": {
@@ -964,7 +964,7 @@ exports[`sessionRecordingDataCoordinatorLogic deduplicateSnapshots should match 
     },
     "timestamp": 1682952386063,
     "type": 3,
-    "windowId": "187d7c761a0525d-05f175487d4b65-1d525634-384000-187d7c761a149d0",
+    "windowId": 1,
   },
   {
     "data": {
@@ -986,7 +986,7 @@ exports[`sessionRecordingDataCoordinatorLogic deduplicateSnapshots should match 
     },
     "timestamp": 1682952386571,
     "type": 3,
-    "windowId": "187d7c761a0525d-05f175487d4b65-1d525634-384000-187d7c761a149d0",
+    "windowId": 1,
   },
   {
     "data": {
@@ -996,7 +996,7 @@ exports[`sessionRecordingDataCoordinatorLogic deduplicateSnapshots should match 
     },
     "timestamp": 1682952388104,
     "type": 4,
-    "windowId": "187d7c77dfe1d45-08bdcaf91135a2-1d525634-384000-187d7c77dff39a6",
+    "windowId": 2,
   },
   {
     "data": {
@@ -1350,7 +1350,7 @@ exports[`sessionRecordingDataCoordinatorLogic deduplicateSnapshots should match 
     },
     "timestamp": 1682952388106,
     "type": 2,
-    "windowId": "187d7c77dfe1d45-08bdcaf91135a2-1d525634-384000-187d7c77dff39a6",
+    "windowId": 2,
   },
   {
     "data": {
@@ -1371,7 +1371,7 @@ exports[`sessionRecordingDataCoordinatorLogic deduplicateSnapshots should match 
     },
     "timestamp": 1682952388108,
     "type": 3,
-    "windowId": "187d7c77dfe1d45-08bdcaf91135a2-1d525634-384000-187d7c77dff39a6",
+    "windowId": 2,
   },
   {
     "data": {
@@ -1699,7 +1699,7 @@ exports[`sessionRecordingDataCoordinatorLogic deduplicateSnapshots should match 
     },
     "timestamp": 1682952388117,
     "type": 3,
-    "windowId": "187d7c77dfe1d45-08bdcaf91135a2-1d525634-384000-187d7c77dff39a6",
+    "windowId": 2,
   },
   {
     "data": {
@@ -1780,7 +1780,7 @@ exports[`sessionRecordingDataCoordinatorLogic deduplicateSnapshots should match 
     },
     "timestamp": 1682952388132,
     "type": 3,
-    "windowId": "187d7c77dfe1d45-08bdcaf91135a2-1d525634-384000-187d7c77dff39a6",
+    "windowId": 2,
   },
   {
     "data": {
@@ -1796,7 +1796,7 @@ exports[`sessionRecordingDataCoordinatorLogic deduplicateSnapshots should match 
     },
     "timestamp": 1682952388659,
     "type": 3,
-    "windowId": "187d7c77dfe1d45-08bdcaf91135a2-1d525634-384000-187d7c77dff39a6",
+    "windowId": 2,
   },
   {
     "data": {
@@ -1830,7 +1830,7 @@ exports[`sessionRecordingDataCoordinatorLogic deduplicateSnapshots should match 
     },
     "timestamp": 1682952389163,
     "type": 3,
-    "windowId": "187d7c77dfe1d45-08bdcaf91135a2-1d525634-384000-187d7c77dff39a6",
+    "windowId": 2,
   },
   {
     "data": {
@@ -1882,7 +1882,7 @@ exports[`sessionRecordingDataCoordinatorLogic deduplicateSnapshots should match 
     },
     "timestamp": 1682952389668,
     "type": 3,
-    "windowId": "187d7c77dfe1d45-08bdcaf91135a2-1d525634-384000-187d7c77dff39a6",
+    "windowId": 2,
   },
   {
     "data": {
@@ -1894,7 +1894,7 @@ exports[`sessionRecordingDataCoordinatorLogic deduplicateSnapshots should match 
     },
     "timestamp": 1682952389698,
     "type": 3,
-    "windowId": "187d7c77dfe1d45-08bdcaf91135a2-1d525634-384000-187d7c77dff39a6",
+    "windowId": 2,
   },
   {
     "data": {
@@ -1904,7 +1904,7 @@ exports[`sessionRecordingDataCoordinatorLogic deduplicateSnapshots should match 
     },
     "timestamp": 1682952389699,
     "type": 3,
-    "windowId": "187d7c77dfe1d45-08bdcaf91135a2-1d525634-384000-187d7c77dff39a6",
+    "windowId": 2,
   },
   {
     "data": {
@@ -1916,7 +1916,7 @@ exports[`sessionRecordingDataCoordinatorLogic deduplicateSnapshots should match 
     },
     "timestamp": 1682952389798,
     "type": 3,
-    "windowId": "187d7c77dfe1d45-08bdcaf91135a2-1d525634-384000-187d7c77dff39a6",
+    "windowId": 2,
   },
   {
     "data": {
@@ -1929,7 +1929,7 @@ exports[`sessionRecordingDataCoordinatorLogic deduplicateSnapshots should match 
     },
     "timestamp": 1682952389798,
     "type": 3,
-    "windowId": "187d7c77dfe1d45-08bdcaf91135a2-1d525634-384000-187d7c77dff39a6",
+    "windowId": 2,
   },
   {
     "data": {
@@ -1941,7 +1941,7 @@ exports[`sessionRecordingDataCoordinatorLogic deduplicateSnapshots should match 
     },
     "timestamp": 1682952389943,
     "type": 3,
-    "windowId": "187d7c77dfe1d45-08bdcaf91135a2-1d525634-384000-187d7c77dff39a6",
+    "windowId": 2,
   },
   {
     "data": {
@@ -1953,7 +1953,7 @@ exports[`sessionRecordingDataCoordinatorLogic deduplicateSnapshots should match 
     },
     "timestamp": 1682952390043,
     "type": 3,
-    "windowId": "187d7c77dfe1d45-08bdcaf91135a2-1d525634-384000-187d7c77dff39a6",
+    "windowId": 2,
   },
   {
     "data": {
@@ -1966,7 +1966,7 @@ exports[`sessionRecordingDataCoordinatorLogic deduplicateSnapshots should match 
     },
     "timestamp": 1682952390044,
     "type": 3,
-    "windowId": "187d7c77dfe1d45-08bdcaf91135a2-1d525634-384000-187d7c77dff39a6",
+    "windowId": 2,
   },
   {
     "data": {
@@ -1978,7 +1978,7 @@ exports[`sessionRecordingDataCoordinatorLogic deduplicateSnapshots should match 
     },
     "timestamp": 1682952390047,
     "type": 3,
-    "windowId": "187d7c77dfe1d45-08bdcaf91135a2-1d525634-384000-187d7c77dff39a6",
+    "windowId": 2,
   },
   {
     "data": {
@@ -1990,7 +1990,7 @@ exports[`sessionRecordingDataCoordinatorLogic deduplicateSnapshots should match 
     },
     "timestamp": 1682952390112,
     "type": 3,
-    "windowId": "187d7c77dfe1d45-08bdcaf91135a2-1d525634-384000-187d7c77dff39a6",
+    "windowId": 2,
   },
   {
     "data": {
@@ -2002,7 +2002,7 @@ exports[`sessionRecordingDataCoordinatorLogic deduplicateSnapshots should match 
     },
     "timestamp": 1682952390243,
     "type": 3,
-    "windowId": "187d7c77dfe1d45-08bdcaf91135a2-1d525634-384000-187d7c77dff39a6",
+    "windowId": 2,
   },
   {
     "data": {
@@ -2015,7 +2015,7 @@ exports[`sessionRecordingDataCoordinatorLogic deduplicateSnapshots should match 
     },
     "timestamp": 1682952390244,
     "type": 3,
-    "windowId": "187d7c77dfe1d45-08bdcaf91135a2-1d525634-384000-187d7c77dff39a6",
+    "windowId": 2,
   },
   {
     "data": {
@@ -2025,7 +2025,7 @@ exports[`sessionRecordingDataCoordinatorLogic deduplicateSnapshots should match 
     },
     "timestamp": 1682952392745,
     "type": 3,
-    "windowId": "187d7c77dfe1d45-08bdcaf91135a2-1d525634-384000-187d7c77dff39a6",
+    "windowId": 2,
   },
 ]
 `;
@@ -2047,6 +2047,10 @@ AND timestamp < '2023-05-02 14:46:32'
 AND $session_id = '2'
 ORDER BY timestamp ASC
 LIMIT 1000000",
+        "tags": {
+          "productKey": "session_replay",
+          "scene": "ReplaySingle",
+        },
       },
       "refresh": undefined,
       "variables_override": undefined,
@@ -2065,6 +2069,10 @@ AND timestamp < '2023-05-02 14:46:32'
 AND $session_id = '2'
 ORDER BY timestamp ASC
 LIMIT 1000000",
+          "tags": {
+            "productKey": "session_replay",
+            "scene": "ReplaySingle",
+          },
         },
         "refresh": undefined,
         "variables_override": undefined,
@@ -2088,6 +2096,10 @@ AND properties.$lib != 'web'
 AND person_id = '0187d7c7-61b7-0000-d6a1-59b207080ac0'
 ORDER BY timestamp ASC
 LIMIT 1000000",
+        "tags": {
+          "productKey": "session_replay",
+          "scene": "ReplaySingle",
+        },
       },
       "refresh": undefined,
       "variables_override": undefined,
@@ -2108,6 +2120,10 @@ AND properties.$lib != 'web'
 AND person_id = '0187d7c7-61b7-0000-d6a1-59b207080ac0'
 ORDER BY timestamp ASC
 LIMIT 1000000",
+          "tags": {
+            "productKey": "session_replay",
+            "scene": "ReplaySingle",
+          },
         },
         "refresh": undefined,
         "variables_override": undefined,

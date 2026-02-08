@@ -9,6 +9,7 @@ import {
     CustomerAnalyticsConfig,
     DataWarehouseNode,
     EventsNode,
+    GroupNode,
 } from '~/queries/schema/schema-general'
 
 import type { customerAnalyticsConfigLogicType } from './customerAnalyticsConfigLogicType'
@@ -18,7 +19,9 @@ export const customerAnalyticsConfigLogic = kea<customerAnalyticsConfigLogicType
 
     actions({
         loadConfig: true,
-        updateEvents: (events: Record<string, ActionsNode | EventsNode | DataWarehouseNode>) => ({ events }),
+        updateEvents: (events: Record<string, ActionsNode | EventsNode | DataWarehouseNode | GroupNode>) => ({
+            events,
+        }),
     }),
 
     connect(() => ({

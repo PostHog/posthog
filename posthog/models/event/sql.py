@@ -4,6 +4,7 @@ from posthog.clickhouse.base_sql import COPY_ROWS_BETWEEN_TEAMS_BASE_SQL
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.indexes import index_by_kafka_timestamp
 from posthog.clickhouse.kafka_engine import (
+    CONSUMER_GROUP_EVENTS_JSON,
     KAFKA_COLUMNS,
     KAFKA_COLUMNS_WITH_PARTITION,
     KAFKA_TIMESTAMP_MS_COLUMN,
@@ -79,7 +80,8 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
     group2_created_at DateTime64,
     group3_created_at DateTime64,
     group4_created_at DateTime64,
-    person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2)
+    person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2),
+    historical_migration Bool
     {dynamically_materialized_columns}
     {materialized_columns}
     {extra_fields}
@@ -131,6 +133,19 @@ def ALTER_TABLE_ADD_DYNAMICALLY_MATERIALIZED_COLUMNS(table: str) -> str:
 
     separator = ",\n"
     return f"ALTER TABLE {table} \n {separator.join(s)}"
+
+
+def MV_DYNAMICALLY_MATERIALIZED_COLUMNS() -> str:
+    s = []
+    for i in range(10):
+        s.append(f"dmat_string_{i}")
+    for i in range(10):
+        s.append(f"dmat_numeric_{i}")
+    for i in range(10):
+        s.append(f"dmat_bool_{i}")
+    for i in range(10):
+        s.append(f"dmat_datetime_{i}")
+    return ",\n".join(s)
 
 
 EVENTS_TABLE_MATERIALIZED_COLUMNS = f"""
@@ -227,9 +242,9 @@ def KAFKA_EVENTS_TABLE_JSON_SQL():
     ).format(
         table_name="kafka_events_json",
         on_cluster_clause=ON_CLUSTER_CLAUSE(),
-        engine=kafka_engine(topic=KAFKA_EVENTS_JSON),
+        engine=kafka_engine(topic=KAFKA_EVENTS_JSON, group=CONSUMER_GROUP_EVENTS_JSON),
         extra_fields="",
-        dynamically_materialized_columns="",
+        dynamically_materialized_columns=EVENTS_TABLE_DYNAMICALLY_MATERIALIZED_COLUMNS(),
         materialized_columns="",
         indexes="",
     )
@@ -262,6 +277,8 @@ group2_created_at,
 group3_created_at,
 group4_created_at,
 person_mode,
+historical_migration,
+{dynamically_materialized_columns},
 _timestamp,
 _offset,
 arrayMap(
@@ -274,6 +291,7 @@ arrayMap(
 FROM {database}.kafka_events_json
 """.format(
         target_table=WRITABLE_EVENTS_DATA_TABLE(),
+        dynamically_materialized_columns=MV_DYNAMICALLY_MATERIALIZED_COLUMNS(),
         cluster=settings.CLICKHOUSE_CLUSTER,
         database=settings.CLICKHOUSE_DATABASE,
     )
@@ -387,6 +405,104 @@ def WRITABLE_EVENTS_RECENT_TABLE_SQL(on_cluster=True):
     )
 
 
+# New sharded events_recent pipeline: sources data from sharded_events via MV
+# instead of directly from Kafka. These tables run in parallel with the old
+# Kafka-based events_recent pipeline until the old one is shut down.
+
+SHARDED_EVENTS_RECENT_DATA_TABLE = "sharded_events_recent"
+
+
+def SHARDED_EVENTS_RECENT_TABLE_SQL():
+    return (
+        EVENTS_TABLE_BASE_SQL
+        + """PARTITION BY toStartOfDay(inserted_at)
+ORDER BY (team_id, toStartOfHour(inserted_at), event, cityHash64(distinct_id), cityHash64(uuid))
+TTL toDateTime(inserted_at) + INTERVAL 7 DAY
+{storage_policy}
+SETTINGS ttl_only_drop_parts = 1
+"""
+    ).format(
+        table_name=SHARDED_EVENTS_RECENT_DATA_TABLE,
+        on_cluster_clause=ON_CLUSTER_CLAUSE(False),
+        engine=ReplacingMergeTree(
+            "sharded_events_recent", ver="_timestamp", replication_scheme=ReplicationScheme.SHARDED
+        ),
+        extra_fields=KAFKA_COLUMNS + INSERTED_AT_NOT_NULLABLE_COLUMN,
+        dynamically_materialized_columns="",
+        materialized_columns="",
+        indexes="",
+        storage_policy=STORAGE_POLICY(),
+    )
+
+
+def DISTRIBUTED_SHARDED_EVENTS_RECENT_TABLE_SQL():
+    return EVENTS_TABLE_BASE_SQL.format(
+        table_name="distributed_sharded_events_recent",
+        on_cluster_clause=ON_CLUSTER_CLAUSE(False),
+        engine=Distributed(
+            data_table=SHARDED_EVENTS_RECENT_DATA_TABLE,
+            sharding_key="sipHash64(distinct_id)",
+        ),
+        extra_fields=KAFKA_COLUMNS + INSERTED_AT_COLUMN,
+        dynamically_materialized_columns="",
+        materialized_columns="",
+        indexes="",
+    )
+
+
+def WRITABLE_SHARDED_EVENTS_RECENT_TABLE_SQL():
+    return EVENTS_TABLE_BASE_SQL.format(
+        table_name="writable_events_recent",
+        on_cluster_clause=ON_CLUSTER_CLAUSE(False),
+        engine=Distributed(
+            data_table=SHARDED_EVENTS_RECENT_DATA_TABLE,
+            sharding_key="sipHash64(distinct_id)",
+            cluster=settings.CLICKHOUSE_WRITABLE_CLUSTER,
+        ),
+        extra_fields=KAFKA_COLUMNS,
+        dynamically_materialized_columns="",
+        materialized_columns="",
+        indexes="",
+    )
+
+
+SHARDED_EVENTS_RECENT_MV_SQL = (
+    lambda: """
+CREATE MATERIALIZED VIEW IF NOT EXISTS events_recent_json_mv
+TO {database}.writable_events_recent
+AS SELECT
+uuid,
+event,
+properties,
+timestamp,
+team_id,
+distinct_id,
+elements_chain,
+created_at,
+person_id,
+person_created_at,
+person_properties,
+group0_properties,
+group1_properties,
+group2_properties,
+group3_properties,
+group4_properties,
+group0_created_at,
+group1_created_at,
+group2_created_at,
+group3_created_at,
+group4_created_at,
+person_mode,
+_timestamp,
+_offset
+FROM {database}.{source_table}
+""".format(
+        source_table=EVENTS_DATA_TABLE(),
+        database=settings.CLICKHOUSE_DATABASE,
+    )
+)
+
+
 # Distributed engine tables are only created if CLICKHOUSE_REPLICATED
 
 # This table is responsible for writing to sharded_events based on a sharding key.
@@ -398,7 +514,7 @@ def WRITABLE_EVENTS_TABLE_SQL():
         on_cluster_clause=ON_CLUSTER_CLAUSE(),
         engine=Distributed(data_table=EVENTS_DATA_TABLE(), sharding_key="sipHash64(distinct_id)"),
         extra_fields=KAFKA_COLUMNS + KAFKA_CONSUMER_BREADCRUMBS_COLUMN,
-        dynamically_materialized_columns="",
+        dynamically_materialized_columns=EVENTS_TABLE_DYNAMICALLY_MATERIALIZED_COLUMNS(),
         materialized_columns="",
         indexes="",
     )

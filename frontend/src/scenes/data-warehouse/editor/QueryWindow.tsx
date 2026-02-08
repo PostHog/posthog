@@ -3,17 +3,23 @@ import { useActions, useValues } from 'kea'
 import type { editor as importedEditor } from 'monaco-editor'
 import { useMemo } from 'react'
 
-import { IconBook, IconDownload, IconInfo, IconPlayFilled, IconSidebarClose } from '@posthog/icons'
+import { IconBook, IconDownload, IconInfo, IconPlayFilled } from '@posthog/icons'
 import { LemonDivider, Spinner } from '@posthog/lemon-ui'
 
+import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
+import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { Link } from 'lib/lemon-ui/Link'
 import { IconCancel } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
+import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
+import { SceneTitlePanelButton } from '~/layout/scenes/components/SceneTitleSection'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { NodeKind } from '~/queries/schema/schema-general'
 
@@ -47,9 +53,6 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
         inProgressViewEdits,
     } = useValues(multitabEditorLogic)
 
-    const { activePanelIdentifier } = useValues(panelLayoutLogic)
-    const { setActivePanelIdentifier } = useActions(panelLayoutLogic)
-
     const { setQueryInput, runQuery, setError, setMetadata, setMetadataLoading, saveAsView, saveDraft, updateView } =
         useActions(multitabEditorLogic)
     const { openHistoryModal } = useActions(multitabEditorLogic)
@@ -58,6 +61,10 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
     const { response } = useValues(dataNodeLogic)
     const { updatingDataWarehouseSavedQuery } = useValues(dataWarehouseViewsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
+    const vimModeFeatureEnabled = useFeatureFlag('SQL_EDITOR_VIM_MODE')
+    const { editorVimModeEnabled } = useValues(userPreferencesLogic)
+    const { setEditorVimModeEnabled } = useActions(userPreferencesLogic)
     const [editingViewDisabledReason, EditingViewButtonIcon] = useMemo(() => {
         if (updatingDataWarehouseSavedQuery) {
             return ['Saving...', Spinner]
@@ -77,7 +84,7 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
     const isMaterializedView = editingView?.is_materialized === true
 
     return (
-        <div className="flex flex-1 flex-col h-full overflow-hidden">
+        <div className="flex grow flex-col overflow-hidden">
             {(editingView || editingInsight) && (
                 <div className="h-5 bg-warning-highlight">
                     <span className="pl-2 text-xs">
@@ -97,17 +104,6 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
                 </div>
             )}
             <div className="flex flex-row justify-start align-center w-full pl-2 pr-2 bg-white dark:bg-black border-b">
-                {activePanelIdentifier !== 'Database' ? (
-                    <LemonButton
-                        onClick={() => setActivePanelIdentifier('Database')}
-                        className="rounded-none"
-                        icon={<IconSidebarClose />}
-                        type="tertiary"
-                        size="xsmall"
-                    >
-                        Data warehouse
-                    </LemonButton>
-                ) : null}
                 <RunButton />
                 <LemonDivider vertical />
                 {isDraft && featureFlags[FEATURE_FLAGS.EDITOR_DRAFTS] && (
@@ -230,19 +226,39 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
                 )}
                 {!editingInsight && !editingView && (
                     <>
-                        <LemonButton
-                            onClick={() => saveAsView()}
-                            icon={<IconDownload />}
-                            type="tertiary"
-                            size="xsmall"
-                            data-attr="sql-editor-save-view-button"
-                            id="sql-editor-query-window-save-as-view"
+                        <AppShortcut
+                            name="SQLEditorSaveAsView"
+                            keybind={[keyBinds.save]}
+                            intent="Save as view"
+                            interaction="click"
+                            scope={Scene.SQLEditor}
                         >
-                            Save as view
-                        </LemonButton>
+                            <LemonButton
+                                onClick={() => saveAsView()}
+                                icon={<IconDownload />}
+                                type="tertiary"
+                                size="xsmall"
+                                data-attr="sql-editor-save-view-button"
+                                id="sql-editor-query-window-save-as-view"
+                            >
+                                Save as view
+                            </LemonButton>
+                        </AppShortcut>
                     </>
                 )}
                 <FixErrorButton type="tertiary" size="xsmall" source="action-bar" />
+                <div className="ml-auto flex items-center gap-1">
+                    {vimModeFeatureEnabled && (
+                        <LemonSwitch
+                            checked={editorVimModeEnabled}
+                            onChange={setEditorVimModeEnabled}
+                            label="Vim"
+                            size="small"
+                            data-attr="sql-editor-vim-toggle"
+                        />
+                    )}
+                    {isRemovingSidePanelFlag && <SceneTitlePanelButton />}
+                </div>
             </div>
             <QueryPane
                 originalValue={originalQueryInput ?? ''}
@@ -250,6 +266,7 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
                 sourceQuery={sourceQuery.source}
                 promptError={null}
                 onRun={runQuery}
+                editorVimModeEnabled={vimModeFeatureEnabled && editorVimModeEnabled}
                 codeEditorProps={{
                     queryKey: codeEditorKey,
                     onChange: (v) => {
@@ -307,22 +324,30 @@ function RunButton(): JSX.Element {
     }, [metadata, isUsingIndices, queryInput, isSourceQueryLastRun])
 
     return (
-        <LemonButton
-            data-attr="sql-editor-run-button"
-            onClick={() => {
-                if (responseLoading) {
-                    cancelQuery()
-                } else {
-                    runQuery()
-                }
-            }}
-            icon={responseLoading ? <IconCancel /> : <IconPlayFilled color={iconColor} />}
-            type="tertiary"
-            size="xsmall"
-            tooltip={tooltipContent}
+        <AppShortcut
+            name="SQLEditorRun"
+            keybind={[keyBinds.run]}
+            intent={responseLoading ? 'Cancel query' : 'Run query'}
+            interaction="click"
+            scope={Scene.SQLEditor}
         >
-            {responseLoading ? 'Cancel' : 'Run'}
-        </LemonButton>
+            <LemonButton
+                data-attr="sql-editor-run-button"
+                onClick={() => {
+                    if (responseLoading) {
+                        cancelQuery()
+                    } else {
+                        runQuery()
+                    }
+                }}
+                icon={responseLoading ? <IconCancel /> : <IconPlayFilled color={iconColor} />}
+                type="tertiary"
+                size="xsmall"
+                tooltip={tooltipContent}
+            >
+                {responseLoading ? 'Cancel' : 'Run'}
+            </LemonButton>
+        </AppShortcut>
     )
 }
 

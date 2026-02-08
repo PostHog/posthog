@@ -2,7 +2,7 @@
     "name": "@posthog/lemon-ui",
     "version": "0.0.0",
     "license": "MIT",
-    "homepage": "https://storybook.posthog.net/?path=/docs/lemon-ui-overview--page",
+    "homepage": "https://storybook.dev.posthog.dev/",
     "source": "src/index.ts",
     "main": "dist/index.js",
     "types": "dist/index.d.ts",
@@ -18,7 +18,7 @@
     },
     "devDependencies": {
         "tsup": "^5.12.8",
-        "typescript": "5.2.2"
+        "typescript": "5.4.5"
     },
     "peerDependencies": {
         "react": "*",

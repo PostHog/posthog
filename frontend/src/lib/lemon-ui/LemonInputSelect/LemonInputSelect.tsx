@@ -1,15 +1,17 @@
+import './LemonInputSelect.scss'
+
 import { DndContext, DragEndEvent, PointerSensor, closestCenter, useSensor, useSensors } from '@dnd-kit/core'
 import { SortableContext, arrayMove, rectSortingStrategy, useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import clsx from 'clsx'
 import Fuse from 'fuse.js'
-import { MouseEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
-import { List } from 'react-virtualized/dist/es/List'
+import { CSSProperties, MouseEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { List } from 'react-window'
 
-import { IconPencil, IconX } from '@posthog/icons'
+import { IconCheck, IconPencil, IconX } from '@posthog/icons'
 import { LemonCheckbox, Tooltip } from '@posthog/lemon-ui'
 
+import { AutoSizer } from 'lib/components/AutoSizer'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonSnack } from 'lib/lemon-ui/LemonSnack/LemonSnack'
 import { SortableDragIcon } from 'lib/lemon-ui/icons'
@@ -30,6 +32,90 @@ const VIRTUALIZED_SELECT_OPTION_HEIGHT = 33
 
 const VIRTUALIZED_MAX_DROPDOWN_HEIGHT = 420
 
+interface VirtualizedOptionRowProps<T = string> {
+    visibleOptions: LemonInputSelectOption<T>[]
+    selectedIndex: number
+    stringKeys: string[]
+    wasLimitReached: boolean
+    limit?: number
+    _onActionItem: (key: string, e?: MouseEvent) => void
+    setSelectedIndex: (index: number) => void
+    allowCustomValues?: boolean
+    disableEditing?: boolean
+    setInputValue: (value: string) => void
+    inputRef: React.RefObject<HTMLInputElement | null>
+    _onFocus: () => void
+    getInputLabel: (option: LemonInputSelectOption<T>) => React.ReactNode
+    getOptionIcon: (option: LemonInputSelectOption<T>, isSelected: boolean) => JSX.Element | null | undefined
+}
+
+function VirtualizedOptionRow<T = string>({
+    index,
+    style,
+    visibleOptions,
+    selectedIndex,
+    stringKeys,
+    wasLimitReached,
+    limit,
+    _onActionItem,
+    setSelectedIndex,
+    allowCustomValues,
+    disableEditing,
+    setInputValue,
+    inputRef,
+    _onFocus,
+    getInputLabel,
+    getOptionIcon,
+}: {
+    ariaAttributes: Record<string, unknown>
+    index: number
+    style: CSSProperties
+} & VirtualizedOptionRowProps<T>): JSX.Element {
+    const option = visibleOptions[index]
+    const isFocused = index === selectedIndex
+    const isSelected = stringKeys.includes(option.key)
+    const isDisabled = wasLimitReached && !isSelected
+    return (
+        <LemonButton
+            style={style}
+            key={option.key}
+            type="tertiary"
+            size="small"
+            fullWidth
+            active={isFocused}
+            onClick={(e) => !isDisabled && _onActionItem(option.key, e)}
+            onMouseEnter={() => setSelectedIndex(index)}
+            disabledReason={isDisabled ? `Limit of ${limit} options reached` : undefined}
+            tooltip={option.tooltip}
+            icon={getOptionIcon(option, isSelected)}
+            sideAction={
+                !option.__isInput && allowCustomValues && !disableEditing
+                    ? {
+                          icon: <IconPencil className={!isFocused ? 'invisible' : undefined} />,
+                          tooltip: (
+                              <>
+                                  Edit this value
+                                  <KeyboardShortcut option enter />
+                              </>
+                          ),
+                          onClick: () => {
+                              setInputValue(option.key)
+                              inputRef.current?.focus()
+                              _onFocus()
+                          },
+                      }
+                    : undefined
+            }
+        >
+            <span className="whitespace-nowrap ph-no-capture truncate">
+                {!option.__isInput && !option.__isCustomValue
+                    ? (option.labelComponent ?? option.label)
+                    : getInputLabel(option)}
+            </span>
+        </LemonButton>
+    )
+}
+
 export interface LemonInputSelectOption<T = string> {
     key: string
     label: string
@@ -37,6 +123,8 @@ export interface LemonInputSelectOption<T = string> {
     tooltip?: TooltipTitle
     /** @internal */
     __isInput?: boolean
+    /** @internal - marks custom values (user-created, not in original options) */
+    __isCustomValue?: boolean
     /** Original typed value - when provided, this will be used in onChange callbacks */
     value?: T
 }
@@ -46,7 +134,7 @@ export type LemonInputSelectAction = SideAction & Pick<LemonButtonPropsBase, 'ch
 export type LemonInputSelectProps<T = string> = Pick<
     // NOTE: We explicitly pick rather than omit to ensure these components aren't used incorrectly
     LemonInputProps,
-    'autoFocus' | 'autoWidth' | 'fullWidth'
+    'autoFocus' | 'autoWidth' | 'fullWidth' | 'status'
 > & {
     options?: LemonInputSelectOption<T>[]
     value?: T[] | null
@@ -59,6 +147,12 @@ export type LemonInputSelectProps<T = string> = Pick<
     disablePrompting?: boolean
     mode: 'multiple' | 'single'
     allowCustomValues?: boolean
+    /** Disable editing functionality (hides edit icons) while still allowing custom values */
+    disableEditing?: boolean
+    /** Format the label for custom values. Supports text (e.g. appending " (new entry)") and html. */
+    formatCreateLabel?: (input: string) => React.ReactNode
+    /** Transform input value as user types, e.g. normalization like replacing spaces with dashes. */
+    inputTransform?: (input: string) => string
     emptyStateComponent?: React.ReactNode
     onChange?: (newValue: T[]) => void
     onBlur?: () => void
@@ -94,8 +188,11 @@ export function LemonInputSelect<T = string>({
     mode,
     disabled,
     disableFiltering = false,
+    formatCreateLabel,
+    inputTransform,
     disablePrompting = false,
     allowCustomValues = false,
+    disableEditing = false,
     autoFocus = false,
     className,
     popoverClassName,
@@ -110,6 +207,7 @@ export function LemonInputSelect<T = string>({
     action,
     virtualized = false,
     sortable = false,
+    status = 'default',
 }: LemonInputSelectProps<T>): JSX.Element {
     const [showPopover, setShowPopover] = useState(false)
     const [inputValue, _setInputValue] = useState('')
@@ -201,7 +299,9 @@ export function LemonInputSelect<T = string>({
         // Custom values are shown as options before other options (Map guarantees preserves insertion order)
         const allOptionsMap = new Map<string, LemonInputSelectOption<T>>()
         for (const customValue of customValues) {
-            allOptionsMap.set(customValue, { key: customValue, label: customValue })
+            // Mark custom values with __isCustomValue flag so they use formatCreateLabel in the dropdown not only when typing
+            // but also when re-opening the dropdown after typing
+            allOptionsMap.set(customValue, { key: customValue, label: customValue, __isCustomValue: true })
         }
         for (const option of options) {
             allOptionsMap.set(option.key, option)
@@ -215,7 +315,7 @@ export function LemonInputSelect<T = string>({
         const ret: LemonInputSelectOption<T>[] = []
         // Show the input value if custom values are allowed and it's not in the list
         if (inputValue && !stringKeys.includes(inputValue)) {
-            if (allowCustomValues) {
+            if (allowCustomValues && !optionMaps.keySet.has(inputValue)) {
                 const unescapedInputValue = inputValue.replaceAll('\\,', ',') // Transform escaped commas to plain commas
                 ret.push({ key: unescapedInputValue, label: unescapedInputValue, __isInput: true })
             }
@@ -235,8 +335,8 @@ export function LemonInputSelect<T = string>({
             relevantOptions = Array.from(allOptionsMap.values())
         }
         for (const option of relevantOptions) {
-            if (option.key === inputValue) {
-                // We also don't want to show the input-based option again
+            if (option.key === inputValue && option.__isInput) {
+                // We don't want to show the input-based option again. The check for __isInput covers the case the user types something that is already an option, but we want to keep the original option
                 continue
             }
             if (mode === 'single' && values.length > 0 && option.key === getStringKey(values[0])) {
@@ -264,6 +364,7 @@ export function LemonInputSelect<T = string>({
         disableFiltering,
         values.length,
         virtualized,
+        optionMaps,
     ])
 
     // Reset the selected index when the visible options change
@@ -272,6 +373,11 @@ export function LemonInputSelect<T = string>({
     }, [visibleOptions.map((option) => option.key).join(':::')])
 
     const setInputValue = (newValue: string): void => {
+        // Apply input transformation if provided
+        if (inputTransform) {
+            newValue = inputTransform(newValue)
+        }
+
         // Special case for multiple mode with custom values
         if (separateOnComma && newValue.match(NON_ESCAPED_COMMA_REGEX)) {
             const newValues = [...values]
@@ -337,7 +443,7 @@ export function LemonInputSelect<T = string>({
 
     const _onActionItem = (
         item: string,
-        popoverOptionClickEvent: MouseEvent | null,
+        popoverOptionClickEvent?: MouseEvent | null,
         shouldInitiateEdit?: boolean
     ): void => {
         if (shouldInitiateEdit && allowCustomValues) {
@@ -363,10 +469,16 @@ export function LemonInputSelect<T = string>({
             popoverFocusRef.current = false
             // Prevent propagating to Popover's onClickInside, which would set popoverFocusRef.current back to true
             popoverOptionClickEvent?.stopPropagation()
+            // Remove focus from input after selecting an option, since in single mode that feels better UX-wise
+            inputRef.current?.blur()
         }
 
         if (stringKeys.includes(item)) {
-            _removeItem(item)
+            // In single mode, clicking an already-selected value should keep it selected, not toggle it off
+            // (clicking an already selected item to toggle it off makes sense for multiple-select, not for single-select)
+            if (mode !== 'single') {
+                _removeItem(item)
+            }
         } else {
             _addItem(item, itemBeingEditedIndex)
         }
@@ -380,9 +492,10 @@ export function LemonInputSelect<T = string>({
             popoverFocusRef.current = false
             inputRef.current?.focus()
             _onFocus()
-            if (hasCustomValue) {
-                _onActionItem(inputValue.trim(), null)
-            }
+            // Don't add custom values here - if the user clicked on a popover option,
+            // the click handler will handle the selection. Adding it here causes a
+            // double-fire: the value gets added by _onBlur, the component re-renders,
+            // and then the click handler sees it already exists and removes it.
             return
         }
         if (hasCustomValue) {
@@ -395,9 +508,22 @@ export function LemonInputSelect<T = string>({
     }
 
     const _onFocus = (): void => {
+        // In single mode, when focusing with a selected value, enter edit mode right away
+        if (mode === 'single' && values.length > 0 && !inputValue) {
+            setInputValue(getStringKey(values[0]))
+        }
         onFocus?.()
         setShowPopover(true)
         popoverFocusRef.current = true
+    }
+
+    const _onClick = (): void => {
+        // Open dropdown on click even if input already has focus
+        // This handles the case where user clicked outside to close dropdown but input stayed focused
+        if (!showPopover) {
+            setShowPopover(true)
+            popoverFocusRef.current = true
+        }
     }
 
     const _onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>): void => {
@@ -415,6 +541,14 @@ export function LemonInputSelect<T = string>({
                 const newValues = [...values]
                 newValues.pop()
                 onChange?.(newValues)
+            } else if (mode === 'single') {
+                // In single mode, "selected all + backspace" should clear the selection
+                const input = e.currentTarget
+                if (input.selectionStart === 0 && input.selectionEnd === input.value.length) {
+                    e.preventDefault()
+                    setInputValue('')
+                    onChange?.([])
+                }
             }
         } else if (e.key === 'ArrowDown') {
             e.preventDefault()
@@ -443,6 +577,18 @@ export function LemonInputSelect<T = string>({
     )
 
     const valuesPrefix = useMemo(() => {
+        // For single mode with a selected value and no active input, show the value as prefix since
+        // showing the entered value as placeholder was unintuitive
+        if (mode === 'single' && values.length > 0 && !inputValue) {
+            return (
+                <PopoverReferenceContext.Provider value={null}>
+                    <span className="font-medium truncate">
+                        {allOptionsMap.get(getStringKey(values[0]))?.label ?? getDisplayLabel(values[0])}
+                    </span>
+                </PopoverReferenceContext.Provider>
+            )
+        }
+
         if (mode !== 'multiple' || values.length === 0 || displayMode !== 'snacks') {
             return null
         }
@@ -456,35 +602,41 @@ export function LemonInputSelect<T = string>({
                     values={preInputValues.map(getStringKey)}
                     options={options}
                     onClose={(value) => _onActionItem(value, null)}
-                    onInitiateEdit={allowCustomValues ? (value) => _onActionItem(value, null, true) : null}
+                    onInitiateEdit={
+                        allowCustomValues && !disableEditing ? (value) => _onActionItem(value, null, true) : null
+                    }
                     sortable={sortable}
                     onDragEnd={handleDragEnd}
                 />
             </PopoverReferenceContext.Provider>
         )
     }, [
-        allOptionsMap,
-        allowCustomValues,
-        itemBeingEditedIndex,
-        getStringKey,
-        displayMode,
+        mode,
         values,
         values.length,
-        mode,
+        inputValue,
+        allOptionsMap,
+        getStringKey,
+        getDisplayLabel,
+        displayMode,
+        itemBeingEditedIndex,
         options,
+        allowCustomValues,
+        disableEditing,
         _onActionItem,
         sortable,
         handleDragEnd,
     ])
 
-    const valuesAndEditButtonSuffix = useMemo(() => {
-        // The edit button only applies to single-select mode with custom values allowed, when in no-input state
-        const isEditButtonVisible = mode !== 'multiple' && allowCustomValues && values.length && !inputValue
+    const valuesAndClearButtonSuffix = useMemo(() => {
+        // In single-select mode with custom values, show a clear button when a value is selected and not in edit mode
+        const isClearButtonVisible =
+            mode !== 'multiple' && allowCustomValues && !disableEditing && values.length && !inputValue
 
         const postInputValues =
             displayMode === 'snacks' && itemBeingEditedIndex !== null ? values.slice(itemBeingEditedIndex) : []
 
-        if (!isEditButtonVisible && postInputValues.length === 0) {
+        if (!isClearButtonVisible && postInputValues.length === 0) {
             return null
         }
 
@@ -494,20 +646,28 @@ export function LemonInputSelect<T = string>({
                     values={postInputValues.map(getStringKey)}
                     options={options}
                     onClose={(value) => _onActionItem(value, null)}
-                    onInitiateEdit={allowCustomValues ? (value) => _onActionItem(value, null, true) : null}
+                    onInitiateEdit={
+                        allowCustomValues && !disableEditing ? (value) => _onActionItem(value, null, true) : null
+                    }
                     sortable={sortable}
                     onDragEnd={handleDragEnd}
                 />
-                {isEditButtonVisible && (
-                    <div className="grow flex flex-col items-end">
+                {isClearButtonVisible && (
+                    <div
+                        className={clsx(
+                            'grow flex flex-col items-end LemonInputSelect__edit-button-wrapper',
+                            size && `LemonInputSelect__edit-button-wrapper--${size}`
+                        )}
+                    >
                         <LemonButton
-                            icon={<IconPencil />}
-                            onClick={() => {
-                                setInputValue(getStringKey(values[0]))
-                                inputRef.current?.focus()
-                                _onFocus()
+                            icon={<IconX />}
+                            onClick={(e) => {
+                                e.preventDefault()
+                                e.stopPropagation()
+                                setInputValue('')
+                                onChange?.([])
                             }}
-                            tooltip="Edit current value"
+                            tooltip="Clear selection"
                             noPadding
                         />
                     </div>
@@ -518,6 +678,7 @@ export function LemonInputSelect<T = string>({
         mode,
         values,
         allowCustomValues,
+        disableEditing,
         itemBeingEditedIndex,
         inputValue,
         getStringKey,
@@ -528,6 +689,8 @@ export function LemonInputSelect<T = string>({
         setInputValue,
         sortable,
         handleDragEnd,
+        size,
+        onChange,
     ])
 
     // Positioned like a placeholder but rendered via the suffix since the actual placeholder has to be a string
@@ -560,6 +723,37 @@ export function LemonInputSelect<T = string>({
 
     const wasLimitReached = values.length >= limit
 
+    const getInputLabel = (option: LemonInputSelectOption<T>): React.ReactNode => {
+        if (formatCreateLabel) {
+            return formatCreateLabel(option.key)
+        }
+        return mode === 'multiple' ? `Add "${option.key}"` : option.key
+    }
+
+    const getOptionIcon = (
+        option: LemonInputSelectOption<T>,
+        isSelected: boolean
+    ): React.ReactElement | null | undefined => {
+        if (option.__isInput) {
+            return undefined
+        }
+
+        if (isSelected) {
+            return mode === 'multiple' ? (
+                // No pointer events, since it's only for visual feedback
+                <LemonCheckbox checked={true} className="pointer-events-none" />
+            ) : (
+                <IconCheck />
+            )
+        }
+
+        if (mode === 'multiple') {
+            return <LemonCheckbox checked={false} className="pointer-events-none" />
+        }
+
+        return undefined
+    }
+
     return (
         <LemonDropdown
             matchWidth
@@ -569,6 +763,9 @@ export function LemonInputSelect<T = string>({
             onClickOutside={() => {
                 popoverFocusRef.current = false
                 setShowPopover(false)
+                // It seems more intuitive to lose focus of drop down entirely when clicking outside of the field.
+                // If this behavior at some point is not desired for multiple mode anymore, it should be kept for single mode.
+                inputRef.current?.blur()
             }}
             onClickInside={(e) => {
                 popoverFocusRef.current = true
@@ -645,82 +842,35 @@ export function LemonInputSelect<T = string>({
                     {visibleOptions.length > 0 ? (
                         virtualized ? (
                             <div>
-                                <AutoSizer disableHeight>
-                                    {({ width }) => (
-                                        <List
-                                            width={width}
-                                            height={virtualizedListHeight}
-                                            rowCount={visibleOptions.length}
-                                            overscanRowCount={100}
-                                            rowHeight={VIRTUALIZED_SELECT_OPTION_HEIGHT}
-                                            rowRenderer={({ index, style }) => {
-                                                const option = visibleOptions[index]
-                                                const isFocused = index === selectedIndex
-                                                const isSelected = stringKeys.includes(option.key)
-                                                const isDisabled = wasLimitReached && !isSelected
-                                                return (
-                                                    <LemonButton
-                                                        style={style}
-                                                        key={option.key}
-                                                        type="tertiary"
-                                                        size="small"
-                                                        fullWidth
-                                                        active={isFocused}
-                                                        onClick={(e) => !isDisabled && _onActionItem(option.key, e)}
-                                                        onMouseEnter={() => setSelectedIndex(index)}
-                                                        disabledReason={
-                                                            isDisabled ? `Limit of ${limit} options reached` : undefined
-                                                        }
-                                                        tooltip={option.tooltip}
-                                                        icon={
-                                                            mode === 'multiple' && !option.__isInput ? (
-                                                                // No pointer events, since it's only for visual feedback
-                                                                <LemonCheckbox
-                                                                    checked={isSelected}
-                                                                    className="pointer-events-none"
-                                                                />
-                                                            ) : undefined
-                                                        }
-                                                        sideAction={
-                                                            !option.__isInput && allowCustomValues
-                                                                ? {
-                                                                      // To reduce visual clutter we only show the icon on focus or hover,
-                                                                      // but we do want it present to make sure the layout is stable
-                                                                      icon: (
-                                                                          <IconPencil
-                                                                              className={
-                                                                                  !isFocused ? 'invisible' : undefined
-                                                                              }
-                                                                          />
-                                                                      ),
-                                                                      tooltip: (
-                                                                          <>
-                                                                              Edit this value
-                                                                              <KeyboardShortcut option enter />
-                                                                          </>
-                                                                      ),
-                                                                      onClick: () => {
-                                                                          setInputValue(option.key)
-                                                                          inputRef.current?.focus()
-                                                                          _onFocus()
-                                                                      },
-                                                                  }
-                                                                : undefined
-                                                        }
-                                                    >
-                                                        <span className="whitespace-nowrap ph-no-capture truncate">
-                                                            {!option.__isInput
-                                                                ? (option.labelComponent ?? option.label) // Regular option
-                                                                : mode === 'multiple'
-                                                                  ? `Add "${option.key}"` // Input-based option
-                                                                  : option.key}
-                                                        </span>
-                                                    </LemonButton>
-                                                )
-                                            }}
-                                        />
-                                    )}
-                                </AutoSizer>
+                                <AutoSizer
+                                    renderProp={({ width }) =>
+                                        width ? (
+                                            <List<VirtualizedOptionRowProps<T>>
+                                                style={{ width, height: virtualizedListHeight }}
+                                                rowCount={visibleOptions.length}
+                                                overscanCount={100}
+                                                rowHeight={VIRTUALIZED_SELECT_OPTION_HEIGHT}
+                                                rowComponent={VirtualizedOptionRow}
+                                                rowProps={{
+                                                    visibleOptions,
+                                                    selectedIndex,
+                                                    stringKeys,
+                                                    wasLimitReached,
+                                                    limit,
+                                                    _onActionItem,
+                                                    setSelectedIndex,
+                                                    allowCustomValues,
+                                                    disableEditing,
+                                                    setInputValue,
+                                                    inputRef,
+                                                    _onFocus,
+                                                    getInputLabel,
+                                                    getOptionIcon,
+                                                }}
+                                            />
+                                        ) : null
+                                    }
+                                />
                             </div>
                         ) : (
                             visibleOptions.map((option, index) => {
@@ -738,14 +888,9 @@ export function LemonInputSelect<T = string>({
                                         onMouseEnter={() => setSelectedIndex(index)}
                                         disabledReason={isDisabled ? `Limit of ${limit} options reached` : undefined}
                                         tooltip={option.tooltip}
-                                        icon={
-                                            mode === 'multiple' && !option.__isInput ? (
-                                                // No pointer events, since it's only for visual feedback
-                                                <LemonCheckbox checked={isSelected} className="pointer-events-none" />
-                                            ) : undefined
-                                        }
+                                        icon={getOptionIcon(option, isSelected)}
                                         sideAction={
-                                            !option.__isInput && allowCustomValues
+                                            !option.__isInput && allowCustomValues && !disableEditing
                                                 ? {
                                                       // To reduce visual clutter we only show the icon on focus or hover,
                                                       // but we do want it present to make sure the layout is stable
@@ -769,11 +914,11 @@ export function LemonInputSelect<T = string>({
                                         }
                                     >
                                         <span className="whitespace-nowrap ph-no-capture truncate">
-                                            {!option.__isInput
-                                                ? (option.labelComponent ?? option.label) // Regular option
-                                                : mode === 'multiple'
-                                                  ? `Add "${option.key}"` // Input-based option
-                                                  : option.key}
+                                            {
+                                                !option.__isInput && !option.__isCustomValue
+                                                    ? (option.labelComponent ?? option.label) // Regular option
+                                                    : getInputLabel(option) // Input-based option
+                                            }
                                         </span>
                                     </LemonButton>
                                 )
@@ -813,26 +958,27 @@ export function LemonInputSelect<T = string>({
                         : values.length === 0
                           ? placeholder
                           : mode === 'single'
-                            ? (allOptionsMap.get(getStringKey(values[0]))?.label ?? getDisplayLabel(values[0]))
+                            ? undefined // When value is selected in single mode, no placeholder (value shown but rendered as prefix)
                             : allowCustomValues
                               ? 'Add value'
                               : disablePrompting
                                 ? undefined
                                 : 'Pick value'
                 }
-                autoWidth={autoWidth}
+                autoWidth={fullWidth ? false : autoWidth}
                 fullWidth={fullWidth}
                 prefix={valuesPrefix}
                 suffix={
                     <>
                         {countPlaceholder}
-                        {valuesAndEditButtonSuffix}
+                        {valuesAndClearButtonSuffix}
                     </>
                 }
                 onFocus={_onFocus}
                 onBlur={_onBlur}
                 value={inputValue}
                 onChange={setInputValue}
+                onClick={_onClick}
                 onKeyDown={_onKeyDown}
                 disabled={disabled}
                 autoFocus={autoFocus}
@@ -848,6 +994,7 @@ export function LemonInputSelect<T = string>({
                 )}
                 data-attr={dataAttr}
                 size={size}
+                status={status}
             />
         </LemonDropdown>
     )

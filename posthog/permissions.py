@@ -259,6 +259,23 @@ class IsStaffUser(IsAdminUser):
     message = "You are not a staff user, contact your instance admin."
 
 
+class IsStaffUserOrImpersonating(BasePermission):
+    """
+    Allows access to staff users or staff users impersonating other users.
+    """
+
+    message = "You are not a staff user, contact your instance admin."
+
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        from loginas.utils import is_impersonated_session
+
+        return bool(
+            request.user
+            and request.user.is_authenticated
+            and (request.user.is_staff or is_impersonated_session(request))
+        )
+
+
 class PremiumFeaturePermission(BasePermission):
     """
     Requires the user to have proper permission for the feature.
@@ -267,9 +284,9 @@ class PremiumFeaturePermission(BasePermission):
     """
 
     def has_permission(self, request: Request, view: APIView) -> bool:
-        assert hasattr(
-            view, "premium_feature"
-        ), "this permission class requires the `premium_feature` attribute to be set in the view."
+        assert hasattr(view, "premium_feature"), (
+            "this permission class requires the `premium_feature` attribute to be set in the view."
+        )
 
         if not request.user or not request.user.organization:  # type: ignore
             return True
@@ -295,9 +312,9 @@ class SharingTokenPermission(BasePermission):
         return request.successful_authenticator.sharing_configuration.can_access_object(object)
 
     def has_permission(self, request, view) -> bool:
-        assert hasattr(
-            view, "sharing_enabled_actions"
-        ), "SharingTokenPermission requires the `sharing_enabled_actions` attribute to be set in the view"
+        assert hasattr(view, "sharing_enabled_actions"), (
+            "SharingTokenPermission requires the `sharing_enabled_actions` attribute to be set in the view"
+        )
 
         if isinstance(
             request.successful_authenticator, SharingAccessTokenAuthentication | SharingPasswordProtectedAuthentication

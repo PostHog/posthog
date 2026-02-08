@@ -56,3 +56,88 @@
 .Tooltip {
     z-index: calc(var(--z-toolbar) + var(--z-tooltip)) !important;
 }
+
+// Product Tours animations
+// Following animation guidelines: ease-out for entering elements, max 0.3s duration
+
+$ease-out-quart: cubic-bezier(0.165, 0.84, 0.44, 1);
+
+@keyframes Toolbar__SlideUp {
+    from {
+        opacity: 0;
+        transform: translateY(8px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes Toolbar__Pop {
+    from {
+        opacity: 0;
+        transform: scale(0.9);
+    }
+
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+@keyframes Toolbar__BlurRight {
+    from {
+        filter: blur(4px);
+        opacity: 0;
+        transform: translateX(-8px);
+    }
+
+    to {
+        filter: blur(0);
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+@keyframes Toolbar__Fade {
+    from {
+        opacity: 0;
+    }
+
+    to {
+        opacity: 1;
+    }
+}
+
+.toolbar-animate-slide-up {
+    animation: Toolbar__SlideUp 0.2s $ease-out-quart forwards;
+    will-change: transform, opacity;
+
+    @media (prefers-reduced-motion: reduce) {
+        animation: Toolbar__Fade 0.2s $ease-out-quart forwards;
+    }
+}
+
+.toolbar-animate-pop {
+    animation: Toolbar__Pop 0.2s $ease-out-quart forwards;
+    will-change: transform, opacity;
+
+    @media (prefers-reduced-motion: reduce) {
+        animation: Toolbar__Fade 0.2s $ease-out-quart forwards;
+    }
+}
+
+.toolbar-animate-blur-right {
+    animation: Toolbar__BlurRight 0.2s $ease-out-quart forwards;
+    will-change: transform, opacity, filter;
+
+    @media (prefers-reduced-motion: reduce) {
+        animation: Toolbar__Fade 0.2s $ease-out-quart forwards;
+    }
+}
+
+.toolbar-animate-fade {
+    animation: Toolbar__Fade 0.15s $ease-out-quart forwards;
+    will-change: opacity;
+}

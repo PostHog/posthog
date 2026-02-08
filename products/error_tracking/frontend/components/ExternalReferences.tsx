@@ -124,7 +124,7 @@ function SetupIntegrationsButton(): JSX.Element {
             tooltip="Go to integrations configuration"
             target="_blank"
         >
-            Setup integrations
+            Set up integrations
         </Link>
     )
 }

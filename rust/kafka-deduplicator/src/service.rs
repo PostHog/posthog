@@ -1,28 +1,33 @@
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
 use common_kafka::config::KafkaConfig;
 use common_kafka::kafka_producer::create_kafka_producer;
+use common_types::CapturedEvent;
+
 use health::{HealthHandle, HealthRegistry};
-use rdkafka::consumer::Consumer;
 use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info};
 
+use crate::pipelines::ingestion_events::{
+    DeduplicationConfig, DuplicateEventProducerWrapper, IngestionEventsBatchProcessor,
+};
 use crate::{
-    checkpoint::config::CheckpointConfig,
-    checkpoint::export::CheckpointExporter,
-    checkpoint::s3_uploader::S3Uploader,
+    checkpoint::{
+        config::CheckpointConfig, export::CheckpointExporter, import::CheckpointImporter,
+        s3_downloader::S3Downloader, s3_uploader::S3Uploader,
+    },
     checkpoint_manager::CheckpointManager,
     config::Config,
-    deduplication_processor::{
-        DeduplicationConfig, DeduplicationProcessor, DuplicateEventProducerWrapper,
+    kafka::{
+        batch_consumer::BatchConsumer, ConsumerConfigBuilder, OffsetTracker, PartitionRouter,
+        PartitionRouterConfig, PartitionWorkerConfig, RoutingProcessor,
     },
-    kafka::{stateful_consumer::StatefulKafkaConsumer, ConsumerConfigBuilder},
-    processor_pool::ProcessorPool,
     processor_rebalance_handler::ProcessorRebalanceHandler,
+    rebalance_tracker::RebalanceTracker,
     store::DeduplicationStoreConfig,
     store_manager::{CleanupTaskHandle, StoreManager},
 };
@@ -30,12 +35,11 @@ use crate::{
 /// The main Kafka Deduplicator service that encapsulates all components
 pub struct KafkaDeduplicatorService {
     config: Config,
-    consumer: Option<StatefulKafkaConsumer>,
+    consumer: Option<BatchConsumer<CapturedEvent>>,
     store_manager: Arc<StoreManager>,
     checkpoint_manager: Option<CheckpointManager>,
+    checkpoint_importer: Option<Arc<CheckpointImporter>>,
     cleanup_task_handle: Option<CleanupTaskHandle>,
-    processor_pool_handles: Option<Vec<tokio::task::JoinHandle<()>>>,
-    processor_pool_health: Option<Arc<AtomicBool>>,
     shutdown_tx: Option<oneshot::Sender<()>>,
     liveness: HealthRegistry,
     service_health: Option<HealthHandle>,
@@ -44,19 +48,38 @@ pub struct KafkaDeduplicatorService {
 }
 
 impl KafkaDeduplicatorService {
-    /// Reset the local checkpoint directory (remove if exists, then create fresh)
-    fn reset_checkpoint_directory(checkpoint_dir: &str) -> Result<()> {
+    /// Reset the local checkpoint directory (clear contents, preserving the directory itself)
+    fn reset_checkpoint_directory(cfg: &CheckpointConfig) -> Result<()> {
+        let checkpoint_dir = &cfg.local_checkpoint_dir;
         let path = std::path::Path::new(checkpoint_dir);
 
-        if path.exists() {
-            info!("Resetting local checkpoint directory: {checkpoint_dir}");
-            std::fs::remove_dir_all(path).with_context(|| {
-                format!("Failed to remove existing checkpoint directory: {checkpoint_dir}",)
+        // Create directory if it doesn't exist
+        if !path.exists() {
+            std::fs::create_dir_all(path).with_context(|| {
+                format!("Failed to create checkpoint directory: {checkpoint_dir}")
             })?;
+        } else {
+            // Clear contents but preserve the directory (may be a mount point)
+            info!("Clearing local checkpoint directory contents: {checkpoint_dir}");
+            for entry in std::fs::read_dir(path)
+                .with_context(|| format!("Failed to read checkpoint directory: {checkpoint_dir}"))?
+            {
+                let entry = entry?;
+                let entry_path = entry.path();
+                if entry_path.is_dir() {
+                    std::fs::remove_dir_all(&entry_path).with_context(|| {
+                        format!(
+                            "Failed to remove checkpoint subdirectory: {}",
+                            entry_path.display()
+                        )
+                    })?;
+                } else {
+                    std::fs::remove_file(&entry_path).with_context(|| {
+                        format!("Failed to remove checkpoint file: {}", entry_path.display())
+                    })?;
+                }
+            }
         }
-
-        std::fs::create_dir_all(path)
-            .with_context(|| format!("Failed to create checkpoint directory: {checkpoint_dir}"))?;
 
         info!("Local checkpoint directory ready: {checkpoint_dir}");
         Ok(())
@@ -75,15 +98,22 @@ impl KafkaDeduplicatorService {
                 .context("Failed to parse max_store_capacity")?,
         };
 
+        // Create rebalance coordinator first (other components depend on it)
+        let rebalance_tracker = Arc::new(RebalanceTracker::new());
+
         // Create store manager for handling concurrent store creation
-        let store_manager = Arc::new(StoreManager::new(store_config.clone()));
+        let store_manager = Arc::new(StoreManager::new(
+            store_config.clone(),
+            rebalance_tracker.clone(),
+        ));
 
         // Start periodic cleanup task if max_capacity is configured
         let cleanup_task_handle = if store_config.max_capacity > 0 {
             let cleanup_interval = config.cleanup_interval();
+            let orphan_min_staleness = config.orphan_cleanup_min_staleness();
             let handle = store_manager
                 .clone()
-                .start_periodic_cleanup(cleanup_interval);
+                .start_periodic_cleanup(cleanup_interval, orphan_min_staleness);
             info!(
                 "Started periodic cleanup task with interval: {:?} for max capacity: {} bytes",
                 cleanup_interval, store_config.max_capacity
@@ -102,21 +132,66 @@ impl KafkaDeduplicatorService {
             s3_bucket: config.s3_bucket.clone().unwrap_or_default(),
             s3_key_prefix: config.s3_key_prefix.clone(),
             aws_region: config.aws_region.clone(),
+            s3_endpoint: config.s3_endpoint.clone(),
+            s3_access_key_id: config.s3_access_key_id.clone(),
+            s3_secret_access_key: config.s3_secret_access_key.clone(),
+            s3_force_path_style: config.s3_force_path_style,
             max_concurrent_checkpoints: config.max_concurrent_checkpoints,
             checkpoint_gate_interval: config.checkpoint_gate_interval(),
             checkpoint_worker_shutdown_timeout: config.checkpoint_worker_shutdown_timeout(),
             checkpoint_import_window_hours: config.checkpoint_import_window_hours,
             s3_operation_timeout: config.s3_operation_timeout(),
             s3_attempt_timeout: config.s3_attempt_timeout(),
+            s3_max_retries: config.s3_max_retries,
+            checkpoint_import_attempt_depth: config.checkpoint_import_attempt_depth,
+            max_concurrent_checkpoint_file_downloads: config
+                .max_concurrent_checkpoint_file_downloads,
+            max_concurrent_checkpoint_file_uploads: config.max_concurrent_checkpoint_file_uploads,
+            checkpoint_partition_import_timeout: config.checkpoint_partition_import_timeout(),
         };
 
         // Reset local checkpoint directory on startup (it's temporary storage)
-        Self::reset_checkpoint_directory(&checkpoint_config.local_checkpoint_dir)?;
+        Self::reset_checkpoint_directory(&checkpoint_config)?;
 
         // create exporter conditionally if S3 config is populated
-        let exporter = if !config.aws_region.is_empty() && config.s3_bucket.is_some() {
-            let uploader = Box::new(S3Uploader::new(checkpoint_config.clone()).await.unwrap());
+        let exporter = if config.checkpoint_export_enabled() {
+            let uploader = match S3Uploader::new(checkpoint_config.clone()).await {
+                Ok(uploader) => Box::new(uploader),
+                Err(e) => {
+                    error!(
+                        error = ?e,
+                        bucket = %config.s3_bucket.as_deref().unwrap_or(""),
+                        region = %config.aws_region.as_deref().unwrap_or(""),
+                        "Failed to initialize S3 client for checkpoint uploads"
+                    );
+                    return Err(e.context("S3 uploader: client initialization failed"));
+                }
+            };
             Some(Arc::new(CheckpointExporter::new(uploader)))
+        } else {
+            None
+        };
+
+        // if checkpoint import is enabled, create and configure the importer
+        let importer = if config.checkpoint_import_enabled() {
+            let downloader = match S3Downloader::new(&checkpoint_config).await {
+                Ok(downloader) => Box::new(downloader),
+                Err(e) => {
+                    error!(
+                        error = ?e,
+                        bucket = %config.s3_bucket.as_deref().unwrap_or(""),
+                        region = %config.aws_region.as_deref().unwrap_or(""),
+                        "Failed to initialize S3 client for checkpoint downloads"
+                    );
+                    return Err(e.context("S3 downloader: client initialization failed"));
+                }
+            };
+            Some(Arc::new(CheckpointImporter::new(
+                downloader,
+                store_config.path.clone(),
+                config.checkpoint_import_attempt_depth,
+                config.checkpoint_partition_import_timeout(),
+            )))
         } else {
             None
         };
@@ -129,9 +204,8 @@ impl KafkaDeduplicatorService {
             consumer: None,
             store_manager,
             checkpoint_manager: Some(checkpoint_manager),
+            checkpoint_importer: importer,
             cleanup_task_handle,
-            processor_pool_handles: None,
-            processor_pool_health: None,
             shutdown_tx: None,
             liveness,
             service_health: None,
@@ -146,10 +220,24 @@ impl KafkaDeduplicatorService {
             return Err(anyhow::anyhow!("Service already initialized"));
         }
 
+        // Normalize empty strings to None for optional topic configs
+        let output_topic = self
+            .config
+            .output_topic
+            .as_ref()
+            .filter(|s| !s.is_empty())
+            .cloned();
+        let duplicate_events_topic = self
+            .config
+            .duplicate_events_topic
+            .as_ref()
+            .filter(|s| !s.is_empty())
+            .cloned();
+
         // Create deduplication config (store config already in store_manager)
         let dedup_config = DeduplicationConfig {
-            output_topic: self.config.output_topic.clone(),
-            duplicate_events_topic: self.config.duplicate_events_topic.clone(),
+            output_topic: output_topic.clone(),
+            duplicate_events_topic: duplicate_events_topic.clone(),
             producer_config: self.config.build_producer_config(),
             store_config: DeduplicationStoreConfig {
                 path: self.config.store_path_buf(),
@@ -174,7 +262,7 @@ impl KafkaDeduplicatorService {
         };
 
         // Create main producer for output topic if configured
-        let main_producer = match &self.config.output_topic {
+        let main_producer = match &output_topic {
             Some(topic) => {
                 info!("Creating Kafka producer for output topic: {}", topic);
 
@@ -193,11 +281,14 @@ impl KafkaDeduplicatorService {
 
                 Some(Arc::new(producer))
             }
-            None => None,
+            None => {
+                info!("Output topic not configured, skipping main producer creation");
+                None
+            }
         };
 
         // Create duplicate events producer if configured
-        let duplicate_producer = match &self.config.duplicate_events_topic {
+        let duplicate_producer = match &duplicate_events_topic {
             Some(topic) => {
                 info!(
                     "Creating Kafka producer for duplicate events topic: {}",
@@ -228,48 +319,91 @@ impl KafkaDeduplicatorService {
                     Arc::new(producer),
                 )?)
             }
-            None => None,
+            None => {
+                info!(
+                    "Duplicate events topic not configured, skipping duplicate producer creation"
+                );
+                None
+            }
         };
 
         // Create a processor with the store manager and both producers
-        let processor = DeduplicationProcessor::new(
-            dedup_config,
-            self.store_manager.clone(),
-            main_producer,
-            duplicate_producer,
-        )
-        .with_context(|| "Failed to create deduplication processor")?;
+        let processor = Arc::new(
+            IngestionEventsBatchProcessor::new(
+                dedup_config,
+                self.store_manager.clone(),
+                main_producer,
+                duplicate_producer,
+            )
+            .with_context(|| "Failed to create deduplication processor")?,
+        );
 
-        // Create rebalance handler with the store manager
-        let rebalance_handler =
-            Arc::new(ProcessorRebalanceHandler::new(self.store_manager.clone()));
+        // Create partition router for parallel processing across partitions
+        let router_config = PartitionRouterConfig {
+            worker_config: PartitionWorkerConfig {
+                channel_buffer_size: self.config.partition_worker_channel_buffer_size,
+            },
+        };
+
+        // Get rebalance coordinator from store manager (created in new())
+        let rebalance_tracker = self.store_manager.rebalance_tracker().clone();
+
+        // Create offset tracker for tracking processed offsets
+        let offset_tracker = Arc::new(OffsetTracker::new(rebalance_tracker.clone()));
+
+        let router = Arc::new(PartitionRouter::new(
+            processor,
+            offset_tracker.clone(),
+            router_config,
+        ));
+
+        // Create routing processor that distributes messages to partition workers
+        let routing_processor = Arc::new(RoutingProcessor::new(
+            router.clone(),
+            offset_tracker.clone(),
+        ));
+
+        // Create rebalance handler with the router for partition worker management
+        let rebalance_handler = Arc::new(ProcessorRebalanceHandler::with_router(
+            self.store_manager.clone(),
+            rebalance_tracker,
+            router,
+            offset_tracker.clone(),
+            self.checkpoint_importer.clone(),
+            self.config.rebalance_cleanup_parallelism,
+        ));
 
         // Create consumer config using the kafka module's builder
         let consumer_config =
             ConsumerConfigBuilder::new(&self.config.kafka_hosts, &self.config.kafka_consumer_group)
                 .with_tls(self.config.kafka_tls)
+                .with_max_partition_fetch_bytes(
+                    self.config.kafka_consumer_max_partition_fetch_bytes,
+                )
+                .with_topic_metadata_refresh_interval_ms(
+                    self.config.kafka_topic_metadata_refresh_interval_ms,
+                )
+                .with_metadata_max_age_ms(self.config.kafka_metadata_max_age_ms)
                 .with_sticky_partition_assignment(self.config.pod_hostname.as_deref())
-                .offset_reset(&self.config.kafka_consumer_offset_reset)
+                .with_offset_reset(&self.config.kafka_consumer_offset_reset)
+                // Fetch settings for throughput optimization
+                .with_fetch_min_bytes(self.config.kafka_consumer_fetch_min_bytes)
+                .with_fetch_max_bytes(self.config.kafka_consumer_fetch_max_bytes)
+                .with_fetch_wait_max_ms(self.config.kafka_consumer_fetch_wait_max_ms)
+                // Prefetch settings for batching efficiency
+                .with_queued_min_messages(self.config.kafka_consumer_queued_min_messages)
+                .with_queued_max_messages_kbytes(
+                    self.config.kafka_consumer_queued_max_messages_kbytes,
+                )
+                // Consumer group membership settings
+                .with_max_poll_interval_ms(self.config.kafka_max_poll_interval_ms)
+                .with_session_timeout_ms(self.config.kafka_session_timeout_ms)
+                .with_heartbeat_interval_ms(self.config.kafka_heartbeat_interval_ms)
                 .build();
 
         // Create shutdown channel
         let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
         self.shutdown_tx = Some(shutdown_tx);
-
-        // Create processor pool with configured number of workers
-        let num_workers = self.config.worker_threads;
-        let (message_sender, processor_pool) = ProcessorPool::new(processor, num_workers);
-
-        // Start the processor pool workers and get health status
-        let (pool_handles, pool_health) = processor_pool.start();
-        self.processor_pool_handles = Some(pool_handles);
-        self.processor_pool_health = Some(pool_health.clone());
-
-        // Register processor pool as a separate health component
-        let pool_health_handle = self
-            .liveness
-            .register("processor_pool".to_string(), Duration::from_secs(30))
-            .await;
 
         // start checkpoint manager and async work loop threads, register health monitor
         let checkpoint_health_reporter = self.checkpoint_manager.as_mut().unwrap().start();
@@ -305,44 +439,22 @@ impl KafkaDeduplicatorService {
         }
 
         info!(
-            "Started checkpoint manager (export enabled = {:?}, checkpoint interval = {:?}, checkpoint_cleanup interval = {:?})",
+            "Started checkpoint manager (export enabled = {:?}, checkpoint interval = {:?})",
             self.checkpoint_manager.as_ref().unwrap().export_enabled(),
             self.config.checkpoint_interval(),
-            self.config.checkpoint_cleanup_interval(),
         );
 
-        // Spawn task to report processor pool health
-        let pool_health_reporter = pool_health.clone();
-        let cancellation = self.health_task_cancellation.child_token();
-        let handle = tokio::spawn(async move {
-            let mut interval = tokio::time::interval(Duration::from_secs(10));
-            loop {
-                tokio::select! {
-                    _ = cancellation.cancelled() => {
-                        break;
-                    }
-                    _ = interval.tick() => {
-                        if pool_health_reporter.load(Ordering::SeqCst) {
-                            pool_health_handle.report_healthy().await;
-                        } else {
-                            // Explicitly report unhealthy when a worker dies
-                            pool_health_handle.report_status(health::ComponentStatus::Unhealthy).await;
-                            error!("Processor pool is unhealthy - worker died");
-                        }
-                    }
-                }
-            }
-        });
-        self.health_task_handles.push(handle);
-
-        // Create stateful Kafka consumer that sends to the processor pool
-        let kafka_consumer = StatefulKafkaConsumer::from_config(
+        // Create stateful Kafka consumer that routes to partition workers
+        let kafka_consumer = BatchConsumer::new(
             &consumer_config,
             rebalance_handler,
-            message_sender,
-            self.config.max_in_flight_messages,
-            self.config.commit_interval(),
+            routing_processor,
+            offset_tracker,
             shutdown_rx,
+            &self.config.kafka_consumer_topic,
+            self.config.kafka_consumer_batch_size,
+            self.config.kafka_consumer_batch_timeout(),
+            self.config.commit_interval(),
         )
         .with_context(|| {
             format!(
@@ -351,20 +463,9 @@ impl KafkaDeduplicatorService {
             )
         })?;
 
-        // Subscribe to input topic
-        kafka_consumer
-            .inner_consumer()
-            .subscribe(&[&self.config.kafka_consumer_topic])
-            .with_context(|| {
-                format!(
-                    "Failed to subscribe to input topic '{}'",
-                    self.config.kafka_consumer_topic
-                )
-            })?;
-
         info!(
             "Initialized consumer for topic '{}', publishing to '{:?}'",
-            self.config.kafka_consumer_topic, self.config.output_topic
+            self.config.kafka_consumer_topic, output_topic
         );
 
         // Register health check for the service
@@ -435,13 +536,6 @@ impl KafkaDeduplicatorService {
         // Stop the checkpoint manager
         if let Some(mut checkpoint_manager) = self.checkpoint_manager.take() {
             checkpoint_manager.stop().await;
-        }
-
-        // Wait for processor pool workers to finish
-        if let Some(handles) = self.processor_pool_handles.take() {
-            for handle in handles {
-                let _ = handle.await;
-            }
         }
 
         // Wait for consumer to finish with timeout
@@ -522,13 +616,6 @@ impl KafkaDeduplicatorService {
             checkpoint_manager.stop().await;
         }
 
-        // Wait for processor pool workers to finish
-        if let Some(handles) = self.processor_pool_handles.take() {
-            for handle in handles {
-                let _ = handle.await;
-            }
-        }
-
         // Wait for consumer to finish with timeout
         match tokio::time::timeout(self.config.shutdown_timeout(), consumer_handle).await {
             Ok(Ok(Ok(_))) => info!("Consumer stopped normally"),
@@ -564,5 +651,119 @@ impl KafkaDeduplicatorService {
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::checkpoint::config::CheckpointConfig;
+    use tempfile::TempDir;
+
+    fn make_config(dir: &std::path::Path) -> CheckpointConfig {
+        CheckpointConfig {
+            local_checkpoint_dir: dir.to_string_lossy().to_string(),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn test_reset_checkpoint_directory_creates_if_not_exists() {
+        let temp_dir = TempDir::new().unwrap();
+        let checkpoint_dir = temp_dir.path().join("checkpoints");
+
+        // Directory doesn't exist yet
+        assert!(!checkpoint_dir.exists());
+
+        let cfg = make_config(&checkpoint_dir);
+        KafkaDeduplicatorService::reset_checkpoint_directory(&cfg).unwrap();
+
+        // Directory now exists and is empty
+        assert!(checkpoint_dir.exists());
+        assert!(checkpoint_dir.is_dir());
+        assert_eq!(std::fs::read_dir(&checkpoint_dir).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn test_reset_checkpoint_directory_clears_existing_files() {
+        let temp_dir = TempDir::new().unwrap();
+        let checkpoint_dir = temp_dir.path().join("checkpoints");
+        std::fs::create_dir_all(&checkpoint_dir).unwrap();
+
+        // Create some files
+        std::fs::write(checkpoint_dir.join("file1.txt"), "content1").unwrap();
+        std::fs::write(checkpoint_dir.join("file2.txt"), "content2").unwrap();
+        assert_eq!(std::fs::read_dir(&checkpoint_dir).unwrap().count(), 2);
+
+        let cfg = make_config(&checkpoint_dir);
+        KafkaDeduplicatorService::reset_checkpoint_directory(&cfg).unwrap();
+
+        // Directory still exists but is now empty
+        assert!(checkpoint_dir.exists());
+        assert_eq!(std::fs::read_dir(&checkpoint_dir).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn test_reset_checkpoint_directory_clears_nested_subdirs() {
+        let temp_dir = TempDir::new().unwrap();
+        let checkpoint_dir = temp_dir.path().join("checkpoints");
+        std::fs::create_dir_all(&checkpoint_dir).unwrap();
+
+        // Create nested structure like real checkpoint dirs
+        let topic_dir = checkpoint_dir.join("topic-name");
+        let partition_dir = topic_dir.join("0");
+        let attempt_dir = partition_dir.join("20260115_061456");
+        std::fs::create_dir_all(&attempt_dir).unwrap();
+        std::fs::write(attempt_dir.join("checkpoint.sst"), "sst data").unwrap();
+        std::fs::write(attempt_dir.join("MANIFEST"), "manifest").unwrap();
+
+        // Also a file at top level
+        std::fs::write(checkpoint_dir.join("lockfile"), "").unwrap();
+
+        assert_eq!(std::fs::read_dir(&checkpoint_dir).unwrap().count(), 2);
+
+        let cfg = make_config(&checkpoint_dir);
+        KafkaDeduplicatorService::reset_checkpoint_directory(&cfg).unwrap();
+
+        // Directory still exists but all contents cleared
+        assert!(checkpoint_dir.exists());
+        assert_eq!(std::fs::read_dir(&checkpoint_dir).unwrap().count(), 0);
+        assert!(!topic_dir.exists());
+    }
+
+    #[test]
+    fn test_reset_checkpoint_directory_preserves_base_directory() {
+        let temp_dir = TempDir::new().unwrap();
+        // Use the temp_dir itself as the checkpoint dir (simulates mount point)
+        let checkpoint_dir = temp_dir.path().to_path_buf();
+
+        // Create some content
+        let subdir = checkpoint_dir.join("subdir");
+        std::fs::create_dir_all(&subdir).unwrap();
+        std::fs::write(subdir.join("file.txt"), "content").unwrap();
+        std::fs::write(checkpoint_dir.join("root_file.txt"), "root").unwrap();
+
+        let cfg = make_config(&checkpoint_dir);
+        KafkaDeduplicatorService::reset_checkpoint_directory(&cfg).unwrap();
+
+        // Base directory preserved, contents cleared
+        assert!(checkpoint_dir.exists());
+        assert_eq!(std::fs::read_dir(&checkpoint_dir).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn test_reset_checkpoint_directory_idempotent_on_empty() {
+        let temp_dir = TempDir::new().unwrap();
+        let checkpoint_dir = temp_dir.path().join("checkpoints");
+        std::fs::create_dir_all(&checkpoint_dir).unwrap();
+
+        let cfg = make_config(&checkpoint_dir);
+
+        // Call multiple times on empty directory
+        KafkaDeduplicatorService::reset_checkpoint_directory(&cfg).unwrap();
+        KafkaDeduplicatorService::reset_checkpoint_directory(&cfg).unwrap();
+
+        assert!(checkpoint_dir.exists());
+        assert_eq!(std::fs::read_dir(&checkpoint_dir).unwrap().count(), 0);
     }
 }

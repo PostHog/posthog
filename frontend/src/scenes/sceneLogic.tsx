@@ -7,13 +7,10 @@ import posthog from 'posthog-js'
 import { useEffect, useState } from 'react'
 
 import api from 'lib/api'
-import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
-import { BarStatus } from 'lib/components/CommandBar/types'
-import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
+import { TeamMembershipLevel } from 'lib/constants'
 import { trackFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getRelativeNextPath, identifierToHuman } from 'lib/utils'
 import { getAppContext, getCurrentTeamIdOrNone } from 'lib/utils/getAppContext'
 import { NEW_INTERNAL_TAB } from 'lib/utils/newInternalTab'
@@ -39,12 +36,14 @@ import {
 } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { FileSystemIconType, ProductKey } from '~/queries/schema/schema-general'
-import { AccessControlLevel, OnboardingStepKey } from '~/types'
+import { AccessControlLevel } from '~/types'
 
 import { preflightLogic } from './PreflightCheck/preflightLogic'
 import { handleLoginRedirect } from './authentication/loginLogic'
 import { billingLogic } from './billing/billingLogic'
+import { parseCouponCampaign } from './coupons/utils'
 import { organizationLogic } from './organizationLogic'
 import type { sceneLogicType } from './sceneLogicType'
 import { inviteLogic } from './settings/organization/inviteLogic'
@@ -53,6 +52,15 @@ import { userLogic } from './userLogic'
 
 const TAB_STATE_KEY = 'scene-tabs-state'
 const PINNED_TAB_STATE_KEY = 'scene-tabs-pinned-state'
+
+export type TabOpenSource = 'internal_link' | 'keyboard_shortcut' | 'new_tab_button' | 'unknown'
+export type TabCloseSource =
+    | 'close_button'
+    | 'context_menu'
+    | 'keyboard_shortcut'
+    | 'middle_click'
+    | 'open_in_side_panel'
+    | 'unknown'
 
 export interface PersistedPinnedState {
     tabs: SceneTab[]
@@ -256,22 +264,8 @@ const composeTabsFromStorage = (storedPinned: PersistedPinnedState | null, baseT
     return ensureActiveTab([...filteredPinned, ...unpinned.map((tab) => ({ ...tab, pinned: false }))])
 }
 
-export const productUrlMapping: Partial<Record<ProductKey, string[]>> = {
-    [ProductKey.SESSION_REPLAY]: [urls.replay()],
-    [ProductKey.FEATURE_FLAGS]: [urls.featureFlags(), urls.earlyAccessFeatures(), urls.experiments()],
-    [ProductKey.SURVEYS]: [urls.surveys()],
-    [ProductKey.PRODUCT_ANALYTICS]: [urls.insights()],
-    [ProductKey.DATA_WAREHOUSE]: [urls.sqlEditor(), urls.dataPipelines('sources'), urls.dataWarehouseSourceNew()],
-    [ProductKey.WEB_ANALYTICS]: [urls.webAnalytics()],
-    [ProductKey.ERROR_TRACKING]: [urls.errorTracking()],
-}
-
-const productsNotDependingOnEventIngestion: ProductKey[] = [ProductKey.DATA_WAREHOUSE]
-
 const pathPrefixesOnboardingNotRequiredFor = [
-    urls.onboarding(''),
-    urls.useCaseSelection(),
-    urls.products(),
+    urls.onboarding(),
     '/settings',
     urls.organizationBilling(),
     urls.billingAuthorizationStatus(),
@@ -283,6 +277,8 @@ const pathPrefixesOnboardingNotRequiredFor = [
     urls.debugQuery(),
     urls.activity(),
     urls.oauthAuthorize(),
+    '/startups',
+    '/coupons',
 ]
 
 const DelayedLoadingSpinner = (): JSX.Element => {
@@ -292,6 +288,20 @@ const DelayedLoadingSpinner = (): JSX.Element => {
         return () => window.clearTimeout(timeout)
     }, [])
     return <>{show ? <Spinner /> : null}</>
+}
+
+const getMainContentElement = (): HTMLElement | null => document.getElementById('main-content')
+const restoreMainContentScrollTop = (scrollTop: number, onlyIfTabId?: string): void => {
+    const element = getMainContentElement()
+    if (!element) {
+        return
+    }
+    if (onlyIfTabId && sceneLogic.findMounted()?.values.activeTabId !== onlyIfTabId) {
+        return
+    }
+    window.requestAnimationFrame(() => {
+        element.scrollTo({ top: scrollTop })
+    })
 }
 
 export const sceneLogic = kea<sceneLogicType>([
@@ -304,27 +314,14 @@ export const sceneLogic = kea<sceneLogicType>([
 
     connect(() => ({
         logic: [router, userLogic, preflightLogic],
-        actions: [
-            router,
-            ['locationChanged', 'push'],
-            commandBarLogic,
-            ['setCommandBar'],
-            inviteLogic,
-            ['hideInviteModal'],
-        ],
-        values: [
-            billingLogic,
-            ['billing'],
-            organizationLogic,
-            ['organizationBeingDeleted'],
-            featureFlagLogic,
-            ['featureFlags'],
-        ],
+        actions: [router, ['locationChanged', 'push'], inviteLogic, ['hideInviteModal']],
+        values: [billingLogic, ['billing'], organizationLogic, ['organizationBeingDeleted']],
     })),
     afterMount(({ cache }) => {
         cache.mountedTabLogic = {} as Record<string, () => void>
         cache.lastTrackedSceneByTab = {} as Record<string, { sceneId?: string; sceneKey?: string }>
         cache.initialNavigationTabCreated = false
+        cache.lastRegisteredTabCount = null as number | null
     }),
     actions({
         /* 1. Prepares to open the scene, as the listener may override and do something
@@ -387,16 +384,23 @@ export const sceneLogic = kea<sceneLogicType>([
         }),
         reloadBrowserDueToImportError: true,
 
-        newTab: (href?: string | null, options?: { activate?: boolean; skipNavigate?: boolean; id?: string }) => ({
-            href,
-            options,
-        }),
+        newTab: (
+            href?: string | null,
+            options?: { activate?: boolean; skipNavigate?: boolean; id?: string; source?: TabOpenSource }
+        ) => {
+            const tabId = options?.id ?? generateTabId()
+            return {
+                href,
+                options,
+                tabId,
+            }
+        },
         setTabs: (tabs: SceneTab[]) => ({ tabs }),
         loadPinnedTabsFromBackend: true,
         setPinnedStateFromBackend: (pinnedState: PersistedPinnedState) => ({ pinnedState }),
         setHomepage: (tab: SceneTab | null) => ({ tab }),
-        closeTabId: (tabId: string) => ({ tabId }),
-        removeTab: (tab: SceneTab) => ({ tab }),
+        closeTabId: (tabId: string, options?: { source?: TabCloseSource }) => ({ tabId, options }),
+        removeTab: (tab: SceneTab, options?: { source?: TabCloseSource }) => ({ tab, options }),
         activateTab: (tab: SceneTab) => ({ tab }),
         clickOnTab: (tab: SceneTab) => ({ tab }),
         reorderTabs: (activeId: string, overId: string) => ({ activeId, overId }),
@@ -407,6 +411,7 @@ export const sceneLogic = kea<sceneLogicType>([
         saveTabEdit: (tab: SceneTab, name: string) => ({ tab, name }),
         pinTab: (tabId: string) => ({ tabId }),
         unpinTab: (tabId: string) => ({ tabId }),
+        setTabScrollDepth: (tabId: string, scrollTop: number) => ({ tabId, scrollTop }),
     }),
     reducers({
         // We store all state in "tabs". This allows us to have multiple tabs open, each with its own scene and parameters.
@@ -417,9 +422,8 @@ export const sceneLogic = kea<sceneLogicType>([
                 setPinnedStateFromBackend: (state, { pinnedState }) => {
                     return composeTabsFromStorage(pinnedState, state)
                 },
-                newTab: (state, { href, options }) => {
+                newTab: (state, { href, options, tabId }) => {
                     const activate = options?.activate ?? true
-                    const tabId = options?.id ?? generateTabId()
                     const { pathname, search, hash } = combineUrl(href || '/new')
                     const baseTabs = activate
                         ? state.map((tab) => (tab.active ? { ...tab, active: false } : tab))
@@ -628,6 +632,31 @@ export const sceneLogic = kea<sceneLogicType>([
                 setScene: (_, { sceneId, sceneKey, tabId, params }) => ({ sceneId, sceneKey, tabId, params }),
             },
         ],
+        tabScrollDepths: [
+            {} as Record<string, number>,
+            {
+                setTabScrollDepth: (state, { tabId, scrollTop }) => ({
+                    ...state,
+                    [tabId]: scrollTop,
+                }),
+                removeTab: (state, { tab }) => {
+                    const { [tab.id]: removed, ...rest } = state
+                    return rest
+                },
+                setTabs: (state, { tabs }) => {
+                    // remove those no longer present
+                    return tabs.reduce(
+                        (acc, tab) => {
+                            if (state[tab.id] !== undefined) {
+                                acc[tab.id] = state[tab.id]
+                            }
+                            return acc
+                        },
+                        {} as Record<string, number>
+                    )
+                },
+            },
+        ],
     }),
     reducers({
         homepage: [
@@ -655,9 +684,6 @@ export const sceneLogic = kea<sceneLogicType>([
             (s) => [s.sceneId],
             (sceneId: Scene): SceneConfig | null => {
                 const config = sceneConfigurations[sceneId] || null
-                if (sceneId === Scene.SQLEditor) {
-                    return { ...config, layout: 'app-raw' }
-                }
                 return config
             },
             { resultEqualityCheck: equal },
@@ -750,18 +776,6 @@ export const sceneLogic = kea<sceneLogicType>([
         ],
         searchParams: [(s) => [s.sceneParams], (sceneParams): Record<string, any> => sceneParams.searchParams || {}],
         hashParams: [(s) => [s.sceneParams], (sceneParams): Record<string, any> => sceneParams.hashParams || {}],
-        productFromUrl: [
-            () => [router.selectors.location],
-            (location: Location): ProductKey | null => {
-                const pathname = location.pathname
-                for (const [productKey, urls] of Object.entries(productUrlMapping)) {
-                    if (urls.some((url) => pathname.includes(url))) {
-                        return productKey as ProductKey
-                    }
-                }
-                return null
-            },
-        ],
 
         tabIds: [
             (s) => [s.tabs],
@@ -819,19 +833,45 @@ export const sceneLogic = kea<sceneLogicType>([
                 return activeTabId === tabs[0]?.id
             },
         ],
+        activeSceneProductKey: [
+            (s) => [s.activeExportedScene],
+            (activeExportedScene: SceneExport | null): ProductKey | null => {
+                return activeExportedScene?.productKey ?? null
+            },
+        ],
     }),
     listeners(({ values, actions, cache, props, selectors }) => ({
         [NEW_INTERNAL_TAB]: (payload) => {
-            actions.newTab(payload.path)
+            actions.newTab(payload.path, { source: payload?.source ?? 'internal_link' })
         },
-        newTab: ({ href, options }) => {
+        newTab: ({ href, options, tabId }) => {
+            const newTab = values.tabs.find((tab) => tab.id === tabId)
+            const fallbackUrl = combineUrl(href || '/new')
+            const openSource = options?.source ?? 'unknown'
+            posthog.capture('tab opened', {
+                tab_id: tabId,
+                pathname: newTab?.pathname ?? fallbackUrl.pathname,
+                search: newTab?.search ?? fallbackUrl.search,
+                hash: newTab?.hash ?? fallbackUrl.hash,
+                pinned: newTab?.pinned ?? false,
+                active: newTab?.active ?? options?.activate ?? true,
+                scene_id: newTab?.sceneId,
+                scene_key: newTab?.sceneKey,
+                open_source: openSource,
+            })
             persistTabs(values.tabs, values.homepage)
             if (!(options?.skipNavigate ?? false)) {
                 router.actions.push(href || urls.newTab())
             }
         },
         setTabs: () => persistTabs(values.tabs, values.homepage),
-        activateTab: () => persistTabs(values.tabs, values.homepage),
+        activateTab: ({ tab }, _, __, previousState) => {
+            const previousActiveTabId = selectors.activeTabId(previousState)
+            if (previousActiveTabId && previousActiveTabId !== tab.id) {
+                sidePanelStateLogic.findMounted()?.actions.onSceneTabChanged(previousActiveTabId, tab.id)
+            }
+            persistTabs(values.tabs, values.homepage)
+        },
         duplicateTab: () => persistTabs(values.tabs, values.homepage),
         renameTab: ({ tab }) => {
             actions.startTabEdit(tab)
@@ -868,13 +908,25 @@ export const sceneLogic = kea<sceneLogicType>([
         setHomepage: () => {
             persistTabs(values.tabs, values.homepage)
         },
-        closeTabId: ({ tabId }) => {
+        closeTabId: ({ tabId, options }) => {
             const tab = values.tabs.find(({ id }) => id === tabId)
             if (tab) {
-                actions.removeTab(tab)
+                actions.removeTab(tab, { source: options?.source })
             }
         },
-        removeTab: ({ tab }) => {
+        removeTab: ({ tab, options }) => {
+            const closeSource = options?.source ?? 'unknown'
+            posthog.capture('tab closed', {
+                tab_id: tab.id,
+                pathname: tab.pathname,
+                search: tab.search,
+                hash: tab.hash,
+                pinned: tab.pinned,
+                active: tab.active,
+                scene_id: tab.sceneId,
+                scene_key: tab.sceneKey,
+                close_source: closeSource,
+            })
             const isHomepageTab = values.homepage?.id === tab.id
             if (tab.active) {
                 // values.activeTab will already be the new active tab from the reducer
@@ -973,21 +1025,6 @@ export const sceneLogic = kea<sceneLogicType>([
             }
             persistTabs(values.tabs, values.homepage)
 
-            // Open search or command bar
-            const params = new URLSearchParams(search)
-            const searchBar = params.get('searchBar')
-            const commandBar = params.get('commandBar')
-
-            if (searchBar !== null) {
-                actions.setCommandBar(BarStatus.SHOW_SEARCH, searchBar)
-                params.delete('searchBar')
-                router.actions.replace(pathname, params, hash)
-            } else if (commandBar !== null) {
-                actions.setCommandBar(BarStatus.SHOW_ACTIONS, commandBar)
-                params.delete('commandBar')
-                router.actions.replace(pathname, params, hash)
-            }
-
             // Remove trailing slash
             if (pathname !== '/' && pathname.endsWith('/')) {
                 router.actions.replace(pathname.replace(/(\/+)$/, ''), search, hash)
@@ -1009,13 +1046,26 @@ export const sceneLogic = kea<sceneLogicType>([
                 !equal(lastParams.params, params.params) ||
                 JSON.stringify(lastParams.searchParams) !== JSON.stringify(params.searchParams) // `equal` crashes here
             ) {
-                posthog.capture('$pageview')
+                const productKey = values.activeSceneProductKey
+                posthog.capture('$pageview', productKey ? { product_key: productKey } : undefined)
             }
 
-            // if we clicked on a link, scroll to top
-            const previousScene = selectors.sceneId(previousState)
-            if (scrollToTop && sceneId !== previousScene) {
-                window.scrollTo(0, 0)
+            if (tabId !== lastTabId) {
+                if (lastTabId) {
+                    sidePanelStateLogic.findMounted()?.actions.onSceneTabChanged(lastTabId, tabId)
+                }
+
+                const scrollTop = values.tabScrollDepths[tabId] ?? 0
+                window.setTimeout(() => restoreMainContentScrollTop(scrollTop, tabId), 1)
+                window.setTimeout(() => restoreMainContentScrollTop(scrollTop, tabId), 10)
+                window.setTimeout(() => restoreMainContentScrollTop(scrollTop, tabId), 100)
+                window.setTimeout(() => restoreMainContentScrollTop(scrollTop, tabId), 300)
+            } else {
+                // if we clicked on a link, scroll to top
+                const previousScene = selectors.sceneId(previousState)
+                if (scrollToTop && sceneId !== previousScene) {
+                    restoreMainContentScrollTop(0)
+                }
             }
 
             const unmount = cache.mountedTabLogic[tabId]
@@ -1102,66 +1152,25 @@ export const sceneLogic = kea<sceneLogicType>([
                     } else if (
                         teamLogic.values.currentTeam &&
                         !teamLogic.values.currentTeam.is_demo &&
+                        !teamLogic.values.hasOnboardedAnyProduct &&
+                        !teamLogic.values.currentTeam?.ingested_event &&
                         !pathPrefixesOnboardingNotRequiredFor.some((path) =>
                             removeProjectIdIfPresent(location.pathname).startsWith(path)
                         )
                     ) {
-                        const allProductUrls = Object.values(productUrlMapping).flat()
-                        const productKeyFromUrl = Object.keys(productUrlMapping).find((key) =>
-                            productUrlMapping[key as ProductKey]?.some(
-                                (path: string) =>
-                                    removeProjectIdIfPresent(location.pathname).startsWith(path) &&
-                                    !path.startsWith('/projects')
-                            )
-                        )
-                        if (!productsNotDependingOnEventIngestion.includes(productKeyFromUrl as ProductKey)) {
-                            if (
-                                !teamLogic.values.hasOnboardedAnyProduct &&
-                                !allProductUrls.some((path) =>
-                                    removeProjectIdIfPresent(location.pathname).startsWith(path)
-                                ) &&
-                                !teamLogic.values.currentTeam?.ingested_event
-                            ) {
-                                const nextUrl =
-                                    getRelativeNextPath(params.searchParams.next, location) ??
-                                    removeProjectIdIfPresent(location.pathname)
+                        const nextUrl =
+                            getRelativeNextPath(params.searchParams.next, location) ??
+                            removeProjectIdIfPresent(location.pathname)
 
-                                // Default to false (products page) if feature flags haven't loaded yet
-                                const useUseCaseSelection =
-                                    values.featureFlags[FEATURE_FLAGS.ONBOARDING_USE_CASE_SELECTION] === 'test'
-
-                                if (useUseCaseSelection) {
-                                    router.actions.replace(
-                                        urls.useCaseSelection(),
-                                        nextUrl ? { next: nextUrl } : undefined
-                                    )
-                                } else {
-                                    router.actions.replace(urls.products(), nextUrl ? { next: nextUrl } : undefined)
-                                }
-                                return
-                            }
-
-                            if (
-                                productKeyFromUrl &&
-                                teamLogic.values.currentTeam &&
-                                !teamLogic.values.currentTeam?.has_completed_onboarding_for?.[productKeyFromUrl]
-                                // cloud mode? What is the experience for self-hosted?
-                            ) {
-                                if (
-                                    !teamLogic.values.hasOnboardedAnyProduct &&
-                                    !teamLogic.values.currentTeam?.ingested_event
-                                ) {
-                                    console.warn(
-                                        `Onboarding not completed for ${productKeyFromUrl}, redirecting to onboarding intro`
-                                    )
-
-                                    router.actions.replace(
-                                        urls.onboarding(productKeyFromUrl, OnboardingStepKey.INSTALL)
-                                    )
-                                    return
-                                }
-                            }
+                        // Check if user is coming from a coupon campaign link
+                        const campaign = nextUrl ? parseCouponCampaign(nextUrl) : null
+                        if (campaign) {
+                            router.actions.replace(urls.onboarding({ campaign }), { next: nextUrl })
+                            return
                         }
+
+                        router.actions.replace(urls.onboarding(), nextUrl ? { next: nextUrl } : undefined)
+                        return
                     }
                 }
             }
@@ -1485,6 +1494,11 @@ export const sceneLogic = kea<sceneLogicType>([
             tabs: () => {
                 cache.initialNavigationTabCreated =
                     cache.initialNavigationTabCreated || values.tabs.some((tab) => !tab.pinned)
+                const tabCount = values.tabs.length
+                if (cache.lastRegisteredTabCount !== tabCount) {
+                    posthog.register({ tab_count: tabCount })
+                    cache.lastRegisteredTabCount = tabCount
+                }
                 const { tabIds } = values
                 for (const id of Object.keys(cache.mountedTabLogic)) {
                     if (!tabIds[id]) {

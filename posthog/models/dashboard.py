@@ -8,6 +8,7 @@ from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.utils import RootTeamManager, RootTeamMixin, sane_repr
+from posthog.person_db_router import PERSONS_DB_FOR_WRITE
 from posthog.utils import absolute_uri
 
 if TYPE_CHECKING:
@@ -111,6 +112,16 @@ class Dashboard(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.M
 
     def __str__(self):
         return self.name or str(self.id)
+
+    def delete(self, *args, **kwargs):
+        from posthog.models.group_type_mapping import GroupTypeMapping
+
+        # Handle SET_NULL for GroupTypeMapping.detail_dashboard in persons database
+        # This is needed because GroupTypeMapping is in the persons database
+        GroupTypeMapping.objects.using(PERSONS_DB_FOR_WRITE).filter(detail_dashboard_id=self.id).update(
+            detail_dashboard_id=None
+        )
+        return super().delete(*args, **kwargs)
 
     @classmethod
     def get_file_system_unfiled(cls, team: "Team") -> QuerySet["Dashboard"]:

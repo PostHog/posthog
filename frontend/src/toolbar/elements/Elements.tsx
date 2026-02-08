@@ -11,6 +11,8 @@ import { ElementInfoWindow } from '~/toolbar/elements/ElementInfoWindow'
 import { FocusRect } from '~/toolbar/elements/FocusRect'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { heatmapToolbarMenuLogic } from '~/toolbar/elements/heatmapToolbarMenuLogic'
+import { ElementHighlight } from '~/toolbar/product-tours/ElementHighlight'
+import { productToursLogic } from '~/toolbar/product-tours/productToursLogic'
 import { getBoxColors, getHeatMapHue } from '~/toolbar/utils'
 
 import { toolbarLogic } from '../bar/toolbarLogic'
@@ -30,8 +32,14 @@ export function Elements(): JSX.Element {
     } = useValues(elementsLogic)
     const { setHoverElement, selectElement } = useActions(elementsLogic)
     const { highestClickCount } = useValues(heatmapToolbarMenuLogic)
+    const { refreshClickmap } = useActions(heatmapToolbarMenuLogic)
+    const {
+        isSelecting: productToursSelecting,
+        hoverElementRect: productToursHoverRect,
+        expandedStepRect: productToursSelectedStepRect,
+    } = useValues(productToursLogic)
 
-    const shiftPressed = useShiftKeyPressed()
+    const shiftPressed = useShiftKeyPressed(refreshClickmap)
     const heatmapPointerEvents = shiftPressed ? 'none' : 'all'
 
     const { theme } = useValues(toolbarLogic)
@@ -63,6 +71,8 @@ export function Elements(): JSX.Element {
                 <ScrollDepth />
                 {activeToolbarMode === 'heatmap' && <HeatmapCanvas context="toolbar" />}
                 {highlightElementMeta?.rect ? <FocusRect rect={highlightElementMeta.rect} /> : null}
+                {productToursSelecting && productToursHoverRect && <ElementHighlight rect={productToursHoverRect} />}
+                {productToursSelectedStepRect && <ElementHighlight rect={productToursSelectedStepRect} isSelected />}
 
                 {elementsToDisplay.map(({ rect, element, apparentZIndex }, index) => {
                     return (

@@ -1,36 +1,38 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { RefObject, useEffect, useRef, useState } from 'react'
+import { RefObject, useCallback, useEffect, useRef, useState } from 'react'
 
 import {
     IconCheckbox,
     IconChevronRight,
     IconEllipsis,
     IconFolderPlus,
+    IconGear,
     IconPencil,
     IconPlusSmall,
     IconShortcut,
 } from '@posthog/icons'
 
 import { itemSelectModalLogic } from 'lib/components/FileSystem/ItemSelectModal/itemSelectModalLogic'
-import { ResizableElement } from 'lib/components/ResizeElement/ResizeElement'
 import { dayjs } from 'lib/dayjs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useLocalStorage } from 'lib/hooks/useLocalStorage'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { LemonTree, LemonTreeRef, LemonTreeSize, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { TreeNodeDisplayIcon } from 'lib/lemon-ui/LemonTree/LemonTreeUtils'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture/ProfilePicture'
-import { Tooltip } from 'lib/lemon-ui/Tooltip/Tooltip'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { ContextMenuGroup, ContextMenuItem } from 'lib/ui/ContextMenu/ContextMenu'
 import { DropdownMenuGroup } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { cn } from 'lib/utils/css-classes'
 import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import { sceneConfigurations } from 'scenes/scenes'
+import { teamLogic } from 'scenes/teamLogic'
 
+import { customProductsLogic } from '~/layout/panel-layout/ProjectTree/customProductsLogic'
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
-import { FileSystemEntry } from '~/queries/schema/schema-general'
+import { FileSystemEntry, UserProductListReason } from '~/queries/schema/schema-general'
 import { UserBasicType } from '~/types'
 
 import { PanelLayoutPanel } from '../PanelLayoutPanel'
@@ -55,6 +57,51 @@ let counter = 0
 
 const SHORTCUT_DISMISSAL_LOCAL_STORAGE_KEY = 'shortcut-dismissal'
 const CUSTOM_PRODUCT_DISMISSAL_LOCAL_STORAGE_KEY = 'custom-product-dismissal'
+const SEEN_CUSTOM_PRODUCTS_LOCAL_STORAGE_KEY = 'seen-custom-products'
+const DATA_PIPELINES_CLICKED_LOCAL_STORAGE_KEY = 'data-pipelines-clicked'
+
+const USER_PRODUCT_LIST_REASON_DEFAULTS: { [key in UserProductListReason]?: string } = {
+    [UserProductListReason.USED_BY_COLLEAGUES]:
+        'We think you might like this product because your colleagues are using it.',
+    [UserProductListReason.USED_SIMILAR_PRODUCTS]:
+        'We think you might like this product because you use similar products. Give it a try!',
+    [UserProductListReason.USED_ON_SEPARATE_TEAM]:
+        'You use this product on another project so we think you might like it here.',
+    [UserProductListReason.NEW_PRODUCT]: 'This is a brand new product. Give it a try!',
+    [UserProductListReason.SALES_LED]: 'This product is recommended for you by our team.',
+}
+
+// Show active state for items that are active in the URL
+const isItemActive = (item: TreeDataItem): boolean => {
+    if (!item.record?.href) {
+        return false
+    }
+
+    const currentPath = removeProjectIdIfPresent(window.location.pathname)
+    const itemHref = typeof item.record.href === 'string' ? item.record.href : ''
+
+    if (currentPath === itemHref) {
+        return true
+    }
+
+    // Current path is a sub-path of item (e.g., /insights/new under /insights)
+    if (currentPath.startsWith(itemHref + '/')) {
+        return true
+    }
+
+    // Special handling for products with child pages on distinct paths (e.g., /replay/home and /replay/playlists)
+    if (item.name === 'Session replay' && currentPath.startsWith('/replay/')) {
+        return true
+    }
+    if (item.name === 'Data pipelines' && currentPath.startsWith('/pipeline/')) {
+        return true
+    }
+    if (item.name === 'Workflows' && currentPath.startsWith('/workflows')) {
+        return true
+    }
+
+    return false
+}
 
 export function ProjectTree({
     logicKey,
@@ -69,7 +116,6 @@ export function ProjectTree({
     const projectTreeLogicProps = { key: logicKey ?? uniqueKey, root }
     const {
         fullFileSystemFiltered,
-        treeTableKeys,
         lastViewedId,
         expandedFolders,
         expandedSearchFolders,
@@ -79,8 +125,6 @@ export function ProjectTree({
         checkedItemCountNumeric,
         scrollTargetId,
         editingItemId,
-        treeTableColumnSizes,
-        treeTableTotalWidth,
         sortMethod: projectSortMethod,
         selectMode,
         sortMethod,
@@ -99,17 +143,18 @@ export function ProjectTree({
         clearScrollTarget,
         setEditingItemId,
         setSortMethod,
-        setTreeTableColumnSizes,
         setSelectMode,
         setSearchTerm,
     } = useActions(projectTreeLogic(projectTreeLogicProps))
 
     const { setPanelTreeRef, resetPanelLayout } = useActions(panelLayoutLogic)
     const { mainContentRef } = useValues(panelLayoutLogic)
+    const { currentTeamId } = useValues(teamLogic)
     const treeRef = useRef<LemonTreeRef>(null)
-    const { projectTreeMode } = useValues(projectTreeLogic({ key: PROJECT_TREE_KEY }))
-    const { setProjectTreeMode } = useActions(projectTreeLogic({ key: PROJECT_TREE_KEY }))
     const { openItemSelectModal } = useActions(itemSelectModalLogic)
+
+    const { customProducts, customProductsLoading } = useValues(customProductsLogic)
+    const { seed } = useActions(customProductsLogic)
 
     const [shortcutHelperDismissed, setShortcutHelperDismissed] = useLocalStorage<boolean>(
         SHORTCUT_DISMISSAL_LOCAL_STORAGE_KEY,
@@ -119,11 +164,26 @@ export function ProjectTree({
         CUSTOM_PRODUCT_DISMISSAL_LOCAL_STORAGE_KEY,
         false
     )
+    const [seenCustomProducts, setSeenCustomProducts] = useLocalStorage<string[]>(
+        `${currentTeamId ?? '*'}-${SEEN_CUSTOM_PRODUCTS_LOCAL_STORAGE_KEY}`,
+        []
+    )
+    const [dataPipelinesClicked, setDataPipelinesClicked] = useLocalStorage<boolean>(
+        `${currentTeamId ?? '*'}-${DATA_PIPELINES_CLICKED_LOCAL_STORAGE_KEY}`,
+        false
+    )
 
+    const isCustomProductsExperiment = useFeatureFlag('CUSTOM_PRODUCTS_SIDEBAR', 'test')
     const showFilterDropdown = root === 'project://'
     const showSortDropdown = root === 'project://'
 
-    const treeData: TreeDataItem[] = [...fullFileSystemFiltered]
+    let treeData: TreeDataItem[] = [...fullFileSystemFiltered]
+
+    // Filter out Data pipelines item if it's been clicked
+    if (dataPipelinesClicked) {
+        treeData = treeData.filter((item) => item.record?.path !== 'Data pipelines')
+    }
+
     if (fullFileSystemFiltered.length <= 5) {
         if (root === 'shortcuts://' && (fullFileSystemFiltered.length === 0 || !shortcutHelperDismissed)) {
             treeData.push({
@@ -131,7 +191,11 @@ export function ProjectTree({
                 name: 'Example shortcuts',
                 type: 'category',
                 displayName: (
-                    <div className="border border-primary text-xs mb-2 font-normal rounded-xs p-2 -mx-1">
+                    <div
+                        className={cn('border border-primary text-xs mb-2 font-normal rounded-xs p-2 -mx-1', {
+                            'mt-2': fullFileSystemFiltered.length === 0,
+                        })}
+                    >
                         Shortcuts are added by pressing{' '}
                         <IconEllipsis className="size-3 border border-[var(--color-neutral-500)] rounded-xs" />,
                         side-clicking a panel item, then "Add to shortcuts panel", or inside an app's resources file
@@ -147,28 +211,48 @@ export function ProjectTree({
             })
         }
 
-        if (root === 'custom-products://' && (fullFileSystemFiltered.length === 0 || !customProductHelperDismissed)) {
-            treeData.push({
-                id: 'products/custom-products-helper-category',
-                name: 'Example apps',
-                type: 'category',
-                displayName: (
-                    <div className="border border-primary text-xs mb-2 font-normal rounded-xs p-2 -mx-1 mt-6">
-                        This list will display your more frequently used apps. You can configure what items show up in
-                        here by clicking on the{' '}
-                        <IconPencil className="size-3 border border-[var(--color-neutral-500)] rounded-xs" /> icon
-                        above. We'll automatically suggest new apps to this list as you use them.{' '}
-                        {fullFileSystemFiltered.length > 0 && (
-                            <span
-                                className="cursor-pointer underline"
-                                onClick={() => setCustomProductHelperDismissed(true)}
-                            >
-                                Dismiss.
-                            </span>
-                        )}
-                    </div>
-                ),
-            })
+        if (root === 'custom-products://') {
+            const hasRecommendedProducts = customProducts.some(
+                (item) =>
+                    item.reason === UserProductListReason.USED_BY_COLLEAGUES ||
+                    item.reason === UserProductListReason.USED_ON_SEPARATE_TEAM
+            )
+
+            if (fullFileSystemFiltered.length === 0 || !customProductHelperDismissed) {
+                const CustomIcon = isCustomProductsExperiment ? IconGear : IconPencil
+                treeData.push({
+                    id: 'products/custom-products-helper-category',
+                    name: 'Example custom products',
+                    type: 'category',
+                    displayName: (
+                        <div
+                            className={cn('border border-primary text-xs mb-2 font-normal rounded-xs p-2 -mx-1', {
+                                'mt-6': fullFileSystemFiltered.length === 0,
+                            })}
+                        >
+                            You can display your preferred apps here. You can configure what items show up in here by
+                            clicking on the{' '}
+                            <CustomIcon className="size-3 border border-[var(--color-neutral-500)] rounded-xs" /> icon
+                            above. We'll automatically suggest new apps to this list as you use them.{' '}
+                            {fullFileSystemFiltered.length > 0 && (
+                                <span
+                                    className="cursor-pointer underline"
+                                    onClick={() => setCustomProductHelperDismissed(true)}
+                                >
+                                    Dismiss.
+                                </span>
+                            )}
+                            <br />
+                            <br />
+                            {!hasRecommendedProducts && fullFileSystemFiltered.length <= 3 && (
+                                <span className="cursor-pointer underline" onClick={seed}>
+                                    {customProductsLoading ? 'Adding...' : 'Add recommended products?'}
+                                </span>
+                            )}
+                        </div>
+                    ),
+                })
+            }
         }
     }
 
@@ -191,37 +275,14 @@ export function ProjectTree({
         }
     }, [scrollTargetId, treeRef, clearScrollTarget, setLastViewedId])
 
-    // Show active state for items that are active in the URL
-    function isItemActive(item: TreeDataItem): boolean {
-        if (!item.record?.href) {
-            return false
-        }
-
-        const currentPath = removeProjectIdIfPresent(window.location.pathname)
-        const itemHref = typeof item.record.href === 'string' ? item.record.href : ''
-
-        if (currentPath === itemHref) {
-            return true
-        }
-
-        // Current path is a sub-path of item (e.g., /insights/new under /insights)
-        if (currentPath.startsWith(itemHref + '/')) {
-            return true
-        }
-
-        // Special handling for products with child pages on distinct paths (e.g., /replay/home and /replay/playlists)
-        if (item.name === 'Session replay' && currentPath.startsWith('/replay/')) {
-            return true
-        }
-        if (item.name === 'Data pipelines' && currentPath.startsWith('/pipeline/')) {
-            return true
-        }
-        if (item.name === 'Workflows' && currentPath.startsWith('/workflows')) {
-            return true
-        }
-
-        return false
-    }
+    const handleMouseEnterIndicator = useCallback(
+        (itemId: string): void => {
+            if (!seenCustomProducts.includes(itemId)) {
+                setTimeout(() => setSeenCustomProducts((state) => [...state, itemId]), 250)
+            }
+        },
+        [seenCustomProducts, setSeenCustomProducts]
+    )
 
     const tree = (
         <LemonTree
@@ -229,9 +290,8 @@ export function ProjectTree({
             contentRef={mainContentRef as RefObject<HTMLElement>}
             className="px-0 py-1"
             data={treeData}
-            mode={onlyTree ? 'tree' : projectTreeMode}
+            mode="tree"
             selectMode={selectMode}
-            tableViewKeys={treeTableKeys}
             defaultSelectedFolderOrNodeId={lastViewedId || undefined}
             isItemActive={isItemActive}
             size={treeSize}
@@ -243,6 +303,12 @@ export function ProjectTree({
                 if (item?.type === 'empty-folder' || item?.type === 'loading-indicator') {
                     return
                 }
+
+                // Track when Data pipelines button is clicked
+                if (item?.record?.path === 'Data pipelines' && !dataPipelinesClicked) {
+                    setDataPipelinesClicked(true)
+                }
+
                 if (item?.record?.href) {
                     router.actions.push(
                         typeof item.record.href === 'function' ? item.record.href(item.record.ref) : item.record.href
@@ -355,11 +421,12 @@ export function ProjectTree({
                 )
             }}
             itemSideActionButton={(item) => {
-                const showProductMenuItems =
+                const showDropdownMenu =
                     root === 'products://' ||
+                    root === 'custom-products://' ||
                     (root === 'shortcuts://' && item.record?.href && item.record.href.split('/').length - 1 === 1)
 
-                if (showProductMenuItems) {
+                if (showDropdownMenu) {
                     if (item.name === 'Product analytics') {
                         return (
                             <ButtonPrimitive iconOnly isSideActionRight className="z-2">
@@ -390,108 +457,39 @@ export function ProjectTree({
                     </ContextMenuGroup>
                 )
             }}
-            tableModeTotalWidth={treeTableTotalWidth}
-            tableModeHeader={() => {
-                return (
-                    <>
-                        {/* Headers */}
-                        {treeTableKeys?.headers.map((header, index) => (
-                            <ResizableElement
-                                key={header.key}
-                                defaultWidth={header.width || 0}
-                                onResize={(width) => {
-                                    setTreeTableColumnSizes([
-                                        ...treeTableColumnSizes.slice(0, index),
-                                        width,
-                                        ...treeTableColumnSizes.slice(index + 1),
-                                    ])
-                                }}
-                                className="absolute h-[30px] flex items-center"
-                                style={{
-                                    transform: `translateX(${header.offset || 0}px)`,
-                                }}
-                                aria-label={`Resize handle for column "${header.title}"`}
-                            >
-                                <ButtonPrimitive
-                                    key={header.key}
-                                    fullWidth
-                                    className="pointer-events-none rounded-none text-secondary font-bold text-xs uppercase flex gap-2 motion-safe:transition-[left] duration-50"
-                                    style={{
-                                        paddingLeft: index === 0 ? '35px' : undefined,
-                                    }}
-                                >
-                                    <span>{header.title}</span>
-                                </ButtonPrimitive>
-                            </ResizableElement>
-                        ))}
-                    </>
-                )
-            }}
-            tableModeRow={(item, firstColumnOffset) => {
-                return (
-                    <>
-                        {treeTableKeys?.headers.slice(0).map((header, index) => {
-                            const width = header.width || 0
-                            const offset = header.offset || 0
-                            const value = header.key.split('.').reduce((obj, key) => obj?.[key], item)
-                            const isFolder =
-                                (item.children && item.children.length > 0) || item.record?.type === 'folder'
-                            // subtracting 48px is for offsetting the icon width and gap and padding... forgive me
-                            const widthAdjusted = width - (index === 0 ? firstColumnOffset + 48 : 0)
-                            const offsetAdjusted = index === 0 ? offset : offset - 12
-
-                            return (
-                                <span
-                                    key={header.key}
-                                    className="text-left flex items-center h-[var(--button-height-base)]"
-                                    // eslint-disable-next-line react/forbid-dom-props
-                                    style={{
-                                        // First we keep relative
-                                        position: index === 0 ? 'relative' : 'absolute',
-                                        transform: `translateX(${offsetAdjusted}px)`,
-                                        // First column we offset for the icons
-                                        width: `${widthAdjusted}px`,
-                                        paddingLeft: index !== 0 ? '6px' : undefined,
-                                    }}
-                                >
-                                    <Tooltip
-                                        title={
-                                            typeof header.tooltip === 'function'
-                                                ? header.tooltip(value)
-                                                : header.tooltip
-                                        }
-                                        placement="top-start"
-                                    >
-                                        <span
-                                            className={cn(
-                                                'starting:opacity-0 opacity-100 delay-50 motion-safe:transition-opacity duration-100 font-normal truncate',
-                                                {
-                                                    'font-semibold':
-                                                        index === 0 && isFolder && item.type !== 'empty-folder',
-                                                }
-                                            )}
-                                        >
-                                            {header.formatComponent
-                                                ? header.formatComponent(value, item)
-                                                : header.formatString
-                                                  ? header.formatString(value, item)
-                                                  : value}
-                                        </span>
-                                    </Tooltip>
-                                </span>
-                            )
-                        })}
-                    </>
-                )
-            }}
             renderItemTooltip={(item) => {
-                const user = item.record?.user as UserBasicType | undefined
                 const nameNode: JSX.Element = <span className="font-semibold">{item.displayName}</span>
 
-                if (root === 'products://' || root === 'data://' || root === 'persons://') {
-                    let key = item.record?.sceneKey
+                if (
+                    root === 'products://' ||
+                    root === 'data://' ||
+                    root === 'persons://' ||
+                    root === 'custom-products://'
+                ) {
+                    const key = item.record?.sceneKey
+                    const reason = item.record?.reason as UserProductListReason | undefined
+                    const reasonText = item.record?.reason_text as string | null | undefined
+
+                    const suggestedProductBaseTooltipText =
+                        reasonText || (reason ? USER_PRODUCT_LIST_REASON_DEFAULTS[reason] : undefined)
+                    const tooltipText = suggestedProductBaseTooltipText ? (
+                        <>
+                            {suggestedProductBaseTooltipText}
+                            <br />
+                            Right-click to remove from sidebar.
+                            <br />
+                            <br />
+                        </>
+                    ) : undefined
+
                     return (
                         <>
+                            {root === 'products://' && treeSize === 'narrow' && (
+                                <>
+                                    <p className="mb-1 font-semibold">{item.displayName}</p>
+                                </>
+                            )}
+                            {tooltipText}
                             {sceneConfigurations[key]?.description || item.name}
 
                             {item.tags?.length && (
@@ -513,6 +511,7 @@ export function ProjectTree({
                         </>
                     )
                 }
+
                 if (root === 'persons://') {
                     return (
                         <>
@@ -536,46 +535,61 @@ export function ProjectTree({
                         </>
                     )
                 }
+
                 if (root === 'new://') {
                     if (item.children) {
                         return <>View all</>
                     }
                     return <>Create a new {nameNode}</>
                 }
-                return projectTreeMode === 'tree' ? (
-                    <>
-                        Name: {nameNode} <br />
-                        Created by:{' '}
-                        <ProfilePicture
-                            user={user || { first_name: 'PostHog' }}
-                            size="xs"
-                            showName
-                            className="font-semibold"
-                        />
-                        <br />
-                        Created at:{' '}
-                        <span className="font-semibold">
-                            {dayjs(item.record?.created_at).format('MMM D, YYYY h:mm A')}
-                        </span>
-                    </>
-                ) : undefined
+
+                return undefined
             }}
             renderItemIcon={(item) => {
+                const createdAt = item.record?.created_at
+                const reason = item.record?.reason as UserProductListReason | undefined
+                const reasonText = item.record?.reason_text as string | null | undefined
+                const itemId = item.id
+
+                // This indicator is shown if we detect we're looking at a custom product
+                // that's been recently added to the user's sidebar.
+                // We extract the `reasonText` from the item or come up with some default
+                // ones for some specific reasons that have a reasonable default.
+                // We exclude USED_ON_SEPARATE_TEAM as those are not particularly useful to highlight.
+                // We also hide the indicator once the user has hovered over the item.
+                const showIndicator =
+                    root === 'custom-products://' &&
+                    createdAt &&
+                    dayjs().diff(dayjs(createdAt), 'days') < 7 &&
+                    reason &&
+                    reason !== UserProductListReason.USED_ON_SEPARATE_TEAM &&
+                    (reasonText || USER_PRODUCT_LIST_REASON_DEFAULTS[reason]) &&
+                    !seenCustomProducts.includes(itemId)
+
                 return (
                     <>
-                        {sortMethod === 'recent' && projectTreeMode === 'tree' && item.type !== 'loading-indicator' && (
+                        {sortMethod === 'recent' && item.type !== 'loading-indicator' && (
                             <ProfilePicture
                                 user={item.record?.user as UserBasicType | undefined}
                                 size="xs"
                                 className="ml-[4px]"
                             />
                         )}
-                        <TreeNodeDisplayIcon item={item} expandedItemIds={expandedFolders} />
+                        <div className="relative" onMouseEnter={() => handleMouseEnterIndicator(itemId)}>
+                            <TreeNodeDisplayIcon item={item} expandedItemIds={expandedFolders} />
+                            {showIndicator && (
+                                <div className="absolute top-0.5 -right-0.5 size-2 bg-success rounded-full cursor-pointer animate-pulse-5" />
+                            )}
+                        </div>
                     </>
                 )
             }}
             renderItem={(item) => {
-                const isNew = item.record?.created_at && dayjs().diff(dayjs(item.record?.created_at), 'minutes') < 3
+                const isCustomProduct = root === 'custom-products://'
+                const isNew =
+                    !isCustomProduct &&
+                    item.record?.created_at &&
+                    dayjs().diff(dayjs(item.record?.created_at), 'minutes') < 3
 
                 return (
                     <span className="truncate">
@@ -592,7 +606,7 @@ export function ProjectTree({
                             ) : null}
                         </span>
 
-                        {sortMethod === 'recent' && projectTreeMode === 'tree' && item.type !== 'loading-indicator' && (
+                        {sortMethod === 'recent' && item.type !== 'loading-indicator' && (
                             <span className="text-tertiary text-xxs pt-[3px] ml-1">
                                 {dayjs(item.record?.created_at).fromNow()}
                             </span>
@@ -693,22 +707,6 @@ export function ProjectTree({
                 },
             ]}
         >
-            {root === 'project://' && (
-                <ButtonPrimitive
-                    tooltip={projectTreeMode === 'tree' ? 'Switch to table view' : 'Switch to tree view'}
-                    onClick={() => setProjectTreeMode(projectTreeMode === 'tree' ? 'table' : 'tree')}
-                    className="absolute top-1/2 translate-y-1/2 right-0 translate-x-1/2  bg-surface-primary border border-primary z-[var(--z-resizer)]"
-                    data-attr="tree-panel-switch-view-button"
-                    iconOnly
-                >
-                    <IconChevronRight
-                        className={cn('size-3', {
-                            'rotate-180': projectTreeMode === 'table',
-                            'rotate-0': projectTreeMode === 'tree',
-                        })}
-                    />
-                </ButtonPrimitive>
-            )}
             {showRecents && (
                 <>
                     <div role="status" aria-live="polite" className="sr-only">

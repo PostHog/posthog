@@ -26,6 +26,7 @@ import {
     eventToDescription,
     floorMsToClosestSecond,
     formatDateTimeRange,
+    formatPercentageDiff,
     genericOperatorMap,
     getDefaultInterval,
     getFormattedLastWeekDate,
@@ -47,6 +48,7 @@ import {
     parseTagsFilter,
     pluralize,
     range,
+    retryWithBackoff,
     reverseColonDelimitedDuration,
     roundToDecimal,
     selectorOperatorMap,
@@ -154,6 +156,15 @@ describe('lib/utils', () => {
                     'https://client.rrrr.alpha.dev.foo.bar/9RvDy6gCmic_srrKs1db?sourceOrigin=rrrr&embedded={%22hostContext%22:%22landing%22,%22hostType%22:%22web%22,%22type%22:%22popsync%22}&share=1&wrapperUrl=https%3A%2F%2Fuat.rrrr.io%2F9RvDy6gCmicxyz&save=1&initialSearch={%22sites%22:%22google.com,gettyimages.com%22,%22safe%22:true,%22q%22:%22Perro%22}&opcid=4360f861-ffff-4444-9999-5257065a7dc3&waitForToken=1'
                 )
             ).toEqual(false)
+        })
+
+        it('rejects dangerous protocols (XSS prevention)', () => {
+            expect(isURL('javascript:alert(1)')).toEqual(false)
+            expect(isURL('javascript:alert(document.cookie)')).toEqual(false)
+            expect(isURL('JAVASCRIPT:alert(1)')).toEqual(false)
+            expect(isURL('data:text/html,<script>alert(1)</script>')).toEqual(false)
+            expect(isURL('vbscript:msgbox(1)')).toEqual(false)
+            expect(isURL('file:///etc/passwd')).toEqual(false)
         })
     })
 
@@ -1273,6 +1284,187 @@ describe('lib/utils', () => {
             const from = dayjs('2025-03-15T12:00:00')
             const to = dayjs('2025-03-15T12:01:00')
             expect(formatDateTimeRange(from, to)).toEqual('12:00 - 12:01')
+        })
+    })
+
+    describe('formatPercentageDiff()', () => {
+        it.each([
+            { current: 150, previous: 100, expected: '(+50.0%)' },
+            { current: 200, previous: 100, expected: '(+100.0%)' },
+            { current: 100, previous: 100, expected: '(+0.0%)' },
+            { current: 50, previous: 100, expected: '(-50.0%)' },
+            { current: 0, previous: 100, expected: '(-100.0%)' },
+            { current: 125, previous: 100, expected: '(+25.0%)' },
+            { current: 75, previous: 100, expected: '(-25.0%)' },
+        ])('formats $current vs $previous as $expected', ({ current, previous, expected }) => {
+            expect(formatPercentageDiff(current, previous)).toEqual(expected)
+        })
+
+        it.each([
+            { current: 100, previous: 0, description: 'division by zero' },
+            { current: 0, previous: 0, description: 'zero divided by zero' },
+        ])('returns null for $description', ({ current, previous }) => {
+            expect(formatPercentageDiff(current, previous)).toBeNull()
+        })
+    })
+
+    describe('retryWithBackoff()', () => {
+        it('returns result on first successful attempt', async () => {
+            const fn = jest.fn().mockResolvedValue('success')
+            const result = await retryWithBackoff(fn, { initialDelayMs: 0 })
+            expect(result).toBe('success')
+            expect(fn).toHaveBeenCalledTimes(1)
+        })
+
+        it('retries on failure and succeeds', async () => {
+            const fn = jest
+                .fn()
+                .mockRejectedValueOnce(new Error('fail 1'))
+                .mockRejectedValueOnce(new Error('fail 2'))
+                .mockResolvedValue('success')
+
+            const result = await retryWithBackoff(fn, { maxAttempts: 3, initialDelayMs: 0 })
+            expect(result).toBe('success')
+            expect(fn).toHaveBeenCalledTimes(3)
+        })
+
+        it('throws last error after all attempts exhausted', async () => {
+            const errors = [new Error('fail 1'), new Error('fail 2'), new Error('fail 3')]
+            let callCount = 0
+            const fn = jest.fn().mockImplementation(() => Promise.reject(errors[callCount++]))
+
+            await expect(retryWithBackoff(fn, { maxAttempts: 3, initialDelayMs: 0 })).rejects.toThrow('fail 3')
+            expect(fn).toHaveBeenCalledTimes(3)
+        })
+
+        it('re-throws AbortError immediately without retrying', async () => {
+            const fn = jest.fn().mockImplementation(() => {
+                const error = new DOMException('Aborted', 'AbortError')
+                return Promise.reject(error)
+            })
+
+            await expect(retryWithBackoff(fn, { maxAttempts: 3, initialDelayMs: 0 })).rejects.toThrow('Aborted')
+            expect(fn).toHaveBeenCalledTimes(1)
+        })
+
+        it('throws immediately if signal is already aborted', async () => {
+            const controller = new AbortController()
+            controller.abort()
+
+            const fn = jest.fn().mockResolvedValue('success')
+            await expect(retryWithBackoff(fn, { signal: controller.signal })).rejects.toThrow('Aborted')
+            expect(fn).not.toHaveBeenCalled()
+        })
+
+        it('applies exponential backoff between retries', async () => {
+            jest.useFakeTimers()
+            try {
+                let callCount = 0
+                const fn = jest.fn().mockImplementation(() => {
+                    callCount++
+                    if (callCount < 3) {
+                        return Promise.reject(new Error('fail'))
+                    }
+                    return Promise.resolve('success')
+                })
+
+                const promise = retryWithBackoff(fn, {
+                    maxAttempts: 3,
+                    initialDelayMs: 1000,
+                    backoffMultiplier: 2,
+                })
+
+                // First call happens immediately
+                await Promise.resolve()
+                expect(fn).toHaveBeenCalledTimes(1)
+
+                // After 1000ms (initialDelayMs * 2^0), second attempt
+                await jest.advanceTimersByTimeAsync(1000)
+                expect(fn).toHaveBeenCalledTimes(2)
+
+                // After 2000ms (initialDelayMs * 2^1), third attempt
+                await jest.advanceTimersByTimeAsync(2000)
+                expect(fn).toHaveBeenCalledTimes(3)
+
+                await expect(promise).resolves.toBe('success')
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
+        it('uses default options when none provided', async () => {
+            const errors = [new Error('fail'), new Error('fail'), new Error('fail')]
+            let callCount = 0
+            const fn = jest.fn().mockImplementation(() => Promise.reject(errors[callCount++]))
+
+            await expect(retryWithBackoff(fn, { initialDelayMs: 0 })).rejects.toThrow('fail')
+            expect(fn).toHaveBeenCalledTimes(3) // default maxAttempts is 3
+        })
+
+        it('handles maxAttempts of 1 (no retries)', async () => {
+            const fn = jest.fn().mockImplementation(() => Promise.reject(new Error('fail')))
+
+            await expect(retryWithBackoff(fn, { maxAttempts: 1, initialDelayMs: 0 })).rejects.toThrow('fail')
+            expect(fn).toHaveBeenCalledTimes(1)
+        })
+
+        it('does not retry when shouldRetry returns false', async () => {
+            const error = new Error('non-retryable')
+            const fn = jest.fn().mockImplementation(() => Promise.reject(error))
+
+            await expect(
+                retryWithBackoff(fn, {
+                    maxAttempts: 3,
+                    initialDelayMs: 0,
+                    shouldRetry: () => false,
+                })
+            ).rejects.toThrow('non-retryable')
+            expect(fn).toHaveBeenCalledTimes(1)
+        })
+
+        it('retries when shouldRetry returns true', async () => {
+            let callCount = 0
+            const fn = jest.fn().mockImplementation(() => {
+                callCount++
+                if (callCount < 3) {
+                    return Promise.reject(new Error('retryable'))
+                }
+                return Promise.resolve('success')
+            })
+
+            const result = await retryWithBackoff(fn, {
+                maxAttempts: 3,
+                initialDelayMs: 0,
+                shouldRetry: () => true,
+            })
+            expect(result).toBe('success')
+            expect(fn).toHaveBeenCalledTimes(3)
+        })
+
+        it('stops retrying when shouldRetry returns false for specific error', async () => {
+            const errors = [new Error('retry-me'), new Error('stop-here'), new Error('never-reached')]
+            let callCount = 0
+            const fn = jest.fn().mockImplementation(() => Promise.reject(errors[callCount++]))
+
+            await expect(
+                retryWithBackoff(fn, {
+                    maxAttempts: 3,
+                    initialDelayMs: 0,
+                    shouldRetry: (e) => e instanceof Error && e.message !== 'stop-here',
+                })
+            ).rejects.toThrow('stop-here')
+            expect(fn).toHaveBeenCalledTimes(2)
+        })
+
+        it('receives the error in shouldRetry callback', async () => {
+            const testError = new Error('test-error')
+            const fn = jest.fn().mockImplementation(() => Promise.reject(testError))
+            const shouldRetry = jest.fn().mockReturnValue(false)
+
+            await expect(retryWithBackoff(fn, { maxAttempts: 3, initialDelayMs: 0, shouldRetry })).rejects.toThrow(
+                'test-error'
+            )
+            expect(shouldRetry).toHaveBeenCalledWith(testError)
         })
     })
 })

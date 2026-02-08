@@ -92,4 +92,30 @@ describe('entityFilterLogic', () => {
                 .toMatchValues({ modalVisible: true })
         })
     })
+
+    describe('duplicating filters', () => {
+        it('preserves custom_name when duplicating', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.duplicateFilter({
+                    id: '$pageview',
+                    name: '$pageview',
+                    custom_name: 'My custom label',
+                    order: 0,
+                    type: 'events',
+                })
+            }).toDispatchActions(['duplicateFilter', 'setFilters'])
+
+            expect(logic.props.setFilters).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    events: expect.arrayContaining([
+                        expect.objectContaining({
+                            id: '$pageview',
+                            custom_name: 'My custom label',
+                            order: 1,
+                        }),
+                    ]),
+                })
+            )
+        })
+    })
 })

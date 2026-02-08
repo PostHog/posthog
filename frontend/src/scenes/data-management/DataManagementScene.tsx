@@ -17,6 +17,7 @@ import { NewAnnotationButton } from 'scenes/annotations/AnnotationModal'
 import { Comments } from 'scenes/data-management/comments/Comments'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
+import { CoreEventsSettings } from 'scenes/settings/environment/CoreEventsSettings'
 import { urls } from 'scenes/urls'
 import { MarketingAnalyticsSettings } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/settings/MarketingAnalyticsSettings'
 
@@ -33,6 +34,7 @@ import { IngestionWarningsView } from './ingestion-warnings/IngestionWarningsVie
 import { DataWarehouseManagedViewsetsScene } from './managed-viewsets/DataWarehouseManagedViewsetsScene'
 import { PropertyDefinitionsTable } from './properties/PropertyDefinitionsTable'
 import { SchemaManagement } from './schema/SchemaManagement'
+import { SqlVariablesTable } from './variables/SqlVariablesTable'
 
 export enum DataManagementTab {
     Actions = 'actions',
@@ -44,8 +46,10 @@ export enum DataManagementTab {
     History = 'history',
     IngestionWarnings = 'warnings',
     Revenue = 'revenue',
+    CoreEvents = 'core-events',
     MarketingAnalytics = 'marketing-analytics',
     DataWarehouseManagedViewsets = 'data-warehouse-managed-viewsets',
+    Variables = 'variables',
 }
 
 type TabConfig = {
@@ -148,11 +152,26 @@ const tabs: Record<DataManagementTab, TabConfig> = {
         ),
         content: <RevenueAnalyticsSettings />,
     },
+    [DataManagementTab.CoreEvents]: {
+        url: urls.coreEvents(),
+        label: (
+            <TitleWithIcon
+                icon={
+                    <Tooltip title="Core events are key business events used across Marketing analytics, Customer analytics, and Revenue analytics.">
+                        <IconInfo />
+                    </Tooltip>
+                }
+            >
+                Core events
+            </TitleWithIcon>
+        ),
+        content: <CoreEventsSettings />,
+        flag: FEATURE_FLAGS.NEW_TEAM_CORE_EVENTS,
+    },
     [DataManagementTab.IngestionWarnings]: {
         url: urls.ingestionWarnings(),
-        label: 'Ingestion warnings',
+        label: 'Event ingestion warnings',
         content: <IngestionWarningsView />,
-        flag: FEATURE_FLAGS.INGESTION_WARNINGS_ENABLED,
         tooltipDocLink: 'https://posthog.com/docs/data/ingestion-warnings',
     },
     [DataManagementTab.MarketingAnalytics]: {
@@ -173,6 +192,12 @@ const tabs: Record<DataManagementTab, TabConfig> = {
         label: 'Managed viewsets',
         content: <DataWarehouseManagedViewsetsScene />,
         flag: FEATURE_FLAGS.MANAGED_VIEWSETS,
+    },
+    [DataManagementTab.Variables]: {
+        url: urls.variables(),
+        label: 'SQL variables',
+        content: <SqlVariablesTable />,
+        tooltipDocLink: 'https://posthog.com/docs/sql',
     },
 }
 

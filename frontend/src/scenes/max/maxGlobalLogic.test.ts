@@ -44,15 +44,15 @@ describe('maxGlobalLogic', () => {
     })
 
     describe('editInsightToolRegistered selector', () => {
-        it('returns true when contextual create_and_query_insight tool is registered', async () => {
+        it('returns true when contextual create_insight tool is registered', async () => {
             // Initially should be false (only static tool available)
             await expectLogic(logic).toMatchValues({
                 editInsightToolRegistered: false,
             })
 
             logic.actions.registerTool({
-                ...TOOL_DEFINITIONS.create_and_query_insight,
-                identifier: 'create_and_query_insight',
+                ...TOOL_DEFINITIONS.create_insight,
+                identifier: 'create_insight',
             })
 
             // Now should be true (contextual tool is registered)

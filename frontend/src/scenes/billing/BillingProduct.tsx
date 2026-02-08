@@ -14,7 +14,7 @@ import { More } from 'lib/lemon-ui/LemonButton/More'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter, humanFriendlyCurrency } from 'lib/utils'
-import { getProductIcon } from 'scenes/products/Products'
+import { getProductIcon } from 'scenes/onboarding/productSelection/ProductSelection'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 import { BillingProductV2AddonType, BillingProductV2Type, BillingTierType } from '~/types'
@@ -25,7 +25,12 @@ import { BillingProductAddon } from './BillingProductAddon'
 import { BillingProductPricingTable } from './BillingProductPricingTable'
 import { ProductPricingModal } from './ProductPricingModal'
 import { UnsubscribeSurveyModal } from './UnsubscribeSurveyModal'
-import { createGaugeItems, isProductVariantPrimary, summarizeUsage } from './billing-utils'
+import {
+    createGaugeItems,
+    createProductValueFormatter,
+    getProductUnitLabel,
+    isProductVariantPrimary,
+} from './billing-utils'
 import { billingLogic } from './billingLogic'
 import { billingProductLogic } from './billingProductLogic'
 import { REALTIME_DESTINATIONS_BILLING_START_DATE } from './constants'
@@ -37,13 +42,16 @@ export const getTierDescription = (
     product: BillingProductV2Type | BillingProductV2AddonType,
     interval: string
 ): string => {
+    const formatValue = createProductValueFormatter(product)
+    const unitLabel = getProductUnitLabel(product)
+
     return i === 0
         ? tiers[i].up_to
-            ? `First ${summarizeUsage(tiers[i].up_to)} ${product.unit}s / ${interval}`
-            : `All ${product.unit}s`
+            ? `First ${formatValue(tiers[i].up_to)}${unitLabel ? ` ${unitLabel}` : ''} / ${interval}`
+            : `All ${unitLabel || product.display_unit || (product.unit ? product.unit + 's' : 'units')}`
         : tiers[i].up_to
-          ? `${summarizeUsage(tiers?.[i - 1].up_to || null)} - ${summarizeUsage(tiers[i].up_to)}`
-          : `> ${summarizeUsage(tiers?.[i - 1].up_to || null)}`
+          ? `${formatValue(tiers?.[i - 1].up_to || null)} - ${formatValue(tiers[i].up_to)}`
+          : `> ${formatValue(tiers?.[i - 1].up_to || null)}`
 }
 
 export const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Element | null => {
@@ -80,6 +88,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
 
     const productDisplayNameOverrides: Record<string, string> = {
         realtime_destinations: 'Data pipelines',
+        workflows_emails: 'Workflows',
     }
     const displayProductName = productDisplayNameOverrides[product.type] || product.name
 
@@ -117,7 +126,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                     <div className="flex gap-4 items-center justify-between">
                         {/* Product name and description */}
                         <div className="flex gap-x-2">
-                            <div>{getProductIcon(displayProductName, product.icon_key, 'text-2xl shrink-0')}</div>
+                            <div>{getProductIcon(product.icon_key, { className: 'text-2xl shrink-0' })}</div>
                             <div>
                                 <h3 className="font-bold mb-0 flex items-center gap-x-2">
                                     {displayProductName}{' '}

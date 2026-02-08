@@ -95,7 +95,7 @@ export function Bar({
                         aria-valuemax={100}
                         aria-valuenow={conversionPercentage * 100}
                     >
-                        {percentage(conversionPercentage, 1, true)}
+                        {percentage(conversionPercentage, 2, true)}
                     </div>
                 )}
             </div>

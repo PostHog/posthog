@@ -1,7 +1,7 @@
 import { BuiltLogic, useActions, useValues } from 'kea'
 import { ReactChild, ReactElement, useEffect } from 'react'
 
-import { IconNotebook, IconPlus } from '@posthog/icons'
+import { IconNotebook, IconPlusSmall } from '@posthog/icons'
 import { LemonDivider, LemonDropdown, LemonTag, ProfilePicture } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
@@ -11,6 +11,8 @@ import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { PopoverProps } from 'lib/lemon-ui/Popover'
 import { IconWithCount } from 'lib/lemon-ui/icons'
+import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { Label } from 'lib/ui/Label/Label'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
 import {
     NotebookSelectButtonLogicProps,
@@ -35,7 +37,7 @@ export type NotebookSelectProps = NotebookSelectButtonLogicProps & {
 
 export type NotebookSelectPopoverProps = NotebookSelectProps &
     Partial<Omit<PopoverProps, 'children'>> & {
-        children: ReactElement
+        children: ReactElement | ((open: boolean) => ReactElement)
     }
 
 export type NotebookSelectButtonProps = NotebookSelectProps &
@@ -181,38 +183,41 @@ export function NotebookSelectList(props: NotebookSelectProps): JSX.Element {
             <div className="deprecated-space-y-2 flex-0">
                 <LemonInput
                     type="search"
-                    placeholder="Search notebooks..."
+                    placeholder="Filter notebooks..."
                     value={searchQuery}
                     onChange={(s) => setSearchQuery(s)}
                     fullWidth
                     autoFocus
+                    size="small"
                 />
-                <MemberSelect value={createdBy} onChange={(user) => setCreatedBy(user?.uuid ?? null)} />
-                <AccessControlAction
-                    resourceType={AccessControlResourceType.Notebook}
-                    minAccessLevel={AccessControlLevel.Editor}
-                >
-                    <LemonButton
-                        data-attr="notebooks-select-button-create"
-                        fullWidth
-                        icon={<IconPlus />}
-                        onClick={openNewNotebook}
+                <div className="flex items-center gap-2 px-2">
+                    <Label intent="menu">Filter by:</Label>
+                    <MemberSelect value={createdBy} onChange={(user) => setCreatedBy(user?.uuid ?? null)} />
+                </div>
+                <div className="flex flex-col gap-px">
+                    <AccessControlAction
+                        resourceType={AccessControlResourceType.Notebook}
+                        minAccessLevel={AccessControlLevel.Editor}
                     >
-                        New notebook
-                    </LemonButton>
-                </AccessControlAction>
+                        <ButtonPrimitive data-attr="notebooks-select-button-create" onClick={openNewNotebook} menuItem>
+                            <IconPlusSmall />
+                            New notebook
+                        </ButtonPrimitive>
+                    </AccessControlAction>
 
-                <LemonButton
-                    fullWidth
-                    onClick={() => {
-                        setShowPopover(false)
-                        openAndAddToNotebook('scratchpad', false)
-                    }}
-                >
-                    My scratchpad
-                </LemonButton>
+                    <ButtonPrimitive
+                        onClick={() => {
+                            setShowPopover(false)
+                            openAndAddToNotebook('scratchpad', false)
+                        }}
+                        menuItem
+                    >
+                        <IconNotebook />
+                        My scratchpad
+                    </ButtonPrimitive>
+                </div>
             </div>
-            <LemonDivider />
+            <LemonDivider className="-mx-1 w-[calc(100%+var(--spacing))] my-1" />
             <div className="overflow-y-auto overflow-x-hidden flex-1">
                 {notebooksLoading && !notebooksNotContainingResource.length && !notebooksContainingResource.length ? (
                     <div className="px-2 py-1 flex flex-row items-center deprecated-space-x-1">
@@ -279,6 +284,8 @@ export function NotebookSelectPopover({
         props.onNotebookOpened?.(...args)
     }
 
+    const renderedChildren = typeof children === 'function' ? children(!!showPopover) : children
+
     return (
         <LemonDropdown
             overlay={
@@ -292,7 +299,7 @@ export function NotebookSelectPopover({
             onVisibilityChange={(visible) => setShowPopover(visible)}
             closeOnClickInside={false}
         >
-            {children}
+            {renderedChildren}
         </LemonDropdown>
     )
 }

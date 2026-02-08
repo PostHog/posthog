@@ -1,45 +1,29 @@
-import { useEffect, useRef } from 'react'
-
-import { Chart, ChartConfiguration } from 'lib/Chart'
+import { useChart } from 'lib/hooks/useChart'
 
 import { ProcessedChartData } from '../../experimentTimeseriesLogic'
 import { useChartColors } from '../shared/colors'
 
 interface VariantTimeseriesChartProps {
     chartData: ProcessedChartData
+    isRatioMetric?: boolean
 }
 
-export function VariantTimeseriesChart({ chartData: data }: VariantTimeseriesChartProps): JSX.Element {
-    const canvasRef = useRef<HTMLCanvasElement>(null)
-    const chartRef = useRef<Chart | null>(null)
+export function VariantTimeseriesChart({
+    chartData: data,
+    isRatioMetric = false,
+}: VariantTimeseriesChartProps): JSX.Element {
     const colors = useChartColors()
 
-    useEffect(() => {
-        if (!data) {
-            return
-        }
-
-        // Use setTimeout to ensure the canvas is in the DOM
-        const timeoutId = setTimeout(() => {
-            const ctx = canvasRef.current
-            if (!ctx) {
-                console.error('Canvas element not found')
-                return
+    const { canvasRef } = useChart({
+        getConfig: () => {
+            if (!data) {
+                return null
             }
-
-            // Destroy existing chart if it exists
-            const existingChart = Chart.getChart(ctx)
-            if (existingChart) {
-                existingChart.destroy()
-            }
-
-            ctx.style.width = '100%'
-            ctx.style.height = '100%'
 
             const { labels, datasets, processedData } = data
 
-            const config: ChartConfiguration = {
-                type: 'line',
+            return {
+                type: 'line' as const,
                 data: { labels, datasets },
                 options: {
                     responsive: true,
@@ -51,20 +35,33 @@ export function VariantTimeseriesChart({ chartData: data }: VariantTimeseriesCha
                     },
                     scales: {
                         y: {
-                            beginAtZero: true,
                             grid: {
                                 display: true,
-                                color: colors.EXPOSURES_AXIS_LINES,
+                                color: (context) => {
+                                    if (context.tick.value === 0) {
+                                        return colors.ZERO_LINE
+                                    }
+                                    return colors.EXPOSURES_AXIS_LINES
+                                },
+                                lineWidth: (context) => {
+                                    if (context.tick.value === 0) {
+                                        return 1.25
+                                    }
+                                    return 1
+                                },
                             },
                             ticks: {
-                                count: 6,
                                 callback: (value) => {
                                     const num = Number(value)
-                                    if (Math.abs(num) < 1) {
-                                        return `${(num * 100).toFixed(1)}%`
-                                    }
-                                    return num.toFixed(2)
+                                    return `${(num * 100).toFixed(0)}%`
                                 },
+                            },
+                            afterBuildTicks: (axis) => {
+                                const ticks = axis.ticks.map((t) => t.value)
+                                if (!ticks.includes(0)) {
+                                    axis.ticks.push({ value: 0 })
+                                    axis.ticks.sort((a, b) => a.value - b.value)
+                                }
                             },
                         },
                         x: {
@@ -81,6 +78,9 @@ export function VariantTimeseriesChart({ chartData: data }: VariantTimeseriesCha
                             callbacks: {
                                 label: function (context) {
                                     const value = context.parsed.y
+                                    if (value === null) {
+                                        return ''
+                                    }
                                     const formattedValue = `${(value * 100).toFixed(2)}%`
                                     return `${context.dataset.label}: ${formattedValue}`
                                 },
@@ -96,13 +96,24 @@ export function VariantTimeseriesChart({ chartData: data }: VariantTimeseriesCha
                                         const dataPoint = processedData[dataIndex]
                                         const lines = []
 
-                                        // Show if data is pending/interpolated
                                         if (dataPoint && !dataPoint.hasRealData) {
                                             lines.push('⚠️ Data pending - showing last known value')
                                         }
 
-                                        if (dataPoint && dataPoint.number_of_samples) {
-                                            lines.push(`Samples: ${dataPoint.number_of_samples.toLocaleString()}`)
+                                        if (dataPoint) {
+                                            if (isRatioMetric) {
+                                                if (dataPoint.denominator_sum) {
+                                                    lines.push(
+                                                        `Denominator: ${dataPoint.denominator_sum.toLocaleString()}`
+                                                    )
+                                                }
+                                            } else {
+                                                if (dataPoint.number_of_samples) {
+                                                    lines.push(
+                                                        `Exposures: ${dataPoint.number_of_samples.toLocaleString()}`
+                                                    )
+                                                }
+                                            }
                                         }
                                         if (dataPoint && dataPoint.significant !== undefined) {
                                             lines.push(`Significant: ${dataPoint.significant ? 'Yes' : 'No'}`)
@@ -116,23 +127,13 @@ export function VariantTimeseriesChart({ chartData: data }: VariantTimeseriesCha
                             boxWidth: 16,
                             boxHeight: 1,
                         },
-                        // @ts-expect-error Types of library are out of date
                         crosshair: false,
                     },
                 },
             }
-
-            chartRef.current = new Chart(ctx, config)
-        }, 0)
-
-        return () => {
-            clearTimeout(timeoutId)
-            if (chartRef.current) {
-                chartRef.current.destroy()
-                chartRef.current = null
-            }
-        }
-    }, [data, colors.EXPOSURES_AXIS_LINES])
+        },
+        deps: [data, colors.EXPOSURES_AXIS_LINES, colors.ZERO_LINE, isRatioMetric],
+    })
 
     return (
         <div className="relative h-[224px]">

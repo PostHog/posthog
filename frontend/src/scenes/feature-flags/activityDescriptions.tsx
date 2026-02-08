@@ -244,15 +244,6 @@ const featureFlagActionsMapping: Record<
             suffix: <>{nameOrLinkToFlag(logItem?.item_id, logItem?.detail.name)}</>,
         }
     },
-    rollout_percentage: function onRolloutPercentage(change) {
-        return {
-            description: [
-                <>
-                    changed rollout percentage to <div className="highlighted-activity">{change?.after as string}%</div>
-                </>,
-            ],
-        }
-    },
     key: function onKey(change, logItem) {
         const changeBefore = change?.before as string
         const changeAfter = change?.after as string
@@ -276,6 +267,30 @@ const featureFlagActionsMapping: Record<
                 <>
                     changed the evaluation runtime from <strong>{getRuntimeLabel(runtimeBefore)}</strong> to{' '}
                     <strong>{getRuntimeLabel(runtimeAfter)}</strong>
+                </>,
+            ],
+        }
+    },
+    bucketing_identifier: function onBucketingIdentifier(change) {
+        const identifierAfter = change?.after as string
+        const identifierBefore = change?.before as string
+
+        const getBucketingLabel = (identifier: string): string => {
+            switch (identifier) {
+                case 'distinct_id':
+                    return 'User'
+                case 'device_id':
+                    return 'Device'
+                default:
+                    return identifier || 'User'
+            }
+        }
+
+        return {
+            description: [
+                <>
+                    changed the bucketing identifier from <strong>{getBucketingLabel(identifierBefore)}</strong> to{' '}
+                    <strong>{getBucketingLabel(identifierAfter)}</strong>
                 </>,
             ],
         }
@@ -337,15 +352,10 @@ const featureFlagActionsMapping: Record<
     created_at: () => null,
     created_by: () => null,
     updated_at: () => null,
-    is_simple_flag: () => null,
     experiment_set: () => null,
     features: () => null,
     usage_dashboard: () => null,
-    // TODO: handle activity
-    rollback_conditions: () => null,
-    performed_rollback: () => null,
     can_edit: () => null,
-    analytics_dashboards: () => null,
     has_enriched_analytics: () => null,
     surveys: () => null,
     user_access_level: () => null,

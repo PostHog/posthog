@@ -1,16 +1,17 @@
 # ruff: noqa: T201 allow print statements
 
-import os
 import sys
 import logging
 import secrets
 import datetime as dt
 from time import monotonic
 from typing import Optional
+from urllib.parse import quote
 
 from django.core import exceptions
 from django.core.management.base import BaseCommand
 
+from posthog.api.person import PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
 from posthog.demo.matrix import Matrix, MatrixManager
 from posthog.demo.products.hedgebox import HedgeboxMatrix
 from posthog.demo.products.spikegpt import SpikeGPTMatrix
@@ -215,19 +216,15 @@ class Command(BaseCommand):
                     if existing_team_id is not None
                     else f"\nDemo data ready for {user.email}!\n\n"
                     "Pre-fill the login form with this link:\n"
-                    f"http://localhost:8010/login?email={user.email}\n"
+                    f"http://localhost:8010/login?email={quote(user.email)}\n"
                     f"The password is:\n{password}\n\n"
                     "If running demo mode (DEMO=1), log in instantly with this link:\n"
-                    f"http://localhost:8010/signup?email={user.email}\n"
+                    f"http://localhost:8010/signup?email={quote(user.email)}\n"
                 )
             )
 
-            if options["say_on_complete"]:
-                os.system('say "demo data ready" || true')
         else:
             print("Dry run - not saving results.")
-            if options["say_on_complete"]:
-                os.system('say "demo data dry run completed" || true')
 
     @staticmethod
     def print_results(matrix: Matrix, *, seed: str, duration: float, verbosity: int):
@@ -303,13 +300,7 @@ class Command(BaseCommand):
 
         person_properties = {
             *PERSON_PROPERTIES_ADAPTED_FROM_EVENT,
-            "email",
-            "Email",
-            "name",
-            "Name",
-            "username",
-            "Username",
-            "UserName",
+            *PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES,
         }
         for prop in person_properties.copy():
             if prop.startswith("$initial_"):

@@ -40,6 +40,7 @@ class HubspotSource(SimpleSource[HubspotSourceConfig | HubspotSourceOldConfig], 
             caption="Select an existing Hubspot account to link to PostHog or create a new connection",
             iconPath="/static/services/hubspot.png",
             docsUrl="https://posthog.com/docs/cdp/sources/hubspot",
+            featured=True,
             fields=cast(
                 list[FieldType],
                 [

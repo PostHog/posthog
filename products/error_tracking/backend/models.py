@@ -1,7 +1,9 @@
+from decimal import Decimal
 from uuid import UUID
 
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models, transaction
 
 from django_deprecate_fields import deprecate_field
@@ -301,6 +303,82 @@ class ErrorTrackingSuppressionRule(UUIDTModel):
         # ]
 
 
+class ErrorTrackingAutoCaptureControls(UUIDTModel):
+    """
+    Controls for error tracking autocapture behavior.
+    Defines sample rates, feature flag linkage, and URL/event-based triggers.
+    Each team can have one set of controls per library (SDK).
+    """
+
+    class MatchType(models.TextChoices):
+        ALL = "all"
+        ANY = "any"
+
+    class Library(models.TextChoices):
+        WEB = "web"
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    library = models.CharField(max_length=24, choices=Library.choices, null=False, blank=False, default=Library.WEB)
+
+    match_type = models.CharField(
+        max_length=24, choices=MatchType.choices, null=False, blank=False, default=MatchType.ALL
+    )
+
+    sample_rate = models.DecimalField(
+        max_digits=3,
+        decimal_places=2,
+        null=False,
+        blank=False,
+        default=Decimal(1),
+        validators=[MinValueValidator(Decimal(0)), MaxValueValidator(Decimal(1))],
+    )
+
+    linked_feature_flag = models.JSONField(null=True, blank=True)
+    event_triggers = ArrayField(models.TextField(null=True, blank=True), default=list, blank=True, null=True)
+    url_triggers = ArrayField(models.JSONField(null=True, blank=True), default=list, blank=True, null=True)
+    url_blocklist = ArrayField(models.JSONField(null=True, blank=True), default=list, blank=True, null=True)
+
+    class Meta:
+        db_table = "posthog_errortrackingautocapturecontrols"
+        indexes = [
+            models.Index(fields=["team_id"]),
+        ]
+        constraints = [
+            models.UniqueConstraint(fields=["team", "library"], name="unique_controls_per_team_library"),
+        ]
+
+
+def get_autocapture_controls(team_id: int, library: str = "web") -> dict | None:
+    """Get the autocapture controls for a team and library, formatted for API responses."""
+    result = ErrorTrackingAutoCaptureControls.objects.filter(team_id=team_id, library=library).values().first()
+    if result:
+        if result.get("sample_rate") is not None:
+            result["sample_rate"] = float(result["sample_rate"])
+        if result.get("id") is not None:
+            result["id"] = str(result["id"])
+    return result
+
+
+def get_all_autocapture_controls(team_id: int) -> dict[str, dict]:
+    """Get all autocapture controls for a team, keyed by library."""
+    controls = ErrorTrackingAutoCaptureControls.objects.filter(team_id=team_id).values()
+    result: dict[str, dict] = {}
+    for control in controls:
+        library = control.get("library")
+        if library:
+            result[library] = {
+                "id": str(control["id"]) if control.get("id") else None,
+                "library": control.get("library"),
+                "matchType": control.get("match_type"),
+                "sampleRate": float(control["sample_rate"]) if control.get("sample_rate") is not None else None,
+                "linkedFeatureFlag": control.get("linked_feature_flag"),
+                "eventTriggers": control.get("event_triggers"),
+                "urlTriggers": control.get("url_triggers"),
+                "urlBlocklist": control.get("url_blocklist"),
+            }
+    return result
+
+
 class ErrorTrackingStackFrame(UUIDTModel):
     # Produced by a raw frame
     raw_id = models.TextField(null=False, blank=False)
@@ -378,6 +456,7 @@ def update_error_tracking_issue_fingerprints(
     team_id: int, issue_id: str, fingerprints: list[str]
 ) -> list[ErrorTrackingIssueFingerprintV2]:
     return list(
+        # nosemgrep: python.django.security.audit.raw-query.avoid-raw-sql (parameterized via params list)
         ErrorTrackingIssueFingerprintV2.objects.raw(
             """
                 UPDATE posthog_errortrackingissuefingerprintv2

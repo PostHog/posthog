@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
@@ -40,7 +40,7 @@ import {
     PropertyOperator,
 } from '~/types'
 
-import { GroupFeedCanvas } from 'products/customer_analytics/frontend/components/GroupFeedCanvas/GroupFeedCanvas'
+import { GroupProfileCanvas } from 'products/customer_analytics/frontend/components/GroupProfileCanvas'
 
 import { GroupOverview } from './GroupOverview'
 import { RelatedGroups } from './RelatedGroups'
@@ -60,11 +60,11 @@ export function Group({ tabId }: { tabId?: string }): JSX.Element {
     if (!tabId) {
         throw new Error('GroupScene rendered with no tabId')
     }
-
+    const mountedGroupLogic = useMountedLogic(groupLogic)
     const { logicProps, groupData, groupDataLoading, groupTypeName, groupType, groupTab, groupEventsQuery } =
-        useValues(groupLogic)
+        useValues(mountedGroupLogic)
     const { groupKey, groupTypeIndex } = logicProps
-    const { setGroupEventsQuery, editProperty, deleteProperty } = useActions(groupLogic)
+    const { setGroupEventsQuery, editProperty, deleteProperty } = useActions(mountedGroupLogic)
     const { currentTeam } = useValues(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { aggregationLabel } = useValues(groupsModel)
@@ -73,8 +73,7 @@ export function Group({ tabId }: { tabId?: string }): JSX.Element {
         return groupDataLoading ? <SpinnerOverlay sceneLevel /> : <NotFound object="group" />
     }
 
-    const settingLevel = featureFlags[FEATURE_FLAGS.ENVIRONMENTS] ? 'environment' : 'project'
-    const activeTab = groupTab ?? (featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS] ? 'feed' : 'overview')
+    const activeTab = groupTab ?? (featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS] ? 'profile' : 'overview')
 
     return (
         <SceneContent>
@@ -110,9 +109,15 @@ export function Group({ tabId }: { tabId?: string }): JSX.Element {
                     ...(featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS]
                         ? [
                               {
-                                  key: GroupsTabType.FEED,
-                                  label: <span data-attr="groups-feed-tab">Feed</span>,
-                                  content: <GroupFeedCanvas group={groupData} tabId={tabId} />,
+                                  key: GroupsTabType.PROFILE,
+                                  label: <span data-attr="groups-profile-tab">Profile</span>,
+                                  content: (
+                                      <GroupProfileCanvas
+                                          group={groupData}
+                                          tabId={tabId}
+                                          attachTo={mountedGroupLogic}
+                                      />
+                                  ),
                               },
                           ]
                         : []),
@@ -121,7 +126,7 @@ export function Group({ tabId }: { tabId?: string }): JSX.Element {
                         label: <span data-attr="groups-overview-tab">Overview</span>,
                         content: <GroupOverview groupData={groupData} />,
                     },
-                    ...(featureFlags[FEATURE_FLAGS.CRM_ITERATION_ONE] && groupData.notebook
+                    ...(featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS] && groupData.notebook
                         ? [
                               {
                                   key: GroupsTabType.NOTES,
@@ -165,8 +170,8 @@ export function Group({ tabId }: { tabId?: string }): JSX.Element {
                                 {!currentTeam?.session_recording_opt_in ? (
                                     <div className="mb-4">
                                         <LemonBanner type="info">
-                                            Session recordings are currently disabled for this {settingLevel}. To use
-                                            this feature, please go to your{' '}
+                                            Session recordings are currently disabled for this project. To use this
+                                            feature, please go to your{' '}
                                             <Link to={`${urls.settings('project')}#recordings`}>project settings</Link>{' '}
                                             and enable it.
                                         </LemonBanner>

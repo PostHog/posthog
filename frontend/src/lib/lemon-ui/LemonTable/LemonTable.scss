@@ -1,3 +1,13 @@
+@keyframes LemonTable__row__highlight__animation {
+    0% {
+        background-color: var(--color-accent-highlight-secondary);
+    }
+
+    100% {
+        background-color: transparent;
+    }
+}
+
 .LemonTable {
     --row-base-height: auto;
     --row-horizontal-padding: 0.5rem;
@@ -163,6 +173,10 @@
                 }
             }
 
+            &.LemonTable__row--status-highlight-new {
+                animation: LemonTable__row__highlight__animation 1.5s ease-out;
+            }
+
             &:not(.LemonTable__expansion) {
                 > td {
                     // Make spacing of buttons tighter in tables by adding negative vertical margin
@@ -259,6 +273,10 @@
 
     .LemonTable__header-content {
         color: var(--color-text-secondary);
+
+        .reduce-visual-noise & {
+            color: var(--color-text-tertiary) !important;
+        }
     }
 
     &.LemonTable__header--actionable {
@@ -275,6 +293,21 @@
         &:active {
             .LemonTable__header-content {
                 color: var(--color-text-primary);
+            }
+        }
+    }
+
+    .sorting-indicator {
+        .reduce-visual-noise & {
+            color: var(--color-text-tertiary) !important;
+            opacity: 0.5;
+        }
+    }
+
+    &:hover {
+        .sorting-indicator {
+            .reduce-visual-noise & {
+                opacity: 1;
             }
         }
     }

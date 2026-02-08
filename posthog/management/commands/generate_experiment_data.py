@@ -17,23 +17,34 @@ from posthog.models import Team, User
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 
 
-def initialize_self_capture():
+def initialize_self_capture(team_id: int | None = None):
     """Initialize self-capture for posthoganalytics in management command context"""
     try:
-        user = (
-            User.objects.filter(last_login__isnull=False).order_by("-last_login").select_related("current_team").first()
-        )
         team = None
-        if user and getattr(user, "current_team", None):
-            team = user.current_team
+        if team_id is not None:
+            team = Team.objects.filter(pk=team_id).first()
+            if not team:
+                logging.warning(f"No team found with id {team_id}. Aborting")
+                sys.exit(1)
         else:
-            team = Team.objects.only("api_token").first()
+            user = (
+                User.objects.filter(last_login__isnull=False)
+                .order_by("-last_login")
+                .select_related("current_team")
+                .first()
+            )
+            if user and getattr(user, "current_team", None):
+                team = user.current_team
+            else:
+                team = Team.objects.only("api_token").first()
 
         if team:
+            # Reset any existing client to ensure new settings are used
+            posthoganalytics.default_client = None
             posthoganalytics.disabled = False
             posthoganalytics.api_key = team.api_token
             posthoganalytics.host = settings.SITE_URL
-            logging.info(f"Self-capture initialized with team {team.name} (API key: {team.api_token[:10]}...)")
+            logging.info(f"Self-capture initialized with team {team.name} (id={team.pk})")
             return team
         else:
             logging.warning("No team found for self-capture initialization. Aborting")
@@ -58,6 +69,7 @@ class ActionConfig(BaseModel):
     probability: float
     count: int = 1
     required_for_next: bool = False
+    time_delay: int = 1
     properties: dict[str, Union[Distribution, object]] = Field(default_factory=dict)
 
     def model_post_init(self, __context) -> None:
@@ -75,11 +87,17 @@ class VariantConfig(BaseModel):
     actions: list[ActionConfig]
 
 
+class ExposurePropertyOption(BaseModel):
+    value: Union[str, int, float, bool, None]
+    probability: float
+
+
 class ExperimentConfig(BaseModel):
     number_of_users: int
     start_timestamp: datetime
     end_timestamp: datetime
     variants: dict[str, VariantConfig]
+    exposure_properties: dict[str, list[ExposurePropertyOption]] = Field(default_factory=dict)
 
 
 def get_default_funnel_experiment_config() -> ExperimentConfig:
@@ -92,14 +110,14 @@ def get_default_funnel_experiment_config() -> ExperimentConfig:
                 weight=0.5,
                 actions=[
                     ActionConfig(event="signup started", probability=1, required_for_next=True),
-                    ActionConfig(event="signup completed", probability=0.25, required_for_next=True),
+                    ActionConfig(event="signup completed", probability=0.25, required_for_next=True, time_delay=2),
                 ],
             ),
             "test": VariantConfig(
                 weight=0.5,
                 actions=[
                     ActionConfig(event="signup started", probability=1, required_for_next=True),
-                    ActionConfig(event="signup completed", probability=0.35, required_for_next=True),
+                    ActionConfig(event="signup completed", probability=0.35, required_for_next=True, time_delay=3),
                 ],
             ),
         },
@@ -396,6 +414,7 @@ class Command(BaseCommand):
             help="Initialize a new experiment configuration file at the specified path. Does not generate data.",
         )
         parser.add_argument("--experiment-id", type=str, help="Experiment ID (feature flag name)")
+        parser.add_argument("--team-id", type=int, help="Team ID to use for generating data")
         parser.add_argument("--config", type=str, help="Path to experiment config file")
         parser.add_argument(
             "--generate-session-replays",
@@ -425,7 +444,7 @@ class Command(BaseCommand):
         if not settings.DEBUG:
             raise ValueError("This command should only be run in development! DEBUG must be True.")
 
-        team = initialize_self_capture()
+        team = initialize_self_capture(team_id=options.get("team_id"))
 
         experiment_type = options.get("type")
 
@@ -458,7 +477,7 @@ class Command(BaseCommand):
             experiment_config = get_default_config(experiment_type)
 
         variants = list(experiment_config.variants.keys())
-        variant_counts = {variant: 0 for variant in variants}
+        variant_counts = dict.fromkeys(variants, 0)
 
         generate_replays = options.get("generate_session_replays", False)
         replay_probability = options.get("replay_probability", 0.3)
@@ -501,6 +520,13 @@ class Command(BaseCommand):
                 )
                 persons_created += 1
 
+            # Generate exposure properties based on configured probabilities
+            exposure_props: dict[str, Any] = {}
+            for prop_key, prop_options in experiment_config.exposure_properties.items():
+                values = [opt.value for opt in prop_options]
+                weights = [opt.probability for opt in prop_options]
+                exposure_props[prop_key] = random.choices(values, weights=weights)[0]
+
             posthoganalytics.capture(
                 distinct_id=distinct_id,
                 event="$feature_flag_called",
@@ -510,11 +536,12 @@ class Command(BaseCommand):
                     "$feature_flag_response": variant,
                     "$feature_flag": experiment_id,
                     "$session_id": session_id,
+                    **exposure_props,
                 },
             )
 
             should_stop = False
-            time_increment = 1
+            minutes_after_exposure = 0
             for action in experiment_config.variants[variant].actions:
                 for _ in range(action.count):
                     if random.random() < action.probability:
@@ -534,14 +561,13 @@ class Command(BaseCommand):
                                     )
                             else:
                                 properties[prop_name] = prop_value
-
+                        minutes_after_exposure += action.time_delay
                         posthoganalytics.capture(
                             distinct_id=distinct_id,
                             event=action.event,
-                            timestamp=random_timestamp + timedelta(minutes=time_increment),
+                            timestamp=random_timestamp + timedelta(minutes=minutes_after_exposure),
                             properties=properties,
                         )
-                        time_increment += 1
                     else:
                         if action.required_for_next:
                             should_stop = True
@@ -579,11 +605,11 @@ class Command(BaseCommand):
         logging.info(f"Variant counts: {variant_counts}")
         if generate_replays:
             logging.info(
-                f"Generated {replay_count} session replays ({replay_count/experiment_config.number_of_users:.1%} of sessions)"
+                f"Generated {replay_count} session replays ({replay_count / experiment_config.number_of_users:.1%} of sessions)"
             )
         if create_person_profiles:
             logging.info(
-                f"Created {persons_created} person profiles ({persons_created/experiment_config.number_of_users:.1%} of users)"
+                f"Created {persons_created} person profiles ({persons_created / experiment_config.number_of_users:.1%} of users)"
             )
 
     def _generate_person_properties(self, is_identified: bool) -> dict[str, Any]:

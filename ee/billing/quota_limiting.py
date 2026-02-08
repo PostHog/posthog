@@ -21,16 +21,20 @@ from posthog.models.team.team import Team
 from posthog.redis import get_client
 from posthog.tasks.usage_report import (
     convert_team_usage_rows_to_dict,
+    get_teams_with_ai_credits_used_in_period,
     get_teams_with_ai_event_count_in_period,
     get_teams_with_api_queries_metrics,
     get_teams_with_billable_event_count_in_period,
     get_teams_with_cdp_billable_invocations_in_period,
     get_teams_with_exceptions_captured_in_period,
     get_teams_with_feature_flag_requests_count_in_period,
+    get_teams_with_logs_bytes_in_period,
     get_teams_with_recording_count_in_period,
     get_teams_with_rows_exported_in_period,
     get_teams_with_rows_synced_in_period,
     get_teams_with_survey_responses_count_in_period,
+    get_teams_with_workflow_billable_invocations_in_period,
+    get_teams_with_workflow_emails_sent_in_period,
 )
 from posthog.utils import get_current_day
 
@@ -70,6 +74,10 @@ class QuotaResource(Enum):
     LLM_EVENTS = "llm_events"
     CDP_TRIGGER_EVENTS = "cdp_trigger_events"
     ROWS_EXPORTED = "rows_exported"
+    AI_CREDITS = "ai_credits"
+    WORKFLOW_EMAILS = "workflow_emails"
+    WORKFLOW_DESTINATIONS = "workflow_destinations_dispatched"
+    LOGS_MB_INGESTED = "logs_mb_ingested"
 
 
 class QuotaLimitingCaches(Enum):
@@ -88,6 +96,15 @@ OVERAGE_BUFFER = {
     QuotaResource.LLM_EVENTS: 0,
     QuotaResource.CDP_TRIGGER_EVENTS: 0,
     QuotaResource.ROWS_EXPORTED: 0,
+    QuotaResource.AI_CREDITS: 0,
+    QuotaResource.WORKFLOW_EMAILS: 0,
+    QuotaResource.WORKFLOW_DESTINATIONS: 0,
+    QuotaResource.LOGS_MB_INGESTED: 0,
+}
+
+# These resources are exempt from any grace periods, whether trust-based or never_drop_data
+GRACE_PERIOD_EXEMPT_RESOURCES: set[QuotaResource] = {
+    QuotaResource.AI_CREDITS,
 }
 
 
@@ -103,6 +120,10 @@ class UsageCounters(TypedDict):
     llm_events: int
     cdp_trigger_events: int
     rows_exported: int
+    ai_credits: int
+    workflow_emails: int
+    workflow_destinations_dispatched: int
+    logs_mb_ingested: int
 
 
 # -------------------------------------------------------------------------------------------------
@@ -156,6 +177,11 @@ def list_limited_team_attributes(resource: QuotaResource, cache_key: QuotaLimiti
     return [x.decode("utf-8") for x in results]
 
 
+def is_team_limited(team_api_token: str, resource: QuotaResource, cache_key: QuotaLimitingCaches) -> bool:
+    limited_team_attributes = list_limited_team_attributes(resource, cache_key)
+    return team_api_token in limited_team_attributes
+
+
 # -------------------------------------------------------------------------------------------------
 # MAIN FUNCTIONS
 # -------------------------------------------------------------------------------------------------
@@ -182,10 +208,11 @@ def org_quota_limited_until(
     billing_period_end = round(dateutil.parser.isoparse(organization.usage["period"][1]).timestamp())
     quota_limited_until = summary.get("quota_limited_until", None)
     quota_limiting_suspended_until = summary.get("quota_limiting_suspended_until", None)
-    # Note: customer_trust_scores can be empty {} for orgs not yet synced from billing. Default to 0 (no grace period).
-    # Note: customer_trust_scores in posthog_organization use usage_key values (matching QuotaResource values).
-    # The billing service stores trust scores by product_key, but billing_manager.py translates them to usage_key
-    # when syncing billing_customer to posthog_organization.
+
+    # - customer_trust_scores can be empty {} for orgs not yet synced from billing. Default to 0 (no grace period)
+    # - customer_trust_scores in posthog_organization use usage_key values (matching QuotaResource values)
+    # - The billing service stores trust scores by product_key, but billing_manager.py translates them to usage_key
+    #   when syncing billing_customer to posthog_organization
     trust_score = organization.customer_trust_scores.get(resource.value) if organization.customer_trust_scores else 0
 
     # Flow for checking quota limits:
@@ -220,7 +247,7 @@ def org_quota_limited_until(
         return None
 
     # 1b. never drop
-    if organization.never_drop_data:
+    if resource not in GRACE_PERIOD_EXEMPT_RESOURCES and organization.never_drop_data:
         report_organization_action(
             organization,
             "org_quota_limited_until",
@@ -298,7 +325,7 @@ def org_quota_limited_until(
     # Please keep the logic and levels in sync with what is defined in billing.
 
     # 2b. no trust score
-    if not trust_score and minimum_grace_period == 0:
+    if (not trust_score or resource in GRACE_PERIOD_EXEMPT_RESOURCES) and minimum_grace_period == 0:
         # Set them to the default trust score and immediately limit
         if trust_score is None:
             organization.customer_trust_scores[resource.value] = 0
@@ -490,13 +517,13 @@ def update_org_billing_quotas(organization: Organization):
             if quota_limited_until:
                 add_limited_team_tokens(
                     resource,
-                    {x: quota_limited_until for x in team_attributes},
+                    dict.fromkeys(team_attributes, quota_limited_until),
                     QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
                 )
             elif limiting_suspended_until and limiting_suspended_until >= today_end.timestamp():
                 add_limited_team_tokens(
                     resource,
-                    {x: limiting_suspended_until for x in team_attributes},
+                    dict.fromkeys(team_attributes, limiting_suspended_until),
                     QuotaLimitingCaches.QUOTA_LIMITING_SUSPENDED_KEY,
                 )
             else:
@@ -578,15 +605,14 @@ def update_all_orgs_billing_quotas(
     period_start, period_end = period
 
     api_queries_usage = get_teams_with_api_queries_metrics(period_start, period_end)
+    _, exception_metrics = get_teams_with_exceptions_captured_in_period(period_start, period_end)
 
     # Clickhouse is good at counting things so we count across all teams rather than doing it one by one
     all_data = {
         "teams_with_event_count_in_period": convert_team_usage_rows_to_dict(
             get_teams_with_billable_event_count_in_period(period_start, period_end)
         ),
-        "teams_with_exceptions_captured_in_period": convert_team_usage_rows_to_dict(
-            get_teams_with_exceptions_captured_in_period(period_start, period_end)
-        ),
+        "teams_with_exceptions_captured_in_period": convert_team_usage_rows_to_dict(exception_metrics),
         "teams_with_recording_count_in_period": convert_team_usage_rows_to_dict(
             get_teams_with_recording_count_in_period(period_start, period_end)
         ),
@@ -614,6 +640,21 @@ def update_all_orgs_billing_quotas(
         "teams_with_ai_event_count_in_period": convert_team_usage_rows_to_dict(
             get_teams_with_ai_event_count_in_period(period_start, period_end)
         ),
+        "teams_with_ai_credits_used_in_period": convert_team_usage_rows_to_dict(
+            get_teams_with_ai_credits_used_in_period(period_start, period_end)
+        ),
+        "teams_with_workflow_emails_sent_in_period": convert_team_usage_rows_to_dict(
+            get_teams_with_workflow_emails_sent_in_period(period_start, period_end)
+        ),
+        "teams_with_workflow_destinations_in_period": convert_team_usage_rows_to_dict(
+            get_teams_with_workflow_billable_invocations_in_period(period_start, period_end)
+        ),
+        "teams_with_logs_mb_in_period": {
+            team_id: int(bytes_val // 1_000_000)
+            for team_id, bytes_val in convert_team_usage_rows_to_dict(
+                get_teams_with_logs_bytes_in_period(period_start, period_end)
+            ).items()
+        },
     }
 
     teams: Sequence[Team] = list(
@@ -647,8 +688,12 @@ def update_all_orgs_billing_quotas(
             api_queries_read_bytes=all_data["teams_with_api_queries_read_bytes"].get(team.id, 0),
             survey_responses=all_data["teams_with_survey_responses_count_in_period"].get(team.id, 0),
             llm_events=all_data["teams_with_ai_event_count_in_period"].get(team.id, 0),
+            ai_credits=all_data["teams_with_ai_credits_used_in_period"].get(team.id, 0),
             cdp_trigger_events=all_data["teams_with_cdp_trigger_events_metrics"].get(team.id, 0),
             rows_exported=all_data["teams_with_rows_exported_in_period"].get(team.id, 0),
+            workflow_emails=all_data["teams_with_workflow_emails_sent_in_period"].get(team.id, 0),
+            workflow_destinations_dispatched=all_data["teams_with_workflow_destinations_in_period"].get(team.id, 0),
+            logs_mb_ingested=all_data["teams_with_logs_mb_in_period"].get(team.id, 0),
         )
 
         org_id = str(team.organization.id)

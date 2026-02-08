@@ -1,10 +1,14 @@
 import FuseClass from 'fuse.js'
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
+import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { organizationIntegrationsLogic } from 'scenes/settings/organization/organizationIntegrationsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -52,6 +56,8 @@ export const settingsLogic = kea<settingsLogicType>([
             ['preflight', 'isCloudOrDev'],
             teamLogic,
             ['currentTeam'],
+            organizationIntegrationsLogic,
+            ['organizationIntegrations'],
         ],
     })),
 
@@ -63,6 +69,8 @@ export const settingsLogic = kea<settingsLogicType>([
         closeCompactNavigation: true,
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
         toggleLevelCollapse: (level: SettingLevelId) => ({ level }),
+        toggleGroupCollapse: (group: string) => ({ group }),
+        loadSettingsAsOf: (at: string, scope?: string | string[]) => ({ at, scope }),
     }),
 
     reducers(({ props }) => ({
@@ -126,6 +134,36 @@ export const settingsLogic = kea<settingsLogicType>([
                 }),
             },
         ],
+
+        collapsedGroups: [
+            {} as Record<string, boolean>,
+            {
+                toggleGroupCollapse: (state, { group }) => ({
+                    ...state,
+                    [group]: !state[group],
+                }),
+            },
+        ],
+    })),
+
+    loaders(() => ({
+        settingsSnapshot: [
+            null as Record<string, any> | null,
+            {
+                loadSettingsAsOf: async ({ at, scope }: { at: string; scope?: string | string[] }) => {
+                    const scopeArray = Array.isArray(scope)
+                        ? scope.filter((s): s is string => !!s)
+                        : scope
+                          ? [scope]
+                          : undefined
+                    if (!at) {
+                        lemonToast.warning('A timestamp is required to load settings at a point in time')
+                        return {}
+                    }
+                    return await api.teamSettings.asOf(at, scopeArray)
+                },
+            },
+        ],
     })),
 
     listeners({
@@ -152,10 +190,16 @@ export const settingsLogic = kea<settingsLogicType>([
             },
         ],
         sections: [
-            (s) => [s.doesMatchFlags, s.featureFlags, s.isCloudOrDev, s.currentTeam],
-            (doesMatchFlags, featureFlags, isCloudOrDev, currentTeam): SettingSection[] => {
+            (s) => [s.doesMatchFlags, s.isCloudOrDev, s.currentTeam, s.organizationIntegrations],
+            (doesMatchFlags, isCloudOrDev, currentTeam, organizationIntegrations): SettingSection[] => {
                 const sections = SETTINGS_MAP.filter(doesMatchFlags).filter((section) => {
                     if (section.hideSelfHost && !isCloudOrDev) {
+                        return false
+                    }
+                    if (
+                        section.id === 'organization-integrations' &&
+                        (!organizationIntegrations || organizationIntegrations.length === 0)
+                    ) {
                         return false
                     }
 
@@ -167,31 +211,27 @@ export const settingsLogic = kea<settingsLogicType>([
                     return sections.filter((section) => section.level !== 'environment' && section.level !== 'project')
                 }
 
-                if (!featureFlags[FEATURE_FLAGS.ENVIRONMENTS]) {
-                    return sections
-                        .filter((section) => section.level !== 'project')
-                        .map((section) => ({
-                            ...section,
-                            id: section.id.replace('environment-', 'project-') as SettingSectionId,
-                            level: section.level === 'environment' ? 'project' : section.level,
-                            settings: section.settings.map((setting) => ({
-                                ...setting,
-                                title:
-                                    typeof setting.title === 'string'
-                                        ? setting.title.replace('environment', 'project')
-                                        : setting.title,
-                                id: setting.id.replace('environment-', 'project-') as SettingId,
-                            })),
-                        }))
-                }
+                // Convert environment sections to project sections
                 return sections
+                    .filter((section) => section.level !== 'project')
+                    .map((section) => ({
+                        ...section,
+                        id: section.id.replace('environment-', 'project-') as SettingSectionId,
+                        level: section.level === 'environment' ? 'project' : section.level,
+                        settings: section.settings.map((setting) => ({
+                            ...setting,
+                            title:
+                                typeof setting.title === 'string'
+                                    ? setting.title.replace('environment', 'project')
+                                    : setting.title,
+                            id: setting.id.replace('environment-', 'project-') as SettingId,
+                        })),
+                    }))
             },
         ],
         selectedLevel: [
-            (s) => [s.selectedLevelRaw, s.selectedSectionIdRaw, s.featureFlags, s.currentTeam],
-            (selectedLevelRaw, selectedSectionIdRaw, featureFlags, currentTeam): SettingLevelId => {
-                // As of middle of September 2024, `details` and `danger-zone` are the only sections present
-                // at both Environment and Project levels. Others we want to redirect based on the feature flag.
+            (s) => [s.selectedLevelRaw, s.selectedSectionIdRaw, s.currentTeam],
+            (selectedLevelRaw, selectedSectionIdRaw, currentTeam): SettingLevelId => {
                 if (
                     !selectedSectionIdRaw ||
                     (!selectedSectionIdRaw.endsWith('-details') && !selectedSectionIdRaw.endsWith('-danger-zone'))
@@ -200,26 +240,20 @@ export const settingsLogic = kea<settingsLogicType>([
                     if (!currentTeam) {
                         return 'organization'
                     }
-                    if (featureFlags[FEATURE_FLAGS.ENVIRONMENTS]) {
-                        return selectedLevelRaw === 'project' ? 'environment' : selectedLevelRaw
-                    }
+                    // Convert environment to project
                     return selectedLevelRaw === 'environment' ? 'project' : selectedLevelRaw
                 }
                 return selectedLevelRaw
             },
         ],
         selectedSectionId: [
-            (s) => [s.selectedSectionIdRaw, s.featureFlags],
-            (selectedSectionIdRaw, featureFlags): SettingSectionId | null => {
+            (s) => [s.selectedSectionIdRaw],
+            (selectedSectionIdRaw): SettingSectionId | null => {
                 if (!selectedSectionIdRaw) {
                     return null
                 }
-                // As of middle of September 2024, `details` and `danger-zone` are the only sections present
-                // at both Environment and Project levels. Others we want to redirect based on the feature flag.
+                // Convert environment sections to project sections
                 if (!selectedSectionIdRaw.endsWith('-details') && !selectedSectionIdRaw.endsWith('-danger-zone')) {
-                    if (featureFlags[FEATURE_FLAGS.ENVIRONMENTS]) {
-                        return selectedSectionIdRaw.replace(/^project/, 'environment') as SettingSectionId
-                    }
                     return selectedSectionIdRaw.replace(/^environment/, 'project') as SettingSectionId
                 }
                 return selectedSectionIdRaw

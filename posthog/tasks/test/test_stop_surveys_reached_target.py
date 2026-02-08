@@ -30,15 +30,22 @@ class TestStopSurveysReachedTarget(TestCase, ClickhouseTestMixin):
         )
 
     def _create_event_for_survey(
-        self, survey: Survey, event: str = "survey sent", custom_timestamp: Optional[datetime] = None
+        self,
+        survey: Survey,
+        event: str = "survey sent",
+        custom_timestamp: Optional[datetime] = None,
+        submission_id: Optional[str] = None,
     ) -> None:
         timestamp = custom_timestamp or now()
+        properties: dict = {
+            "$survey_id": str(survey.id),
+        }
+        if submission_id:
+            properties["$survey_submission_id"] = submission_id
         _create_event(
             distinct_id="0",
             event=event,
-            properties={
-                "$survey_id": str(survey.id),
-            },
+            properties=properties,
             timestamp=timestamp,
             team=survey.team,
         )
@@ -178,3 +185,59 @@ class TestStopSurveysReachedTarget(TestCase, ClickhouseTestMixin):
         survey.refresh_from_db()
         assert now() - relativedelta(hours=1) - survey.end_date < timedelta(seconds=1)
         assert survey.responses_limit == 1
+
+    def test_partial_responses_count_as_single_response(self) -> None:
+        survey = Survey.objects.create(
+            name="1",
+            team=self.team1,
+            created_by=self.user,
+            linked_flag=self.flag,
+            responses_limit=3,
+            created_at=now(),
+        )
+
+        # Create 3 events with the same submission_id (partial responses from one user)
+        # These should count as 1 unique response
+        self._create_event_for_survey(survey, submission_id="submission-1")
+        self._create_event_for_survey(survey, submission_id="submission-1")
+        self._create_event_for_survey(survey, submission_id="submission-1")
+
+        # Create 1 more unique response
+        self._create_event_for_survey(survey, submission_id="submission-2")
+
+        flush_persons_and_events()
+
+        # Total events = 4, but unique submissions = 2
+        # Since 2 < 3 (responses_limit), survey should NOT be stopped
+        stop_surveys_reached_target()
+
+        survey.refresh_from_db()
+        assert survey.end_date is None
+        assert survey.responses_limit == 3
+
+    def test_stop_survey_when_unique_submissions_reach_limit(self) -> None:
+        survey = Survey.objects.create(
+            name="1",
+            team=self.team1,
+            created_by=self.user,
+            linked_flag=self.flag,
+            responses_limit=2,
+            created_at=now(),
+        )
+
+        # Create multiple partial responses that should count as 2 unique submissions
+        self._create_event_for_survey(survey, submission_id="submission-1")
+        self._create_event_for_survey(survey, submission_id="submission-1")
+        self._create_event_for_survey(survey, submission_id="submission-2")
+        self._create_event_for_survey(survey, submission_id="submission-2")
+        self._create_event_for_survey(survey, submission_id="submission-2")
+
+        flush_persons_and_events()
+
+        # Total events = 5, but unique submissions = 2
+        # Since 2 >= 2 (responses_limit), survey SHOULD be stopped
+        stop_surveys_reached_target()
+
+        survey.refresh_from_db()
+        assert survey.end_date is not None
+        assert survey.responses_limit is None

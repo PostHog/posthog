@@ -11,8 +11,8 @@ from django.utils import timezone
 from rest_framework import viewsets
 
 from posthog.api.annotation import AnnotationSerializer
+from posthog.api.oauth.test_dcr import generate_rsa_key
 from posthog.api.routing import DefaultRouterPlusPlus, TeamAndOrgViewSetMixin
-from posthog.api.test.test_oauth import generate_rsa_key
 from posthog.models.annotation import Annotation
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import Organization

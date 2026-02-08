@@ -9,6 +9,15 @@ use serde_json::Value;
 use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 use uuid::Uuid;
 
+/// Trait for types that have an event name, used by quota limiting
+pub trait HasEventName {
+    fn event_name(&self) -> &str;
+
+    fn has_property(&self, _key: &str) -> bool {
+        false
+    }
+}
+
 /// Information about the library/SDK that sent an event
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LibraryInfo {
@@ -68,20 +77,37 @@ pub struct RawEngageEvent {
     pub set_once: Option<HashMap<String, Value>>,
 }
 
+#[derive(Debug, Clone)]
 pub struct CapturedEventHeaders {
     pub token: Option<String>,
     pub distinct_id: Option<String>,
+    pub session_id: Option<String>,
     pub timestamp: Option<String>,
     pub event: Option<String>,
     pub uuid: Option<String>,
     pub now: Option<String>,
     pub force_disable_person_processing: Option<bool>,
     pub historical_migration: Option<bool>,
+    pub dlq_reason: Option<String>,
+    pub dlq_step: Option<String>,
+    pub dlq_timestamp: Option<String>,
 }
 
 impl CapturedEventHeaders {
     pub fn set_force_disable_person_processing(&mut self, value: bool) {
         self.force_disable_person_processing = Some(value);
+    }
+
+    pub fn set_dlq_reason(&mut self, value: String) {
+        self.dlq_reason = Some(value);
+    }
+
+    pub fn set_dlq_step(&mut self, value: String) {
+        self.dlq_step = Some(value);
+    }
+
+    pub fn set_dlq_timestamp(&mut self, value: String) {
+        self.dlq_timestamp = Some(value);
     }
 }
 
@@ -91,7 +117,7 @@ impl From<CapturedEventHeaders> for OwnedHeaders {
             .force_disable_person_processing
             .map(|b| b.to_string());
         let historical_migration_str = headers.historical_migration.map(|b| b.to_string());
-        OwnedHeaders::new()
+        let mut owned = OwnedHeaders::new()
             .insert(Header {
                 key: "token",
                 value: headers.token.as_deref(),
@@ -99,6 +125,10 @@ impl From<CapturedEventHeaders> for OwnedHeaders {
             .insert(Header {
                 key: "distinct_id",
                 value: headers.distinct_id.as_deref(),
+            })
+            .insert(Header {
+                key: "session_id",
+                value: headers.session_id.as_deref(),
             })
             .insert(Header {
                 key: "timestamp",
@@ -123,7 +153,29 @@ impl From<CapturedEventHeaders> for OwnedHeaders {
             .insert(Header {
                 key: "historical_migration",
                 value: historical_migration_str.as_deref(),
-            })
+            });
+
+        // To prevent adding bloat to the other topic headers, only add add dlq headers when present.
+        if let Some(ref reason) = headers.dlq_reason {
+            owned = owned.insert(Header {
+                key: "dlq-reason",
+                value: Some(reason.as_str()),
+            });
+        }
+        if let Some(ref step) = headers.dlq_step {
+            owned = owned.insert(Header {
+                key: "dlq-step",
+                value: Some(step.as_str()),
+            });
+        }
+        if let Some(ref timestamp) = headers.dlq_timestamp {
+            owned = owned.insert(Header {
+                key: "dlq-timestamp",
+                value: Some(timestamp.as_str()),
+            });
+        }
+
+        owned
     }
 }
 
@@ -141,6 +193,7 @@ impl From<OwnedHeaders> for CapturedEventHeaders {
         Self {
             token: headers_map.get("token").cloned(),
             distinct_id: headers_map.get("distinct_id").cloned(),
+            session_id: headers_map.get("session_id").cloned(),
             timestamp: headers_map.get("timestamp").cloned(),
             event: headers_map.get("event").cloned(),
             uuid: headers_map.get("uuid").cloned(),
@@ -151,6 +204,9 @@ impl From<OwnedHeaders> for CapturedEventHeaders {
             historical_migration: headers_map
                 .get("historical_migration")
                 .and_then(|v| v.parse::<bool>().ok()),
+            dlq_reason: headers_map.get("dlq-reason").cloned(),
+            dlq_step: headers_map.get("dlq-step").cloned(),
+            dlq_timestamp: headers_map.get("dlq-timestamp").cloned(),
         }
     }
 }
@@ -160,6 +216,8 @@ impl From<OwnedHeaders> for CapturedEventHeaders {
 pub struct CapturedEvent {
     pub uuid: Uuid,
     pub distinct_id: String,
+    #[serde(skip_serializing, default)]
+    pub session_id: Option<String>,
     pub ip: String,
     pub data: String, // This should be a `RawEvent`, but we serialise twice.
     pub now: String,
@@ -193,6 +251,7 @@ impl CapturedEvent {
         CapturedEventHeaders {
             token: Some(self.token.clone()),
             distinct_id: Some(self.distinct_id.clone()),
+            session_id: self.session_id.clone(),
             timestamp: Some(self.timestamp.timestamp_millis().to_string()),
             event: Some(self.event.clone()),
             uuid: Some(self.uuid.to_string()),
@@ -204,6 +263,10 @@ impl CapturedEvent {
             } else {
                 None
             },
+            // DLQ headers should only be explicitly set when needed
+            dlq_reason: None,
+            dlq_step: None,
+            dlq_timestamp: None,
         }
     }
 
@@ -293,6 +356,16 @@ impl ClickHouseEvent {
     ) -> Result<(), serde_json::Error> {
         self.properties = Some(serde_json::to_string(&properties)?);
         Ok(())
+    }
+}
+
+impl HasEventName for RawEvent {
+    fn event_name(&self) -> &str {
+        &self.event
+    }
+
+    fn has_property(&self, key: &str) -> bool {
+        self.properties.contains_key(key)
     }
 }
 
@@ -392,6 +465,7 @@ mod tests {
         let event = CapturedEvent {
             uuid: Uuid::nil(),
             distinct_id: "test_user".to_string(),
+            session_id: None,
             ip: "127.0.0.1".to_string(),
             data: r#"{"event":"test_event"}"#.to_string(),
             now: "2023-01-02T10:00:00Z".to_string(), // Ingestion time
@@ -419,6 +493,7 @@ mod tests {
         let event = CapturedEvent {
             uuid: Uuid::nil(),
             distinct_id: "test_user".to_string(),
+            session_id: None,
             ip: "127.0.0.1".to_string(),
             data: r#"{"event":"test_event"}"#.to_string(),
             now: "2023-01-02T15:30:00Z".to_string(), // Ingestion time
@@ -460,5 +535,190 @@ mod tests {
             serde_json::from_str(json).expect("Failed to deserialize");
         // Should default to false when not present
         assert!(!deserialized.historical_migration);
+    }
+
+    #[test]
+    fn test_to_headers_session_id_from_event() {
+        let event_with_session = CapturedEvent {
+            uuid: Uuid::nil(),
+            distinct_id: "test_user".to_string(),
+            session_id: Some("session123".to_string()),
+            ip: "127.0.0.1".to_string(),
+            data: r#"{"event":"test_event","properties":{"$session_id":"session123"}}"#.to_string(),
+            now: "2023-01-02T10:00:00Z".to_string(),
+            sent_at: None,
+            token: "test_token".to_string(),
+            event: "test_event".to_string(),
+            timestamp: DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
+                .unwrap()
+                .with_timezone(&Utc),
+            is_cookieless_mode: false,
+            historical_migration: false,
+        };
+
+        let headers = event_with_session.to_headers();
+        assert_eq!(headers.session_id, Some("session123".to_string()));
+
+        let event_without_session = CapturedEvent {
+            uuid: Uuid::nil(),
+            distinct_id: "test_user".to_string(),
+            session_id: None,
+            ip: "127.0.0.1".to_string(),
+            data: r#"{"event":"test_event"}"#.to_string(),
+            now: "2023-01-02T10:00:00Z".to_string(),
+            sent_at: None,
+            token: "test_token".to_string(),
+            event: "test_event".to_string(),
+            timestamp: DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
+                .unwrap()
+                .with_timezone(&Utc),
+            is_cookieless_mode: false,
+            historical_migration: false,
+        };
+
+        let headers = event_without_session.to_headers();
+        assert_eq!(headers.session_id, None);
+    }
+
+    #[test]
+    fn test_to_headers_dlq_fields_default_to_none() {
+        let event = CapturedEvent {
+            uuid: Uuid::nil(),
+            distinct_id: "test_user".to_string(),
+            session_id: None,
+            ip: "127.0.0.1".to_string(),
+            data: r#"{"event":"test_event"}"#.to_string(),
+            now: "2023-01-02T10:00:00Z".to_string(),
+            sent_at: None,
+            token: "test_token".to_string(),
+            event: "test_event".to_string(),
+            timestamp: DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
+                .unwrap()
+                .with_timezone(&Utc),
+            is_cookieless_mode: false,
+            historical_migration: false,
+        };
+
+        let headers = event.to_headers();
+        assert_eq!(headers.dlq_reason, None);
+        assert_eq!(headers.dlq_step, None);
+        assert_eq!(headers.dlq_timestamp, None);
+    }
+
+    #[test]
+    fn test_dlq_setters() {
+        let event = CapturedEvent {
+            uuid: Uuid::nil(),
+            distinct_id: "test_user".to_string(),
+            session_id: None,
+            ip: "127.0.0.1".to_string(),
+            data: r#"{"event":"test_event"}"#.to_string(),
+            now: "2023-01-02T10:00:00Z".to_string(),
+            sent_at: None,
+            token: "test_token".to_string(),
+            event: "test_event".to_string(),
+            timestamp: DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
+                .unwrap()
+                .with_timezone(&Utc),
+            is_cookieless_mode: false,
+            historical_migration: false,
+        };
+
+        let mut headers = event.to_headers();
+        headers.set_dlq_reason("invalid_payload".to_string());
+        headers.set_dlq_step("tokenization".to_string());
+        headers.set_dlq_timestamp("2023-01-02T10:05:00Z".to_string());
+
+        assert_eq!(headers.dlq_reason, Some("invalid_payload".to_string()));
+        assert_eq!(headers.dlq_step, Some("tokenization".to_string()));
+        assert_eq!(
+            headers.dlq_timestamp,
+            Some("2023-01-02T10:05:00Z".to_string())
+        );
+    }
+
+    #[test]
+    fn test_dlq_fields_round_trip_through_owned_headers() {
+        let event = CapturedEvent {
+            uuid: Uuid::nil(),
+            distinct_id: "test_user".to_string(),
+            session_id: None,
+            ip: "127.0.0.1".to_string(),
+            data: r#"{"event":"test_event"}"#.to_string(),
+            now: "2023-01-02T10:00:00Z".to_string(),
+            sent_at: None,
+            token: "test_token".to_string(),
+            event: "test_event".to_string(),
+            timestamp: DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
+                .unwrap()
+                .with_timezone(&Utc),
+            is_cookieless_mode: false,
+            historical_migration: false,
+        };
+
+        let mut headers = event.to_headers();
+        headers.set_dlq_reason("quota_exceeded".to_string());
+        headers.set_dlq_step("billing_check".to_string());
+        headers.set_dlq_timestamp("2023-01-02T10:05:00Z".to_string());
+
+        let owned: OwnedHeaders = headers.into();
+
+        // Verify the dlq keys are present in the raw Kafka headers
+        let dlq_keys: Vec<&str> = owned
+            .iter()
+            .filter(|h| h.key.starts_with("dlq-"))
+            .map(|h| h.key)
+            .collect();
+        assert_eq!(dlq_keys.len(), 3);
+
+        let recovered: CapturedEventHeaders = owned.into();
+
+        assert_eq!(recovered.dlq_reason, Some("quota_exceeded".to_string()));
+        assert_eq!(recovered.dlq_step, Some("billing_check".to_string()));
+        assert_eq!(
+            recovered.dlq_timestamp,
+            Some("2023-01-02T10:05:00Z".to_string())
+        );
+    }
+
+    #[test]
+    fn test_dlq_fields_absent_in_owned_headers_round_trip() {
+        let event = CapturedEvent {
+            uuid: Uuid::nil(),
+            distinct_id: "test_user".to_string(),
+            session_id: None,
+            ip: "127.0.0.1".to_string(),
+            data: r#"{"event":"test_event"}"#.to_string(),
+            now: "2023-01-02T10:00:00Z".to_string(),
+            sent_at: None,
+            token: "test_token".to_string(),
+            event: "test_event".to_string(),
+            timestamp: DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
+                .unwrap()
+                .with_timezone(&Utc),
+            is_cookieless_mode: false,
+            historical_migration: false,
+        };
+
+        // DLQ fields are None by default from to_headers()
+        let headers = event.to_headers();
+        let owned: OwnedHeaders = headers.into();
+
+        // Verify the dlq keys are not present in the raw Kafka headers at all
+        let dlq_keys: Vec<&str> = owned
+            .iter()
+            .filter(|h| h.key.starts_with("dlq-"))
+            .map(|h| h.key)
+            .collect();
+        assert!(
+            dlq_keys.is_empty(),
+            "Expected no dlq-* keys in OwnedHeaders, but found: {dlq_keys:?}"
+        );
+
+        let recovered: CapturedEventHeaders = owned.into();
+
+        assert_eq!(recovered.dlq_reason, None);
+        assert_eq!(recovered.dlq_step, None);
+        assert_eq!(recovered.dlq_timestamp, None);
     }
 }

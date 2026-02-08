@@ -9,7 +9,6 @@ from posthog.management.migration_analysis.analyzer import RiskAnalyzer
 from posthog.management.migration_analysis.deprecated_field_filter import DeprecatedFieldFilter
 from posthog.management.migration_analysis.formatters import ConsoleTreeFormatter
 from posthog.management.migration_analysis.models import MigrationRisk, RiskLevel
-from posthog.management.migration_analysis.policies import SingleMigrationPolicy
 
 
 class Command(BaseCommand):
@@ -62,14 +61,10 @@ class Command(BaseCommand):
 
     def check_batch_policies(self, migrations: list[tuple[str, migrations.Migration]]) -> list[str]:
         """Check policies that apply to the batch of migrations."""
-        # Count migrations per app
-        app_counts: dict[str, int] = {}
-        for _label, migration in migrations:
-            app_label = migration.app_label
-            app_counts[app_label] = app_counts.get(app_label, 0) + 1
-
-        policy = SingleMigrationPolicy(app_counts)
-        return policy.check_batch()
+        # No batch-level policies currently enforced.
+        # SingleMigrationPolicy was removed to allow splitting atomic and non-atomic
+        # operations into separate migrations (e.g., schema changes + concurrent index).
+        return []
 
     def get_unapplied_migrations(self) -> list[tuple[str, "migrations.Migration"]]:
         """Get all unapplied migrations using Django's migration executor."""

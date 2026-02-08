@@ -191,25 +191,28 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["name"], "Updated Name")
 
-    @patch("posthog.api.project.delete_batch_exports")
-    def test_project_deletion_deletes_persons_manually(self, mock_batch_exports):
-        """Verify that project deletion deletes Persons via manual delete, not CASCADE."""
-        # Create a Person
-        person = Person.objects.create(team=self.team)
-
-        # Delete project via API (which calls delete_bulky_postgres_data)
+    @patch("posthog.api.project.delete_project_data_and_notify_task")
+    def test_project_deletion_queues_async_task(self, mock_delete_task):
+        """Verify that project deletion queues async task for full deletion."""
         viewset = ProjectViewSet()
         request = MagicMock()
         request.user = self.user
         viewset.request = request
 
+        project_id = self.project.id
+        project_name = self.project.name
+        team_id = self.team.id
+
         viewset.perform_destroy(self.project)
 
-        # Verify Person was deleted (by manual delete, not CASCADE)
-        self.assertFalse(Person.objects.filter(id=person.id).exists())
+        # Project deletion happens async in Celery task
 
-        # Verify project was deleted
-        self.assertFalse(Project.objects.filter(id=self.project.id).exists())
+        mock_delete_task.delay.assert_called_once_with(
+            team_ids=[team_id],
+            project_id=project_id,
+            user_id=self.user.id,
+            project_name=project_name,
+        )
 
     def test_team_deletion_does_not_cascade_to_persons(self):
         """Verify that deleting Team directly doesn't CASCADE delete Persons (on_delete=DO_NOTHING)."""
@@ -257,3 +260,157 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         # Verify it lists valid ProductKey values in the error message
         valid_keys = list(ProductKey)
         self.assertIn(valid_keys[0].value, error_message)  # Check at least one valid key is mentioned
+
+    def test_conversations_settings_merges_with_existing(self):
+        self.client.patch(
+            f"/api/projects/{self.project.id}/",
+            {"conversations_settings": {"widget_greeting_text": "Hello!"}},
+        )
+        response = self.client.patch(
+            f"/api/projects/{self.project.id}/",
+            {"conversations_settings": {"widget_color": "#ff0000"}},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        settings = response.json()["conversations_settings"]
+        self.assertEqual(settings["widget_greeting_text"], "Hello!")
+        self.assertEqual(settings["widget_color"], "#ff0000")
+
+    def test_enabling_conversations_auto_generates_token(self):
+        self.team.conversations_enabled = False
+        self.team.conversations_settings = None
+        self.team.save()
+
+        response = self.client.patch(f"/api/projects/{self.project.id}/", {"conversations_enabled": True})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        settings = response.json()["conversations_settings"]
+        self.assertIsNotNone(settings)
+        self.assertIsNotNone(settings.get("widget_public_token"))
+        self.assertGreater(len(settings["widget_public_token"]), 20)
+
+    def test_generate_conversations_public_token(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        response = self.client.post(f"/api/projects/{self.project.id}/generate_conversations_public_token/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        settings = response.json()["conversations_settings"]
+        self.assertIsNotNone(settings.get("widget_public_token"))
+
+    def test_generate_conversations_public_token_requires_admin(self):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        response = self.client.post(f"/api/projects/{self.project.id}/generate_conversations_public_token/")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_project_name_search_filter(self):
+        self.organization.available_product_features = [
+            {
+                "key": AvailableFeature.ORGANIZATIONS_PROJECTS,
+                "name": "Projects",
+                "limit": None,
+            }
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        Project.objects.create_with_team(
+            organization=self.organization,
+            name="Analytics Dashboard",
+            initiating_user=self.user,
+        )
+        Project.objects.create_with_team(
+            organization=self.organization,
+            name="Revenue Tracker",
+            initiating_user=self.user,
+        )
+        Project.objects.create_with_team(
+            organization=self.organization,
+            name="User Analytics",
+            initiating_user=self.user,
+        )
+
+        response = self.client.get("/api/projects/?search=Analytics")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        self.assertEqual(len(results), 2)
+        names = {r["name"] for r in results}
+        self.assertEqual(names, {"Analytics Dashboard", "User Analytics"})
+
+        response = self.client.get("/api/projects/?search=Revenue")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["name"], "Revenue Tracker")
+
+        response = self.client.get("/api/projects/?search=nonexistent")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        self.assertEqual(len(results), 0)
+
+    def test_read_only_api_key_cannot_update_project_config_fields(self):
+        """API keys with only project:read scope should not be able to modify config fields via /api/projects/."""
+        api_key = self.create_personal_api_key_with_scopes(["project:read"])
+
+        response = self.client.patch(
+            f"/api/projects/{self.project.id}/",
+            {"timezone": "Europe/Lisbon"},
+            headers={"authorization": f"Bearer {api_key}"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertIn("project:write", response.json().get("detail", ""))
+
+        # Verify no changes were made
+        self.team.refresh_from_db()
+        self.assertEqual(self.team.timezone, "UTC")
+
+    def test_write_api_key_can_update_project_config_fields(self):
+        """API keys with project:write scope should be able to modify config fields via /api/projects/."""
+        api_key = self.create_personal_api_key_with_scopes(["project:write"])
+
+        response = self.client.patch(
+            f"/api/projects/{self.project.id}/",
+            {"timezone": "Europe/Lisbon", "session_recording_opt_in": True},
+            headers={"authorization": f"Bearer {api_key}"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Verify changes were made
+        self.team.refresh_from_db()
+        self.assertEqual(self.team.timezone, "Europe/Lisbon")
+        self.assertEqual(self.team.session_recording_opt_in, True)
+
+    def test_read_only_api_key_cannot_update_project_non_config_fields(self):
+        """API keys with only project:read scope should not be able to modify non-config fields like name."""
+        api_key = self.create_personal_api_key_with_scopes(["project:read"])
+
+        response = self.client.patch(
+            f"/api/projects/{self.project.id}/",
+            {"name": "New Project Name"},
+            headers={"authorization": f"Bearer {api_key}"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+        # Verify no changes were made
+        self.project.refresh_from_db()
+        self.assertNotEqual(self.project.name, "New Project Name")
+
+    def test_write_api_key_can_update_project_non_config_fields(self):
+        """API keys with project:write scope should be able to modify non-config fields like name."""
+        api_key = self.create_personal_api_key_with_scopes(["project:write"])
+
+        response = self.client.patch(
+            f"/api/projects/{self.project.id}/",
+            {"name": "New Project Name"},
+            headers={"authorization": f"Bearer {api_key}"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Verify changes were made
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.name, "New Project Name")

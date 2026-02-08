@@ -1,8 +1,9 @@
-from datetime import datetime, time, timedelta
+import random
+from datetime import datetime, timedelta
 from typing import Optional, Union
 from zoneinfo import ZoneInfo
 
-from django.utils.timezone import now
+from django.conf import settings
 
 from dateutil.parser import isoparse
 
@@ -25,7 +26,10 @@ from posthog.utils import relative_date_parse
 
 def parse_timestamp(timestamp: str, tzinfo: ZoneInfo) -> datetime:
     try:
-        return isoparse(timestamp)
+        parsed = isoparse(timestamp)
+        if parsed.tzinfo is None:
+            return parsed.replace(tzinfo=tzinfo)
+        return parsed
     except ValueError:
         return relative_date_parse(timestamp, tzinfo)
 
@@ -66,7 +70,8 @@ def query_events_list(
     unbounded_date_from: bool = False,
     limit: int = DEFAULT_RETURNED_ROWS,
     offset: int = 0,
-) -> list:
+    time_window_seconds: Optional[int] = None,
+) -> tuple[list, Optional[int]]:
     # Note: This code is inefficient and problematic, see https://github.com/PostHog/posthog/issues/13485 for details.
     # To isolate its impact from rest of the queries its queries are run on different nodes as part of "offline" workloads.
     hogql_context = HogQLContext(within_non_hogql_query=True, team_id=team.pk, enable_select_queries=True)
@@ -82,21 +87,32 @@ def query_events_list(
     if request_get_query_dict.get("before"):
         request_get_query_dict["before"] = parse_timestamp(request_get_query_dict["before"], team.timezone_info)
     else:
-        request_get_query_dict["before"] = now() + timedelta(seconds=5)
+        request_get_query_dict["before"] = datetime.now(team.timezone_info) + timedelta(seconds=5)
 
     if request_get_query_dict.get("after"):
         request_get_query_dict["after"] = parse_timestamp(request_get_query_dict["after"], team.timezone_info)
+    elif settings.PATCH_EVENT_LIST_MAX_OFFSET > 1:
+        request_get_query_dict["after"] = request_get_query_dict["before"] - timedelta(hours=24)
 
+    if settings.PATCH_EVENT_LIST_MAX_OFFSET > 0 and request_get_query_dict.get("after"):
+        date_range = request_get_query_dict["before"] - request_get_query_dict["after"]
+        if date_range > timedelta(days=366) and (settings.PATCH_EVENT_LIST_MAX_OFFSET > 1 or random.random() < 0.01):
+            raise ValueError("Date range cannot exceed 1 year")
+
+    applied_window_seconds: Optional[int] = None
     if (
         not unbounded_date_from
         and order == "DESC"
+        and time_window_seconds is not None
         and (
             not request_get_query_dict.get("after")
-            or request_get_query_dict["after"].date() != request_get_query_dict["before"].date()
+            or (request_get_query_dict["before"] - request_get_query_dict["after"]).total_seconds()
+            > time_window_seconds
         )
     ):
-        # If this is the first try, and after is not the same day as before, only load the current day, regardless of whether "after" is specified to reduce the amount of data we load
-        request_get_query_dict["after"] = datetime.combine(request_get_query_dict["before"], time.min)
+        # Apply the specified time window to limit the query range
+        request_get_query_dict["after"] = request_get_query_dict["before"] - timedelta(seconds=time_window_seconds)
+        applied_window_seconds = time_window_seconds
 
     request_get_query_dict["before"] = request_get_query_dict["before"].strftime("%Y-%m-%d %H:%M:%S.%f")
     if request_get_query_dict.get("after"):
@@ -119,45 +135,53 @@ def query_events_list(
         try:
             action = Action.objects.get(pk=action_id, team__project_id=team.project_id)
             if not action.steps:
-                return []
+                return [], applied_window_seconds
         except Action.DoesNotExist:
-            return []
+            return [], applied_window_seconds
 
         action_query, params = format_action_filter(team_id=team.pk, action=action, hogql_context=hogql_context)
         prop_filters += " AND {}".format(action_query)
         prop_filter_params = {**prop_filter_params, **params}
 
     if prop_filters != "":
-        return insight_query_with_columns(
-            SELECT_EVENT_BY_TEAM_AND_CONDITIONS_FILTERS_SQL.format(
-                conditions=conditions,
-                limit=limit_sql,
-                filters=prop_filters,
-                order=order,
+        return (
+            insight_query_with_columns(
+                SELECT_EVENT_BY_TEAM_AND_CONDITIONS_FILTERS_SQL.format(
+                    conditions=conditions,
+                    limit=limit_sql,
+                    filters=prop_filters,
+                    order=order,
+                ),
+                {
+                    "team_id": team.pk,
+                    "limit": limit,
+                    "offset": offset,
+                    **condition_params,
+                    **prop_filter_params,
+                    **hogql_context.values,
+                },
+                query_type="events_list",
+                workload=Workload.OFFLINE,
+                team_id=team.pk,
+                settings={"max_threads": settings.CLICKHOUSE_EVENT_LIST_MAX_THREADS},
             ),
-            {
-                "team_id": team.pk,
-                "limit": limit,
-                "offset": offset,
-                **condition_params,
-                **prop_filter_params,
-                **hogql_context.values,
-            },
-            query_type="events_list",
-            workload=Workload.OFFLINE,
-            team_id=team.pk,
+            applied_window_seconds,
         )
     else:
-        return insight_query_with_columns(
-            SELECT_EVENT_BY_TEAM_AND_CONDITIONS_SQL.format(conditions=conditions, limit=limit_sql, order=order),
-            {
-                "team_id": team.pk,
-                "limit": limit,
-                "offset": offset,
-                **condition_params,
-                **hogql_context.values,
-            },
-            query_type="events_list",
-            workload=Workload.OFFLINE,
-            team_id=team.pk,
+        return (
+            insight_query_with_columns(
+                SELECT_EVENT_BY_TEAM_AND_CONDITIONS_SQL.format(conditions=conditions, limit=limit_sql, order=order),
+                {
+                    "team_id": team.pk,
+                    "limit": limit,
+                    "offset": offset,
+                    **condition_params,
+                    **hogql_context.values,
+                },
+                query_type="events_list",
+                workload=Workload.OFFLINE,
+                team_id=team.pk,
+                settings={"max_threads": settings.CLICKHOUSE_EVENT_LIST_MAX_THREADS},
+            ),
+            applied_window_seconds,
         )

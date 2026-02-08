@@ -213,6 +213,22 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             {"date_from": "2023-03-08", "url_exact": "http://example.com/about", "type": "rageclick"}, 2
         )
 
+    @parameterized.expand(
+        [
+            ("query_no_slash_data_no_slash", "http://example.com", "http://example.com"),
+            ("query_no_slash_data_with_slash", "http://example.com", "http://example.com/"),
+            ("query_with_slash_data_no_slash", "http://example.com/", "http://example.com"),
+            ("query_with_slash_data_with_slash", "http://example.com/", "http://example.com/"),
+        ]
+    )
+    @freezegun.freeze_time("2025-03-31")
+    def test_url_exact_normalizes_trailing_slash(self, _name: str, query_url: str, data_url: str) -> None:
+        self._create_heatmap_event("session_1", "click", "2023-03-08T08:00:00", current_url=data_url)
+
+        self._assert_heatmap_single_result_count(
+            {"date_from": "2023-03-08", "url_exact": query_url, "type": "click"}, 1
+        )
+
     @freezegun.freeze_time("2025-03-31")
     @snapshot_clickhouse_queries
     def test_can_filter_by_url_pattern_where_end_is_anchored(self) -> None:

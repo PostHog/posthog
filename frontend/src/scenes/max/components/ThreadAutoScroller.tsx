@@ -102,7 +102,19 @@ export function ThreadAutoScroller({ children }: { children: React.ReactNode }):
         }
     }, [streamingActive, scrollToBottom])
 
+    const prevStreamingActive = useRef(streamingActive)
     useEffect(() => {
+        // Scroll to bottom when streaming ends (final scroll after all content is rendered)
+        if (prevStreamingActive.current && !streamingActive && !scrollOrigin.current.user) {
+            // Wait for browser paint cycle to ensure DOM is fully updated
+            const rafId = requestAnimationFrame(() => {
+                scrollToBottom()
+            })
+            prevStreamingActive.current = streamingActive
+            return () => cancelAnimationFrame(rafId)
+        }
+        prevStreamingActive.current = streamingActive
+
         if (!streamingActive || scrollOrigin.current.user) {
             return
         }

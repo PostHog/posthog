@@ -1,10 +1,11 @@
 import clsx from 'clsx'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 
 import { Popover } from '@posthog/lemon-ui'
 
-import { Chart, ChartItem, ScaleOptions, TooltipModel } from 'lib/Chart'
+import { ScaleOptions, TooltipModel } from 'lib/Chart'
 import { getColorVar } from 'lib/colors'
+import { useChart } from 'lib/hooks/useChart'
 import { useEventListener } from 'lib/hooks/useEventListener'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { humanFriendlyNumber } from 'lib/utils'
@@ -47,6 +48,12 @@ interface SparklineProps {
     renderLabel?: (label: string) => string
     className?: string
     onSelectionChange?: (selection: { startIndex: number; endIndex: number }) => void
+    /** Maximum number of series to show in tooltip. @default 8 */
+    tooltipRowCutoff?: number
+    /** Hide series with zero values from tooltip. @default false */
+    hideZerosInTooltip?: boolean
+    /** Sort tooltip items by count (descending). @default false */
+    sortTooltipByCount?: boolean
 }
 
 export function Sparkline({
@@ -64,8 +71,10 @@ export function Sparkline({
     renderLabel,
     onSelectionChange,
     className,
+    tooltipRowCutoff,
+    hideZerosInTooltip = false,
+    sortTooltipByCount = false,
 }: SparklineProps): JSX.Element {
-    const canvasRef = useRef<HTMLCanvasElement | null>(null)
     const tooltipRef = useRef<HTMLDivElement | null>(null)
 
     const [tooltip, setTooltip] = useState<TooltipModel<'bar'> | null>(null)
@@ -106,81 +115,81 @@ export function Sparkline({
         })
     }, [data]) // oxlint-disable-line react-hooks/exhaustive-deps
 
-    useEffect(() => {
-        // data should always be provided but React can render this without it,
-        // so, fall back to an empty array for safety
-        if (data === undefined || data.length === 0) {
-            return
-        }
-        const defaultXScale: AnyScaleOptions = {
-            // X axis not needed in line charts without indicators
-            display: type === 'bar' || maximumIndicator,
-            bounds: 'data',
-            stacked: true,
-            ticks: {
-                display: false,
-            },
-            grid: {
-                drawTicks: false,
-                display: false,
-            },
-            alignToPixels: true,
-        }
-
-        const defaultYScale: AnyScaleOptions = {
-            // We use the Y axis for the maximum indicator
-            display: maximumIndicator,
-            bounds: 'data',
-            min: 0, // Always starting at 0
-            suggestedMax: 1,
-            stacked: true,
-            ticks: {
-                includeBounds: true,
-                autoSkip: true,
-                maxTicksLimit: 1, // Only the max
-                align: 'start',
-                callback: (tickValue) =>
-                    typeof tickValue === 'number' && tickValue > 0 // Hide the zero tick
-                        ? humanFriendlyNumber(tickValue)
-                        : null,
-                font: {
-                    size: 10,
-                    lineHeight: 1,
+    const { canvasRef } = useChart({
+        getConfig: () => {
+            // data should always be provided but React can render this without it,
+            // so, fall back to null for safety
+            if (data === undefined || data.length === 0) {
+                return null
+            }
+            const defaultXScale: AnyScaleOptions = {
+                // X axis not needed in line charts without indicators
+                display: type === 'bar' || maximumIndicator,
+                bounds: 'data',
+                stacked: true,
+                ticks: {
+                    display: false,
                 },
-            },
-            grid: {
-                tickBorderDash: [2],
-                display: true,
-                tickLength: 0,
-            },
-            border: { display: false },
-            alignToPixels: true,
-            afterFit: (axis) => {
-                // Remove unnecessary padding
-                axis.paddingTop = 1 // 1px and not 0 to avoid clipping of the grid
-                axis.paddingBottom = 1
-            },
-        }
+                grid: {
+                    drawTicks: false,
+                    display: false,
+                },
+                alignToPixels: true,
+            }
 
-        let chart: Chart
-        if (canvasRef.current) {
+            const defaultYScale: AnyScaleOptions = {
+                // We use the Y axis for the maximum indicator
+                display: maximumIndicator,
+                bounds: 'data',
+                min: 0, // Always starting at 0
+                suggestedMax: 1,
+                stacked: true,
+                ticks: {
+                    includeBounds: true,
+                    autoSkip: true,
+                    maxTicksLimit: 1, // Only the max
+                    align: 'start',
+                    callback: (tickValue) =>
+                        typeof tickValue === 'number' && tickValue > 0 // Hide the zero tick
+                            ? humanFriendlyNumber(tickValue)
+                            : null,
+                    font: {
+                        size: 10,
+                        lineHeight: 1,
+                    },
+                },
+                grid: {
+                    tickBorderDash: [2],
+                    display: true,
+                    tickLength: 0,
+                },
+                border: { display: false },
+                alignToPixels: true,
+                afterFit: (axis) => {
+                    // Remove unnecessary padding
+                    axis.paddingTop = 1 // 1px and not 0 to avoid clipping of the grid
+                    axis.paddingBottom = 1
+                },
+            }
+
             const xScale = withXScale ? withXScale(defaultXScale) : defaultXScale
             const yScale = withYScale ? withYScale(defaultYScale) : defaultYScale
-            chart = new Chart(canvasRef.current.getContext('2d') as ChartItem, {
+
+            return {
                 type,
                 data: {
                     labels: labels || adjustedData[0].values.map((_, i) => `Entry ${i}`),
                     datasets: adjustedData.map((timeseries) => {
-                        const color = getColorVar(timeseries.color || 'muted')
+                        const seriesColor = getColorVar(timeseries.color || 'muted')
                         const hoverColor = getColorVar(timeseries.hoverColor || timeseries.color || 'muted')
                         return {
                             label: timeseries.name,
                             data: timeseries.values,
                             minBarLength: 0,
                             categoryPercentage: 0.9, // Slightly tighter bar spacing than the default 0.8
-                            backgroundColor: color,
+                            backgroundColor: seriesColor,
                             hoverBackgroundColor: hoverColor,
-                            borderColor: color,
+                            borderColor: seriesColor,
                             borderWidth: type === 'line' ? 2 : 0,
                             pointRadius: 0,
                             borderRadius: 2,
@@ -193,7 +202,6 @@ export function Sparkline({
                         y: yScale,
                     },
                     plugins: {
-                        // @ts-expect-error Types of library are out of date
                         crosshair: false,
                         legend: {
                             display: false,
@@ -213,12 +221,10 @@ export function Sparkline({
                         intersect: false,
                     },
                 },
-            })
-        }
-        return () => {
-            chart?.destroy()
-        }
-    }, [labels, adjustedData, withXScale, withYScale, renderLabel, data, maximumIndicator, type])
+            }
+        },
+        deps: [labels, adjustedData, withXScale, withYScale, renderLabel, data, maximumIndicator, type],
+    })
 
     const dataPointCount = adjustedData[0]?.values?.length || 0
     const finalClassName = clsx(
@@ -328,17 +334,21 @@ export function Sparkline({
                                         : toolTipDataPoints[0].label
                                     : ''
                             }
-                            seriesData={toolTipDataPoints.map((dp, i) => ({
-                                id: i,
-                                dataIndex: 0,
-                                datasetIndex: 0,
-                                order: i,
-                                label: dp.dataset.label,
-                                color: dp.dataset.borderColor as string,
-                                count: (dp.dataset.data?.[dp.dataIndex] as number) || 0,
-                            }))}
+                            seriesData={toolTipDataPoints
+                                .map((dp, i) => ({
+                                    id: i,
+                                    dataIndex: 0,
+                                    datasetIndex: 0,
+                                    order: i,
+                                    label: dp.dataset.label,
+                                    color: dp.dataset.borderColor as string,
+                                    count: (dp.dataset.data?.[dp.dataIndex] as number) || 0,
+                                }))
+                                .filter((item) => !hideZerosInTooltip || item.count > 0)
+                                .sort((a, b) => (sortTooltipByCount ? b.count - a.count : a.order - b.order))}
                             renderSeries={(value) => value}
                             renderCount={(count) => humanFriendlyNumber(count)}
+                            rowCutoff={tooltipRowCutoff}
                         />
                     }
                     placement="bottom-start"

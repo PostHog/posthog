@@ -5,7 +5,9 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
-import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
+import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
+import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { cn } from 'lib/utils/css-classes'
@@ -24,6 +26,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, ActivityScope } from '~/types'
 
+import { DuplicateToProjectModal } from './DuplicateToProjectModal'
 import { SurveySettings, SurveysDisabledBanner } from './SurveySettings'
 import { SURVEY_CREATED_SOURCE } from './constants'
 import { SurveysTabs, surveysLogic } from './surveysLogic'
@@ -31,12 +34,21 @@ import { SurveysTabs, surveysLogic } from './surveysLogic'
 export const scene: SceneExport = {
     component: Surveys,
     logic: surveysLogic,
-    settingSectionId: 'environment-surveys',
+    productKey: ProductKey.SURVEYS,
 }
 
 function NewSurveyButton(): JSX.Element {
+    const { guidedEditorEnabled } = useValues(surveysLogic)
     const { loadSurveys, addProductIntent } = useActions(surveysLogic)
     const { user } = useValues(userLogic)
+    const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
+
+    const trackAddNewClick = (): void => {
+        addProductIntent({
+            product_type: ProductKey.SURVEYS,
+            intent_context: ProductIntentContext.SURVEY_ADD_NEW,
+        })
+    }
 
     return (
         <MaxTool
@@ -75,15 +87,30 @@ function NewSurveyButton(): JSX.Element {
             }}
             position="bottom-right"
             active={!!user?.uuid && userHasAccess(AccessControlResourceType.Survey, AccessControlLevel.Editor)}
-            className={cn('mr-3')}
+            className={cn('mr-3', isRemovingSidePanelFlag && 'mr-0')}
         >
             <AccessControlAction
                 resourceType={AccessControlResourceType.Survey}
                 minAccessLevel={AccessControlLevel.Editor}
             >
-                <LemonButton size="small" to={urls.surveyTemplates()} type="primary" data-attr="new-survey">
-                    <span className="pr-3">New survey</span>
-                </LemonButton>
+                <AppShortcut
+                    name="NewSurvey"
+                    keybind={[keyBinds.new]}
+                    intent="New survey"
+                    interaction="click"
+                    scope={Scene.Surveys}
+                >
+                    <LemonButton
+                        size="small"
+                        to={guidedEditorEnabled ? urls.surveyWizard() : urls.surveyTemplates()}
+                        type="primary"
+                        data-attr="new-survey"
+                        tooltip="New survey"
+                        onClick={trackAddNewClick}
+                    >
+                        <span className="pr-3">New survey</span>
+                    </LemonButton>
+                </AppShortcut>
             </AccessControlAction>
         </MaxTool>
     )
@@ -91,7 +118,6 @@ function NewSurveyButton(): JSX.Element {
 
 function Surveys(): JSX.Element {
     const { tab } = useValues(surveysLogic)
-
     const { setTab } = useActions(surveysLogic)
 
     return (
@@ -132,12 +158,8 @@ function Surveys(): JSX.Element {
 
             {tab === SurveysTabs.History && <ActivityLog scope={ActivityScope.SURVEY} />}
 
-            {(tab === SurveysTabs.Active || tab === SurveysTabs.Archived) && (
-                <>
-                    <VersionCheckerBanner />
-                    <SurveysTable />
-                </>
-            )}
+            {(tab === SurveysTabs.Active || tab === SurveysTabs.Archived) && <SurveysTable />}
+            <DuplicateToProjectModal />
         </SceneContent>
     )
 }

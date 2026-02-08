@@ -19,8 +19,8 @@ func TestLoadConfig(t *testing.T) {
 			name: "load all config values",
 			setup: func() {
 				// Values already set in setupTestConfig
-				os.Setenv("LIVESTREAM_JWT_SECRET", "token")
-				os.Setenv("LIVESTREAM_POSTGRES_URL", "pg url")
+				_ = os.Setenv("LIVESTREAM_JWT_SECRET", "token")
+				_ = os.Setenv("LIVESTREAM_POSTGRES_URL", "pg url")
 			},
 			want: &Config{
 				Debug:            true,
@@ -28,15 +28,23 @@ func TestLoadConfig(t *testing.T) {
 				Parallelism:      7,
 				CORSAllowOrigins: []string{"https://example.com", "https://sub.example.com"},
 				Kafka: KafkaConfig{
-					Brokers: "localhost:9092,localhost:9093",
-					Topic:   "topic",
-					GroupID: "livestream-dev",
+					Brokers:                          "localhost:9092,localhost:9093",
+					Topic:                            "topic",
+					SecurityProtocol:                 "PLAINTEXT",
+					SessionRecordingEnabled:          true,
+					SessionRecordingTopic:            "session_recording_snapshot_item_events",
+					SessionRecordingBrokers:          "localhost:9092,localhost:9093",
+					SessionRecordingSecurityProtocol: "SSL",
+					GroupID:                          "livestream-dev",
 				},
 				Postgres: PostgresConfig{
 					URL: "pg url",
 				},
 				JWT: JWTConfig{
 					Secret: "token",
+				},
+				SessionRecording: SessionRecordingConfig{
+					MaxLRUEntries: 2_000_000_000,
 				},
 			},
 			wantErr: false,

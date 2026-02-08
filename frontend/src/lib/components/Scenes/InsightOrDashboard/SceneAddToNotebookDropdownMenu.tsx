@@ -1,12 +1,8 @@
 import { IconPlusSmall } from '@posthog/icons'
 
 import { ButtonPrimitive, ButtonPrimitiveProps } from 'lib/ui/Button/ButtonPrimitives'
-import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuOpenIndicator,
-    DropdownMenuTrigger,
-} from 'lib/ui/DropdownMenu/DropdownMenu'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from 'lib/ui/DropdownMenu/DropdownMenu'
+import { MenuOpenIndicator } from 'lib/ui/Menus/Menus'
 import { NotebookNodeType } from 'scenes/notebooks/types'
 
 import { NodeKind } from '~/queries/schema/schema-general'
@@ -34,7 +30,7 @@ export function SceneAddToNotebookDropdownMenu({
                 >
                     <IconPlusSmall />
                     Add to notebook
-                    <DropdownMenuOpenIndicator />
+                    <MenuOpenIndicator className="ml-auto" />
                 </ButtonPrimitive>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" matchTriggerWidth className="min-w-none max-w-none">

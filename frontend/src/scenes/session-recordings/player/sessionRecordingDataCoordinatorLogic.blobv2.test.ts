@@ -21,13 +21,6 @@ const readFileContents = (path: string): string => {
 const keyZero = readFileContents(pathForKeyZero)
 const keyOne = readFileContents(pathForKeyOne)
 
-const BLOB_SOURCE: SessionRecordingSnapshotSource = {
-    source: 'blob',
-    start_timestamp: '2025-05-18T03:46:54.296000Z',
-    end_timestamp: '2025-05-18T03:51:54.816000Z',
-    blob_key: '1747540014296-1747540314816',
-}
-
 const BLOB_V2_SOURCE_ZERO: SessionRecordingSnapshotSource = {
     source: 'blob_v2',
     start_timestamp: '2025-05-18T03:46:53.980000Z',
@@ -48,7 +41,7 @@ describe('sessionRecordingDataCoordinatorLogic blobby v2', () => {
 
     beforeEach(() => {
         setupSessionRecordingTest({
-            snapshotSources: [BLOB_V2_SOURCE_ZERO, BLOB_SOURCE, BLOB_V2_SOURCE_ONE],
+            snapshotSources: [BLOB_V2_SOURCE_ZERO, BLOB_V2_SOURCE_ONE],
             getMocks: {
                 '/api/environments/:team_id/session_recordings/:id/snapshots': async (req, res, ctx) => {
                     if (req.url.searchParams.get('source') === 'blob') {
@@ -68,7 +61,7 @@ describe('sessionRecordingDataCoordinatorLogic blobby v2', () => {
                         throw new Error(`Unexpected blob key: ${key}`)
                     }
 
-                    const sources = [BLOB_V2_SOURCE_ZERO, BLOB_SOURCE, BLOB_V2_SOURCE_ONE]
+                    const sources = [BLOB_V2_SOURCE_ZERO, BLOB_V2_SOURCE_ONE]
                     return [
                         200,
                         {
@@ -134,15 +127,14 @@ describe('sessionRecordingDataCoordinatorLogic blobby v2', () => {
                 },
             ])
             expect(Object.keys(logic.values.snapshotsBySources)).toEqual(['blob_v2-0', 'blob_v2-1', '_count'])
-            expect(logic.values.snapshotsBySources['blob_v2-0'].snapshots).toHaveLength(11)
-            // but blob key 1 is marked empty because its snapshots are on key 0 when loading multi blocks
+            // raw snapshots are cleared after processing to free memory
+            expect(logic.values.snapshotsBySources['blob_v2-0'].snapshots).toHaveLength(0)
+            // blob key 1 is marked empty because its snapshots are on key 0 when loading multi blocks
             expect(logic.values.snapshotsBySources['blob_v2-1']).toEqual({
                 sourceLoaded: true,
             })
-            expect(logic.cache.processingCache['blob_v2-0']).toHaveLength(11)
-            expect(logic.cache.processingCache['blob_v2-0']).toEqual(
-                logic.values.snapshotsBySources['blob_v2-0'].snapshots
-            )
+            // processed snapshots are stored in the cache
+            expect(logic.cache.processingCache.snapshots['blob_v2-0']).toHaveLength(11)
         })
     })
 })

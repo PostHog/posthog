@@ -5,7 +5,7 @@ import api from 'lib/api'
 
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 
-import { FALLBACK_DELAY_MS, TEXT_REPR_API_TIMEOUT_MS } from './constants'
+import { FALLBACK_DELAY_MS, TEXT_REPR_API_TIMEOUT_MS, UI_TEXT_REPR_MAX_LENGTH } from './constants'
 import type { textViewLogicType } from './textViewLogicType'
 
 interface TraceTreeNode {
@@ -22,6 +22,7 @@ interface TextReprOptions {
     truncated: boolean
     include_markers: boolean
     include_line_numbers: boolean
+    max_length: number // Use UI_TEXT_REPR_MAX_LENGTH for display (much larger than LLM context limit)
 }
 
 type TextReprRequest =
@@ -109,6 +110,7 @@ export const textViewLogic = kea<textViewLogicType>([
                             truncated: true,
                             include_markers: true,
                             include_line_numbers: true,
+                            max_length: UI_TEXT_REPR_MAX_LENGTH,
                         },
                     }
                 } else if (props.event) {
@@ -120,6 +122,7 @@ export const textViewLogic = kea<textViewLogicType>([
                             truncated: true,
                             include_markers: true,
                             include_line_numbers: true,
+                            max_length: UI_TEXT_REPR_MAX_LENGTH,
                         },
                     }
                 } else {

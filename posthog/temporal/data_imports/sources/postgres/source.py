@@ -1,4 +1,4 @@
-from typing import cast
+from typing import Optional, cast
 
 from psycopg import OperationalError
 from sshtunnel import BaseSSHTunnelForwarderError
@@ -38,6 +38,10 @@ PostgresErrors = {
 
 @SourceRegistry.register
 class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDatabaseHostMixin):
+    def __init__(self, source_name: str = "Postgres"):
+        super().__init__()
+        self.source_name = source_name
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.POSTGRES
@@ -104,6 +108,7 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
                     SourceFieldSSHTunnelConfig(name="ssh_tunnel", label="Use SSH tunnel?"),
                 ],
             ),
+            featured=True,
         )
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
@@ -130,6 +135,9 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
             "InsufficientPrivilege": None,
             "OperationalError: connection failed: connection to server at": None,
             "password authentication failed connection": None,
+            "connection timeout expired": None,
+            "DiskFull": "Source database ran out of disk space. Free up disk space on your database server or add an index on your incremental field to reduce temp file usage.",
+            "No space left on device": "Source database ran out of disk space. Free up disk space on your database server or add an index on your incremental field to reduce temp file usage.",
         }
 
     def get_schemas(self, config: PostgresSourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
@@ -183,7 +191,9 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
 
         return schemas
 
-    def validate_credentials(self, config: PostgresSourceConfig, team_id: int) -> tuple[bool, str | None]:
+    def validate_credentials(
+        self, config: PostgresSourceConfig, team_id: int, schema_name: Optional[str] = None
+    ) -> tuple[bool, str | None]:
         is_ssh_valid, ssh_valid_errors = self.ssh_tunnel_is_valid(config)
         if not is_ssh_valid:
             return is_ssh_valid, ssh_valid_errors
@@ -203,16 +213,16 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
                     return False, value
 
             capture_exception(e)
-            return False, "Could not connect to Postgres. Please check all connection details are valid."
+            return False, f"Could not connect to {self.source_name}. Please check all connection details are valid."
         except BaseSSHTunnelForwarderError as e:
             return (
                 False,
                 e.value
-                or "Could not connect to Postgres via the SSH tunnel. Please check all connection details are valid.",
+                or f"Could not connect to {self.source_name} via the SSH tunnel. Please check all connection details are valid.",
             )
         except Exception as e:
             capture_exception(e)
-            return False, "Could not connect to Postgres. Please check all connection details are valid."
+            return False, f"Could not connect to {self.source_name}. Please check all connection details are valid."
 
         return True, None
 

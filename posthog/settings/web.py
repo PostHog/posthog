@@ -31,6 +31,7 @@ AXES_HTTP_RESPONSE_CODE = 403
 # TODO: Automatically generate these like we do for the frontend
 # NOTE: Add these definitions here and on `tach.toml`
 PRODUCTS_APPS = [
+    "products.analytics_platform.backend.apps.AnalyticsPlatformConfig",
     "products.early_access_features.backend.apps.EarlyAccessFeaturesConfig",
     "products.tasks.backend.apps.TasksConfig",
     "products.links.backend.apps.LinksConfig",
@@ -43,11 +44,18 @@ PRODUCTS_APPS = [
     "products.notebooks.backend.apps.NotebooksConfig",
     "products.surveys.backend.apps.SurveysConfig",
     "products.data_warehouse.backend.apps.DataWarehouseConfig",
+    "products.data_modeling.backend.apps.DataModelingConfig",
     "products.desktop_recordings.backend.apps.DesktopRecordingsConfig",
     "products.live_debugger.backend.apps.LiveDebuggerConfig",
     "products.experiments.backend.apps.ExperimentsConfig",
     "products.feature_flags.backend.apps.FeatureFlagsConfig",
     "products.customer_analytics.backend.apps.CustomerAnalyticsConfig",
+    "products.conversations.backend.apps.ConversationsConfig",
+    "products.slack_app.backend.apps.SlackAppConfig",
+    "products.product_tours.backend.apps.ProductToursConfig",
+    "products.workflows.backend.apps.WorkflowsConfig",
+    "products.posthog_ai.backend.apps.PosthogAiConfig",
+    "products.signals.backend.apps.SignalsConfig",
 ]
 
 INSTALLED_APPS = [
@@ -110,7 +118,10 @@ MIDDLEWARE = [
     "django_otp.middleware.OTPMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "posthog.middleware.AutoLogoutImpersonateMiddleware",
+    "posthog.middleware.ImpersonationReadOnlyMiddleware",
+    "posthog.middleware.ImpersonationBlockedPathsMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    "posthog.middleware.ActiveOrganizationMiddleware",
     "posthog.middleware.CsvNeverCacheMiddleware",
     "axes.middleware.AxesMiddleware",
     "posthog.middleware.AutoProjectMiddleware",
@@ -175,6 +186,7 @@ AUTHENTICATION_BACKENDS: list[str] = [
     "social_core.backends.github.GithubOAuth2",
     "social_core.backends.gitlab.GitLabOAuth2",
     "django.contrib.auth.backends.ModelBackend",
+    "posthog.auth.WebauthnBackend",
 ]
 
 AUTH_USER_MODEL = "posthog.User"
@@ -243,7 +255,17 @@ IMPERSONATION_COOKIE_LAST_ACTIVITY_KEY = get_from_env(
     "IMPERSONATION_COOKIE_LAST_ACTIVITY_KEY", "impersonation_last_activity"
 )
 # Disallow impersonating other staff
-CAN_LOGIN_AS = lambda request, target_user: request.user.is_staff and not target_user.is_staff
+CAN_LOGIN_AS = (
+    lambda request, target_user:
+    # user performing action must be a staff member
+    request.user.is_staff
+    # cannot impersonate other staff
+    and not target_user.is_staff
+    # target user must not have opted out of impersonation (None treated as allowed)
+    and target_user.allow_impersonation is not False
+)
+# Require a reason when logging in as another user
+LOGINAS_LOGIN_REASON_REQUIRED = True
 
 SESSION_COOKIE_CREATED_AT_KEY = get_from_env("SESSION_COOKIE_CREATED_AT_KEY", "session_created_at")
 
@@ -416,47 +438,25 @@ PROXY_USE_GATEWAY_API = get_from_env("PROXY_USE_GATEWAY_API", False, type_cast=s
 PROXY_TARGET_CNAME = get_from_env("PROXY_TARGET_CNAME", "")
 PROXY_BASE_CNAME = get_from_env("PROXY_BASE_CNAME", "")
 
+# Cloudflare for SaaS proxy settings
+CLOUDFLARE_PROXY_ENABLED = get_from_env("CLOUDFLARE_PROXY_ENABLED", False, type_cast=str_to_bool)
+CLOUDFLARE_API_TOKEN = get_from_env("CLOUDFLARE_API_TOKEN", "")
+CLOUDFLARE_ZONE_ID = get_from_env("CLOUDFLARE_ZONE_ID", "")
+CLOUDFLARE_WORKER_NAME = get_from_env("CLOUDFLARE_WORKER_NAME", "")
+CLOUDFLARE_PROXY_BASE_CNAME = get_from_env("CLOUDFLARE_PROXY_BASE_CNAME", "")
+
 ####
 # CDP
 
 LOGO_DEV_TOKEN = get_from_env("LOGO_DEV_TOKEN", "")
 
 ####
-# /decide
-
-# Decide rate limit setting
-DECIDE_RATE_LIMIT_ENABLED = get_from_env("DECIDE_RATE_LIMIT_ENABLED", False, type_cast=str_to_bool)
-DECIDE_BUCKET_CAPACITY = get_from_env("DECIDE_BUCKET_CAPACITY", type_cast=int, default=500)
-DECIDE_BUCKET_REPLENISH_RATE = get_from_env("DECIDE_BUCKET_REPLENISH_RATE", type_cast=float, default=10.0)
-
-# This is a list of team-ids that are prevented from using the /decide endpoint
-# until they fix an issue with their feature flags causing instability in posthog.
-DECIDE_SHORT_CIRCUITED_TEAM_IDS = [0]
-
-# Decide db settings
-DECIDE_SKIP_POSTGRES_FLAGS = get_from_env("DECIDE_SKIP_POSTGRES_FLAGS", False, type_cast=str_to_bool)
-
-# Decide billing analytics
+# Feature flag billing analytics
+# Used to track feature flag requests for billing purposes.
+# Named "decide" for historical reasons: the /decide endpoint was the original
+# way clients fetched feature flags before the Rust feature flags service.
 DECIDE_BILLING_SAMPLING_RATE = get_from_env("DECIDE_BILLING_SAMPLING_RATE", 0.1, type_cast=float)
 DECIDE_BILLING_ANALYTICS_TOKEN = get_from_env("DECIDE_BILLING_ANALYTICS_TOKEN", None, type_cast=str, optional=True)
-
-# Decide regular request analytics
-# Takes 3 possible formats, all separated by commas:
-# A number: "2"
-# A range: "2:5" -- represents team IDs 2, 3, 4, 5
-# The string "all" -- represents all team IDs
-DECIDE_TRACK_TEAM_IDS = get_list(os.getenv("DECIDE_TRACK_TEAM_IDS", ""))
-
-# Decide skip hash key overrides
-DECIDE_SKIP_HASH_KEY_OVERRIDE_WRITES = get_from_env(
-    "DECIDE_SKIP_HASH_KEY_OVERRIDE_WRITES", False, type_cast=str_to_bool
-)
-
-# if `true` we disable session replay if over quota
-DECIDE_SESSION_REPLAY_QUOTA_CHECK = get_from_env("DECIDE_SESSION_REPLAY_QUOTA_CHECK", False, type_cast=str_to_bool)
-
-# if `true` we disable feature flags if over quota
-DECIDE_FEATURE_FLAG_QUOTA_CHECK = get_from_env("DECIDE_FEATURE_FLAG_QUOTA_CHECK", False, type_cast=str_to_bool)
 
 ####
 # /remote_config
@@ -486,6 +486,13 @@ API_QUERIES_ENABLED = get_from_env("API_QUERIES_ENABLED", False, type_cast=str_t
 
 # Passed to the frontend for the web app to know where to connect to
 LIVESTREAM_HOST = get_from_env("LIVESTREAM_HOST", "")
+
+####
+# Graceful shutdown
+
+# Marker file created by Kubernetes preStop hook to signal pod is shutting down.
+# When this file exists, the /_readyz endpoint returns 503 to stop receiving new traffic.
+PRESTOP_MARKER_FILE = get_from_env("PRESTOP_MARKER_FILE", "/tmp/posthog_prestop")
 
 ####
 # Local dev
@@ -524,15 +531,22 @@ OAUTH2_PROVIDER = {
         "*": "Full access to all scopes",
         **get_scope_descriptions(),
     },
-    # Allow both http and https schemes to support localhost callbacks
-    # Security validation in OAuthApplication.clean() ensures http is only allowed for loopback addresses (localhost, 127.0.0.0/8) in production
-    "ALLOWED_REDIRECT_URI_SCHEMES": ["http", "https"],
+    # Block dangerous URI schemes that could be used for attacks
+    # Since we use DCR with pre-registration, clients can use any scheme not in this blocklist
+    # Security validation in OAuthApplication.clean() ensures http is only allowed for loopback addresses
+    "BLOCKED_REDIRECT_URI_SCHEMES": [
+        "javascript",  # XSS attacks
+        "data",  # Data exfiltration / XSS
+        "file",  # Local file access
+        "blob",  # Similar to data URIs
+        "vbscript",  # Legacy script injection
+    ],
     "AUTHORIZATION_CODE_EXPIRE_SECONDS": 60 * 5,
     # client has 5 minutes to complete the OAuth flow before the authorization code expires
     "DEFAULT_SCOPES": ["openid"],
     "ACCESS_TOKEN_GENERATOR": "posthog.models.utils.generate_random_oauth_access_token",
     "REFRESH_TOKEN_GENERATOR": "posthog.models.utils.generate_random_oauth_refresh_token",
-    "OAUTH2_VALIDATOR_CLASS": "posthog.api.oauth.OAuthValidator",
+    "OAUTH2_VALIDATOR_CLASS": "posthog.api.oauth.views.OAuthValidator",
     "ACCESS_TOKEN_EXPIRE_SECONDS": 60 * 60,  # 1 hour
     "ROTATE_REFRESH_TOKEN": True,  # Rotate the refresh token whenever a new access token is issued
     "REFRESH_TOKEN_REUSE_PROTECTION": True,

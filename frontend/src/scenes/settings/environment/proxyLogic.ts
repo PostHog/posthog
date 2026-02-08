@@ -3,6 +3,8 @@ import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
+import { globalSetupLogic } from 'lib/components/ProductSetup/globalSetupLogic'
+import { SetupTaskId } from 'lib/components/ProductSetup/types'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { isDomain } from 'lib/utils'
 import { apiHostOrigin } from 'lib/utils/apiHost'
@@ -43,11 +45,27 @@ export const proxyLogic = kea<proxyLogicType>([
         showForm: true,
         completeForm: true,
         maybeRefreshRecords: true,
+        acknowledgeCloudflareOptIn: true,
+        setCloudflareOptInChecked: (checked: boolean) => ({ checked }),
     })),
     reducers(() => ({
         formState: [
             'collapsed' as FormState,
             { showForm: () => 'active', collapseForm: () => 'collapsed', completeForm: () => 'complete' },
+        ],
+        cloudflareOptInAcknowledged: [
+            false,
+            { persist: true },
+            {
+                acknowledgeCloudflareOptIn: () => true,
+            },
+        ],
+        cloudflareOptInChecked: [
+            false,
+            {
+                setCloudflareOptInChecked: (_, { checked }) => checked,
+                acknowledgeCloudflareOptIn: () => false, // Reset when acknowledged
+            },
         ],
     })),
     loaders(({ values, actions }) => ({
@@ -86,6 +104,13 @@ export const proxyLogic = kea<proxyLogicType>([
         collapseForm: () => actions.loadRecords(),
         deleteRecordFailure: () => actions.loadRecords(),
         createRecordSuccess: () => actions.loadRecords(),
+        loadRecordsSuccess: ({ proxyRecords }) => {
+            // Mark the reverse proxy setup task as completed if any proxy is valid
+            const hasValidProxy = proxyRecords.some((r) => r.status === 'valid')
+            if (hasValidProxy) {
+                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.SetUpReverseProxy)
+            }
+        },
         maybeRefreshRecords: () => {
             if (values.shouldRefreshRecords) {
                 actions.loadRecords()

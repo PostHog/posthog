@@ -129,6 +129,18 @@ class HogQLQueryExecutor:
                 if isinstance(transformed_node, ast.SelectQuery) or isinstance(transformed_node, ast.SelectSetQuery):
                     self.select_query = transformed_node
 
+        if self.query_modifiers.usePreaggregatedIntermediateResults:
+            with self.timings.measure("daily_unique_persons_pageviews_transform"):
+                assert self.hogql_context is not None
+                from products.analytics_platform.backend.lazy_preaggregation.lazy_preaggregation_transformer import (
+                    Transformer as DailyUniquePersonsPageviewsTransformer,
+                )
+
+                transformer = DailyUniquePersonsPageviewsTransformer(self.hogql_context)
+                transformed_node = transformer.visit(self.select_query)
+                if isinstance(transformed_node, ast.SelectQuery) or isinstance(transformed_node, ast.SelectSetQuery):
+                    self.select_query = transformed_node
+
     @tracer.start_as_current_span("HogQLQueryExecutor._generate_hogql")
     def _generate_hogql(self):
         self.hogql_context = dataclasses.replace(
@@ -192,6 +204,8 @@ class HogQLQueryExecutor:
 
         if self.query_modifiers.formatCsvAllowDoubleQuotes is not None:
             settings.format_csv_allow_double_quotes = self.query_modifiers.formatCsvAllowDoubleQuotes
+        if self.query_modifiers.forceClickhouseDataSkippingIndexes:
+            settings.force_data_skipping_indices = self.query_modifiers.forceClickhouseDataSkippingIndexes
 
         try:
             self.clickhouse_context = dataclasses.replace(
@@ -261,6 +275,7 @@ class HogQLQueryExecutor:
 
         if self.debug and self.error is None:  # If the query errored, explain will fail as well.
             with self.timings.measure("explain"):
+                # nosemgrep: clickhouse-injection-taint - HogQL-compiled SQL, values in context
                 explain_results = sync_execute(
                     f"EXPLAIN {self.clickhouse_sql}",
                     self.clickhouse_context.values,
@@ -297,6 +312,7 @@ class HogQLQueryExecutor:
     @tracer.start_as_current_span("HogQLQueryExecutor.execute")
     def execute(self) -> HogQLQueryResponse:
         self.generate_clickhouse_sql()
+
         if self.clickhouse_sql is not None:
             self._execute_clickhouse_query()
 

@@ -211,7 +211,12 @@ describe('llmAnalyticsPlaygroundLogic', () => {
             testLogic.unmount()
         })
 
-        it('should handle API errors gracefully', async () => {
+        it('should preserve model options when reload fails', async () => {
+            // First: successfully load with the beforeEach mock
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.modelOptions).toEqual(MOCK_MODEL_OPTIONS)
+
+            // Now: override mock to throw error
             useMocks({
                 get: {
                     '/api/llm_proxy/models/': () => {
@@ -220,15 +225,12 @@ describe('llmAnalyticsPlaygroundLogic', () => {
                 },
             })
 
-            const errorLogic = llmAnalyticsPlaygroundLogic()
-            errorLogic.mount()
+            // Trigger reload
+            logic.actions.loadModelOptions()
+            await expectLogic(logic).toFinishAllListeners()
 
-            await expectLogic(errorLogic).toFinishAllListeners()
-
-            // Should not crash and maintain previous model options
-            expect(errorLogic.values.modelOptions).toEqual(MOCK_MODEL_OPTIONS)
-
-            errorLogic.unmount()
+            // Should preserve existing options after failed reload
+            expect(logic.values.modelOptions).toEqual(MOCK_MODEL_OPTIONS)
         })
     })
 
@@ -372,6 +374,26 @@ describe('llmAnalyticsPlaygroundLogic', () => {
                 { role: 'user', content: 'Hello' },
                 { role: 'assistant', content: 'Hi there!' },
                 { role: 'user', content: 'How are you?' },
+            ])
+        })
+
+        it('should concatenate multiple system messages', () => {
+            const input = [
+                { role: 'system', content: 'You are a helpful assistant.' },
+                { role: 'system', content: 'Always respond in a friendly manner.' },
+                { role: 'system', content: 'Use markdown formatting when appropriate.' },
+                { role: 'user', content: 'Hello' },
+                { role: 'assistant', content: 'Hi there!' },
+            ]
+
+            logic.actions.setupPlaygroundFromEvent({ input })
+
+            expect(logic.values.systemPrompt).toBe(
+                'You are a helpful assistant.\n\nAlways respond in a friendly manner.\n\nUse markdown formatting when appropriate.'
+            )
+            expect(logic.values.messages).toEqual([
+                { role: 'user', content: 'Hello' },
+                { role: 'assistant', content: 'Hi there!' },
             ])
         })
 

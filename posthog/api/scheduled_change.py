@@ -1,5 +1,6 @@
 from typing import Any
 
+from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, viewsets
 
 from posthog.api.feature_flag import CanEditFeatureFlag
@@ -26,14 +27,58 @@ class ScheduledChangeSerializer(serializers.ModelSerializer):
             "created_at",
             "created_by",
             "updated_at",
+            "is_recurring",
+            "recurrence_interval",
+            "last_executed_at",
+            "end_date",
         ]
-        read_only_fields = ["id", "created_at", "created_by", "updated_at"]
+        read_only_fields = ["id", "created_at", "created_by", "updated_at", "last_executed_at"]
 
     def get_failure_reason(self, obj: ScheduledChange) -> str | None:
         """Return the safely formatted failure reason instead of raw data."""
         if not obj.failure_reason:
             return None
         return obj.formatted_failure_reason
+
+    def validate(self, data: dict) -> dict:
+        # For updates, merge with existing instance values
+        instance = getattr(self, "instance", None)
+        is_recurring = data.get("is_recurring", getattr(instance, "is_recurring", False) if instance else False)
+        recurrence_interval = data.get(
+            "recurrence_interval", getattr(instance, "recurrence_interval", None) if instance else None
+        )
+        payload = data.get("payload", getattr(instance, "payload", {}) if instance else {})
+
+        if is_recurring:
+            if not recurrence_interval:
+                raise serializers.ValidationError(
+                    {"recurrence_interval": "This field is required when is_recurring is true."}
+                )
+            # Validate recurrence_interval is a valid choice
+            valid_intervals = [choice[0] for choice in ScheduledChange.RecurrenceInterval.choices]
+            if recurrence_interval not in valid_intervals:
+                raise serializers.ValidationError(
+                    {"recurrence_interval": f"Must be one of: {', '.join(valid_intervals)}"}
+                )
+            # POC constraint: only update_status allowed for recurring schedules
+            if payload.get("operation") != ScheduledChange.OperationType.UPDATE_STATUS:
+                raise serializers.ValidationError(
+                    {"payload": "Recurring schedules only support the update_status operation."}
+                )
+        # For new schedules (create), if is_recurring is false, recurrence_interval must be null
+        # We only preserve recurrence_interval when is_recurring=false for UPDATES (pausing existing schedules)
+        if not instance and not is_recurring and recurrence_interval:
+            raise serializers.ValidationError(
+                {"recurrence_interval": "Cannot set recurrence_interval when is_recurring is false for new schedules."}
+            )
+
+        # Validate end_date is after scheduled_at
+        end_date = data.get("end_date", getattr(instance, "end_date", None) if instance else None)
+        scheduled_at = data.get("scheduled_at", getattr(instance, "scheduled_at", None) if instance else None)
+        if end_date and scheduled_at and end_date <= scheduled_at:
+            raise serializers.ValidationError({"end_date": "End date must be after the scheduled start date."})
+
+        return data
 
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> ScheduledChange:
         request = self.context["request"]
@@ -61,6 +106,7 @@ class ScheduledChangeSerializer(serializers.ModelSerializer):
         return super().create(validated_data)
 
 
+@extend_schema(tags=["core"])
 class ScheduledChangeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """
     Create, read, update and delete scheduled changes.

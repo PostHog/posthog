@@ -1,24 +1,27 @@
-import hashlib
-from datetime import datetime
 from typing import Any, Literal, Optional, cast
 
 from django.core.cache import cache
-from django.db.models import Manager, Q
+from django.db.models import Manager
 
 import orjson
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, extend_schema
 from loginas.utils import is_impersonated_session
 from rest_framework import mixins, request, response, serializers, status, viewsets
 
+from posthog.api.event_definition_generators.base import EventDefinitionGenerator
+from posthog.api.event_definition_generators.golang import GolangGenerator
+from posthog.api.event_definition_generators.python import PythonGenerator
+from posthog.api.event_definition_generators.typescript import TypeScriptGenerator
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import action
 from posthog.clickhouse.client import sync_execute
-from posthog.constants import AvailableFeature, EventDefinitionType
+from posthog.constants import EventDefinitionType
 from posthog.event_usage import report_user_action
-from posthog.exceptions import EnterpriseFeatureException
 from posthog.filters import TermSearchFilterBackend, term_search_filter_sql
-from posthog.models import EventDefinition, EventSchema, Team
+from posthog.models import EventDefinition, Team
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.user import User
 from posthog.models.utils import UUIDT
@@ -154,31 +157,13 @@ class EventDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSeri
                 {"name": event_definition.name},
             )
 
-        # Log activity for audit trail
-        if request and request.user:
-            log_activity(
-                organization_id=cast(UUIDT, view.organization_id),
-                team_id=view.team_id,
-                user=cast(User, request.user),
-                was_impersonated=is_impersonated_session(request),
-                item_id=str(event_definition.id),
-                scope="EventDefinition",
-                activity="created",
-                detail=Detail(name=event_definition.name, changes=None),
-            )
-
         return event_definition
-
-    def update(self, event_definition: EventDefinition, validated_data):
-        request = self.context.get("request")
-        if not (request and request.user.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY)):
-            raise EnterpriseFeatureException(AvailableFeature.INGESTION_TAXONOMY)
-        return super().update(event_definition, validated_data)
 
     def get_is_action(self, obj):
         return hasattr(obj, "action_id") and obj.action_id is not None
 
 
+@extend_schema(tags=["core"])
 class EventDefinitionViewSet(
     TeamAndOrgViewSetMixin,
     TaggedItemViewSetMixin,
@@ -209,31 +194,28 @@ class EventDefinitionViewSet(
         params = {"project_id": self.project_id, "is_posthog_event": "$%", **search_kwargs}
         order_expressions = self._ordering_params_from_request()
 
-        ingestion_taxonomy_is_available = self.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY)
-        is_enterprise = EE_AVAILABLE and ingestion_taxonomy_is_available
-
         event_definition_object_manager: Manager
-        if is_enterprise:
+        if EE_AVAILABLE:
             from ee.models.event_definition import EnterpriseEventDefinition
 
             event_definition_object_manager = EnterpriseEventDefinition.objects
-
         else:
             event_definition_object_manager = EventDefinition.objects
 
         exclude_hidden = self.request.GET.get("exclude_hidden", "false").lower() == "true"
-        if exclude_hidden and is_enterprise:
+        if exclude_hidden and EE_AVAILABLE:
             search_query = search_query + " AND (hidden IS NULL OR hidden = false)"
 
         excluded_properties = self.request.GET.get("excluded_properties")
 
         if excluded_properties:
             excluded_list = list(set(orjson.loads(excluded_properties)))
-            search_query = search_query + f" AND NOT name = ANY(ARRAY{excluded_list})"
+            search_query = search_query + " AND NOT name = ANY(%(excluded_list)s)"
+            params["excluded_list"] = excluded_list
 
         sql = create_event_definitions_sql(
             event_type,
-            is_enterprise=is_enterprise,
+            is_enterprise=EE_AVAILABLE,
             conditions=search_query,
             order_expressions=order_expressions,
         )
@@ -282,17 +264,17 @@ class EventDefinitionViewSet(
         return results
 
     def dangerously_get_object(self):
-        id = self.kwargs["id"]
-        if EE_AVAILABLE and self.request.user.organization.is_feature_available(  # type: ignore
-            AvailableFeature.INGESTION_TAXONOMY
-        ):
+        return self._get_event_definition(id=self.kwargs["id"], team__project_id=self.project_id)
+
+    def _get_event_definition(self, **filters) -> EventDefinition:
+        if EE_AVAILABLE:
             from ee.models.event_definition import EnterpriseEventDefinition
 
-            enterprise_event = EnterpriseEventDefinition.objects.filter(id=id, team__project_id=self.project_id).first()
+            enterprise_event = EnterpriseEventDefinition.objects.filter(**filters).first()
             if enterprise_event:
                 return enterprise_event
 
-            non_enterprise_event = EventDefinition.objects.get(id=id, team__project_id=self.project_id)
+            non_enterprise_event = EventDefinition.objects.get(**filters)
             new_enterprise_event = EnterpriseEventDefinition(
                 eventdefinition_ptr_id=non_enterprise_event.id, description=""
             )
@@ -300,13 +282,11 @@ class EventDefinitionViewSet(
             new_enterprise_event.save()
             return new_enterprise_event
 
-        return EventDefinition.objects.get(id=id, team__project_id=self.project_id)
+        return EventDefinition.objects.get(**filters)
 
     def get_serializer_class(self) -> type[serializers.ModelSerializer]:
         serializer_class = self.serializer_class
-        if EE_AVAILABLE and self.request.user.organization.is_feature_available(  # type: ignore
-            AvailableFeature.INGESTION_TAXONOMY
-        ):
+        if EE_AVAILABLE:
             from ee.api.ee_event_definition import EnterpriseEventDefinitionSerializer
 
             serializer_class = EnterpriseEventDefinitionSerializer  # type: ignore
@@ -399,266 +379,38 @@ class EventDefinitionViewSet(
         )
         return response.Response(status=status.HTTP_204_NO_CONTENT)
 
-    # Version of the TypeScript generator - increment when changing the structure
-    # This ensures clients update even when schemas don't change
-    TYPESCRIPT_GENERATOR_VERSION = "1.0.0"
-
     @action(detail=False, methods=["GET"], url_path="typescript", required_scopes=["event_definition:read"])
     def typescript_definitions(self, *args, **kwargs):
-        """Generate TypeScript definitions from event schemas"""
-        # System events that users should be able to manually capture
-        # These are commonly used in user code and should be typed
-        included_system_events = [
-            "$pageview",  # Manually captured in SPAs (React Router, Vue Router, etc.)
-            "$pageleave",  # Sometimes manually captured alongside $pageview
-            "$screen",  # Manually captured in mobile apps (iOS, Android, React Native, Flutter)
-        ]
+        return self._generate_definitions(TypeScriptGenerator())
 
-        # Fetch event definitions: either non-system events or explicitly included system events
-        event_definitions = (
-            EventDefinition.objects.filter(team__project_id=self.project_id)
-            .filter(
-                Q(name__in=included_system_events)  # Include whitelisted system events
-                | ~Q(name__startswith="$")  # Include all non-system events
-            )
-            .order_by("name")
+    @action(detail=False, methods=["GET"], url_path="golang", required_scopes=["event_definition:read"])
+    def golang_definitions(self, *args, **kwargs):
+        return self._generate_definitions(GolangGenerator())
+
+    @action(detail=False, methods=["GET"], url_path="python", required_scopes=["event_definition:read"])
+    def python_definitions(self, *args, **kwargs):
+        return self._generate_definitions(PythonGenerator())
+
+    def _generate_definitions(self, generator: EventDefinitionGenerator) -> response.Response:
+        event_definitions, schema_map = generator.fetch_event_definitions_and_schemas(self.project_id)
+
+        schema_hash = generator.calculate_schema_hash(event_definitions, schema_map)
+        content = generator.generate(event_definitions, schema_map)
+
+        generator.record_report_generation(
+            self.request.user,
+            self.team_id,
+            self.project_id,
         )
-
-        # Fetch all event schemas with their property groups
-        event_schemas = (
-            EventSchema.objects.filter(event_definition__team__project_id=self.project_id)
-            .select_related("property_group")
-            .prefetch_related("property_group__properties")
-        )
-
-        # Build a mapping of event_definition_id -> property group properties
-        schema_map: dict[str, list[Any]] = {}
-        for event_schema in event_schemas:
-            event_id = str(event_schema.event_definition_id)
-            if event_id not in schema_map:
-                schema_map[event_id] = []
-            schema_map[event_id].extend(event_schema.property_group.properties.all())
-
-        # Calculate deterministic hash based on schema data AND generator version
-        # This ensures clients update when either schemas or generator structure changes
-        schema_data = []
-        for event_def in event_definitions:
-            properties = schema_map.get(str(event_def.id), [])
-            prop_data = [(p.name, p.property_type, p.is_required) for p in properties]
-            schema_data.append((event_def.name, sorted(prop_data)))
-
-        # Include version in hash calculation
-        hash_input = {
-            "version": self.TYPESCRIPT_GENERATOR_VERSION,
-            "schemas": schema_data,
-        }
-        schema_hash = hashlib.sha256(orjson.dumps(hash_input, option=orjson.OPT_SORT_KEYS)).hexdigest()[:32]
-
-        # Generate TypeScript definitions
-        ts_content = self._generate_typescript(event_definitions, schema_map)
 
         return response.Response(
             {
-                "content": ts_content,
+                "content": content,
                 "event_count": len(event_definitions),
                 "schema_hash": schema_hash,
-                "generator_version": self.TYPESCRIPT_GENERATOR_VERSION,
+                "generator_version": generator.generator_version(),
             }
         )
-
-    def _generate_typescript(self, event_definitions, schema_map):
-        """Generate complete TypeScript module with type definitions and exports"""
-        # Generate file header
-        header = f"""/**
- * GENERATED FILE - DO NOT EDIT
- *
- * This file was auto-generated by PostHog
- * Generated at: {datetime.now().isoformat()}
- * Generator version: {self.TYPESCRIPT_GENERATOR_VERSION}
- *
- * Provides capture() for type-safe events and captureRaw() for flexibility
- */
-import originalPostHog from 'posthog-js'
-import type {{ CaptureOptions, CaptureResult, PostHog as OriginalPostHog, Properties }} from 'posthog-js'
-"""
-
-        # Generate event schemas interface
-        event_schemas_lines = [
-            "// Define event schemas with their required and optional fields",
-            "interface EventSchemas {",
-        ]
-
-        for event_def in event_definitions:
-            properties = schema_map.get(str(event_def.id), [])
-            event_name_json = orjson.dumps(event_def.name).decode("utf-8")
-
-            if not properties:
-                event_schemas_lines.append(f"    {event_name_json}: Record<string, any>")
-            else:
-                event_schemas_lines.append(f"    {event_name_json}: {{")
-                for prop in properties:
-                    ts_type = self._map_property_type(prop.property_type)
-                    optional_marker = "" if prop.is_required else "?"
-                    # Use orjson.dumps() for proper escaping of property names
-                    prop_name_json = orjson.dumps(prop.name).decode("utf-8")
-                    event_schemas_lines.append(f"        {prop_name_json}{optional_marker}: {ts_type}")
-                event_schemas_lines.append("    }")
-
-        event_schemas_lines.append("}")
-        event_schemas = "\n".join(event_schemas_lines)
-
-        # Generate type aliases
-        type_aliases = """
-// Type alias for all valid event names
-export type EventName = keyof EventSchemas
-
-// Type helper to get properties for a specific event
-// Intersects the schema with Record<string, any> to allow additional properties
-export type EventProperties<K extends EventName> = EventSchemas[K] & Record<string, any>
-
-// Helper type to check if a type has required properties
-type HasRequiredProperties<K extends EventName> = {} extends EventSchemas[K] ? false : true
-
-// Helper to detect if T is exactly 'string' (not a literal)
-type IsExactlyString<T> = string extends T ? (T extends string ? true : false) : false
-"""
-
-        # Generate TypedPostHog interface
-        typed_posthog_interface = """
-// Enhanced PostHog interface with typed capture
-interface TypedPostHog extends Omit<OriginalPostHog, 'capture'> {
-    /**
-     * Type-safe capture for defined events, or flexible capture for undefined events
-     *
-     * Note: For defined events, wrap properties in a variable to allow additional properties:
-     * const props = { file_size_b: 100, extra: 'data' }
-     * posthog.capture('downloaded_file', props)
-     *
-     * @example
-     * // Defined event with type safety
-     * posthog.capture('uploaded_file', {
-     *   file_name: 'test.txt',
-     *   file_size_b: 100
-     * })
-     *
-     * @example
-     * // For events with all optional properties, properties argument is optional
-     * posthog.capture('logged_out') // no properties needed
-     *
-     * @example
-     * // Undefined events work with arbitrary properties
-     * posthog.capture('custom_event', { whatever: 'data' })
-     * posthog.capture('another_event') // or no properties
-     */
-    // Overload 1: For known events (specific EventName literals)
-    // This should match first for all known event names
-    capture<K extends EventName>(
-        event_name: K,
-        ...args: HasRequiredProperties<K> extends true
-            ? [properties: EventProperties<K>, options?: CaptureOptions]
-            : [properties?: EventProperties<K>, options?: CaptureOptions]
-    ): CaptureResult | undefined
-
-    // Overload 2: For undefined events and blocking string variables
-    // Only matches if event_name is NOT a known EventName
-    // The conditional type rejects broad string type
-    capture<T extends string>(
-        event_name: IsExactlyString<T> extends true ? never : (T extends EventName ? never : T),
-        properties?: Properties | null,
-        options?: CaptureOptions
-    ): CaptureResult | undefined
-
-    /**
-     * Raw capture for any event (original behavior, no type checking)
-     *
-     * Use capture() for type-safe defined events or flexible undefined events.
-     * Use captureRaw() only when you need to bypass all type checking.
-     *
-     * @example
-     * posthog.captureRaw('Any Event Name', { whatever: 'data' })
-     */
-    captureRaw(event_name: string, properties?: Properties | null, options?: CaptureOptions): CaptureResult | undefined
-}
-"""
-
-        # Generate implementation
-        implementation = """
-// Create the implementation
-const createTypedPostHog = (original: OriginalPostHog): TypedPostHog => {
-    // Create the enhanced PostHog object
-    const enhanced: TypedPostHog = Object.create(original)
-
-    // Add capture method (type-safe for defined events, flexible for undefined)
-    enhanced.capture = function (event_name: string, ...args: any[]): CaptureResult | undefined {
-        const [properties, options] = args
-        return original.capture(event_name, properties, options)
-    }
-
-    // Add captureRaw method for untyped/flexible event tracking
-    enhanced.captureRaw = function (
-        event_name: string,
-        properties?: Properties | null,
-        options?: CaptureOptions
-    ): CaptureResult | undefined {
-        return original.capture(event_name, properties, options)
-    }
-
-    // Proxy to delegate all other properties/methods to the original
-    return new Proxy(enhanced, {
-        get(target, prop) {
-            if (prop in target) {
-                return (target as any)[prop]
-            }
-            return (original as any)[prop]
-        },
-        set(target, prop, value) {
-            ;(original as any)[prop] = value
-            return true
-        },
-    })
-}
-"""
-
-        # Generate exports
-        exports = """
-// Create and export the typed instance
-const posthog = createTypedPostHog(originalPostHog as OriginalPostHog)
-
-export default posthog
-export type { EventSchemas, TypedPostHog }
-
-// Re-export everything else from posthog-js
-export * from 'posthog-js'
-
-/**
- * USAGE GUIDE
- * ===========
- *
- * For type-safe defined events (recommended):
- *   posthog.capture('uploaded_file', { file_name: 'test.txt', file_size_b: 100 })
- *
- * For undefined events (flexible):
- *   posthog.capture('Custom Event', { whatever: 'data' })
- *
- * For bypassing all type checking (rare):
- *   posthog.captureRaw('Any Event', { whatever: 'data' })
- */
-"""
-
-        # Combine all sections
-        return header + event_schemas + type_aliases + typed_posthog_interface + implementation + exports
-
-    def _map_property_type(self, property_type: str) -> str:
-        """Map PostHog property types to TypeScript types"""
-        type_map = {
-            "String": "string",
-            "Numeric": "number",
-            "Boolean": "boolean",
-            "DateTime": "string | Date",
-            "Array": "any[]",
-            "Object": "Record<string, any>",
-        }
-        return type_map.get(property_type, "any")
 
     @action(detail=True, methods=["GET"], url_path="metrics")
     def metrics_totals(self, *args, **kwargs):
@@ -674,6 +426,43 @@ export * from 'posthog-js'
                 "query_usage_30_day": query_usage_30_day,
             }
         )
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "name",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=True,
+                description="The exact event name to look up",
+            ),
+        ],
+        responses={200: EventDefinitionSerializer},
+    )
+    @action(detail=False, methods=["GET"], url_path="by_name", required_scopes=["event_definition:read"])
+    def by_name(self, request, *args, **kwargs):
+        """Get event definition by exact name"""
+        event_name = request.query_params.get("name")
+
+        if not event_name:
+            return response.Response(
+                {"detail": "Query parameter 'name' is required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            event_def = self._get_event_definition(name=event_name, team__project_id=self.project_id)
+        except EventDefinition.DoesNotExist:
+            event_def = None
+
+        if not event_def:
+            return response.Response(
+                {"detail": f"Event definition with name '{event_name}' not found"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        serializer = self.get_serializer(event_def)
+        return response.Response(serializer.data)
 
 
 def fetch_30day_event_queries(

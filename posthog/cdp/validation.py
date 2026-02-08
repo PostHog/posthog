@@ -31,6 +31,40 @@ class InputCollector(TraversingVisitor):
                 self.inputs.add(str(node.chain[1]))
 
 
+class HyphenatedPropertyDetector(TraversingVisitor):
+    errors: list[str]
+
+    def __init__(self):
+        super().__init__()
+        self.errors = []
+
+    def visit_arithmetic_operation(self, node: ast.ArithmeticOperation):
+        super().visit_arithmetic_operation(node)
+        if node.op == ast.ArithmeticOperationOp.Sub:
+            if (
+                isinstance(node.left, ast.Field)
+                and len(node.left.chain) >= 2
+                and isinstance(node.right, ast.Field)
+                and len(node.right.chain) == 1
+                and self._is_hyphenated(node.left, node.right)
+            ):
+                right_name = str(node.right.chain[0])
+                left_last = str(node.left.chain[-1])
+                parent = ".".join(str(c) for c in node.left.chain[:-1])
+                self.errors.append(
+                    f"Hyphens are not supported in identifiers and are interpreted as "
+                    f"subtraction. Use bracket notation: "
+                    f"{parent}['{left_last}-{right_name}']"
+                )
+
+    @staticmethod
+    def _is_hyphenated(left: ast.Field, right: ast.Field) -> bool:
+        """Check if the subtraction looks like a hyphenated property name (no spaces around the minus)."""
+        if left.end is not None and right.start is not None:
+            return right.start - left.end == 1
+        return True
+
+
 def collect_inputs(node: ast.Expr) -> set[str]:
     input_collector = InputCollector()
     input_collector.visit(node)
@@ -49,6 +83,10 @@ def generate_template_bytecode(obj: Any, input_collector: set[str]) -> Any:
     elif isinstance(obj, str):
         node = parse_string_template(obj)
         input_collector.update(collect_inputs(node))
+        detector = HyphenatedPropertyDetector()
+        detector.visit(node)
+        if detector.errors:
+            raise Exception(detector.errors[0])
         return create_bytecode(node).bytecode
     else:
         return obj
@@ -283,9 +321,12 @@ class InputsSerializer(serializers.DictField):
 
 
 class HogFunctionFiltersSerializer(serializers.Serializer):
-    source = serializers.ChoiceField(choices=["events", "person-updates"], required=False, default="events")  # type: ignore
+    source = serializers.ChoiceField(
+        choices=["events", "person-updates", "data-warehouse-table"], required=False, default="events"
+    )  # type: ignore
     actions = serializers.ListField(child=serializers.DictField(), required=False)
     events = serializers.ListField(child=serializers.DictField(), required=False)
+    data_warehouse = serializers.ListField(child=serializers.DictField(), required=False)
     properties = serializers.ListField(child=serializers.DictField(), required=False)
     bytecode = serializers.JSONField(required=False, allow_null=True)
     transpiled = serializers.JSONField(required=False)
@@ -304,10 +345,25 @@ class HogFunctionFiltersSerializer(serializers.Serializer):
         # Ensure data is initialized as an empty dict if it's None
         data = data or {}
 
+        if data.get("source") == "events":
+            # Don't allow events or actions for person-updates
+            data.pop("data_warehouse", None)
+
         if data.get("source") == "person-updates":
             # Don't allow events or actions for person-updates
             data.pop("events", None)
             data.pop("actions", None)
+            data.pop("data_warehouse", None)
+
+        if data.get("source") == "data-warehouse-table":
+            # Don't allow events or actions for data-warehouse-table
+            data.pop("events", None)
+            data.pop("actions", None)
+
+        if "data_warehouse" in data and isinstance(data["data_warehouse"], list):
+            data["data_warehouse"] = [
+                entry for entry in data["data_warehouse"] if entry.get("name") != "Select a table"
+            ]
 
         # If we have a bytecode, we need to validate the transpiled
         if function_type in TYPES_WITH_TRANSPILED_FILTERS:
@@ -346,7 +402,7 @@ def topological_sort(nodes: list[str], edges: dict[str, list[str]]) -> list[str]
     Raises an error if a cycle is detected.
     """
     # Build in-degree
-    in_degree = {node: 0 for node in nodes}
+    in_degree = dict.fromkeys(nodes, 0)
     for node, deps in edges.items():
         for dep in deps:
             if dep in in_degree:
@@ -376,12 +432,20 @@ def compile_hog(hog: str, hog_type: str, in_repl: Optional[bool] = False) -> lis
     # Attempt to compile the hog
     try:
         program = parse_program(hog)
+
+        detector = HyphenatedPropertyDetector()
+        detector.visit(program)
+        if detector.errors:
+            raise serializers.ValidationError({"hog": detector.errors[0]})
+
         supported_functions = set()
 
         if hog_type == "destination":
             supported_functions = {"fetch", "postHogCapture"}
 
         return create_bytecode(program, supported_functions=supported_functions, in_repl=in_repl).bytecode
+    except serializers.ValidationError:
+        raise
     except Exception as e:
         logger.error(f"Failed to compile hog {e}", exc_info=True)
         raise serializers.ValidationError({"hog": "Hog code has errors."})

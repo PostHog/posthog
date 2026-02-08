@@ -5,7 +5,7 @@ import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
 import { IconPlusSmall } from '@posthog/icons'
-import { LemonButton, LemonDropdown } from '@posthog/lemon-ui'
+import { LemonButton, LemonDropdown, Link } from '@posthog/lemon-ui'
 
 import { OperatorValueSelect } from 'lib/components/PropertyFilters/components/OperatorValueSelect'
 import { PropertyFilterInternalProps } from 'lib/components/PropertyFilters/types'
@@ -23,9 +23,11 @@ import {
     TaxonomicFilterGroupType,
     TaxonomicFilterValue,
 } from 'lib/components/TaxonomicFilter/types'
-import { isOperatorMulti, isOperatorRegex } from 'lib/utils'
+import { isOperatorMulti, isOperatorRegex, toParams } from 'lib/utils'
 import { dataWarehouseJoinsLogic } from 'scenes/data-warehouse/external/dataWarehouseJoinsLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
+import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import {
     AnyPropertyFilter,
@@ -58,6 +60,7 @@ export function TaxonomicPropertyFilter({
     taxonomicGroupTypes,
     eventNames,
     schemaColumns,
+    dataWarehouseTableName,
     propertyGroupType,
     orFiltering,
     addText = 'Add filter',
@@ -73,6 +76,7 @@ export function TaxonomicPropertyFilter({
     addFilterDocLink,
     editable = true,
     operatorAllowlist,
+    endpointFilters,
 }: PropertyFilterInternalProps): JSX.Element {
     const pageKey = useMemo(() => pageKeyInput || `filter-${uniqueMemoizedIndex++}`, [pageKeyInput])
     const groupTypes = taxonomicGroupTypes || DEFAULT_TAXONOMIC_GROUP_TYPES
@@ -98,6 +102,7 @@ export function TaxonomicPropertyFilter({
         eventNames,
         propertyAllowList,
         excludedProperties,
+        endpointFilters,
     })
     const { dropdownOpen, activeTaxonomicGroup } = useValues(logic)
     const filter = filters[index] ? sanitizePropertyFilter(filters[index]) : null
@@ -117,7 +122,9 @@ export function TaxonomicPropertyFilter({
     const placeOperatorValueSelectOnLeft = filter?.type && filter?.key && filter?.type === PropertyFilterType.Cohort
 
     const { propertyDefinitionsByType } = useValues(propertyDefinitionsModel)
+    const { cohortsById } = useValues(cohortsModel)
     const { columnsJoinedToPersons } = useValues(dataWarehouseJoinsLogic)
+    const { currentTeamId } = useValues(teamLogic)
 
     // We don't support array filter values here. Multiple-cohort only supported in TaxonomicBreakdownFilter.
     // This is mostly to make TypeScript happy.
@@ -136,6 +143,17 @@ export function TaxonomicPropertyFilter({
             ? columnsJoinedToPersons
             : propertyDefinitionsByType(basePropertyType, groupTypeIndex)
 
+    // Look up cohort name, if not already provided in filter
+    const cohortValue =
+        filter?.type === PropertyFilterType.Cohort && !Array.isArray(filter?.value) ? filter.value : undefined
+    const cohortName =
+        filter?.type === PropertyFilterType.Cohort
+            ? filter.cohort_name ||
+              (cohortValue !== undefined
+                  ? cohortsById[cohortValue]?.name || cohortsById[String(cohortValue)]?.name
+                  : undefined)
+            : undefined
+
     const taxonomicFilter = (
         <TaxonomicFilter
             groupType={filter ? propertyFilterTypeToTaxonomicFilterType(filter) : undefined}
@@ -150,6 +168,7 @@ export function TaxonomicPropertyFilter({
             optionsFromProp={taxonomicFilterOptionsFromProp}
             hideBehavioralCohorts={hideBehavioralCohorts}
             selectFirstItem={!cohortOrOtherValue}
+            endpointFilters={endpointFilters}
         />
     )
 
@@ -163,7 +182,17 @@ export function TaxonomicPropertyFilter({
             operator={isPropertyFilterWithOperator(filter) ? filter.operator : null}
             value={filter?.value}
             placeholder="Enter value..."
-            endpoint={filter?.key && activeTaxonomicGroup?.valuesEndpoint?.(filter.key)}
+            endpoint={
+                filter?.key &&
+                filter?.type === PropertyFilterType.DataWarehouse &&
+                dataWarehouseTableName &&
+                currentTeamId
+                    ? `api/environments/${currentTeamId}/data_warehouse/property_values?${toParams({
+                          table_name: dataWarehouseTableName,
+                          key: filter.key,
+                      })}`
+                    : filter?.key && activeTaxonomicGroup?.valuesEndpoint?.(filter.key)
+            }
             eventNames={eventNames}
             addRelativeDateTimeOptions={allowRelativeDateOptions}
             onChange={(newOperator, newValue) => {
@@ -193,7 +222,7 @@ export function TaxonomicPropertyFilter({
 
     const filterContent =
         filter?.type === 'cohort'
-            ? filter.cohort_name || `Cohort #${filter?.value}`
+            ? cohortName || `Cohort #${filter?.value}`
             : filter?.type === PropertyFilterType.EventMetadata && filter?.key?.startsWith('$group_')
               ? filter.label || `Group ${filter?.value}`
               : filter?.type === PropertyFilterType.Flag && filter?.label
@@ -267,7 +296,20 @@ export function TaxonomicPropertyFilter({
                                     sideIcon={null} // The null sideIcon is here on purpose - it prevents the dropdown caret
                                     onClick={() => (dropdownOpen ? closeDropdown() : openDropdown())}
                                     size={size}
-                                    tooltipDocLink={addFilterDocLink}
+                                    truncate={true}
+                                    tooltip={
+                                        <>
+                                            {filterContent ?? (addText || 'Add filter')}
+                                            {addFilterDocLink && (
+                                                <>
+                                                    <br />
+                                                    <Link to={addFilterDocLink} target="_blank">
+                                                        Read the docs
+                                                    </Link>
+                                                </>
+                                            )}
+                                        </>
+                                    }
                                 >
                                     {filterContent ?? (addText || 'Add filter')}
                                 </LemonButton>

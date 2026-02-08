@@ -1,0 +1,17 @@
+from typing import Optional
+
+from posthog.models.integration import GitHubIntegration, Integration
+
+
+def get_github_token(github_integration_id: int) -> Optional[str]:
+    integration = Integration.objects.get(id=github_integration_id)
+    github_integration = GitHubIntegration(integration)
+
+    if github_integration.access_token_expired():
+        github_integration.refresh_access_token()
+
+    return github_integration.integration.access_token or None
+
+
+def get_sandbox_name_for_snapshot(github_integration_id: int, repository: str) -> str:
+    return f"snapshot-sandbox-{github_integration_id}-{repository.replace('/', '-')}"

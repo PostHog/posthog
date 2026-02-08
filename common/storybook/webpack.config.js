@@ -48,20 +48,46 @@ function createEntry(entry) {
         },
         resolve: {
             extensions: ['.js', '.jsx', '.ts', '.tsx'],
+            modules: [
+                path.resolve(__dirname, '..', '..', 'frontend', 'node_modules'),
+                path.resolve(__dirname, '..', '..', 'node_modules'),
+                'node_modules',
+            ],
             alias: {
                 '~': path.resolve(__dirname, '..', '..', 'frontend', 'src'),
                 lib: path.resolve(__dirname, '..', '..', 'frontend', 'src', 'lib'),
                 scenes: path.resolve(__dirname, '..', '..', 'frontend', 'src', 'scenes'),
                 '@posthog/lemon-ui': path.resolve(__dirname, '..', '..', 'frontend', '@posthog', 'lemon-ui', 'src'),
-                '@posthog/ee/exports': [
-                    path.resolve(__dirname, '..', '..', 'ee', 'frontend', 'exports'),
-                    path.resolve(__dirname, '..', '..', 'frontend', '@posthog', 'ee', 'exports'),
-                ],
+                '@posthog/shared-onboarding': path.resolve(__dirname, '..', '..', 'docs', 'onboarding'),
                 storybook: path.resolve(__dirname, '..', '..', 'frontend', '.storybook'),
                 types: path.resolve(__dirname, '..', '..', 'frontend', 'types'),
                 public: path.resolve(__dirname, '..', '..', 'frontend', 'public'),
                 process: 'process/browser',
                 products: path.resolve(__dirname, '..', '..', 'products'),
+                react: path.resolve(__dirname, '..', '..', 'frontend', 'node_modules', 'react'),
+                'react-dom': path.resolve(__dirname, '..', '..', 'frontend', 'node_modules', 'react-dom'),
+                kea: path.resolve(__dirname, '..', '..', 'frontend', 'node_modules', 'kea'),
+                'kea-router': path.resolve(__dirname, '..', '..', 'frontend', 'node_modules', 'kea-router'),
+                'kea-forms': path.resolve(__dirname, '..', '..', 'frontend', 'node_modules', 'kea-forms'),
+                'kea-loaders': path.resolve(__dirname, '..', '..', 'frontend', 'node_modules', 'kea-loaders'),
+                'kea-localstorage': path.resolve(__dirname, '..', '..', 'frontend', 'node_modules', 'kea-localstorage'),
+                'kea-subscriptions': path.resolve(
+                    __dirname,
+                    '..',
+                    '..',
+                    'frontend',
+                    'node_modules',
+                    'kea-subscriptions'
+                ),
+                'kea-waitfor': path.resolve(__dirname, '..', '..', 'frontend', 'node_modules', 'kea-waitfor'),
+                'kea-window-values': path.resolve(
+                    __dirname,
+                    '..',
+                    '..',
+                    'frontend',
+                    'node_modules',
+                    'kea-window-values'
+                ),
             },
             fallback: {
                 crypto: require.resolve('crypto-browserify'),

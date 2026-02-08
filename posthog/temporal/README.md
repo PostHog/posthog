@@ -14,6 +14,9 @@ Temporal provides us with abstractions that handle the distributed execution whi
 
 That being said, if you do decide to develop an application or feature with Temporal, this README will guide you through how we develop with Temporal, common pitfalls, and useful additional abstractions we have developed over time.
 
+> DuckLake copy workflow configuration lives in `posthog/ducklake/README.md`.
+> DuckLake copy workflow configuration lives in `posthog/ducklake/TEMPORAL.md`.
+
 ## Temporal concepts
 
 Let's begin with describing basic Temporal concepts.
@@ -472,6 +475,8 @@ There are examples on how to achieve this throughout the codebase: Batch exports
 
 The development stack includes: A Temporal service to act as a local orchestrator, a Temporal UI, and, if you are using `mprocs`, multiple Temporal workers that are started automatically, one per task queue. These workers includes a worker listening on the shared `general-purpose-task-queue`, which can be used for development. If you have deployed a new set of workers, add it to `bin/mprocs.yaml` so that a worker can start automatically for folks doing local development.
 
+By default, Temporal workers automatically hot reload when Python files change (similar to backend and celery workers). If you need to disable hot reloading, set `TEMPORAL_DISABLE_HOT_RELOAD=1`.
+
 Some products or features may require additional configuration, for example: Data warehouse workflows require additional credentials that must be present in the environment (`#team-data-warehouse` can assist with this reached out for help). Check other documentation based on the product you are trying to develop locally for.
 
 As you run workflows, you will be able to see the logs in the worker's logs, and you can go to the Temporal UI at http://localhost:8081 to check on the workflow status.
@@ -486,6 +491,6 @@ As you run workflows, you will be able to see the logs in the worker's logs, and
 
 ## Examples in PostHog
 
-All of batch exports is built in Temporal, see [example workflows in batch exports](https://github.com/PostHog/posthog/tree/master/products/batch_exports/backend/temporal/destinations).
-
-[Examples on unit testing Temporal workflows](https://github.com/PostHog/posthog/tree/master/products/batch_exports/backend/tests/temporal) are available in the batch exports tests.
+- All of batch exports is built in Temporal, see [example workflows in batch exports](https://github.com/PostHog/posthog/tree/master/products/batch_exports/backend/temporal/destinations).
+- [Examples on unit testing Temporal workflows](https://github.com/PostHog/posthog/tree/master/products/batch_exports/backend/tests/temporal) are available in the batch exports tests.
+- DuckLake data modeling writes leverage Temporal too; follow the [DuckLake copy workflow configuration guide](../ducklake/README.md) to see how we configure environment variables, bucket layouts, and IAM perms for the copy workflow.

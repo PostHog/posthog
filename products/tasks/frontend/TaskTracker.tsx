@@ -1,69 +1,65 @@
 import { useActions, useValues } from 'kea'
 
+import { IconBug } from '@posthog/icons'
+import { LemonButton, Tooltip } from '@posthog/lemon-ui'
+
 import { NotFound } from 'lib/components/NotFound'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { preflightLogicType } from 'scenes/PreflightCheck/preflightLogicType'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { ProductKey } from '~/queries/schema/schema-general'
 
-import { BacklogView } from './components/BacklogView'
-import { GitHubIntegrationSettings } from './components/GitHubIntegrationSettings'
-import { KanbanView } from './components/KanbanView'
-import { TaskControlPanel } from './components/TaskControlPanel'
-import { tasksLogic } from './tasksLogic'
-import type { TaskTrackerTab } from './types'
+import { TasksList } from './components/TasksList'
+import { taskTrackerSceneLogic } from './logics/taskTrackerSceneLogic'
 
 export const scene: SceneExport = {
     component: TaskTracker,
-    logic: tasksLogic,
+    logic: taskTrackerSceneLogic,
+    productKey: ProductKey.TASKS,
 }
 
 export function TaskTracker(): JSX.Element {
-    const { activeTab } = useValues(tasksLogic)
-    const { setActiveTab } = useActions(tasksLogic)
     const isEnabled = useFeatureFlag('TASKS')
+    const { isDev } = useValues<preflightLogicType>(preflightLogic)
+    const { devOnlyIsRunningClustering } = useValues(taskTrackerSceneLogic)
+    const { devOnlyInferTasks } = useActions(taskTrackerSceneLogic)
 
     if (!isEnabled) {
         return <NotFound object="Tasks" caption="This feature is not enabled for your project." />
     }
 
-    const tabs: { key: TaskTrackerTab; label: string; content: React.ReactNode }[] = [
-        {
-            key: 'dashboard' as const,
-            label: 'Dashboard',
-            content: <TaskControlPanel />,
-        },
-        {
-            key: 'backlog' as const,
-            label: 'All Tasks',
-            content: <BacklogView />,
-        },
-        {
-            key: 'kanban' as const,
-            label: 'Workflows',
-            content: <KanbanView />,
-        },
-        {
-            key: 'settings' as const,
-            label: 'Settings',
-            content: <GitHubIntegrationSettings />,
-        },
-    ]
+    const debugActions = isDev ? (
+        <Tooltip title="Run video segment clustering workflow for this team (DEBUG only)">
+            <LemonButton
+                icon={<IconBug />}
+                size="small"
+                type="secondary"
+                onClick={() => devOnlyInferTasks()}
+                loading={devOnlyIsRunningClustering}
+                data-attr="run-task-clustering-button"
+            >
+                Run task clusterization on last 7 days
+            </LemonButton>
+        </Tooltip>
+    ) : undefined
 
     return (
-        <SceneContent className="TaskTracker">
+        <SceneContent>
             <SceneTitleSection
                 name={sceneConfigurations[Scene.TaskTracker].name}
                 description={sceneConfigurations[Scene.TaskTracker].description}
                 resourceType={{
                     type: sceneConfigurations[Scene.TaskTracker].iconType || 'default_icon_type',
                 }}
+                actions={debugActions}
             />
 
-            <LemonTabs activeKey={activeTab} onChange={setActiveTab} tabs={tabs} size="medium" sceneInset />
+            <TasksList />
         </SceneContent>
     )
 }

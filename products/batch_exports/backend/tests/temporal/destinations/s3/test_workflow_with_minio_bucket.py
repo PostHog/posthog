@@ -2,8 +2,6 @@ import datetime as dt
 
 import pytest
 
-from flaky import flaky
-
 from posthog.batch_exports.service import BackfillDetails, BatchExportModel, BatchExportSchema
 
 from products.batch_exports.backend.temporal.destinations.s3_batch_export import (
@@ -21,7 +19,7 @@ pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 TEST_DATA_INTERVAL_END = dt.datetime.now(tz=dt.UTC).replace(hour=0, minute=0, second=0, microsecond=0)
 
 
-@pytest.mark.parametrize("interval", ["hour", "day", "every 5 minutes"], indirect=True)
+@pytest.mark.parametrize("interval", ["hour", "day", "every 5 minutes", "week"], indirect=True)
 @pytest.mark.parametrize("model", TEST_S3_MODELS)
 @pytest.mark.parametrize("compression", [None], indirect=True)
 @pytest.mark.parametrize("exclude_events", [None], indirect=True)
@@ -151,7 +149,7 @@ async def test_s3_export_workflow_with_minio_bucket_with_exclude_events(
 )
 @pytest.mark.parametrize("interval", ["hour"], indirect=True)
 @pytest.mark.parametrize("model", [BatchExportModel(name="persons", schema=None)])
-@flaky(max_runs=3, min_passes=1)
+@pytest.mark.flaky(reruns=2)
 async def test_s3_export_workflow_backfill_earliest_persons_with_minio_bucket(
     clickhouse_client,
     minio_client,

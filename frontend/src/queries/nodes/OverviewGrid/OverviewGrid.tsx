@@ -1,8 +1,8 @@
 import clsx from 'clsx'
 import { useValues } from 'kea'
 
-import { IconDashboard, IconGear, IconTrending } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
+import { IconTrending, IconWarning } from '@posthog/icons'
+import { LemonBanner, LemonSkeleton, Link } from '@posthog/lemon-ui'
 
 import { getColorVar } from 'lib/colors'
 import { PreAggregatedBadge } from 'lib/components/PreAggregatedBadge'
@@ -31,6 +31,8 @@ export interface OverviewItem {
     changeFromPreviousPct?: number | undefined
     kind: WebAnalyticsItemKind
     isIncreaseBad?: boolean
+    warning?: string
+    warningLink?: string
 }
 
 export interface SamplingRate {
@@ -45,10 +47,7 @@ interface OverviewGridProps {
     samplingRate?: SamplingRate
     usedPreAggregatedTables?: boolean
     labelFromKey: (key: string) => string
-    settingsLinkFromKey: (key: string) => string | null
-    dashboardLinkFromKey: (key: string) => string | null
     filterEmptyItems?: (item: OverviewItem) => boolean
-    showBetaTags?: (key: string) => boolean
     compact?: boolean
 }
 
@@ -59,10 +58,7 @@ export function OverviewGrid({
     samplingRate,
     usedPreAggregatedTables = false,
     labelFromKey,
-    settingsLinkFromKey,
-    dashboardLinkFromKey,
     filterEmptyItems = () => true,
-    showBetaTags = () => false,
     compact = false,
 }: OverviewGridProps): JSX.Element {
     const filteredItems = items.filter(filterEmptyItems)
@@ -86,9 +82,6 @@ export function OverviewGrid({
                               item={item}
                               usedPreAggregatedTables={usedPreAggregatedTables}
                               labelFromKey={labelFromKey}
-                              settingsLinkFromKey={settingsLinkFromKey}
-                              dashboardLinkFromKey={dashboardLinkFromKey}
-                              showBetaTag={showBetaTags(item.key)}
                               compact={compact}
                           />
                       ))}
@@ -133,9 +126,6 @@ interface OverviewItemCellProps {
     item: OverviewItem
     usedPreAggregatedTables: boolean
     labelFromKey: (key: string) => string
-    settingsLinkFromKey: (key: string) => string | null
-    dashboardLinkFromKey: (key: string) => string | null
-    showBetaTag: boolean
     compact: boolean
 }
 
@@ -143,9 +133,6 @@ const OverviewItemCell = ({
     item,
     usedPreAggregatedTables,
     labelFromKey,
-    settingsLinkFromKey,
-    dashboardLinkFromKey,
-    showBetaTag,
     compact,
 }: OverviewItemCellProps): JSX.Element => {
     const { baseCurrency } = useValues(teamLogic)
@@ -166,9 +153,6 @@ const OverviewItemCell = ({
                         color: !item.isIncreaseBad ? getColorVar('danger') : getColorVar('success'),
                     }
             : undefined
-
-    const docsUrl = settingsLinkFromKey(item.key)
-    const dashboardUrl = dashboardLinkFromKey(item.key)
 
     // Handle tooltip logic with special cases for zero values and small changes
     const tooltip =
@@ -203,26 +187,27 @@ const OverviewItemCell = ({
                 )}
             >
                 {usedPreAggregatedTables && <PreAggregatedBadge />}
-                <div className="flex flex-row w-full">
-                    <div className="flex flex-row items-start justify-start flex-1">
-                        {/* NOTE: If we ever decide to remove the beta tag, make sure we keep an empty div with flex-1 to keep the layout consistent */}
-                        {showBetaTag && <LemonTag type="warning">BETA</LemonTag>}
-                    </div>
-                    <div className={`uppercase py-0.5 ${compact ? 'text-[10px]' : 'text-xs font-bold'}`}>
-                        {label}&nbsp;
-                    </div>
-                    <div className="flex flex-1 flex-row justify-end items-start">
-                        {dashboardUrl && (
-                            <Tooltip title={`Access dedicated ${item.key} dashboard`}>
-                                <LemonButton to={dashboardUrl} icon={<IconDashboard />} size="xsmall" targetBlank />
-                            </Tooltip>
-                        )}
-                        {docsUrl && (
-                            <Tooltip title={`Access ${item.key} settings`}>
-                                <LemonButton to={docsUrl} icon={<IconGear />} size="xsmall" />
-                            </Tooltip>
-                        )}
-                    </div>
+                <div className="flex flex-row w-full justify-center items-center gap-1">
+                    <div className={`uppercase py-0.5 ${compact ? 'text-[10px]' : 'text-xs font-bold'}`}>{label}</div>
+                    {item.warning && (
+                        <Tooltip
+                            title={
+                                <div>
+                                    {item.warning}
+                                    {item.warningLink && (
+                                        <>
+                                            {' '}
+                                            <Link to={item.warningLink} className="text-link">
+                                                Learn more
+                                            </Link>
+                                        </>
+                                    )}
+                                </div>
+                            }
+                        >
+                            <IconWarning className="text-warning h-3.5 w-3.5 cursor-pointer" />
+                        </Tooltip>
+                    )}
                 </div>
                 <div className="w-full flex-1 flex items-center justify-center">
                     <div className={compact ? 'text-lg' : 'text-2xl'}>

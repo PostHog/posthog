@@ -10,6 +10,7 @@ from posthog.test.base import (
 
 from posthog.clickhouse.client import query_with_columns, sync_execute
 from posthog.models.raw_sessions.sessions_v3 import (
+    GET_NUM_SHARDED_RAW_SESSIONS_ACTIVE_PARTS,
     RAW_SESSION_TABLE_BACKFILL_RECORDINGS_SQL_V3,
     RAW_SESSION_TABLE_BACKFILL_SQL_V3,
 )
@@ -326,12 +327,18 @@ class TestRawSessionsModel(ClickhouseTestMixin, BaseTest):
 
         # just test that the backfill SQL can be run without error
         sync_execute(
-            RAW_SESSION_TABLE_BACKFILL_SQL_V3("team_id = %(team_id)s AND timestamp >= '2024-03-01'"),
+            RAW_SESSION_TABLE_BACKFILL_SQL_V3(
+                where="team_id = %(team_id)s AND timestamp >= '2024-03-01'",
+                shard_index=1,
+                num_shards=2,
+            ),
             {"team_id": self.team.id},
         )
         sync_execute(
             RAW_SESSION_TABLE_BACKFILL_RECORDINGS_SQL_V3(
-                "team_id = %(team_id)s AND min_first_timestamp >= '2024-03-01'"
+                where="team_id = %(team_id)s AND min_first_timestamp >= '2024-03-01'",
+                shard_index=1,
+                num_shards=2,
             ),
             {"team_id": self.team.id},
         )
@@ -692,3 +699,13 @@ class TestRawSessionsModel(ClickhouseTestMixin, BaseTest):
 
         # Should have all unique flag keys (not values)
         assert set(result[0]["flag_keys"]) == {"$feature/flag_a", "$feature/flag_b", "$feature/flag_c"}
+
+    def test_get_number_of_umerged_parts(self):
+        # Just test that the query succeeds without errors and returns an int.
+        # We can't really guarantee anything about the number of parts on the test DB.
+        query = GET_NUM_SHARDED_RAW_SESSIONS_ACTIVE_PARTS(["202511"])
+        result = sync_execute(query)
+        self.assertEqual(len(result), 1)
+        self.assertIsInstance(result[0][0], int)
+        self.assertIsInstance(result[0][1], str)
+        self.assertIsInstance(result[0][2], str)

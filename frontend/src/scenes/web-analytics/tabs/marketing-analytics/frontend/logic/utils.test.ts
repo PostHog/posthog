@@ -1,8 +1,36 @@
-import { MarketingAnalyticsTableQuery, NodeKind } from '~/queries/schema/schema-general'
+import { FEATURE_FLAGS } from 'lib/constants'
 
-import { getOrderBy, getSortedColumnsByArray, orderArrayByPreference } from './utils'
+import { MarketingAnalyticsTableQuery, NodeKind, VALID_NATIVE_MARKETING_SOURCES } from '~/queries/schema/schema-general'
+
+import {
+    getEnabledNativeMarketingSources,
+    getOrderBy,
+    getSortedColumnsByArray,
+    orderArrayByPreference,
+    rowMatchesSearch,
+} from './utils'
 
 describe('marketing analytics utils', () => {
+    describe('getEnabledNativeMarketingSources', () => {
+        it.each([
+            ['filters out BingAds when flag is disabled', { [FEATURE_FLAGS.BING_ADS_SOURCE]: false }, false],
+            ['includes BingAds when flag is enabled', { [FEATURE_FLAGS.BING_ADS_SOURCE]: true }, true],
+            ['filters out BingAds with empty feature flags', {}, false],
+            ['filters out BingAds with undefined feature flags', undefined as any, false],
+        ])('%s', (_name, featureFlags, shouldIncludeBingAds) => {
+            const result = getEnabledNativeMarketingSources(featureFlags ?? {})
+            expect(result.includes('BingAds')).toBe(shouldIncludeBingAds)
+        })
+
+        it('always includes sources without feature flag requirements', () => {
+            const sourcesWithoutFlags = VALID_NATIVE_MARKETING_SOURCES.filter((s) => s !== 'BingAds')
+            const result = getEnabledNativeMarketingSources({})
+            sourcesWithoutFlags.forEach((source) => {
+                expect(result).toContain(source)
+            })
+        })
+    })
+
     describe('getOrderBy', () => {
         it('should filter order by columns that exist in the columns list', () => {
             const query: MarketingAnalyticsTableQuery = {
@@ -227,6 +255,28 @@ describe('marketing analytics utils', () => {
             const result = getSortedColumnsByArray(array, sortedArray)
 
             expect(result).toEqual(['a', 'b', 'c'])
+        })
+    })
+
+    describe('rowMatchesSearch', () => {
+        it.each([
+            ['empty search term returns true', { result: ['test'] }, '', true],
+            ['whitespace-only search returns true', { result: ['test'] }, '   ', true],
+            ['null record returns false', null, 'test', false],
+            ['undefined record returns false', undefined, 'test', false],
+            ['non-object record returns false', 'string', 'test', false],
+            ['row with label always returns true', { label: 'Total', result: [] }, 'anything', true],
+            ['row without result array returns false', { other: 'data' }, 'test', false],
+            ['row with non-array result returns false', { result: 'not-array' }, 'test', false],
+            ['string match in result', { result: ['Google Ads', 'campaign'] }, 'google', true],
+            ['case-insensitive string match', { result: ['FACEBOOK'] }, 'facebook', true],
+            ['object with value string match', { result: [{ value: 'utm_source' }] }, 'utm', true],
+            ['mixed array with match', { result: ['text', { value: 'match' }, 123] }, 'match', true],
+            ['no match returns false', { result: ['alpha', 'beta'] }, 'gamma', false],
+            ['object without value property no match', { result: [{ other: 'test' }] }, 'test', false],
+            ['numeric values in result no match', { result: [123, 456] }, '123', false],
+        ])('%s', (_name, record, searchTerm, expected) => {
+            expect(rowMatchesSearch(record, searchTerm)).toBe(expected)
         })
     })
 })

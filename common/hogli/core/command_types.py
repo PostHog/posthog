@@ -18,9 +18,15 @@ def _run(command: list[str] | str, *, env: dict[str, str] | None = None, shell: 
 
     if isinstance(command, list):
         display = " ".join(command)
-    else:
+        click.echo(f"🚀 {display}")
+    elif "\n" not in command:
+        # Only show single-line commands
         display = command
-    click.echo(f"🚀 {display}")
+        click.echo(f"🚀 {command}")
+    else:
+        # Multiline command - no display
+        display = "<multiline command>"
+
     try:
         subprocess.run(
             command,
@@ -41,10 +47,13 @@ def _format_command_help(cmd_name: str, cmd_config: dict, underlying_cmd: str) -
     - Original description
     - Service info if available
     - Underlying command being executed
+    - Child commands (variants) if any
 
     Note: Click will rewrap long lines, but we add paragraph breaks between
     services for better readability.
     """
+    from hogli.core.manifest import get_manifest
+
     parts = []
 
     # Add main description
@@ -59,12 +68,49 @@ def _format_command_help(cmd_name: str, cmd_config: dict, underlying_cmd: str) -
         for svc_name, about in services:
             parts.append(f"• {svc_name}: {about}")
 
-    # Add underlying command
+    # Add underlying command and variants
+    manifest = get_manifest()
+    children = manifest.get_children_for_command(cmd_name)
     if underlying_cmd:
-        parts.append(f"Executes: {underlying_cmd}")
+        if children:
+            parts.append("Executes:")
+            parts.append(f"• {underlying_cmd}")
+            for child in children:
+                suffix = child.removeprefix(cmd_name)  # e.g., ":minimal"
+                child_config = manifest.get_command_config(child)
+                child_cmd = child_config.get("cmd", "") if child_config else ""
+                parts.append(f"• {suffix} → {child_cmd}")
+        else:
+            parts.append(f"Executes: {underlying_cmd}")
 
     # Join with double newlines to create paragraph breaks
     return "\n\n".join(parts)
+
+
+def _prompt_user(prompt: str | bool, *, name: str = "", description: str = "") -> bool:
+    """Prompt user for confirmation.
+
+    Args:
+        prompt: True for destructive warning, string for custom question
+        name: Command name (shown for destructive warning)
+        description: Command description (shown for destructive warning)
+
+    Returns:
+        True if confirmed, False if declined
+    """
+    if prompt is True:
+        # Destructive warning style
+        click.echo()
+        click.secho("⚠️  This command may be destructive!", fg="yellow", bold=True)
+        if name:
+            click.echo(f"   Command: {name}")
+        if description:
+            click.echo(f"   {description}")
+        click.echo()
+        return click.confirm("Are you sure you want to continue?", default=False)
+    else:
+        # Custom question
+        return click.confirm(str(prompt), default=False)
 
 
 class Command:
@@ -75,6 +121,7 @@ class Command:
         self.name = name
         self.config = config
         self.description = config.get("description", "")
+        self.env = config.get("env", {})
 
     def get_underlying_command(self) -> str:
         """Get the underlying command being executed. Override in subclasses."""
@@ -89,20 +136,14 @@ class Command:
 
         Returns True if confirmation was given (via --yes flag or user prompt), False otherwise.
         """
-        if not self.config.get("destructive", False):
+        prompt = self.config.get("prompt")
+        if not prompt:
             return False
 
         if yes:
             return True
 
-        click.echo()
-        click.echo(click.style("⚠️  This command may be destructive!", fg="yellow", bold=True))
-        click.echo(f"   Command: {self.name}")
-        if self.description:
-            click.echo(f"   {self.description}")
-        click.echo()
-
-        if not click.confirm("Are you sure you want to continue?", default=False):
+        if not _prompt_user(prompt, name=self.name, description=self.description):
             click.echo(click.style("Aborted.", fg="red"))
             raise SystemExit(0)
 
@@ -129,6 +170,47 @@ class Command:
         # Store config on the Click command for visibility filtering
         cmd.hogli_config = self.config  # type: ignore[attr-defined]
         return cmd
+
+
+def _run_prechecks(prechecks: list[dict[str, Any]], yes: bool = False) -> bool:
+    """Run prechecks and prompt user if issues are found.
+
+    Returns True if prechecks passed or user chose to continue, False if user aborted.
+    """
+    for check in prechecks:
+        check_type = check.get("type")
+
+        if check_type == "migrations":
+            # Check for orphaned migrations (in DB but not in code)
+            # Pending migrations are fine - they'll be applied by manage.py migrate
+            try:
+                from hogli.migrations import _compute_migration_diff, _get_cached_migration
+
+                diff = _compute_migration_diff()
+
+                if diff.orphaned:
+                    click.echo()
+                    click.secho("⚠️  Orphaned migrations detected!", fg="yellow", bold=True)
+                    click.echo("These migrations are applied in the DB but don't exist in code.")
+                    click.echo("They were likely applied on another branch.\n")
+
+                    for m in diff.orphaned:
+                        cached = "cached" if _get_cached_migration(m.app, m.name) else "not cached"
+                        click.echo(f"    {m.app}: {m.name} ({cached})")
+                    click.echo()
+
+                    click.echo("Run 'hogli migrations:sync' to roll them back.\n")
+
+                    if not yes:
+                        if not click.confirm("Continue anyway?", default=False):
+                            click.echo("Aborted. Run 'hogli migrations:sync' first.")
+                            return False
+
+            except Exception as e:
+                # Don't block start if migration check fails (e.g., DB not running)
+                click.secho(f"⚠️  Could not check migrations: {e}", fg="yellow", err=True)
+
+    return True
 
 
 class BinScriptCommand(Command):
@@ -162,6 +244,11 @@ class BinScriptCommand(Command):
         @click.pass_context
         def cmd(ctx: click.Context, yes: bool) -> None:
             try:
+                # Run any prechecks before confirming/executing
+                prechecks = self.config.get("prechecks", [])
+                if prechecks and not _run_prechecks(prechecks, yes=yes):
+                    raise SystemExit(1)
+
                 self._confirm(yes=yes)
                 self.execute(*ctx.args)
             except SystemExit:
@@ -173,7 +260,7 @@ class BinScriptCommand(Command):
 
     def execute(self, *args: str) -> None:
         """Execute the script with any passed arguments."""
-        _run([str(self.script_path), *args])
+        _run([str(self.script_path), *args], env=self.env)
 
 
 class DirectCommand(Command):
@@ -208,19 +295,89 @@ class DirectCommand(Command):
     def execute(self, *args: str) -> None:
         """Execute the shell command with any passed arguments."""
         cmd_str = self.config.get("cmd", "")
-        # Use shell=True if command contains operators like && or ||
-        has_operators = " && " in cmd_str or " || " in cmd_str
+        # Use shell=True if command contains shell operators or is multiline
+        has_operators = any(op in cmd_str for op in [" && ", " || ", "|", "\n"])
         if has_operators:
-            # Append args to the command string when using shell
-            # Use shlex.quote() to safely escape arguments for shell execution
+            # For shell commands, pass args as positional parameters using sh -c
             if args:
+                # Pass args as positional parameters: _ is placeholder for $0, then actual args as $1, $2, etc.
                 escaped_args = " ".join(shlex.quote(arg) for arg in args)
-                cmd_str = f"{cmd_str} {escaped_args}"
-            _run(cmd_str, shell=True)
+                cmd_str = f"sh -c {shlex.quote(cmd_str)} _ {escaped_args}"
+            _run(cmd_str, shell=True, env=self.env)
         else:
             # Use list format for simple commands without shell operators
             # Use shlex.split() to properly handle quoted arguments
-            _run([*shlex.split(cmd_str), *args])
+            _run([*shlex.split(cmd_str), *args], env=self.env)
+
+
+def execute_command_config(
+    config: dict | str, *, env: dict[str, str], confirmed: bool = False, step_index: int = 0
+) -> None:
+    """Execute a command config (recursive for hogli/else).
+
+    Handles all step/command formats:
+    - String: hogli command name (shorthand for hogli: <name>)
+    - Dict with hogli: hogli command, can have prompt/else modifiers
+    - Dict with cmd: inline shell command
+    - Dict with steps: composite (each step follows same rules)
+    """
+    from hogli.core.manifest import REPO_ROOT
+
+    bin_hogli = str(REPO_ROOT / "bin" / "hogli")
+
+    if isinstance(config, str):
+        # String = hogli command name
+        click.echo(f"✨ Executing: {config}")
+        cmd_args = [bin_hogli, config]
+        if confirmed:
+            cmd_args.append("--yes")
+        _run(cmd_args, env=env)
+
+    elif isinstance(config, dict):
+        if "hogli" in config:
+            hogli_cmd = config["hogli"]
+            prompt = config.get("prompt")
+            # Check for prompt guard (True for destructive, string for custom question)
+            if prompt:
+                # prompt: true = destructive warning, skippable with confirmed
+                # prompt: "string" = user choice, always ask (it's a decision, not just confirmation)
+                should_run = False
+                if prompt is True:
+                    # Destructive: skip if already confirmed
+                    should_run = confirmed or _prompt_user(prompt, name=hogli_cmd)
+                else:
+                    # String prompt: always ask - this is a user choice, not just confirmation
+                    should_run = _prompt_user(prompt, name=hogli_cmd)
+
+                if should_run:
+                    # Run the hogli command
+                    click.echo(f"✨ Executing: {hogli_cmd}")
+                    cmd_args = [bin_hogli, hogli_cmd]
+                    if confirmed:
+                        cmd_args.append("--yes")
+                    _run(cmd_args, env=env)
+                elif "else" in config:
+                    # User said no - run the else branch (recursive)
+                    execute_command_config(config["else"], env=env, confirmed=confirmed)
+                # else: user said no and no else branch, skip
+            else:
+                # No prompt, just run the hogli command
+                click.echo(f"✨ Executing: {hogli_cmd}")
+                cmd_args = [bin_hogli, hogli_cmd]
+                if confirmed:
+                    cmd_args.append("--yes")
+                _run(cmd_args, env=env)
+
+        elif "cmd" in config:
+            # Inline shell command
+            step_name = config.get("name", f"step-{step_index + 1}")
+            click.echo(f"✨ Executing: {step_name}")
+            _run(["bash", "-c", config["cmd"]], env=env)
+
+        elif "steps" in config:
+            # Nested composite - run each step
+            for i, step in enumerate(config["steps"]):
+                execute_command_config(step, env=env, confirmed=confirmed, step_index=i)
 
 
 class CompositeCommand(Command):
@@ -229,7 +386,17 @@ class CompositeCommand(Command):
     def get_underlying_command(self) -> str:
         """Return the composed command string."""
         steps = self.config.get("steps", [])
-        return f"hogli {' && hogli '.join(steps)}"
+        step_strs = []
+        for step in steps:
+            if isinstance(step, str):
+                step_strs.append(f"hogli {step}")
+            elif isinstance(step, dict):
+                if "hogli" in step:
+                    step_strs.append(f"hogli {step['hogli']}")
+                else:
+                    name = step.get("name", "inline")
+                    step_strs.append(f"[{name}]")
+        return " && ".join(step_strs)
 
     def register(self, cli_group: click.Group) -> Any:
         """Register command with extra args support."""
@@ -254,23 +421,42 @@ class CompositeCommand(Command):
 
     def execute(self, *args: str) -> None:
         """Execute each step in sequence."""
-        from hogli.core.manifest import REPO_ROOT
-
         steps = self.config.get("steps", [])
-        bin_hogli = str(REPO_ROOT / "bin" / "hogli")
-
-        # Pass --yes to children if parent required confirmation and it was confirmed
         confirmed = getattr(self, "_confirmed", False)
 
-        for step in steps:
-            click.echo(f"✨ Executing: {step}")
+        for i, step in enumerate(steps):
             try:
-                # Use bin/hogli for both Flox and non-Flox compatibility
-                # Always pass --yes to child commands if parent was confirmed
-                # This ensures children don't prompt again even if they require confirmation
-                if confirmed:
-                    _run([bin_hogli, step, "--yes"])
-                else:
-                    _run([bin_hogli, step])
+                execute_command_config(step, env=self.env, confirmed=confirmed, step_index=i)
             except SystemExit:
                 raise
+
+
+class HogliCommand(Command):
+    """Command that wraps another hogli command with optional prompt guard."""
+
+    def get_underlying_command(self) -> str:
+        """Return the wrapped hogli command."""
+        return f"hogli {self.config.get('hogli', '')}"
+
+    def register(self, cli_group: click.Group) -> Any:
+        """Register command."""
+        help_text = self.get_help_text()
+
+        @cli_group.command(self.name, help=help_text)
+        @click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompt")
+        @click.pass_context
+        def cmd(ctx: click.Context, yes: bool) -> None:
+            try:
+                confirmed = self._confirm(yes=yes)
+                self._confirmed = confirmed or yes
+                self.execute()
+            except SystemExit:
+                raise
+
+        cmd.hogli_config = self.config  # type: ignore[attr-defined]
+        return cmd
+
+    def execute(self, *args: str) -> None:
+        """Execute the wrapped hogli command."""
+        confirmed = getattr(self, "_confirmed", False)
+        execute_command_config(self.config, env=self.env, confirmed=confirmed)

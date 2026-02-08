@@ -2,14 +2,12 @@ import { Monaco } from '@monaco-editor/react'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import type { IDisposable, editor as importedEditor } from 'monaco-editor'
+import type { editor as importedEditor } from 'monaco-editor'
 import { useEffect, useRef, useState } from 'react'
 
 import { IconMagicWand } from '@posthog/icons'
 import { LemonInput, Link } from '@posthog/lemon-ui'
 
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -83,11 +81,11 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
             editor,
         })
     )
-    // Using useRef, not useState, as we don't want to reload the component when this changes.
-    const monacoDisposables = useRef([] as IDisposable[])
+
+    // Clear editor state on unmount to avoid holding references to disposed editor
     useOnMountEffect(() => {
         return () => {
-            monacoDisposables.current.forEach((d) => d?.dispose())
+            setMonacoAndEditor(null)
         }
     })
 
@@ -100,39 +98,37 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                     !props.embedded && 'p-2 border'
                 )}
             >
-                <FlaggedFeature flag={FEATURE_FLAGS.ARTIFICIAL_HOG}>
-                    <div className="flex gap-2">
-                        <LemonInput
-                            className="grow"
-                            prefix={<IconMagicWand />}
-                            value={prompt}
-                            onPressEnter={() => draftFromPrompt()}
-                            onChange={(value) => setPrompt(value)}
-                            placeholder={
-                                aiAvailable
-                                    ? 'What do you want to know? How would you like to tweak the query?'
-                                    : 'To use AI features, set environment variable OPENAI_API_KEY for this instance of PostHog'
-                            }
-                            disabled={!aiAvailable}
-                            maxLength={400}
-                        />
-                        <LemonButton
-                            type="primary"
-                            onClick={() => draftFromPrompt()}
-                            disabledReason={
-                                !aiAvailable
-                                    ? 'Environment variable OPENAI_API_KEY is unset for this instance of PostHog'
-                                    : !prompt
-                                      ? 'Provide a prompt first'
-                                      : null
-                            }
-                            tooltipPlacement="left"
-                            loading={promptLoading}
-                        >
-                            Think
-                        </LemonButton>
-                    </div>
-                </FlaggedFeature>
+                <div className="flex gap-2">
+                    <LemonInput
+                        className="grow"
+                        prefix={<IconMagicWand />}
+                        value={prompt}
+                        onPressEnter={() => draftFromPrompt()}
+                        onChange={(value) => setPrompt(value)}
+                        placeholder={
+                            aiAvailable
+                                ? 'What do you want to know? How would you like to tweak the query?'
+                                : 'To use AI features, set environment variable OPENAI_API_KEY for this instance of PostHog'
+                        }
+                        disabled={!aiAvailable}
+                        maxLength={400}
+                    />
+                    <LemonButton
+                        type="primary"
+                        onClick={() => draftFromPrompt()}
+                        disabledReason={
+                            !aiAvailable
+                                ? 'Environment variable OPENAI_API_KEY is unset for this instance of PostHog'
+                                : !prompt
+                                  ? 'Provide a prompt first'
+                                  : null
+                        }
+                        tooltipPlacement="left"
+                        loading={promptLoading}
+                    >
+                        Think
+                    </LemonButton>
+                </div>
                 {promptError ? <LemonBanner type="warning">{promptError}</LemonBanner> : null}
                 <div className="relative flex-1 overflow-hidden flex-col">
                     {/* eslint-disable-next-line react/forbid-dom-props */}

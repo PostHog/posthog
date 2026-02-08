@@ -1,0 +1,10 @@
+{
+    "snapshot": "snapshot-20260106-a021c12c-86ed-4903-a116-f43e6d38a01e",
+    "start": "eval \"$(flox activate)\" && sudo service docker start && docker compose -f docker-compose.dev.yml up -d",
+    "terminals": [
+        {
+            "name": "Flox",
+            "command": "eval \"$(flox activate)\""
+        }
+    ]
+}

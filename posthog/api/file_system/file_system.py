@@ -7,7 +7,7 @@ from django.db import transaction
 from django.db.models import Case, F, IntegerField, Q, QuerySet, Value, When
 from django.db.models.functions import Concat, Lower
 
-from loginas.utils import is_impersonated_session
+from drf_spectacular.utils import extend_schema
 from rest_framework import filters, pagination, serializers, status, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -22,12 +22,14 @@ from posthog.api.file_system.file_system_logging import log_api_file_system_view
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
+from posthog.decorators import disallow_if_impersonated
 from posthog.models.file_system.file_system import FileSystem, create_or_update_file, join_path, split_path
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.file_system.file_system_view_log import FileSystemViewLog, annotate_file_system_with_view_logs
 from posthog.models.file_system.unfiled_file_saver import save_unfiled_files
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.utils import str_to_bool
 
 DELETE_PREVIEW_ENTRY_LIMIT = 200
 
@@ -147,6 +149,7 @@ def tokenize_search(search: str) -> list[str]:
             return search.split()
 
 
+@extend_schema(tags=["core"])
 class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "file_system"
     queryset = FileSystem.objects.select_related("created_by")
@@ -154,7 +157,10 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     filter_backends = [filters.SearchFilter]
     pagination_class = FileSystemsLimitOffsetPagination
 
-    def _apply_search_to_queryset(self, queryset: QuerySet, search: str) -> QuerySet:
+    def _basename_regex(self, value: str) -> str:
+        return rf"(^|(?<!\\)/)([^/]|\\.)*{re.escape(value)}([^/]|\\.)*$"
+
+    def _apply_search_to_queryset(self, queryset: QuerySet, search: str, *, basename_only: bool = False) -> QuerySet:
         """
         Supported token formats
         -----------------------
@@ -217,8 +223,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     #   ([^/]|\\.)*value([^/]|\\.)*
                     #   $                 ← end-of-string  (marks “last” segment)
                     # ────────────────────────────────────────────────────────────
-                    regex = rf"(^|(?<!\\)/)([^/]|\\.)*{re.escape(value)}([^/]|\\.)*$"
-                    q = Q(path__iregex=regex)
+                    q = Q(path__iregex=self._basename_regex(value))
 
                 elif field in ("user", "author"):
                     #  user:me  → files created by the current user
@@ -246,7 +251,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     q = Q(ref=value)
                 else:  # unknown prefix → search for the full token in path and type
                     q = Q(path__icontains=token) | Q(type__icontains=token)
-            elif "/" in token:
+            elif "/" in token and not basename_only:
                 # ────────────────────────────────────────────────────────────
                 # Plain free-text token
                 #
@@ -263,8 +268,11 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 regex = sep_pattern.join(re.escape(part) for part in token.split("/"))
                 q = Q(path__iregex=regex) | Q(type__iregex=regex)
             else:
-                # plain free-text token: search in path or type
-                q = Q(path__icontains=token) | Q(type__icontains=token)
+                if basename_only:
+                    q = Q(path__iregex=self._basename_regex(token))
+                else:
+                    # plain free-text token: search in path or type
+                    q = Q(path__icontains=token) | Q(type__icontains=token)
 
             combined_q &= ~q if negated else q
 
@@ -302,6 +310,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         created_at__gt = self.request.query_params.get("created_at__gt")
         created_at__lt = self.request.query_params.get("created_at__lt")
         search_param = self.request.query_params.get("search")
+        search_name_only = str_to_bool(self.request.query_params.get("search_name_only"))
 
         if depth_param is not None:
             try:
@@ -324,7 +333,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if created_at__lt:
             queryset = queryset.filter(created_at__lt=created_at__lt)
         if search_param:
-            queryset = self._apply_search_to_queryset(queryset, search_param)
+            queryset = self._apply_search_to_queryset(queryset, search_param, basename_only=search_name_only)
 
         if self.user_access_control:
             queryset = self.user_access_control.filter_and_annotate_file_system_queryset(queryset)
@@ -691,15 +700,10 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
 
     @action(methods=["GET", "POST"], detail=False, url_path="log_view")
+    @disallow_if_impersonated(message="Impersonated sessions cannot log file system views.", allowed_methods=["GET"])
     def log_view(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         if request.method == "GET":
             return self._list_log_views(request)
-
-        if is_impersonated_session(request):
-            return Response(
-                {"detail": "Impersonated sessions cannot log file system views."},
-                status=status.HTTP_403_FORBIDDEN,
-            )
 
         serializer = FileSystemViewLogSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)

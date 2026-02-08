@@ -11,8 +11,8 @@ from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIRequestFactory
 
+from posthog.api.oauth.test_dcr import generate_rsa_key
 from posthog.api.organization import OrganizationSerializer
-from posthog.api.test.test_oauth import generate_rsa_key
 from posthog.models import FeatureFlag, Organization, OrganizationMembership, Team
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
@@ -33,8 +33,8 @@ class TestOrganizationAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
         self.assertEqual(response_data["id"], str(self.organization.id))
-        # By default, setup state is marked as completed
-        self.assertEqual(response_data["available_product_features"], [])
+        # By default, no product features are available (can be None or [])
+        self.assertFalse(response_data["available_product_features"])
 
         # DEPRECATED attributes
         self.assertNotIn("personalization", response_data)
@@ -144,6 +144,31 @@ class TestOrganizationAPI(APIBaseTest):
         self.organization.refresh_from_db()
         self.assertEqual(self.organization.plugins_access_level, 3)
 
+    def test_is_active_fields_are_read_only(self):
+        """Test that is_active and is_not_active_reason are returned but cannot be updated via API."""
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        # Verify fields are returned in GET response
+        response = self.client.get(f"/api/organizations/{self.organization.id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("is_active", response.json())
+        self.assertIn("is_not_active_reason", response.json())
+        self.assertEqual(response.json()["is_active"], True)
+        self.assertIsNone(response.json()["is_not_active_reason"])
+
+        # Attempt to update is_active - should be ignored
+        response = self.client.patch(
+            f"/api/organizations/{self.organization.id}",
+            {"is_active": False, "is_not_active_reason": "Test reason"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Verify fields were not updated
+        self.organization.refresh_from_db()
+        self.assertEqual(self.organization.is_active, True)
+        self.assertIsNone(self.organization.is_not_active_reason)
+
     @patch("posthoganalytics.capture")
     def test_enforce_2fa_for_everyone(self, mock_capture):
         # Only admins should be able to enforce 2fa
@@ -152,6 +177,9 @@ class TestOrganizationAPI(APIBaseTest):
 
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
+
+        self.organization.available_product_features = [{"key": "2fa_enforcement", "name": "2FA Enforcement"}]
+        self.organization.save()
 
         response = self.client.patch(f"/api/organizations/{self.organization.id}/", {"enforce_2fa": True})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -171,6 +199,121 @@ class TestOrganizationAPI(APIBaseTest):
             },
             groups={"instance": ANY, "organization": str(self.organization.id)},
         )
+
+    @patch("posthoganalytics.capture")
+    def test_ai_data_processing_consent_capture_event(self, mock_capture):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        response = self.client.patch(
+            f"/api/organizations/{self.organization.id}/", {"is_ai_data_processing_approved": True}
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        self.organization.refresh_from_db()
+        self.assertEqual(self.organization.is_ai_data_processing_approved, True)
+
+        mock_capture.assert_any_call(
+            "organization ai data processing consent toggled",
+            distinct_id=self.user.distinct_id,
+            properties={
+                "enabled": True,
+                "organization_id": str(self.organization.id),
+                "organization_name": self.organization.name,
+                "user_role": OrganizationMembership.Level.ADMIN,
+            },
+            groups={"instance": ANY, "organization": str(self.organization.id)},
+        )
+
+    def test_cannot_update_members_can_invite_without_feature(self):
+        """Test that members_can_invite cannot be updated without ORGANIZATION_INVITE_SETTINGS feature."""
+        # Ensure user is admin (passes permission checks)
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        # Ensure feature is NOT available
+        self.organization.available_product_features = []
+        self.organization.save()
+
+        # Try to update members_can_invite - should fail
+        current_value = self.organization.members_can_invite
+        response = self.client.patch(
+            f"/api/organizations/{self.organization.id}/", {"members_can_invite": not current_value}
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        error_data = response.json()
+        self.assertIn("payment_required", error_data.get("code", ""))
+
+        # Verify the value didn't change
+        self.organization.refresh_from_db()
+        self.assertEqual(self.organization.members_can_invite, current_value)
+
+    def test_cannot_update_enforce_2fa_without_feature(self):
+        """Test that enforce_2fa cannot be updated without TWO_FACTOR_ENFORCEMENT feature."""
+        # Ensure user is admin
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        # Ensure feature is NOT available
+        self.organization.available_product_features = []
+        self.organization.save()
+
+        # Try to update enforce_2fa - should fail
+        response = self.client.patch(f"/api/organizations/{self.organization.id}/", {"enforce_2fa": True})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        error_data = response.json()
+        self.assertIn("payment_required", error_data.get("code", ""))
+        self.assertIn("upgrade your plan", error_data.get("detail", ""))
+
+        # Verify the value didn't change
+        self.organization.refresh_from_db()
+        self.assertNotEqual(self.organization.enforce_2fa, True)
+
+    def test_cannot_update_allow_publicly_shared_resources_without_feature(self):
+        """Test that allow_publicly_shared_resources cannot be updated without ORGANIZATION_SECURITY_SETTINGS feature."""
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        self.organization.available_product_features = []
+        self.organization.save()
+
+        current_value = self.organization.allow_publicly_shared_resources
+        response = self.client.patch(
+            f"/api/organizations/{self.organization.id}/", {"allow_publicly_shared_resources": not current_value}
+        )
+
+        # Try to update allow_publicly_shared_resources - should fail
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        error_data = response.json()
+        self.assertIn("payment_required", error_data.get("code", ""))
+
+        # Verify the value didn't change
+        self.organization.refresh_from_db()
+        self.assertEqual(self.organization.allow_publicly_shared_resources, current_value)
+
+    def test_cannot_update_members_can_use_personal_api_keys_without_feature(self):
+        """Test that members_can_use_personal_api_keys cannot be updated without ORGANIZATION_SECURITY_SETTINGS feature."""
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        self.organization.available_product_features = []
+        self.organization.save()
+
+        current_value = self.organization.members_can_use_personal_api_keys
+        response = self.client.patch(
+            f"/api/organizations/{self.organization.id}/", {"members_can_use_personal_api_keys": not current_value}
+        )
+
+        # Try to update members_can_use_personal_api_keys - should fail
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        error_data = response.json()
+        self.assertIn("payment_required", error_data.get("code", ""))
+
+        # Verify the value didn't change
+        self.organization.refresh_from_db()
+        self.assertEqual(self.organization.members_can_use_personal_api_keys, current_value)
 
     def test_projects_outside_personal_api_key_scoped_organizations_not_listed(self):
         other_org, _, _ = Organization.objects.bootstrap(self.user)
@@ -269,6 +412,38 @@ class TestOrganizationAPI(APIBaseTest):
                 "attr": None,
             },
         )
+
+    @patch("ee.billing.billing_manager.BillingManager.get_billing")
+    @patch("posthog.api.organization.get_cached_instance_license")
+    def test_cannot_delete_organization_with_active_subscription(self, mock_get_license, mock_get_billing):
+        mock_get_license.return_value = True
+        mock_get_billing.return_value = {"has_active_subscription": True}
+
+        self.organization_membership.level = OrganizationMembership.Level.OWNER
+        self.organization_membership.save()
+
+        with self.is_cloud(True):
+            response = self.client.delete(f"/api/organizations/{self.organization.id}")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("active subscription", response.json()["detail"])
+        self.assertTrue(Organization.objects.filter(id=self.organization.id).exists())
+
+    @patch("ee.billing.billing_manager.BillingManager.get_billing")
+    @patch("posthog.api.organization.get_cached_instance_license")
+    def test_can_delete_organization_without_active_subscription(self, mock_get_license, mock_get_billing):
+        mock_get_license.return_value = True
+        mock_get_billing.return_value = {"has_active_subscription": False}
+
+        self.organization_membership.level = OrganizationMembership.Level.OWNER
+        self.organization_membership.save()
+
+        org_id = self.organization.id
+        with self.is_cloud(True):
+            response = self.client.delete(f"/api/organizations/{org_id}")
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(Organization.objects.filter(id=org_id).exists())
 
 
 def create_organization(name: str) -> Organization:

@@ -7,12 +7,15 @@ import { useActions, useValues } from 'kea'
 
 import { LemonButton, LemonSegmentedButton } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { EnrichedTraceTreeNode } from '../llmAnalyticsTraceDataLogic'
 import { SummaryRenderer } from './components/SummaryRenderer'
 import { TextReprDisplay } from './components/TextReprDisplay'
 import { summaryViewLogic } from './summaryViewLogic'
@@ -20,7 +23,8 @@ import { summaryViewLogic } from './summaryViewLogic'
 export interface SummaryViewDisplayProps {
     trace?: LLMTrace
     event?: LLMTraceEvent
-    tree?: any[]
+    tree?: EnrichedTraceTreeNode[]
+    autoGenerate?: boolean
 }
 
 interface SummaryViewLogicValues {
@@ -30,8 +34,8 @@ interface SummaryViewLogicValues {
     summaryDataFailure?: Error | string | unknown
 }
 
-export function SummaryViewDisplay({ trace, event, tree }: SummaryViewDisplayProps): JSX.Element {
-    const logic = summaryViewLogic({ trace, event, tree })
+export function SummaryViewDisplay({ trace, event, tree, autoGenerate }: SummaryViewDisplayProps): JSX.Element {
+    const logic = summaryViewLogic({ trace, event, tree, autoGenerate })
     const { summaryData, summaryDataLoading, summaryMode } = useValues(logic)
     const { generateSummary, setSummaryMode, regenerateSummary } = useActions(logic)
     const { dataProcessingAccepted } = useValues(maxGlobalLogic)
@@ -104,24 +108,34 @@ export function SummaryViewDisplay({ trace, event, tree }: SummaryViewDisplayPro
                                 onApprove={() => generateSummary({ mode: summaryMode })}
                                 hidden={summaryDataLoading}
                             >
+                                <AccessControlAction
+                                    resourceType={AccessControlResourceType.LlmAnalytics}
+                                    minAccessLevel={AccessControlLevel.Editor}
+                                >
+                                    <LemonButton
+                                        type="primary"
+                                        data-attr="llm-analytics-generate-summary"
+                                        loading={summaryDataLoading}
+                                        disabledReason="AI data processing must be approved to generate summaries"
+                                    >
+                                        Generate Summary
+                                    </LemonButton>
+                                </AccessControlAction>
+                            </AIConsentPopoverWrapper>
+                        ) : (
+                            <AccessControlAction
+                                resourceType={AccessControlResourceType.LlmAnalytics}
+                                minAccessLevel={AccessControlLevel.Editor}
+                            >
                                 <LemonButton
                                     type="primary"
+                                    onClick={() => generateSummary({ mode: summaryMode })}
                                     data-attr="llm-analytics-generate-summary"
                                     loading={summaryDataLoading}
-                                    disabledReason="AI data processing must be approved to generate summaries"
                                 >
                                     Generate Summary
                                 </LemonButton>
-                            </AIConsentPopoverWrapper>
-                        ) : (
-                            <LemonButton
-                                type="primary"
-                                onClick={() => generateSummary({ mode: summaryMode })}
-                                data-attr="llm-analytics-generate-summary"
-                                loading={summaryDataLoading}
-                            >
-                                Generate Summary
-                            </LemonButton>
+                            </AccessControlAction>
                         )}
                     </div>
                 </div>
@@ -144,26 +158,36 @@ export function SummaryViewDisplay({ trace, event, tree }: SummaryViewDisplayPro
                             onApprove={() => generateSummary({ mode: summaryMode })}
                             hidden={summaryDataLoading}
                         >
+                            <AccessControlAction
+                                resourceType={AccessControlResourceType.LlmAnalytics}
+                                minAccessLevel={AccessControlLevel.Editor}
+                            >
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    className="mt-4"
+                                    loading={summaryDataLoading}
+                                    disabledReason="AI data processing must be approved to generate summaries"
+                                >
+                                    Try Again
+                                </LemonButton>
+                            </AccessControlAction>
+                        </AIConsentPopoverWrapper>
+                    ) : (
+                        <AccessControlAction
+                            resourceType={AccessControlResourceType.LlmAnalytics}
+                            minAccessLevel={AccessControlLevel.Editor}
+                        >
                             <LemonButton
                                 type="secondary"
                                 size="small"
+                                onClick={() => generateSummary({ mode: summaryMode })}
                                 className="mt-4"
                                 loading={summaryDataLoading}
-                                disabledReason="AI data processing must be approved to generate summaries"
                             >
                                 Try Again
                             </LemonButton>
-                        </AIConsentPopoverWrapper>
-                    ) : (
-                        <LemonButton
-                            type="secondary"
-                            size="small"
-                            onClick={() => generateSummary({ mode: summaryMode })}
-                            className="mt-4"
-                            loading={summaryDataLoading}
-                        >
-                            Try Again
-                        </LemonButton>
+                        </AccessControlAction>
                     )}
                 </div>
             )}
@@ -177,26 +201,36 @@ export function SummaryViewDisplay({ trace, event, tree }: SummaryViewDisplayPro
                                 onApprove={() => regenerateSummary()}
                                 hidden={summaryDataLoading}
                             >
+                                <AccessControlAction
+                                    resourceType={AccessControlResourceType.LlmAnalytics}
+                                    minAccessLevel={AccessControlLevel.Editor}
+                                >
+                                    <LemonButton
+                                        type="secondary"
+                                        size="small"
+                                        data-attr="llm-analytics-regenerate-summary"
+                                        loading={summaryDataLoading}
+                                        disabledReason="AI data processing must be approved to generate summaries"
+                                    >
+                                        Regenerate
+                                    </LemonButton>
+                                </AccessControlAction>
+                            </AIConsentPopoverWrapper>
+                        ) : (
+                            <AccessControlAction
+                                resourceType={AccessControlResourceType.LlmAnalytics}
+                                minAccessLevel={AccessControlLevel.Editor}
+                            >
                                 <LemonButton
                                     type="secondary"
                                     size="small"
+                                    onClick={() => regenerateSummary()}
                                     data-attr="llm-analytics-regenerate-summary"
                                     loading={summaryDataLoading}
-                                    disabledReason="AI data processing must be approved to generate summaries"
                                 >
                                     Regenerate
                                 </LemonButton>
-                            </AIConsentPopoverWrapper>
-                        ) : (
-                            <LemonButton
-                                type="secondary"
-                                size="small"
-                                onClick={() => regenerateSummary()}
-                                data-attr="llm-analytics-regenerate-summary"
-                                loading={summaryDataLoading}
-                            >
-                                Regenerate
-                            </LemonButton>
+                            </AccessControlAction>
                         )}
                         <LemonSegmentedButton
                             value={summaryMode}

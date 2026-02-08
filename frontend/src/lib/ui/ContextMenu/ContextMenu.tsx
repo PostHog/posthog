@@ -8,6 +8,8 @@ import { IconCheckCircle } from '@posthog/icons'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { cn } from 'lib/utils/css-classes'
 
+import { MenuSeparator } from '../Menus/Menus'
+
 const ContextMenu = ContextMenuPrimitive.Root
 
 const ContextMenuTrigger = ContextMenuPrimitive.Trigger
@@ -166,11 +168,9 @@ const ContextMenuSeparator = React.forwardRef<
     React.ComponentPropsWithoutRef<typeof ContextMenuPrimitive.Separator>
 >(
     ({ className, ...props }, ref): JSX.Element => (
-        <ContextMenuPrimitive.Separator
-            ref={ref}
-            className={cn('-mx-1 my-1 h-px bg-border-primary', className)}
-            {...props}
-        />
+        <ContextMenuPrimitive.Separator ref={ref} asChild {...props}>
+            <MenuSeparator className={className} />
+        </ContextMenuPrimitive.Separator>
     )
 )
 ContextMenuSeparator.displayName = ContextMenuPrimitive.Separator.displayName

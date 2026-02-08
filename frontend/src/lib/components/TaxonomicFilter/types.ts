@@ -41,6 +41,7 @@ export interface TaxonomicFilterProps {
     optionsFromProp?: Partial<Record<TaxonomicFilterGroupType, SimpleOption[]>>
     eventNames?: string[]
     schemaColumns?: DatabaseSchemaField[]
+    endpointFilters?: Record<string, any>
     height?: number
     width?: number | string
     popoverEnabled?: boolean
@@ -120,6 +121,8 @@ export interface TaxonomicFilterGroup {
     getValue?: (instance: any) => TaxonomicFilterValue
     getPopoverHeader: (instance: any) => string
     getIcon?: (instance: any) => JSX.Element
+    /** Determines if an item should be disabled (unselectable) */
+    getIsDisabled?: (instance: any) => boolean
     groupTypeIndex?: number
     getFullDetailUrl?: (instance: any) => string
     excludedProperties?: string[]
@@ -164,7 +167,9 @@ export enum TaxonomicFilterGroupType {
     Notebooks = 'notebooks',
     LogEntries = 'log_entries',
     ErrorTrackingIssues = 'error_tracking_issues',
+    Logs = 'logs',
     LogAttributes = 'log_attributes',
+    LogResourceAttributes = 'log_resource_attributes',
     // Misc
     Replay = 'replay',
     RevenueAnalyticsProperties = 'revenue_analytics_properties',
@@ -173,6 +178,9 @@ export enum TaxonomicFilterGroupType {
     ActivityLogProperties = 'activity_log_properties',
     // Max AI Context
     MaxAIContext = 'max_ai_context',
+    // Workflows execution variables
+    WorkflowVariables = 'workflow_variables',
+    Empty = 'empty',
 }
 
 export interface InfiniteListLogicProps extends TaxonomicFilterLogicProps {

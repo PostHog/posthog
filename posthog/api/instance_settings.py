@@ -84,18 +84,6 @@ class InstanceSettingsSerializer(serializers.Serializer):
         else:
             new_value_parsed = cast_str_to_desired_type(validated_data["value"], target_type)
 
-        if instance.key == "RECORDINGS_TTL_WEEKS":
-            if is_cloud():
-                # On cloud the TTL is set on the session_recording_events_sharded table,
-                # so this command should never be run
-                raise serializers.ValidationError("This setting cannot be updated on cloud.")
-
-            # TODO: Move to top-level imports once CH is moved out of `ee`
-            from posthog.clickhouse.client import sync_execute
-            from posthog.session_recordings.sql.session_recording_event_sql import UPDATE_RECORDINGS_TABLE_TTL_SQL
-
-            sync_execute(UPDATE_RECORDINGS_TABLE_TTL_SQL(), {"weeks": new_value_parsed})
-
         if instance.key == "RECORDINGS_PERFORMANCE_EVENTS_TTL_WEEKS":
             if is_cloud():
                 # On cloud the TTL is set on the performance_events_sharded table,

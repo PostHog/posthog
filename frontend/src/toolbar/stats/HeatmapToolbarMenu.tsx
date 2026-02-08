@@ -3,8 +3,7 @@ import posthog from 'posthog-js'
 import React from 'react'
 
 import { IconMagicWand } from '@posthog/icons'
-import { Link } from '@posthog/lemon-ui'
-import { LemonButton, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonButton, LemonSwitch, Link } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { heatmapDateOptions } from 'lib/components/IframedToolbarBrowser/utils'
@@ -15,16 +14,18 @@ import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { IconSync } from 'lib/lemon-ui/icons'
+import { urls } from 'scenes/urls'
 
 import { ToolbarMenu } from '~/toolbar/bar/ToolbarMenu'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { heatmapToolbarMenuLogic } from '~/toolbar/elements/heatmapToolbarMenuLogic'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
+import { joinWithUiHost } from '~/toolbar/utils'
 
 import { toolbarConfigLogic } from '../toolbarConfigLogic'
 
 const HeatmapsJSWarning = (): JSX.Element | null => {
-    const { posthog } = useValues(toolbarConfigLogic)
+    const { posthog, uiHost } = useValues(toolbarConfigLogic)
 
     if (!posthog || posthog?.heatmaps?.isEnabled) {
         return null
@@ -37,7 +38,10 @@ const HeatmapsJSWarning = (): JSX.Element | null => {
             ) : !posthog.heatmaps.isEnabled ? (
                 <>
                     You can enable heatmap collection in your posthog-js configuration or{' '}
-                    <Link to="https://us.posthog.com/settings/project#heatmaps">in your project config</Link>.
+                    <Link to={joinWithUiHost(uiHost, `${urls.settings()}#heatmaps`)} target="_blank">
+                        in your project config
+                    </Link>
+                    .
                 </>
             ) : null}
         </p>
@@ -74,8 +78,8 @@ const SectionButton = ({
 }
 
 export const HeatmapToolbarMenu = (): JSX.Element => {
-    const { wildcardHref } = useValues(currentPageLogic)
-    const { setWildcardHref, autoWildcardHref } = useActions(currentPageLogic)
+    const { wildcardHref, autoWildcardEnabled } = useValues(currentPageLogic)
+    const { setWildcardHref, autoWildcardHref, setAutoWildcardEnabled } = useActions(currentPageLogic)
 
     const {
         matchLinksByHref,
@@ -91,6 +95,8 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
         heatmapFixedPositionMode,
         heatmapColorPalette,
         samplingFactor,
+        elementsLoading,
+        processingProgress,
     } = useValues(heatmapToolbarMenuLogic)
     const {
         setCommonFilters,
@@ -110,9 +116,9 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                 <div className="flex gap-1">
                     <LemonInput className="flex-1" value={wildcardHref} onChange={setWildcardHref} />
                     <LemonButton
-                        type="secondary"
+                        type={autoWildcardEnabled ? 'primary' : 'secondary'}
                         icon={<IconMagicWand />}
-                        size="small"
+                        size="medium"
                         onClick={() => autoWildcardHref()}
                         tooltip={
                             <>
@@ -120,9 +126,31 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                                 example, <code>https://example.com/*</code> will match{' '}
                                 <code>https://example.com/page</code> and <code>https://example.com/page/1</code>.
                                 <br />
-                                Click this button to automatically wildcards where we believe it would make sense
+                                Click this button to automatically wildcard where we believe it would make sense
                             </>
                         }
+                        sideAction={{
+                            dropdown: {
+                                placement: 'bottom-end',
+                                matchWidth: false,
+                                closeOnClickInside: false,
+                                overlay: (
+                                    <div className="p-2 flex flex-col gap-2 min-w-80">
+                                        <LemonSwitch
+                                            checked={autoWildcardEnabled}
+                                            onChange={setAutoWildcardEnabled}
+                                            label="Auto-wildcard on navigation"
+                                            fullWidth
+                                            bordered
+                                        />
+                                        <div className="text-xs text-muted">
+                                            When enabled, the URL will be automatically wildcarded whenever you navigate
+                                            to a new page.
+                                        </div>
+                                    </div>
+                                ),
+                            },
+                        }}
                     />
                 </div>
 
@@ -176,7 +204,7 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                 <div className="p-2">
                     <SectionButton
                         onChange={(e) => toggleClickmapsEnabled(e)}
-                        loading={elementStatsLoading}
+                        loading={elementStatsLoading || elementsLoading || !!processingProgress}
                         checked={!!clickmapsEnabled}
                     >
                         Clickmaps (autocapture)
@@ -188,6 +216,10 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                                 Clickmaps are built using Autocapture events. They are more accurate than heatmaps if
                                 the event can be mapped to a specific element found on the page you are viewing but less
                                 data is usually captured.
+                            </p>
+                            <p className="text-xs italic">
+                                Tip: Hold <kbd className="border rounded px-1 py-0.5 bg-surface-tertiary">shift</kbd> to
+                                interact with the page beneath the clickmap.
                             </p>
                             <div className="flex items-center justify-between pb-2">
                                 <div className="flex items-center gap-1">
@@ -261,11 +293,24 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                             </div>
 
                             <div className="my-2">
-                                Found: {countedElements.length} elements / {clickCount} clicks!
+                                Found: {countedElements.length} elements / {clickCount} clicks
+                                {processingProgress ? (
+                                    <span className="text-muted">
+                                        {' '}
+                                        (Processing: {processingProgress.processed.toLocaleString()}/
+                                        {processingProgress.total.toLocaleString()})
+                                    </span>
+                                ) : elementsLoading ? (
+                                    ' (processing...)'
+                                ) : (
+                                    '!'
+                                )}
                             </div>
                             <div className="flex flex-col w-full h-full">
                                 {countedElements.length ? (
-                                    countedElements.map(({ element, count, actionStep }, index) => {
+                                    countedElements.map(({ element, count }, index) => {
+                                        const text = element.innerText?.trim().substring(0, 255)
+                                        const tagName = element.tagName.toLowerCase()
                                         return (
                                             <LemonButton
                                                 key={index}
@@ -281,12 +326,7 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                                                 >
                                                     <div>
                                                         {index + 1}.&nbsp;
-                                                        {actionStep?.text ||
-                                                            (actionStep?.tag_name ? (
-                                                                <code>&lt;{actionStep.tag_name}&gt;</code>
-                                                            ) : (
-                                                                <em>Element</em>
-                                                            ))}
+                                                        {text || <code>&lt;{tagName}&gt;</code>}
                                                     </div>
                                                     <div>{count} clicks</div>
                                                 </div>

@@ -1,0 +1,6 @@
+{
+    "name": "@posthog/products-product-tours",
+    "version": "0.0.0",
+    "private": true,
+    "dependencies": {}
+}

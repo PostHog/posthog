@@ -25,7 +25,7 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2025-10-10', // To stabilize relative dates
         pageUrl: urls.dashboards(),
-        featureFlags: [FEATURE_FLAGS.SDK_DOCTOR_BETA, FEATURE_FLAGS.INCIDENT_IO_STATUS_PAGE],
+        featureFlags: [FEATURE_FLAGS.INCIDENT_IO_STATUS_PAGE],
         testOptions: {
             includeNavigationInSnapshot: true,
         },
@@ -79,10 +79,6 @@ export const SidePanelSettings: StoryFn = () => {
     return <BaseTemplate panel={SidePanelTab.Settings} />
 }
 
-export const SidePanelActivation: StoryFn = () => {
-    return <BaseTemplate panel={SidePanelTab.Activation} />
-}
-
 export const SidePanelNotebooks: StoryFn = () => {
     return <BaseTemplate panel={SidePanelTab.Notebooks} />
 }
@@ -93,6 +89,18 @@ export const SidePanelMax: StoryFn = () => {
 
 export const SidePanelSdkDoctor: StoryFn = () => {
     return <BaseTemplate panel={SidePanelTab.SdkDoctor} />
+}
+
+export const SidePanelActivity: StoryFn = () => {
+    return <BaseTemplate panel={SidePanelTab.Activity} />
+}
+SidePanelActivity.parameters = {
+    pageUrl: urls.dashboard('1'),
+    featureFlags: [
+        FEATURE_FLAGS.INCIDENT_IO_STATUS_PAGE,
+        FEATURE_FLAGS.CDP_ACTIVITY_LOG_NOTIFICATIONS,
+        FEATURE_FLAGS.AUDIT_LOGS_ACCESS,
+    ],
 }
 
 export const SidePanelSupportNoEmail: StoryFn = () => {

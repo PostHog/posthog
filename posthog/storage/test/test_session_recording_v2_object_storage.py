@@ -1,8 +1,6 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from django.test import override_settings
-
 import snappy
 from botocore.client import Config
 from parameterized import parameterized
@@ -232,46 +230,6 @@ class TestSessionRecordingV2Storage(APIBaseTest):
         assert snappy.decompress(result).decode("utf-8") == test_data
         mock_client.get_object.assert_called_with(Bucket=TEST_BUCKET, Key="test-file-key")
 
-    def test_store_lts_recording_success(self):
-        mock_client = MagicMock()
-        storage = SessionRecordingV2ObjectStorage(mock_client, TEST_BUCKET)
-
-        with override_settings(SESSION_RECORDING_V2_S3_LTS_PREFIX="lts"):
-            recording_data = "test recording data"
-            target_key, error = storage.store_lts_recording("test_id", recording_data)
-
-            assert error is None
-            compressed_data = snappy.compress(recording_data.encode("utf-8"))
-            mock_client.put_object.assert_called_with(
-                Bucket=TEST_BUCKET,
-                Key="lts/test_id",
-                Body=compressed_data,
-            )
-            assert target_key == f"s3://{TEST_BUCKET}/lts/test_id?range=bytes=0-{len(compressed_data) - 1}"
-
-    def test_store_lts_recording_failure(self):
-        mock_client = MagicMock()
-        mock_client.put_object.side_effect = Exception("Write failed")
-        storage = SessionRecordingV2ObjectStorage(mock_client, TEST_BUCKET)
-
-        with override_settings(SESSION_RECORDING_V2_S3_LTS_PREFIX="lts"):
-            target_key, error = storage.store_lts_recording("test_id", "test data")
-
-            assert target_key is None
-            assert error is not None and "Failed to store LTS recording" in error
-
-    @parameterized.expand(
-        [
-            ("", False),
-            ("lts", True),
-        ]
-    )
-    def test_is_lts_enabled(self, lts_prefix, expected):
-        storage = SessionRecordingV2ObjectStorage(MagicMock(), TEST_BUCKET)
-
-        with override_settings(SESSION_RECORDING_V2_S3_LTS_PREFIX=lts_prefix):
-            assert storage.is_lts_enabled() is expected
-
 
 class AsyncContextManager:
     async def __aenter__(self):
@@ -487,43 +445,3 @@ class TestAsyncSessionRecordingV2Storage(APIBaseTest):
         assert result != test_data.encode("utf-8")
         assert snappy.decompress(result).decode("utf-8") == test_data
         mock_client.get_object.assert_called_with(Bucket=TEST_BUCKET, Key="test-file-key")
-
-    async def test_store_lts_recording_success(self):
-        mock_client = AsyncMock()
-        storage = AsyncSessionRecordingV2ObjectStorage(mock_client, TEST_BUCKET)
-
-        with override_settings(SESSION_RECORDING_V2_S3_LTS_PREFIX="lts"):
-            recording_data = "test recording data"
-            target_key, error = await storage.store_lts_recording("test_id", recording_data)
-
-            assert error is None
-            compressed_data = snappy.compress(recording_data.encode("utf-8"))
-            mock_client.put_object.assert_called_with(
-                Bucket=TEST_BUCKET,
-                Key="lts/test_id",
-                Body=compressed_data,
-            )
-            assert target_key == f"s3://{TEST_BUCKET}/lts/test_id?range=bytes=0-{len(compressed_data) - 1}"
-
-    async def test_store_lts_recording_failure(self):
-        mock_client = AsyncMock()
-        mock_client.put_object.side_effect = Exception("Write failed")
-        storage = AsyncSessionRecordingV2ObjectStorage(mock_client, TEST_BUCKET)
-
-        with override_settings(SESSION_RECORDING_V2_S3_LTS_PREFIX="lts"):
-            target_key, error = await storage.store_lts_recording("test_id", "test data")
-
-            assert target_key is None
-            assert error is not None and "Failed to store LTS recording" in error
-
-    @parameterized.expand(
-        [
-            ("", False),
-            ("lts", True),
-        ]
-    )
-    def test_is_lts_enabled(self, lts_prefix, expected):
-        storage = AsyncSessionRecordingV2ObjectStorage(AsyncMock(), TEST_BUCKET)
-
-        with override_settings(SESSION_RECORDING_V2_S3_LTS_PREFIX=lts_prefix):
-            assert storage.is_lts_enabled() is expected

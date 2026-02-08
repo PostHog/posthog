@@ -1,7 +1,7 @@
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 use common_types::error_tracking::RawFrameId;
-use moka::sync::{Cache, CacheBuilder};
+use moka::future::{Cache, CacheBuilder};
 use sqlx::PgPool;
 
 use crate::{
@@ -38,37 +38,55 @@ impl Resolver {
         team_id: i32,
         pool: &PgPool,
         catalog: &Catalog,
-    ) -> Result<Vec<Frame>, UnhandledError> {
+    ) -> Result<Vec<Frame>, Arc<UnhandledError>> {
         if frame.is_suspicious() {
             metrics::counter!(SUSPICIOUS_FRAMES_DETECTED, "frame_type" => "raw").increment(1);
         }
         let raw_id = frame.raw_id(team_id);
 
-        if let Some(result) = self.cache.get(&raw_id) {
+        let mut cache_miss = false;
+        let frames = self
+            .cache
+            .try_get_with(raw_id.clone(), async {
+                cache_miss = true;
+                self.resolve_impl(frame, raw_id.clone(), pool, catalog)
+                    .await
+            })
+            .await?;
+
+        if cache_miss {
+            metrics::counter!(FRAME_CACHE_MISSES).increment(1);
+        } else {
             metrics::counter!(FRAME_CACHE_HITS).increment(1);
-            return Ok(result.into_iter().map(|f| f.contents).collect());
         }
-        metrics::counter!(FRAME_CACHE_MISSES).increment(1);
 
+        Ok(frames.into_iter().map(|f| f.contents).collect())
+    }
+
+    async fn resolve_impl(
+        &self,
+        frame: &RawFrame,
+        raw_id: RawFrameId,
+        pool: &PgPool,
+        catalog: &Catalog,
+    ) -> Result<Vec<ErrorTrackingStackFrame>, UnhandledError> {
         let loaded = ErrorTrackingStackFrame::load_all(pool, &raw_id, self.result_ttl).await?;
-
         if !loaded.is_empty() {
-            self.cache.insert(raw_id.clone(), loaded.clone());
             metrics::counter!(FRAME_DB_HITS).increment(1);
-            return Ok(loaded.into_iter().map(|f| f.contents).collect());
+            return Ok(loaded);
         }
 
         metrics::counter!(FRAME_DB_MISSES).increment(1);
 
-        let resolved = frame.resolve(team_id, catalog).await?;
+        let resolved = frame.resolve(raw_id.team_id, catalog).await?;
 
         assert!(!resolved.is_empty()); // If this ever happens, we've got a data-dropping bug, and want to crash
 
         let (set, release) = if let Some(set_ref) = frame.symbol_set_ref() {
             // TODO - should be a join
             (
-                SymbolSetRecord::load(pool, team_id, &set_ref).await?,
-                ReleaseRecord::for_symbol_set_ref(pool, &set_ref, team_id).await?,
+                SymbolSetRecord::load(pool, raw_id.team_id, &set_ref).await?,
+                ReleaseRecord::for_symbol_set_ref(pool, &set_ref, raw_id.team_id).await?,
             )
         } else {
             (None, None)
@@ -96,9 +114,7 @@ impl Resolver {
             // And gather up for the cache
             records.push(record);
         }
-
-        self.cache.insert(frame.raw_id(team_id), records);
-        Ok(resolved)
+        Ok(records)
     }
 }
 
@@ -122,7 +138,7 @@ mod test {
             proguard::ProguardProvider,
             saving::{Saving, SymbolSetRecord},
             sourcemap::SourcemapProvider,
-            Catalog, S3Client,
+            Catalog, MockS3Client,
         },
         types::{RawErrProps, Stacktrace},
     };
@@ -134,7 +150,7 @@ mod test {
 
     async fn setup_test_context<S>(pool: PgPool, s3_init: S) -> (Config, Catalog, MockServer)
     where
-        S: FnOnce(&Config, S3Client) -> S3Client,
+        S: FnOnce(&Config, MockS3Client) -> MockS3Client,
     {
         let mut config = Config::init_with_defaults().unwrap();
         config.object_storage_bucket = "test-bucket".to_string();
@@ -153,7 +169,7 @@ mod test {
             then.status(200).body(MAP);
         });
 
-        let client = S3Client::default();
+        let client = MockS3Client::default();
 
         let client = s3_init(&config, client);
 
@@ -239,10 +255,10 @@ mod test {
 
     fn expect_puts_and_gets(
         config: &Config,
-        mut client: S3Client,
+        mut client: MockS3Client,
         puts: usize,
         gets: usize,
-    ) -> S3Client {
+    ) -> MockS3Client {
         client
             .expect_put()
             .with(
@@ -314,7 +330,7 @@ mod test {
         let resolved_2 = resolver.resolve(&frame, 0, &pool, &catalog).await.unwrap();
 
         resolver.cache.invalidate_all();
-        resolver.cache.run_pending_tasks();
+        resolver.cache.run_pending_tasks().await;
         assert_eq!(resolver.cache.entry_count(), 0);
 
         // Now we should hit PG for the frame

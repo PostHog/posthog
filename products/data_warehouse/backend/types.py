@@ -34,6 +34,8 @@ class PartitionSettings(typing.NamedTuple):
 
 
 class ExternalDataSourceType(models.TextChoices):
+    ASHBY = "Ashby", "Ashby"
+    SUPABASE = "Supabase", "Supabase"
     CUSTOMERIO = "CustomerIO", "CustomerIO"
     GITHUB = "Github", "Github"
     STRIPE = "Stripe", "Stripe"
@@ -48,6 +50,7 @@ class ExternalDataSourceType(models.TextChoices):
     VITALLY = "Vitally", "Vitally"
     BIGQUERY = "BigQuery", "BigQuery"
     CHARGEBEE = "Chargebee", "Chargebee"
+    CLERK = "Clerk", "Clerk"
     GOOGLEADS = "GoogleAds", "GoogleAds"
     TEMPORALIO = "TemporalIO", "TemporalIO"
     DOIT = "DoIt", "DoIt"
@@ -65,6 +68,8 @@ class ExternalDataSourceType(models.TextChoices):
     TIKTOKADS = "TikTokAds", "TikTokAds"
     BINGADS = "BingAds", "BingAds"
     SHOPIFY = "Shopify", "Shopify"
+    ATTIO = "Attio", "Attio"
+    SNAPCHATADS = "SnapchatAds", "SnapchatAds"
 
 
 class DataWarehouseManagedViewSetKind(models.TextChoices):

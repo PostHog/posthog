@@ -1,12 +1,11 @@
 import { useActions } from 'kea'
 import { useState } from 'react'
 
-import { IconCopy, IconPencil, IconPlusSmall } from '@posthog/icons'
+import { IconCopy, IconPencil, IconStack } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonDropdown, LemonTag } from '@posthog/lemon-ui'
 
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { METRIC_CONTEXTS, experimentMetricModalLogic } from 'scenes/experiments/Metrics/experimentMetricModalLogic'
 import { sharedMetricModalLogic } from 'scenes/experiments/Metrics/sharedMetricModalLogic'
 import { modalsLogic } from 'scenes/experiments/modalsLogic'
@@ -67,10 +66,7 @@ const AddBreakdownButton = ({
                         onChange({ type: 'event', property: value?.toString() || '' })
                         setDropdownOpen(false)
                     }}
-                    taxonomicGroupTypes={[
-                        TaxonomicFilterGroupType.EventProperties,
-                        TaxonomicFilterGroupType.PersonProperties,
-                    ]}
+                    taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties]}
                     metadataSource={metadataSource}
                 />
             }
@@ -78,12 +74,12 @@ const AddBreakdownButton = ({
             onClickOutside={() => setDropdownOpen(false)}
         >
             <LemonButton
+                tooltip="Add breakdown"
                 type="secondary"
                 size="xsmall"
-                icon={<IconPlusSmall />}
                 onClick={() => setDropdownOpen(!dropdownOpen)}
             >
-                Add breakdown
+                <IconStack />
             </LemonButton>
         </LemonDropdown>
     )
@@ -106,8 +102,6 @@ export const MetricHeader = ({
     onDuplicateMetricClick: (metric: ExperimentMetric) => void
     onBreakdownChange: (breakdown: Breakdown) => void
 }): JSX.Element => {
-    const showBreakdownFilter = useFeatureFlag('EXPERIMENTS_BREAKDOWN_FILTER')
-
     /**
      * This is necessary for legacy experiments support
      */
@@ -221,6 +215,11 @@ export const MetricHeader = ({
                     <LemonTag type="muted" size="small">
                         {getMetricTag(metric)}
                     </LemonTag>
+                    {metric.goal === 'decrease' && (
+                        <LemonTag type="highlight" size="small">
+                            Goal: Decrease
+                        </LemonTag>
+                    )}
                     {metric.isSharedMetric && (
                         <LemonTag type="option" size="small">
                             Shared
@@ -228,7 +227,7 @@ export const MetricHeader = ({
                     )}
                 </div>
             </div>
-            {showBreakdownFilter && (metric.breakdownFilter?.breakdowns || []).length < 3 && (
+            {(metric.breakdownFilter?.breakdowns || []).length < 3 && (
                 <div className="flex justify-end items-end">
                     <AddBreakdownButton experiment={experiment} onChange={onBreakdownChange} />
                 </div>

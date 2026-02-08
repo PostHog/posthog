@@ -7,7 +7,13 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { formatPropertyLabel, isAnyPropertyfilter, isHogQLPropertyFilter } from 'lib/components/PropertyFilters/utils'
+import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
+import {
+    formatPropertyLabel,
+    isAnyPropertyfilter,
+    isHogQLPropertyFilter,
+    normalizePropertyFilterValue,
+} from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import {
@@ -25,7 +31,6 @@ import { createPlaylist } from 'scenes/session-recordings/playlist/playlistUtils
 import { sessionRecordingEventUsageLogic } from 'scenes/session-recordings/sessionRecordingEventUsageLogic'
 import { urls } from 'scenes/urls'
 
-import { ActivationTask, activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import { groupsModel } from '~/models/groupsModel'
 import {
     NodeKind,
@@ -35,13 +40,14 @@ import {
     VALID_RECORDING_ORDERS,
 } from '~/queries/schema/schema-general'
 import {
-    EntityTypes,
+    AnyPropertyFilter,
     FilterLogicalOperator,
     FilterType,
     LegacyRecordingFilters,
     LogEntryPropertyFilter,
     MatchedRecordingEvent,
     PropertyFilterType,
+    PropertyFilterValue,
     PropertyOperator,
     RecordingDurationFilter,
     RecordingUniversalFilters,
@@ -53,7 +59,7 @@ import {
 
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
 import { filtersFromUniversalFilterGroups } from '../utils'
-import { playlistLogic } from './playlistLogic'
+import { playlistFiltersLogic } from './playlistFiltersLogic'
 import { sessionRecordingsListPropertiesLogic } from './sessionRecordingsListPropertiesLogic'
 import type { sessionRecordingsPlaylistLogicType } from './sessionRecordingsPlaylistLogicType'
 import { sessionRecordingsPlaylistSceneLogic } from './sessionRecordingsPlaylistSceneLogic'
@@ -246,6 +252,43 @@ export function isValidRecordingFilters(filters: Partial<RecordingUniversalFilte
     return true
 }
 
+/**
+ * Normalizes a single property filter's value if it has a multi-select operator.
+ */
+function normalizePropertyFilter<T extends { operator?: unknown; value?: unknown; type?: unknown }>(filter: T): T {
+    if (
+        !filter ||
+        typeof filter !== 'object' ||
+        !('operator' in filter) ||
+        !('value' in filter) ||
+        ('type' in filter && filter.type === 'cohort')
+    ) {
+        return filter
+    }
+    const normalizedValue = normalizePropertyFilterValue(
+        filter.value as PropertyFilterValue,
+        filter.operator as PropertyOperator | null
+    )
+    if (normalizedValue !== filter.value) {
+        return { ...filter, value: normalizedValue }
+    }
+    return filter
+}
+
+/**
+ * Normalizes properties array inside an event or action filter.
+ * Returns the filter with normalized properties, or the original if no changes needed.
+ */
+function normalizeFilterWithNestedProperties<T extends { properties?: AnyPropertyFilter[] }>(filter: T): T {
+    if (!filter.properties || !Array.isArray(filter.properties)) {
+        return filter
+    }
+    const normalizedProperties = filter.properties.map((prop) => normalizePropertyFilter(prop) as AnyPropertyFilter)
+    // Only create new object if something changed
+    const hasChanges = normalizedProperties.some((prop, i) => prop !== filter.properties![i])
+    return hasChanges ? { ...filter, properties: normalizedProperties } : filter
+}
+
 export function convertUniversalFiltersToRecordingsQuery(universalFilters: RecordingUniversalFilters): RecordingsQuery {
     const filters = filtersFromUniversalFilterGroups(universalFilters)
 
@@ -270,9 +313,9 @@ export function convertUniversalFiltersToRecordingsQuery(universalFilters: Recor
 
     filters.forEach((f) => {
         if (isEventFilter(f)) {
-            events.push(f)
+            events.push(normalizeFilterWithNestedProperties(f))
         } else if (isActionFilter(f)) {
-            actions.push(f)
+            actions.push(normalizeFilterWithNestedProperties(f))
         } else if (isLogEntryPropertyFilter(f)) {
             console_log_filters.push(f)
         } else if (isHogQLPropertyFilter(f)) {
@@ -280,26 +323,43 @@ export function convertUniversalFiltersToRecordingsQuery(universalFilters: Recor
         } else if (isAnyPropertyfilter(f)) {
             if (isRecordingPropertyFilter(f)) {
                 if (f.key === 'visited_page') {
-                    events.push({
-                        id: '$pageview',
-                        name: '$pageview',
-                        type: EntityTypes.EVENTS,
-                        properties: [
-                            {
-                                type: PropertyFilterType.Event,
-                                key: '$current_url',
-                                value: f.value,
-                                operator: f.operator,
-                            },
-                        ],
-                    })
+                    // Pass visited_page as a recording property to use all_urls array in backend
+                    // This filters by URLs that actually appear in the recording, not just events during the session
+                    properties.push(f)
                 } else if (f.key === 'snapshot_source' && f.value) {
                     having_predicates.push(f)
                 } else if (f.key === 'comment_text') {
                     comment_text = f
                 }
             } else {
-                properties.push(f)
+                // Normalize filter value to ensure multi-select operators have array values
+                // Skip cohort filters as they have a different value type (number)
+                const normalizedValue =
+                    f.type !== 'cohort' ? normalizePropertyFilterValue(f.value, f.operator) : f.value
+
+                // Debug logging for replay filter value type investigation
+                // TODO: Remove after debugging
+                if (
+                    f.type === 'feature' ||
+                    (f.type === 'event' && typeof f.key === 'string' && f.key.includes('$feature'))
+                ) {
+                    posthog.capture('debug_replay_filter_value_type', {
+                        filter_type: f.type,
+                        filter_key: f.key,
+                        original_value: f.value,
+                        normalized_value: normalizedValue,
+                        value_type: typeof f.value,
+                        is_array: Array.isArray(f.value),
+                        operator: f.operator,
+                    })
+                }
+
+                // Only create a new object if the value actually changed
+                if (normalizedValue !== f.value) {
+                    properties.push({ ...f, value: normalizedValue } as AnyPropertyFilter)
+                } else {
+                    properties.push(f)
+                }
             }
         }
     })
@@ -318,6 +378,8 @@ export function convertUniversalFiltersToRecordingsQuery(universalFilters: Recor
         comment_text,
         filter_test_accounts: universalFilters.filter_test_accounts,
         operand: universalFilters.filter_group.type,
+        limit: universalFilters.limit,
+        session_ids: universalFilters.session_ids,
     }
 }
 
@@ -443,7 +505,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             ['maybeLoadPropertiesForSessions'],
             playerSettingsLogic,
             ['setHideViewedRecordings'],
-            playlistLogic,
+            playlistFiltersLogic,
             ['setIsFiltersExpanded'],
         ],
         values: [
@@ -538,8 +600,9 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             },
             {
                 loadSessionRecordings: async ({ direction, userModifiedFilters }, breakpoint) => {
+                    const convertedQuery = convertUniversalFiltersToRecordingsQuery(values.filters)
                     const params: RecordingsQuery & { add_events_to_property_queries?: '1' } = {
-                        ...convertUniversalFiltersToRecordingsQuery(values.filters),
+                        ...convertedQuery,
                         person_uuid: props.personUUID ?? '',
                         // KLUDGE: some persons have >8MB of distinct_ids,
                         // which wouldn't fit in the URL,
@@ -548,7 +611,8 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                         // you probably want the person UUID PoE optimisation anyway
                         // TODO: maybe we can slice this instead
                         distinct_ids: (props.distinctIds?.length || 0) < 100 ? props.distinctIds : undefined,
-                        limit: RECORDINGS_LIMIT,
+                        // Use the limit from filters if set, otherwise use the default limit
+                        limit: convertedQuery.limit ?? RECORDINGS_LIMIT,
                         // If a recording is selected from URL, ensure it's always included in results
                         session_recording_id: values.selectedRecordingId ?? undefined,
                     }
@@ -1000,7 +1064,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 actions.maybeLoadSessionRecordings('older')
             }
 
-            activationLogic.findMounted()?.actions.markTaskAsCompleted(ActivationTask.WatchSessionRecording)
+            globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.WatchSessionRecording)
         },
 
         setHideViewedRecordings: () => {
@@ -1028,7 +1092,6 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                         values.selectedRecordingsIds.length > 1 ? 's' : ''
                     } to the collection...`,
                 },
-                {},
                 {
                     button: {
                         label: 'View collection',
@@ -1075,7 +1138,10 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     try {
                         actions.setDeleteConfirmationText('')
                         actions.setIsDeleteSelectedRecordingsDialogOpen(false)
-                        await api.recordings.bulkDeleteRecordings(values.selectedRecordingsIds)
+                        await api.recordings.bulkDeleteRecordings(
+                            values.selectedRecordingsIds,
+                            values.filters.date_from
+                        )
                         actions.setSelectedRecordingsIds([])
 
                         // If it was a collection then we need to reload it, otherwise we need to reload the recordings
@@ -1358,14 +1424,9 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             (featureFlags): boolean => !!featureFlags[FEATURE_FLAGS.REPLAY_HOGQL_FILTERS],
         ],
 
-        allowReplayGroupsFilters: [
-            (s) => [s.featureFlags],
-            (featureFlags): boolean => !!featureFlags[FEATURE_FLAGS.REPLAY_GROUPS_FILTERS],
-        ],
-
         taxonomicGroupTypes: [
-            (s) => [s.allowHogQLFilters, s.allowReplayGroupsFilters, s.groupsTaxonomicTypes],
-            (allowHogQLFilters, allowReplayGroupsFilters, groupsTaxonomicTypes) => {
+            (s) => [s.allowHogQLFilters, s.groupsTaxonomicTypes],
+            (allowHogQLFilters, groupsTaxonomicTypes) => {
                 const taxonomicGroupTypes = [
                     TaxonomicFilterGroupType.Replay,
                     TaxonomicFilterGroupType.Events,
@@ -1374,14 +1435,11 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     TaxonomicFilterGroupType.PersonProperties,
                     TaxonomicFilterGroupType.SessionProperties,
                     TaxonomicFilterGroupType.EventFeatureFlags,
+                    ...groupsTaxonomicTypes,
                 ]
 
                 if (allowHogQLFilters) {
                     taxonomicGroupTypes.push(TaxonomicFilterGroupType.HogQLExpression)
-                }
-
-                if (allowReplayGroupsFilters) {
-                    taxonomicGroupTypes.push(...groupsTaxonomicTypes)
                 }
 
                 return taxonomicGroupTypes

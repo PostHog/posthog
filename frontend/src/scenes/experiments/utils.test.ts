@@ -16,6 +16,7 @@ import {
     AccessControlLevel,
     Experiment,
     ExperimentMetricMathType,
+    FeatureFlagBucketingIdentifier,
     FeatureFlagEvaluationRuntime,
     FeatureFlagFilters,
     FeatureFlagType,
@@ -31,6 +32,7 @@ import {
     filterToExposureConfig,
     getViewRecordingFilters,
     getViewRecordingFiltersLegacy,
+    isEvenlyDistributed,
     isLegacyExperiment,
     isLegacyExperimentQuery,
     percentageDistribution,
@@ -60,6 +62,44 @@ describe('utils', () => {
             expect(percentageDistribution(18)).toEqual([6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 5, 5, 5, 5, 5, 5, 5, 5])
             expect(percentageDistribution(19)).toEqual([6, 6, 6, 6, 6, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5])
             expect(percentageDistribution(20)).toEqual([5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5])
+        })
+    })
+
+    describe('isEvenlyDistributed', () => {
+        it.each([
+            {
+                variants: [
+                    { key: 'control', rollout_percentage: 50 },
+                    { key: 'test', rollout_percentage: 50 },
+                ],
+                expected: true,
+            },
+            {
+                variants: [
+                    { key: 'control', rollout_percentage: 34 },
+                    { key: 'test', rollout_percentage: 33 },
+                    { key: 'test-2', rollout_percentage: 33 },
+                ],
+                expected: true,
+            },
+            {
+                variants: [
+                    { key: 'control', rollout_percentage: 20 },
+                    { key: 'test', rollout_percentage: 80 },
+                ],
+                expected: false,
+            },
+            {
+                variants: [
+                    { key: 'control', rollout_percentage: 50 },
+                    { key: 'test', rollout_percentage: 30 },
+                    { key: 'test-2', rollout_percentage: 20 },
+                ],
+                expected: false,
+            },
+            { variants: [], expected: true },
+        ])('returns $expected for variants with percentages $variants', ({ variants, expected }) => {
+            expect(isEvenlyDistributed(variants)).toBe(expected)
         })
     })
 
@@ -631,7 +671,6 @@ describe('checkFeatureFlagEligibility', () => {
         created_at: '2021-01-01',
         updated_at: '2021-01-01',
         created_by: null,
-        is_simple_flag: false,
         is_remote_configuration: false,
         filters: {
             groups: [],
@@ -640,12 +679,9 @@ describe('checkFeatureFlagEligibility', () => {
         },
         deleted: false,
         active: true,
-        rollout_percentage: null,
         experiment_set: null,
         features: null,
         surveys: null,
-        rollback_conditions: [],
-        performed_rollback: false,
         can_edit: true,
         tags: [],
         ensure_experience_continuity: null,
@@ -656,6 +692,7 @@ describe('checkFeatureFlagEligibility', () => {
         last_modified_by: null,
         evaluation_runtime: FeatureFlagEvaluationRuntime.ALL,
         evaluation_tags: [],
+        bucketing_identifier: FeatureFlagBucketingIdentifier.DISTINCT_ID,
     }
     it('throws an error for a remote configuration feature flag', () => {
         const featureFlag = { ...baseFeatureFlag, is_remote_configuration: true }

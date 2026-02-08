@@ -6,18 +6,21 @@ from unittest.mock import AsyncMock, patch
 from langchain_core.runnables import RunnableConfig
 
 from posthog.schema import (
+    ArtifactContentType,
+    ArtifactSource,
     AssistantMessage,
     AssistantTool,
     AssistantToolCallMessage,
     AssistantTrendsQuery,
-    VisualizationMessage,
+    VisualizationArtifactContent,
 )
 
 from ee.hogai.chat_agent.schema_generator.nodes import SchemaGenerationException
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.tools.create_insight import INSIGHT_TOOL_FAILURE_SYSTEM_REMINDER_PROMPT, CreateInsightTool
 from ee.hogai.utils.types import AssistantState
-from ee.hogai.utils.types.base import AssistantNodeName, NodePath
+from ee.hogai.utils.types.base import ArtifactRefMessage, AssistantNodeName, NodePath
+from ee.models import AgentArtifact, Conversation
 
 
 class TestCreateInsightTool(ClickhouseTestMixin, NonAtomicBaseTest):
@@ -26,6 +29,7 @@ class TestCreateInsightTool(ClickhouseTestMixin, NonAtomicBaseTest):
     def setUp(self):
         super().setUp()
         self.tool_call_id = "test_tool_call_id"
+        self.conversation = Conversation.objects.create(user=self.user, team=self.team)
 
     async def _create_tool(
         self, state: AssistantState | None = None, contextual_tools: dict[str, dict[str, Any]] | None = None
@@ -56,10 +60,22 @@ class TestCreateInsightTool(ClickhouseTestMixin, NonAtomicBaseTest):
         tool = await self._create_tool()
 
         query = AssistantTrendsQuery(series=[])
-        viz_message = VisualizationMessage(query="test query", answer=query, plan="test plan")
+        artifact = await AgentArtifact.objects.acreate(
+            team=self.team,
+            conversation=self.conversation,
+            name="Test Artifact",
+            type=AgentArtifact.Type.VISUALIZATION,
+            data=VisualizationArtifactContent(query=query, name="Query 1", description="Plan 1").model_dump(),
+        )
+        artifact_message = ArtifactRefMessage(
+            content_type=ArtifactContentType.VISUALIZATION,
+            source=ArtifactSource.ARTIFACT,
+            artifact_id=artifact.short_id,
+            id="123",
+        )
         tool_call_message = AssistantToolCallMessage(content="Results are here", tool_call_id=self.tool_call_id)
 
-        mock_state = AssistantState(messages=[viz_message, tool_call_message])
+        mock_state = AssistantState(messages=[artifact_message, tool_call_message])
 
         with patch("ee.hogai.tools.create_insight.InsightsGraph") as mock_graph_class:
             mock_graph_builder = mock_graph_class.return_value
@@ -72,13 +88,16 @@ class TestCreateInsightTool(ClickhouseTestMixin, NonAtomicBaseTest):
             mock_graph_builder.compile.return_value = mock_compiled_graph
 
             result_text, artifact = await tool._arun_impl(
-                query_description="test trends description", insight_type="trends"
+                viz_title="Test Chart",
+                viz_description="Test description",
+                query_description="test trends description",
+                insight_type="trends",
             )
 
         self.assertEqual(result_text, "")
         self.assertIsNotNone(artifact)
         self.assertEqual(len(artifact.messages), 2)
-        self.assertIsInstance(artifact.messages[0], VisualizationMessage)
+        self.assertIsInstance(artifact.messages[0], ArtifactRefMessage)
         self.assertIsInstance(artifact.messages[1], AssistantToolCallMessage)
 
         # Verify correct graph nodes were added
@@ -90,9 +109,21 @@ class TestCreateInsightTool(ClickhouseTestMixin, NonAtomicBaseTest):
         tool = await self._create_tool()
 
         query = AssistantTrendsQuery(series=[])
-        viz_message = VisualizationMessage(query="test query", answer=query, plan="test plan")
+        artifact = await AgentArtifact.objects.acreate(
+            team=self.team,
+            conversation=self.conversation,
+            name="Test Artifact",
+            type=AgentArtifact.Type.VISUALIZATION,
+            data=VisualizationArtifactContent(query=query, name="Query 1", description="Plan 1").model_dump(),
+        )
+        artifact_message = ArtifactRefMessage(
+            content_type=ArtifactContentType.VISUALIZATION,
+            source=ArtifactSource.ARTIFACT,
+            artifact_id=artifact.short_id,
+            id="123",
+        )
         tool_call_message = AssistantToolCallMessage(content="Results", tool_call_id=self.tool_call_id)
-        mock_state = AssistantState(messages=[viz_message, tool_call_message])
+        mock_state = AssistantState(messages=[artifact_message, tool_call_message])
 
         with patch("ee.hogai.tools.create_insight.InsightsGraph") as mock_graph_class:
             mock_graph_builder = mock_graph_class.return_value
@@ -104,7 +135,12 @@ class TestCreateInsightTool(ClickhouseTestMixin, NonAtomicBaseTest):
             mock_compiled_graph.ainvoke = AsyncMock(return_value=mock_state.model_dump())
             mock_graph_builder.compile.return_value = mock_compiled_graph
 
-            await tool._arun_impl(query_description="test funnel", insight_type="funnel")
+            await tool._arun_impl(
+                viz_title="Test Funnel",
+                viz_description="Test description",
+                query_description="test funnel",
+                insight_type="funnel",
+            )
 
         mock_graph_builder.add_funnel_generator.assert_called_once()
         mock_graph_builder.add_edge.assert_called_with(AssistantNodeName.START, AssistantNodeName.FUNNEL_GENERATOR)
@@ -114,9 +150,21 @@ class TestCreateInsightTool(ClickhouseTestMixin, NonAtomicBaseTest):
         tool = await self._create_tool()
 
         query = AssistantTrendsQuery(series=[])
-        viz_message = VisualizationMessage(query="test query", answer=query, plan="test plan")
+        artifact = await AgentArtifact.objects.acreate(
+            team=self.team,
+            conversation=self.conversation,
+            name="Test Artifact",
+            type=AgentArtifact.Type.VISUALIZATION,
+            data=VisualizationArtifactContent(query=query, name="Query 1", description="Plan 1").model_dump(),
+        )
+        artifact_message = ArtifactRefMessage(
+            content_type=ArtifactContentType.VISUALIZATION,
+            source=ArtifactSource.ARTIFACT,
+            artifact_id=artifact.short_id,
+            id="123",
+        )
         tool_call_message = AssistantToolCallMessage(content="Results", tool_call_id=self.tool_call_id)
-        mock_state = AssistantState(messages=[viz_message, tool_call_message])
+        mock_state = AssistantState(messages=[artifact_message, tool_call_message])
 
         with patch("ee.hogai.tools.create_insight.InsightsGraph") as mock_graph_class:
             mock_graph_builder = mock_graph_class.return_value
@@ -128,7 +176,12 @@ class TestCreateInsightTool(ClickhouseTestMixin, NonAtomicBaseTest):
             mock_compiled_graph.ainvoke = AsyncMock(return_value=mock_state.model_dump())
             mock_graph_builder.compile.return_value = mock_compiled_graph
 
-            await tool._arun_impl(query_description="test retention", insight_type="retention")
+            await tool._arun_impl(
+                viz_title="Test Retention",
+                viz_description="Test description",
+                query_description="test retention",
+                insight_type="retention",
+            )
 
         mock_graph_builder.add_retention_generator.assert_called_once()
         mock_graph_builder.add_edge.assert_called_with(AssistantNodeName.START, AssistantNodeName.RETENTION_GENERATOR)
@@ -151,7 +204,12 @@ class TestCreateInsightTool(ClickhouseTestMixin, NonAtomicBaseTest):
             mock_compiled_graph.ainvoke = AsyncMock(side_effect=exception)
             mock_graph_builder.compile.return_value = mock_compiled_graph
 
-            result_text, artifact = await tool._arun_impl(query_description="test description", insight_type="trends")
+            result_text, artifact = await tool._arun_impl(
+                viz_title="Test Chart",
+                viz_description="Test description",
+                query_description="test description",
+                insight_type="trends",
+            )
 
         self.assertIsNone(artifact)
         self.assertIn("Invalid query structure", result_text)
@@ -162,9 +220,23 @@ class TestCreateInsightTool(ClickhouseTestMixin, NonAtomicBaseTest):
         """Test when the last message is not AssistantToolCallMessage, returns error."""
         tool = await self._create_tool()
 
-        viz_message = VisualizationMessage(query="test query", answer=AssistantTrendsQuery(series=[]), plan="test plan")
+        artifact = await AgentArtifact.objects.acreate(
+            team=self.team,
+            conversation=self.conversation,
+            name="Test Artifact",
+            type=AgentArtifact.Type.VISUALIZATION,
+            data=VisualizationArtifactContent(
+                query=AssistantTrendsQuery(series=[]), name="Query 1", description="Plan 1"
+            ).model_dump(),
+        )
+        artifact_message = ArtifactRefMessage(
+            content_type=ArtifactContentType.VISUALIZATION,
+            source=ArtifactSource.ARTIFACT,
+            artifact_id=artifact.short_id,
+            id="123",
+        )
         invalid_message = AssistantMessage(content="Not a tool call message")
-        mock_state = AssistantState(messages=[viz_message, invalid_message])
+        mock_state = AssistantState(messages=[artifact_message, invalid_message])
 
         with patch("ee.hogai.tools.create_insight.InsightsGraph") as mock_graph_class:
             mock_graph_builder = mock_graph_class.return_value
@@ -176,7 +248,12 @@ class TestCreateInsightTool(ClickhouseTestMixin, NonAtomicBaseTest):
             mock_compiled_graph.ainvoke = AsyncMock(return_value=mock_state.model_dump())
             mock_graph_builder.compile.return_value = mock_compiled_graph
 
-            result_text, artifact = await tool._arun_impl(query_description="test description", insight_type="trends")
+            result_text, artifact = await tool._arun_impl(
+                viz_title="Test Chart",
+                viz_description="Test description",
+                query_description="test description",
+                insight_type="trends",
+            )
 
         self.assertIsNone(artifact)
         self.assertIn("unknown error", result_text)
@@ -200,7 +277,12 @@ class TestCreateInsightTool(ClickhouseTestMixin, NonAtomicBaseTest):
             mock_compiled_graph.ainvoke = AsyncMock(return_value=mock_state.model_dump())
             mock_graph_builder.compile.return_value = mock_compiled_graph
 
-            result_text, artifact = await tool._arun_impl(query_description="test description", insight_type="funnel")
+            result_text, artifact = await tool._arun_impl(
+                viz_title="Test Chart",
+                viz_description="Test description",
+                query_description="test description",
+                insight_type="funnel",
+            )
 
         self.assertEqual(result_text, "")
         self.assertIsNotNone(artifact)
@@ -213,9 +295,21 @@ class TestCreateInsightTool(ClickhouseTestMixin, NonAtomicBaseTest):
         tool = await self._create_tool(contextual_tools={AssistantTool.CREATE_INSIGHT.value: {}})
 
         query = AssistantTrendsQuery(series=[])
-        viz_message = VisualizationMessage(query="test query", answer=query, plan="test plan")
+        artifact = await AgentArtifact.objects.acreate(
+            team=self.team,
+            conversation=self.conversation,
+            name="Test Artifact",
+            type=AgentArtifact.Type.VISUALIZATION,
+            data=VisualizationArtifactContent(query=query, name="Query 1", description="Plan 1").model_dump(),
+        )
+        artifact_message = ArtifactRefMessage(
+            content_type=ArtifactContentType.VISUALIZATION,
+            source=ArtifactSource.ARTIFACT,
+            artifact_id=artifact.short_id,
+            id="123",
+        )
         tool_call_message = AssistantToolCallMessage(content="Results are here", tool_call_id=self.tool_call_id)
-        mock_state = AssistantState(messages=[viz_message, tool_call_message])
+        mock_state = AssistantState(messages=[artifact_message, tool_call_message])
 
         with patch("ee.hogai.tools.create_insight.InsightsGraph") as mock_graph_class:
             mock_graph_builder = mock_graph_class.return_value
@@ -227,7 +321,12 @@ class TestCreateInsightTool(ClickhouseTestMixin, NonAtomicBaseTest):
             mock_compiled_graph.ainvoke = AsyncMock(return_value=mock_state.model_dump())
             mock_graph_builder.compile.return_value = mock_compiled_graph
 
-            result_text, artifact = await tool._arun_impl(query_description="test description", insight_type="trends")
+            result_text, artifact = await tool._arun_impl(
+                viz_title="Test Chart",
+                viz_description="Test description",
+                query_description="test description",
+                insight_type="trends",
+            )
 
         self.assertIsNotNone(artifact)
         returned_tool_call_message = artifact.messages[1]
@@ -242,9 +341,21 @@ class TestCreateInsightTool(ClickhouseTestMixin, NonAtomicBaseTest):
         tool = await self._create_tool(state=initial_state)
 
         query = AssistantTrendsQuery(series=[])
-        viz_message = VisualizationMessage(query="test query", answer=query, plan="test plan")
+        artifact = await AgentArtifact.objects.acreate(
+            team=self.team,
+            conversation=self.conversation,
+            name="Test Artifact",
+            type=AgentArtifact.Type.VISUALIZATION,
+            data=VisualizationArtifactContent(query=query, name="Query 1", description="Plan 1").model_dump(),
+        )
+        artifact_message = ArtifactRefMessage(
+            content_type=ArtifactContentType.VISUALIZATION,
+            source=ArtifactSource.ARTIFACT,
+            artifact_id=artifact.short_id,
+            id="123",
+        )
         tool_call_message = AssistantToolCallMessage(content="Results", tool_call_id=self.tool_call_id)
-        mock_state = AssistantState(messages=[viz_message, tool_call_message])
+        mock_state = AssistantState(messages=[artifact_message, tool_call_message])
 
         invoked_state = None
 
@@ -263,7 +374,12 @@ class TestCreateInsightTool(ClickhouseTestMixin, NonAtomicBaseTest):
             mock_compiled_graph.ainvoke = AsyncMock(side_effect=capture_invoked_state)
             mock_graph_builder.compile.return_value = mock_compiled_graph
 
-            await tool._arun_impl(query_description="my test query", insight_type="retention")
+            await tool._arun_impl(
+                viz_title="Test Chart",
+                viz_description="Test description",
+                query_description="my test query",
+                insight_type="retention",
+            )
 
         self.assertIsNotNone(invoked_state)
         validated_state = AssistantState.model_validate(invoked_state)

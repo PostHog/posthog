@@ -1,9 +1,12 @@
+export type ManagedMigrationStatus = 'paused' | 'completed' | 'running' | 'failed' | 'waiting_to_start'
+
 export interface BaseManagedMigration {
     id: string
     access_key: string
     secret_key: string
     content_type: 'captured' | 'mixpanel' | 'amplitude'
-    status: 'paused' | 'completed' | 'running' | 'failed'
+    status: ManagedMigrationStatus
+    display_status: ManagedMigrationStatus
     created_by: {
         id: number
         uuid: string

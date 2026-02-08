@@ -137,8 +137,9 @@ def handle_plan(necessary_migrations: Sequence[AsyncMigration]):
         logger.info("Async migrations up to date!")
     else:
         logger.warning(
-            f"Required async migration{' is' if len(necessary_migrations) == 1 else 's are'} not completed:\n"
-            "\n".join(f"- {migration.get_name_with_requirements()}" for migration in necessary_migrations)
+            f"Required async migration{' is' if len(necessary_migrations) == 1 else 's are'} not completed:\n\n".join(
+                f"- {migration.get_name_with_requirements()}" for migration in necessary_migrations
+            )
         )
 
 

@@ -2,6 +2,8 @@ import { BindLogic, useMountedLogic, useValues } from 'kea'
 import { Slide, ToastContainer } from 'react-toastify'
 
 import { KeaDevtools } from 'lib/KeaDevTools'
+import { Command } from 'lib/components/Command/Command'
+import { globalSetupLogic, useSetupHighlight } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS, MOCK_NODE_PROCESS } from 'lib/constants'
 import { useThemedHtml } from 'lib/hooks/useThemedHtml'
 import { ToastCloseButton } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -11,15 +13,16 @@ import { eventIngestionRestrictionLogic } from 'lib/logic/eventIngestionRestrict
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { appLogic } from 'scenes/appLogic'
 import { appScenes } from 'scenes/appScenes'
-import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { GlobalModals } from '~/layout/GlobalModals'
+import { GlobalShortcuts } from '~/layout/GlobalShortcuts'
 import { Navigation } from '~/layout/navigation-3000/Navigation'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
+import { ImpersonationNotice } from '~/layout/navigation/ImpersonationNotice'
 
 import { MaxInstance } from './max/Max'
 
@@ -27,10 +30,12 @@ window.process = MOCK_NODE_PROCESS
 
 export function App(): JSX.Element | null {
     const { showApp, showingDelayedSpinner, showingDevTools } = useValues(appLogic)
+
     useMountedLogic(sceneLogic({ scenes: appScenes }))
     useMountedLogic(apiStatusLogic)
     useMountedLogic(eventIngestionRestrictionLogic)
-    useMountedLogic(maxGlobalLogic)
+    useMountedLogic(globalSetupLogic)
+
     useThemedHtml()
 
     if (showApp) {
@@ -59,6 +64,9 @@ function AppScene(): JSX.Element | null {
 
     const { featureFlags } = useValues(featureFlagLogic)
     const { isDarkModeOn } = useValues(themeLogic)
+
+    // Highlight any relevant element after navigation from the quick start guide
+    useSetupHighlight()
 
     const toastContainer = (
         <ToastContainer
@@ -132,10 +140,13 @@ function AppScene(): JSX.Element | null {
     }
 
     return (
-        <>
+        <div className="contents isolate">
             <Navigation sceneConfig={sceneConfig}>{wrappedSceneElement}</Navigation>
             {toastContainer}
             <GlobalModals />
-        </>
+            <GlobalShortcuts />
+            <Command />
+            <ImpersonationNotice />
+        </div>
     )
 }

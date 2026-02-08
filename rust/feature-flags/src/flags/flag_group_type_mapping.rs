@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use common_database::PostgresReader;
 use common_metrics::inc;
-use common_types::ProjectId;
+use common_types::TeamId;
 use sqlx::FromRow;
 use tracing::error;
 
@@ -36,31 +36,26 @@ pub struct GroupTypeMapping {
 /// These mappings are ingested via the plugin server.
 #[derive(Clone, Debug)]
 pub struct GroupTypeMappingCache {
-    project_id: ProjectId,
+    team_id: TeamId,
     group_types_to_indexes: HashMap<String, GroupTypeIndex>,
     group_indexes_to_types: HashMap<GroupTypeIndex, String>,
 }
 
 impl GroupTypeMappingCache {
-    pub fn new(project_id: ProjectId) -> Self {
+    pub fn new(team_id: TeamId) -> Self {
         GroupTypeMappingCache {
-            project_id,
+            team_id,
             group_types_to_indexes: HashMap::new(),
             group_indexes_to_types: HashMap::new(),
         }
     }
 
     pub async fn init(&mut self, reader: PostgresReader) -> Result<(), FlagError> {
-        let mapping = self
-            .fetch_group_type_mapping(reader, self.project_id)
-            .await?;
+        let mapping = self.fetch_group_type_mapping(reader, self.team_id).await?;
 
         if mapping.is_empty() {
             let reason = "no_group_type_mappings";
-            error!(
-                "No group type mappings found for project {}",
-                self.project_id
-            );
+            error!("No group type mappings found for team {}", self.team_id);
             inc(
                 FLAG_EVALUATION_ERROR_COUNTER,
                 &[("reason".to_string(), reason.to_string())],
@@ -95,20 +90,20 @@ impl GroupTypeMappingCache {
     async fn fetch_group_type_mapping(
         &self,
         reader: PostgresReader,
-        project_id: ProjectId,
+        team_id: TeamId,
     ) -> Result<HashMap<String, GroupTypeIndex>, FlagError> {
         let mut conn =
             get_connection_with_metrics(&reader, "non_persons_reader", "fetch_group_type_mapping")
                 .await?;
 
         let query = r#"
-            SELECT group_type, group_type_index 
-            FROM posthog_grouptypemapping 
-            WHERE project_id = $1
+            SELECT group_type, group_type_index
+            FROM posthog_grouptypemapping
+            WHERE team_id = $1
         "#;
 
         let rows = sqlx::query_as::<_, GroupTypeMapping>(query)
-            .bind(project_id)
+            .bind(team_id)
             .fetch_all(&mut *conn)
             .await?;
 

@@ -25,9 +25,9 @@ def assert_records_match_events(records, events):
     all_record = sorted(records, key=operator.itemgetter("event"))
 
     assert len(all_expected) == len(all_record)
-    assert len([record["uuid"] for record in all_record]) == len(
-        {record["uuid"] for record in all_record}
-    ), "duplicate records found"
+    assert len([record["uuid"] for record in all_record]) == len({record["uuid"] for record in all_record}), (
+        "duplicate records found"
+    )
 
     for expected, record in zip(all_expected, all_record):
         for key, value in record.items():

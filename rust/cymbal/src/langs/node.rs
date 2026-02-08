@@ -131,13 +131,13 @@ impl RawNodeFrame {
             .pre_context
             .iter()
             .enumerate()
-            .map(|(i, line)| ContextLine::new(lineno - i as u32 - 1, line.clone()))
+            .map(|(i, line)| ContextLine::new_rel(lineno, -(i as i32) - 1, line.clone()))
             .collect();
         let after = self
             .post_context
             .iter()
             .enumerate()
-            .map(|(i, line)| ContextLine::new(lineno + i as u32 + 1, line.clone()))
+            .map(|(i, line)| ContextLine::new_rel(lineno, (i as i32) + 1, line.clone()))
             .collect();
         Some(Context {
             before,
@@ -166,7 +166,6 @@ impl From<&RawNodeFrame> for Frame {
             synthetic: raw.meta.synthetic,
             suspicious: false,
             module: raw.module.clone(),
-            exception_type: None,
             code_variables: None,
         }
     }
@@ -212,7 +211,6 @@ impl From<(&RawNodeFrame, SourceLocation<'_>)> for Frame {
             synthetic: raw_frame.meta.synthetic,
             suspicious: false,
             module: raw_frame.module.clone(),
-            exception_type: None,
         };
 
         add_raw_to_junk(&mut res, raw_frame);
@@ -258,7 +256,6 @@ impl From<(&RawNodeFrame, JsResolveErr)> for Frame {
             synthetic: raw_frame.meta.synthetic,
             suspicious: false,
             module: raw_frame.module.clone(),
-            exception_type: None,
         };
 
         add_raw_to_junk(&mut res, raw_frame);

@@ -4,6 +4,7 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { snapshotDataLogic } from 'scenes/session-recordings/player/snapshotDataLogic'
+import { windowIdRegistryLogic } from 'scenes/session-recordings/player/windowIdRegistryLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { annotationsModel } from '~/models/annotationsModel'
@@ -28,10 +29,13 @@ export const sessionRecordingMetaLogic = kea<sessionRecordingMetaLogicType>([
             sessionRecordingId,
             blobV2PollingDisabled,
         })
+        const registryLogic = windowIdRegistryLogic({ sessionRecordingId })
         return {
             actions: [
                 snapshotLogic,
                 ['loadSnapshots', 'loadSnapshotSources', 'loadSnapshotsForSourceSuccess', 'setSnapshots'],
+                registryLogic,
+                ['registerWindowId'],
             ],
             values: [
                 teamLogic,
@@ -40,6 +44,8 @@ export const sessionRecordingMetaLogic = kea<sessionRecordingMetaLogicType>([
                 ['annotations', 'annotationsLoading'],
                 snapshotLogic,
                 ['snapshotSources', 'snapshotsBySources', 'snapshotsLoading', 'snapshotsLoaded', 'isLoadingSnapshots'],
+                registryLogic,
+                ['uuidToIndex', 'getWindowId'],
             ],
         }
     }),
@@ -50,9 +56,7 @@ export const sessionRecordingMetaLogic = kea<sessionRecordingMetaLogicType>([
         loadRecordingMeta: true,
         loadRecordingFromFile: (recording: ExportedSessionRecordingFileV2['data']) => ({ recording }),
         maybeLoadRecordingMeta: true,
-        persistRecording: true,
-        maybePersistRecording: true,
-        setTrackedWindow: (windowId: string | null) => ({ windowId }),
+        setTrackedWindow: (windowId: number | null) => ({ windowId }),
     }),
     reducers(() => ({
         isNotFound: [
@@ -64,13 +68,13 @@ export const sessionRecordingMetaLogic = kea<sessionRecordingMetaLogicType>([
             },
         ],
         trackedWindow: [
-            null as string | null,
+            null as number | null,
             {
                 setTrackedWindow: (_, { windowId }) => windowId,
             },
         ],
     })),
-    loaders(({ values, props }) => ({
+    loaders(({ props }) => ({
         sessionPlayerMetaData: {
             loadRecordingMeta: async (_, breakpoint) => {
                 if (!props.sessionRecordingId) {
@@ -84,19 +88,6 @@ export const sessionRecordingMetaLogic = kea<sessionRecordingMetaLogicType>([
                 breakpoint()
 
                 return response
-            },
-
-            persistRecording: async (_, breakpoint) => {
-                if (!values.sessionPlayerMetaData) {
-                    return null
-                }
-                await breakpoint(100)
-                await api.recordings.persist(props.sessionRecordingId)
-
-                return {
-                    ...values.sessionPlayerMetaData,
-                    storage: 'object_storage_lts',
-                }
             },
         },
     })),
@@ -121,16 +112,6 @@ export const sessionRecordingMetaLogic = kea<sessionRecordingMetaLogicType>([
         maybeLoadRecordingMeta: () => {
             if (!values.sessionPlayerMetaDataLoading) {
                 actions.loadRecordingMeta()
-            }
-        },
-
-        maybePersistRecording: () => {
-            if (values.sessionPlayerMetaDataLoading) {
-                return
-            }
-
-            if (values.sessionPlayerMetaData?.storage === 'object_storage') {
-                actions.persistRecording()
             }
         },
     })),

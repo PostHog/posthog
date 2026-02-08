@@ -20,6 +20,7 @@ from rest_framework import exceptions
 
 from posthog.schema import ProductIntentContext, ProductKey
 
+from posthog.cloud_utils import get_cached_instance_license
 from posthog.event_usage import report_user_signed_up
 from posthog.exceptions_capture import capture_exception
 from posthog.models.experiment import Experiment
@@ -34,6 +35,8 @@ from posthog.utils import absolute_uri
 
 from ee.api.authentication import VercelAuthentication
 from ee.api.vercel.types import VercelClaims, VercelUserClaims
+from ee.billing.billing_manager import BillingManager
+from ee.billing.billing_types import BillingProvider
 from ee.vercel.client import SSOTokenResponse, VercelAPIClient
 
 logger = structlog.get_logger(__name__)
@@ -124,6 +127,8 @@ class VercelIntegration:
         "billing": "/organization/billing/overview",
         "usage": "/organization/billing/usage",
         "support": "/#panel=support",
+        "secrets": "/settings/project#variables",
+        "onboarding": "/onboarding",
     }
     SSO_DEFAULT_REDIRECT = "/"
 
@@ -177,43 +182,61 @@ class VercelIntegration:
         return resource, installation
 
     @staticmethod
+    def _cleanup_failed_installation(
+        organization: Organization, installation_id: str, user: User | None = None, user_created: bool = False
+    ) -> None:
+        """
+        Clean up organization and integration after a failed installation.
+
+        Deletes the organization (which cascades to OrganizationIntegration) and
+        optionally deletes the user if it was created specifically for this installation.
+        """
+        try:
+            organization.delete()
+            logger.info(
+                "Cleaned up organization after billing failure",
+                installation_id=installation_id,
+                organization_id=str(organization.id),
+            )
+
+            # Only delete user if it was created specifically for this installation
+            # Existing users should not be deleted
+            if user_created and user:
+                user.delete()
+                logger.info(
+                    "Cleaned up user after billing failure",
+                    installation_id=installation_id,
+                    user_id=str(user.id),
+                )
+        except Exception as cleanup_error:
+            logger.exception(
+                "Failed to clean up organization after billing failure",
+                installation_id=installation_id,
+                organization_id=str(organization.id),
+            )
+            capture_exception(cleanup_error)
+
+    @staticmethod
     def get_vercel_plans() -> list[dict[str, Any]]:
-        # TODO: Retrieve through billing service instead.
+        # Single usage-based plan matching posthog.com model
+        # Billing is handled through PostHog's billing service, not Vercel
         return [
             {
-                "id": "free",
-                "type": "subscription",
-                "name": "Free",
-                "description": "No credit card required",
-                "scope": "installation",
-                "paymentMethodRequired": False,
-                "details": [
-                    {"label": "Data retention", "value": "1 year"},
-                    {"label": "Projects", "value": "1"},
-                    {"label": "Team members", "value": "Unlimited"},
-                    {"label": "API Access", "value": "✓"},
-                    {"label": "No limits on tracked users", "value": "✓"},
-                    {"label": "Community support", "value": "Support via community forum"},
-                ],
-                "highlightedDetails": [
-                    {"label": "Feature Flags", "value": "1 million free requests"},
-                    {"label": "Experiments", "value": "1 million free requests"},
-                ],
-            },
-            {
-                "id": "pay_as_you_go",
+                "id": "posthog-usage-based",
                 "type": "subscription",
                 "name": "Pay-as-you-go",
-                "description": "Usage-based pricing after free tier",
+                "description": "Usage-based pricing. View pricing: https://posthog.com/pricing",
                 "scope": "installation",
                 "paymentMethodRequired": True,
+                "preauthorizationAmount": 0.5,
                 "details": [
+                    {"label": "Pricing details", "value": "https://posthog.com/pricing"},
                     {"label": "Data retention", "value": "7 years"},
                     {"label": "Projects", "value": "6"},
                     {"label": "Team members", "value": "Unlimited"},
-                    {"label": "API Access", "value": "✓"},
+                    {"label": "API access", "value": "✓"},
                     {"label": "No limits on tracked users", "value": "✓"},
-                    {"label": "Standard support", "value": "Support via email, Slack-based over $2k/mo"},
+                    {"label": "Email support", "value": "✓"},
                 ],
                 "highlightedDetails": [
                     {"label": "Feature flags", "value": "1 million requests for free, then from $0.0001/request"},
@@ -264,6 +287,7 @@ class VercelIntegration:
             logger.info("Vercel installation updated", installation_id=installation_id, integration="vercel")
             return
 
+        # Create organization and integration in a DB transaction
         with transaction.atomic():
             # Through Vercel we can only create new organizations, not use existing ones.
             # Note: We won't create a team here, that's done during Vercel resource creation.
@@ -271,16 +295,18 @@ class VercelIntegration:
                 name=config.account.name or f"Vercel Installation {installation_id}"
             )
 
-            # Check if user already exists - if so, don't create mapping yet (wait for SSO) where user proves
-            # they have access to the account associated with the email they're using.
             existing_user = User.objects.filter(email=config.account.contact.email, is_active=True).first()
 
             if existing_user:
-                # Existing user - create organization and integration but no user mapping or org membership yet
-                # They'll need to login first before connecting via SSO and being added to the org
-                # Store the intended membership level for when they complete SSO
                 user = existing_user
                 user_created = False
+                # Always add existing user to the new organization - they're installing so they should be a member
+                VercelIntegration._add_user_to_organization(
+                    existing_user, organization, OrganizationMembership.Level.OWNER
+                )
+                # Only create mapping if user is trusted (has existing Vercel mapping somewhere)
+                # External users will get mapped during SSO when they prove ownership
+                should_create_mapping = VercelIntegration._user_has_any_vercel_mapping(existing_user)
             else:
                 user, user_created = VercelIntegration._find_or_create_user_by_email(
                     email=config.account.contact.email,
@@ -288,6 +314,7 @@ class VercelIntegration:
                     organization=organization,
                     level=OrganizationMembership.Level.OWNER,  # User installing gets owner level
                 )
+                should_create_mapping = user_created
 
             try:
                 org_integration, _ = OrganizationIntegration.objects.update_or_create(
@@ -300,8 +327,7 @@ class VercelIntegration:
                     },
                 )
 
-                # Only create user mapping for new users, existing users get mapped during SSO
-                if user_created:
+                if should_create_mapping:
                     VercelIntegration._set_user_mapping(org_integration, vercel_user_id, user.pk)
 
                 logger.info("Created new Vercel installation", installation_id=installation_id, integration="vercel")
@@ -314,6 +340,26 @@ class VercelIntegration:
                     {"validation_error": "Something went wrong."},
                     code="unique",
                 )
+
+        license = get_cached_instance_license()
+        if license:
+            try:
+                billing_manager = BillingManager(license)
+                billing_manager.authorize(organization, billing_provider=BillingProvider.VERCEL)
+                logger.info(
+                    "Created Stripe customer for Vercel installation",
+                    installation_id=installation_id,
+                    organization_id=str(organization.id),
+                )
+            except Exception as e:
+                logger.exception(
+                    "Failed to create Stripe customer for Vercel installation",
+                    installation_id=installation_id,
+                    organization_id=str(organization.id),
+                )
+                capture_exception(e)
+                VercelIntegration._cleanup_failed_installation(organization, installation_id, user, user_created)
+                raise exceptions.APIException("Failed to initialize billing. Please try again.")
 
         if user_created:
             report_user_signed_up(
@@ -337,14 +383,9 @@ class VercelIntegration:
     @staticmethod
     def get_installation_billing_plan(installation_id: str) -> dict[str, Any]:
         VercelIntegration._get_installation(installation_id)
-        billing_plans = VercelIntegration.get_vercel_plans()
 
-        # Always return free plan for now - will be replaced with billing service
-        current_plan = next(plan for plan in billing_plans if plan["id"] == "free")
-
-        return {
-            "billingplan": current_plan,
-        }
+        # No billing plans - billing is handled through PostHog's billing service
+        return {}
 
     @staticmethod
     def update_installation(installation_id: str, billing_plan_id: str) -> None:
@@ -358,15 +399,36 @@ class VercelIntegration:
     def delete_installation(installation_id: str) -> dict[str, Any]:
         logger.info("Starting Vercel installation deletion", installation_id=installation_id, integration="vercel")
         installation = VercelIntegration._get_installation(installation_id)
+        organization = installation.organization
+
+        # Notify billing service to cancel subscription and reset billing provider
+        license = get_cached_instance_license()
+        if license:
+            try:
+                billing_manager = BillingManager(license)
+                billing_manager.deauthorize(organization, billing_provider=BillingProvider.VERCEL)
+                logger.info(
+                    "Deauthorized billing for Vercel installation",
+                    installation_id=installation_id,
+                    organization_id=str(organization.id),
+                )
+            except Exception as e:
+                logger.exception(
+                    "Failed to deauthorize billing for Vercel installation",
+                    installation_id=installation_id,
+                    organization_id=str(organization.id),
+                )
+                capture_exception(e)
+                # Continue with deletion even if billing deauthorization fails
+                # The billing service will handle the orphaned state gracefully
+
         installation.delete()
-        is_dev = settings.DEBUG
         logger.info(
             "Successfully deleted Vercel installation",
             installation_id=installation_id,
-            finalized=is_dev,
             integration="vercel",
         )
-        return {"finalized": is_dev}  # Immediately finalize in dev mode for testing purposes
+        return {"finalized": True}
 
     @staticmethod
     def get_product_plans(product_slug: str) -> dict[str, Any]:
@@ -464,7 +526,7 @@ class VercelIntegration:
     @staticmethod
     def _build_resource_response(resource: Integration, installation: OrganizationIntegration) -> dict[str, Any]:
         billing_plans = VercelIntegration.get_vercel_plans()
-        current_plan_id = installation.config.get("billing_plan_id", "free")  # TODO: Replace with billing service
+        current_plan_id = installation.config.get("billing_plan_id", "posthog-usage-based")
         current_plan = next((plan for plan in billing_plans if plan["id"] == current_plan_id), None)
 
         return {
@@ -481,11 +543,11 @@ class VercelIntegration:
     def _build_secrets(team: Team) -> list[dict[str, str]]:
         return [
             {
-                "name": "POSTHOG_PROJECT_API_KEY",
+                "name": "NEXT_PUBLIC_POSTHOG_KEY",
                 "value": team.api_token,
             },
             {
-                "name": "POSTHOG_HOST",
+                "name": "NEXT_PUBLIC_POSTHOG_HOST",
                 "value": absolute_uri(),
             },
         ]
@@ -771,7 +833,7 @@ class VercelIntegration:
             raise NotImplementedError("SSO is only supported for user claims, not system claims")
 
         # Cache claims for potential existing user login flow (needed because the code can only be exchanged once)
-        VercelIntegration._set_cached_claims(code, claims, timeout=300)  # 5 minutes
+        VercelIntegration.set_cached_claims(code, claims, timeout=300)  # 5 minutes
 
         return claims
 
@@ -797,8 +859,24 @@ class VercelIntegration:
             if not isinstance(claims, VercelUserClaims):
                 raise NotImplementedError("SSO is only supported for user claims, not system claims")
 
-            if not claims.user_email or request.user.email.lower() != claims.user_email.lower():
-                raise exceptions.PermissionDenied("Email verification failed for SSO")
+            if not claims.user_email:
+                raise exceptions.AuthenticationFailed("Vercel SSO claims missing user email")
+
+            if request.user.email.lower() != claims.user_email.lower():
+                logger.warning(
+                    "Email mismatch in Vercel SSO",
+                    expected_email=claims.user_email,
+                    logged_in_email=request.user.email,
+                    integration="vercel",
+                )
+                VercelIntegration.set_cached_claims(params.code, claims, timeout=300)
+                error_params = {
+                    "expected_email": claims.user_email,
+                    "current_email": request.user.email,
+                    "code": params.code,
+                    "state": params.state,
+                }
+                return f"/integrations/vercel/link-error?{urlencode(error_params)}"
 
             with transaction.atomic():
                 installation = OrganizationIntegration.objects.select_for_update().get(
@@ -807,7 +885,7 @@ class VercelIntegration:
                 )
 
                 intended_level = VercelIntegration._determine_membership_level(request.user.email, installation)
-                created = VercelIntegration._ensure_user_membership(
+                created = VercelIntegration._add_user_to_organization(
                     request.user, installation.organization, intended_level
                 )
 
@@ -851,7 +929,7 @@ class VercelIntegration:
         return OrganizationMembership.Level.MEMBER
 
     @staticmethod
-    def _ensure_user_membership(
+    def _add_user_to_organization(
         user: User, organization: Organization, level: OrganizationMembership.Level
     ) -> tuple[OrganizationMembership, bool]:
         membership, created = OrganizationMembership.objects.get_or_create(
@@ -881,14 +959,19 @@ class VercelIntegration:
         return claims
 
     @staticmethod
-    def _set_cached_claims(code: str, claims: VercelUserClaims, timeout: int = 300) -> None:
+    def set_cached_claims(code: str, claims: VercelUserClaims, timeout: int = 300) -> None:
         claims_key = VercelIntegration._get_cache_key(code)
         cache.set(claims_key, claims, timeout=timeout)
 
     @staticmethod
     def authenticate_sso(request, params: SSOParams) -> str:
+        claims: VercelClaims | None = None
         try:
-            claims = VercelIntegration._get_sso_claims_from_code(params.code, params.state)
+            # First check for cached claims (from a previous attempt with email mismatch)
+            claims = VercelIntegration._get_cached_claims(params.code)
+            if claims is None:
+                # No cached claims, exchange the code with Vercel
+                claims = VercelIntegration._get_sso_claims_from_code(params.code, params.state)
             if not isinstance(claims, VercelUserClaims):
                 raise NotImplementedError("SSO is only supported for user claims, not system claims")
 
@@ -909,12 +992,18 @@ class VercelIntegration:
             )
             return redirect_url
         except RequiresExistingUserLogin as e:
+            # Re-cache the claims so they're available after the user logs in
+            if isinstance(claims, VercelUserClaims):
+                VercelIntegration.set_cached_claims(params.code, claims, timeout=300)
+
             continuation_url = f"/login/vercel/continue?{urlencode(params.to_dict_no_nulls())}"
-            login_url = f"/login?next={quote(continuation_url)}"
+            message = f"Please log in with {e.email} to link your Vercel account"
+            login_url = f"/login?email={quote(e.email)}&message={quote(message)}&next={quote(continuation_url)}"
 
             logger.info(
                 "Vercel SSO requires existing user login",
                 installation_id=e.installation_id,
+                email=e.email,
                 method="login_redirect_flow",
                 integration="vercel",
             )
@@ -931,6 +1020,26 @@ class VercelIntegration:
             error_msg = response.error if response else "Token exchange failed"
             raise exceptions.AuthenticationFailed(f"Vercel token exchange failed: {error_msg}")
         return response
+
+    @staticmethod
+    def _user_has_any_vercel_mapping(user: User) -> bool:
+        """Check if user has any Vercel mappings (i.e., they've used Vercel before)."""
+        configs = (
+            OrganizationIntegration.objects.filter(kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL)
+            .values_list("config", flat=True)
+            .iterator()
+        )
+        for config in configs:
+            if not config:
+                continue
+            user_mappings = config.get("user_mappings", {})
+            for v in user_mappings.values():
+                try:
+                    if int(v) == user.pk:
+                        return True
+                except (ValueError, TypeError):
+                    capture_exception(ValueError(f"Corrupted user_mapping value: {v}"))
+        return False
 
     @staticmethod
     def _get_user_mapping(installation: OrganizationIntegration, vercel_user_id: str) -> int | None:
@@ -953,10 +1062,14 @@ class VercelIntegration:
     def _find_or_create_user_by_email(
         email: str, name: str | None, organization: Organization, level: OrganizationMembership.Level
     ) -> tuple[User, bool]:
-        user = User.objects.filter(email=email, is_active=True).first()
+        user = User.objects.filter(email=email).first()
         created = False
 
-        if not user:
+        if user:
+            if not user.is_active:
+                user.is_active = True
+                user.save(update_fields=["is_active"])
+        else:
             first_name = ""
             if name:
                 first_name = name.split()[0] if name.split() else name
@@ -972,7 +1085,7 @@ class VercelIntegration:
             )
             created = True
 
-        VercelIntegration._ensure_user_membership(user, organization, level)
+        VercelIntegration._add_user_to_organization(user, organization, level)
 
         return user, created
 
@@ -1098,6 +1211,41 @@ class VercelIntegration:
         user.current_team = team
         user.save()
         return resource, user, team
+
+    @staticmethod
+    def push_secrets_to_vercel(team: Team) -> None:
+        """Push updated secrets to all Vercel resources linked to this team."""
+        setup_result = VercelIntegration._setup_vercel_client_for_team(team)
+        if not setup_result:
+            return
+
+        secrets = VercelIntegration._build_secrets(team)
+
+        try:
+            result = setup_result.client.update_resource_secrets(
+                integration_config_id=setup_result.integration_config_id,
+                resource_id=setup_result.resource_id,
+                secrets=secrets,
+            )
+            if not result.success:
+                raise Exception(f"Failed to push secrets to Vercel: {result.error}")
+
+            logger.info(
+                "Pushed secrets to Vercel",
+                team_id=team.id,
+                integration_config_id=setup_result.integration_config_id,
+                resource_id=setup_result.resource_id,
+                integration="vercel",
+            )
+        except Exception as e:
+            logger.exception(
+                "Error pushing secrets to Vercel",
+                team_id=team.id,
+                integration_config_id=setup_result.integration_config_id,
+                resource_id=setup_result.resource_id,
+                integration="vercel",
+            )
+            capture_exception(e, {"team_id": team.id, "resource_id": setup_result.resource_id})
 
 
 def _safe_vercel_sync(operation_name: str, item_id: str | int, team: Team, sync_func: Callable[[], None]) -> None:

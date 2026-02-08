@@ -14,6 +14,7 @@ from .taxonomy import (
     EVENT_DELETED_FILE,
     EVENT_DOWNGRADED_PLAN,
     EVENT_DOWNLOADED_FILE,
+    EVENT_FEATURE_FLAG_CALLED,
     EVENT_INVITED_TEAM_MEMBER,
     EVENT_LOGGED_IN,
     EVENT_LOGGED_OUT,
@@ -23,11 +24,17 @@ from .taxonomy import (
     EVENT_SIGNED_UP,
     EVENT_UPGRADED_PLAN,
     EVENT_UPLOADED_FILE,
+    FILE_ENGAGEMENT_BLUE_SHARE_MULTIPLIER,
+    FILE_ENGAGEMENT_BLUE_UPLOAD_MULTIPLIER,
+    FILE_ENGAGEMENT_FLAG_KEY,
+    FILE_ENGAGEMENT_RED_SHARE_MULTIPLIER,
+    FILE_ENGAGEMENT_RED_UPLOAD_MULTIPLIER,
     GROUP_TYPE_ACCOUNT,
-    NEW_SIGNUP_PAGE_FLAG_KEY,
-    NEW_SIGNUP_PAGE_FLAG_ROLLOUT_PERCENT,
+    ONBOARDING_BLUE_RATE,
+    ONBOARDING_CONTROL_RATE,
+    ONBOARDING_EXPERIMENT_FLAG_KEY,
+    ONBOARDING_RED_RATE,
     SIGNUP_SUCCESS_RATE_CONTROL,
-    SIGNUP_SUCCESS_RATE_TEST,
     URL_ACCOUNT_BILLING,
     URL_ACCOUNT_SETTINGS,
     URL_ACCOUNT_TEAM,
@@ -156,7 +163,8 @@ class HedgeboxPerson(SimPerson):
     name: str
     email: str
     affinity: float  # 0 roughly means they won't like Hedgebox, 1 means they will - affects need/satisfaction deltas
-    falls_into_new_signup_page_bucket: bool
+    onboarding_variant: str
+    file_engagement_variant: str
     watches_marius_tech_tips: bool
 
     # Internal state - plain
@@ -180,9 +188,24 @@ class HedgeboxPerson(SimPerson):
             if self.active_client.browser != "Internet Explorer"
             else self.cluster.random.betavariate(1, 1.4)
         )
-        self.falls_into_new_signup_page_bucket = self.cluster.random.random() < (
-            NEW_SIGNUP_PAGE_FLAG_ROLLOUT_PERCENT / 100
-        )
+        # Assign onboarding experiment variant
+        rand_val = self.cluster.random.random()
+        if rand_val < 0.34:
+            self.onboarding_variant = "control"
+        elif rand_val < 0.67:
+            self.onboarding_variant = "red"
+        else:
+            self.onboarding_variant = "blue"
+
+        # Assign file engagement experiment variant
+        rand_val = self.cluster.random.random()
+        if rand_val < 0.34:
+            self.file_engagement_variant = "control"
+        elif rand_val < 0.67:
+            self.file_engagement_variant = "red"
+        else:
+            self.file_engagement_variant = "blue"
+
         self.watches_marius_tech_tips = self.cluster.random.random() < 0.04
         self.invite_to_use_id = None
         self.file_to_view = None
@@ -256,13 +279,36 @@ class HedgeboxPerson(SimPerson):
     # Abstract methods
 
     def decide_feature_flags(self) -> dict[str, Any]:
+        flags = {}
+
+        # Legacy experiment (complete)
         if (
-            self.cluster.simulation_time >= self.cluster.matrix.new_signup_page_experiment_start
-            and self.cluster.simulation_time < self.cluster.matrix.new_signup_page_experiment_end
+            self.cluster.simulation_time >= self.cluster.matrix.onboarding_experiment_start
+            and self.cluster.simulation_time < self.cluster.matrix.onboarding_experiment_end
         ):
-            return {NEW_SIGNUP_PAGE_FLAG_KEY: "test" if self.falls_into_new_signup_page_bucket else "control"}
-        else:
-            return {}
+            flags[ONBOARDING_EXPERIMENT_FLAG_KEY] = self.onboarding_variant
+
+        # New experiment (running)
+        if self.cluster.simulation_time >= self.cluster.matrix.file_engagement_experiment_start:
+            flags[FILE_ENGAGEMENT_FLAG_KEY] = self.file_engagement_variant
+
+        return flags
+
+    def capture_feature_flag_exposures(self):
+        """Capture $feature_flag_called exposure events for active experiment flags."""
+        active_flags = self.decide_feature_flags()
+
+        for flag_key, variant in active_flags.items():
+            # Only capture exposures for experiment flags (not regular feature flags)
+            if flag_key in [ONBOARDING_EXPERIMENT_FLAG_KEY, FILE_ENGAGEMENT_FLAG_KEY]:
+                self.active_client.capture(
+                    EVENT_FEATURE_FLAG_CALLED,
+                    {
+                        "$feature_flag": flag_key,
+                        "$feature_flag_response": variant,
+                        flag_key: variant,
+                    },
+                )
 
     def determine_next_session_datetime(self) -> dt.datetime:
         next_session_datetime = self.cluster.simulation_time
@@ -313,6 +359,18 @@ class HedgeboxPerson(SimPerson):
         else:
             assert self.account is not None
             file_count = len(self.account.files)
+
+            # File engagement experiment: Apply multipliers to upload and share intents
+            variant = self.decide_feature_flags().get(FILE_ENGAGEMENT_FLAG_KEY)
+            upload_multiplier = 1.0
+            share_multiplier = 1.0
+            if variant == "red":
+                upload_multiplier = FILE_ENGAGEMENT_RED_UPLOAD_MULTIPLIER
+                share_multiplier = FILE_ENGAGEMENT_RED_SHARE_MULTIPLIER
+            elif variant == "blue":
+                upload_multiplier = FILE_ENGAGEMENT_BLUE_UPLOAD_MULTIPLIER
+                share_multiplier = FILE_ENGAGEMENT_BLUE_SHARE_MULTIPLIER
+
             # The more files, the more likely to delete/download/share rather than upload
             possible_intents_with_weights.extend(
                 [
@@ -326,12 +384,14 @@ class HedgeboxPerson(SimPerson):
                     ),
                     (
                         HedgeboxSessionIntent.SHARE_FILE,
-                        math.log10(file_count) / 3 if file_count else 0,
+                        (math.log10(file_count) / 3 if file_count else 0) * share_multiplier,
                     ),
                 ]
             )
             if self.account.allocation_used_fraction < 0.99:
-                possible_intents_with_weights.append((HedgeboxSessionIntent.UPLOAD_FILE_S, self.need * 3))
+                possible_intents_with_weights.append(
+                    (HedgeboxSessionIntent.UPLOAD_FILE_S, self.need * 3 * upload_multiplier)
+                )
             if (
                 self.satisfaction > 0.5
                 and self.need > 0.7
@@ -357,6 +417,9 @@ class HedgeboxPerson(SimPerson):
             return None
 
     def simulate_session(self):
+        # Capture exposure events for active experiment flags at session start
+        self.capture_feature_flag_exposures()
+
         if self.active_session_intent == HedgeboxSessionIntent.CONSIDER_PRODUCT:
             entered_url_directly = self.cluster.random.random() < 0.18
             self.active_client.register({"$referrer": "$direct" if entered_url_directly else "https://www.google.com/"})
@@ -476,16 +539,26 @@ class HedgeboxPerson(SimPerson):
             self.advance_timer(5 + self.cluster.random.betavariate(2, 1.3) * 19)
             return self.go_to_login()
 
-        # Signup is faster with the new signup page
-        is_on_new_signup_page = self.decide_feature_flags().get(NEW_SIGNUP_PAGE_FLAG_KEY) == "test"
-        success_rate = SIGNUP_SUCCESS_RATE_TEST if is_on_new_signup_page else SIGNUP_SUCCESS_RATE_CONTROL
+        # Onboarding experiment: Different success rates per variant
+        variant = self.decide_feature_flags().get(ONBOARDING_EXPERIMENT_FLAG_KEY)
+        if variant == "red":
+            success_rate = ONBOARDING_RED_RATE
+            signup_duration = 120
+        elif variant == "blue":
+            success_rate = ONBOARDING_BLUE_RATE
+            signup_duration = 150
+        elif variant == "control":
+            success_rate = ONBOARDING_CONTROL_RATE
+            signup_duration = 170
+        else:
+            success_rate = SIGNUP_SUCCESS_RATE_CONTROL
+            signup_duration = 170
+
         # What's the outlook?
         success = self.cluster.random.random() < success_rate
         # Looking at things, filling out forms
-        self.advance_timer(
-            9 + self.cluster.random.betavariate(1.2, 2) * (60 if not success else 120 if is_on_new_signup_page else 170)
-        )
-        # More likely to finish signing up with the new signup page
+        self.advance_timer(9 + self.cluster.random.betavariate(1.2, 2) * (60 if not success else signup_duration))
+        # Red variant has the highest success rate
         if success:  # Let's do this!
             self.sign_up()
             self.go_to_files()

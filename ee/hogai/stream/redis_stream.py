@@ -17,12 +17,13 @@ from posthog.schema import (
     AssistantGenerationStatusEvent,
     AssistantGenerationStatusType,
     AssistantUpdateEvent,
+    SubagentUpdateEvent,
 )
 
 from posthog.redis import get_async_client
 
 from ee.hogai.utils.types import AssistantOutput
-from ee.hogai.utils.types.base import AssistantMessageUnion
+from ee.hogai.utils.types.base import ApprovalPayload, AssistantStreamedMessageUnion
 from ee.models.assistant import Conversation
 
 logger = structlog.get_logger(__name__)
@@ -30,6 +31,24 @@ logger = structlog.get_logger(__name__)
 REDIS_TO_CLIENT_LATENCY_HISTOGRAM = Histogram(
     "posthog_ai_redis_to_client_latency_seconds",
     "Time from writing message to Redis stream to reading it on client side",
+    buckets=[0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, float("inf")],
+)
+
+REDIS_READ_ITERATION_LATENCY_HISTOGRAM = Histogram(
+    "posthog_ai_redis_read_iteration_latency_seconds",
+    "Time between iterations in the Redis stream read loop",
+    buckets=[0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, float("inf")],
+)
+
+REDIS_WRITE_ITERATION_LATENCY_HISTOGRAM = Histogram(
+    "posthog_ai_redis_write_iteration_latency_seconds",
+    "Time between iterations in the Redis stream write loop",
+    buckets=[0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, float("inf")],
+)
+
+REDIS_STREAM_INIT_ITERATION_LATENCY_HISTOGRAM = Histogram(
+    "posthog_ai_redis_stream_init_iteration_latency_seconds",
+    "Time between iterations in the stream initialization wait loop",
     buckets=[0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, float("inf")],
 )
 
@@ -47,12 +66,12 @@ class ConversationEvent(BaseModel):
 
 class MessageEvent(BaseModel):
     type: Literal[AssistantEventType.MESSAGE]
-    payload: AssistantMessageUnion
+    payload: AssistantStreamedMessageUnion
 
 
 class UpdateEvent(BaseModel):
     type: Literal[AssistantEventType.UPDATE]
-    payload: AssistantUpdateEvent
+    payload: AssistantUpdateEvent | SubagentUpdateEvent
 
 
 class GenerationStatusEvent(BaseModel):
@@ -70,7 +89,14 @@ class StreamStatusEvent(BaseModel):
     payload: StatusPayload
 
 
-StreamEventUnion = ConversationEvent | MessageEvent | GenerationStatusEvent | UpdateEvent | StreamStatusEvent
+class ApprovalEvent(BaseModel):
+    type: Literal[AssistantEventType.APPROVAL]
+    payload: ApprovalPayload
+
+
+StreamEventUnion = (
+    ConversationEvent | MessageEvent | GenerationStatusEvent | UpdateEvent | StreamStatusEvent | ApprovalEvent
+)
 
 
 class StreamEvent(BaseModel):
@@ -81,6 +107,11 @@ class StreamEvent(BaseModel):
 def get_conversation_stream_key(conversation_id: UUID) -> str:
     """Get the Redis stream key for a conversation."""
     return f"{CONVERSATION_STREAM_PREFIX}{conversation_id}"
+
+
+def get_subagent_stream_key(conversation_id: UUID, tool_call_id: str) -> str:
+    """Get the Redis stream key for a subagent tool execution."""
+    return f"{CONVERSATION_STREAM_PREFIX}{conversation_id}:{tool_call_id}"
 
 
 class ConversationStreamSerializer:
@@ -104,13 +135,17 @@ class ConversationStreamSerializer:
         else:
             event_type, event_data = event
             if event_type == AssistantEventType.MESSAGE:
-                return self._serialize(self._to_message_event(cast(AssistantMessageUnion, event_data)))
+                return self._serialize(self._to_message_event(cast(AssistantStreamedMessageUnion, event_data)))
             elif event_type == AssistantEventType.CONVERSATION:
                 return self._serialize(self._to_conversation_event(cast(Conversation, event_data)))
             elif event_type == AssistantEventType.STATUS:
                 return self._serialize(self._to_status_event(cast(AssistantGenerationStatusEvent, event_data)))
             elif event_type == AssistantEventType.UPDATE:
-                return self._serialize(self._to_update_event(cast(AssistantUpdateEvent, event_data)))
+                return self._serialize(
+                    self._to_update_event(cast(AssistantUpdateEvent | SubagentUpdateEvent, event_data))
+                )
+            elif event_type == AssistantEventType.APPROVAL:
+                return self._serialize(self._to_approval_event(cast(ApprovalPayload, event_data)))
             else:
                 raise ValueError(f"Unknown event type: {event_type}")
 
@@ -119,6 +154,7 @@ class ConversationStreamSerializer:
             return None
 
         return {
+            # nosemgrep: python.lang.security.deserialization.pickle.avoid-pickle (internal Redis stream, data is self-generated)
             self.serialization_key: pickle.dumps(
                 StreamEvent(
                     event=event,
@@ -126,7 +162,7 @@ class ConversationStreamSerializer:
             ),
         }
 
-    def _to_message_event(self, message: AssistantMessageUnion) -> MessageEvent:
+    def _to_message_event(self, message: AssistantStreamedMessageUnion) -> MessageEvent:
         return MessageEvent(
             type=AssistantEventType.MESSAGE,
             payload=message,
@@ -149,13 +185,20 @@ class ConversationStreamSerializer:
             payload=event,
         )
 
-    def _to_update_event(self, update: AssistantUpdateEvent) -> UpdateEvent:
+    def _to_update_event(self, update: AssistantUpdateEvent | SubagentUpdateEvent) -> UpdateEvent:
         return UpdateEvent(
             type=AssistantEventType.UPDATE,
             payload=update,
         )
 
+    def _to_approval_event(self, approval: ApprovalPayload) -> ApprovalEvent:
+        return ApprovalEvent(
+            type=AssistantEventType.APPROVAL,
+            payload=approval,
+        )
+
     def deserialize(self, data: dict[bytes, bytes]) -> StreamEvent:
+        # nosemgrep: python.lang.security.deserialization.pickle.avoid-pickle (internal Redis stream, data is self-generated)
         return pickle.loads(data[bytes(self.serialization_key, "utf-8")])
 
 
@@ -192,8 +235,15 @@ class ConversationRedisStream:
         max_delay = 2.0  # Cap at 2 seconds
         timeout = 60.0  # 60 seconds timeout
         start_time = asyncio.get_event_loop().time()
+        last_iteration_time = None
 
         while True:
+            current_time = time.time()
+            if last_iteration_time is not None:
+                iteration_duration = current_time - last_iteration_time
+                REDIS_STREAM_INIT_ITERATION_LATENCY_HISTOGRAM.observe(iteration_duration)
+            last_iteration_time = current_time
+
             elapsed_time = asyncio.get_event_loop().time() - start_time
             if elapsed_time >= timeout:
                 logger.debug(
@@ -233,8 +283,15 @@ class ConversationRedisStream:
         """
         current_id = start_id
         start_time = asyncio.get_event_loop().time()
+        last_iteration_time = None
 
         while True:
+            current_time = time.time()
+            if last_iteration_time is not None:
+                iteration_duration = current_time - last_iteration_time
+                REDIS_READ_ITERATION_LATENCY_HISTOGRAM.observe(iteration_duration)
+            last_iteration_time = current_time
+
             if asyncio.get_event_loop().time() - start_time > self._timeout:
                 raise StreamError("Stream timeout - conversation took too long to complete")
 
@@ -291,19 +348,44 @@ class ConversationRedisStream:
                 logger.exception("Failed to delete stream", stream_key=self._stream_key)
                 return False
 
+    async def mark_complete(self) -> None:
+        await self._write_status(StatusPayload(status="complete"))
+
+    async def _write_status(self, status: StatusPayload) -> None:
+        message = self._serializer.dumps(status)
+        if message is None:
+            return
+        await self._redis_client.xadd(
+            self._stream_key,
+            message,
+            maxlen=self._max_length,
+            approximate=True,
+        )
+
     async def write_to_stream(
-        self, generator: AsyncGenerator[AssistantOutput, None], callback: Callable[[], None] | None = None
+        self,
+        generator: AsyncGenerator[AssistantOutput, None],
+        callback: Callable[[], None] | None = None,
+        emit_completion: bool = True,
     ) -> None:
         """Write to the Redis stream.
 
         Args:
             generator: AsyncGenerator of AssistantOutput
             callback: Callback to trigger after each message is written to the stream
+            emit_completion: Whether to mark the stream as complete
         """
         try:
             await self._redis_client.expire(self._stream_key, self._timeout)
 
+            last_iteration_time = None
             async for chunk in generator:
+                current_time = time.time()
+                if last_iteration_time is not None:
+                    iteration_duration = current_time - last_iteration_time
+                    REDIS_WRITE_ITERATION_LATENCY_HISTOGRAM.observe(iteration_duration)
+                last_iteration_time = current_time
+
                 message = self._serializer.dumps(chunk)
                 if message is not None:
                     await self._redis_client.xadd(
@@ -315,24 +397,9 @@ class ConversationRedisStream:
                 if callback:
                     callback()
 
-            # Mark the stream as complete
-            status_message = StatusPayload(status="complete")
-            completion_message = self._serializer.dumps(status_message)
-            await self._redis_client.xadd(
-                self._stream_key,
-                completion_message,
-                maxlen=self._max_length,
-                approximate=True,
-            )
+            if emit_completion:
+                await self._write_status(StatusPayload(status="complete"))
 
         except Exception as e:
-            # Mark the stream as failed
-            error_message = StatusPayload(status="error", error=str(e))
-            message = self._serializer.dumps(error_message)
-            await self._redis_client.xadd(
-                self._stream_key,
-                message,
-                maxlen=self._max_length,
-                approximate=True,
-            )
+            await self._write_status(StatusPayload(status="error", error=str(e)))
             raise StreamError("Failed to write to stream")

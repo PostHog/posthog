@@ -1,6 +1,6 @@
 import './ToolbarLaunch.scss'
 
-import { IconFlag, IconPieChart, IconSearch, IconTestTube, IconToolbar } from '@posthog/icons'
+import { IconFlag, IconPieChart, IconSearch, IconTestTube } from '@posthog/icons'
 import { LemonBanner } from '@posthog/lemon-ui'
 
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
@@ -12,13 +12,13 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { ProductKey } from '~/queries/schema/schema-general'
 
 export const scene: SceneExport = {
     component: ToolbarLaunch,
-    settingSectionId: 'environment-details',
+    productKey: ProductKey.TOOLBAR,
 }
 
 export function ToolbarLaunch(): JSX.Element {
@@ -68,11 +68,8 @@ export function ToolbarLaunch(): JSX.Element {
                 description="PostHog toolbar launches PostHog right in your app or website."
                 resourceType={{
                     type: 'toolbar',
-                    forceIcon: <IconToolbar />,
                 }}
             />
-
-            <SceneDivider />
 
             <SceneSection title="Authorized URLs for Toolbar" description="Click on the URL to launch the toolbar.">
                 <AuthorizedUrlList type={AuthorizedUrlListType.TOOLBAR_URLS} addText="Add authorized URL" />

@@ -3,7 +3,6 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { IconCheck, IconSort } from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonTag } from '@posthog/lemon-ui'
 
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { InfiniteList } from 'lib/components/TaxonomicFilter/InfiniteList'
 import { infiniteListLogic } from 'lib/components/TaxonomicFilter/infiniteListLogic'
 import { taxonomicFilterPreferencesLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterPreferencesLogic'
@@ -25,20 +24,19 @@ export interface InfiniteSelectResultsProps {
     useVerticalLayout?: boolean
 }
 
-function CategoryPill({
+// CategoryPillContent uses useValues(infiniteListLogic) without props, relying on BindLogic context
+// This ensures proper logic mounting and prevents "Can not find path" KEA errors
+function CategoryPillContent({
     isActive,
     groupType,
-    taxonomicFilterLogicProps,
     onClick,
 }: {
     isActive: boolean
     groupType: TaxonomicFilterGroupType
-    taxonomicFilterLogicProps: TaxonomicFilterLogicProps
     onClick: () => void
 }): JSX.Element {
-    const logic = infiniteListLogic({ ...taxonomicFilterLogicProps, listGroupType: groupType })
     const { taxonomicGroups } = useValues(taxonomicFilterLogic)
-    const { totalResultCount, totalListCount, isLoading, hasRemoteDataSource } = useValues(logic)
+    const { totalResultCount, totalListCount, isLoading, hasRemoteDataSource, hasMore } = useValues(infiniteListLogic)
 
     const group = taxonomicGroups.find((g) => g.type === groupType)
 
@@ -65,9 +63,33 @@ function CategoryPill({
                     ) : (
                         totalResultCount
                     )}
+                    {/* This is a workaround. We need to make the logic fetch more results when querying from clickhouse*/}
+                    <span aria-label={hasMore ? `${totalResultCount} or more` : `${totalResultCount}`}>
+                        {hasMore ? '+' : ''}
+                    </span>
                 </>
             )}
         </LemonTag>
+    )
+}
+
+// CategoryPill wraps CategoryPillContent with BindLogic to ensure infiniteListLogic is properly mounted
+// before accessing its values. Without BindLogic, KEA throws "Can not find path" errors.
+function CategoryPill({
+    isActive,
+    groupType,
+    taxonomicFilterLogicProps,
+    onClick,
+}: {
+    isActive: boolean
+    groupType: TaxonomicFilterGroupType
+    taxonomicFilterLogicProps: TaxonomicFilterLogicProps
+    onClick: () => void
+}): JSX.Element {
+    return (
+        <BindLogic logic={infiniteListLogic} props={{ ...taxonomicFilterLogicProps, listGroupType: groupType }}>
+            <CategoryPillContent isActive={isActive} groupType={groupType} onClick={onClick} />
+        </BindLogic>
     )
 }
 
@@ -82,64 +104,62 @@ function TaxonomicGroupTitle({ openTab }: { openTab: TaxonomicFilterGroupType })
             {openTab === TaxonomicFilterGroupType.Events ? (
                 <>
                     <span>{taxonomicGroups.find((g) => g.type === openTab)?.name || openTab}</span>
-                    <FlaggedFeature flag="taxonomic-event-sorting" match={true}>
-                        <LemonMenu
-                            items={[
-                                {
-                                    label: (
-                                        <div className="flex flex-row gap-2">
-                                            {eventOrdering === 'name' ? <IconCheck /> : <IconBlank />}
-                                            <span>Name</span>
-                                        </div>
-                                    ),
-                                    tooltip: 'Sort events alphabetically',
-                                    onClick: () => {
-                                        setEventOrdering('name')
-                                    },
-                                    'data-attr': 'taxonomic-event-sorting-by-name',
+                    <LemonMenu
+                        items={[
+                            {
+                                label: (
+                                    <div className="flex flex-row gap-2">
+                                        {eventOrdering === 'name' ? <IconCheck /> : <IconBlank />}
+                                        <span>Name</span>
+                                    </div>
+                                ),
+                                tooltip: 'Sort events alphabetically',
+                                onClick: () => {
+                                    setEventOrdering('name')
                                 },
-                                {
-                                    label: (
-                                        <div className="flex flex-row gap-2">
-                                            {eventOrdering === '-last_seen_at' ? <IconCheck /> : <IconBlank />}
-                                            <span>Recently seen</span>
-                                        </div>
-                                    ),
-                                    tooltip: 'Show the most recent events first',
-                                    onClick: () => {
-                                        setEventOrdering('-last_seen_at')
-                                    },
-                                    'data-attr': 'taxonomic-event-sorting-by-recency',
+                                'data-attr': 'taxonomic-event-sorting-by-name',
+                            },
+                            {
+                                label: (
+                                    <div className="flex flex-row gap-2">
+                                        {eventOrdering === '-last_seen_at' ? <IconCheck /> : <IconBlank />}
+                                        <span>Recently seen</span>
+                                    </div>
+                                ),
+                                tooltip: 'Show the most recent events first',
+                                onClick: () => {
+                                    setEventOrdering('-last_seen_at')
                                 },
-                                {
-                                    label: (
-                                        <div className="flex flex-row gap-2">
-                                            {!eventOrdering ? <IconCheck /> : <IconBlank />}
-                                            <span>Both</span>
-                                        </div>
-                                    ),
-                                    tooltip:
-                                        'Sorts events by the day they were last seen, and then by name. The default option.',
-                                    onClick: () => {
-                                        setEventOrdering(null)
-                                    },
-                                    'data-attr': 'taxonomic-event-sorting-by-both',
+                                'data-attr': 'taxonomic-event-sorting-by-recency',
+                            },
+                            {
+                                label: (
+                                    <div className="flex flex-row gap-2">
+                                        {!eventOrdering ? <IconCheck /> : <IconBlank />}
+                                        <span>Both</span>
+                                    </div>
+                                ),
+                                tooltip:
+                                    'Sorts events by the day they were last seen, and then by name. The default option.',
+                                onClick: () => {
+                                    setEventOrdering(null)
                                 },
-                            ]}
-                        >
-                            <LemonButton
-                                icon={<IconSort />}
-                                size="small"
-                                tooltip={`Sorting by ${
-                                    eventOrdering === '-last_seen_at'
-                                        ? 'recently seen'
-                                        : eventOrdering === 'name'
-                                          ? 'name'
-                                          : 'recently seen and then name'
-                                }`}
-                            />
-                        </LemonMenu>
-                    </FlaggedFeature>
+                                'data-attr': 'taxonomic-event-sorting-by-both',
+                            },
+                        ]}
+                    >
+                        <LemonButton
+                            icon={<IconSort />}
+                            size="small"
+                            tooltip={`Sorting by ${
+                                eventOrdering === '-last_seen_at'
+                                    ? 'recently seen'
+                                    : eventOrdering === 'name'
+                                      ? 'name'
+                                      : 'recently seen and then name'
+                            }`}
+                        />
+                    </LemonMenu>
                 </>
             ) : (
                 <>{taxonomicGroups.find((g) => g.type === openTab)?.name || openTab}</>

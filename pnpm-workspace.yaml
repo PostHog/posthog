@@ -5,11 +5,22 @@ packages:
     - common/plugin_transpiler
     - common/storybook
     - common/tailwind
-    - ee/frontend
+    - common/hogql_parser
     - frontend
     - playwright
-    - plugin-server
+    - nodejs
+    - nodejs/src/scripts
     - products/*
-    - products/mcp/typescript
+    - docs/onboarding
+    - services/mcp
     - rust/cyclotron-node
-minimumReleaseAge: 1440
+
+# posthog-js needs to be excluded because we only update our CDN
+# once a newer posthog-js version is merged onto this repo
+minimumReleaseAge: 4320
+minimumReleaseAgeExclude:
+    - posthog-js
+    - posthog-js-lite
+    - node-forge@1.3.2
+    - '@posthog/*'
+    - '@modelcontextprotocol/sdk' # Security update for GHSA-345p-7cg4-v4c7

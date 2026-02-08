@@ -6,6 +6,7 @@ from django.conf import settings
 from django.db.models import Q
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.query_tagging import Product, tag_queries
 from posthog.constants import FlagRequestType
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.dashboard_templates import add_enriched_insights_to_feature_flag_dashboard
@@ -19,6 +20,25 @@ if TYPE_CHECKING:
 REDIS_LOCK_TOKEN = "posthog:decide_analytics:lock"
 CACHE_BUCKET_SIZE = 60 * 2  # duration in seconds
 
+# SDK library names must match the Rust Library::as_str() values in
+# rust/feature-flags/src/handler/types.rs
+SDK_LIBRARIES = [
+    "posthog-js",
+    "posthog-node",
+    "posthog-python",
+    "posthog-php",
+    "posthog-ruby",
+    "posthog-go",
+    "posthog-java",
+    "posthog-dotnet",
+    "posthog-elixir",
+    "posthog-android",
+    "posthog-ios",
+    "posthog-react-native",
+    "posthog-flutter",
+    "other",
+]
+
 # :NOTE: When making changes here, make sure you run test_no_interference_between_different_types_of_new_incoming_increments
 # locally. It's not included in CI because of tricky patching freeze time in thread issues.
 
@@ -28,6 +48,16 @@ def get_team_request_key(team_id: int, request_type: FlagRequestType) -> str:
         return f"posthog:decide_requests:{team_id}"
     elif request_type == FlagRequestType.LOCAL_EVALUATION:
         return f"posthog:local_evaluation_requests:{team_id}"
+    else:
+        raise ValueError(f"Unknown request type: {request_type}")
+
+
+def get_team_request_library_key(team_id: int, request_type: FlagRequestType, library: str) -> str:
+    """Get the Redis key for SDK-specific request counts."""
+    if request_type == FlagRequestType.DECIDE:
+        return f"posthog:decide_requests:sdk:{team_id}:{library}"
+    elif request_type == FlagRequestType.LOCAL_EVALUATION:
+        return f"posthog:local_evaluation_requests:sdk:{team_id}:{library}"
     else:
         raise ValueError(f"Unknown request type: {request_type}")
 
@@ -63,6 +93,62 @@ def _extract_total_count_for_key_from_redis_hash(client: redis.Redis, key: str) 
     return total_count, min_time, max_time
 
 
+def _extract_sdk_breakdown_from_redis(
+    client: redis.Redis, team_id: int, request_type: FlagRequestType
+) -> dict[str, int]:
+    """
+    Extract per-SDK request counts from Redis, consuming the buckets.
+    Returns a dict mapping SDK name to total count.
+
+    Uses Redis pipelining to fetch all SDK keys in a single round-trip,
+    then deletes consumed buckets in another round-trip.
+    """
+    # Build all keys upfront
+    keys = [get_team_request_library_key(team_id, request_type, library) for library in SDK_LIBRARIES]
+
+    # Pipeline HGETALL for all SDK keys in one round-trip
+    pipe = client.pipeline(transaction=False)
+    for key in keys:
+        pipe.hgetall(key)
+    results = pipe.execute()
+
+    # Process results and collect buckets to delete
+    sdk_breakdown: dict[str, int] = {}
+    deletions: list[tuple[str, list[bytes]]] = []
+
+    for library, key, existing_values in zip(SDK_LIBRARIES, keys, results):
+        if not existing_values:
+            continue
+
+        time_buckets = existing_values.keys()
+        # The latest bucket is still being filled, so we don't want to delete it nor count it.
+        # It will be counted in a later iteration, when it's not being filled anymore.
+        if len(time_buckets) <= 1:
+            continue
+
+        total_count = 0
+        buckets_to_delete: list[bytes] = []
+
+        # Sort buckets and skip the latest one (still being filled)
+        for time_bucket in sorted(time_buckets, key=lambda bucket: int(bucket))[:-1]:
+            total_count += int(existing_values[time_bucket])
+            buckets_to_delete.append(time_bucket)
+
+        if total_count > 0:
+            sdk_breakdown[library] = total_count
+            deletions.append((key, buckets_to_delete))
+
+    # Pipeline all deletions in one round-trip
+    if deletions:
+        pipe = client.pipeline(transaction=False)
+        for key, buckets in deletions:
+            for bucket in buckets:
+                pipe.hdel(key, bucket)
+        pipe.execute()
+
+    return sdk_breakdown
+
+
 def capture_usage_for_all_teams(ph_client: "Posthog") -> None:
     for team in Team.objects.exclude(Q(organization__for_internal_metrics=True) | Q(is_demo=True)).only("id", "uuid"):
         capture_team_decide_usage(ph_client, team.id, team.uuid)
@@ -82,18 +168,26 @@ def capture_team_decide_usage(ph_client: "Posthog", team_id: int, team_uuid: str
                 max_time,
             ) = _extract_total_count_for_key_from_redis_hash(client, decide_key_name)
 
-            if total_decide_request_count > 0 and settings.DECIDE_BILLING_ANALYTICS_TOKEN:
+            # Extract SDK breakdown for decide requests
+            decide_sdk_breakdown = _extract_sdk_breakdown_from_redis(client, team_id, FlagRequestType.DECIDE)
+
+            billing_token = settings.DECIDE_BILLING_ANALYTICS_TOKEN
+            if total_decide_request_count > 0 and billing_token:
+                properties: dict = {
+                    "count": total_decide_request_count,
+                    "team_id": team_id,
+                    "team_uuid": team_uuid,
+                    "min_time": min_time,
+                    "max_time": max_time,
+                    "token": billing_token,
+                }
+                if decide_sdk_breakdown:
+                    properties["sdk_breakdown"] = decide_sdk_breakdown
+
                 ph_client.capture(
                     distinct_id=team_id,
                     event="decide usage",
-                    properties={
-                        "count": total_decide_request_count,
-                        "team_id": team_id,
-                        "team_uuid": team_uuid,
-                        "min_time": min_time,
-                        "max_time": max_time,
-                        "token": settings.DECIDE_BILLING_ANALYTICS_TOKEN,
-                    },
+                    properties=properties,
                 )
 
             local_evaluation_key_name = get_team_request_key(team_id, FlagRequestType.LOCAL_EVALUATION)
@@ -103,18 +197,27 @@ def capture_team_decide_usage(ph_client: "Posthog", team_id: int, team_uuid: str
                 max_time,
             ) = _extract_total_count_for_key_from_redis_hash(client, local_evaluation_key_name)
 
-            if total_local_evaluation_request_count > 0 and settings.DECIDE_BILLING_ANALYTICS_TOKEN:
+            # Extract SDK breakdown for local evaluation requests
+            local_eval_sdk_breakdown = _extract_sdk_breakdown_from_redis(
+                client, team_id, FlagRequestType.LOCAL_EVALUATION
+            )
+
+            if total_local_evaluation_request_count > 0 and billing_token:
+                properties = {
+                    "count": total_local_evaluation_request_count,
+                    "team_id": team_id,
+                    "team_uuid": team_uuid,
+                    "min_time": min_time,
+                    "max_time": max_time,
+                    "token": billing_token,
+                }
+                if local_eval_sdk_breakdown:
+                    properties["sdk_breakdown"] = local_eval_sdk_breakdown
+
                 ph_client.capture(
                     distinct_id=team_id,
                     event="local evaluation usage",
-                    properties={
-                        "count": total_local_evaluation_request_count,
-                        "team_id": team_id,
-                        "team_uuid": team_uuid,
-                        "min_time": min_time,
-                        "max_time": max_time,
-                        "token": settings.DECIDE_BILLING_ANALYTICS_TOKEN,
-                    },
+                    properties=properties,
                 )
 
     except redis.exceptions.LockError:
@@ -125,6 +228,7 @@ def capture_team_decide_usage(ph_client: "Posthog", team_id: int, team_uuid: str
 
 
 def find_flags_with_enriched_analytics(begin: datetime, end: datetime):
+    tag_queries(product=Product.FEATURE_FLAGS, name="find_flags_with_enriched_analytics")
     result = sync_execute(
         """
         SELECT team_id, JSONExtractString(properties, 'feature_flag') as flag_key

@@ -4,8 +4,6 @@ from typing import Optional, cast
 from freezegun import freeze_time
 from posthog.test.base import BaseTest
 
-from hogql_parser import parse_select
-
 from posthog.schema import (
     BaseMathType,
     ChartDisplayType,
@@ -23,6 +21,7 @@ from posthog.hogql import ast
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.modifiers import create_default_modifiers_for_team
+from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.timings import HogQLTimings
 
@@ -148,6 +147,28 @@ class TestTrendsActorsQueryBuilder(BaseTest):
             ),
             "greaterOrEquals(timestamp, toDateTime('2023-05-03 13:00:00.000000')), less(timestamp, toDateTime('2023-05-03 14:00:00.000000'))",
         )
+
+    def test_last_seen_field_included(self):
+        """Test that last_seen field is included in the actors query"""
+        builder = self._get_builder(time_frame="2023-05-08")
+        query = builder.build_actors_query()
+
+        # Check that the select includes last_seen
+        select_aliases = [expr.alias for expr in query.select if isinstance(expr, ast.Alias)]
+        self.assertIn("event_count", select_aliases)
+        self.assertIn("last_seen", select_aliases)
+
+        # Verify last_seen uses max(timestamp)
+        last_seen_expr = next(
+            expr for expr in query.select if isinstance(expr, ast.Alias) and expr.alias == "last_seen"
+        )
+        # The expr should be a Call node with name 'max'
+        assert isinstance(last_seen_expr.expr, ast.Call)  # Using `assert` because of type narrowing
+        self.assertEqual(last_seen_expr.expr.name, "max")
+        # And it should have timestamp as argument
+        self.assertEqual(len(last_seen_expr.expr.args), 1)
+        assert isinstance(last_seen_expr.expr.args[0], ast.Field)
+        self.assertEqual(last_seen_expr.expr.args[0].chain, ["timestamp"])
 
     def test_date_range_compare_to(self):
         self.team.timezone = "Europe/Berlin"

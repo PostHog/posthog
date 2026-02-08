@@ -1,0 +1,10 @@
+# Dockerfile for local agent development - builds on top of sandbox-base
+# This image should be rebuilt when the local agent package changes
+# Set LOCAL_AGENT_PACKAGE to the path to the local agent package to use this in DockerSandbox
+
+FROM posthog-sandbox-base
+
+COPY local-agent /local-agent
+RUN cd /local-agent && npm pack && \
+    cd /scripts && npm install /local-agent/*.tgz && \
+    rm -rf /local-agent

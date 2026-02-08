@@ -6,15 +6,19 @@ import {
     IconBook,
     IconBug,
     IconCircleDashed,
+    IconCode,
     IconCode2,
-    IconCursor,
     IconDashboard,
     IconDatabase,
     IconDecisionTree,
+    IconDownload,
     IconExternal,
     IconFeatures,
     IconFlask,
+    IconFolder,
+    IconFolderOpen,
     IconFunnels,
+    IconGear,
     IconGraph,
     IconHogQL,
     IconHome,
@@ -28,15 +32,20 @@ import {
     IconPeople,
     IconPieChart,
     IconPiggyBank,
+    IconPlay,
     IconPlug,
     IconRetention,
     IconRewindPlay,
     IconRocket,
     IconSearch,
     IconServer,
+    IconSpotlight,
+    IconStethoscope,
     IconStickiness,
+    IconSupport,
     IconToggle,
     IconToggleOff,
+    IconToolbar,
     IconTrends,
     IconUser,
     IconUserPaths,
@@ -81,6 +90,10 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     marketing_settings: {
         icon: <IconMegaphone />,
     },
+    marketing_analytics: {
+        icon: <IconMegaphone />,
+        iconColor: ['var(--color-product-marketing-analytics-light)'],
+    },
     managed_viewsets: {
         icon: <IconDatabase />,
     },
@@ -110,6 +123,10 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     survey: {
         icon: <IconMessage />,
+        iconColor: ['var(--color-product-surveys-light)'],
+    },
+    product_tour: {
+        icon: <IconSpotlight />,
         iconColor: ['var(--color-product-surveys-light)'],
     },
     user_interview: {
@@ -171,7 +188,7 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
         icon: <IconBug />,
     },
     action: {
-        icon: <IconCursor />,
+        icon: <IconPlay />,
     },
     comment: {
         icon: <IconNotification />,
@@ -246,6 +263,50 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     search: {
         icon: <IconSearch />,
+    },
+    folder: {
+        icon: <IconFolder />,
+    },
+    folder_open: {
+        icon: <IconFolderOpen />,
+    },
+    conversations: {
+        icon: <IconSupport />,
+        iconColor: ['var(--color-product-support-light)', 'var(--color-product-support-dark)'],
+    },
+    toolbar: {
+        icon: <IconToolbar />,
+    },
+    settings: {
+        icon: <IconGear />,
+    },
+    health: {
+        icon: <IconStethoscope />,
+    },
+    sdk_doctor: {
+        icon: <IconCode />,
+    },
+    pipeline_status: {
+        icon: <IconDatabase />,
+    },
+    llm_evaluations: {
+        icon: <IconFlask />,
+        iconColor: ['var(--color-product-llm-evaluations-light)'],
+    },
+    llm_datasets: {
+        icon: <IconDatabase />,
+        iconColor: ['var(--color-product-llm-datasets-light)'],
+    },
+    llm_prompts: {
+        icon: <IconBook />,
+        iconColor: ['var(--color-product-llm-prompts-light)'],
+    },
+    llm_clusters: {
+        icon: <IconPeople />,
+        iconColor: ['var(--color-product-llm-clusters-light)'],
+    },
+    exports: {
+        icon: <IconDownload />,
     },
 }
 

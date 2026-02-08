@@ -8,7 +8,7 @@ from django.http.response import HttpResponse
 # Structlog Import
 import structlog
 
-# PostHog OpenTelemetry Initialization
+from posthog.continuous_profiling import start_continuous_profiling
 from posthog.otel_instrumentation import initialize_otel
 
 os.environ["DJANGO_SETTINGS_MODULE"] = "posthog.settings"
@@ -17,6 +17,7 @@ if "SERVER_GATEWAY_INTERFACE" in os.environ:
     del os.environ["SERVER_GATEWAY_INTERFACE"]  # Delete if inherited
 os.environ["SERVER_GATEWAY_INTERFACE"] = "ASGI"  # Set definitively
 
+start_continuous_profiling()
 initialize_otel()  # Initialize OpenTelemetry first
 
 # Get a structlog logger for asgi.py's own messages

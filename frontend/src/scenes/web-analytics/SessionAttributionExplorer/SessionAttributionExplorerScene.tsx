@@ -28,7 +28,6 @@ export function SessionAttributionExplorerScene(): JSX.Element {
 export const scene: SceneExport = {
     component: SessionAttributionExplorerScene,
     logic: sessionAttributionExplorerLogic,
-    settingSectionId: 'environment-web-analytics',
 }
 
 const ExpandableDataCell: QueryContextColumnComponent = ({ value }: { value: unknown }): JSX.Element => {
@@ -45,7 +44,7 @@ const ExpandableDataCell: QueryContextColumnComponent = ({ value }: { value: unk
     }
 
     if (!Array.isArray(value)) {
-        return <div>{value}</div>
+        return <div>{String(value)}</div>
     }
 
     return (

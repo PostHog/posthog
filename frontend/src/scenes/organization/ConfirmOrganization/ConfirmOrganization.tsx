@@ -108,11 +108,11 @@ export function ConfirmOrganization(): JSX.Element {
             <LemonDivider thick dashed className="my-6" />
             <div className="text-center terms-and-conditions-text mt-4 text-secondary">
                 Have questions?{' '}
-                <Link to="https://posthog.com/support" target="_blank">
+                <Link to="https://posthog.com/support" target="_blank" disableDocsPanel>
                     Visit support
                 </Link>{' '}
                 or{' '}
-                <Link to="https://posthog.com/docs" target="_blank">
+                <Link to="https://posthog.com/docs" target="_blank" disableDocsPanel>
                     read our documentation
                 </Link>
                 .

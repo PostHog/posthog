@@ -1,4 +1,4 @@
-from posthog.clickhouse.kafka_engine import kafka_engine
+from posthog.clickhouse.kafka_engine import CONSUMER_GROUP_PRECALCULATED_EVENTS, kafka_engine
 from posthog.clickhouse.table_engines import Distributed, ReplacingMergeTree, ReplicationScheme
 from posthog.settings import CLICKHOUSE_CLUSTER
 
@@ -88,7 +88,6 @@ def KAFKA_PRECALCULATED_EVENTS_TABLE_SQL():
 CREATE TABLE IF NOT EXISTS {table_name}
 (
     team_id Int64,
-    evaluation_timestamp DateTime64(6),
     distinct_id String,
     person_id UUID,
     condition String,
@@ -98,7 +97,7 @@ CREATE TABLE IF NOT EXISTS {table_name}
 SETTINGS kafka_max_block_size = 1000000, kafka_poll_max_batch_size = 100000, kafka_poll_timeout_ms = 1000, kafka_flush_interval_ms = 7500, kafka_skip_broken_messages = 100, kafka_num_consumers = 1
 """.format(
         table_name=PRECALCULATED_EVENTS_KAFKA_TABLE,
-        engine=kafka_engine(topic="clickhouse_prefiltered_events", group="clickhouse_prefiltered_events"),
+        engine=kafka_engine(topic="clickhouse_prefiltered_events", group=CONSUMER_GROUP_PRECALCULATED_EVENTS),
     )
 
 
@@ -107,7 +106,7 @@ def PRECALCULATED_EVENTS_MV_SQL():
 CREATE MATERIALIZED VIEW IF NOT EXISTS {mv_name} TO {writable_table_name}
 AS SELECT
     team_id,
-    toDate(evaluation_timestamp) AS date,
+    toDate(_timestamp) AS date,
     distinct_id,
     person_id,
     condition,

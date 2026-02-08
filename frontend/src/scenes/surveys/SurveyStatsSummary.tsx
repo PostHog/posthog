@@ -171,7 +171,12 @@ function SurveyStatsContainer({ children }: { children: React.ReactNode }): JSX.
             <div className="flex items-center gap-2 justify-between">
                 <h3 className="mb-0">Survey performance</h3>
                 <div className="flex items-center gap-2">
-                    {isPubliclyShareable && <CopySurveyLink surveyId={survey.id} />}
+                    {isPubliclyShareable && (
+                        <CopySurveyLink
+                            surveyId={survey.id}
+                            enableIframeEmbedding={survey.enable_iframe_embedding ?? false}
+                        />
+                    )}
                     {processedSurveyStats && processedSurveyStats[SurveyEventName.SHOWN].total_count > 0 && (
                         <LemonSwitch
                             checked={filterSurveyStatsByDistinctId}

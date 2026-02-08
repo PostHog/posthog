@@ -1,1 +1,1 @@
-export { CodeSnippet, Language } from './CodeSnippet'
+export { CodeSnippet, Language, getLanguage } from './CodeSnippet'

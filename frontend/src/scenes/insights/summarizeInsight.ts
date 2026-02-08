@@ -16,7 +16,7 @@ import { cohortsModel } from '~/models/cohortsModel'
 import { cohortsModelType } from '~/models/cohortsModelType'
 import { groupsModel } from '~/models/groupsModel'
 import { groupsModelType } from '~/models/groupsModelType'
-import { extractExpressionComment } from '~/queries/nodes/DataTable/utils'
+import { extractDisplayLabel } from '~/queries/nodes/DataTable/utils'
 import {
     Breakdown,
     BreakdownFilter,
@@ -36,6 +36,8 @@ import {
     isRetentionQuery,
     isStickinessQuery,
     isTrendsQuery,
+    isWebOverviewQuery,
+    isWebStatsTableQuery,
 } from '~/queries/utils'
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
@@ -57,8 +59,8 @@ function summarizeSingularBreakdown(
         breakdownType &&
         breakdownType in PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE
             ? getCoreFilterDefinition(breakdown, PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[breakdownType])
-                  ?.label || extractExpressionComment(breakdown)
-            : extractExpressionComment(breakdown as string)
+                  ?.label || extractDisplayLabel(breakdown)
+            : extractDisplayLabel(breakdown as string)
     return `${noun}'s ${propertyLabel}`
 }
 
@@ -225,6 +227,12 @@ export function summarizeInsightQuery(query: InsightQueryNode, context: SummaryC
         return `${capitalizeFirstLetter(
             context.aggregationLabel(query.aggregation_group_type_index, true).singular
         )} lifecycle based on ${getDisplayNameFromEntityNode(query.series[0])}`
+    } else if (isWebStatsTableQuery(query)) {
+        // Convert breakdown enum to human-readable label
+        const breakdownLabel = query.breakdownBy.replace(/([A-Z])/g, ' $1').trim()
+        return `${breakdownLabel} breakdown`
+    } else if (isWebOverviewQuery(query)) {
+        return 'Web Analytics Overview'
     }
     return ''
 }
@@ -256,7 +264,7 @@ function summarizeQuery(query: Node): string {
 
         if (selected.length > 0) {
             return `${selected
-                .map(extractExpressionComment)
+                .map(extractDisplayLabel)
                 .filter((c) => !query.hiddenColumns?.includes(c))
                 .join(', ')}${source ? ` from ${source}` : ''}`
         }

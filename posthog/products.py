@@ -1,4 +1,5 @@
 import json
+from collections import defaultdict
 from pathlib import Path
 from typing import Optional
 
@@ -31,7 +32,7 @@ class Products:
         """Load products.json data from disk and validate with Pydantic."""
         if self._file_path is None or not self._file_path.exists():
             raise FileNotFoundError(
-                f"products.json not found at {self._file_path}. " "Generate it by running: hogli build:products"
+                f"products.json not found at {self._file_path}. Generate it by running: hogli build:products"
             )
 
         with open(self._file_path) as f:
@@ -78,3 +79,12 @@ class Products:
     def get_products_by_intent(intent: ProductKey) -> list[ProductItem]:
         """Get all products that the intent is associated with."""
         return [product for product in Products.products() if intent in product.intents]
+
+    @staticmethod
+    def get_products_by_category() -> dict[str, list[str]]:
+        """Get product mappings grouped by category."""
+        products_by_category: dict[str, list[str]] = defaultdict(list)
+        for product in Products.products():
+            category = product.category or "Other"
+            products_by_category[category].append(product.path)
+        return dict(products_by_category)

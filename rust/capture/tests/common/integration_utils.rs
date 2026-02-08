@@ -8,7 +8,7 @@ use std::time::Duration;
 use capture::{
     api::{CaptureError, CaptureResponse, CaptureResponseCode},
     config::CaptureMode,
-    limiters::CaptureQuotaLimiter,
+    quota_limiters::CaptureQuotaLimiter,
     router::router,
     sinks::Event,
     time::TimeSource,
@@ -965,7 +965,7 @@ fn setup_capture_router(unit: &TestCase) -> (Router, MemorySink) {
     let redis = Arc::new(MockRedisClient::new());
 
     let mut cfg = DEFAULT_CONFIG.clone();
-    cfg.capture_mode = unit.mode.clone();
+    cfg.capture_mode = unit.mode;
 
     let quota_limiter =
         CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60 * 60 * 24 * 7));
@@ -982,10 +982,13 @@ fn setup_capture_router(unit: &TestCase) -> (Router, MemorySink) {
             liveness.clone(),
             sink.clone(),
             redis,
+            None, // TODO: add global rate limiter for prod ship
             quota_limiter,
             TokenDropper::default(),
+            None, // event_restriction_service
             false,
-            unit.mode.clone(),
+            unit.mode,
+            String::from("capture"),
             None,
             25 * 1024 * 1024,
             enable_historical_rerouting,
@@ -993,7 +996,10 @@ fn setup_capture_router(unit: &TestCase) -> (Router, MemorySink) {
             is_mirror_deploy,
             verbose_sample_percent,
             26_214_400, // 25MB default for AI endpoint
+            None,       // ai_blob_storage
             Some(10),   // request_timeout_seconds
+            None,       // body_chunk_read_timeout_ms
+            256,        // body_read_chunk_size_kb
         ),
         sink,
     )

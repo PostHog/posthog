@@ -28,10 +28,12 @@ export const dateFilterLogic = kea<dateFilterLogicType>([
     actions({
         open: true,
         openFixedRange: true,
+        openFixedRangeWithTime: true,
         openDateToNow: true,
         openFixedDate: true,
         close: true,
         applyRange: true,
+        setFixedRangeGranularity: (granularity: 'day' | 'minute') => ({ granularity }),
         setDate: (
             dateFrom: string | null,
             dateTo: string | null,
@@ -53,6 +55,7 @@ export const dateFilterLogic = kea<dateFilterLogicType>([
             {
                 open: () => DateFilterView.QuickList,
                 openFixedRange: () => DateFilterView.FixedRange,
+                openFixedRangeWithTime: () => DateFilterView.FixedRangeWithTime,
                 openDateToNow: () => DateFilterView.DateToNow,
                 openFixedDate: () => DateFilterView.FixedDate,
             },
@@ -62,6 +65,7 @@ export const dateFilterLogic = kea<dateFilterLogicType>([
             {
                 open: () => true,
                 openFixedRange: () => true,
+                openFixedRangeWithTime: () => true,
                 openDateToNow: () => true,
                 openFixedDate: () => true,
                 setDate: (_, { keepPopoverOpen }) => keepPopoverOpen,
@@ -97,6 +101,15 @@ export const dateFilterLogic = kea<dateFilterLogicType>([
                 setDate: (_, { explicitDate }) => explicitDate,
             },
         ],
+        fixedRangeGranularity: [
+            // Default based on whether the current dateFrom has time precision
+            (props.dateFrom && !dayjs.isDayjs(props.dateFrom) && dayjs(props.dateFrom).format('HH:mm:ss') !== '00:00:00'
+                ? 'minute'
+                : 'day') as 'day' | 'minute',
+            {
+                setFixedRangeGranularity: (_, { granularity }) => granularity,
+            },
+        ],
     })),
     selectors({
         dateFrom: [() => [(_, props) => props.dateFrom], (dateFrom) => dateFrom ?? null],
@@ -108,6 +121,11 @@ export const dateFilterLogic = kea<dateFilterLogicType>([
         isFixedRange: [
             (s) => [s.dateFrom, s.dateTo],
             (dateFrom, dateTo) => !!(dateFrom && dateTo && dayjs(dateFrom).isValid() && dayjs(dateTo).isValid()),
+        ],
+        isFixedRangeWithTime: [
+            (s) => [s.isFixedRange, s.dateFromHasTimePrecision, s.dateToHasTimePrecision],
+            (isFixedRange, dateFromHasTimePrecision, dateToHasTimePrecision) =>
+                isFixedRange && (dateFromHasTimePrecision || dateToHasTimePrecision),
         ],
         isDateToNow: [
             (s) => [s.dateFrom, s.dateTo, (_, p) => p.isFixedDateMode],

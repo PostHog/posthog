@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 
 import { IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonInput, LemonLabel, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
@@ -11,10 +11,8 @@ import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { JSBookmarklet } from 'lib/components/JSBookmarklet'
 import { JSSnippet, JSSnippetV2 } from 'lib/components/JSSnippet'
 import { getPublicSupportSnippet } from 'lib/components/Support/supportLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { Link } from 'lib/lemon-ui/Link'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { capitalizeFirstLetter, inStorybook, inStorybookTestRunner } from 'lib/utils'
+import { debounce, inStorybook, inStorybookTestRunner } from 'lib/utils'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -23,29 +21,36 @@ import { urls } from 'scenes/urls'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { BusinessModelConfig } from './BusinessModelConfig'
 import { TimezoneConfig } from './TimezoneConfig'
 import { WeekStartConfig } from './WeekStartConfig'
 
-export function TeamDisplayName(): JSX.Element {
+export function TeamDisplayName({ updateInline = false }: { updateInline?: boolean }): JSX.Element {
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-
     const [name, setName] = useState(currentTeam?.name || '')
 
-    const displayNoun = featureFlags[FEATURE_FLAGS.ENVIRONMENTS] ? 'environment' : 'project'
+    const debouncedUpdateCurrentTeam = useMemo(() => debounce(updateCurrentTeam, 500), [updateCurrentTeam])
+    const handleChange = (value: string): void => {
+        setName(value)
+        if (updateInline) {
+            debouncedUpdateCurrentTeam({ name: value })
+        }
+    }
 
     return (
         <div className="deprecated-space-y-4 max-w-160">
-            <LemonInput value={name} onChange={setName} disabled={currentTeamLoading} />
-            <LemonButton
-                type="primary"
-                onClick={() => updateCurrentTeam({ name })}
-                disabled={!name || !currentTeam || name === currentTeam.name}
-                loading={currentTeamLoading}
-            >
-                Rename {displayNoun}
-            </LemonButton>
+            <LemonInput value={name} onChange={handleChange} />
+            {!updateInline && (
+                <LemonButton
+                    type="primary"
+                    onClick={() => updateCurrentTeam({ name })}
+                    disabled={!name || !currentTeam || name === currentTeam.name}
+                    loading={currentTeamLoading}
+                >
+                    Rename project
+                </LemonButton>
+            )}
         </div>
     )
 }
@@ -97,9 +102,6 @@ export function WebSnippet(): JSX.Element {
 
 export function Bookmarklet(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-
-    const displayNoun = featureFlags[FEATURE_FLAGS.ENVIRONMENTS] ? 'environment' : 'project'
 
     return (
         <>
@@ -107,7 +109,7 @@ export function Bookmarklet(): JSX.Element {
             <p>
                 Just drag the bookmarklet below to your bookmarks bar, open the website you want to test PostHog on and
                 click it. This will enable our tracking, on the currently loaded page only. The data will show up in
-                this {displayNoun}.
+                this project.
             </p>
             <div>{isAuthenticatedTeam(currentTeam) && <JSBookmarklet team={currentTeam} />}</div>
         </>
@@ -155,13 +157,12 @@ export function TeamVariables(): JSX.Element {
     const { resetToken } = useActions(teamLogic)
 
     const { preflight } = useValues(preflightLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const region = preflight?.region
 
     const openDialog = (): void => {
         LemonDialog.open({
-            title: `Reset ${displayNoun} API key?`,
+            title: 'Reset project API key?',
             description: 'This will invalidate the current API key and cannot be undone.',
             primaryButton: {
                 children: 'Reset',
@@ -175,13 +176,11 @@ export function TeamVariables(): JSX.Element {
         })
     }
 
-    const displayNoun = featureFlags[FEATURE_FLAGS.ENVIRONMENTS] ? 'environment' : 'project'
-
     return (
         <div className="flex items-start gap-4 flex-wrap">
             <div className="flex-1">
                 <h3 id="project-api-key" className="min-w-[25rem]">
-                    {capitalizeFirstLetter(displayNoun)} API key
+                    Project API key
                 </h3>
                 <p>
                     You can use this write-only key in any one of{' '}
@@ -193,7 +192,7 @@ export function TeamVariables(): JSX.Element {
                             <LemonButton icon={<IconRefresh />} noPadding onClick={openDialog} />
                         ) : undefined
                     }
-                    thing={`${displayNoun} API key`}
+                    thing="project API key"
                 >
                     {currentTeam?.api_token || ''}
                 </CodeSnippet>
@@ -204,21 +203,21 @@ export function TeamVariables(): JSX.Element {
             </div>
             <div className="flex-1">
                 <h3 id="project-id" className="min-w-[25rem]">
-                    {capitalizeFirstLetter(displayNoun)} ID
+                    Project ID
                 </h3>
                 <p>
-                    You can use this ID to reference your {displayNoun} in our{' '}
+                    You can use this ID to reference your project in our{' '}
                     <Link to="https://posthog.com/docs/api">API</Link>.
                 </p>
-                <CodeSnippet thing={`${displayNoun} ID`}>{String(currentTeam?.id || '')}</CodeSnippet>
+                <CodeSnippet thing="project ID">{String(currentTeam?.id || '')}</CodeSnippet>
             </div>
             {region ? (
                 <div className="flex-1">
                     <h3 id="project-region" className="min-w-[25rem]">
-                        {capitalizeFirstLetter(displayNoun)} region
+                        Project region
                     </h3>
                     <p>This is the region where your PostHog data is hosted.</p>
-                    <CodeSnippet thing={`${displayNoun} region`}>{`${region} Cloud`}</CodeSnippet>
+                    <CodeSnippet thing="project region">{`${region} Cloud`}</CodeSnippet>
                 </div>
             ) : null}
             <DebugInfoPanel />
@@ -226,18 +225,35 @@ export function TeamVariables(): JSX.Element {
     )
 }
 
-export function TeamTimezone(): JSX.Element {
+export function TeamTimezone({ displayWarning = true }: { displayWarning?: boolean }): JSX.Element {
     return (
         <>
             <p>
-                These settings affect how PostHog displays, buckets, and filters time-series data. You may need to
-                refresh insights for new settings to apply.
+                The timezone config affect how PostHog displays, buckets, and filters time-series data.{' '}
+                {displayWarning && 'You may need to refresh insights for new settings to apply.'}
             </p>
+            <div className="flex flex-col sm:flex-row gap-8">
+                <div className="flex flex-col gap-2 flex-1 max-w-160">
+                    <LemonLabel id="timezone">Time zone</LemonLabel>
+                    <TimezoneConfig displayWarning={displayWarning} />
+                </div>
+                <div className="flex flex-col gap-2">
+                    <LemonLabel id="timezone">Week starts on</LemonLabel>
+                    <WeekStartConfig displayWarning={displayWarning} />
+                </div>
+            </div>
+        </>
+    )
+}
+
+export function TeamBusinessModel(): JSX.Element {
+    return (
+        <>
+            <p>Set your business model if you want tailored UI, recommendations, and insights to your use case.</p>
             <div className="deprecated-space-y-2">
-                <LemonLabel id="timezone">Time zone</LemonLabel>
-                <TimezoneConfig />
-                <LemonLabel id="timezone">Week starts on</LemonLabel>
-                <WeekStartConfig />
+                <LemonLabel id="business-model">Business model</LemonLabel>
+                <BusinessModelConfig />
+                <p className="text-muted text-xs">Whether this project serves B2B or B2C customers.</p>
             </div>
         </>
     )

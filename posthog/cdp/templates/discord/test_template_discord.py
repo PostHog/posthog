@@ -1,7 +1,5 @@
 import pytest
 
-from inline_snapshot import snapshot
-
 from posthog.cdp.templates.discord.template_discord import template as template_discord
 from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
 
@@ -20,19 +18,17 @@ class TestTemplateDiscord(BaseHogFunctionTemplateTest):
     def test_function_works(self):
         self.run_function(inputs=self._inputs())
 
-        assert self.get_mock_fetch_calls()[0] == snapshot(
-            (
-                "https://discord.com/api/webhooks/00000000000000000/xxxxxxxxxxxxxx",
-                {
-                    "method": "POST",
-                    "headers": {
-                        "Content-Type": "application/json",
-                    },
-                    "body": {
-                        "content": "**max@posthog.com** triggered event: '$pageview'",
-                    },
+        assert self.get_mock_fetch_calls()[0] == (
+            "https://discord.com/api/webhooks/00000000000000000/xxxxxxxxxxxxxx",
+            {
+                "method": "POST",
+                "headers": {
+                    "Content-Type": "application/json",
                 },
-            )
+                "body": {
+                    "content": "**max@posthog.com** triggered event: '$pageview'",
+                },
+            },
         )
 
     def test_only_allow_teams_url(self):

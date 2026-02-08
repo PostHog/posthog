@@ -21,9 +21,26 @@ from temporalio.client import (
 from posthog.hogql_queries.ai.vector_search_query_runner import LATEST_ACTIONS_EMBEDDING_VERSION
 from posthog.temporal.ai import SyncVectorsInputs
 from posthog.temporal.ai.sync_vectors import EmbeddingVersion
+from posthog.temporal.ai.video_segment_clustering.schedule import create_video_segment_clustering_coordinator_schedule
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.schedule import a_create_schedule, a_schedule_exists, a_update_schedule
+from posthog.temporal.delete_recordings.types import DeleteRecordingMetadataInput
+from posthog.temporal.ducklake.compaction_types import DucklakeCompactionInput
 from posthog.temporal.enforce_max_replay_retention.types import EnforceMaxReplayRetentionInput
+from posthog.temporal.experiments.schedule import (
+    create_experiment_regular_metrics_schedules,
+    create_experiment_saved_metrics_schedules,
+)
+from posthog.temporal.ingestion_acceptance_test.schedule import create_ingestion_acceptance_test_schedule
+from posthog.temporal.llm_analytics.trace_clustering.schedule import (
+    create_generation_clustering_coordinator_schedule,
+    create_trace_clustering_coordinator_schedule,
+)
+from posthog.temporal.llm_analytics.trace_summarization.schedule import (
+    create_batch_generation_summarization_schedule,
+    create_batch_trace_summarization_schedule,
+)
+from posthog.temporal.messaging.schedule import create_realtime_cohort_calculation_schedule
 from posthog.temporal.product_analytics.upgrade_queries_workflow import UpgradeQueriesWorkflowInputs
 from posthog.temporal.quota_limiting.run_quota_limiting import RunQuotaLimitingInputs
 from posthog.temporal.salesforce_enrichment.workflow import SalesforceEnrichmentInputs
@@ -225,12 +242,90 @@ async def create_weekly_digest_schedule(client: Client):
         )
 
 
+async def create_ducklake_compaction_schedule(client: Client):
+    """Create or update the schedule for the DuckLake compaction workflow.
+
+    This schedule runs every hour to compact small parquet files in DuckLake.
+    """
+    ducklake_compaction_schedule = Schedule(
+        action=ScheduleActionStartWorkflow(
+            "ducklake-compaction",
+            DucklakeCompactionInput(target_file_size="512MB"),
+            id="ducklake-compaction-schedule",
+            task_queue=settings.DUCKLAKE_TASK_QUEUE,
+            retry_policy=common.RetryPolicy(
+                maximum_attempts=3,
+                initial_interval=timedelta(minutes=5),
+            ),
+        ),
+        spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=timedelta(hours=1))]),
+    )
+
+    if await a_schedule_exists(client, "ducklake-compaction-schedule"):
+        await a_update_schedule(client, "ducklake-compaction-schedule", ducklake_compaction_schedule)
+    else:
+        await a_create_schedule(
+            client,
+            "ducklake-compaction-schedule",
+            ducklake_compaction_schedule,
+            trigger_immediately=False,
+        )
+
+
+async def create_delete_recording_metadata_schedule(client: Client):
+    """Create or update the schedule for the delete recording metadata workflow.
+
+    This schedule runs daily at midnight UTC to delete queued recording metadata from ClickHouse.
+    """
+    delete_recording_metadata_schedule = Schedule(
+        action=ScheduleActionStartWorkflow(
+            "delete-recording-metadata",
+            DeleteRecordingMetadataInput(dry_run=False),
+            id="delete-recording-metadata-schedule",
+            task_queue=settings.SESSION_REPLAY_TASK_QUEUE,
+            retry_policy=common.RetryPolicy(
+                maximum_attempts=2,
+                initial_interval=timedelta(minutes=1),
+            ),
+        ),
+        spec=ScheduleSpec(
+            calendars=[
+                ScheduleCalendarSpec(
+                    comment="Daily at midnight UTC",
+                    hour=[ScheduleRange(start=0, end=0)],
+                )
+            ]
+        ),
+    )
+
+    if await a_schedule_exists(client, "delete-recording-metadata-schedule"):
+        await a_update_schedule(client, "delete-recording-metadata-schedule", delete_recording_metadata_schedule)
+    else:
+        await a_create_schedule(
+            client,
+            "delete-recording-metadata-schedule",
+            delete_recording_metadata_schedule,
+            trigger_immediately=False,
+        )
+
+
 schedules = [
     create_sync_vectors_schedule,
     create_run_quota_limiting_schedule,
     create_upgrade_queries_schedule,
     create_enforce_max_replay_retention_schedule,
     create_weekly_digest_schedule,
+    create_batch_trace_summarization_schedule,
+    create_batch_generation_summarization_schedule,
+    create_trace_clustering_coordinator_schedule,
+    create_generation_clustering_coordinator_schedule,
+    create_video_segment_clustering_coordinator_schedule,
+    create_ducklake_compaction_schedule,
+    create_delete_recording_metadata_schedule,
+    create_experiment_regular_metrics_schedules,
+    create_experiment_saved_metrics_schedules,
+    create_realtime_cohort_calculation_schedule,
+    create_ingestion_acceptance_test_schedule,
 ]
 
 if settings.EE_AVAILABLE:

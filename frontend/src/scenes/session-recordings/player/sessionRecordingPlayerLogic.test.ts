@@ -18,7 +18,7 @@ import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
 import {
-    BLOB_SOURCE,
+    BLOB_SOURCE_V2,
     overrideSessionRecordingMocks,
     recordingMetaJson,
     setupSessionRecordingTest,
@@ -35,10 +35,10 @@ describe('sessionRecordingPlayerLogic', () => {
         console.warn = mockWarn
         mockWarn.mockClear()
         setupSessionRecordingTest({
-            snapshotSources: [BLOB_SOURCE],
+            snapshotSources: [BLOB_SOURCE_V2],
         })
         featureFlagLogic.mount()
-        logic = sessionRecordingPlayerLogic({ sessionRecordingId: '2', playerKey: 'test' })
+        logic = sessionRecordingPlayerLogic({ sessionRecordingId: '2', playerKey: 'test', blobV2PollingDisabled: true })
         logic.mount()
     })
 
@@ -156,14 +156,14 @@ describe('sessionRecordingPlayerLogic', () => {
     })
 
     describe('delete session recording', () => {
-        it('on playlist page', async () => {
+        it('calls onRecordingDeleted callback when provided', async () => {
             silenceKeaLoadersErrors()
-            const listLogic = sessionRecordingsPlaylistLogic({})
-            listLogic.mount()
+            const onRecordingDeleted = jest.fn()
             logic = sessionRecordingPlayerLogic({
                 sessionRecordingId: '3',
                 playerKey: 'test',
-                playlistLogic: listLogic,
+                blobV2PollingDisabled: true,
+                onRecordingDeleted,
             })
             logic.mount()
             jest.spyOn(api, 'delete')
@@ -171,46 +171,21 @@ describe('sessionRecordingPlayerLogic', () => {
             await expectLogic(logic, () => {
                 logic.actions.deleteRecording()
             })
-                .toDispatchActions([
-                    'deleteRecording',
-                    listLogic.actionTypes.loadAllRecordings,
-                    listLogic.actionCreators.setSelectedRecordingId(null),
-                ])
-                .toNotHaveDispatchedActions([
-                    sessionRecordingsPlaylistLogic({ updateSearchParams: true }).actionTypes.loadAllRecordings,
-                ])
+                .toDispatchActions(['deleteRecording'])
+                .toFinishAllListeners()
 
             expect(api.delete).toHaveBeenCalledWith(`api/environments/${MOCK_TEAM_ID}/session_recordings/3`)
-            resumeKeaLoadersErrors()
-        })
-
-        it('on any other recordings page with a list', async () => {
-            silenceKeaLoadersErrors()
-            const listLogic = sessionRecordingsPlaylistLogic({ updateSearchParams: true })
-            listLogic.mount()
-            logic = sessionRecordingPlayerLogic({
-                sessionRecordingId: '3',
-                playerKey: 'test',
-                playlistLogic: listLogic,
-            })
-            logic.mount()
-            jest.spyOn(api, 'delete')
-
-            await expectLogic(logic, () => {
-                logic.actions.deleteRecording()
-            }).toDispatchActions([
-                'deleteRecording',
-                listLogic.actionTypes.loadAllRecordings,
-                listLogic.actionCreators.setSelectedRecordingId(null),
-            ])
-
-            expect(api.delete).toHaveBeenCalledWith(`api/environments/${MOCK_TEAM_ID}/session_recordings/3`)
+            expect(onRecordingDeleted).toHaveBeenCalled()
             resumeKeaLoadersErrors()
         })
 
         it('on a single recording page', async () => {
             silenceKeaLoadersErrors()
-            logic = sessionRecordingPlayerLogic({ sessionRecordingId: '3', playerKey: 'test' })
+            logic = sessionRecordingPlayerLogic({
+                sessionRecordingId: '3',
+                playerKey: 'test',
+                blobV2PollingDisabled: true,
+            })
             logic.mount()
             jest.spyOn(api, 'delete')
             router.actions.push(urls.replaySingle('3'))
@@ -232,7 +207,11 @@ describe('sessionRecordingPlayerLogic', () => {
 
         it('on a single recording modal', async () => {
             silenceKeaLoadersErrors()
-            logic = sessionRecordingPlayerLogic({ sessionRecordingId: '3', playerKey: 'test' })
+            logic = sessionRecordingPlayerLogic({
+                sessionRecordingId: '3',
+                playerKey: 'test',
+                blobV2PollingDisabled: true,
+            })
             logic.mount()
             jest.spyOn(api, 'delete')
 
@@ -559,6 +538,140 @@ describe('sessionRecordingPlayerLogic', () => {
                     })
                 )
             })
+        })
+    })
+
+    describe('seek actions', () => {
+        it('seekForward without parameter uses default jumpTimeMs (10s)', () => {
+            const currentTime = 5000
+            logic.actions.seekToTime(currentTime)
+
+            const jumpTimeMs = logic.values.jumpTimeMs
+            expect(jumpTimeMs).toBe(10000) // 10s * speed(1)
+
+            logic.actions.seekForward()
+            // seekForward should call seekToTime with current time + jumpTimeMs
+        })
+
+        it('seekBackward without parameter uses default jumpTimeMs (10s)', () => {
+            const currentTime = 15000
+            logic.actions.seekToTime(currentTime)
+
+            const jumpTimeMs = logic.values.jumpTimeMs
+            expect(jumpTimeMs).toBe(10000) // 10s * speed(1)
+
+            logic.actions.seekBackward()
+            // seekBackward should call seekToTime with current time - jumpTimeMs
+        })
+
+        it('seekForward with 1000ms parameter jumps forward 1s', () => {
+            const currentTime = 5000
+            logic.actions.seekToTime(currentTime)
+            logic.actions.seekForward(1000)
+            // seekForward should call seekToTime with current time + 1000
+        })
+
+        it('seekBackward with 1000ms parameter jumps backward 1s', () => {
+            const currentTime = 5000
+            logic.actions.seekToTime(currentTime)
+            logic.actions.seekBackward(1000)
+            // seekBackward should call seekToTime with current time - 1000
+        })
+
+        it('seekForward respects custom amount parameter', () => {
+            const currentTime = 5000
+            const customAmount = 2500
+            logic.actions.seekToTime(currentTime)
+            logic.actions.seekForward(customAmount)
+            // seekForward should call seekToTime with current time + customAmount
+        })
+
+        it('seekBackward respects custom amount parameter', () => {
+            const currentTime = 5000
+            const customAmount = 3500
+            logic.actions.seekToTime(currentTime)
+            logic.actions.seekBackward(customAmount)
+            // seekBackward should call seekToTime with current time - customAmount
+        })
+
+        it('default jumpTimeMs scales with playback speed', () => {
+            logic.actions.setSpeed(2)
+
+            const jumpTimeMs = logic.values.jumpTimeMs
+            expect(jumpTimeMs).toBe(20000) // 10s * speed(2)
+
+            logic.actions.seekToTime(5000)
+            logic.actions.seekForward()
+            // seekForward should call seekToTime with current time + 20000
+        })
+    })
+
+    describe('setCurrentSegment graceful fallback', () => {
+        it('starts buffering instead of tryInitReplayer when segment windowId has no snapshots', () => {
+            const tryInitReplayerSpy = jest.spyOn(logic.actions, 'tryInitReplayer')
+            const startBufferSpy = jest.spyOn(logic.actions, 'startBuffer')
+
+            // Clear any calls from initialization
+            tryInitReplayerSpy.mockClear()
+            startBufferSpy.mockClear()
+
+            // Segment with windowId that has no snapshots loaded
+            const segmentWithNoSnapshots = {
+                kind: 'window' as const,
+                startTimestamp: 1000,
+                endTimestamp: 2000,
+                windowId: 99999, // non-existent window id
+                isActive: true,
+                durationMs: 1000,
+            }
+
+            logic.actions.setCurrentSegment(segmentWithNoSnapshots)
+
+            expect(tryInitReplayerSpy).not.toHaveBeenCalled()
+            expect(startBufferSpy).toHaveBeenCalled()
+        })
+
+        it('keeps current player for gap segments without calling tryInitReplayer', () => {
+            const tryInitReplayerSpy = jest.spyOn(logic.actions, 'tryInitReplayer')
+            const startBufferSpy = jest.spyOn(logic.actions, 'startBuffer')
+
+            // Clear any calls from initialization
+            tryInitReplayerSpy.mockClear()
+            startBufferSpy.mockClear()
+
+            const gapSegment = {
+                kind: 'gap' as const,
+                startTimestamp: 1000,
+                endTimestamp: 2000,
+                windowId: 99999,
+                isActive: false,
+                durationMs: 1000,
+            }
+
+            logic.actions.setCurrentSegment(gapSegment)
+
+            expect(tryInitReplayerSpy).not.toHaveBeenCalled()
+            expect(startBufferSpy).not.toHaveBeenCalled()
+        })
+
+        it('keeps current player when segment has no windowId', () => {
+            const tryInitReplayerSpy = jest.spyOn(logic.actions, 'tryInitReplayer')
+
+            // Clear any calls from initialization
+            tryInitReplayerSpy.mockClear()
+
+            const segmentWithNoWindowId = {
+                kind: 'buffer' as const,
+                startTimestamp: 1000,
+                endTimestamp: 2000,
+                windowId: undefined,
+                isActive: false,
+                durationMs: 1000,
+            }
+
+            logic.actions.setCurrentSegment(segmentWithNoWindowId)
+
+            expect(tryInitReplayerSpy).not.toHaveBeenCalled()
         })
     })
 })

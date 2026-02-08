@@ -1,10 +1,11 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { useEffect } from 'react'
 
-import { IconPlusSmall, IconRefresh } from '@posthog/icons'
+import { IconPlusSmall, IconRefresh, IconX } from '@posthog/icons'
 
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
-import { UsageMetricsConfig } from 'scenes/settings/environment/UsageMetricsConfig'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
+import { UsageMetricsConfig, UsageMetricsModal } from 'scenes/settings/environment/UsageMetricsConfig'
 import { usageMetricsConfigLogic } from 'scenes/settings/environment/usageMetricsConfigLogic'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
@@ -14,14 +15,15 @@ import {
     UsageMetricCard,
     UsageMetricCardSkeleton,
 } from 'products/customer_analytics/frontend/components/UsageMetricCard'
+import { customerProfileLogic } from 'products/customer_analytics/frontend/customerProfileLogic'
 
 import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
 import { createPostHogWidgetNode } from './NodeWrapper'
 import { notebookNodeLogic } from './notebookNodeLogic'
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeUsageMetricsAttributes>): JSX.Element | null => {
-    const { expanded } = useValues(notebookNodeLogic)
-    const { setActions, toggleEditing } = useActions(notebookNodeLogic)
+    const { expanded, notebookLogic } = useValues(notebookNodeLogic)
+    const { setActions, setMenuItems } = useActions(notebookNodeLogic)
     const { personId, groupKey, groupTypeIndex, tabId } = attributes
     const dataNodeLogicProps = personId
         ? {
@@ -42,15 +44,19 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeUsageMetricsAtt
             }
           : { key: 'error', query: { kind: NodeKind.UsageMetricsQuery } }
     const logic = dataNodeLogic(dataNodeLogicProps)
+    useAttachedLogic(logic, notebookLogic)
     const { response, responseLoading, responseError } = useValues(logic)
     const { loadData } = useActions(logic)
+    const usageMetricsConfigLogicProps = { logicKey: attributes.nodeId }
+    const { openModal } = useActions(usageMetricsConfigLogic(usageMetricsConfigLogicProps))
+    const { removeNode } = useActions(customerProfileLogic)
 
-    useEffect(() => {
+    useOnMountEffect(() => {
         setActions([
             {
                 text: 'Add metric',
                 icon: <IconPlusSmall />,
-                onClick: () => toggleEditing(true),
+                onClick: openModal,
             },
             {
                 text: 'Refresh',
@@ -58,7 +64,26 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeUsageMetricsAtt
                 onClick: loadData,
             },
         ])
-    }, [setActions, loadData, toggleEditing])
+
+        setMenuItems([
+            {
+                label: 'Add metric',
+                sideIcon: <IconPlusSmall />,
+                onClick: openModal,
+            },
+            {
+                label: 'Refresh',
+                sideIcon: <IconRefresh />,
+                onClick: () => loadData(),
+            },
+            {
+                label: 'Remove',
+                onClick: () => removeNode(NotebookNodeType.UsageMetrics),
+                sideIcon: <IconX />,
+                status: 'danger',
+            },
+        ])
+    })
 
     if (!expanded) {
         return null
@@ -77,22 +102,30 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeUsageMetricsAtt
     const hasResults = results.length > 0
 
     if (!hasResults) {
-        return <UsageMetricsEmptyState />
+        return (
+            <BindLogic logic={usageMetricsConfigLogic} props={usageMetricsConfigLogicProps}>
+                <UsageMetricsEmptyState />
+                <UsageMetricsModal />
+            </BindLogic>
+        )
     }
 
     return (
-        <div className="@container">
-            <div className="grid grid-cols-1 @md:grid-cols-2 @xl:grid-cols-4 gap-4 p-4">
-                {results.map((metric) => (
-                    <UsageMetricCard key={metric.id} metric={metric} />
-                ))}
+        <BindLogic logic={usageMetricsConfigLogic} props={usageMetricsConfigLogicProps}>
+            <div className="@container">
+                <div className="grid grid-cols-1 @md:grid-cols-2 @xl:grid-cols-4 gap-4 p-4">
+                    {results.map((metric) => (
+                        <UsageMetricCard key={metric.id} metric={metric} />
+                    ))}
+                </div>
+                <UsageMetricsModal />
             </div>
-        </div>
+        </BindLogic>
     )
 }
 
 function UsageMetricsEmptyState(): JSX.Element {
-    const { toggleEditing } = useActions(notebookNodeLogic)
+    const { openModal } = useActions(usageMetricsConfigLogic)
     return (
         <ProductIntroduction
             productName="Customer analytics"
@@ -101,7 +134,7 @@ function UsageMetricsEmptyState(): JSX.Element {
             isEmpty={true}
             productKey={ProductKey.CUSTOMER_ANALYTICS}
             className="border-none"
-            action={() => toggleEditing(true)}
+            action={() => openModal()}
         />
     )
 }
@@ -128,7 +161,6 @@ export const NotebookNodeUsageMetrics = createPostHogWidgetNode<NotebookNodeUsag
     titlePlaceholder: 'Usage',
     Component,
     Settings,
-    settingsIcon: 'gear',
     resizeable: false,
     expandable: true,
     startExpanded: true,

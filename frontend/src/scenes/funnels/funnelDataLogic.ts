@@ -1,4 +1,5 @@
-import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { router } from 'kea-router'
 
 import { DataColorTheme, DataColorToken } from 'lib/colors'
 import { BIN_COUNT_AUTO } from 'lib/constants'
@@ -12,11 +13,11 @@ import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { getFunnelDatasetKey, getFunnelResultCustomizationColorToken } from 'scenes/insights/utils'
 
 import { Noun, groupsModel } from '~/models/groupsModel'
+import { InsightQueryNode } from '~/queries/schema/schema-general'
 import { FunnelsFilter, FunnelsQuery, NodeKind } from '~/queries/schema/schema-general'
-import { isFunnelsQuery } from '~/queries/utils'
+import { isFunnelsQuery, isWebOverviewQuery, isWebStatsTableQuery } from '~/queries/utils'
 import {
     FlattenedFunnelStepByBreakdown,
-    FunnelAPIResponse,
     FunnelConversionWindow,
     FunnelConversionWindowTimeUnit,
     FunnelResultType,
@@ -28,6 +29,7 @@ import {
     FunnelsTimeConversionBins,
     HistogramGraphDatum,
     InsightLogicProps,
+    InsightModel,
     InsightType,
     StepOrderValue,
     TrendResult,
@@ -35,6 +37,7 @@ import {
 
 import type { funnelDataLogicType } from './funnelDataLogicType'
 import {
+    TIME_INTERVAL_BOUNDS,
     aggregateBreakdownResult,
     aggregationLabelForHogQL,
     flattenedStepsByBreakdown,
@@ -47,6 +50,20 @@ import {
 } from './funnelUtils'
 
 const DEFAULT_FUNNEL_LOGIC_KEY = 'default_funnel_key'
+
+function isFunnelsQueryOrLegacyFilter(
+    insightData: Partial<InsightModel> | null | undefined,
+    querySource: InsightQueryNode | null
+): boolean {
+    /**
+     * TODO: Remove legacy filter check once all tests are migrated to query-based format.
+     * There are still multiple tests relying on the legacy format in funnelDataLogic.test.ts.
+     */
+    if (insightData?.filters?.insight === InsightType.FUNNELS) {
+        return true
+    }
+    return isFunnelsQuery(querySource)
+}
 
 export const funnelDataLogic = kea<funnelDataLogicType>([
     path((key) => ['scenes', 'funnels', 'funnelDataLogic', key]),
@@ -73,15 +90,22 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
             ['aggregationLabel'],
             featureFlagLogic,
             ['featureFlags'],
+            router,
+            ['searchParams'],
         ],
-        actions: [insightVizDataLogic(props), ['updateInsightFilter', 'updateQuerySource']],
+        actions: [insightVizDataLogic(props), ['updateInsightFilter', 'updateQuerySource'], router, ['push']],
     })),
 
     actions({
         hideSkewWarning: true,
         setHiddenLegendBreakdowns: (hiddenLegendBreakdowns: string[]) => ({ hiddenLegendBreakdowns }),
         toggleLegendBreakdownVisibility: (breakdown: string) => ({ breakdown }),
-        setBreakdownSortOrder: (breakdownSortOrder: (string | number)[]) => ({ breakdownSortOrder }),
+        setBreakdownSorting: (breakdownSorting: string | undefined) => ({ breakdownSorting }),
+        setConversionWindowInterval: (funnelWindowInterval: number) => ({ funnelWindowInterval }),
+        setConversionWindowUnit: (funnelWindowIntervalUnit: FunnelConversionWindowTimeUnit) => ({
+            funnelWindowIntervalUnit,
+        }),
+        commitConversionWindow: true,
     }),
 
     reducers({
@@ -91,10 +115,16 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                 hideSkewWarning: () => true,
             },
         ],
-        breakdownSortOrder: [
-            [] as (string | number)[],
+        conversionWindowInterval: [
+            null as number | null,
             {
-                setBreakdownSortOrder: (_, { breakdownSortOrder }) => breakdownSortOrder,
+                setConversionWindowInterval: (_, { funnelWindowInterval }) => funnelWindowInterval,
+            },
+        ],
+        conversionWindowUnit: [
+            null as FunnelConversionWindowTimeUnit | null,
+            {
+                setConversionWindowUnit: (_, { funnelWindowIntervalUnit }) => funnelWindowIntervalUnit,
             },
         ],
     }),
@@ -152,9 +182,27 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
         ],
 
         results: [
-            (s) => [s.insightData],
-            (insightData: FunnelAPIResponse | null): FunnelResultType => {
+            (s) => [s.insightData, s.vizQuerySource, s.querySource],
+            (insightData, vizQuerySource, querySource): FunnelResultType => {
+                // Web analytics queries should not be processed as funnels, even though their response
+                // structure may look similar. InsightVizDisplay unconditionally mounts funnelDataLogic,
+                // so we need explicit guards to prevent web analytics data from being misinterpreted.
+                if (isWebStatsTableQuery(vizQuerySource) || isWebOverviewQuery(vizQuerySource)) {
+                    return []
+                }
+
                 // TODO: after hooking up data manager, check that we have a funnels result here
+                // We check both the legacy filter approach (insightData.filters.insight) and the new
+                // query-based approach (querySource.kind) because tests still use the legacy approach.
+                // This pattern matches the checks in the 'steps' and 'hasFunnelResults' selectors.
+                if (
+                    insightData?.filters?.insight !== InsightType.FUNNELS &&
+                    querySource &&
+                    querySource?.kind !== NodeKind.FunnelsQuery
+                ) {
+                    return []
+                }
+
                 if (insightData?.result) {
                     if (isBreakdownFunnelResults(insightData.result) && insightData.result?.[0]?.[0]?.breakdowns) {
                         // in order to stop the UI having to check breakdowns and breakdown
@@ -173,20 +221,23 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
             },
         ],
         steps: [
-            (s) => [s.insightData, s.querySource, s.breakdownFilter, s.results, s.isTimeToConvertFunnel],
+            (s) => [
+                s.insightData,
+                s.vizQuerySource,
+                s.querySource,
+                s.breakdownFilter,
+                s.results,
+                s.isTimeToConvertFunnel,
+            ],
             (
                 insightData,
+                _vizQuerySource,
                 querySource,
                 breakdownFilter,
                 results,
                 isTimeToConvertFunnel
             ): FunnelStepWithNestedBreakdown[] => {
-                if (
-                    // TODO: Ideally we don't check filters anymore, but tests are still using this
-                    insightData?.filters?.insight !== InsightType.FUNNELS &&
-                    querySource &&
-                    querySource?.kind !== NodeKind.FunnelsQuery
-                ) {
+                if (!isFunnelsQueryOrLegacyFilter(insightData, querySource)) {
                     return []
                 }
 
@@ -213,12 +264,11 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
             ): FunnelStepWithConversionMetrics[] => {
                 const stepReference = funnelsFilter?.funnelStepReference || FunnelStepReference.total
                 // Get optional steps from series (1-indexed)
-                const optionalSteps =
-                    querySource?.kind === NodeKind.FunnelsQuery
-                        ? querySource.series
-                              .map((_, i: number) => i + 1)
-                              .filter((_: number, i: number) => querySource.series[i]?.optionalInFunnel)
-                        : []
+                const optionalSteps = querySource
+                    ? querySource.series
+                          .map((_, i: number) => i + 1)
+                          .filter((_: number, i: number) => querySource.series[i]?.optionalInFunnel)
+                    : []
                 return stepsWithConversionMetrics(steps, stepReference, optionalSteps)
             },
         ],
@@ -234,20 +284,22 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                 return flattenedStepsByBreakdown(steps, funnelsFilter?.layout, disableBaseline, true)
             },
         ],
-        hiddenLegendBreakdowns: [(s) => [s.funnelsFilter], (funnelsFilter) => funnelsFilter?.hiddenLegendBreakdowns],
+        hiddenLegendBreakdowns: [
+            (s) => [s.funnelsFilter],
+            (funnelsFilter): string[] | undefined => funnelsFilter?.hiddenLegendBreakdowns,
+        ],
+        breakdownSorting: [
+            (s) => [s.funnelsFilter],
+            (funnelsFilter: FunnelsFilter | null | undefined): string | undefined => funnelsFilter?.breakdownSorting,
+        ],
         resultCustomizations: [(s) => [s.funnelsFilter], (funnelsFilter) => funnelsFilter?.resultCustomizations],
         visibleStepsWithConversionMetrics: [
-            (s) => [
-                s.stepsWithConversionMetrics,
-                s.flattenedBreakdowns,
-                s.breakdownSortOrder,
-                s.hiddenLegendBreakdowns,
-            ],
+            (s) => [s.stepsWithConversionMetrics, s.flattenedBreakdowns, s.breakdownSorting, s.hiddenLegendBreakdowns],
             (
                 steps: FunnelStepWithConversionMetrics[],
                 flattenedBreakdowns: FlattenedFunnelStepByBreakdown[],
-                breakdownSortOrder: (string | number)[],
-                hiddenLegendBreakdowns: string[]
+                breakdownSorting: string | undefined,
+                hiddenLegendBreakdowns: string[] | undefined
             ): FunnelStepWithConversionMetrics[] => {
                 const isOnlySeries = flattenedBreakdowns.length <= 1
                 const baseLineSteps = flattenedBreakdowns.find((b) => b.isBaseline)
@@ -265,12 +317,30 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                             (b) =>
                                 isOnlySeries || !hiddenLegendBreakdowns?.includes(getVisibilityKey(b.breakdown_value))
                         )
-                    // Sort by breakdownSortOrder if present
-                    if (breakdownSortOrder && breakdownSortOrder.length > 0 && nested) {
+                    // Sort by breakdownSorting if present
+                    if (breakdownSorting && nested) {
+                        const isDescending = breakdownSorting.startsWith('-')
+                        const columnKey = isDescending ? breakdownSorting.slice(1) : breakdownSorting
+                        const sortOrder = isDescending ? -1 : 1
+
+                        // Sort based on the column key
                         nested = [...nested].sort((a, b) => {
-                            const aValue = Array.isArray(a.breakdown_value) ? a.breakdown_value[0] : a.breakdown_value
-                            const bValue = Array.isArray(b.breakdown_value) ? b.breakdown_value[0] : b.breakdown_value
-                            return breakdownSortOrder.indexOf(aValue ?? '') - breakdownSortOrder.indexOf(bValue ?? '')
+                            if (columnKey === 'breakdown_value') {
+                                const aValue = Array.isArray(a.breakdown_value)
+                                    ? a.breakdown_value[0]
+                                    : a.breakdown_value
+                                const bValue = Array.isArray(b.breakdown_value)
+                                    ? b.breakdown_value[0]
+                                    : b.breakdown_value
+                                if (typeof aValue === 'number' && typeof bValue === 'number') {
+                                    return sortOrder * (aValue - bValue)
+                                }
+                                return sortOrder * String(aValue ?? '').localeCompare(String(bValue ?? ''))
+                            }
+                            // For other columns, use the raw numeric comparison
+                            const aVal = (a as any)[columnKey] ?? 0
+                            const bVal = (b as any)[columnKey] ?? 0
+                            return sortOrder * (aVal - bVal)
                         })
                     }
                     return {
@@ -321,12 +391,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
         hasFunnelResults: [
             (s) => [s.insightData, s.funnelsFilter, s.steps, s.histogramGraphData, s.querySource],
             (insightData, funnelsFilter, steps, histogramGraphData, querySource) => {
-                if (
-                    // TODO: Ideally we don't check filters anymore, but tests are still using this
-                    insightData?.filters?.insight !== InsightType.FUNNELS &&
-                    querySource &&
-                    querySource?.kind !== NodeKind.FunnelsQuery
-                ) {
+                if (!isFunnelsQueryOrLegacyFilter(insightData, querySource)) {
                     return false
                 }
 
@@ -396,7 +461,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
         ],
         conversionWindow: [
             (s) => [s.funnelsFilter],
-            (funnelsFilter): FunnelConversionWindow => {
+            (funnelsFilter): Required<FunnelConversionWindow> => {
                 const { funnelWindowInterval, funnelWindowIntervalUnit } = funnelsFilter || {}
                 return {
                     funnelWindowInterval: funnelWindowInterval || 14,
@@ -532,5 +597,46 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                 ? actions.setHiddenLegendBreakdowns(values.hiddenLegendBreakdowns.filter((b) => b !== breakdown))
                 : actions.setHiddenLegendBreakdowns([...(values.hiddenLegendBreakdowns || []), breakdown])
         },
+        commitConversionWindow: () => {
+            const { conversionWindowInterval, conversionWindowUnit, conversionWindow } = values
+            const unit = conversionWindowUnit ?? conversionWindow.funnelWindowIntervalUnit
+            const rawInterval = conversionWindowInterval ?? conversionWindow.funnelWindowInterval
+
+            if (!rawInterval) {
+                actions.setConversionWindowInterval(conversionWindow.funnelWindowInterval)
+                return
+            }
+
+            const [min, max] = TIME_INTERVAL_BOUNDS[unit]
+            const interval = Math.min(Math.max(rawInterval, min), max)
+
+            if (interval !== rawInterval) {
+                actions.setConversionWindowInterval(interval)
+            }
+
+            if (
+                interval !== conversionWindow.funnelWindowInterval ||
+                unit !== conversionWindow.funnelWindowIntervalUnit
+            ) {
+                actions.updateInsightFilter({
+                    funnelWindowInterval: interval,
+                    funnelWindowIntervalUnit: unit,
+                })
+            }
+        },
+        setBreakdownSorting: ({ breakdownSorting }) => {
+            actions.updateInsightFilter({ breakdownSorting })
+        },
     })),
+
+    afterMount(({ actions, values }) => {
+        // Sync URL with saved sorting on mount
+        if (values.breakdownSorting && !values.searchParams.order) {
+            actions.push(
+                window.location.pathname,
+                { ...values.searchParams, order: values.breakdownSorting },
+                window.location.hash
+            )
+        }
+    }),
 ])

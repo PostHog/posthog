@@ -4,9 +4,12 @@ import { router } from 'kea-router'
 
 import api from 'lib/api'
 import { TriggerExportProps, downloadBlob, downloadExportedAsset } from 'lib/components/ExportButton/exporter'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { delay } from 'lib/utils'
+import { newInternalTab } from 'lib/utils/newInternalTab'
 import { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { urls } from 'scenes/urls'
 
@@ -60,6 +63,7 @@ export const exportsLogic = kea<exportsLogicType>([
     }),
 
     connect(() => ({
+        values: [featureFlagLogic, ['featureFlags']],
         actions: [sidePanelStateLogic, ['openSidePanel']],
     })),
 
@@ -96,13 +100,13 @@ export const exportsLogic = kea<exportsLogicType>([
         startExport: async ({ exportData }) => {
             if (isLocalExport(exportData.export_context)) {
                 try {
-                    downloadBlob(
-                        new Blob([exportData.export_context.localData], { type: exportData.export_context.mediaType }),
-                        exportData.export_context.filename
-                    )
+                    const blob = new Blob([exportData.export_context.localData], {
+                        type: exportData.export_context.mediaType,
+                    })
+                    downloadBlob(blob, exportData.export_context.filename)
                     lemonToast.success('Export complete!')
-                } catch {
-                    lemonToast.error('Export failed!')
+                } catch (e: any) {
+                    lemonToast.error(`Export failed with error: ${e.message}`)
                 }
                 return
             }
@@ -110,8 +114,18 @@ export const exportsLogic = kea<exportsLogicType>([
             actions.createExport({ exportData })
         },
         createExportSuccess: () => {
-            actions.openSidePanel(SidePanelTab.Exports)
-            lemonToast.info('Export starting...')
+            if (featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.UX_REMOVE_SIDEPANEL]) {
+                lemonToast.info('Export starting...', {
+                    button: {
+                        label: 'View exports',
+                        action: () => newInternalTab(urls.exports()),
+                    },
+                    autoClose: false,
+                })
+            } else {
+                actions.openSidePanel(SidePanelTab.Exports)
+                lemonToast.info('Export starting...')
+            }
             actions.loadExports()
         },
         loadExportsSuccess: async (_, breakpoint) => {

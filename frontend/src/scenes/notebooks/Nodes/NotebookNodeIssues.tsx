@@ -1,12 +1,15 @@
-import { BindLogic, useValues } from 'kea'
+import { BindLogic, BuiltLogic, LogicWrapper, useActions, useValues } from 'kea'
 import { PropsWithChildren } from 'react'
 
-import { groupLogic } from 'scenes/groups/groupLogic'
+import { IconX } from '@posthog/icons'
+
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 import { Query } from '~/queries/Query/Query'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { InsightLogicProps } from '~/types'
 
+import { customerProfileLogic } from 'products/customer_analytics/frontend/customerProfileLogic'
 import { issueFiltersLogic } from 'products/error_tracking/frontend/components/IssueFilters/issueFiltersLogic'
 import { issueQueryOptionsLogic } from 'products/error_tracking/frontend/components/IssueQueryOptions/issueQueryOptionsLogic'
 import { ErrorTrackingSetupPrompt } from 'products/error_tracking/frontend/components/SetupPrompt/SetupPrompt'
@@ -35,8 +38,21 @@ const ContextualFilters = ({ children, logicKey }: PropsWithChildren<{ logicKey:
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeIssuesAttributes>): JSX.Element | null => {
     const { personId, groupKey, groupTypeIndex, tabId } = attributes
-    const { expanded } = useValues(notebookNodeLogic)
+    const { expanded, notebookLogic } = useValues(notebookNodeLogic)
+    const { setMenuItems } = useActions(notebookNodeLogic)
     const logicKey = getLogicKey({ tabId, personId, groupKey })
+    const { removeNode } = useActions(customerProfileLogic)
+
+    useOnMountEffect(() => {
+        setMenuItems([
+            {
+                label: 'Remove',
+                onClick: () => removeNode(NotebookNodeType.Issues),
+                sideIcon: <IconX />,
+                status: 'danger',
+            },
+        ])
+    })
 
     if (!expanded) {
         return null
@@ -50,6 +66,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeIssuesAttribute
                     groupKey={groupKey}
                     groupTypeIndex={groupTypeIndex}
                     logicKey={logicKey}
+                    attachTo={notebookLogic}
                 />
             </ErrorTrackingSetupPrompt>
         </ContextualFilters>
@@ -61,9 +78,10 @@ interface IssuesQueryProps {
     groupKey?: string
     groupTypeIndex?: number
     logicKey: string
+    attachTo: BuiltLogic | LogicWrapper
 }
 
-const IssuesQuery = ({ personId, groupKey, groupTypeIndex, logicKey }: IssuesQueryProps): JSX.Element => {
+const IssuesQuery = ({ personId, groupKey, groupTypeIndex, logicKey, attachTo }: IssuesQueryProps): JSX.Element => {
     const { dateRange, filterTestAccounts, filterGroup, searchQuery } = useValues(issueFiltersLogic)
     const { assignee, orderBy, orderDirection, status } = useValues(issueQueryOptionsLogic)
 
@@ -81,11 +99,11 @@ const IssuesQuery = ({ personId, groupKey, groupTypeIndex, logicKey }: IssuesQue
         personId,
         groupKey,
         groupTypeIndex,
+        limit: 10,
     })
     const insightProps: InsightLogicProps = {
         dashboardItemId: `new-NotebookNodeIssues-${personId || groupKey}`,
     }
-    const attachTo = groupTypeIndex !== undefined && groupKey ? groupLogic({ groupTypeIndex, groupKey }) : undefined
 
     return (
         <BindLogic logic={issuesDataNodeLogic} props={{ key: insightVizDataNodeKey(insightProps) }}>

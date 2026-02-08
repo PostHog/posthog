@@ -19,7 +19,7 @@ export const StatusFilter = (): JSX.Element => {
             case null:
                 return <LabelIndicator intent="muted" label="All" size="small" />
             default:
-                return <StatusIndicator status={key} size="small" />
+                return <StatusIndicator status={key} size="small" withTooltip="right" />
         }
     }
 

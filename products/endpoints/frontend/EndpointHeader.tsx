@@ -14,22 +14,31 @@ export interface EndpointSceneHeaderProps {
 }
 
 export const EndpointSceneHeader = ({ tabId }: EndpointSceneHeaderProps): JSX.Element => {
-    const { endpoint, endpointLoading, localQuery } = useValues(endpointSceneLogic({ tabId }))
-    const { endpointName, endpointDescription, cacheAge, syncFrequency, isMaterialized } = useValues(
-        endpointLogic({ tabId })
+    const { endpoint, endpointLoading, localQuery, cacheAge, syncFrequency, isMaterialized, viewingVersion } =
+        useValues(endpointSceneLogic({ tabId }))
+    const { endpointName, endpointDescription } = useValues(endpointLogic({ tabId }))
+    const { setEndpointDescription, updateEndpoint } = useActions(endpointLogic({ tabId }))
+    const { setLocalQuery, setCacheAge, setSyncFrequency, setIsMaterialized } = useActions(
+        endpointSceneLogic({ tabId })
     )
-    const { setEndpointDescription, updateEndpoint, createEndpoint, setCacheAge, setSyncFrequency, setIsMaterialized } =
-        useActions(endpointLogic({ tabId }))
-    const { setLocalQuery } = useActions(endpointSceneLogic({ tabId }))
 
-    const isNewEndpoint = !endpoint?.name || endpoint.name === 'new-endpoint'
+    // When viewing a non-current version, target that version for updates
+    const targetVersion =
+        viewingVersion && viewingVersion.version !== endpoint?.current_version ? viewingVersion.version : undefined
 
     const hasNameChange = endpointName && endpointName !== endpoint?.name
-    const hasDescriptionChange = endpointDescription !== null && endpointDescription !== endpoint?.description
+    // When viewing a version, compare against that version's description
+    const baseDescription = viewingVersion?.description ?? endpoint?.description
+    const hasDescriptionChange = endpointDescription !== null && endpointDescription !== baseDescription
     const hasQueryChange = localQuery !== null
-    const hasCacheAgeChange = cacheAge !== (endpoint?.cache_age_seconds ?? null)
-    const hasSyncFrequencyChange = syncFrequency !== (endpoint?.materialization?.sync_frequency ?? null)
-    const hasIsMaterializedChange = isMaterialized !== null && isMaterialized !== endpoint?.is_materialized
+    // When viewing a version, compare against that version's values
+    const baseCacheAge = viewingVersion?.cache_age_seconds ?? endpoint?.cache_age_seconds ?? null
+    const hasCacheAgeChange = cacheAge !== null && cacheAge !== baseCacheAge
+    const baseSyncFrequency =
+        viewingVersion?.materialization?.sync_frequency ?? endpoint?.materialization?.sync_frequency ?? null
+    const hasSyncFrequencyChange = syncFrequency !== null && syncFrequency !== baseSyncFrequency
+    const baseIsMaterialized = viewingVersion?.is_materialized ?? endpoint?.is_materialized
+    const hasIsMaterializedChange = isMaterialized !== null && isMaterialized !== baseIsMaterialized
     const hasChanges =
         hasNameChange ||
         hasDescriptionChange ||
@@ -45,32 +54,34 @@ export const EndpointSceneHeader = ({ tabId }: EndpointSceneHeaderProps): JSX.El
             queryToSave = queryToSave.source
         }
 
-        if (isNewEndpoint) {
-            createEndpoint({
-                name: endpointName || '',
-                description: endpointDescription || undefined,
-                query: queryToSave,
-            })
-        } else {
-            const updatePayload: Partial<EndpointRequest> = {
-                description: hasDescriptionChange ? endpointDescription : undefined,
-                cache_age_seconds: hasCacheAgeChange ? (cacheAge ?? undefined) : undefined,
-                query: hasQueryChange ? queryToSave : undefined,
-                is_materialized: hasIsMaterializedChange ? isMaterialized : undefined,
-                sync_frequency: hasSyncFrequencyChange ? (syncFrequency ?? undefined) : undefined,
-            }
-
-            updateEndpoint(endpoint.name, updatePayload)
+        if (!endpoint) {
+            return
         }
+
+        const updatePayload: Partial<EndpointRequest> = {
+            description: hasDescriptionChange ? endpointDescription : undefined,
+            cache_age_seconds: hasCacheAgeChange ? (cacheAge ?? undefined) : undefined,
+            query: hasQueryChange ? queryToSave : undefined,
+            is_materialized: hasIsMaterializedChange ? isMaterialized : undefined,
+            sync_frequency: hasSyncFrequencyChange ? (syncFrequency ?? undefined) : undefined,
+        }
+
+        updateEndpoint(endpoint.name, updatePayload, targetVersion ? { version: targetVersion } : undefined)
     }
 
     const handleDiscardChanges = (): void => {
-        if (endpoint) {
-            setEndpointDescription(endpoint.description || '')
-            setCacheAge(endpoint.cache_age_seconds ?? null)
-            setSyncFrequency(endpoint.materialization?.sync_frequency ?? null)
-            setIsMaterialized(null)
+        if (!endpoint) {
+            return
         }
+        // Reset to viewed version values if viewing a specific version
+        const sourceDescription = viewingVersion?.description ?? endpoint.description
+        const sourceCacheAge = viewingVersion?.cache_age_seconds ?? endpoint.cache_age_seconds
+        const sourceSyncFrequency =
+            viewingVersion?.materialization?.sync_frequency ?? endpoint.materialization?.sync_frequency
+        setEndpointDescription(sourceDescription || '')
+        setCacheAge(sourceCacheAge ?? null)
+        setSyncFrequency(sourceSyncFrequency ?? null)
+        setIsMaterialized(null)
         setLocalQuery(null)
     }
 
@@ -78,7 +89,7 @@ export const EndpointSceneHeader = ({ tabId }: EndpointSceneHeaderProps): JSX.El
         <>
             <SceneTitleSection
                 name={endpointName || endpoint?.name}
-                description={endpointDescription || endpoint?.description}
+                description={endpointDescription ?? viewingVersion?.description ?? endpoint?.description}
                 resourceType={{ type: 'endpoints' }}
                 canEdit
                 // onNameChange={} - we explicitly disallow this
@@ -87,7 +98,7 @@ export const EndpointSceneHeader = ({ tabId }: EndpointSceneHeaderProps): JSX.El
                 renameDebounceMs={200}
                 actions={
                     <>
-                        {!isNewEndpoint && (
+                        {endpoint && (
                             <LemonButton
                                 type="secondary"
                                 onClick={handleDiscardChanges}
@@ -99,9 +110,17 @@ export const EndpointSceneHeader = ({ tabId }: EndpointSceneHeaderProps): JSX.El
                         <LemonButton
                             type="primary"
                             onClick={handleSave}
-                            disabledReason={!hasChanges && !isNewEndpoint && 'No changes to save'}
+                            disabledReason={
+                                !endpoint
+                                    ? 'Endpoint not loaded'
+                                    : !hasChanges
+                                      ? 'No changes to save'
+                                      : hasQueryChange && targetVersion
+                                        ? 'Query can only be changed when on the latest version'
+                                        : undefined
+                            }
                         >
-                            {isNewEndpoint ? 'Create' : 'Update'}
+                            Update
                         </LemonButton>
                     </>
                 }

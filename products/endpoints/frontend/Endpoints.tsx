@@ -12,11 +12,15 @@ import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { atColumn, createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { OutputTab } from 'scenes/data-warehouse/editor/outputPaneLogic'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { isHogQLQuery } from '~/queries/utils'
 import { EndpointType } from '~/types'
 
+import { EndpointFromInsightModal } from './EndpointFromInsightModal'
+import { humanizeQueryKind } from './common'
 import { endpointLogic } from './endpointLogic'
 import { endpointsLogic } from './endpointsLogic'
 
@@ -40,7 +44,8 @@ export const EndpointsTable = ({ tabId }: EndpointsTableProps): JSX.Element => {
     const { setFilters, loadEndpoints } = useActions(endpointsLogic({ tabId }))
     const { endpoints, allEndpointsLoading, filters } = useValues(endpointsLogic({ tabId }))
 
-    const { deleteEndpoint, updateEndpoint } = useActions(endpointLogic({ tabId }))
+    const { deleteEndpoint, confirmToggleActive, setDuplicateEndpoint } = useActions(endpointLogic({ tabId }))
+    const { duplicateEndpoint } = useValues(endpointLogic({ tabId }))
 
     const handleDelete = (endpointName: string): void => {
         LemonDialog.open({
@@ -67,29 +72,16 @@ export const EndpointsTable = ({ tabId }: EndpointsTableProps): JSX.Element => {
         })
     }
 
-    const handleDeactivate = (endpointName: string): void => {
-        LemonDialog.open({
-            title: 'Deactivate endpoint?',
-            content: (
-                <div className="text-sm text-secondary">
-                    Are you sure you want to deactivate this endpoint? It will no longer be accessible via the API.
-                </div>
-            ),
-            primaryButton: {
-                children: 'Deactivate',
-                type: 'primary',
-                status: 'danger',
-                onClick: () => {
-                    updateEndpoint(endpointName, { is_active: false })
-                },
-                size: 'small',
-            },
-            secondaryButton: {
-                children: 'Cancel',
-                type: 'tertiary',
-                size: 'small',
-            },
-        })
+    const handleEndpointActivation = (endpoint: EndpointType): void => {
+        confirmToggleActive(endpoint)
+    }
+
+    const handleDuplicate = (endpoint: EndpointType): void => {
+        if (isHogQLQuery(endpoint.query)) {
+            router.actions.push(urls.sqlEditor({ query: endpoint.query.query, outputTab: OutputTab.Endpoint }))
+        } else {
+            setDuplicateEndpoint(endpoint)
+        }
     }
 
     const columns: LemonTableColumns<EndpointType> = [
@@ -102,7 +94,14 @@ export const EndpointsTable = ({ tabId }: EndpointsTableProps): JSX.Element => {
                 return (
                     <LemonTableLink
                         to={urls.endpoint(record.name)}
-                        title={record.name}
+                        title={
+                            <>
+                                {record.name}
+                                <LemonTag type="option" size="small" className="mr-1">
+                                    {record.query?.kind && humanizeQueryKind(record.query.kind)}
+                                </LemonTag>
+                            </>
+                        }
                         description={record.description}
                     />
                 )
@@ -115,6 +114,11 @@ export const EndpointsTable = ({ tabId }: EndpointsTableProps): JSX.Element => {
             EndpointType,
             keyof EndpointType | undefined
         >,
+        atColumn<EndpointType>(
+            'materialization' as any,
+            'Last materialized at',
+            (record) => record.materialization?.last_materialized_at
+        ) as LemonTableColumn<EndpointType, keyof EndpointType | undefined>,
         {
             title: 'Endpoint path',
             key: 'endpoint_path',
@@ -132,14 +136,6 @@ export const EndpointsTable = ({ tabId }: EndpointsTableProps): JSX.Element => {
                     {record.endpoint_path}
                 </LemonButton>
             ),
-        },
-        {
-            title: 'Query type',
-            key: 'query_type',
-            render: function Render(_, record) {
-                return <LemonTag type="option">{record.query?.kind}</LemonTag>
-            },
-            sorter: (a: EndpointType, b: EndpointType) => a.query?.kind.localeCompare(b.query?.kind),
         },
         {
             title: 'Status',
@@ -166,22 +162,26 @@ export const EndpointsTable = ({ tabId }: EndpointsTableProps): JSX.Element => {
                         <>
                             <LemonButton
                                 onClick={() => {
-                                    router.actions.push(urls.endpointsUsage({ requestNameFilter: [record.name] }))
+                                    router.actions.push(urls.endpointsUsage({ endpointFilter: [record.name] }))
                                 }}
                                 fullWidth
                             >
                                 View usage
                             </LemonButton>
+                            <LemonButton onClick={() => handleDuplicate(record)} fullWidth>
+                                Duplicate endpoint
+                            </LemonButton>
 
                             <LemonDivider />
                             <LemonButton
                                 onClick={() => {
-                                    handleDeactivate(record.name)
+                                    handleEndpointActivation(record)
                                 }}
                                 fullWidth
                                 status="alt"
+                                data-attr="endpoint-activate"
                             >
-                                Deactivate endpoint
+                                {record.is_active ? 'Deactivate endpoint' : 'Activate endpoint'}
                             </LemonButton>
                             <LemonButton
                                 onClick={() => {
@@ -214,6 +214,7 @@ export const EndpointsTable = ({ tabId }: EndpointsTableProps): JSX.Element => {
                     icon={<IconRefresh />}
                     onClick={() => loadEndpoints()}
                     loading={allEndpointsLoading}
+                    size="small"
                 >
                     Reload
                 </LemonButton>
@@ -233,6 +234,15 @@ export const EndpointsTable = ({ tabId }: EndpointsTableProps): JSX.Element => {
                 emptyState="No endpoints matching your filters!"
                 nouns={['endpoint', 'endpoints']}
             />
+            {duplicateEndpoint && (
+                <EndpointFromInsightModal
+                    isOpen={!!duplicateEndpoint}
+                    closeModal={() => setDuplicateEndpoint(null)}
+                    tabId={tabId}
+                    insightQuery={duplicateEndpoint.query}
+                    insightShortId={duplicateEndpoint.derived_from_insight ?? undefined}
+                />
+            )}
         </SceneContent>
     )
 }

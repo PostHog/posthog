@@ -102,15 +102,15 @@ export function copyIndexHtml(
     // Django caches the generated index.html, and we'll end up loading the wrong chunks after one change.
     const chunksToServe = isDev ? {} : chunks
     const chunkCode = `
-        window.ESBUILD_LOADED_CHUNKS = new Set(); 
-        window.ESBUILD_LOAD_CHUNKS = function(name) { 
+        window.ESBUILD_LOADED_CHUNKS = new Set();
+        window.ESBUILD_LOAD_CHUNKS = function(name) {
             const chunks = ${JSON.stringify(chunksToServe)}[name] || [];
-            for (const chunk of chunks) { 
-                if (!window.ESBUILD_LOADED_CHUNKS.has(chunk)) { 
-                    window.ESBUILD_LOAD_SCRIPT('chunk-'+chunk+'.js'); 
+            for (const chunk of chunks) {
+                if (!window.ESBUILD_LOADED_CHUNKS.has(chunk)) {
+                    window.ESBUILD_LOAD_SCRIPT('chunk-'+chunk+'.js');
                     window.ESBUILD_LOADED_CHUNKS.add(chunk);
-                } 
-            } 
+                }
+            }
         }
         window.ESBUILD_LOAD_CHUNKS('index');
     `
@@ -176,6 +176,22 @@ export const commonConfig = {
     // no hashes in dev mode for faster reloads --> we save the old hash in index.html otherwise
     entryNames: isDev ? '[dir]/[name]' : '[dir]/[name]-[hash]',
     plugins: [
+        // monaco-vim imports monaco-editor internals without .js extensions (e.g. monaco-editor/esm/vs/editor/editor.api)
+        // which esbuild can't resolve through monaco-editor's package.json exports map
+        {
+            name: 'resolve-monaco-esm',
+            setup(build) {
+                build.onResolve({ filter: /^monaco-editor\/esm\// }, (args) => {
+                    if (args.path.endsWith('.js')) {
+                        return
+                    }
+                    return build.resolve(args.path + '.js', {
+                        kind: args.kind,
+                        resolveDir: args.resolveDir,
+                    })
+                })
+            },
+        },
         sassPlugin({
             async transform(source, resolveDir, filePath) {
                 const plugins = [autoprefixer, postcssPresetEnv({ stage: 0 })]
@@ -404,7 +420,6 @@ export async function buildOrWatch(config) {
             .watch(
                 [
                     path.resolve(absWorkingDir, 'src'),
-                    path.resolve(absWorkingDir, '../ee/frontend'),
                     path.resolve(absWorkingDir, '../common'),
                     path.resolve(absWorkingDir, '../products/*/manifest.tsx'),
                     path.resolve(absWorkingDir, '../products/*/frontend/**/*'),

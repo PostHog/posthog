@@ -58,6 +58,12 @@ pub struct Exception {
 #[serde(transparent)]
 pub struct ExceptionList(pub Vec<Exception>);
 
+impl From<Vec<Exception>> for ExceptionList {
+    fn from(exceptions: Vec<Exception>) -> Self {
+        ExceptionList(exceptions)
+    }
+}
+
 impl Deref for ExceptionList {
     type Target = Vec<Exception>;
     fn deref(&self) -> &Self::Target {
@@ -148,6 +154,8 @@ pub struct RawErrProps {
     pub issue_name: Option<String>, // Clients can send us custom issue names, which we'll use if present
     #[serde(rename = "$issue_description", skip_serializing_if = "Option::is_none")]
     pub issue_description: Option<String>, // Clients can send us custom issue descriptions, which we'll use if present
+    #[serde(rename = "$exception_handled", skip_serializing_if = "Option::is_none")]
+    pub handled: Option<bool>, // Clients can send us handled status, which we'll use if present
     #[serde(flatten)]
     // A catch-all for all the properties we don't "care" about, so when we send back to kafka we don't lose any info
     pub other: HashMap<String, Value>,
@@ -160,11 +168,12 @@ pub struct FingerprintedErrProps {
     pub proposed_issue_name: Option<String>,
     pub proposed_issue_description: Option<String>,
     pub proposed_fingerprint: String, // We suggest a fingerprint, based on hashes, but let users override client-side
+    pub handled: Option<bool>,
     pub other: HashMap<String, Value>,
 }
 
 // We emit this
-#[derive(Debug, Serialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct OutputErrProps {
     #[serde(rename = "$exception_list")]
     pub exception_list: ExceptionList,
@@ -184,7 +193,8 @@ pub struct OutputErrProps {
     pub handled: bool,
     #[serde(
         rename = "$exception_releases",
-        skip_serializing_if = "HashMap::is_empty"
+        skip_serializing_if = "HashMap::is_empty",
+        default
     )]
     pub releases: HashMap<String, ReleaseInfo>,
     // Search metadata (materialized)
@@ -197,6 +207,20 @@ pub struct OutputErrProps {
     #[serde(rename = "$exception_functions")]
     pub functions: Vec<String>,
 }
+
+const RESERVED_PROPERTIES: [&str; 11] = [
+    "$exception_list",
+    "$exception_fingerprint",
+    "$exception_issue_id",
+    "$exception_fingerprint_record",
+    "$exception_proposed_fingerprint",
+    "$exception_handled",
+    "$exception_releases",
+    "$exception_types",
+    "$exception_values",
+    "$exception_sources",
+    "$exception_functions",
+];
 
 impl FingerprintComponent for Exception {
     fn update(&self, fp: &mut FingerprintBuilder) {
@@ -280,6 +304,7 @@ impl RawErrProps {
             proposed_issue_name: self.issue_name,
             proposed_issue_description: self.issue_description,
             proposed_fingerprint,
+            handled: self.handled,
             other: self.other,
         }
     }
@@ -292,7 +317,16 @@ impl FingerprintedErrProps {
         let releases = self.exception_list.get_release_map();
         let types = self.exception_list.get_unique_types();
         let values = self.exception_list.get_unique_messages();
-        let handled = self.exception_list.get_is_handled();
+        let handled: bool = self
+            .handled
+            .unwrap_or_else(|| self.exception_list.get_is_handled());
+
+        // If users send properties that are reserved, it will results in property keys being duplicated
+        let sanitized_others = self
+            .other
+            .into_iter()
+            .filter(|(k, _)| !RESERVED_PROPERTIES.contains(&k.as_str()))
+            .collect();
 
         OutputErrProps {
             exception_list: self.exception_list,
@@ -300,7 +334,7 @@ impl FingerprintedErrProps {
             issue_id,
             proposed_fingerprint: self.proposed_fingerprint,
             fingerprint_record: self.fingerprint.record,
-            other: self.other,
+            other: sanitized_others,
 
             types,
             values,
@@ -408,6 +442,7 @@ impl OutputErrProps {
                 EmbeddingModel::OpenAITextEmbeddingLarge,
                 EmbeddingModel::OpenAITextEmbeddingSmall,
             ],
+            metadata: Default::default(),
         }
     }
 }
@@ -438,34 +473,18 @@ impl Stacktrace {
         })
     }
 
+    pub fn get_raw_frames(&self) -> &[RawFrame] {
+        match self {
+            Stacktrace::Raw { frames } => frames,
+            _ => &[],
+        }
+    }
+
     pub fn get_frames(&self) -> &[Frame] {
         match self {
             Stacktrace::Resolved { frames } => frames,
             _ => &[],
         }
-    }
-
-    // These two fn's are used for java, which mangles top level exception types. When
-    // we receive an exception, we push its type into the top frame, so when that frame's
-    // resolved, we can pop it
-    pub fn push_exception_type(&mut self, exception_type: String) {
-        let Self::Raw { frames } = self else {
-            return;
-        };
-        let Some(RawFrame::Java(f)) = frames.first_mut() else {
-            return;
-        };
-        f.exception_type = Some(exception_type);
-    }
-
-    pub fn pop_exception_type(&mut self) -> Option<String> {
-        let Self::Resolved { frames } = self else {
-            return None;
-        };
-        frames
-            .iter_mut()
-            .find(|f| f.exception_type.is_some())
-            .and_then(|f| f.exception_type.take())
     }
 }
 

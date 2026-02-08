@@ -7,6 +7,7 @@ import pytest
 
 from django.conf import settings
 
+import pytest_asyncio
 from temporalio import activity, workflow
 from temporalio.client import WorkflowFailureError
 from temporalio.common import RetryPolicy
@@ -32,7 +33,7 @@ from products.batch_exports.backend.temporal.utils import handle_non_retryable_e
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def batch_export(
     ateam,
     # temporal_client,
@@ -47,6 +48,27 @@ async def batch_export(
         name="test-batch-export",
         destination=destination,
         interval="hour",
+    )
+
+    yield batch_export
+
+    await batch_export.adelete()
+    await destination.adelete()
+
+
+@pytest.fixture(params=["hour", "day", "week", "every 5 minutes"])
+def interval(request):
+    return request.param
+
+
+@pytest_asyncio.fixture
+async def batch_export_by_interval(ateam, interval):
+    destination = await BatchExportDestination.objects.acreate(type="Dummy", config={})
+    batch_export = await BatchExport.objects.acreate(
+        team=ateam,
+        name="test-batch-export",
+        destination=destination,
+        interval=interval,
     )
 
     yield batch_export
@@ -233,3 +255,15 @@ class TestErrorHandling:
         run = await self._run_workflow(inputs, expect_workflow_failure=True)
         assert run.status == "FailedRetryable"
         assert run.latest_error == "DummyRetryableError: This is an unexpected internal error"
+
+    async def test_successful_run(self, batch_export_by_interval, interval):
+        inputs = DummyExportInputs(
+            team_id=batch_export_by_interval.team_id,
+            batch_export_id=str(batch_export_by_interval.id),
+            interval=interval,
+            data_interval_end=dt.datetime(2025, 7, 21, 13, 0, 0, tzinfo=dt.UTC).isoformat(),
+            batch_export_model=BatchExportModel(name="events", schema=None),
+        )
+        run = await self._run_workflow(inputs, expect_workflow_failure=False)
+        assert run.status == "Completed"
+        assert run.records_completed == 100

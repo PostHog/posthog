@@ -89,7 +89,6 @@ If a user says, *"show me recordings where people use mobile phone"*, use the ex
 
 json
 {
-    "data": {
     "date_from": "<date_from>",
     "date_to": "<date_to>",
     "duration": [{"key": "duration", "type": "recording", "value": 60, "operator": PropertyOperator.GreaterThan}],
@@ -109,7 +108,6 @@ json
             ]
         }
         ]
-    }
     }
 }
 
@@ -264,4 +262,69 @@ Goal: {change}
 Current filters: {current_filters}
 
 DO NOT CHANGE THE CURRENT FILTERS. ONLY ADD NEW FILTERS or update the existing filters.
+""".strip()
+
+FILTER_EXAMPLES_PROMPT = """
+<filter_examples>
+# Logical Grouping
+**AND**: All criteria must match (narrower results). Example: "mobile users from US" -> mobile AND US
+**OR**: Any criteria can match (broader results). Example: "users from US or UK" -> US OR UK
+**Simple AND** (most common):
+```json
+{"type":"AND","values":[{"type":"AND","values":[{"key":"$device_type","type":"session","operator":"exact","value":["Mobile"]},{"key":"$geoip_country_code","type":"person","operator":"exact","value":["US"]}]}]}
+```
+**Simple OR**:
+```json
+{"type":"OR","values":[{"type":"AND","values":[{"key":"$geoip_country_code","type":"person","operator":"exact","value":["US"]}]},{"type":"AND","values":[{"key":"$geoip_country_code","type":"person","operator":"exact","value":["UK"]}]}]}
+```
+**Complex (A OR B) AND (C OR D)**:
+```json
+{"type":"AND","values":[{"type":"OR","values":[{"key":"$device_type","type":"session","operator":"exact","value":["Mobile"]},{"key":"$device_type","type":"session","operator":"exact","value":["Tablet"]}]},{"type":"OR","values":[{"key":"$geoip_country_code","type":"person","operator":"exact","value":["US"]},{"key":"$geoip_country_code","type":"person","operator":"exact","value":["UK"]}]}]}
+```
+**Complex (A AND B) OR (C AND D)**:
+```json
+{"type":"OR","values":[{"type":"AND","values":[{"key":"$device_type","type":"session","operator":"exact","value":["Mobile"]},{"key":"$geoip_country_code","type":"person","operator":"exact","value":["US"]}]},{"type":"AND","values":[{"key":"$device_type","type":"session","operator":"exact","value":["Desktop"]},{"key":"$geoip_country_code","type":"person","operator":"exact","value":["UK"]}]}]}
+```
+
+# Common Properties
+**Session**: `$device_type` (Mobile/Desktop/Tablet), `$browser`, `$os`, `$screen_width`, `$screen_height`
+**Person**: `$geoip_country_code` (US/UK/FR), `$geoip_city_name`, custom fields
+**Event**: `$current_url`, `$event_type` ($rageclick/$pageview), `$pathname`
+**Recording**: `console_error_count`, `click_count`, `keypress_count`, `mouse_activity_count`, `activity_score`
+
+# Special Patterns
+**Frustrated users (rageclicks)**:
+```json
+{"filter_group":{"type":"AND","values":[{"type":"AND","values":[{"key":"$event_type","type":"event","operator":"exact","value":["$rageclick"]}]}]}}
+```
+**Users with errors**:
+```json
+{"filter_group":{"type":"AND","values":[{"type":"AND","values":[{"key":"console_error_count","type":"recording","operator":"gt","value":[0]}]}]},"order":"console_error_count","order_direction":"DESC"}
+```
+**Clear all filters**:
+```json
+{"date_from":"-3d","date_to":null,"duration":[],"filter_group":{"type":"AND","values":[{"type":"AND","values":[]}]},"filter_test_accounts":true,"order":"start_time","order_direction":"DESC"}
+```
+
+# Complete Examples
+**Mobile users from US (last 3 days)**:
+```json
+{"date_from":"-3d","date_to":null,"duration":[],"filter_group":{"type":"AND","values":[{"type":"AND","values":[{"key":"$device_type","type":"session","operator":"exact","value":["Mobile"]},{"key":"$geoip_country_code","type":"person","operator":"exact","value":["US"]}]}]},"filter_test_accounts":true}
+```
+**US or UK users (last week)**:
+```json
+{"date_from":"-7d","date_to":null,"duration":[],"filter_group":{"type":"OR","values":[{"type":"AND","values":[{"key":"$geoip_country_code","type":"person","operator":"exact","value":["US"]}]},{"type":"AND","values":[{"key":"$geoip_country_code","type":"person","operator":"exact","value":["UK"]}]}]},"filter_test_accounts":true}
+```
+**Long mobile sessions from paid customers on pricing page**:
+```json
+{"date_from":"-7d","date_to":null,"duration":[{"key":"duration","type":"recording","operator":"gt","value":300}],"filter_group":{"type":"AND","values":[{"type":"AND","values":[{"key":"plan_type","type":"person","operator":"exact","value":["paid"]},{"key":"$device_type","type":"session","operator":"exact","value":["Mobile"]},{"key":"$current_url","type":"event","operator":"icontains","value":["/pricing"]}]}]},"order":"duration","order_direction":"DESC","filter_test_accounts":true}
+```
+**Error tracking (yesterday)**:
+```json
+{"date_from":"-1d","date_to":null,"duration":[],"filter_group":{"type":"AND","values":[{"type":"AND","values":[{"key":"console_error_count","type":"recording","operator":"gt","value":[0]}]}]},"order":"console_error_count","order_direction":"DESC","filter_test_accounts":true}
+```
+**(Mobile OR Tablet) AND (US OR UK)**:
+```json
+{"date_from":"-3d","date_to":null,"duration":[],"filter_group":{"type":"AND","values":[{"type":"OR","values":[{"key":"$device_type","type":"session","operator":"exact","value":["Mobile"]},{"key":"$device_type","type":"session","operator":"exact","value":["Tablet"]}]},{"type":"OR","values":[{"key":"$geoip_country_code","type":"person","operator":"exact","value":["US"]},{"key":"$geoip_country_code","type":"person","operator":"exact","value":["UK"]}]}]},"filter_test_accounts":true}
+</filter_examples>
 """.strip()

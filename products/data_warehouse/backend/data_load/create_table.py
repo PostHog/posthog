@@ -12,11 +12,9 @@ from posthog.temporal.common.logger import get_logger
 
 from products.data_warehouse.backend.models import (
     DataModelingJob,
-    DataWarehouseCredential,
     DataWarehouseSavedQuery,
     DataWarehouseTable,
     acreate_datawarehousetable,
-    aget_or_create_datawarehouse_credential,
     aget_saved_query_by_id,
     aget_table_by_saved_query_id,
     asave_datawarehousetable,
@@ -55,11 +53,6 @@ async def create_table_from_saved_query(
     bind_contextvars(team_id=team_id)
     logger = LOGGER.bind()
 
-    credential: DataWarehouseCredential = await aget_or_create_datawarehouse_credential(
-        team_id=team_id,
-        access_key=settings.AIRBYTE_BUCKET_KEY,
-        access_secret=settings.AIRBYTE_BUCKET_SECRET,
-    )
     saved_query_id_converted = str(uuid.UUID(saved_query_id))
     saved_query = await aget_saved_query_by_id(saved_query_id=saved_query_id_converted, team_id=team_id)
 
@@ -71,7 +64,6 @@ async def create_table_from_saved_query(
         table_format = DataWarehouseTable.TableFormat.DeltaS3Wrapper
 
         table_params = {
-            "credential": credential,
             "name": table_name,
             "format": table_format,
             "url_pattern": url_pattern,
@@ -82,7 +74,6 @@ async def create_table_from_saved_query(
         # create or update
         table_created: DataWarehouseTable | None = await aget_table_by_saved_query_id(saved_query_id_converted, team_id)
         if table_created:
-            table_created.credential = credential
             table_created.format = table_format
             table_created.url_pattern = url_pattern
             table_created.queryable_folder = queryable_folder

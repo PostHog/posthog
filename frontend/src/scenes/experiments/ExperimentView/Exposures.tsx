@@ -1,12 +1,13 @@
 import { useActions, useValues } from 'kea'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useState } from 'react'
 
-import { IconCorrelationAnalysis, IconPencil } from '@posthog/icons'
-import { LemonButton, LemonCollapse, LemonTable, Spinner } from '@posthog/lemon-ui'
+import { IconCheckCircle, IconCorrelationAnalysis, IconPencil, IconWarning } from '@posthog/icons'
+import { LemonButton, LemonCollapse, LemonTable, Spinner, Tooltip } from '@posthog/lemon-ui'
 
-import { Chart, ChartConfiguration } from 'lib/Chart'
 import { getSeriesBackgroundColor, getSeriesColor } from 'lib/colors'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { useChart } from 'lib/hooks/useChart'
 import { humanFriendlyLargeNumber, humanFriendlyNumber } from 'lib/utils'
 
 import {
@@ -20,6 +21,9 @@ import { experimentLogic } from '../experimentLogic'
 import { modalsLogic } from '../modalsLogic'
 import { getExposureConfigDisplayName } from '../utils'
 import { VariantTag } from './components'
+
+const srmFailureTooltipText =
+    "The distribution of users across variants doesn't match your configured rollout percentages (p < 0.001). This may indicate issues with randomization or data collection."
 
 interface MicroChartProps {
     exposures: ExperimentExposureQueryResponse
@@ -37,95 +41,75 @@ interface ChartDataset {
 }
 
 function MicroChart({ exposures }: MicroChartProps): JSX.Element | null {
-    const canvasRef = useRef<HTMLCanvasElement | null>(null)
-    const chartRef = useRef<Chart | null>(null)
-
-    useEffect(() => {
-        if (!canvasRef.current || !exposures?.timeseries?.length) {
-            return
-        }
-
-        if (chartRef.current) {
-            chartRef.current.destroy()
-            chartRef.current = null
-        }
-
-        const ctx = canvasRef.current
-        const timeseries = exposures.timeseries
-
-        let datasets = timeseries.map((series: ExperimentExposureTimeSeries, index: number) => ({
-            data: series.exposure_counts,
-            borderColor: getSeriesColor(index),
-            fill: false,
-            tension: 0.3,
-            borderWidth: 1.5,
-            pointRadius: 0,
-        }))
-
-        // If only one day, pad with a previous day of zeros
-        if (timeseries[0].days.length === 1) {
-            datasets = datasets.map((dataset: ChartDataset) => ({
-                ...dataset,
-                data: [0, ...dataset.data],
-            }))
-        }
-
-        const config: ChartConfiguration = {
-            type: 'line',
-            data: {
-                labels: datasets[0].data.map((_: any, i: number) => i),
-                datasets,
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                animation: {
-                    duration: 0,
-                },
-                scales: {
-                    x: {
-                        display: false,
-                        grid: {
-                            display: false,
-                        },
-                    },
-                    y: {
-                        display: false,
-                        beginAtZero: true,
-                        grid: {
-                            display: false,
-                        },
-                    },
-                },
-                plugins: {
-                    legend: {
-                        display: false,
-                    },
-                    tooltip: {
-                        enabled: false,
-                    },
-                },
-                elements: {
-                    line: {
-                        borderJoinStyle: 'round',
-                    },
-                },
-            },
-        }
-
-        try {
-            chartRef.current = new Chart(ctx, config)
-        } catch (error) {
-            console.error('Error creating microchart:', error)
-        }
-
-        return () => {
-            if (chartRef.current) {
-                chartRef.current.destroy()
-                chartRef.current = null
+    const { canvasRef } = useChart({
+        getConfig: () => {
+            if (!exposures?.timeseries?.length) {
+                return null
             }
-        }
-    }, [exposures])
+
+            const timeseries = exposures.timeseries
+
+            let datasets = timeseries.map((series: ExperimentExposureTimeSeries, index: number) => ({
+                data: series.exposure_counts,
+                borderColor: getSeriesColor(index),
+                fill: false,
+                tension: 0.3,
+                borderWidth: 1.5,
+                pointRadius: 0,
+            }))
+
+            if (timeseries[0].days.length === 1) {
+                datasets = datasets.map((dataset: ChartDataset) => ({
+                    ...dataset,
+                    data: [0, ...dataset.data],
+                }))
+            }
+
+            return {
+                type: 'line' as const,
+                data: {
+                    labels: datasets[0].data.map((_: any, i: number) => i),
+                    datasets,
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    animation: {
+                        duration: 0,
+                    },
+                    scales: {
+                        x: {
+                            display: false,
+                            grid: {
+                                display: false,
+                            },
+                        },
+                        y: {
+                            display: false,
+                            beginAtZero: true,
+                            grid: {
+                                display: false,
+                            },
+                        },
+                    },
+                    plugins: {
+                        legend: {
+                            display: false,
+                        },
+                        tooltip: {
+                            enabled: false,
+                        },
+                    },
+                    elements: {
+                        line: {
+                            borderJoinStyle: 'round',
+                        },
+                    },
+                },
+            }
+        },
+        deps: [exposures],
+    })
 
     if (!exposures?.timeseries?.length) {
         return null
@@ -158,15 +142,12 @@ function getExposureCriteriaLabel(exposureCriteria: ExperimentExposureCriteria |
 }
 
 export function Exposures(): JSX.Element {
-    const { exposures, exposuresLoading, exposureCriteria, isExperimentDraft } = useValues(experimentLogic)
+    const { exposures, exposuresLoading, exposureCriteria, isExperimentDraft, featureFlags } =
+        useValues(experimentLogic)
     const { openExposureCriteriaModal } = useActions(modalsLogic)
     const colors = useChartColors()
 
-    const chartRef = useRef<Chart | null>(null)
-    const canvasRef = useRef<HTMLCanvasElement | null>(null)
     const [isCollapsed, setIsCollapsed] = useState(true)
-
-    // Calculate total exposures across all variants
 
     let totalExposures = 0
     const variants: Array<{ variant: string; count: number; percentage: number }> = []
@@ -177,7 +158,6 @@ export function Exposures(): JSX.Element {
             totalExposures += Number(count)
         }
 
-        // Calculate percentages for each variant
         for (const series of exposures.timeseries) {
             const count = exposures.total_exposures?.[series.variant] || 0
             variants.push({
@@ -188,15 +168,13 @@ export function Exposures(): JSX.Element {
         }
     }
 
-    const createChart = useCallback(
-        (ctx: HTMLCanvasElement) => {
-            if (chartRef.current) {
-                chartRef.current.destroy()
-                chartRef.current = null
-            }
+    // Detect sample ratio mismatch (p < 0.001 is significant)
+    const hasSRM = exposures?.sample_ratio_mismatch != null && exposures.sample_ratio_mismatch.p_value < 0.001
 
-            if (!exposures?.timeseries?.length) {
-                return
+    const { canvasRef } = useChart({
+        getConfig: () => {
+            if (isCollapsed || !exposures?.timeseries?.length) {
+                return null
             }
 
             let labels = exposures.timeseries[0].days.map((day: string) => dayjs(day).format('MM/DD'))
@@ -211,7 +189,6 @@ export function Exposures(): JSX.Element {
                 pointRadius: 0,
             }))
 
-            // If only one day, pad with a previous day of zeros
             if (exposures.timeseries[0].days.length === 1) {
                 const firstDay = dayjs(exposures.timeseries[0].days[0])
                 const previousDay = firstDay.subtract(1, 'day').format('MM/DD')
@@ -223,8 +200,8 @@ export function Exposures(): JSX.Element {
                 }))
             }
 
-            const config: ChartConfiguration = {
-                type: 'line',
+            return {
+                type: 'line' as const,
                 data: {
                     labels,
                     datasets,
@@ -267,59 +244,17 @@ export function Exposures(): JSX.Element {
                                 pointStyle: 'dash',
                             },
                         },
-                        // @ts-expect-error
                         crosshair: false,
                     },
                 },
             }
-
-            try {
-                chartRef.current = new Chart(ctx, config)
-            } catch (error) {
-                console.error('Error creating chart:', error)
-            }
         },
-        [exposures, colors.EXPOSURES_AXIS_LINES]
-    )
+        deps: [exposures, colors.EXPOSURES_AXIS_LINES, isCollapsed],
+    })
 
-    const canvasRefCallback = useCallback(
-        (node: HTMLCanvasElement | null) => {
-            canvasRef.current = node
-            if (node && exposures?.timeseries?.length && !isCollapsed) {
-                // Small delay to ensure canvas is fully mounted
-                setTimeout(() => createChart(node), 50)
-            }
-        },
-        [exposures, createChart, isCollapsed]
-    )
-
-    useEffect(() => {
-        // Re-create chart when data changes and canvas exists and collapse is open
-        if (canvasRef.current && exposures?.timeseries?.length && !isCollapsed) {
-            createChart(canvasRef.current)
-        }
-    }, [exposures, createChart, isCollapsed])
-
-    const handleCollapseChange = useCallback(
-        (activeKey: string | null) => {
-            const isOpen = activeKey === 'cumulative-exposures'
-            setIsCollapsed(!isOpen)
-
-            // If opening and we have data and canvas, create chart
-            if (isOpen && canvasRef.current && exposures?.timeseries?.length) {
-                setTimeout(() => createChart(canvasRef.current!), 100)
-            }
-        },
-        [exposures, createChart]
-    )
-
-    useEffect(() => {
-        return () => {
-            if (chartRef.current) {
-                chartRef.current.destroy()
-                chartRef.current = null
-            }
-        }
+    const handleCollapseChange = useCallback((activeKey: string | null) => {
+        const isOpen = activeKey === 'cumulative-exposures'
+        setIsCollapsed(!isOpen)
     }, [])
 
     const headerContent = {
@@ -359,6 +294,11 @@ export function Exposures(): JSX.Element {
                                             </div>
                                         ))}
                                     </div>
+                                )}
+                                {featureFlags[FEATURE_FLAGS.EXPERIMENTS_SAMPLE_RATIO_MISMATCH] && hasSRM && (
+                                    <Tooltip title={srmFailureTooltipText}>
+                                        <IconWarning className="text-warning text-lg" />
+                                    </Tooltip>
                                 )}
                             </>
                         )}
@@ -405,131 +345,155 @@ export function Exposures(): JSX.Element {
                                 </div>
                             ) : (
                                 <div className="relative h-[200px]">
-                                    <canvas ref={canvasRefCallback} />
+                                    <canvas ref={canvasRef} />
                                 </div>
                             )}
 
-                            {/* Exposure Criteria & Total Exposures Section */}
-                            <div>
-                                <div className="flex justify-between mb-4">
-                                    <div>
-                                        <h3 className="card-secondary">Exposure criteria</h3>
-                                        <div className="flex items-center gap-2">
-                                            <div className="text-sm font-semibold">
-                                                {getExposureCriteriaLabel(exposureCriteria)}
-                                            </div>
-                                            <LemonButton
-                                                icon={<IconPencil fontSize="12" />}
-                                                size="xsmall"
-                                                className="flex items-center gap-2"
-                                                type="secondary"
-                                                onClick={() => openExposureCriteriaModal()}
-                                            />
-                                        </div>
+                            {/* Exposure Criteria Section */}
+                            <div className="mb-4">
+                                <h3 className="card-secondary">Exposure criteria</h3>
+                                <div className="flex items-center gap-2">
+                                    <div className="text-sm font-semibold">
+                                        {getExposureCriteriaLabel(exposureCriteria)}
                                     </div>
+                                    <LemonButton
+                                        icon={<IconPencil fontSize="12" />}
+                                        size="xsmall"
+                                        className="flex items-center gap-2"
+                                        type="secondary"
+                                        onClick={() => openExposureCriteriaModal()}
+                                    />
                                 </div>
-                                {exposures?.timeseries.length > 0 && (
-                                    <div>
-                                        <h3 className="card-secondary">Total exposures</h3>
-                                        <div>
-                                            <LemonTable
-                                                dataSource={[
-                                                    ...(exposures?.timeseries || []),
-                                                    // Add total row
-                                                    { variant: '__total__', isTotal: true },
-                                                ]}
-                                                columns={[
-                                                    {
-                                                        title: 'Variant',
-                                                        key: 'variant',
-                                                        render: function Variant(_, series) {
-                                                            if (series.isTotal) {
-                                                                return <span className="font-semibold">Total</span>
+                            </div>
+                            {exposures?.timeseries.length > 0 && (
+                                <div>
+                                    <h3 className="card-secondary">Total exposures</h3>
+                                    <LemonTable
+                                        dataSource={[
+                                            ...(exposures?.timeseries || []),
+                                            { variant: '__total__', isTotal: true },
+                                        ]}
+                                        columns={[
+                                            {
+                                                title: 'Variant',
+                                                key: 'variant',
+                                                render: function Variant(_, series) {
+                                                    if (series.isTotal) {
+                                                        return <span className="font-semibold">Total</span>
+                                                    }
+                                                    return <VariantTag variantKey={series.variant} />
+                                                },
+                                            },
+                                            {
+                                                title: 'Exposures',
+                                                key: 'exposures',
+                                                render: function Exposures(_, series) {
+                                                    if (series.isTotal) {
+                                                        return (
+                                                            <span className="font-semibold">
+                                                                {humanFriendlyNumber(totalExposures)}
+                                                            </span>
+                                                        )
+                                                    }
+                                                    return humanFriendlyNumber(
+                                                        exposures?.total_exposures[series.variant]
+                                                    )
+                                                },
+                                            },
+                                            {
+                                                title: '%',
+                                                key: 'percentage',
+                                                render: function Percentage(_, series) {
+                                                    if (series.isTotal) {
+                                                        let totalPercentage = 0
+                                                        let total = 0
+                                                        if (exposures?.total_exposures) {
+                                                            for (const [_, value] of Object.entries(
+                                                                exposures.total_exposures
+                                                            )) {
+                                                                total += Number(value)
                                                             }
-                                                            return <VariantTag variantKey={series.variant} />
-                                                        },
-                                                    },
-                                                    {
-                                                        title: 'Exposures',
-                                                        key: 'exposures',
-                                                        render: function Exposures(_, series) {
-                                                            if (series.isTotal) {
-                                                                return (
-                                                                    <span className="font-semibold">
-                                                                        {humanFriendlyNumber(totalExposures)}
-                                                                    </span>
-                                                                )
-                                                            }
-                                                            return humanFriendlyNumber(
-                                                                exposures?.total_exposures[series.variant]
-                                                            )
-                                                        },
-                                                    },
-                                                    {
-                                                        title: '%',
-                                                        key: 'percentage',
-                                                        render: function Percentage(_, series) {
-                                                            if (series.isTotal) {
-                                                                // Calculate sum of all individual percentages
-                                                                let totalPercentage = 0
-                                                                let total = 0
-                                                                if (exposures?.total_exposures) {
-                                                                    for (const [_, value] of Object.entries(
-                                                                        exposures.total_exposures
-                                                                    )) {
-                                                                        total += Number(value)
-                                                                    }
-                                                                    if (total > 0) {
-                                                                        for (const [_, count] of Object.entries(
-                                                                            exposures.total_exposures
-                                                                        )) {
-                                                                            totalPercentage +=
-                                                                                (Number(count) / total) * 100
-                                                                        }
-                                                                    }
-                                                                }
-                                                                return (
-                                                                    <span className="font-semibold">
-                                                                        {totalPercentage
-                                                                            ? `${totalPercentage.toFixed(1)}%`
-                                                                            : '-%'}
-                                                                    </span>
-                                                                )
-                                                            }
-                                                            let total = 0
-                                                            if (exposures?.total_exposures) {
-                                                                for (const [_, value] of Object.entries(
+                                                            if (total > 0) {
+                                                                for (const [_, count] of Object.entries(
                                                                     exposures.total_exposures
                                                                 )) {
-                                                                    total += Number(value)
+                                                                    totalPercentage += (Number(count) / total) * 100
                                                                 }
                                                             }
-                                                            return (
+                                                        }
+                                                        return (
+                                                            <span className="font-semibold">
+                                                                {totalPercentage
+                                                                    ? `${totalPercentage.toFixed(1)}%`
+                                                                    : '-%'}
+                                                            </span>
+                                                        )
+                                                    }
+                                                    let total = 0
+                                                    if (exposures?.total_exposures) {
+                                                        for (const [_, value] of Object.entries(
+                                                            exposures.total_exposures
+                                                        )) {
+                                                            total += Number(value)
+                                                        }
+                                                    }
+                                                    return (
+                                                        <span className="font-semibold">
+                                                            {total ? (
+                                                                <>
+                                                                    {(
+                                                                        (exposures?.total_exposures[series.variant] /
+                                                                            total) *
+                                                                        100
+                                                                    ).toFixed(1)}
+                                                                    %
+                                                                </>
+                                                            ) : (
+                                                                <>-%</>
+                                                            )}
+                                                        </span>
+                                                    )
+                                                },
+                                            },
+                                        ]}
+                                    />
+                                    {featureFlags[FEATURE_FLAGS.EXPERIMENTS_SAMPLE_RATIO_MISMATCH] &&
+                                        exposures?.sample_ratio_mismatch != null && (
+                                            <div className="flex items-center gap-1 text-xs mt-2">
+                                                {hasSRM ? (
+                                                    <>
+                                                        <Tooltip title={srmFailureTooltipText}>
+                                                            <span className="flex items-center gap-1 text-warning cursor-pointer">
+                                                                <IconWarning className="text-sm" />
                                                                 <span className="font-semibold">
-                                                                    {total ? (
-                                                                        <>
-                                                                            {(
-                                                                                (exposures?.total_exposures[
-                                                                                    series.variant
-                                                                                ] /
-                                                                                    total) *
-                                                                                100
-                                                                            ).toFixed(1)}
-                                                                            %
-                                                                        </>
-                                                                    ) : (
-                                                                        <>-%</>
-                                                                    )}
+                                                                    Sample ratio mismatch detected
                                                                 </span>
-                                                            )
-                                                        },
-                                                    },
-                                                ]}
-                                            />
-                                        </div>
-                                    </div>
-                                )}
-                            </div>
+                                                            </span>
+                                                        </Tooltip>
+                                                        <span className="text-muted">
+                                                            (p ={' '}
+                                                            {exposures.sample_ratio_mismatch.p_value.toExponential(2)})
+                                                        </span>
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <Tooltip title="No sample ratio mismatch detected. The difference between actual and expected exposures is within normal random variation.">
+                                                            <span className="flex items-center gap-1 text-success cursor-pointer">
+                                                                <IconCheckCircle className="text-sm" />
+                                                                <span>
+                                                                    Exposure distribution matches rollout percentages
+                                                                </span>
+                                                            </span>
+                                                        </Tooltip>
+                                                        <span className="text-muted">
+                                                            (p = {exposures.sample_ratio_mismatch.p_value.toFixed(3)})
+                                                        </span>
+                                                    </>
+                                                )}
+                                            </div>
+                                        )}
+                                </div>
+                            )}
                         </div>
                     ),
                 },

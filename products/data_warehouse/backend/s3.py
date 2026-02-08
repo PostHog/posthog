@@ -13,15 +13,12 @@ def get_s3_client():
     # Defaults for localhost dev and test suites
     if settings.USE_LOCAL_SETUP:
         return s3fs.S3FileSystem(
-            key=settings.AIRBYTE_BUCKET_KEY,
-            secret=settings.AIRBYTE_BUCKET_SECRET,
+            key=settings.DATAWAREHOUSE_LOCAL_ACCESS_KEY,
+            secret=settings.DATAWAREHOUSE_LOCAL_ACCESS_SECRET,
             endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
         )
 
-    return s3fs.S3FileSystem(
-        key=settings.AIRBYTE_BUCKET_KEY,
-        secret=settings.AIRBYTE_BUCKET_SECRET,
-    )
+    return s3fs.S3FileSystem()
 
 
 def get_size_of_folder(path: str) -> float:

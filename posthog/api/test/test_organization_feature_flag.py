@@ -1,7 +1,10 @@
+from datetime import timedelta
 from typing import Any
 
 from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
-from unittest.mock import ANY
+from unittest.mock import ANY, patch
+
+from django.utils import timezone
 
 from rest_framework import status
 
@@ -10,6 +13,7 @@ from posthog.models import FeatureFlag
 from posthog.models.cohort import Cohort
 from posthog.models.cohort.util import sort_cohorts_topologically
 from posthog.models.experiment import Experiment
+from posthog.models.scheduled_change import ScheduledChange
 from posthog.models.surveys.survey import Survey
 from posthog.models.team.team import Team
 
@@ -79,6 +83,42 @@ class TestOrganizationFeatureFlagGet(APIBaseTest, QueryMatchingTest):
 
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
+    def test_get_feature_flag_filters_inaccessible_teams(self):
+        """Test that flags from teams the user cannot access are not returned."""
+        from posthog.constants import AvailableFeature
+
+        # Enable advanced permissions for the organization
+        self.organization.available_product_features = [
+            {
+                "name": AvailableFeature.ADVANCED_PERMISSIONS,
+                "key": AvailableFeature.ADVANCED_PERMISSIONS,
+            }
+        ]
+        self.organization.save()
+
+        # Import AccessControl for setting up private team
+        from ee.models.rbac.access_control import AccessControl
+
+        # Make team_2 private by setting default access to "none"
+        AccessControl.objects.create(
+            team=self.team_2,
+            resource="project",
+            resource_id=str(self.team_2.id),
+            organization_member=None,
+            role=None,
+            access_level="none",
+        )
+
+        url = f"/api/organizations/{self.organization.id}/feature_flags/{self.feature_flag_key}"
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Should only return flag from team_1, not team_2 (which is now private)
+        response_data = response.json()
+        self.assertEqual(len(response_data), 1)
+        self.assertEqual(response_data[0]["team_id"], self.team_1.id)
+
 
 class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
     def setUp(self):
@@ -126,14 +166,12 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             "filters": self.feature_flag_to_copy.filters,
             "active": self.feature_flag_to_copy.active,
             "ensure_experience_continuity": self.feature_flag_to_copy.ensure_experience_continuity,
-            "rollout_percentage": self.rollout_percentage_to_copy,
             "deleted": False,
             "created_by": ANY,
             "id": ANY,
             "created_at": ANY,
             "updated_at": ANY,
             "usage_dashboard": ANY,
-            "is_simple_flag": True,
             "experiment_set": [],
             "surveys": [],
             "features": [],
@@ -152,6 +190,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             "last_modified_by": ANY,
             "last_called_at": None,
             "evaluation_runtime": "all",
+            "bucketing_identifier": "distinct_id",
         }
 
         flag_response = response.json()["success"][0]
@@ -212,10 +251,8 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             "filters": self.feature_flag_to_copy.filters,
             "active": self.feature_flag_to_copy.active,
             "ensure_experience_continuity": self.feature_flag_to_copy.ensure_experience_continuity,
-            "rollout_percentage": self.rollout_percentage_to_copy,
             "deleted": False,
             "created_by": ANY,
-            "is_simple_flag": True,
             "rollback_conditions": None,
             "performed_rollback": False,
             "can_edit": True,
@@ -238,6 +275,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             "last_modified_by": ANY,
             "last_called_at": None,
             "evaluation_runtime": "all",
+            "bucketing_identifier": "distinct_id",
         }
 
         flag_response = response.json()["success"][0]
@@ -345,10 +383,8 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             "filters": self.feature_flag_to_copy.filters,
             "active": self.feature_flag_to_copy.active,
             "ensure_experience_continuity": self.feature_flag_to_copy.ensure_experience_continuity,
-            "rollout_percentage": self.rollout_percentage_to_copy,
             "deleted": False,
             "created_by": ANY,
-            "is_simple_flag": True,
             "rollback_conditions": None,
             "performed_rollback": False,
             "can_edit": True,
@@ -371,6 +407,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             "last_modified_by": ANY,
             "last_called_at": None,
             "evaluation_runtime": "all",
+            "bucketing_identifier": "distinct_id",
         }
         flag_response = response.json()["success"][0]
 
@@ -437,6 +474,45 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         response = self.client.post(url, data)
 
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_copy_feature_flag_to_inaccessible_team_fails(self):
+        """Test that copying a flag to a team the user cannot access fails."""
+        from posthog.constants import AvailableFeature
+
+        from ee.models.rbac.access_control import AccessControl
+
+        # Enable advanced permissions for the organization
+        self.organization.available_product_features = [
+            {
+                "name": AvailableFeature.ADVANCED_PERMISSIONS,
+                "key": AvailableFeature.ADVANCED_PERMISSIONS,
+            }
+        ]
+        self.organization.save()
+
+        # Make team_2 private by setting default access to "none"
+        AccessControl.objects.create(
+            team=self.team_2,
+            resource="project",
+            resource_id=str(self.team_2.id),
+            organization_member=None,
+            role=None,
+            access_level="none",
+        )
+
+        url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
+        data = {
+            "feature_flag_key": self.feature_flag_key,
+            "from_project": self.team_1.id,
+            "target_project_ids": [self.team_2.id],
+        }
+        response = self.client.post(url, data)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()["success"]), 0)
+        self.assertEqual(len(response.json()["failed"]), 1)
+        self.assertEqual(response.json()["failed"][0]["project_id"], self.team_2.id)
+        self.assertEqual(response.json()["failed"][0]["errors"], "Project not found.")
 
     def test_copy_feature_flag_cohort_nonexistent_in_destination(self):
         cohorts = {}
@@ -664,3 +740,489 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
 
         if destination_cohort is not None:
             self.assertTrue(destination_cohort.groups[0]["properties"][0]["value"] == destination_cohort_prop_value)
+
+    def test_copy_remote_config_flag_preserves_type(self):
+        """Test that copying a remote config flag preserves the is_remote_configuration field."""
+        url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
+        target_project = self.team_2
+
+        remote_config_flag = FeatureFlag.objects.create(
+            team=self.team_1,
+            created_by=self.user,
+            key="remote-config-flag",
+            filters={"groups": [{"rollout_percentage": 100}], "payloads": {"true": '{"key": "value"}'}},
+            rollout_percentage=100,
+            is_remote_configuration=True,
+            has_encrypted_payloads=False,
+        )
+
+        data = {
+            "feature_flag_key": remote_config_flag.key,
+            "from_project": remote_config_flag.team_id,
+            "target_project_ids": [target_project.id],
+        }
+        response = self.client.post(url, data)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("success", response.json())
+        self.assertEqual(len(response.json()["success"]), 1)
+
+        flag_response = response.json()["success"][0]
+        self.assertEqual(flag_response["is_remote_configuration"], True)
+        self.assertEqual(flag_response["has_encrypted_payloads"], False)
+        self.assertEqual(flag_response["key"], remote_config_flag.key)
+
+        # Verify the flag in the database
+        copied_flag = FeatureFlag.objects.get(key=remote_config_flag.key, team=target_project)
+        self.assertTrue(copied_flag.is_remote_configuration)
+        self.assertFalse(copied_flag.has_encrypted_payloads)
+
+    def test_copy_encrypted_payloads_flag(self):
+        """Test that copying a flag with encrypted payloads decrypts them before copying."""
+        from posthog.helpers.encrypted_flag_payloads import encrypt_flag_payloads
+
+        url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
+        target_project = self.team_2
+
+        # Create a flag with encrypted payloads
+        flag_data = {
+            "groups": [{"rollout_percentage": 100}],
+            "payloads": {"true": '{"key": "secret_value"}'},
+        }
+        encrypt_flag_payloads({"has_encrypted_payloads": True, "filters": flag_data})
+
+        encrypted_flag = FeatureFlag.objects.create(
+            team=self.team_1,
+            created_by=self.user,
+            key="encrypted-flag",
+            filters=flag_data,
+            rollout_percentage=100,
+            is_remote_configuration=True,
+            has_encrypted_payloads=True,
+        )
+
+        data = {
+            "feature_flag_key": encrypted_flag.key,
+            "from_project": encrypted_flag.team_id,
+            "target_project_ids": [target_project.id],
+        }
+        response = self.client.post(url, data)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("success", response.json())
+        self.assertEqual(len(response.json()["success"]), 1)
+
+        flag_response = response.json()["success"][0]
+        self.assertEqual(flag_response["is_remote_configuration"], True)
+        self.assertEqual(flag_response["has_encrypted_payloads"], True)
+        self.assertEqual(flag_response["key"], encrypted_flag.key)
+
+        # Verify the flag in the database has encrypted payloads
+        copied_flag = FeatureFlag.objects.get(key=encrypted_flag.key, team=target_project)
+        self.assertTrue(copied_flag.is_remote_configuration)
+        self.assertTrue(copied_flag.has_encrypted_payloads)
+
+        # Verify the encrypted payload can be decrypted back to the original value
+        from posthog.helpers.encrypted_flag_payloads import get_decrypted_flag_payload
+
+        decrypted_payload = get_decrypted_flag_payload(copied_flag.filters["payloads"]["true"], should_decrypt=True)
+        self.assertEqual(decrypted_payload, '{"key": "secret_value"}')
+
+    def test_copy_encrypted_payloads_flag_to_multiple_projects(self):
+        """Test that copying a flag with encrypted payloads to multiple projects works correctly."""
+        from posthog.helpers.encrypted_flag_payloads import encrypt_flag_payloads, get_decrypted_flag_payload
+
+        url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
+
+        # Create third team for testing multiple targets
+        team_3 = Team.objects.create(organization=self.organization)
+        team_3.api_token = "phc_test_copy_token_3"
+        team_3.save()
+
+        # Create a flag with encrypted payloads
+        flag_data = {
+            "groups": [{"rollout_percentage": 100}],
+            "payloads": {"true": '{"key": "secret_value"}'},
+        }
+        encrypt_flag_payloads({"has_encrypted_payloads": True, "filters": flag_data})
+
+        encrypted_flag = FeatureFlag.objects.create(
+            team=self.team_1,
+            created_by=self.user,
+            key="encrypted-multi-flag",
+            filters=flag_data,
+            rollout_percentage=100,
+            is_remote_configuration=True,
+            has_encrypted_payloads=True,
+        )
+
+        data = {
+            "feature_flag_key": encrypted_flag.key,
+            "from_project": encrypted_flag.team_id,
+            "target_project_ids": [self.team_2.id, team_3.id],
+        }
+        response = self.client.post(url, data)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("success", response.json())
+        self.assertEqual(len(response.json()["success"]), 2)
+
+        # Verify both copied flags have correctly encrypted payloads
+        for target_team in [self.team_2, team_3]:
+            copied_flag = FeatureFlag.objects.get(key=encrypted_flag.key, team=target_team)
+            self.assertTrue(copied_flag.is_remote_configuration)
+            self.assertTrue(copied_flag.has_encrypted_payloads)
+
+            # Verify the encrypted payload can be decrypted back to the original value
+            decrypted_payload = get_decrypted_flag_payload(copied_flag.filters["payloads"]["true"], should_decrypt=True)
+            self.assertEqual(decrypted_payload, '{"key": "secret_value"}')
+
+
+class TestOrganizationFeatureFlagCopySchedules(APIBaseTest):
+    def setUp(self):
+        self.team_1 = self.team
+        self.team_2 = Team.objects.create(organization=self.organization)
+
+        self.team_1.api_token = "phc_test_schedule_token_1"
+        self.team_1.save()
+        self.team_2.api_token = "phc_test_schedule_token_2"
+        self.team_2.save()
+
+        self.feature_flag_key = "flag-with-schedules"
+        self.feature_flag = FeatureFlag.objects.create(
+            team=self.team_1,
+            created_by=self.user,
+            key=self.feature_flag_key,
+            filters={"groups": [{"rollout_percentage": 50}]},
+        )
+
+        super().setUp()
+
+    def test_copy_flag_without_schedules(self):
+        """Copying a flag without copy_schedule=True should not copy schedules."""
+        scheduled_time = timezone.now() + timedelta(days=1)
+        ScheduledChange.objects.create(
+            record_id=str(self.feature_flag.id),
+            model_name=ScheduledChange.AllowedModels.FEATURE_FLAG,
+            payload={"operation": "update_status", "value": {"active": False}},
+            scheduled_at=scheduled_time,
+            team=self.team_1,
+            created_by=self.user,
+        )
+
+        url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
+        data = {
+            "feature_flag_key": self.feature_flag_key,
+            "from_project": self.team_1.id,
+            "target_project_ids": [self.team_2.id],
+            "copy_schedule": False,
+        }
+        response = self.client.post(url, data)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()["success"]), 1)
+
+        copied_flag = FeatureFlag.objects.get(key=self.feature_flag_key, team=self.team_2)
+        target_schedules = ScheduledChange.objects.filter(
+            record_id=str(copied_flag.id),
+            model_name=ScheduledChange.AllowedModels.FEATURE_FLAG,
+            team=self.team_2,
+        )
+        self.assertEqual(target_schedules.count(), 0)
+
+    def test_copy_flag_with_single_schedule(self):
+        """Copying a flag with copy_schedule=True should copy the schedule."""
+        scheduled_time = timezone.now() + timedelta(days=1)
+        source_schedule = ScheduledChange.objects.create(
+            record_id=str(self.feature_flag.id),
+            model_name=ScheduledChange.AllowedModels.FEATURE_FLAG,
+            payload={"operation": "update_status", "value": {"active": False}},
+            scheduled_at=scheduled_time,
+            team=self.team_1,
+            created_by=self.user,
+        )
+
+        url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
+        data = {
+            "feature_flag_key": self.feature_flag_key,
+            "from_project": self.team_1.id,
+            "target_project_ids": [self.team_2.id],
+            "copy_schedule": True,
+        }
+        response = self.client.post(url, data)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()["success"]), 1)
+
+        copied_flag = FeatureFlag.objects.get(key=self.feature_flag_key, team=self.team_2)
+        target_schedules = ScheduledChange.objects.filter(
+            record_id=str(copied_flag.id),
+            model_name=ScheduledChange.AllowedModels.FEATURE_FLAG,
+            team=self.team_2,
+        )
+        self.assertEqual(target_schedules.count(), 1)
+
+        copied_schedule = target_schedules.first()
+        self.assertEqual(copied_schedule.payload, source_schedule.payload)
+        self.assertEqual(copied_schedule.scheduled_at, source_schedule.scheduled_at)
+        self.assertEqual(copied_schedule.created_by, self.user)
+
+    def test_copy_flag_with_multiple_schedules(self):
+        """Copying a flag should copy all pending schedules."""
+        scheduled_time_1 = timezone.now() + timedelta(days=1)
+        scheduled_time_2 = timezone.now() + timedelta(days=2)
+
+        ScheduledChange.objects.create(
+            record_id=str(self.feature_flag.id),
+            model_name=ScheduledChange.AllowedModels.FEATURE_FLAG,
+            payload={"operation": "update_status", "value": {"active": False}},
+            scheduled_at=scheduled_time_1,
+            team=self.team_1,
+            created_by=self.user,
+        )
+        ScheduledChange.objects.create(
+            record_id=str(self.feature_flag.id),
+            model_name=ScheduledChange.AllowedModels.FEATURE_FLAG,
+            payload={"operation": "update_status", "value": {"active": True}},
+            scheduled_at=scheduled_time_2,
+            team=self.team_1,
+            created_by=self.user,
+        )
+
+        url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
+        data = {
+            "feature_flag_key": self.feature_flag_key,
+            "from_project": self.team_1.id,
+            "target_project_ids": [self.team_2.id],
+            "copy_schedule": True,
+        }
+        response = self.client.post(url, data)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        copied_flag = FeatureFlag.objects.get(key=self.feature_flag_key, team=self.team_2)
+        target_schedules = ScheduledChange.objects.filter(
+            record_id=str(copied_flag.id),
+            model_name=ScheduledChange.AllowedModels.FEATURE_FLAG,
+            team=self.team_2,
+        )
+        self.assertEqual(target_schedules.count(), 2)
+
+    def test_copy_flag_does_not_copy_executed_schedules(self):
+        """Only pending schedules should be copied, not executed ones."""
+        scheduled_time = timezone.now() + timedelta(days=1)
+
+        # Create a pending schedule
+        ScheduledChange.objects.create(
+            record_id=str(self.feature_flag.id),
+            model_name=ScheduledChange.AllowedModels.FEATURE_FLAG,
+            payload={"operation": "update_status", "value": {"active": False}},
+            scheduled_at=scheduled_time,
+            team=self.team_1,
+            created_by=self.user,
+            executed_at=None,
+        )
+
+        # Create an already executed schedule
+        ScheduledChange.objects.create(
+            record_id=str(self.feature_flag.id),
+            model_name=ScheduledChange.AllowedModels.FEATURE_FLAG,
+            payload={"operation": "update_status", "value": {"active": True}},
+            scheduled_at=timezone.now() - timedelta(days=1),
+            team=self.team_1,
+            created_by=self.user,
+            executed_at=timezone.now(),
+        )
+
+        url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
+        data = {
+            "feature_flag_key": self.feature_flag_key,
+            "from_project": self.team_1.id,
+            "target_project_ids": [self.team_2.id],
+            "copy_schedule": True,
+        }
+        response = self.client.post(url, data)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        copied_flag = FeatureFlag.objects.get(key=self.feature_flag_key, team=self.team_2)
+        target_schedules = ScheduledChange.objects.filter(
+            record_id=str(copied_flag.id),
+            model_name=ScheduledChange.AllowedModels.FEATURE_FLAG,
+            team=self.team_2,
+        )
+        # Only the pending schedule should be copied
+        self.assertEqual(target_schedules.count(), 1)
+
+    def test_copy_flag_with_recurring_schedule(self):
+        """Recurring schedules should preserve their recurrence settings."""
+        scheduled_time = timezone.now() + timedelta(days=1)
+        end_date = timezone.now() + timedelta(days=30)
+
+        ScheduledChange.objects.create(
+            record_id=str(self.feature_flag.id),
+            model_name=ScheduledChange.AllowedModels.FEATURE_FLAG,
+            payload={"operation": "update_status", "value": {"active": False}},
+            scheduled_at=scheduled_time,
+            is_recurring=True,
+            recurrence_interval="weekly",
+            end_date=end_date,
+            team=self.team_1,
+            created_by=self.user,
+        )
+
+        url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
+        data = {
+            "feature_flag_key": self.feature_flag_key,
+            "from_project": self.team_1.id,
+            "target_project_ids": [self.team_2.id],
+            "copy_schedule": True,
+        }
+        response = self.client.post(url, data)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        copied_flag = FeatureFlag.objects.get(key=self.feature_flag_key, team=self.team_2)
+        copied_schedule = ScheduledChange.objects.get(
+            record_id=str(copied_flag.id),
+            model_name=ScheduledChange.AllowedModels.FEATURE_FLAG,
+            team=self.team_2,
+        )
+        self.assertTrue(copied_schedule.is_recurring)
+        self.assertEqual(copied_schedule.recurrence_interval, "weekly")
+        self.assertEqual(copied_schedule.end_date, end_date)
+
+    def test_copy_flag_with_schedule_containing_cohort(self):
+        """Schedule payloads with cohort references should be remapped to target project cohorts."""
+        source_cohort = Cohort.objects.create(
+            team=self.team_1,
+            name="Test Cohort",
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [{"key": "email", "value": "@example.com", "type": "person", "operator": "icontains"}],
+                }
+            },
+        )
+
+        scheduled_time = timezone.now() + timedelta(days=1)
+        ScheduledChange.objects.create(
+            record_id=str(self.feature_flag.id),
+            model_name=ScheduledChange.AllowedModels.FEATURE_FLAG,
+            payload={
+                "operation": "add_release_condition",
+                "filters": {
+                    "groups": [
+                        {
+                            "rollout_percentage": 100,
+                            "properties": [{"key": "id", "type": "cohort", "value": source_cohort.id}],
+                        }
+                    ]
+                },
+            },
+            scheduled_at=scheduled_time,
+            team=self.team_1,
+            created_by=self.user,
+        )
+
+        url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
+        data = {
+            "feature_flag_key": self.feature_flag_key,
+            "from_project": self.team_1.id,
+            "target_project_ids": [self.team_2.id],
+            "copy_schedule": True,
+        }
+        response = self.client.post(url, data)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Verify cohort was created in target project
+        target_cohort = Cohort.objects.get(name="Test Cohort", team=self.team_2)
+
+        copied_flag = FeatureFlag.objects.get(key=self.feature_flag_key, team=self.team_2)
+        copied_schedule = ScheduledChange.objects.get(
+            record_id=str(copied_flag.id),
+            model_name=ScheduledChange.AllowedModels.FEATURE_FLAG,
+            team=self.team_2,
+        )
+
+        # Verify the cohort ID in the schedule payload was remapped
+        schedule_cohort_id = copied_schedule.payload["filters"]["groups"][0]["properties"][0]["value"]
+        self.assertEqual(schedule_cohort_id, target_cohort.id)
+        self.assertNotEqual(schedule_cohort_id, source_cohort.id)
+
+    def test_copy_flag_schedule_failure_surfaces_warning(self):
+        """If schedule copying fails, the flag should still be copied with a warning."""
+        scheduled_time = timezone.now() + timedelta(days=1)
+        ScheduledChange.objects.create(
+            record_id=str(self.feature_flag.id),
+            model_name=ScheduledChange.AllowedModels.FEATURE_FLAG,
+            payload={"operation": "update_status", "value": {"active": False}},
+            scheduled_at=scheduled_time,
+            team=self.team_1,
+            created_by=self.user,
+        )
+
+        url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
+        data = {
+            "feature_flag_key": self.feature_flag_key,
+            "from_project": self.team_1.id,
+            "target_project_ids": [self.team_2.id],
+            "copy_schedule": True,
+        }
+
+        with patch(
+            "posthog.api.organization_feature_flag.OrganizationFeatureFlagView._copy_feature_flag_schedules"
+        ) as mock_copy:
+            mock_copy.side_effect = Exception("Database error")
+            response = self.client.post(url, data)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()["success"]), 1)
+        self.assertEqual(len(response.json()["failed"]), 0)
+
+        # Flag should still be copied
+        self.assertTrue(FeatureFlag.objects.filter(key=self.feature_flag_key, team=self.team_2).exists())
+
+        # Response should include a warning
+        result = response.json()["success"][0]
+        self.assertIn("schedule_copy_warning", result)
+        self.assertIn("Database error", result["schedule_copy_warning"])
+
+    def test_copy_flag_to_multiple_projects_with_schedules(self):
+        """Schedules should be copied to all target projects."""
+        team_3 = Team.objects.create(organization=self.organization)
+        team_3.api_token = "phc_test_schedule_token_3"
+        team_3.save()
+
+        scheduled_time = timezone.now() + timedelta(days=1)
+        ScheduledChange.objects.create(
+            record_id=str(self.feature_flag.id),
+            model_name=ScheduledChange.AllowedModels.FEATURE_FLAG,
+            payload={"operation": "update_status", "value": {"active": False}},
+            scheduled_at=scheduled_time,
+            team=self.team_1,
+            created_by=self.user,
+        )
+
+        url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
+        data = {
+            "feature_flag_key": self.feature_flag_key,
+            "from_project": self.team_1.id,
+            "target_project_ids": [self.team_2.id, team_3.id],
+            "copy_schedule": True,
+        }
+        response = self.client.post(url, data)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()["success"]), 2)
+
+        # Verify schedules exist in both target projects
+        for target_team in [self.team_2, team_3]:
+            copied_flag = FeatureFlag.objects.get(key=self.feature_flag_key, team=target_team)
+            target_schedules = ScheduledChange.objects.filter(
+                record_id=str(copied_flag.id),
+                model_name=ScheduledChange.AllowedModels.FEATURE_FLAG,
+                team=target_team,
+            )
+            self.assertEqual(target_schedules.count(), 1)

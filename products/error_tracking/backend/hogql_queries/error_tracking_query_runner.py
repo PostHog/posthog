@@ -14,6 +14,7 @@ from posthog.schema import (
     ErrorTrackingQueryResponse,
     HogQLFilters,
     RevenueEntity,
+    RevenuePeriod,
 )
 
 from posthog.hogql import ast
@@ -273,7 +274,7 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
                         expr=ast.Call(
                             name="argMax",
                             args=[
-                                ast.Field(chain=[self.revenue_entity, "revenue_analytics", "revenue"]),
+                                ast.Field(chain=[self.revenue_entity, "revenue_analytics", self.revenue_field]),
                                 ast.Field(chain=["timestamp"]),
                             ],
                         ),
@@ -637,11 +638,13 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
         if event_tuple is None:
             return None
         else:
+            properties = event_tuple[3]
+
             return {
                 "uuid": str(event_tuple[0]),
                 "distinct_id": str(event_tuple[1]),
                 "timestamp": str(event_tuple[2]),
-                "properties": event_tuple[3],
+                "properties": properties,
             }
 
     def get_volume_buckets(self) -> list[datetime.datetime]:
@@ -754,6 +757,10 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
     @cached_property
     def revenue_entity(self):
         return self.query.revenueEntity or RevenueEntity.PERSON
+
+    @cached_property
+    def revenue_field(self):
+        return "mrr" if self.query.revenuePeriod == RevenuePeriod.MRR else "revenue"
 
 
 def search_tokenizer(query: str) -> list[str]:

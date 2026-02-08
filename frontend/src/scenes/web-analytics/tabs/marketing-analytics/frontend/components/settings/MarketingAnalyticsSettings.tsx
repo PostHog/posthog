@@ -10,9 +10,9 @@ import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { AttributionSettings } from './AttributionSettings'
-import { CampaignNameMappingsConfiguration } from './CampaignNameMappingsConfiguration'
 import { ConversionGoalsConfiguration } from './ConversionGoalsConfiguration'
 import { ExternalDataSourceConfiguration } from './ExternalDataSourceConfiguration'
+import { MarketingIntegrationAdvancedSettings } from './MarketingIntegrationAdvancedSettings'
 
 export function MarketingAnalyticsSettings({
     hideTitle = false,
@@ -52,7 +52,7 @@ export function MarketingAnalyticsSettings({
                             {
                                 key: 'advanced-marketing-settings',
                                 header: 'Advanced marketing settings',
-                                content: <CampaignNameMappingsConfiguration />,
+                                content: <MarketingIntegrationAdvancedSettings />,
                             },
                         ]}
                     />

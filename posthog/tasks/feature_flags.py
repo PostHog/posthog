@@ -4,27 +4,23 @@ from django.conf import settings
 
 import structlog
 from celery import shared_task
+from prometheus_client import Gauge
 
 from posthog.models.feature_flag.flags_cache import (
     cleanup_stale_expiry_tracking,
-    get_flags_cache_stats,
+    get_cache_stats,
     refresh_expiring_flags_caches,
     update_flags_cache,
 )
 from posthog.models.feature_flag.local_evaluation import update_flag_caches
 from posthog.models.team import Team
-from posthog.storage.hypercache_manager import (
-    HYPERCACHE_BATCH_REFRESH_COUNTER,
-    HYPERCACHE_BATCH_REFRESH_DURATION_HISTOGRAM,
-    HYPERCACHE_COVERAGE_GAUGE,
-    HYPERCACHE_SIGNAL_UPDATE_COUNTER,
-)
-from posthog.tasks.utils import CeleryQueue
+from posthog.storage.hypercache_manager import HYPERCACHE_SIGNAL_UPDATE_COUNTER
+from posthog.tasks.utils import CeleryQueue, PushGatewayTask
 
 logger = structlog.get_logger(__name__)
 
 
-@shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)
+@shared_task(ignore_result=True, queue=CeleryQueue.FEATURE_FLAGS.value)
 def update_team_flags_cache(team_id: int) -> None:
     try:
         team = Team.objects.get(id=team_id)
@@ -35,7 +31,7 @@ def update_team_flags_cache(team_id: int) -> None:
     update_flag_caches(team)
 
 
-@shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)
+@shared_task(ignore_result=True, queue=CeleryQueue.FEATURE_FLAGS.value)
 def update_team_service_flags_cache(team_id: int) -> None:
     """
     Update the service flags cache for a specific team.
@@ -56,7 +52,7 @@ def update_team_service_flags_cache(team_id: int) -> None:
     ).inc()
 
 
-@shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)
+@shared_task(ignore_result=True, queue=CeleryQueue.FEATURE_FLAGS.value)
 def sync_all_flags_cache() -> None:
     # Meant to ensure we have all flags cache in sync in case something failed
 
@@ -65,8 +61,8 @@ def sync_all_flags_cache() -> None:
         update_team_flags_cache.delay(team_id)
 
 
-@shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)
-def refresh_expiring_flags_cache_entries() -> None:
+@shared_task(bind=True, base=PushGatewayTask, ignore_result=True, queue=CeleryQueue.FEATURE_FLAGS_LONG_RUNNING.value)
+def refresh_expiring_flags_cache_entries(self: PushGatewayTask) -> None:
     """
     Periodic task to refresh flags caches before they expire.
 
@@ -83,6 +79,18 @@ def refresh_expiring_flags_cache_entries() -> None:
         logger.info("Flags Redis URL not set, skipping flags cache refresh")
         return
 
+    # Create metrics gauges for this task run
+    successful_gauge = Gauge(
+        "posthog_flags_cache_refresh_successful_count",
+        "Number of flags caches successfully refreshed",
+        registry=self.metrics_registry,
+    )
+    failed_gauge = Gauge(
+        "posthog_flags_cache_refresh_failed_count",
+        "Number of flags caches that failed to refresh",
+        registry=self.metrics_registry,
+    )
+
     start_time = time.time()
     logger.info(
         "Starting flags cache sync",
@@ -90,50 +98,37 @@ def refresh_expiring_flags_cache_entries() -> None:
         limit=settings.FLAGS_CACHE_REFRESH_LIMIT,
     )
 
-    try:
-        successful, failed = refresh_expiring_flags_caches(
-            ttl_threshold_hours=settings.FLAGS_CACHE_REFRESH_TTL_THRESHOLD_HOURS,
-            limit=settings.FLAGS_CACHE_REFRESH_LIMIT,
-        )
+    successful, failed = refresh_expiring_flags_caches(
+        ttl_threshold_hours=settings.FLAGS_CACHE_REFRESH_TTL_THRESHOLD_HOURS,
+        limit=settings.FLAGS_CACHE_REFRESH_LIMIT,
+    )
 
-        # Note: HYPERCACHE_TEAMS_PROCESSED_COUNTER is already incremented by the generic
-        # cache_expiry_manager.refresh_expiring_caches() function, so we don't increment it again here
+    # Record metrics
+    successful_gauge.set(successful)
+    failed_gauge.set(failed)
 
-        # Only scan once after refresh for metrics
-        stats_after = get_flags_cache_stats()
+    # Note: Teams processed metrics are pushed to Pushgateway by
+    # cache_expiry_manager.refresh_expiring_caches() via push_hypercache_teams_processed_metrics()
 
-        coverage_percent = stats_after.get("cache_coverage_percent", 0)
-        HYPERCACHE_COVERAGE_GAUGE.labels(namespace="feature_flags").set(coverage_percent)
+    # Scan after refresh for metrics (pushes to Pushgateway via get_cache_stats)
+    stats_after = get_cache_stats()
 
-        duration = time.time() - start_time
-        HYPERCACHE_BATCH_REFRESH_DURATION_HISTOGRAM.labels(namespace="feature_flags").observe(duration)
-        HYPERCACHE_BATCH_REFRESH_COUNTER.labels(namespace="feature_flags", result="success").inc()
+    duration = time.time() - start_time
 
-        logger.info(
-            "Completed flags cache refresh",
-            successful_refreshes=successful,
-            failed_refreshes=failed,
-            total_cached=stats_after.get("total_cached", 0),
-            total_teams=stats_after.get("total_teams", 0),
-            cache_coverage=stats_after.get("cache_coverage", "unknown"),
-            ttl_distribution=stats_after.get("ttl_distribution", {}),
-            duration_seconds=duration,
-        )
-
-    except Exception as e:
-        duration = time.time() - start_time
-        HYPERCACHE_BATCH_REFRESH_DURATION_HISTOGRAM.labels(namespace="feature_flags").observe(duration)
-        HYPERCACHE_BATCH_REFRESH_COUNTER.labels(namespace="feature_flags", result="failure").inc()
-        logger.exception(
-            "Failed to complete flags cache batch refresh",
-            error=str(e),
-            duration_seconds=duration,
-        )
-        raise
+    logger.info(
+        "Completed flags cache refresh",
+        successful_refreshes=successful,
+        failed_refreshes=failed,
+        total_cached=stats_after.get("total_cached", 0),
+        total_teams=stats_after.get("total_teams", 0),
+        cache_coverage=stats_after.get("cache_coverage", "unknown"),
+        ttl_distribution=stats_after.get("ttl_distribution", {}),
+        duration_seconds=duration,
+    )
 
 
-@shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)
-def cleanup_stale_flags_expiry_tracking_task() -> None:
+@shared_task(bind=True, base=PushGatewayTask, ignore_result=True, queue=CeleryQueue.FEATURE_FLAGS_LONG_RUNNING.value)
+def cleanup_stale_flags_expiry_tracking_task(self: PushGatewayTask) -> None:
     """
     Periodic task to clean up stale entries in the flags cache expiry tracking sorted set.
 
@@ -144,9 +139,12 @@ def cleanup_stale_flags_expiry_tracking_task() -> None:
         logger.info("Flags Redis URL not set, skipping flags expiry tracking cleanup")
         return
 
-    try:
-        removed_count = cleanup_stale_expiry_tracking()
-        logger.info("Completed flags expiry tracking cleanup", removed_count=removed_count)
-    except Exception as e:
-        logger.exception("Failed to cleanup flags expiry tracking", error=str(e))
-        raise
+    entries_cleaned_gauge = Gauge(
+        "posthog_cleanup_stale_flags_expiry_entries_cleaned",
+        "Number of stale expiry tracking entries cleaned up",
+        registry=self.metrics_registry,
+    )
+
+    removed_count = cleanup_stale_expiry_tracking()
+    entries_cleaned_gauge.set(removed_count)
+    logger.info("Completed flags expiry tracking cleanup", removed_count=removed_count)

@@ -31,7 +31,6 @@ from posthog.hogql.printer import prepare_and_print_ast
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.log_entries import TRUNCATE_LOG_ENTRIES_TABLE_SQL
-from posthog.constants import AvailableFeature
 from posthog.models import Person
 from posthog.models.action import Action
 from posthog.models.cohort import Cohort
@@ -41,7 +40,6 @@ from posthog.session_recordings.queries.session_recording_list_from_query import
     SessionRecordingListFromQuery,
     SessionRecordingQueryResult,
 )
-from posthog.session_recordings.queries.session_replay_events import ttl_days
 from posthog.session_recordings.queries.test.listing_recordings.test_utils import (
     assert_query_matches_session_ids,
     create_event,
@@ -825,24 +823,6 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         # without an event filter the recording is present, showing that the TTL was applied to the events table too
         # we want this to limit the amount of event data we query
         self._assert_query_matches_session_ids({}, [session_id_one])
-
-    @snapshot_clickhouse_queries
-    def test_ttl_days(self):
-        # hooby is 21 days
-        assert ttl_days(self.team) == 21
-
-        with self.is_cloud(True):
-            # free users are 30 days
-            with freeze_time("2023-09-01T12:00:01Z"):
-                assert ttl_days(self.team) == 30
-
-            self.team.organization.available_product_features = [
-                {"key": AvailableFeature.RECORDINGS_FILE_EXPORT, "name": AvailableFeature.RECORDINGS_FILE_EXPORT}
-            ]
-
-            # paid is 90 days
-            with freeze_time("2023-12-01T12:00:01Z"):
-                assert ttl_days(self.team) == 90
 
     @snapshot_clickhouse_queries
     def test_listing_ignores_future_replays(self):
@@ -2921,6 +2901,146 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             [session_id_two],
         )
 
+    def test_filter_for_recordings_by_snapshot_library(self):
+        user = "test_library_filter-user"
+        Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
+
+        session_id_one = f"test_library_filter-{str(uuid4())}"
+        produce_replay_summary(
+            distinct_id=user,
+            session_id=session_id_one,
+            team_id=self.team.id,
+            snapshot_library="posthog-ios",
+        )
+
+        session_id_two = f"test_library_filter-{str(uuid4())}"
+        produce_replay_summary(
+            distinct_id=user,
+            session_id=session_id_two,
+            team_id=self.team.id,
+            snapshot_library="posthog-react-native",
+        )
+
+        self._assert_query_matches_session_ids(
+            {
+                "having_predicates": '[{"key": "snapshot_library", "value": ["posthog-ios"], "operator": "exact", "type": "recording"}]'
+            },
+            [session_id_one],
+        )
+
+        self._assert_query_matches_session_ids(
+            {
+                "having_predicates": '[{"key": "snapshot_library", "value": ["posthog-react-native"], "operator": "exact", "type": "recording"}]'
+            },
+            [session_id_two],
+        )
+
+    @snapshot_clickhouse_queries
+    def test_filter_for_recordings_by_lib_event_property_converts_to_snapshot_library(self):
+        """
+        Test that $lib event property filters are automatically converted to snapshot_library
+        recording filters for better query performance (avoids events table scan).
+        """
+        user = "test_lib_conversion-user"
+        Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
+
+        session_id_one = f"test_lib_conversion-{str(uuid4())}"
+        produce_replay_summary(
+            distinct_id=user,
+            session_id=session_id_one,
+            team_id=self.team.id,
+            snapshot_library="posthog-ios",
+        )
+
+        session_id_two = f"test_lib_conversion-{str(uuid4())}"
+        produce_replay_summary(
+            distinct_id=user,
+            session_id=session_id_two,
+            team_id=self.team.id,
+            snapshot_library="posthog-react-native",
+        )
+
+        # Using $lib event property filter should work the same as snapshot_library
+        # because the backend converts it automatically
+        self._assert_query_matches_session_ids(
+            {"properties": '[{"key": "$lib", "value": ["posthog-ios"], "operator": "exact", "type": "event"}]'},
+            [session_id_one],
+        )
+
+        self._assert_query_matches_session_ids(
+            {
+                "properties": '[{"key": "$lib", "value": ["posthog-react-native"], "operator": "exact", "type": "event"}]'
+            },
+            [session_id_two],
+        )
+
+    def test_filter_for_recordings_by_visited_page(self):
+        user = "test_visited_page_filter-user"
+        Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
+
+        # Session with /pricing page in recording
+        session_id_one = "session one id"
+        produce_replay_summary(
+            distinct_id=user,
+            session_id=session_id_one,
+            team_id=self.team.id,
+            all_urls=["https://example.com/home", "https://example.com/pricing"],
+        )
+
+        # Session with /billing page in recording
+        session_id_two = "session two id"
+        produce_replay_summary(
+            distinct_id=user,
+            session_id=session_id_two,
+            team_id=self.team.id,
+            all_urls=["https://example.com/home", "https://example.com/billing"],
+        )
+
+        # Session with no URLs (recording started but no pages captured)
+        session_id_three = "session three id"
+        produce_replay_summary(
+            distinct_id=user,
+            session_id=session_id_three,
+            team_id=self.team.id,
+            all_urls=[],
+        )
+
+        # Test exact match
+        self._assert_query_matches_session_ids(
+            {
+                "properties": '[{"key": "visited_page", "value": ["https://example.com/pricing"], "operator": "exact", "type": "recording"}]'
+            },
+            [session_id_one],
+        )
+
+        # Test contains match
+        self._assert_query_matches_session_ids(
+            {
+                "properties": '[{"key": "visited_page", "value": "billing", "operator": "icontains", "type": "recording"}]'
+            },
+            [session_id_two],
+        )
+
+        # Test multiple values (OR)
+        self._assert_query_matches_session_ids(
+            {
+                "properties": '[{"key": "visited_page", "value": ["pricing", "billing"], "operator": "icontains", "type": "recording"}]'
+            },
+            [session_id_one, session_id_two],
+        )
+
+        # Test IS_SET - should match sessions with URLs
+        self._assert_query_matches_session_ids(
+            {"properties": '[{"key": "visited_page", "value": null, "operator": "is_set", "type": "recording"}]'},
+            [session_id_one, session_id_two],
+        )
+
+        # Test IS_NOT_SET - should match session with no URLs
+        self._assert_query_matches_session_ids(
+            {"properties": '[{"key": "visited_page", "value": null, "operator": "is_not_set", "type": "recording"}]'},
+            [session_id_three],
+        )
+
     @also_test_with_materialized_columns(
         event_properties=["is_internal_user"],
         person_properties=["email"],
@@ -4191,7 +4311,7 @@ class TestClickhouseSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseT
             printed_query = self._print_query(hogql_parsed_select)
 
             if poe_v1 or poe_v2:
-                assert "ifNull(equals(nullIf(nullIf(events.mat_pp_rgInternal, ''), 'null')" in printed_query
+                assert re.search(r"equals\(events\.mat_pp_rgInternal, %\(hogql_val_\d+\)s\)", printed_query)
             else:
                 assert re.search(
                     r"tupleElement\(argMax\(tuple\(replaceRegexpAll\(nullIf\(nullIf\(JSONExtractRaw\(person\.properties, %\(hogql_val_\d+\)s\), ''\), 'null'\), '^\"|\"\$', ''\)\), person\.version\), 1\) AS properties___rgInternal",

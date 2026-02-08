@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 
 import { IconChevronDown, IconCopy, IconInfo, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonButtonProps, LemonDivider, LemonMenu, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
@@ -10,7 +10,6 @@ import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { NotFound } from 'lib/components/NotFound'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { TZLabel } from 'lib/components/TZLabel'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
@@ -18,8 +17,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { IconOpenInApp } from 'lib/lemon-ui/icons'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { isMobile } from 'lib/utils'
+import { isMobile, pluralize } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { openInAdminPanel } from 'lib/utils/person-actions'
 import { RelatedGroups } from 'scenes/groups/RelatedGroups'
@@ -43,7 +41,7 @@ import { ActivityScope, PersonType, PersonsTabType, PropertyDefinitionType } fro
 
 import { MergeSplitPerson } from './MergeSplitPerson'
 import { PersonCohorts } from './PersonCohorts'
-import PersonFeedCanvas from './PersonFeedCanvas'
+import PersonProfileCanvas from './PersonProfileCanvas'
 import { RelatedFeatureFlags } from './RelatedFeatureFlags'
 import { asDisplay } from './person-utils'
 import { PersonsLogicProps, personsLogic } from './personsLogic'
@@ -133,9 +131,7 @@ function LaunchToolbarButton({ distinctId }: LaunchToolbarButtonProps): JSX.Elem
             })
 
             window.open(toolbarUrl, '_blank')
-            lemonToast.success(
-                `Launching toolbar with ${response.flag_count} feature flag override${response.flag_count === 1 ? '' : 's'}`
-            )
+            lemonToast.success(`Launching toolbar with ${pluralize(response.flag_count, 'feature flag override')}`)
         } catch (error) {
             lemonToast.error('Failed to launch toolbar. Please try again.')
             console.error('Error launching toolbar:', error)
@@ -159,6 +155,7 @@ function LaunchToolbarButton({ distinctId }: LaunchToolbarButtonProps): JSX.Elem
 }
 
 export function PersonScene(): JSX.Element | null {
+    const mountedPersonsLogic = useMountedLogic(personsLogic)
     const {
         feedEnabled,
         person,
@@ -171,14 +168,14 @@ export function PersonScene(): JSX.Element | null {
         primaryDistinctId,
         eventsQuery,
         exceptionsQuery,
-    } = useValues(personsLogic)
+        surveyResponsesQuery,
+    } = useValues(mountedPersonsLogic)
     const { loadPersons, editProperty, deleteProperty, navigateToTab, setSplitMergeModalShown, setDistinctId } =
-        useActions(personsLogic)
+        useActions(mountedPersonsLogic)
     const { showPersonDeleteModal } = useActions(personDeleteModalLogic)
     const { deletedPersonLoading } = useValues(personDeleteModalLogic)
     const { groupsEnabled } = useValues(groupsAccessLogic)
     const { currentTeam } = useValues(teamLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const { addProductIntentForCrossSell } = useActions(teamLogic)
     const { user } = useValues(userLogic)
 
@@ -188,8 +185,6 @@ export function PersonScene(): JSX.Element | null {
     if (!person) {
         return personLoading ? <SpinnerOverlay sceneLevel /> : <NotFound object="person" meta={{ urlId }} />
     }
-
-    const settingLevel = featureFlags[FEATURE_FLAGS.ENVIRONMENTS] ? 'environment' : 'project'
 
     return (
         <SceneContent>
@@ -245,7 +240,6 @@ export function PersonScene(): JSX.Element | null {
 
             <SceneDivider />
             <PersonDeleteModal />
-
             <LemonTabs
                 activeKey={currentTab}
                 onChange={(tab) => {
@@ -255,9 +249,9 @@ export function PersonScene(): JSX.Element | null {
                 tabs={[
                     feedEnabled
                         ? {
-                              key: PersonsTabType.FEED,
-                              label: <span data-attr="persons-feed-tab">Feed</span>,
-                              content: <PersonFeedCanvas person={person} />,
+                              key: PersonsTabType.PROFILE,
+                              label: <span data-attr="persons-profile-tab">Profile</span>,
+                              content: <PersonProfileCanvas person={person} attachTo={mountedPersonsLogic} />,
                           }
                         : false,
                     {
@@ -279,7 +273,7 @@ export function PersonScene(): JSX.Element | null {
                     {
                         key: PersonsTabType.EVENTS,
                         label: <span data-attr="persons-events-tab">Events</span>,
-                        content: <Query query={eventsQuery} />,
+                        content: <Query uniqueKey="person-profile-events" query={eventsQuery} />,
                     },
                     {
                         key: PersonsTabType.SESSION_RECORDINGS,
@@ -289,8 +283,8 @@ export function PersonScene(): JSX.Element | null {
                                 {!currentTeam?.session_recording_opt_in ? (
                                     <div className="mb-4">
                                         <LemonBanner type="info">
-                                            Session recordings are currently disabled for this {settingLevel}. To use
-                                            this feature, please go to your{' '}
+                                            Session recordings are currently disabled for this project. To use this
+                                            feature, please go to your{' '}
                                             <Link
                                                 to={`${urls.settings('project')}#recordings`}
                                                 onClick={() => {
@@ -322,6 +316,11 @@ export function PersonScene(): JSX.Element | null {
                         key: PersonsTabType.EXCEPTIONS,
                         label: <span data-attr="persons-exceptions-tab">Exceptions</span>,
                         content: <Query query={exceptionsQuery} />,
+                    },
+                    {
+                        key: PersonsTabType.SURVEY_RESPONSES,
+                        label: <span data-attr="persons-survey-responses-tab">Surveys</span>,
+                        content: <Query query={surveyResponsesQuery} />,
                     },
                     {
                         key: PersonsTabType.COHORTS,
@@ -434,7 +433,7 @@ function OpenInAdminPanelButton({ size = 'small' }: { size?: LemonButtonProps['s
             disabledReason={disabledReason}
             size={size}
         >
-            Open in Admin Panel
+            Open in admin panel
         </LemonButton>
     )
 }

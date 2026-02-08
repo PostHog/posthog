@@ -157,7 +157,7 @@ function buildProductManifests() {
     const globalNames = new Set()
 
     const addImport = (mod, kind, spec) => {
-        // Klutch
+        // Kludge
         if ((mod === './types' || mod === '~/types') && spec === 'ProductManifest') {
             return
         }

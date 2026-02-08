@@ -7,7 +7,6 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
-import { userLogic } from 'scenes/userLogic'
 
 import { updatePropertyDefinitions } from '~/models/propertyDefinitionsModel'
 import { getFilterLabel } from '~/taxonomy/helpers'
@@ -157,10 +156,6 @@ export const definitionLogic = kea<definitionLogicType>([
         ],
     })),
     selectors({
-        hasTaxonomyFeatures: [
-            (s) => [s.hasAvailableFeature],
-            (hasAvailableFeature) => hasAvailableFeature(AvailableFeature.INGESTION_TAXONOMY),
-        ],
         isEvent: [() => [router.selectors.location], ({ pathname }) => pathname.includes(urls.eventDefinitions())],
         isProperty: [(s) => [s.isEvent], (isEvent) => !isEvent],
         singular: [(s) => [s.isEvent], (isEvent): string => (isEvent ? 'event' : 'property')],

@@ -30,6 +30,7 @@ common-metrics = { path = "../common/metrics" }
 common-dns = { path = "../common/dns" }
 common-kafka = { path = "../common/kafka" }
 common-alloc = { path = "../common/alloc" }
+common-continuous-profiling = { path = "../common/continuous_profiling" }
 
 [dev-dependencies]
 httpmock = { workspace = true }

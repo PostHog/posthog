@@ -2,29 +2,138 @@ use anyhow::Result;
 use async_trait::async_trait;
 use rdkafka::TopicPartitionList;
 
+use crate::kafka::batch_context::ConsumerCommandSender;
+
 /// Trait for handling Kafka consumer rebalance events
 /// Users implement this to define their partition-specific logic
+///
+/// # Rebalance State Machine
+///
+/// ## Normal Revoke Flow
+///
+/// When partitions are revoked and NOT immediately re-assigned:
+///
+/// ```text
+/// pre_rebalance(Revoke)
+///     ├─► on_pre_rebalance()           [async, spawned]
+///     ├─► setup_revoked_partitions()   [SYNC] - unregister stores from DashMap
+///     └─► RebalanceEvent::Revoke sent to async worker
+///
+/// ... consumer waits ...
+///
+/// Async worker processes RebalanceEvent::Revoke:
+///     └─► cleanup_revoked_partitions() [async] - shutdown workers, clear offsets
+/// ```
+///
+/// ## Normal Assign Flow
+///
+/// When partitions are assigned:
+///
+/// ```text
+/// post_rebalance(Assign)
+///     ├─► setup_assigned_partitions()  [SYNC] - create partition workers
+///     ├─► RebalanceEvent::Assign sent to async worker
+///     └─► on_post_rebalance()          [async, spawned]
+///
+/// ... consumer stream resumes, messages start arriving ...
+/// ... workers ALREADY EXIST, messages route successfully ...
+///
+/// Async worker processes RebalanceEvent::Assign:
+///     └─► async_setup_assigned_partitions() [async] - pre-create stores, download checkpoints
+/// ```
+///
+/// ## Rapid Revoke→Assign (Same Partition)
+///
+/// When a partition is revoked and immediately re-assigned (e.g., during rolling restart):
+///
+/// ```text
+/// pre_rebalance(Revoke partition 0)
+///     └─► setup_revoked_partitions()   - removes partition 0 from owned_partitions
+///
+/// post_rebalance(Assign partition 0)
+///     └─► setup_assigned_partitions()  - adds partition 0 back to owned_partitions
+///                                       - reuses existing worker if present
+///
+/// Async worker processes RebalanceEvent::Revoke:
+///     └─► cleanup_revoked_partitions() - checks owned_partitions via coordinator
+///                                       - partition 0 IS owned → SKIPS cleanup!
+///                                       - worker and store are preserved
+/// ```
+///
+/// This ensures that rapid re-assignment doesn't accidentally delete the newly assigned
+/// partition's worker or store.
+///
+/// # Method Pairs: Setup vs Cleanup
+///
+/// Each rebalance event has two phases:
+///
+/// **Setup methods** (`setup_*`) - Called synchronously within librdkafka callbacks.
+/// These MUST be fast and non-blocking. They run BEFORE messages can arrive/stop.
+/// - `setup_assigned_partitions`: Create workers before messages arrive
+/// - `setup_revoked_partitions`: Unregister stores from map before revocation completes
+///
+/// **Cleanup methods** (`cleanup_*`) - Called asynchronously after callbacks return.
+/// These can be slow and do I/O. They run in the background.
+/// - `async_setup_assigned_partitions`: Post-assignment initialization (e.g., download checkpoints).
+///   Also handles `finalize_rebalance_cycle` which cleans up unowned directories and resumes consumption.
+/// - `cleanup_revoked_partitions`: Drain worker queues, clear offset state
 #[async_trait]
 pub trait RebalanceHandler: Send + Sync {
-    /// Called when partitions are assigned to this consumer
-    /// This happens after Kafka coordinator assigns partitions during rebalance
-    async fn on_partitions_assigned(&self, partitions: &TopicPartitionList) -> Result<()>;
+    // ============================================
+    // SETUP METHODS - Called within librdkafka callbacks
+    // MUST be fast and non-blocking
+    // ============================================
 
-    /// Called when partitions are revoked from this consumer  
-    /// This happens before Kafka coordinator revokes partitions during rebalance
-    async fn on_partitions_revoked(&self, partitions: &TopicPartitionList) -> Result<()>;
+    /// Called synchronously when partitions are assigned.
+    /// Runs WITHIN post_rebalance callback, BEFORE consumer stream resumes.
+    ///
+    /// Use for fast operations: creating workers, initializing maps.
+    /// Default implementation does nothing.
+    fn setup_assigned_partitions(&self, _partitions: &TopicPartitionList) {
+        // Default implementation does nothing
+    }
+
+    /// Called synchronously when partitions are revoked.
+    /// Runs WITHIN pre_rebalance callback, BEFORE revocation completes.
+    ///
+    /// Use for fast operations: removing stores from map, stopping new writes.
+    /// Default implementation does nothing.
+    fn setup_revoked_partitions(&self, _partitions: &TopicPartitionList) {
+        // Default implementation does nothing
+    }
+
+    // ============================================
+    // CLEANUP METHODS - Called after callbacks return
+    // For slow operations like I/O, draining queues, etc.
+    // ============================================
+
+    /// Called asynchronously after partition assignment.
+    /// Use for slow initialization: downloading checkpoints, warming caches.
+    ///
+    /// The `consumer_command_tx` can be used to send `ConsumerCommand::Resume` when
+    /// all stores are ready. Partitions are paused during assignment and must be
+    /// resumed after checkpoint import completes.
+    ///
+    /// Implementations should use `rebalance_tracker.get_owned_partitions()` to get
+    /// the definitive list of owned partitions, as it reflects the final state after
+    /// all overlapping rebalance events in a cycle.
+    async fn async_setup_assigned_partitions(
+        &self,
+        consumer_command_tx: &ConsumerCommandSender,
+    ) -> Result<()>;
+
+    /// Called asynchronously after partition revocation.
+    /// Use for slow cleanup: draining worker queues, clearing offset state.
+    /// File deletion is handled in `finalize_rebalance_cycle` at end of the rebalance cycle.
+    async fn cleanup_revoked_partitions(&self, partitions: &TopicPartitionList) -> Result<()>;
 
     /// Called before any rebalance operation begins
-    /// Use this for preparation work before partition changes
     async fn on_pre_rebalance(&self) -> Result<()> {
-        // Default implementation does nothing
         Ok(())
     }
 
     /// Called after rebalance operation completes
-    /// Use this for cleanup or post-rebalance initialization
     async fn on_post_rebalance(&self) -> Result<()> {
-        // Default implementation does nothing
         Ok(())
     }
 }
@@ -36,6 +145,7 @@ mod tests {
     use rdkafka::Offset;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
+    use tokio::sync::mpsc;
 
     // Test implementation of RebalanceHandler
     #[derive(Default)]
@@ -50,25 +160,32 @@ mod tests {
 
     #[async_trait]
     impl RebalanceHandler for TestRebalanceHandler {
-        async fn on_partitions_assigned(&self, partitions: &TopicPartitionList) -> Result<()> {
+        fn setup_assigned_partitions(&self, partitions: &TopicPartitionList) {
             self.assigned_count.fetch_add(1, Ordering::SeqCst);
 
             let mut assigned = self.assigned_partitions.lock().unwrap();
             for elem in partitions.elements() {
                 assigned.push(Partition::from(elem));
             }
-
-            Ok(())
         }
 
-        async fn on_partitions_revoked(&self, partitions: &TopicPartitionList) -> Result<()> {
+        fn setup_revoked_partitions(&self, partitions: &TopicPartitionList) {
             self.revoked_count.fetch_add(1, Ordering::SeqCst);
 
             let mut revoked = self.revoked_partitions.lock().unwrap();
             for elem in partitions.elements() {
                 revoked.push(Partition::from(elem));
             }
+        }
 
+        async fn async_setup_assigned_partitions(
+            &self,
+            _consumer_command_tx: &ConsumerCommandSender,
+        ) -> Result<()> {
+            Ok(())
+        }
+
+        async fn cleanup_revoked_partitions(&self, _partitions: &TopicPartitionList) -> Result<()> {
             Ok(())
         }
 
@@ -99,8 +216,8 @@ mod tests {
         let handler = TestRebalanceHandler::default();
         let partitions = create_test_partition_list();
 
-        // Test partition assignment
-        handler.on_partitions_assigned(&partitions).await.unwrap();
+        // Test partition assignment (sync setup)
+        handler.setup_assigned_partitions(&partitions);
 
         assert_eq!(handler.assigned_count.load(Ordering::SeqCst), 1);
         assert_eq!(handler.revoked_count.load(Ordering::SeqCst), 0);
@@ -117,8 +234,8 @@ mod tests {
         let handler = TestRebalanceHandler::default();
         let partitions = create_test_partition_list();
 
-        // Test partition revocation
-        handler.on_partitions_revoked(&partitions).await.unwrap();
+        // Test partition revocation (sync setup)
+        handler.setup_revoked_partitions(&partitions);
 
         assert_eq!(handler.assigned_count.load(Ordering::SeqCst), 0);
         assert_eq!(handler.revoked_count.load(Ordering::SeqCst), 1);
@@ -147,11 +264,23 @@ mod tests {
         let handler = Arc::new(TestRebalanceHandler::default());
         let partitions = create_test_partition_list();
 
-        // Simulate full rebalance flow
+        // Simulate full rebalance flow:
+        // 1. Pre-rebalance (async, but runs first)
         handler.on_pre_rebalance().await.unwrap();
-        handler.on_partitions_revoked(&partitions).await.unwrap();
-        handler.on_partitions_assigned(&partitions).await.unwrap();
+        // 2. Revoke setup (sync, within callback)
+        handler.setup_revoked_partitions(&partitions);
+        // 3. Assign setup (sync, within callback)
+        handler.setup_assigned_partitions(&partitions);
+        // 4. Post-rebalance (async)
         handler.on_post_rebalance().await.unwrap();
+        // 5. Revoke cleanup (async, in background)
+        handler
+            .cleanup_revoked_partitions(&partitions)
+            .await
+            .unwrap();
+        // 6. Assign cleanup (async, in background)
+        let (tx, _rx) = mpsc::unbounded_channel();
+        handler.async_setup_assigned_partitions(&tx).await.unwrap();
 
         assert_eq!(handler.pre_rebalance_count.load(Ordering::SeqCst), 1);
         assert_eq!(handler.revoked_count.load(Ordering::SeqCst), 1);

@@ -242,7 +242,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                         "fix": None,
                     },
                     {
-                        "message": "Event property 'number' is of type 'Float'. This property is materialized ⚡️.",
+                        "message": "Event property 'number' is of type 'Float'. This property is materialized (mat_*) ⚡️.",
                         "start": 32,
                         "end": 38,
                         "fix": None,

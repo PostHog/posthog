@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
-import { IconHome, IconLock, IconPin, IconPinFilled, IconShare } from '@posthog/icons'
-import { LemonInput } from '@posthog/lemon-ui'
+import { IconChevronDown, IconHome, IconLock, IconPin, IconPinFilled, IconShare } from '@posthog/icons'
+import { LemonInput, Popover } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { MemberSelect } from 'lib/components/MemberSelect'
@@ -23,13 +23,11 @@ import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
 import { duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
-import { userLogic } from 'scenes/userLogic'
 
 import { dashboardsModel, nameCompareFunction } from '~/models/dashboardsModel'
 import {
     AccessControlLevel,
     AccessControlResourceType,
-    AvailableFeature,
     DashboardBasicType,
     DashboardMode,
     DashboardType,
@@ -60,12 +58,21 @@ export function DashboardsTable({
     hideActions,
 }: DashboardsTableProps): JSX.Element {
     const { unpinDashboard, pinDashboard } = useActions(dashboardsModel)
-    const { setFilters, tableSortingChanged } = useActions(dashboardsLogic)
-    const { tableSorting, currentTab } = useValues(dashboardsLogic)
-    const { hasAvailableFeature } = useValues(userLogic)
+    const { setFilters, tableSortingChanged, setTagSearch, setShowTagPopover } = useActions(dashboardsLogic)
+    const { tableSorting, currentTab, filteredTags, tagSearch, showTagPopover } = useValues(dashboardsLogic)
     const { currentTeam } = useValues(teamLogic)
     const { showDuplicateDashboardModal } = useActions(duplicateDashboardLogic)
     const { showDeleteDashboardModal } = useActions(deleteDashboardLogic)
+
+    const handleTagToggle = (tag: string): void => {
+        const selected = new Set(filters.tags || [])
+        if (selected.has(tag)) {
+            selected.delete(tag)
+        } else {
+            selected.add(tag)
+        }
+        setFilters({ tags: Array.from(selected) })
+    }
 
     const columns: LemonTableColumns<DashboardType> = [
         {
@@ -128,17 +135,13 @@ export function DashboardsTable({
             },
             sorter: nameCompareFunction,
         },
-        ...(hasAvailableFeature(AvailableFeature.TAGGING)
-            ? [
-                  {
-                      title: 'Tags',
-                      dataIndex: 'tags' as keyof DashboardType,
-                      render: function Render(tags: DashboardType['tags']) {
-                          return tags ? <ObjectTags tags={tags} staticOnly /> : null
-                      },
-                  } as LemonTableColumn<DashboardType, keyof DashboardType | undefined>,
-              ]
-            : []),
+        {
+            title: 'Tags',
+            dataIndex: 'tags' as keyof DashboardType,
+            render: function Render(tags: DashboardType['tags']) {
+                return tags ? <ObjectTags tags={tags} staticOnly /> : null
+            },
+        } as LemonTableColumn<DashboardType, keyof DashboardType | undefined>,
         createdByColumn<DashboardType>() as LemonTableColumn<DashboardType, keyof DashboardType | undefined>,
         createdAtColumn<DashboardType>() as LemonTableColumn<DashboardType, keyof DashboardType | undefined>,
         atColumn<DashboardType>('last_accessed_at', 'Last accessed at') as LemonTableColumn<
@@ -239,7 +242,7 @@ export function DashboardsTable({
                     onChange={(x) => setFilters({ search: x })}
                     value={filters.search}
                 />
-                <div className="flex items-center gap-4 flex-wrap">
+                <div className="flex items-center gap-2 flex-wrap">
                     <div className="flex items-center gap-2">
                         <span>Filter to:</span>
                         {currentTab !== DashboardsTab.Pinned && (
@@ -255,6 +258,82 @@ export function DashboardsTable({
                                 </LemonButton>
                             </div>
                         )}
+                        <Popover
+                            visible={showTagPopover}
+                            onClickOutside={() => setShowTagPopover(false)}
+                            overlay={
+                                <div className="max-w-100 deprecated-space-y-2">
+                                    <LemonInput
+                                        type="search"
+                                        placeholder="Search tags"
+                                        autoFocus
+                                        value={tagSearch}
+                                        onChange={setTagSearch}
+                                        fullWidth
+                                        className="max-w-full"
+                                    />
+                                    <ul className="deprecated-space-y-px">
+                                        {filteredTags.map((tag: string) => (
+                                            <li key={tag}>
+                                                <LemonButton
+                                                    fullWidth
+                                                    role="menuitem"
+                                                    size="small"
+                                                    onClick={() => handleTagToggle(tag)}
+                                                >
+                                                    <span className="flex items-center justify-between gap-2 flex-1">
+                                                        <span className="flex items-center gap-2 max-w-full">
+                                                            <input
+                                                                type="checkbox"
+                                                                className="cursor-pointer"
+                                                                checked={filters.tags?.includes(tag) || false}
+                                                                readOnly
+                                                            />
+                                                            <span>{tag}</span>
+                                                        </span>
+                                                    </span>
+                                                </LemonButton>
+                                            </li>
+                                        ))}
+                                        {filteredTags.length === 0 ? (
+                                            <div className="p-2 text-secondary italic truncate border-t">
+                                                {tagSearch ? <span>No matching tags</span> : <span>No tags</span>}
+                                            </div>
+                                        ) : null}
+                                        {(filters.tags?.length || 0) > 0 && (
+                                            <>
+                                                <div className="my-1 border-t" />
+                                                <li>
+                                                    <LemonButton
+                                                        fullWidth
+                                                        role="menuitem"
+                                                        size="small"
+                                                        onClick={() => setFilters({ tags: [] })}
+                                                        type="tertiary"
+                                                    >
+                                                        Clear selection
+                                                    </LemonButton>
+                                                </li>
+                                            </>
+                                        )}
+                                    </ul>
+                                </div>
+                            }
+                        >
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                icon={<IconChevronDown />}
+                                sideIcon={null}
+                                active={(filters.tags?.length || 0) > 0}
+                                onClick={() => setShowTagPopover(!showTagPopover)}
+                            >
+                                Tags
+                                {(filters.tags?.length || 0) > 0 && (
+                                    <span className="ml-1 text-xs">({filters.tags?.length})</span>
+                                )}
+                            </LemonButton>
+                        </Popover>
                         <div className="flex items-center gap-2">
                             <LemonButton
                                 active={filters.shared}

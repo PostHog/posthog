@@ -139,10 +139,10 @@ export const ActivityLogRow = ({ logItem }: { logItem: HumanizedActivityLogItem 
                 <ProfilePicture
                     showName={false}
                     user={{
-                        first_name: logItem.isSystem ? logItem.name : undefined,
+                        first_name: logItem.isSystem || logItem.wasImpersonated ? logItem.name : undefined,
                         email: logItem.email ?? undefined,
                     }}
-                    type={logItem.isSystem ? 'system' : 'person'}
+                    type={logItem.isSystem || logItem.wasImpersonated ? 'system' : 'person'}
                     size="xl"
                 />
                 <div className="ActivityLogRow__details flex-grow">

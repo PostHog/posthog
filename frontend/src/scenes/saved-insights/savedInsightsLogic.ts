@@ -24,7 +24,7 @@ import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigati
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
-import { Breadcrumb, InsightModel, LayoutView, QueryBasedInsightModel, SavedInsightsTabs } from '~/types'
+import { Breadcrumb, InsightModel, QueryBasedInsightModel, SavedInsightsTabs } from '~/types'
 
 import { teamLogic } from '../teamLogic'
 import type { savedInsightsLogicType } from './savedInsightsLogicType'
@@ -39,34 +39,44 @@ export interface InsightsResult extends CountedPaginatedResponse<QueryBasedInsig
 }
 
 export interface SavedInsightFilters {
-    layoutView: LayoutView
     order: string
     tab: SavedInsightsTabs
     search: string
     insightType: string
-    createdBy: number | 'All users'
+    createdBy: number[] | 'All users'
+    tags: string[] | undefined | null
     dateFrom: string | dayjs.Dayjs | undefined | null
     dateTo: string | dayjs.Dayjs | undefined | null
+    createdDateFrom: string | dayjs.Dayjs | undefined | null
+    createdDateTo: string | dayjs.Dayjs | undefined | null
+    lastViewedDateFrom: string | dayjs.Dayjs | undefined | null
+    lastViewedDateTo: string | dayjs.Dayjs | undefined | null
     page: number
     dashboardId: number | undefined | null
     events: string[] | undefined | null
     hideFeatureFlagInsights: boolean | undefined | null
+    favorited: boolean | undefined | null
 }
 
 export function cleanFilters(values: Partial<SavedInsightFilters>): SavedInsightFilters {
     return {
-        layoutView: values.layoutView || LayoutView.List,
         order: values.order || '-last_modified_at', // Sync with `sorting` selector
         tab: values.tab || SavedInsightsTabs.All,
         search: String(values.search || ''),
         insightType: values.insightType || 'All types',
-        createdBy: (values.tab !== SavedInsightsTabs.Yours && values.createdBy) || 'All users',
+        createdBy: values.createdBy || 'All users',
+        tags: values.tags || undefined,
         dateFrom: values.dateFrom || 'all',
         dateTo: values.dateTo || undefined,
+        createdDateFrom: values.createdDateFrom || undefined,
+        createdDateTo: values.createdDateTo || undefined,
+        lastViewedDateFrom: values.lastViewedDateFrom || undefined,
+        lastViewedDateTo: values.lastViewedDateTo || undefined,
         page: parseInt(String(values.page)) || 1,
         dashboardId: values.dashboardId,
         events: values.events,
         hideFeatureFlagInsights: values.hideFeatureFlagInsights || false,
+        favorited: values.favorited || false,
     }
 }
 
@@ -178,8 +188,8 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                     cleanFilters({
                         ...(merge ? state || {} : {}),
                         ...filters,
-                        // Reset page on filter change EXCEPT if it's page or view that's being updated
-                        ...('page' in filters || 'layoutView' in filters ? {} : { page: 1 }),
+                        // Reset page on filter change EXCEPT if it's page that's being updated
+                        ...('page' in filters ? {} : { page: 1 }),
                     }),
             },
         ],
@@ -234,17 +244,29 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                 limit: INSIGHTS_PER_PAGE,
                 offset: Math.max(0, (filters.page - 1) * INSIGHTS_PER_PAGE),
                 saved: true,
-                ...(filters.tab === SavedInsightsTabs.Yours && { user: true }),
-                ...(filters.tab === SavedInsightsTabs.Favorites && { favorited: true }),
+                ...(filters.favorited && { favorited: true }),
                 ...(filters.search && { search: filters.search }),
                 ...(filters.insightType?.toLowerCase() !== 'all types' && {
                     insight: filters.insightType?.toUpperCase(),
                 }),
-                ...(filters.createdBy !== 'All users' && { created_by: filters.createdBy }),
+                ...(filters.createdBy !== 'All users' && {
+                    created_by: JSON.stringify(filters.createdBy),
+                }),
+                ...(filters.tags && filters.tags.length > 0 && { tags: JSON.stringify(filters.tags) }),
                 ...(filters.dateFrom &&
                     filters.dateFrom !== 'all' && {
                         date_from: filters.dateFrom,
                         date_to: filters.dateTo,
+                    }),
+                ...(filters.createdDateFrom &&
+                    filters.createdDateFrom !== 'all' && {
+                        created_date_from: filters.createdDateFrom,
+                        created_date_to: filters.createdDateTo,
+                    }),
+                ...(filters.lastViewedDateFrom &&
+                    filters.lastViewedDateFrom !== 'all' && {
+                        last_viewed_date_from: filters.lastViewedDateFrom,
+                        last_viewed_date_to: filters.lastViewedDateTo,
                     }),
                 ...(!!filters.dashboardId && {
                     dashboards: [filters.dashboardId],
@@ -307,10 +329,6 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                 if (keys.includes('tab')) {
                     keys = keys.filter((k) => k !== 'tab')
                     eventUsageLogic.actions.reportSavedInsightTabChanged(filters.tab)
-                }
-                if (keys.includes('layoutView')) {
-                    keys = keys.filter((k) => k !== 'layoutView')
-                    eventUsageLogic.actions.reportSavedInsightLayoutChanged(filters.layoutView)
                 }
                 if (keys.length > 0) {
                     eventUsageLogic.actions.reportSavedInsightFilterUsed(keys)
@@ -377,7 +395,6 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
         }
         return {
             loadInsights: changeUrl,
-            setLayoutView: changeUrl,
         }
     }),
     tabAwareUrlToAction(({ actions, values }) => ({

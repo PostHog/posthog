@@ -1,6 +1,7 @@
 import json
 import uuid
 import typing as t
+import asyncio
 import datetime as dt
 from dataclasses import dataclass
 
@@ -15,11 +16,19 @@ from temporalio import activity, workflow
 from posthog.models import ProxyRecord
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.logger import get_logger
+from posthog.temporal.proxy_service.cloudflare import (
+    CloudflareAPIError,
+    delete_custom_hostname,
+    delete_worker_route,
+    get_custom_hostname_by_domain,
+    get_worker_route_by_pattern,
+)
 from posthog.temporal.proxy_service.common import (
     NonRetriableException,
     UpdateProxyRecordInputs,
     activity_update_proxy_record,
     get_grpc_client,
+    is_cloudflare_proxy_by_cname,
     use_gateway_api,
 )
 from posthog.temporal.proxy_service.proto import DeleteRequest
@@ -47,6 +56,7 @@ class DeleteManagedProxyInputs:
     organization_id: uuid.UUID
     proxy_record_id: uuid.UUID
     domain: str
+    target_cname: str = ""  # Used to determine if proxy is Cloudflare or legacy
 
     @property
     def properties_to_log(self) -> dict[str, t.Any]:
@@ -54,6 +64,7 @@ class DeleteManagedProxyInputs:
             "organization_id": self.organization_id,
             "proxy_record_id": self.proxy_record_id,
             "domain": self.domain,
+            "target_cname": self.target_cname,
         }
 
 
@@ -117,6 +128,46 @@ async def delete_managed_proxy(inputs: DeleteManagedProxyInputs):
         raise
 
 
+@activity.defn
+async def delete_cloudflare_proxy(inputs: DeleteManagedProxyInputs):
+    """Activity that deletes Cloudflare Custom Hostname and Worker Route for a domain."""
+    bind_contextvars(organization_id=inputs.organization_id)
+    logger = LOGGER.bind()
+    logger.info(
+        "Deleting Cloudflare proxy resources for domain %s",
+        inputs.domain,
+    )
+
+    errors: list[str] = []
+
+    # Delete Worker Route first
+    try:
+        route = await asyncio.to_thread(get_worker_route_by_pattern, inputs.domain)
+        if route:
+            await asyncio.to_thread(delete_worker_route, route.id)
+            logger.info("Deleted Cloudflare Worker Route %s for domain %s", route.id, inputs.domain)
+        else:
+            logger.info("No Cloudflare Worker Route found for domain %s", inputs.domain)
+    except CloudflareAPIError as e:
+        logger.warning("Failed to delete Cloudflare Worker Route for domain %s: %s", inputs.domain, e)
+        errors.append(f"Worker Route deletion failed: {e}")
+
+    # Delete Custom Hostname (attempt even if Worker Route deletion failed)
+    try:
+        hostname = await asyncio.to_thread(get_custom_hostname_by_domain, inputs.domain)
+        if hostname:
+            await asyncio.to_thread(delete_custom_hostname, hostname.id)
+            logger.info("Deleted Cloudflare Custom Hostname %s for domain %s", hostname.id, inputs.domain)
+        else:
+            logger.info("No Cloudflare Custom Hostname found for domain %s", inputs.domain)
+    except CloudflareAPIError as e:
+        logger.warning("Failed to delete Cloudflare Custom Hostname for domain %s: %s", inputs.domain, e)
+        errors.append(f"Custom Hostname deletion failed: {e}")
+
+    if errors:
+        raise NonRetriableException(f"Cloudflare API errors: {'; '.join(errors)}")
+
+
 @workflow.defn(name="delete-proxy")
 class DeleteManagedProxyWorkflow(PostHogWorkflow):
     """A Temporal Workflow to delete a Managed reverse Proxy."""
@@ -132,18 +183,34 @@ class DeleteManagedProxyWorkflow(PostHogWorkflow):
         """Workflow implementation to delete a Managed reverse Proxy."""
 
         try:
-            # Call proxy provisioner to delete the HTTProxy and Certificate resources
-            await temporalio.workflow.execute_activity(
-                delete_managed_proxy,
-                inputs,
-                schedule_to_close_timeout=dt.timedelta(minutes=5),
-                start_to_close_timeout=dt.timedelta(minutes=1),
-                retry_policy=temporalio.common.RetryPolicy(
-                    initial_interval=dt.timedelta(seconds=10),
-                    maximum_attempts=5,
-                    non_retryable_error_types=["NonRetriableException"],
-                ),
-            )
+            # Branch based on how the proxy was created (detected from target_cname),
+            # not the global flag, since legacy proxies need legacy deletion
+            if inputs.target_cname and is_cloudflare_proxy_by_cname(inputs.target_cname):
+                # Delete Cloudflare Custom Hostname and Worker Route
+                await temporalio.workflow.execute_activity(
+                    delete_cloudflare_proxy,
+                    inputs,
+                    schedule_to_close_timeout=dt.timedelta(minutes=5),
+                    start_to_close_timeout=dt.timedelta(minutes=1),
+                    retry_policy=temporalio.common.RetryPolicy(
+                        initial_interval=dt.timedelta(seconds=10),
+                        maximum_attempts=5,
+                        non_retryable_error_types=["NonRetriableException"],
+                    ),
+                )
+            else:
+                # Legacy path: Call proxy provisioner to delete the HTTPProxy and Certificate resources
+                await temporalio.workflow.execute_activity(
+                    delete_managed_proxy,
+                    inputs,
+                    schedule_to_close_timeout=dt.timedelta(minutes=5),
+                    start_to_close_timeout=dt.timedelta(minutes=1),
+                    retry_policy=temporalio.common.RetryPolicy(
+                        initial_interval=dt.timedelta(seconds=10),
+                        maximum_attempts=5,
+                        non_retryable_error_types=["NonRetriableException"],
+                    ),
+                )
 
             # Resources have been deleted - delete the proxy record.
             await temporalio.workflow.execute_activity(

@@ -193,7 +193,7 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
         """
         Reuses build_all_revenue_analytics_views() from Database.create_for logic.
         For each source (events + external data sources):
-          - Creates 5 views: customer, charge, subscription, revenue_item, product
+          - Creates 6 views: customer, charge, subscription, revenue_item, product, mrr
         """
 
         from products.revenue_analytics.backend.views.orchestrator import build_all_revenue_analytics_views

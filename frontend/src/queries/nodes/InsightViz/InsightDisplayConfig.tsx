@@ -23,6 +23,7 @@ import { ScalePicker } from 'scenes/insights/EditorFilters/ScalePicker'
 import { ShowAlertThresholdLinesFilter } from 'scenes/insights/EditorFilters/ShowAlertThresholdLinesFilter'
 import { ShowLegendFilter } from 'scenes/insights/EditorFilters/ShowLegendFilter'
 import { ShowMultipleYAxesFilter } from 'scenes/insights/EditorFilters/ShowMultipleYAxesFilter'
+import { ShowPieTotalFilter } from 'scenes/insights/EditorFilters/ShowPieTotalFilter'
 import { ShowTrendLinesFilter } from 'scenes/insights/EditorFilters/ShowTrendLinesFilter'
 import { ValueOnSeriesFilter } from 'scenes/insights/EditorFilters/ValueOnSeriesFilter'
 import { RetentionDatePicker } from 'scenes/insights/RetentionDatePicker'
@@ -40,7 +41,7 @@ import { PathStepPicker } from 'scenes/insights/views/Paths/PathStepPicker'
 import { RetentionBreakdownFilter } from 'scenes/retention/RetentionBreakdownFilter'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 
-import { isValidBreakdown } from '~/queries/utils'
+import { isValidBreakdown, isWebAnalyticsInsightQuery } from '~/queries/utils'
 import { isTrendsQuery } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 
@@ -78,7 +79,8 @@ export function InsightDisplayConfig(): JSX.Element {
 
     const showCompare =
         (isTrends && display !== ChartDisplayType.ActionsAreaGraph && display !== ChartDisplayType.CalendarHeatmap) ||
-        isStickiness
+        isStickiness ||
+        isWebAnalyticsInsightQuery(querySource)
     const showInterval =
         isTrendsFunnel ||
         isLifecycle ||
@@ -108,6 +110,7 @@ export function InsightDisplayConfig(): JSX.Element {
                           ...(supportsValueOnSeries ? [{ label: () => <ValueOnSeriesFilter /> }] : []),
                           ...(supportsPercentStackView ? [{ label: () => <PercentStackViewFilter /> }] : []),
                           ...(hasLegend ? [{ label: () => <ShowLegendFilter /> }] : []),
+                          ...(display === ChartDisplayType.ActionsPie ? [{ label: () => <ShowPieTotalFilter /> }] : []),
                           ...(showAlertThresholdLinesConfig
                               ? [{ label: () => <ShowAlertThresholdLinesFilter /> }]
                               : []),

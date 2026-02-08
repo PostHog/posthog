@@ -250,8 +250,11 @@ export function PropertiesTable({
                     [PropertyDefinitionType.LogEntry]: TaxonomicFilterGroupType.LogEntries,
                     [PropertyDefinitionType.Meta]: TaxonomicFilterGroupType.Metadata,
                     [PropertyDefinitionType.Resource]: TaxonomicFilterGroupType.Resources,
-                    [PropertyDefinitionType.Log]: TaxonomicFilterGroupType.LogAttributes,
+                    [PropertyDefinitionType.Log]: TaxonomicFilterGroupType.Logs,
+                    [PropertyDefinitionType.LogAttribute]: TaxonomicFilterGroupType.LogAttributes,
+                    [PropertyDefinitionType.LogResourceAttribute]: TaxonomicFilterGroupType.LogResourceAttributes,
                     [PropertyDefinitionType.FlagValue]: TaxonomicFilterGroupType.FeatureFlags,
+                    [PropertyDefinitionType.WorkflowVariable]: TaxonomicFilterGroupType.WorkflowVariables,
                 }
 
                 const propertyType = propertyTypeMap[type] || TaxonomicFilterGroupType.EventProperties

@@ -1,7 +1,6 @@
 import { actions, connect, kea, listeners, path } from 'kea'
 import posthog from 'posthog-js'
 
-import { BarStatus, ResultType } from 'lib/components/CommandBar/types'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import type { Dayjs } from 'lib/dayjs'
 import { now } from 'lib/dayjs'
@@ -10,10 +9,12 @@ import { objectClean } from 'lib/utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { BillingUsageInteractionProps } from 'scenes/billing/types'
 import { SharedMetric } from 'scenes/experiments/SharedMetrics/sharedMetricLogic'
-import { NewSurvey, SurveyTemplateType } from 'scenes/surveys/constants'
+import { ProductTourEvent } from 'scenes/product-tours/constants'
+import { NewSurvey, SURVEY_CREATED_SOURCE, SurveyTemplateType } from 'scenes/surveys/constants'
 import { userLogic } from 'scenes/userLogic'
 
 import {
+    Breakdown,
     ExperimentFunnelsQuery,
     ExperimentMetric,
     ExperimentTrendsQuery,
@@ -51,7 +52,10 @@ import {
     HelpType,
     InsightShortId,
     MultipleSurveyQuestion,
+    OnboardingStepKey,
     PersonType,
+    ProductTour,
+    PropertyFilterType,
     QueryBasedInsightModel,
     type SDK,
     Survey,
@@ -104,14 +108,14 @@ export function getEventPropertiesForMetric(
     } else if (metric.kind === NodeKind.ExperimentFunnelsQuery) {
         return {
             kind: NodeKind.ExperimentFunnelsQuery,
-            steps_count: metric.funnels_query.series.length,
-            filter_test_accounts: metric.funnels_query.filterTestAccounts,
+            steps_count: metric.funnels_query?.series?.length,
+            filter_test_accounts: metric.funnels_query?.filterTestAccounts,
         }
     }
     return {
         kind: NodeKind.ExperimentTrendsQuery,
-        series_kind: metric.count_query.series[0].kind,
-        filter_test_accounts: metric.count_query.filterTestAccounts,
+        series_kind: metric.count_query?.series?.[0]?.kind,
+        filter_test_accounts: metric.count_query?.filterTestAccounts,
     }
 }
 
@@ -188,7 +192,8 @@ function sanitizeQuery(query: Node | null): Record<string, string | number | boo
 
     if (isInsightVizNode(query) || isInsightQueryNode(query)) {
         const querySource = isInsightVizNode(query) ? query.source : query
-        const { dateRange, filterTestAccounts, samplingFactor, properties } = querySource
+        const { dateRange, filterTestAccounts, properties } = querySource
+        const samplingFactor = 'samplingFactor' in querySource ? querySource.samplingFactor : undefined
 
         // date range and sampling
         payload.date_from = dateRange?.date_from || undefined
@@ -425,16 +430,60 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         ) => ({ insight, dashboardId }),
         reportSavedInsightTabChanged: (tab: string) => ({ tab }),
         reportSavedInsightFilterUsed: (filterKeys: string[]) => ({ filterKeys }),
-        reportSavedInsightLayoutChanged: (layout: string) => ({ layout }),
         reportSavedInsightNewInsightClicked: (insightType: string) => ({ insightType }),
         reportPersonSplit: (merge_count: number) => ({ merge_count }),
         reportHelpButtonViewed: true,
         reportHelpButtonUsed: (help_type: HelpType) => ({ help_type }),
         reportExperimentArchived: (experiment: Experiment) => ({ experiment }),
+        reportExperimentPaused: (experiment: Experiment) => ({ experiment }),
+        reportExperimentResumed: (experiment: Experiment) => ({ experiment }),
+        reportExperimentStopped: (experiment: Experiment) => ({ experiment }),
         reportExperimentReset: (experiment: Experiment) => ({ experiment }),
         reportExperimentCreated: (experiment: Experiment) => ({ experiment }),
         reportExperimentUpdated: (experiment: Experiment) => ({ experiment }),
         reportExperimentViewed: (experiment: Experiment, duration: number | null) => ({ experiment, duration }),
+        reportExperimentMetricsRefreshed: (
+            experiment: Experiment,
+            forceRefresh: boolean,
+            context?: {
+                triggered_by: 'manual' | 'auto-refresh'
+                auto_refresh_enabled?: boolean
+                auto_refresh_interval?: number
+            }
+        ) => ({
+            experiment,
+            forceRefresh,
+            context,
+        }),
+        reportExperimentAutoRefreshToggled: (experiment: Experiment, enabled: boolean, interval: number) => ({
+            experiment,
+            enabled,
+            interval,
+        }),
+        reportExperimentMetricBreakdownAdded: (
+            experiment: Experiment,
+            metricUuid: string,
+            breakdown: Breakdown,
+            isPrimary: boolean
+        ) => ({
+            experiment,
+            metricUuid,
+            breakdown,
+            isPrimary,
+        }),
+        reportExperimentMetricBreakdownRemoved: (
+            experiment: Experiment,
+            metricUuid: string,
+            breakdown: Breakdown,
+            index: number,
+            isPrimary: boolean
+        ) => ({
+            experiment,
+            metricUuid,
+            breakdown,
+            index,
+            isPrimary,
+        }),
         reportExperimentLaunched: (experiment: Experiment, launchDate: Dayjs) => ({ experiment, launchDate }),
         reportExperimentStartDateChange: (experiment: Experiment, newStartDate: string) => ({
             experiment,
@@ -500,6 +549,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             experimentId,
             metric,
         }),
+        reportExperimentAiSummaryRequested: (experiment: Experiment) => ({ experiment }),
         // Definition Popover
         reportDataManagementDefinitionHovered: (type: TaxonomicFilterGroupType) => ({ type }),
         reportDataManagementDefinitionClickView: (type: TaxonomicFilterGroupType) => ({ type }),
@@ -592,23 +642,49 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportSurveyViewed: (survey: Survey) => ({
             survey,
         }),
-        reportSurveyCreated: (survey: Survey, isDuplicate?: boolean) => ({ survey, isDuplicate }),
+        reportSurveyCreated: (
+            survey: Survey,
+            isDuplicate?: boolean,
+            creationSource?: 'wizard' | 'full_editor' | 'quick_create' | 'template' | 'llm_analytics'
+        ) => ({ survey, isDuplicate, creationSource }),
+        reportUserFeedbackButtonClicked: (source: SURVEY_CREATED_SOURCE, meta: Record<string, any>) => ({
+            source,
+            meta,
+        }),
         reportSurveyEdited: (survey: Survey) => ({ survey }),
         reportSurveyArchived: (survey: Survey) => ({ survey }),
         reportSurveyTemplateClicked: (template: SurveyTemplateType) => ({ template }),
         reportSurveyCycleDetected: (survey: Survey | NewSurvey) => ({ survey }),
+        reportProductTourViewed: (tour: ProductTour) => ({ tour }),
+        reportProductTourCreated: (tour: ProductTour, creationSource?: 'app' | 'toolbar') => ({
+            tour,
+            creationSource,
+        }),
+        reportProductTourListViewed: true,
         reportProductUnsubscribed: (product: string) => ({ product }),
         reportSubscribedDuringOnboarding: (productKey: string) => ({ productKey }),
+        reportOnboardingStarted: (entrypoint: string) => ({ entrypoint }),
+        reportOnboardingStepCompleted: (stepKey: OnboardingStepKey) => ({ stepKey }),
+        reportOnboardingStepSkipped: (stepKey: OnboardingStepKey) => ({ stepKey }),
+        reportOnboardingCompleted: (productKey: string) => ({ productKey }),
         reportOnboardingUseCaseSelected: (useCase: string, recommendedProducts: readonly string[]) => ({
             useCase,
             recommendedProducts,
         }),
-        // command bar
-        reportCommandBarStatusChanged: (status: BarStatus) => ({ status }),
-        reportCommandBarSearch: (queryLength: number) => ({ queryLength }),
-        reportCommandBarSearchResultOpened: (type: ResultType) => ({ type }),
-        reportCommandBarActionSearch: (query: string) => ({ query }),
-        reportCommandBarActionResultExecuted: (resultDisplay) => ({ resultDisplay }),
+        reportOnboardingUseCaseSkipped: true,
+        reportOnboardingProductSelectionPath: (
+            path: 'ai' | 'use_case' | 'browsing_history' | 'manual',
+            properties?: {
+                useCase?: string
+                recommendedProducts?: string[]
+                hasBrowsingHistory?: boolean
+            }
+        ) => ({ path, properties }),
+        reportOnboardingProductToggled: (productKey: string, selected: boolean, recommendationSource: string) => ({
+            productKey,
+            selected,
+            recommendationSource,
+        }),
         reportBillingCTAShown: true,
         reportBillingUsageInteraction: (properties: BillingUsageInteractionProps) => ({ properties }),
         reportBillingSpendInteraction: (properties: BillingUsageInteractionProps) => ({ properties }),
@@ -645,6 +721,71 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportRevenueAnalyticsMRRBreakdownModalOpened: () => ({}),
         reportRevenueAnalyticsGoalConfigured: () => ({}),
         reportRevenueAnalyticsTestAccountFilterUpdated: (filterTestAccounts: boolean) => ({ filterTestAccounts }),
+        // marketing analytics
+        reportMarketingAnalyticsOnboardingViewed: () => ({}),
+        reportMarketingAnalyticsOnboardingCompleted: (hasSources: boolean) => ({
+            hasSources,
+        }),
+        reportMarketingAnalyticsDataSourceConnected: (sourceType: string) => ({ sourceType }),
+        reportWebAnalyticsHealthStatus: (props: {
+            has_pageviews: boolean
+            has_pageleaves: boolean
+            has_scroll_depth: boolean
+            has_web_vitals: boolean
+            has_authorized_urls: boolean
+            has_reverse_proxy: boolean
+            overall_status: string
+        }) => ({ props }),
+        reportWebAnalyticsHealthTabViewed: (props: {
+            overall_status: string
+            passed_count: number
+            warning_count: number
+            error_count: number
+        }) => ({ props }),
+        reportWebAnalyticsHealthSectionToggled: (props: { category: string; is_expanded: boolean }) => ({ props }),
+        reportWebAnalyticsHealthActionClicked: (props: {
+            check_id: string
+            category: string
+            status: string
+            is_urgent: boolean
+        }) => ({ props }),
+        reportWebAnalyticsHealthRefreshed: (props: { overall_status: string; passed_count: number }) => ({ props }),
+        reportWebAnalyticsFilterApplied: (props: {
+            filter_type: string
+            property_filter_category?: PropertyFilterType
+            total_filter_count: number
+        }) => ({ props }),
+        reportWebAnalyticsFilterRemoved: (props: {
+            filter_type: string
+            property_filter_category?: PropertyFilterType
+            total_filter_count: number
+        }) => ({ props }),
+        reportWebAnalyticsDateRangeChanged: (props: {
+            date_from: string | null
+            date_to: string | null
+            interval: string
+        }) => ({ props }),
+        reportWebAnalyticsCompareToggled: (props: { enabled: boolean }) => ({ props }),
+        reportWebAnalyticsConversionGoalSet: (props: { goal_type: string | null }) => ({ props }),
+        reportWebAnalyticsPathCleaningToggled: (props: { enabled: boolean }) => ({ props }),
+        // Customer Analytics
+        reportCustomerAnalyticsDashboardBusinessModeChanged: ({ business_mode }) => ({ business_mode }),
+        reportCustomerAnalyticsDashboardConfigurationButtonClicked: () => true,
+        reportCustomerAnalyticsDashboardConfigurationViewed: () => true,
+        reportCustomerAnalyticsDashboardConfigureEventWithAIClicked: ({ event }) => ({ event }),
+        reportCustomerAnalyticsDashboardDateFilterApplied: ({ filter }) => ({ filter }),
+        reportCustomerAnalyticsDashboardEventPickerClicked: ({ event }) => ({ event }),
+        reportCustomerAnalyticsAddJoinButtonClicked: ({ table }) => ({ table }),
+        reportCustomerAnalyticsDashboardEventsSaved: () => true,
+        reportCustomerAnalyticsViewed: (delay?: number) => ({ delay }),
+        reportGroupProfileViewed: (delay?: number) => ({ delay }),
+        reportPersonProfileViewed: (delay?: number) => ({ delay }),
+        reportUsageMetricsSettingsViewed: () => true,
+        reportUsageMetricsCreateButtonClicked: () => true,
+        reportUsageMetricsUpdateButtonClicked: () => true,
+        reportUsageMetricCreated: () => true,
+        reportUsageMetricUpdated: () => true,
+        reportUsageMetricDeleted: () => true,
     }),
     listeners(({ values }) => ({
         reportBillingCTAShown: () => {
@@ -999,9 +1140,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportSavedInsightTabChanged: ({ tab }) => {
             posthog.capture('saved insights list page tab changed', { tab })
         },
-        reportSavedInsightLayoutChanged: ({ layout }) => {
-            posthog.capture('saved insights list page layout changed', { layout })
-        },
         reportSavedInsightNewInsightClicked: ({ insightType }) => {
             posthog.capture('saved insights new insight clicked', { insight_type: insightType })
         },
@@ -1039,6 +1177,21 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 ...getEventPropertiesForExperiment(experiment),
             })
         },
+        reportExperimentPaused: ({ experiment }) => {
+            posthog.capture('experiment paused', {
+                ...getEventPropertiesForExperiment(experiment),
+            })
+        },
+        reportExperimentResumed: ({ experiment }) => {
+            posthog.capture('experiment resumed', {
+                ...getEventPropertiesForExperiment(experiment),
+            })
+        },
+        reportExperimentStopped: ({ experiment }) => {
+            posthog.capture('experiment stopped', {
+                ...getEventPropertiesForExperiment(experiment),
+            })
+        },
         reportExperimentReset: ({ experiment }) => {
             posthog.capture('experiment reset', {
                 ...getEventPropertiesForExperiment(experiment),
@@ -1061,6 +1214,41 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             posthog.capture('experiment viewed', {
                 ...getEventPropertiesForExperiment(experiment),
                 duration,
+            })
+        },
+        reportExperimentMetricsRefreshed: ({ experiment, forceRefresh, context }) => {
+            posthog.capture('experiment metrics refreshed', {
+                ...getEventPropertiesForExperiment(experiment),
+                force_refresh: forceRefresh,
+                triggered_by: context?.triggered_by || 'manual',
+                auto_refresh_enabled: context?.auto_refresh_enabled,
+                auto_refresh_interval: context?.auto_refresh_interval,
+            })
+        },
+        reportExperimentAutoRefreshToggled: ({ experiment, enabled, interval }) => {
+            posthog.capture('experiment auto refresh toggled', {
+                ...getEventPropertiesForExperiment(experiment),
+                enabled,
+                interval,
+            })
+        },
+        reportExperimentMetricBreakdownAdded: ({ experiment, metricUuid, breakdown, isPrimary }) => {
+            posthog.capture('experiment metric breakdown added', {
+                ...getEventPropertiesForExperiment(experiment),
+                metric_uuid: metricUuid,
+                breakdown_type: breakdown.type,
+                breakdown_property: breakdown.property,
+                is_primary_metric: isPrimary,
+            })
+        },
+        reportExperimentMetricBreakdownRemoved: ({ experiment, metricUuid, breakdown, index, isPrimary }) => {
+            posthog.capture('experiment metric breakdown removed', {
+                ...getEventPropertiesForExperiment(experiment),
+                metric_uuid: metricUuid,
+                breakdown_type: breakdown.type,
+                breakdown_property: breakdown.property,
+                breakdown_index: index,
+                is_primary_metric: isPrimary,
             })
         },
         reportExperimentLaunched: ({ experiment, launchDate }) => {
@@ -1196,6 +1384,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             metric: ExperimentMetric
         }) => {
             posthog.capture('experiment timeseries recalculated', { experiment_id: experimentId, metric })
+        },
+        reportExperimentAiSummaryRequested: ({ experiment }) => {
+            posthog.capture('experiment ai summary requested', {
+                ...getEventPropertiesForExperiment(experiment),
+            })
         },
         reportPropertyGroupFilterAdded: () => {
             posthog.capture('property group filter added')
@@ -1372,7 +1565,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 language,
             })
         },
-        reportSurveyCreated: ({ survey, isDuplicate }) => {
+        reportSurveyCreated: ({ survey, isDuplicate, creationSource }) => {
             const questionsWithShuffledOptions = survey.questions.filter((question) => {
                 return question.hasOwnProperty('shuffleOptions') && (question as MultipleSurveyQuestion).shuffleOptions
             })
@@ -1384,6 +1577,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 questions_length: survey.questions.length,
                 question_types: survey.questions.map((question) => question.type),
                 is_duplicate: isDuplicate ?? false,
+                creation_source: creationSource ?? 'full_editor',
                 linked_insight_id: survey.linked_insight_id,
                 events_count: survey.conditions?.events?.values.length,
                 recurring_survey_iteration_count: survey.iteration_count == undefined ? 0 : survey.iteration_count,
@@ -1468,6 +1662,36 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 end_date: survey.end_date,
             })
         },
+        reportProductTourViewed: ({ tour }) => {
+            posthog.capture(ProductTourEvent.VIEWED, {
+                tour_id: tour.id,
+                tour_name: tour.name,
+                tour_type: tour.content?.type ?? 'tour',
+                step_count: tour.content?.steps?.length ?? 0,
+                start_date: tour.start_date,
+                end_date: tour.end_date,
+            })
+        },
+        reportProductTourCreated: ({ tour, creationSource }) => {
+            posthog.capture(ProductTourEvent.CREATED, {
+                tour_id: tour.id,
+                tour_name: tour.name,
+                tour_type: tour.content?.type ?? 'tour',
+                step_count: tour.content?.steps?.length ?? 0,
+                has_targeting: !!tour.internal_targeting_flag,
+                auto_launch: tour.auto_launch,
+                creation_source: creationSource ?? 'app',
+            })
+        },
+        reportProductTourListViewed: () => {
+            posthog.capture(ProductTourEvent.LIST_VIEWED)
+        },
+        reportUserFeedbackButtonClicked: ({ source, meta }) => {
+            posthog.capture('feedback button clicked', {
+                source,
+                ...meta,
+            })
+        },
         reportProductUnsubscribed: ({ product }) => {
             const property_key = `unsubscribed_from_${product}`
             posthog.capture('product unsubscribed', {
@@ -1481,10 +1705,48 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 product_key: productKey,
             })
         },
+        reportOnboardingStarted: ({ entrypoint }) => {
+            posthog.capture('onboarding started', {
+                entry_point: entrypoint,
+            })
+        },
+        reportOnboardingStepCompleted: ({ stepKey }) => {
+            posthog.capture('onboarding step completed', {
+                step_key: stepKey,
+            })
+        },
+        reportOnboardingStepSkipped: ({ stepKey }) => {
+            posthog.capture('onboarding step skipped', {
+                step_key: stepKey,
+            })
+        },
+        reportOnboardingCompleted: ({ productKey }) => {
+            posthog.capture('onboarding completed', {
+                product_key: productKey,
+            })
+        },
         reportOnboardingUseCaseSelected: ({ useCase, recommendedProducts }) => {
             posthog.capture('onboarding use case selected', {
                 use_case: useCase,
                 recommended_products: recommendedProducts,
+            })
+        },
+        reportOnboardingUseCaseSkipped: () => {
+            posthog.capture('onboarding use case skipped')
+        },
+        reportOnboardingProductSelectionPath: ({ path, properties }) => {
+            posthog.capture('onboarding product selection path', {
+                path,
+                use_case: properties?.useCase,
+                recommended_products: properties?.recommendedProducts,
+                has_browsing_history: properties?.hasBrowsingHistory,
+            })
+        },
+        reportOnboardingProductToggled: ({ productKey, selected, recommendationSource }) => {
+            posthog.capture('onboarding product toggled', {
+                product_key: productKey,
+                selected,
+                recommendation_source: recommendationSource,
             })
         },
         reportSDKSelected: ({ sdk }) => {
@@ -1583,6 +1845,116 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             posthog.capture('revenue analytics test account filter updated', {
                 filter_test_accounts: filterTestAccounts,
             })
+        },
+        reportMarketingAnalyticsOnboardingViewed: () => {
+            posthog.capture('marketing analytics onboarding viewed')
+        },
+        reportMarketingAnalyticsOnboardingCompleted: ({ hasSources }) => {
+            posthog.capture('marketing analytics onboarding completed', {
+                has_sources: hasSources,
+            })
+        },
+        reportMarketingAnalyticsDataSourceConnected: ({ sourceType }) => {
+            posthog.capture('marketing analytics data source connected', { source_type: sourceType })
+        },
+        reportWebAnalyticsHealthStatus: ({ props }) => {
+            posthog.capture('web analytics health status', props)
+        },
+        reportWebAnalyticsHealthTabViewed: ({ props }) => {
+            posthog.capture('web analytics health tab viewed', props)
+        },
+        reportWebAnalyticsHealthSectionToggled: ({ props }) => {
+            posthog.capture('web analytics health section toggled', props)
+        },
+        reportWebAnalyticsHealthActionClicked: ({ props }) => {
+            posthog.capture('web analytics health action clicked', props)
+        },
+        reportWebAnalyticsHealthRefreshed: ({ props }) => {
+            posthog.capture('web analytics health refreshed', props)
+        },
+        reportWebAnalyticsFilterApplied: ({ props }) => {
+            posthog.capture('web analytics filter applied', props)
+        },
+        reportWebAnalyticsFilterRemoved: ({ props }) => {
+            posthog.capture('web analytics filter removed', props)
+        },
+        reportWebAnalyticsDateRangeChanged: ({ props }) => {
+            posthog.capture('web analytics date range changed', props)
+        },
+        reportWebAnalyticsCompareToggled: ({ props }) => {
+            posthog.capture('web analytics compare toggled', props)
+        },
+        reportWebAnalyticsConversionGoalSet: ({ props }) => {
+            posthog.capture('web analytics conversion goal set', props)
+        },
+        reportWebAnalyticsPathCleaningToggled: ({ props }) => {
+            posthog.capture('web analytics path cleaning toggled', props)
+        },
+        // Customer Analytics
+        reportCustomerAnalyticsDashboardBusinessModeChanged: async ({ business_mode }) => {
+            posthog.capture('customer analytics dashboard business mode changed', { business_mode })
+        },
+        reportCustomerAnalyticsDashboardConfigurationButtonClicked: async () => {
+            posthog.capture('customer analytics dashboard configuration button clicked')
+        },
+        reportCustomerAnalyticsDashboardConfigurationViewed: async (_, breakpoint) => {
+            await breakpoint(500)
+            posthog.capture('customer analytics dashboard configuration viewed')
+        },
+        reportCustomerAnalyticsDashboardDateFilterApplied: async ({ filter }) => {
+            posthog.capture('customer analytics dashboard date filter applied', { filter })
+        },
+        reportCustomerAnalyticsDashboardEventPickerClicked: async ({ event }) => {
+            posthog.capture('customer analytics dashboard event picker clicked', { event })
+        },
+        reportCustomerAnalyticsDashboardConfigureEventWithAIClicked: async ({ event }) => {
+            posthog.capture('customer analytics dashboard configure event with AI clicked', { event })
+        },
+        reportCustomerAnalyticsAddJoinButtonClicked: async ({ table }) => {
+            posthog.capture('customer analytics add join button clicked', { table })
+        },
+        reportCustomerAnalyticsDashboardEventsSaved: async () => {
+            posthog.capture('customer analytics dashboard events saved')
+        },
+        reportUsageMetricsSettingsViewed: async (_, breakpoint) => {
+            await breakpoint(500)
+            posthog.capture('usage metrics settings viewed')
+        },
+        reportUsageMetricsCreateButtonClicked: async () => {
+            posthog.capture('usage metrics create button clicked')
+        },
+        reportUsageMetricsUpdateButtonClicked: async () => {
+            posthog.capture('usage metrics update button clicked')
+        },
+        reportUsageMetricCreated: async () => {
+            posthog.capture('usage metric created')
+        },
+        reportUsageMetricUpdated: async () => {
+            posthog.capture('usage metric updated')
+        },
+        reportUsageMetricDeleted: async () => {
+            posthog.capture('usage metric deleted')
+        },
+        reportCustomerAnalyticsViewed: async ({ delay }, breakpoint) => {
+            if (!delay) {
+                await breakpoint(500)
+            }
+            const eventName = delay ? 'customer analytics analyzed' : 'customer analytics viewed'
+            posthog.capture(eventName, { delay })
+        },
+        reportGroupProfileViewed: async ({ delay }, breakpoint) => {
+            if (!delay) {
+                await breakpoint(500)
+            }
+            const eventName = delay ? 'group profile analyzed' : 'group profile viewed'
+            posthog.capture(eventName, { delay })
+        },
+        reportPersonProfileViewed: async ({ delay }, breakpoint) => {
+            if (!delay) {
+                await breakpoint(500)
+            }
+            const eventName = delay ? 'person profile analyzed' : 'person profile viewed'
+            posthog.capture(eventName, { delay })
         },
     })),
 ])

@@ -151,5 +151,5 @@ class InsightsGraph(BaseAssistantGraph[AssistantState, PartialAssistantState]):
             .add_sql_generator(next_node=next_node)
         )
 
-    def compile_full_graph(self, checkpointer: DjangoCheckpointer | None = None):
+    def compile_full_graph(self, checkpointer: DjangoCheckpointer | None | Literal[False] = None):
         return self.add_query_creation_flow().add_query_executor().compile(checkpointer=checkpointer)

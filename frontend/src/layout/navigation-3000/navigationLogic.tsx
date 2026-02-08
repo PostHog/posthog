@@ -24,6 +24,7 @@ import {
     IconRewindPlay,
     IconRocket,
     IconServer,
+    IconSpotlight,
     IconTestTube,
     IconToggle,
     IconWarning,
@@ -53,7 +54,7 @@ import { BasicListItem, ExtendedListItem, NavbarItem, SidebarNavbarItem } from '
 /** Multi-segment item keys are joined using this separator for easy comparisons. */
 export const ITEM_KEY_PART_SEPARATOR = '::'
 
-export type Navigation3000Mode = 'none' | 'minimal' | 'full'
+export type Navigation3000Mode = 'none' | 'minimal' | 'zen' | 'full'
 
 const MINIMUM_SIDEBAR_WIDTH_PX: number = 192
 const DEFAULT_SIDEBAR_WIDTH_PX: number = 288
@@ -105,6 +106,8 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
         focusPreviousItem: true,
         toggleAccordion: (key: string) => ({ key }),
         toggleListItemAccordion: (key: string) => ({ key }),
+        setZenMode: (zenMode: boolean) => ({ zenMode }),
+        toggleZenMode: true,
     }),
     reducers({
         isSidebarShown: [
@@ -231,6 +234,14 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                 saveNewItemComplete: () => false,
             },
         ],
+        zenMode: [
+            false,
+            { persist: true },
+            {
+                setZenMode: (_, { zenMode }) => zenMode,
+                toggleZenMode: (state) => !state,
+            },
+        ],
     }),
     listeners(({ actions, values }) => ({
         initiateNewItemInCategory: ({ category: categoryKey }) => {
@@ -335,9 +346,20 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
         },
     })),
     selectors({
+        zenModeFromUrl: [
+            () => [router.selectors.searchParams],
+            (searchParams): boolean => {
+                // Enable zen mode via ?zen or ?zen=true or ?zen=1
+                const zenParam = searchParams?.zen
+                return zenParam !== undefined && zenParam !== 'false' && zenParam !== '0'
+            },
+        ],
         mode: [
-            (s) => [s.sceneConfig, s.isCurrentOrganizationUnavailable],
-            (sceneConfig, isCurrentOrganizationUnavailable): Navigation3000Mode => {
+            (s) => [s.sceneConfig, s.isCurrentOrganizationUnavailable, s.zenMode],
+            (sceneConfig, isCurrentOrganizationUnavailable, zenMode): Navigation3000Mode => {
+                if (zenMode) {
+                    return 'zen'
+                }
                 if (isCurrentOrganizationUnavailable) {
                     return 'minimal'
                 }
@@ -537,6 +559,15 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             to: urls.surveys(),
                             tooltipDocLink: 'https://posthog.com/docs/surveys/creating-surveys',
                         },
+                        featureFlags[FEATURE_FLAGS.PRODUCT_TOURS]
+                            ? {
+                                  identifier: Scene.ProductTours,
+                                  label: 'Product tours',
+                                  icon: <IconSpotlight />,
+                                  tag: 'alpha' as const,
+                                  to: urls.productTours(),
+                              }
+                            : null,
                         {
                             identifier: Scene.EarlyAccessFeatures,
                             label: 'Early access features',
@@ -560,16 +591,14 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             to: urls.llmAnalyticsDashboard(),
                             tooltipDocLink: 'https://posthog.com/docs/llm-analytics/dashboard',
                         },
-                        featureFlags[FEATURE_FLAGS.LOGS_PRE_EARLY_ACCESS]
-                            ? {
-                                  identifier: 'Logs',
-                                  label: 'Logs',
-                                  icon: <IconLive />,
-                                  to: urls.logs(),
-                                  tag: 'alpha' as const,
-                                  tooltipDocLink: 'https://posthog.com/docs/logs',
-                              }
-                            : null,
+                        {
+                            identifier: Scene.Logs,
+                            label: 'Logs',
+                            icon: <IconLive />,
+                            to: urls.logs(),
+                            tag: 'beta' as const,
+                            tooltipDocLink: 'https://posthog.com/docs/logs',
+                        },
                         {
                             identifier: Scene.ErrorTracking,
                             label: 'Error tracking',
@@ -586,11 +615,11 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             tooltipDocLink: 'https://posthog.com/docs/data-warehouse/query#querying-sources-with-sql',
                         },
                         {
-                            identifier: Scene.DataPipelines,
-                            label: 'Data pipelines',
+                            identifier: Scene.Apps,
+                            label: 'Apps',
                             icon: <IconPlug />,
-                            to: urls.dataPipelines('overview'),
-                            tooltipDocLink: 'https://posthog.com/docs/cdp',
+                            to: urls.apps(),
+                            tooltipDocLink: 'https://posthog.com/docs/cdp/apps',
                         },
                         {
                             identifier: Scene.Heatmaps,
@@ -610,15 +639,12 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                   tooltipDocLink: 'https://posthog.com/docs/links',
                               }
                             : null,
-                        featureFlags[FEATURE_FLAGS.WORKFLOWS]
-                            ? {
-                                  identifier: Scene.Workflows,
-                                  label: 'Workflows',
-                                  icon: <IconDecisionTree />,
-                                  to: urls.workflows(),
-                                  tag: 'alpha' as const,
-                              }
-                            : null,
+                        {
+                            identifier: Scene.Workflows,
+                            label: 'Workflows',
+                            icon: <IconDecisionTree />,
+                            to: urls.workflows(),
+                        },
                     ].filter(isNotNil) as NavbarItem[],
                 ]
             },
@@ -758,6 +784,13 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                 props.inputElement?.focus()
             }
         },
+        zenModeFromUrl: (zenModeFromUrl: boolean) => {
+            // Enable zen mode when URL parameter is present (e.g., ?zen or ?zen=true)
+            // Only enable, never disable from URL - user can manually disable
+            if (zenModeFromUrl && !values.zenMode) {
+                actions.setZenMode(true)
+            }
+        },
     })),
     events(({ props, actions, cache }) => ({
         afterMount: () => {
@@ -773,12 +806,14 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                     e.preventDefault()
                 }
             }
-            window.addEventListener('resize', cache.onResize)
-            window.addEventListener('keydown', cache.onKeyDown)
-        },
-        beforeUnmount: () => {
-            window.removeEventListener('resize', cache.onResize)
-            window.removeEventListener('resize', cache.onKeyDown)
+            cache.disposables.add(() => {
+                window.addEventListener('resize', cache.onResize)
+                return () => window.removeEventListener('resize', cache.onResize)
+            }, 'resizeListener')
+            cache.disposables.add(() => {
+                window.addEventListener('keydown', cache.onKeyDown)
+                return () => window.removeEventListener('keydown', cache.onKeyDown)
+            }, 'keydownListener')
         },
     })),
 ])

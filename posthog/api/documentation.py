@@ -1,3 +1,4 @@
+import os
 import re
 from typing import get_args
 
@@ -196,27 +197,50 @@ class FilterActionSerializer(serializers.Serializer):
     )
 
 
+# Global mapping of (path, method) → product folder, populated during preprocessing
+_endpoint_product_mapping: dict[tuple[str, str], str] = {}
+
+
+def _get_product_from_module(module: str) -> str | None:
+    """Extract product folder name from module path like 'products.batch_exports.backend.api'."""
+    if module.startswith("products."):
+        parts = module.split(".")
+        if len(parts) >= 2:
+            return parts[1]
+    return None
+
+
 def preprocess_exclude_path_format(endpoints, **kwargs):
     """
     preprocessing hook that filters out {format} suffixed paths, in case
     format_suffix_patterns is used and {format} path params are unwanted.
     """
+    # For frontend type generation, include INTERNAL views if they have explicit tags
+    include_internal = os.environ.get("OPENAPI_INCLUDE_INTERNAL", "").lower() in ("1", "true")
+
+    # Clear previous mapping
+    _endpoint_product_mapping.clear()
+
     result = []
     for path, path_regex, method, callback in endpoints:
         if getattr(callback.cls, "param_derived_from_user_current_team", None):
             pass
-        elif (
-            hasattr(callback.cls, "scope_object")
-            and callback.cls.scope_object != "INTERNAL"
-            and not getattr(callback.cls, "hide_api_docs", False)
-        ):
-            # If there is an API Scope set then we implictly support it and should have it in the documentation
-            path = path.replace(
-                "{parent_lookup_team_id}",
-                "{project_id}",  # TODO: "{environment_id}" once project environments are rolled out
-            )
-            path = path.replace("{parent_lookup_", "{")
-            result.append((path, path_regex, method, callback))
+        elif hasattr(callback.cls, "scope_object") and not getattr(callback.cls, "hide_api_docs", False):
+            scope = callback.cls.scope_object
+            # Include if: not INTERNAL, OR include_internal flag is set
+            if scope != "INTERNAL" or include_internal:
+                path = path.replace(
+                    "{parent_lookup_team_id}",
+                    "{project_id}",  # TODO: "{environment_id}" once project environments are rolled out
+                )
+                path = path.replace("{parent_lookup_", "{")
+
+                # Track product folder for auto-tagging
+                product = _get_product_from_module(callback.cls.__module__)
+                if product:
+                    _endpoint_product_mapping[(path, method)] = product
+
+                result.append((path, path_regex, method, callback))
     return result
 
 
@@ -291,6 +315,17 @@ def custom_postprocessing_hook(result, generator, request, public):
     for path, methods in result["paths"].items():
         paths[path] = {}
         for method, definition in methods.items():
+            # Preserve explicit tags from @extend_schema before filtering/adding auto-derived ones
+            # Exclude auto-derived URL structure tags (projects, environments) - these aren't real product tags
+            explicit_tags = [d for d in definition.get("tags", []) if d not in ["projects", "environments"]]
+
+            # Auto-add product tag for ViewSets in products/*/backend/
+            product = _endpoint_product_mapping.get((path, method.upper()))
+            if product and product not in explicit_tags:
+                explicit_tags.append(product)
+
+            definition["x-explicit-tags"] = explicit_tags
+
             definition["tags"] = [d for d in definition["tags"] if d not in ["projects"]]
             match = re.search(
                 r"((\/api\/(organizations|projects)/{(.*?)}\/)|(\/api\/))(?P<one>[a-zA-Z0-9-_]*)\/",
@@ -301,7 +336,10 @@ def custom_postprocessing_hook(result, generator, request, public):
             for tag in definition["tags"]:
                 all_tags.append(tag)
             definition["operationId"] = (
-                definition["operationId"].replace("organizations_", "", 1).replace("projects_", "", 1)
+                definition["operationId"]
+                .replace("organizations_", "", 1)
+                .replace("projects_", "", 1)
+                .replace("environments_", "", 1)
             )
             if "parameters" in definition:
                 definition["parameters"] = [

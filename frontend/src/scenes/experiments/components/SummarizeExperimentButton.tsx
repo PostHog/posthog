@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useMemo } from 'react'
 
@@ -9,70 +9,46 @@ import { addProductIntent } from 'lib/utils/product-intents'
 import { useMaxTool } from 'scenes/max/useMaxTool'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
-import {
-    MaxExperimentMetricResult,
-    MaxExperimentSummaryContext,
-    ProductIntentContext,
-    ProductKey,
-} from '~/queries/schema/schema-general'
-import { ExperimentStatsMethod } from '~/types'
+import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 
-import { getDefaultMetricTitle } from '../MetricsView/shared/utils'
 import { experimentLogic } from '../experimentLogic'
 
+/**
+ * Minimal context sent to the backend for experiment summarization.
+ * The backend fetches all detailed experiment data using the experiment_id.
+ * This has the benefit that the AI can be called from other places too.
+ */
+interface MinimalExperimentSummaryContext {
+    experiment_id: number | string
+    experiment_name: string
+    /** ISO8601 timestamp of when the frontend last refreshed the data */
+    frontend_last_refresh: string | null
+}
+
 function useExperimentSummaryMaxTool(): ReturnType<typeof useMaxTool> {
-    const { experiment, orderedPrimaryMetricsWithResults, orderedSecondaryMetricsWithResults, exposures } =
+    const { experiment, orderedPrimaryMetricsWithResults, primaryMetricsResults, secondaryMetricsResults } =
         useValues(experimentLogic)
 
-    const maxToolContext = useMemo((): MaxExperimentSummaryContext => {
-        const statsMethod = experiment.stats_config?.method || 'bayesian'
-        const variantKeys = experiment.parameters?.feature_flag_variants?.map((v: any) => v.key) || []
+    // Get the most recent last_refresh timestamp from metric results
+    const frontendLastRefresh = useMemo(() => {
+        const allResults = [...(primaryMetricsResults || []), ...(secondaryMetricsResults || [])]
+        const timestamps = allResults
+            .map((r) => r?.last_refresh)
+            .filter((t): t is string => typeof t === 'string')
+            .sort()
+            .reverse()
+        return timestamps[0] || null
+    }, [primaryMetricsResults, secondaryMetricsResults])
 
-        const transformMetricsForMax = (metricsWithResults: any[]): MaxExperimentMetricResult[] => {
-            return metricsWithResults
-                .filter(({ result }) => result?.variant_results)
-                .map(({ metric, result, displayIndex }) => {
-                    const metricName = `${displayIndex + 1}. ${metric.name || getDefaultMetricTitle(metric)}`
-
-                    const variants =
-                        result.variant_results?.map((variant: any) => {
-                            if (statsMethod === 'bayesian') {
-                                return {
-                                    key: variant.key,
-                                    chance_to_win: variant.chance_to_win || null,
-                                    credible_interval: variant.credible_interval || null,
-                                    significant: variant.significant || false,
-                                }
-                            }
-                            return {
-                                key: variant.key,
-                                p_value: variant.p_value || null,
-                                confidence_interval: variant.confidence_interval || null,
-                                significant: variant.significant || false,
-                            }
-                        }) || []
-
-                    return {
-                        name: metricName,
-                        variant_results: variants,
-                    }
-                })
-        }
-
-        const primary_metrics_results = transformMetricsForMax(orderedPrimaryMetricsWithResults)
-        const secondary_metrics_results = transformMetricsForMax(orderedSecondaryMetricsWithResults)
-
-        return {
+    // Simplified context - backend will fetch full data using experiment_id
+    const maxToolContext = useMemo(
+        (): MinimalExperimentSummaryContext => ({
             experiment_id: experiment.id,
             experiment_name: experiment.name || 'Unnamed experiment',
-            description: experiment.description || null,
-            exposures: exposures?.total_exposures || null,
-            variants: variantKeys,
-            primary_metrics_results,
-            secondary_metrics_results,
-            stats_method: statsMethod as ExperimentStatsMethod,
-        }
-    }, [experiment, orderedPrimaryMetricsWithResults, orderedSecondaryMetricsWithResults, exposures])
+            frontend_last_refresh: frontendLastRefresh,
+        }),
+        [experiment.id, experiment.name, frontendLastRefresh]
+    )
 
     const shouldShowMaxSummaryTool = useMemo(() => {
         const hasResults = orderedPrimaryMetricsWithResults.length > 0
@@ -88,7 +64,7 @@ function useExperimentSummaryMaxTool(): ReturnType<typeof useMaxTool> {
             icon: iconForType('experiment'),
         },
         active: shouldShowMaxSummaryTool,
-        initialMaxPrompt: `Summarize the experiment "${experiment.name}"`,
+        initialMaxPrompt: `!Summarize the experiment "${experiment.name}"`,
         callback(toolOutput) {
             addProductIntent({
                 product_type: ProductKey.EXPERIMENTS,
@@ -113,7 +89,8 @@ function useExperimentSummaryMaxTool(): ReturnType<typeof useMaxTool> {
 
 export function SummarizeExperimentButton(): JSX.Element | null {
     const { openMax } = useExperimentSummaryMaxTool()
-
+    const { experiment } = useValues(experimentLogic)
+    const { reportExperimentAiSummaryRequested } = useActions(experimentLogic)
     if (!openMax) {
         return null
     }
@@ -122,6 +99,7 @@ export function SummarizeExperimentButton(): JSX.Element | null {
         <LemonButton
             size="small"
             onClick={() => {
+                reportExperimentAiSummaryRequested(experiment)
                 openMax()
             }}
             type="secondary"

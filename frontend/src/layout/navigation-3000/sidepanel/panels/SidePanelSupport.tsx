@@ -1,16 +1,19 @@
 import { useActions, useValues } from 'kea'
 import React from 'react'
 
-import { IconFeatures, IconHelmet, IconMap } from '@posthog/icons'
+import { IconFeatures, IconHelmet, IconMap, IconWarning } from '@posthog/icons'
 import { LemonButton, Link } from '@posthog/lemon-ui'
 
 import { SupportForm } from 'lib/components/Support/SupportForm'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { cn } from 'lib/utils/css-classes'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
+import { useOpenAi } from 'scenes/max/useOpenAi'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -18,8 +21,13 @@ import { userLogic } from 'scenes/userLogic'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AvailableFeature, BillingFeatureType, BillingPlan, BillingType, SidePanelTab } from '~/types'
 
+import { SidePanelTickets } from 'products/conversations/frontend/components/SidePanel/SidePanelTickets'
+
+import { SidePanelContentContainer } from '../SidePanelContentContainer'
 import { SidePanelPaneHeader } from '../components/SidePanelPaneHeader'
 import { sidePanelLogic } from '../sidePanelLogic'
+import { sidePanelStatusIncidentIoLogic } from './sidePanelStatusIncidentIoLogic'
+import { sidePanelStatusLogic } from './sidePanelStatusLogic'
 
 const Section = ({ title, children }: { title: string; children: React.ReactNode }): React.ReactElement => {
     return (
@@ -32,16 +40,70 @@ const Section = ({ title, children }: { title: string; children: React.ReactNode
     )
 }
 
+const StatusPageAlert = (): JSX.Element | null => {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const useIncidentIo = !!featureFlags[FEATURE_FLAGS.INCIDENT_IO_STATUS_PAGE]
+    const { openSidePanel } = useActions(sidePanelLogic)
+
+    const { status: atlassianStatus, statusPage } = useValues(sidePanelStatusLogic)
+    const { status: incidentIoStatus, statusDescription: incidentIoDescription } =
+        useValues(sidePanelStatusIncidentIoLogic)
+
+    const status = useIncidentIo ? incidentIoStatus : atlassianStatus
+
+    if (status === 'operational') {
+        return null
+    }
+
+    const description = useIncidentIo ? incidentIoDescription : statusPage?.status.description || 'Active incident'
+
+    const severityClass = status.includes('outage')
+        ? 'bg-danger-highlight border-danger'
+        : 'bg-warning-highlight border-warning'
+
+    return (
+        <div className={`border rounded p-3 mb-3 ${severityClass}`}>
+            <div className="flex items-start gap-2">
+                <IconWarning className="text-warning w-5 h-5 shrink-0 mt-0.5" />
+                <div className="flex-1">
+                    <p className="font-semibold mb-1">
+                        <span
+                            className="cursor-pointer text-link hover:underline"
+                            onClick={() => openSidePanel(SidePanelTab.Status)}
+                        >
+                            {description}
+                        </span>
+                    </p>
+                    <div className="text-sm">
+                        <p className="mb-1">We're aware of an issue that may be affecting your PostHog experience.</p>
+                        <p className="mb-0">
+                            You may wish to check our{' '}
+                            <span
+                                className="cursor-pointer text-link hover:underline"
+                                onClick={() => openSidePanel(SidePanelTab.Status)}
+                            >
+                                current status
+                            </span>{' '}
+                            before contacting support.
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    )
+}
+
 // In order to set these turn on the `support-message-override` feature flag.
 
 //Support offsite messaging
-const SUPPORT_MESSAGE_OVERRIDE_TITLE = "We're making improvements:"
-const SUPPORT_MESSAGE_OVERRIDE_BODY =
-    "Many of our support engineers are attending an offsite (from 3rd to 7th November) so we can make long-term enhancements. We're working different hours, so non-urgent inquiries without priority support may experience a slight delay. We'll be back to full speed from the 10th!"
+//const SUPPORT_MESSAGE_OVERRIDE_TITLE = "We're making improvements:"
+//const SUPPORT_MESSAGE_OVERRIDE_BODY =
+//    "Many of our support engineers are attending an offsite (from 3rd to 7th November) so we can make long-term enhancements. We're working different hours, so non-urgent inquiries without priority support may experience a slight delay. We'll be back to full speed from the 10th!"
 
 //Support Christmas messaging
-//const SUPPORT_MESSAGE_OVERRIDE_TITLE = '🎄 🎅 Support during the holidays 🎁 ⛄'
-//const SUPPORT_MESSAGE_OVERRIDE_BODY = "We're offering reduced support while we celebrate the holidays. Responses may be slower than normal over the holiday period (23rd December to the 6th January), and between the 25th and 27th of December we'll only be responding to critical issues. Thanks for your patience!"
+const SUPPORT_MESSAGE_OVERRIDE_TITLE = '🎄 🎅 Support during the holidays 🎁 ⛄'
+const SUPPORT_MESSAGE_OVERRIDE_BODY =
+    "We're offering reduced support while we celebrate the holidays. Responses may be slower than normal over the holiday period (22nd December to the 5th January). Thanks for your patience!"
 
 // Table shown to free users on Help panel, instead of email button
 // Support response times are pulled dynamically from billing plans (product.features) where available
@@ -204,12 +266,15 @@ const SupportResponseTimesTable = ({
 
 export function SidePanelSupport(): JSX.Element {
     const { preflight } = useValues(preflightLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     useValues(userLogic)
     const { isEmailFormOpen, title: supportPanelTitle, targetArea } = useValues(supportLogic)
     const { closeEmailForm, openEmailForm, closeSupportForm, resetSendSupportRequest } = useActions(supportLogic)
     const { billing, billingLoading, billingPlan } = useValues(billingLogic)
     const { isCurrentOrganizationNew } = useValues(organizationLogic)
-    const { openSidePanel } = useActions(sidePanelLogic)
+    const { openAi } = useOpenAi()
+
+    const useProductSupportSidePanel = featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT_SIDE_PANEL]
 
     const hasBoostTrial = billing?.trial?.status === 'active' && (billing.trial?.target as any) === 'boost'
     const hasScaleTrial = billing?.trial?.status === 'active' && (billing.trial?.target as any) === 'scale'
@@ -225,6 +290,8 @@ export function SidePanelSupport(): JSX.Element {
     const showEmailSupport = (preflight?.cloud || process.env.NODE_ENV === 'development') && canEmail
     const showMaxAI = preflight?.cloud || process.env.NODE_ENV === 'development'
     const isBillingLoaded = !billingLoading && billing !== undefined
+
+    const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
 
     const handleOpenEmailForm = (): void => {
         if (showEmailSupport && isBillingLoaded) {
@@ -282,12 +349,26 @@ export function SidePanelSupport(): JSX.Element {
     }
 
     return (
-        <div className="SidePanelSupport">
-            <SidePanelPaneHeader title={isEmailFormOpen ? supportPanelTitle : 'Help'} />
+        <div
+            className={cn('SidePanelSupport', {
+                contents: isRemovingSidePanelFlag,
+            })}
+        >
+            {!isRemovingSidePanelFlag && <SidePanelPaneHeader title={isEmailFormOpen ? supportPanelTitle : 'Help'} />}
 
-            <div className="overflow-y-auto flex flex-col h-full">
-                <div className="p-3 max-w-160 w-full mx-auto flex-1 flex flex-col justify-center">
-                    {isEmailFormOpen && showEmailSupport && isBillingLoaded ? (
+            <SidePanelContentContainer flagOffClassName="overflow-y-auto flex flex-col h-full">
+                {isRemovingSidePanelFlag && (
+                    <SidePanelPaneHeader
+                        showCloseButton={false}
+                        title={isEmailFormOpen ? supportPanelTitle : isRemovingSidePanelFlag ? 'Support' : 'Help'}
+                    />
+                )}
+                <div
+                    className={cn('p-3 max-w-160 w-full mx-auto flex-1 flex flex-col justify-center', {
+                        'p-0 justify-start flex-none': isRemovingSidePanelFlag,
+                    })}
+                >
+                    {isEmailFormOpen && showEmailSupport && isBillingLoaded && !useProductSupportSidePanel ? (
                         <SupportFormBlock
                             onCancel={() => {
                                 closeEmailForm()
@@ -310,7 +391,7 @@ export function SidePanelSupport(): JSX.Element {
                                             fullWidth
                                             center
                                             onClick={() => {
-                                                openSidePanel(SidePanelTab.Max)
+                                                openAi()
                                             }}
                                             targetBlank={false}
                                             className="mt-2"
@@ -321,8 +402,17 @@ export function SidePanelSupport(): JSX.Element {
                                 </Section>
                             )}
 
-                            {showEmailSupport && isBillingLoaded && (
+                            {showEmailSupport && isBillingLoaded && useProductSupportSidePanel && (
                                 <Section title="Contact us">
+                                    <StatusPageAlert />
+                                    <p>Can't find what you need and PostHog AI unable to help?</p>
+                                    <SidePanelTickets />
+                                </Section>
+                            )}
+
+                            {showEmailSupport && isBillingLoaded && !useProductSupportSidePanel && (
+                                <Section title="Contact us">
+                                    <StatusPageAlert />
                                     <p>Can't find what you need and PostHog AI unable to help?</p>
                                     <LemonButton
                                         type="secondary"
@@ -419,7 +509,7 @@ export function SidePanelSupport(): JSX.Element {
                         </>
                     )}
                 </div>
-            </div>
+            </SidePanelContentContainer>
         </div>
     )
 }

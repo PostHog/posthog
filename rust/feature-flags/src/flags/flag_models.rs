@@ -2,9 +2,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::properties::property_models::PropertyFilter;
 
-// TRICKY: This cache data is coming from django-redis. If it ever goes out of sync, we'll bork.
-// TODO: Add integration tests across repos to ensure this doesn't happen.
-pub const TEAM_FLAGS_CACHE_PREFIX: &str = "posthog:1:team_feature_flags_";
+/// Wrapper struct for deserializing hypercache format: {"flags": [...]}
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct HypercacheFlagsWrapper {
+    pub flags: Vec<FeatureFlag>,
+}
 
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct FlagPropertyGroup {
@@ -78,6 +80,13 @@ pub struct FlagFilters {
 
 pub type FeatureFlagId = i32;
 
+/// Defines which identifier is used for bucketing users into rollout and variants
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BucketingIdentifier {
+    DistinctId,
+    DeviceId,
+}
+
 // TODO: see if you can combine these two structs, like we do with cohort models
 // this will require not deserializing on read and instead doing it lazily, on-demand
 // (which, tbh, is probably a better idea)
@@ -100,6 +109,19 @@ pub struct FeatureFlag {
     pub evaluation_runtime: Option<String>,
     #[serde(default)]
     pub evaluation_tags: Option<Vec<String>>,
+    #[serde(default)]
+    pub bucketing_identifier: Option<String>,
+}
+
+impl FeatureFlag {
+    /// Returns the bucketing identifier for this flag.
+    /// Defaults to DistinctId if not specified or if an invalid value is provided.
+    pub fn get_bucketing_identifier(&self) -> BucketingIdentifier {
+        match self.bucketing_identifier.as_deref() {
+            Some("device_id") => BucketingIdentifier::DeviceId,
+            _ => BucketingIdentifier::DistinctId,
+        }
+    }
 }
 
 #[derive(Debug, Serialize, sqlx::FromRow)]
@@ -117,6 +139,8 @@ pub struct FeatureFlagRow {
     pub evaluation_runtime: Option<String>,
     #[serde(default)]
     pub evaluation_tags: Option<Vec<String>>,
+    #[serde(default)]
+    pub bucketing_identifier: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]

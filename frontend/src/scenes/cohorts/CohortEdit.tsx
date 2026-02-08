@@ -24,17 +24,16 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
-import { IconErrorOutline } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
 import { cn } from 'lib/utils/css-classes'
 import { CohortCriteriaGroups } from 'scenes/cohorts/CohortFilters/CohortCriteriaGroups'
 import { COHORT_TYPE_OPTIONS } from 'scenes/cohorts/CohortFilters/constants'
 import { cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
 import { urls } from 'scenes/urls'
 
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import {
     ScenePanel,
     ScenePanelActionsSection,
@@ -48,7 +47,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Query } from '~/queries/Query/Query'
 import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
 import { QueryContext } from '~/queries/types'
-import { CohortType } from '~/types'
+import { CohortType, SidePanelTab } from '~/types'
 
 import { AddPersonToCohortModal } from './AddPersonToCohortModal'
 import { PersonDisplayNameType, RemovePersonFromCohortButton } from './RemovePersonFromCohortButton'
@@ -100,8 +99,11 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
         creationPersonQuery,
         personsToCreateStaticCohort,
         canRemovePersonFromCohort,
+        isPendingCalculation,
+        isCalculatingOrPending,
     } = useValues(logic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { openSidePanel } = useActions(sidePanelStateLogic)
 
     const isNewCohort = cohort.id === 'new' || cohort.id === undefined
     const dataNodeLogicKey = createCohortDataNodeLogicKey(cohort.id)
@@ -338,24 +340,44 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
                                     </LemonField>
 
                                     {!isNewCohort && !cohort?.is_static && (
-                                        <div className="max-w-70 w-fit">
-                                            <p className="flex items-center gap-x-1 my-0">
+                                        <div className="flex flex-col gap-y-2">
+                                            <div className="flex items-center gap-x-2 my-0">
                                                 <strong>Last calculated:</strong>
-                                                {cohort.is_calculating ? (
-                                                    <WrappingLoadingSkeleton>In progress...</WrappingLoadingSkeleton>
+                                                {isCalculatingOrPending ? (
+                                                    <div className="flex items-center gap-x-2">
+                                                        <Spinner size="small" />
+                                                        <span className="text-muted">In progress...</span>
+                                                    </div>
                                                 ) : cohort.last_calculation ? (
                                                     <TZLabel time={cohort.last_calculation} />
                                                 ) : (
-                                                    <>Not yet calculated</>
+                                                    <span className="text-muted">Not yet calculated</span>
                                                 )}
-                                            </p>
+                                            </div>
 
-                                            {cohort.errors_calculating ? (
-                                                <Tooltip title="The last attempted calculation failed. This means your current cohort data can be stale. This doesn't affect feature flag evaluation.">
-                                                    <div className="text-danger">
-                                                        <IconErrorOutline className="text-danger text-xl shrink-0" />
-                                                    </div>
-                                                </Tooltip>
+                                            {isCalculatingOrPending ? (
+                                                <LemonBanner type="warning">
+                                                    {isPendingCalculation && !cohort.is_calculating
+                                                        ? cohort.last_calculation
+                                                            ? "We're queuing a recalculation. The table below shows results from the previous calculation."
+                                                            : "We're queuing the calculation. It should be ready in a few minutes."
+                                                        : cohort.last_calculation
+                                                          ? "We're recalculating the cohort. The table below shows results from the previous calculation."
+                                                          : "We're calculating the cohort. It should be ready in a few minutes."}
+                                                </LemonBanner>
+                                            ) : cohort.errors_calculating ? (
+                                                <LemonBanner
+                                                    type="error"
+                                                    action={{
+                                                        onClick: () =>
+                                                            openSidePanel(SidePanelTab.Support, 'bug:cohorts::true'),
+                                                        children: 'Contact support',
+                                                    }}
+                                                >
+                                                    <strong>Calculation failed:</strong>{' '}
+                                                    {cohort.last_error_message ||
+                                                        'Unable to calculate this cohort. Please check your matching criteria and try again.'}
+                                                </LemonBanner>
                                             ) : null}
                                         </div>
                                     )}
@@ -518,7 +540,7 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
                                         <>
                                             Persons in this cohort
                                             <span className="text-secondary ml-2">
-                                                {!cohort.is_calculating &&
+                                                {!isCalculatingOrPending &&
                                                     cohort.count != undefined &&
                                                     `(${cohort.count})`}
                                             </span>
@@ -532,13 +554,15 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
                                     description="Persons who match the following criteria will be part of the cohort."
                                     hideTitleAndDescription
                                 >
-                                    <div>
-                                        {cohort.is_calculating ? (
-                                            <div className="cohort-recalculating flex items-center">
-                                                <Spinner className="mr-4" />
-                                                {cohort.is_static
-                                                    ? "We're creating this cohort. This could take up to a couple of minutes."
-                                                    : "We're recalculating who belongs to this cohort. This could take up to a couple of minutes."}
+                                    <div className="relative min-h-[400px]">
+                                        {isCalculatingOrPending && !cohort.last_calculation ? (
+                                            <div className="absolute inset-0 flex flex-col items-center justify-center bg-bg-light">
+                                                <Spinner size="large" />
+                                                <p className="text-muted mt-4">
+                                                    {isPendingCalculation && !cohort.is_calculating
+                                                        ? "We're queuing the calculation. It should be ready in a few minutes."
+                                                        : "We're calculating the cohort. It should be ready in a few minutes."}
+                                                </p>
                                             </div>
                                         ) : (
                                             <Query

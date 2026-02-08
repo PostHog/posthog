@@ -1,3 +1,5 @@
+import datetime
+
 from django.contrib import admin, messages
 from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
 from django.contrib.auth.forms import UserChangeForm as DjangoUserChangeForm
@@ -9,11 +11,18 @@ from django.utils import timezone
 from django.utils.html import format_html
 from django.utils.translation import gettext_lazy as _
 
+from django_otp.plugins.otp_totp.models import TOTPDevice
+
 from posthog.admin.inlines.organization_member_inline import OrganizationMemberInline
+from posthog.admin.inlines.personal_api_key_inline import PersonalAPIKeyInline
 from posthog.admin.inlines.totp_device_inline import TOTPDeviceInline
+from posthog.admin.inlines.user_social_auth_inline import UserSocialAuthInline
 from posthog.api.authentication import password_reset_token_generator
 from posthog.api.email_verification import EmailVerifier
+from posthog.api.two_factor_reset import TwoFactorResetVerifier
 from posthog.models import User
+from posthog.models.webauthn_credential import WebauthnCredential
+from posthog.tasks.email import send_two_factor_reset_email
 
 
 class UserChangeForm(DjangoUserChangeForm):
@@ -26,7 +35,7 @@ class UserChangeForm(DjangoUserChangeForm):
         # an admin can provide that reset link manually – much better than sending a new password in plain text.
         password_reset_token = password_reset_token_generator.make_token(self.instance)
         self.fields["password"].help_text = (
-            "Raw passwords are not stored, so there is no way to see this user’s password, but you can send them "
+            "Raw passwords are not stored, so there is no way to see this user's password, but you can send them "
             f'<a target="_blank" href="/reset/{self.instance.uuid}/{password_reset_token}">this password reset link</a> '
             "(it only works when logged out)."
         )
@@ -47,7 +56,7 @@ class UserAdmin(DjangoUserAdmin):
     change_password_form = None  # This view is not exposed in our subclass of UserChangeForm
     change_form_template = "admin/posthog/user/change_form.html"
 
-    inlines = [OrganizationMemberInline, TOTPDeviceInline]
+    inlines = [OrganizationMemberInline, PersonalAPIKeyInline, TOTPDeviceInline, UserSocialAuthInline]
     fieldsets = (
         (
             None,
@@ -62,6 +71,8 @@ class UserAdmin(DjangoUserAdmin):
                     "pending_email",
                     "strapi_id",
                     "revoke_sessions_link",
+                    "two_factor_status",
+                    "allow_impersonation",
                 )
             },
         ),
@@ -86,10 +97,17 @@ class UserAdmin(DjangoUserAdmin):
     search_fields = ("email", "first_name", "last_name")
     readonly_fields = [
         "id",
+        "email",
+        "pending_email",
         "current_team",
         "current_organization",
+        "is_email_verified",
         "email_verification_status",
         "revoke_sessions_link",
+        "two_factor_status",
+        "allow_impersonation",
+        "last_login",
+        "date_joined",
     ]
     ordering = ("email",)
 
@@ -129,14 +147,39 @@ class UserAdmin(DjangoUserAdmin):
                 '<a href="#" class="button" id="send_verification_email_button">Send verification email</a>'
             )
 
+    @admin.display(description="Two-factor authentication")
+    def two_factor_status(self, user: User):
+        has_totp = TOTPDevice.objects.filter(user=user, confirmed=True).exists()
+        has_passkeys = WebauthnCredential.objects.filter(user=user, verified=True).exists()
+        passkeys_enabled_for_2fa = user.passkeys_enabled_for_2fa
+
+        status_parts = []
+        if has_totp:
+            status_parts.append("TOTP device")
+        if has_passkeys and passkeys_enabled_for_2fa:
+            status_parts.append("Passkeys (2FA enabled)")
+        elif has_passkeys:
+            status_parts.append("Passkeys (2FA disabled)")
+
+        if status_parts:
+            status_text = ", ".join(status_parts)
+            return format_html(
+                '<p style="color: green;">✓ Enabled: {}</p><br>'
+                '<a href="#" class="button" id="send_2fa_reset_email_button">Send 2FA reset email</a>',
+                status_text,
+            )
+        else:
+            return format_html('<p style="color: gray;">✗ Not configured</p>')
+
     def change_view(self, request, object_id, form_url="", extra_context=None):
         """Override change view to handle email verification button."""
+        user = self.get_object(request, object_id)
+
         if request.POST.get("send_verification") == "1":
             try:
-                user = self.get_object(request, object_id)
                 if user and not user.is_email_verified:
                     EmailVerifier.create_token_and_send_email_verification(user)
-                    self.log_change(request, user, f"Sent verification email.")
+                    self.log_change(request, user, "Sent verification email.")
                     messages.success(request, f"Verification email sent to {user.email}")
                 else:
                     messages.warning(request, "User is already verified or not found.")
@@ -144,11 +187,10 @@ class UserAdmin(DjangoUserAdmin):
                 messages.error(request, f"Failed to send verification email: {str(e)}")
 
             # Redirect back to the change form
-            return HttpResponseRedirect(reverse("admin:posthog_user_change", args=[user.pk]))
+            return HttpResponseRedirect(reverse("admin:posthog_user_change", args=[object_id]))
 
         if request.POST.get("revoke_sessions") == "1":
             try:
-                user = self.get_object(request, object_id)
                 if user:
                     num_revoked = self.delete_user_sessions(user)
                     self.log_change(request, user, f"Revoked {num_revoked} web session(s).")
@@ -159,7 +201,38 @@ class UserAdmin(DjangoUserAdmin):
                 messages.error(request, f"Failed to revoke sessions: {str(e)}")
 
             # Redirect back to the change form
-            return HttpResponseRedirect(reverse("admin:posthog_user_change", args=[user.pk]))
+            return HttpResponseRedirect(reverse("admin:posthog_user_change", args=[object_id]))
+
+        if request.POST.get("send_2fa_reset") == "1":
+            try:
+                if user:
+                    # Check if user has any 2FA configured
+                    has_totp = TOTPDevice.objects.filter(user=user, confirmed=True).exists()
+                    has_passkeys_for_2fa = (
+                        WebauthnCredential.objects.filter(user=user, verified=True).exists()
+                        and user.passkeys_enabled_for_2fa
+                    )
+
+                    if not has_totp and not has_passkeys_for_2fa:
+                        messages.warning(request, "User does not have 2FA enabled.")
+                    else:
+                        # Update the requested_2fa_reset_at timestamp to invalidate any previous tokens
+                        user.requested_2fa_reset_at = datetime.datetime.now(datetime.UTC)
+                        user.save(update_fields=["requested_2fa_reset_at"])
+
+                        # Generate token and send email
+                        token = TwoFactorResetVerifier.create_token(user)
+                        send_two_factor_reset_email.delay(user.pk, token)
+
+                        self.log_change(request, user, "Sent 2FA reset email.")
+                        messages.success(request, f"2FA reset email sent to {user.email}")
+                else:
+                    messages.warning(request, "User not found.")
+            except Exception as e:
+                messages.error(request, f"Failed to send 2FA reset email: {str(e)}")
+
+            # Redirect back to the change form
+            return HttpResponseRedirect(reverse("admin:posthog_user_change", args=[object_id]))
 
         return super().change_view(request, object_id, form_url, extra_context)
 

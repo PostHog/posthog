@@ -5,7 +5,7 @@ import { ChartDataset as ChartJsDataset } from 'lib/Chart'
 import api from 'lib/api'
 import { getSeriesColor } from 'lib/colors'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
-import { hexToRGBA } from 'lib/utils'
+import { hexToRGBA, pluralize } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import {
@@ -28,6 +28,7 @@ export interface ProcessedTimeseriesDataPoint {
     lower_bound: number | null
     hasRealData: boolean
     number_of_samples?: number
+    denominator_sum?: number
     significant?: boolean
 }
 
@@ -173,6 +174,7 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
                                     lower_bound: lower,
                                     hasRealData: true,
                                     number_of_samples: variant.number_of_samples || 0,
+                                    denominator_sum: variant.denominator_sum || 0,
                                     significant: variant.significant ?? false,
                                 }
 
@@ -198,6 +200,7 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
                             lower_bound: 0,
                             hasRealData: false,
                             number_of_samples: 0,
+                            denominator_sum: 0,
                             significant: false,
                         }
                     })
@@ -223,7 +226,7 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
 
                 // If all days are computed, show "Calculated N days"
                 if (computedDays === totalDays) {
-                    return `Calculated ${totalDays} day${totalDays === 1 ? '' : 's'}`
+                    return `Calculated ${pluralize(totalDays, 'day')}`
                 }
 
                 // Otherwise show progress "Computed N of M days"
@@ -292,11 +295,14 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
                     // Create a simple approach: just two datasets with segmented colors
                     const datasets: ChartDataset[] = []
 
+                    // We use the same color for upper and lower bound lines for clear association with the variant line
+                    const boundLineColor = variantColor
+
                     // Upper bounds dataset
                     datasets.push({
                         label: 'Upper bound',
                         data: upperBounds,
-                        borderColor: COLORS.BAR_DEFAULT,
+                        borderColor: boundLineColor,
                         borderWidth: 1,
                         fill: false,
                         tension: 0,
@@ -307,7 +313,7 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
                     datasets.push({
                         label: 'Lower bound',
                         data: lowerBounds,
-                        borderColor: COLORS.BAR_DEFAULT,
+                        borderColor: boundLineColor,
                         borderWidth: 1,
                         fill: '-1',
                         backgroundColor: (context: any) => {

@@ -111,6 +111,8 @@ def to_dict(query: BaseModel) -> dict:
                         "detailedResultsAggregationType",
                         "showFullUrls",
                         "selectedInterval",
+                        "funnelStepReference",
+                        "breakdownSorting",
                     ]
                 }
 

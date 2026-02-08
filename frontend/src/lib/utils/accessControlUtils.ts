@@ -38,12 +38,16 @@ export const getMaximumAccessLevel = (resource: APIScopeObject): AccessControlLe
  * @returns The pluralized resource name for display
  */
 export const pluralizeResource = (resource: APIScopeObject): string => {
-    if (resource === AccessControlResourceType.RevenueAnalytics) {
+    if (resource === AccessControlResourceType.LlmAnalytics) {
+        return 'LLM analytics'
+    } else if (resource === AccessControlResourceType.RevenueAnalytics) {
         return 'revenue analytics'
     } else if (resource === AccessControlResourceType.WebAnalytics) {
         return 'web analytics'
     } else if (resource === AccessControlResourceType.ActivityLog) {
         return 'activity logs'
+    } else if (resource === AccessControlResourceType.ExternalDataSource) {
+        return 'data warehouse sources'
     }
 
     return resource.replace(/_/g, ' ') + 's'
@@ -74,10 +78,14 @@ export const orderedAccessLevels = (resourceType: AccessControlResourceType): Ac
  * @returns Human-readable string representation of the resource type
  */
 export const resourceTypeToString = (resourceType: AccessControlResourceType): string => {
-    if (resourceType === AccessControlResourceType.RevenueAnalytics) {
+    if (resourceType === AccessControlResourceType.LlmAnalytics) {
+        return 'LLM analytics resource'
+    } else if (resourceType === AccessControlResourceType.RevenueAnalytics) {
         return 'revenue analytics resource'
     } else if (resourceType === AccessControlResourceType.WebAnalytics) {
         return 'web analytics resource'
+    } else if (resourceType === AccessControlResourceType.ExternalDataSource) {
+        return 'data warehouse source'
     }
 
     return resourceType.replace(/_/g, ' ')
@@ -153,4 +161,18 @@ export const userHasAccess = (
     userAccessLevel?: AccessControlLevel
 ): boolean => {
     return !getAccessControlDisabledReason(resourceType, minAccessLevel, userAccessLevel)
+}
+
+/**
+ * Returns a tooltip message for a resource type if it has special access control behavior.
+ * Use this to inform users about resource-specific access control limitations or clarifications.
+ *
+ * @param resource - The API scope object to get tooltip text for
+ * @returns Tooltip text describing special access control behavior, or null if no special behavior
+ */
+export const getAccessControlTooltip = (resource: APIScopeObject): string | null => {
+    if (resource === AccessControlResourceType.ExternalDataSource) {
+        return 'Access control only applies to managed sources (Stripe, Postgres, etc.) and covers CRUD operations on the source configuration. It does not restrict querying data from those sources.'
+    }
+    return null
 }

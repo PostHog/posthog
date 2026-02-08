@@ -1,0 +1,49 @@
+name: Survey SDK Version Check
+
+on:
+    pull_request:
+        paths:
+            - 'frontend/src/scenes/surveys/**'
+
+permissions:
+    contents: read
+    pull-requests: write
+
+jobs:
+    check-sdk-requirements:
+        name: Check for SDK version requirements
+        runs-on: ubuntu-24.04
+
+        steps:
+            - name: Check for SDK-related changes
+              id: sdk-check
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  # Check added lines for SDK version patterns
+                  if gh pr diff ${{ github.event.pull_request.number }} \
+                      | grep '^+' | grep -v '^+++' \
+                      | grep -qiE 'posthog-js|posthog-react-native|posthog-ios|posthog-android|[0-9]+\.[0-9]+\.[0-9]+'; then
+                      echo "found=true" >> $GITHUB_OUTPUT
+                  fi
+
+            - name: Post reminder comment
+              if: steps.sdk-check.outputs.found == 'true'
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  # Check if reminder comment already exists
+                  if gh pr view ${{ github.event.pull_request.number }} --json comments \
+                      --jq '.comments[].body' | grep -q 'SDK Version Check Reminder'; then
+                      echo "Comment already exists, skipping"
+                      exit 0
+                  fi
+
+                  gh pr comment ${{ github.event.pull_request.number }} --body '### 📦 Surveys SDK Version Check Reminder
+
+                  This PR modifies survey code and may include SDK-dependent features.
+
+                  **If adding a feature that requires a minimum SDK version**, please update:
+                  `frontend/src/scenes/surveys/surveyVersionRequirements.ts`
+
+                  This ensures users see warnings when launching surveys their SDK doesn'\''t support.'

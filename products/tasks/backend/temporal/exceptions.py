@@ -117,6 +117,12 @@ class PersonalAPIKeyError(ProcessTaskTransientError):
     pass
 
 
+class OAuthTokenError(ProcessTaskTransientError):
+    """Failed to create OAuth access token."""
+
+    pass
+
+
 class TaskExecutionFailedError(ProcessTaskError):
     """Task execution completed but with non-zero exit code."""
 

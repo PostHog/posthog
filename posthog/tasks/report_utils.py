@@ -45,6 +45,7 @@ def capture_event(
     organization_id: Optional[str] = None,
     team_id: Optional[int] = None,
     properties: dict[str, Any],
+    group_properties: Optional[dict[str, Any]] = None,
     timestamp: Optional[Union[datetime, str]] = None,
     distinct_id: Optional[str] = None,
 ) -> None:
@@ -68,6 +69,13 @@ def capture_event(
         distinct_id = org_owner.distinct_id if org_owner and org_owner.distinct_id else f"org-{organization_id}"
 
     if is_cloud():
+        logger.info(
+            "[Usage Report] Capturing usage report event",
+            event_name=name,
+            organization_id=organization_id,
+            group_properties=group_properties,
+        )
+
         pha_client.capture(
             distinct_id=distinct_id,
             event=name,
@@ -75,6 +83,13 @@ def capture_event(
             groups={"organization": str(organization_id), "instance": settings.SITE_URL},
             timestamp=timestamp,
         )
+
+        if group_properties and organization_id:
+            pha_client.group_identify(
+                "organization",
+                str(organization_id),
+                properties=group_properties,
+            )
     else:
         pha_client.capture(
             distinct_id=get_machine_id(),

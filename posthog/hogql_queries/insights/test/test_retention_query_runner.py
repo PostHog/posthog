@@ -7,6 +7,7 @@ from freezegun import freeze_time
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
+    _create_action,
     _create_event,
     _create_person,
     create_person_id_override_by_distinct_id,
@@ -17,7 +18,7 @@ from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
 
-from posthog.schema import RetentionQuery
+from posthog.schema import HogQLQueryModifiers, InCohortVia, RetentionQuery
 
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.query import execute_hogql_query
@@ -38,13 +39,6 @@ from posthog.models.person import Person
 from posthog.queries.breakdown_props import ALL_USERS_COHORT_ID
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
-
-
-def _create_action(**kwargs):
-    team = kwargs.pop("team")
-    name = kwargs.pop("name")
-    action = Action.objects.create(team=team, name=name, steps_json=[{"event": name}])
-    return action
 
 
 def _create_signup_actions(team, user_and_timestamps):
@@ -4318,6 +4312,347 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             pluck(result_first_ever, "values", "count"),
             expected_first_ever_counts,
+        )
+
+    def test_cohort_filter_optimization_with_property_filter(self):
+        """Test that cohort filters in properties trigger LEFTJOIN optimization"""
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test Cohort",
+            groups=[{"properties": [{"key": "name", "value": "test", "type": "person"}]}],
+        )
+        cohort.calculate_people_ch(pending_version=0)
+
+        query = RetentionQuery(
+            dateRange={"date_from": "-7d"},
+            retentionFilter={},
+            properties=[{"type": "cohort", "key": "id", "value": cohort.pk}],
+        )
+
+        modifiers = HogQLQueryModifiers(inCohortVia=InCohortVia.AUTO)
+        runner = RetentionQueryRunner(query=query, team=self.team, modifiers=modifiers)
+
+        # Verify that inCohortVia was changed from AUTO to LEFTJOIN
+        assert runner.modifiers.inCohortVia == InCohortVia.LEFTJOIN
+
+    def test_cohort_filter_optimization_with_cohort_breakdown(self):
+        """Test that cohort breakdowns trigger LEFTJOIN optimization"""
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test Cohort",
+            groups=[{"properties": [{"key": "name", "value": "test", "type": "person"}]}],
+        )
+        cohort.calculate_people_ch(pending_version=0)
+
+        query = RetentionQuery(
+            dateRange={"date_from": "-7d"},
+            retentionFilter={},
+            breakdownFilter={"breakdown_type": "cohort", "breakdown": cohort.pk},
+        )
+
+        modifiers = HogQLQueryModifiers(inCohortVia=InCohortVia.AUTO)
+        runner = RetentionQueryRunner(query=query, team=self.team, modifiers=modifiers)
+
+        # Verify that inCohortVia was changed from AUTO to LEFTJOIN
+        assert runner.modifiers.inCohortVia == InCohortVia.LEFTJOIN
+
+    def test_cohort_filter_optimization_with_nested_properties(self):
+        """Test that cohort filters in nested property groups trigger LEFTJOIN optimization"""
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test Cohort",
+            groups=[{"properties": [{"key": "name", "value": "test", "type": "person"}]}],
+        )
+        cohort.calculate_people_ch(pending_version=0)
+
+        query = RetentionQuery(
+            dateRange={"date_from": "-7d"},
+            retentionFilter={},
+            properties=[
+                {"type": "event", "key": "$browser", "value": "Chrome"},
+                {"type": "cohort", "key": "id", "value": cohort.pk},
+            ],
+        )
+
+        modifiers = HogQLQueryModifiers(inCohortVia=InCohortVia.AUTO)
+        runner = RetentionQueryRunner(query=query, team=self.team, modifiers=modifiers)
+
+        # Verify that inCohortVia was changed from AUTO to LEFTJOIN
+        assert runner.modifiers.inCohortVia == InCohortVia.LEFTJOIN
+
+    def test_no_cohort_filter_keeps_auto_mode(self):
+        """Test that queries without cohort filters keep AUTO mode"""
+        query = RetentionQuery(
+            dateRange={"date_from": "-7d"},
+            retentionFilter={},
+            properties=[{"type": "event", "key": "$browser", "value": "Chrome"}],
+        )
+
+        modifiers = HogQLQueryModifiers(inCohortVia=InCohortVia.AUTO)
+        runner = RetentionQueryRunner(query=query, team=self.team, modifiers=modifiers)
+
+        # Verify that inCohortVia stayed as AUTO
+        assert runner.modifiers.inCohortVia == InCohortVia.AUTO
+
+    def test_cohort_filter_optimization_with_dashboard_filters(self):
+        """Test that cohort filters applied via dashboard filters_override trigger LEFTJOIN optimization"""
+        from posthog.schema import DashboardFilter
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Dashboard Cohort",
+            groups=[{"properties": [{"key": "name", "value": "test", "type": "person"}]}],
+        )
+        cohort.calculate_people_ch(pending_version=0)
+
+        # Create query without cohort filter
+        query = RetentionQuery(
+            dateRange={"date_from": "-7d"},
+            retentionFilter={},
+        )
+
+        modifiers = HogQLQueryModifiers(inCohortVia=InCohortVia.AUTO)
+        runner = RetentionQueryRunner(query=query, team=self.team, modifiers=modifiers)
+
+        # Apply dashboard filters (simulating what happens when insight is on dashboard)
+        dashboard_filter = DashboardFilter(properties=[{"type": "cohort", "key": "id", "value": cohort.pk}])
+        runner.apply_dashboard_filters(dashboard_filter)
+
+        # After dashboard filters are applied, should switch to LEFTJOIN
+        assert runner.modifiers.inCohortVia == InCohortVia.LEFTJOIN
+
+        # Verify the cohort filter was actually merged into query properties
+        assert runner.query.properties is not None
+
+    def test_retention_aggregation_sum(self):
+        """Test retention with SUM aggregation on a property"""
+        Person.objects.create(team=self.team, distinct_ids=["user1"])
+        Person.objects.create(team=self.team, distinct_ids=["user2"])
+
+        # User 1:
+        # Day 0: $pageview with revenue=10
+        # Day 1: $pageview with revenue=20
+        # Day 2: $pageview with revenue=30
+        _create_events(
+            self.team,
+            [
+                ("user1", _date(0), {"revenue": 10}),
+                ("user1", _date(1), {"revenue": 20}),
+                ("user1", _date(2), {"revenue": 30}),
+            ],
+        )
+
+        # User 2:
+        # Day 0: $pageview with revenue=40
+        # Day 1: $pageview with revenue=50
+        # Day 2: $pageview with revenue=60
+        _create_events(
+            self.team,
+            [
+                ("user2", _date(0), {"revenue": 40}),
+                ("user2", _date(1), {"revenue": 50}),
+                ("user2", _date(2), {"revenue": 60}),
+            ],
+        )
+
+        flush_persons_and_events()
+
+        # Test SUM aggregation
+        result_sum = self.run_query(
+            query={
+                "dateRange": {"date_from": _date(0, hour=0), "date_to": _date(6)},
+                "retentionFilter": {
+                    "totalIntervals": 7,
+                    "aggregationType": "sum",
+                    "aggregationProperty": "revenue",
+                },
+            }
+        )
+
+        # Expected result (SUM):
+        # Cohort (Day 0):
+        # Day 0: User 1 (10) + User 2 (40) = 50
+        # Day 1: User 1 (20) + User 2 (50) = 70
+        # Day 2: User 1 (30) + User 2 (60) = 90
+        self.assertEqual(
+            pluck(result_sum, "values", "count"),
+            pad(
+                [
+                    [50, 70, 90, 0, 0, 0, 0],
+                    [
+                        70,
+                        90,
+                        0,
+                        0,
+                        0,
+                        0,
+                    ],  # Day 1 cohort: user1(20) + user2(50) on day 1, user1(30) + user2(60) on day 2
+                    [90, 0, 0, 0, 0],  # Day 2 cohort: user1(30) + user2(60) on day 2
+                    [0, 0, 0, 0],
+                    [0, 0, 0],
+                    [0, 0],
+                    [0],
+                ]
+            ),
+        )
+
+    def test_retention_aggregation_avg(self):
+        """Test retention with AVG aggregation on a property"""
+        Person.objects.create(team=self.team, distinct_ids=["user1"])
+        Person.objects.create(team=self.team, distinct_ids=["user2"])
+
+        # User 1:
+        # Day 0: $pageview with revenue=10
+        # Day 1: $pageview with revenue=20
+        # Day 2: $pageview with revenue=30
+        _create_events(
+            self.team,
+            [
+                ("user1", _date(0), {"revenue": 10}),
+                ("user1", _date(1), {"revenue": 20}),
+                ("user1", _date(2), {"revenue": 30}),
+            ],
+        )
+
+        # User 2:
+        # Day 0: $pageview with revenue=40
+        # Day 1: $pageview with revenue=50
+        # Day 2: $pageview with revenue=60
+        _create_events(
+            self.team,
+            [
+                ("user2", _date(0), {"revenue": 40}),
+                ("user2", _date(1), {"revenue": 50}),
+                ("user2", _date(2), {"revenue": 60}),
+            ],
+        )
+
+        flush_persons_and_events()
+
+        # Test AVG aggregation
+        result_avg = self.run_query(
+            query={
+                "dateRange": {"date_from": _date(0, hour=0), "date_to": _date(6)},
+                "retentionFilter": {
+                    "totalIntervals": 7,
+                    "aggregationType": "avg",
+                    "aggregationProperty": "revenue",
+                },
+            }
+        )
+
+        # Expected result (AVG):
+        # Cohort (Day 0):
+        # Day 0: (10 + 40) / 2 = 25
+        # Day 1: (20 + 50) / 2 = 35
+        # Day 2: (30 + 60) / 2 = 45
+        self.assertEqual(
+            pluck(result_avg, "values", "count"),
+            pad(
+                [
+                    [25, 35, 45, 0, 0, 0, 0],
+                    [35, 45, 0, 0, 0, 0],
+                    [45, 0, 0, 0, 0],
+                    [0, 0, 0, 0],
+                    [0, 0, 0],
+                    [0, 0],
+                    [0],
+                ]
+            ),
+        )
+
+    def test_retention_aggregation_multiple_events_same_day(self):
+        """Test that multiple events on the same day are correctly summed"""
+        Person.objects.create(team=self.team, distinct_ids=["user1"])
+        Person.objects.create(team=self.team, distinct_ids=["user2"])
+
+        # User 1: Multiple events on Day 1 and Day 2
+        _create_events(
+            self.team,
+            [
+                ("user1", _date(0), {"revenue": 10}),
+                ("user1", _date(1), {"revenue": 20}),
+                ("user1", _date(1), {"revenue": 30}),  # Second event on Day 1
+                ("user1", _date(2), {"revenue": 40}),
+                ("user1", _date(2), {"revenue": 50}),  # Second event on Day 2
+                ("user1", _date(2), {"revenue": 60}),  # Third event on Day 2
+            ],
+        )
+
+        # User 2: Single events per day
+        _create_events(
+            self.team,
+            [
+                ("user2", _date(0), {"revenue": 100}),
+                ("user2", _date(1), {"revenue": 200}),
+                ("user2", _date(2), {"revenue": 300}),
+            ],
+        )
+
+        flush_persons_and_events()
+
+        # Test SUM aggregation
+        result_sum = self.run_query(
+            query={
+                "dateRange": {"date_from": _date(0, hour=0), "date_to": _date(6)},
+                "retentionFilter": {
+                    "totalIntervals": 7,
+                    "aggregationType": "sum",
+                    "aggregationProperty": "revenue",
+                },
+            }
+        )
+
+        # Expected result (SUM):
+        # Cohort (Day 0):
+        # Day 0: User1(10) + User2(100) = 110
+        # Day 1: User1(20+30=50) + User2(200) = 250  # Multiple events on Day 1 for User1
+        # Day 2: User1(40+50+60=150) + User2(300) = 450  # Multiple events on Day 2 for User1
+        self.assertEqual(
+            pluck(result_sum, "values", "count"),
+            pad(
+                [
+                    [110, 250, 450, 0, 0, 0, 0],
+                    [250, 450, 0, 0, 0, 0],
+                    [450, 0, 0, 0, 0],
+                    [0, 0, 0, 0],
+                    [0, 0, 0],
+                    [0, 0],
+                    [0],
+                ]
+            ),
+        )
+
+        # Test AVG aggregation
+        result_avg = self.run_query(
+            query={
+                "dateRange": {"date_from": _date(0, hour=0), "date_to": _date(6)},
+                "retentionFilter": {
+                    "totalIntervals": 7,
+                    "aggregationType": "avg",
+                    "aggregationProperty": "revenue",
+                },
+            }
+        )
+
+        # Expected result (AVG):
+        # Cohort (Day 0):
+        # Day 0: (10 + 100) / 2 = 55
+        # Day 1: (50 + 200) / 2 = 125  # User1's multiple events are summed first: 20+30=50
+        # Day 2: (150 + 300) / 2 = 225  # User1's multiple events are summed first: 40+50+60=150
+        self.assertEqual(
+            pluck(result_avg, "values", "count"),
+            pad(
+                [
+                    [55, 125, 225, 0, 0, 0, 0],
+                    [125, 225, 0, 0, 0, 0],
+                    [225, 0, 0, 0, 0],
+                    [0, 0, 0, 0],
+                    [0, 0, 0],
+                    [0, 0],
+                    [0],
+                ]
+            ),
         )
 
 

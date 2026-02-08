@@ -33,34 +33,34 @@ class DeltaTableHelper:
         self._logger = logger
 
     def _get_credentials(self):
-        if not settings.AIRBYTE_BUCKET_KEY or not settings.AIRBYTE_BUCKET_SECRET or not settings.AIRBYTE_BUCKET_REGION:
-            raise KeyError(
-                "Missing env vars for data warehouse. Required vars: AIRBYTE_BUCKET_KEY, AIRBYTE_BUCKET_SECRET, AIRBYTE_BUCKET_REGION"
-            )
-
         if settings.USE_LOCAL_SETUP:
+            if (
+                not settings.DATAWAREHOUSE_LOCAL_ACCESS_KEY
+                or not settings.DATAWAREHOUSE_LOCAL_ACCESS_SECRET
+                or not settings.DATAWAREHOUSE_LOCAL_BUCKET_REGION
+            ):
+                raise KeyError(
+                    "Missing env vars for data warehouse. Required vars: DATAWAREHOUSE_LOCAL_ACCESS_KEY, DATAWAREHOUSE_LOCAL_ACCESS_SECRET, DATAWAREHOUSE_LOCAL_BUCKET_REGION"
+                )
+
             ensure_bucket_exists(
                 settings.BUCKET_URL,
-                settings.AIRBYTE_BUCKET_KEY,
-                settings.AIRBYTE_BUCKET_SECRET,
+                settings.DATAWAREHOUSE_LOCAL_ACCESS_KEY,
+                settings.DATAWAREHOUSE_LOCAL_ACCESS_SECRET,
                 settings.OBJECT_STORAGE_ENDPOINT,
             )
 
             return {
-                "aws_access_key_id": settings.AIRBYTE_BUCKET_KEY,
-                "aws_secret_access_key": settings.AIRBYTE_BUCKET_SECRET,
+                "aws_access_key_id": settings.DATAWAREHOUSE_LOCAL_ACCESS_KEY,
+                "aws_secret_access_key": settings.DATAWAREHOUSE_LOCAL_ACCESS_SECRET,
                 "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
-                "region_name": settings.AIRBYTE_BUCKET_REGION,
-                "AWS_DEFAULT_REGION": settings.AIRBYTE_BUCKET_REGION,
+                "region_name": settings.DATAWAREHOUSE_LOCAL_BUCKET_REGION,
+                "AWS_DEFAULT_REGION": settings.DATAWAREHOUSE_LOCAL_BUCKET_REGION,
                 "AWS_ALLOW_HTTP": "true",
                 "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
             }
 
         return {
-            "aws_access_key_id": settings.AIRBYTE_BUCKET_KEY,
-            "aws_secret_access_key": settings.AIRBYTE_BUCKET_SECRET,
-            "region_name": settings.AIRBYTE_BUCKET_REGION,
-            "AWS_DEFAULT_REGION": settings.AIRBYTE_BUCKET_REGION,
             "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
         }
 

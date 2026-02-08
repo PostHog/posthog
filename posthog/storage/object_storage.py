@@ -6,6 +6,7 @@ from django.conf import settings
 import structlog
 from boto3 import client
 from botocore.client import Config
+from botocore.exceptions import ClientError
 
 from posthog.exceptions_capture import capture_exception
 
@@ -42,11 +43,11 @@ class ObjectStorageClient(metaclass=abc.ABCMeta):
         pass
 
     @abc.abstractmethod
-    def read(self, bucket: str, key: str) -> Optional[str]:
+    def read(self, bucket: str, key: str, *, missing_ok: bool = False) -> Optional[str]:
         pass
 
     @abc.abstractmethod
-    def read_bytes(self, bucket: str, key: str) -> Optional[bytes]:
+    def read_bytes(self, bucket: str, key: str, *, missing_ok: bool = False) -> Optional[bytes]:
         pass
 
     @abc.abstractmethod
@@ -55,6 +56,10 @@ class ObjectStorageClient(metaclass=abc.ABCMeta):
 
     @abc.abstractmethod
     def write(self, bucket: str, key: str, content: Union[str, bytes], extras: dict | None) -> None:
+        pass
+
+    @abc.abstractmethod
+    def write_from_file(self, bucket: str, key: str, file_path: str) -> None:
         pass
 
     @abc.abstractmethod
@@ -87,16 +92,19 @@ class UnavailableStorage(ObjectStorageClient):
     def list_objects(self, bucket: str, prefix: str) -> Optional[list[str]]:
         pass
 
-    def read(self, bucket: str, key: str) -> Optional[str]:
+    def read(self, bucket: str, key: str, *, missing_ok: bool = False) -> Optional[str]:
         return None
 
-    def read_bytes(self, bucket: str, key: str) -> Optional[bytes]:
+    def read_bytes(self, bucket: str, key: str, *, missing_ok: bool = False) -> Optional[bytes]:
         return None
 
     def tag(self, bucket: str, key: str, tags: dict[str, str]) -> None:
         pass
 
     def write(self, bucket: str, key: str, content: Union[str, bytes], extras: dict | None) -> None:
+        pass
+
+    def write_from_file(self, bucket: str, key: str, file_path: str) -> None:
         pass
 
     def copy_objects(self, bucket: str, source_prefix: str, target_prefix: str) -> int | None:
@@ -171,18 +179,31 @@ class ObjectStorage(ObjectStorageClient):
             capture_exception(e)
             return None
 
-    def read(self, bucket: str, key: str) -> Optional[str]:
-        object_bytes = self.read_bytes(bucket, key)
+    def read(self, bucket: str, key: str, *, missing_ok: bool = False) -> Optional[str]:
+        object_bytes = self.read_bytes(bucket, key, missing_ok=missing_ok)
         if object_bytes:
             return object_bytes.decode("utf-8")
         else:
             return None
 
-    def read_bytes(self, bucket: str, key: str) -> Optional[bytes]:
+    def read_bytes(self, bucket: str, key: str, *, missing_ok: bool = False) -> Optional[bytes]:
         s3_response = {}
         try:
             s3_response = self.aws_client.get_object(Bucket=bucket, Key=key)
             return s3_response["Body"].read()
+        except ClientError as e:
+            error_code = e.response.get("Error", {}).get("Code")
+            if error_code == "NoSuchKey" and missing_ok:
+                return None
+            logger.exception(
+                "object_storage.read_failed",
+                bucket=bucket,
+                file_name=key,
+                error=e,
+                s3_response={},
+            )
+            capture_exception(e)
+            raise ObjectStorageError("read failed") from e
         except Exception as e:
             logger.exception(
                 "object_storage.read_failed",
@@ -220,6 +241,21 @@ class ObjectStorage(ObjectStorageClient):
             )
             capture_exception(e)
             raise ObjectStorageError("write failed") from e
+
+    def write_from_file(self, bucket: str, key: str, file_path: str) -> None:
+        """Upload a file to S3 by streaming from disk."""
+        try:
+            self.aws_client.upload_file(Filename=file_path, Bucket=bucket, Key=key)
+        except Exception as e:
+            logger.exception(
+                "object_storage.write_from_file_failed",
+                bucket=bucket,
+                file_name=key,
+                file_path=file_path,
+                error=e,
+            )
+            capture_exception(e)
+            raise ObjectStorageError("write_from_file failed") from e
 
     def copy_objects(self, bucket: str, source_prefix: str, target_prefix: str) -> int | None:
         try:
@@ -287,6 +323,14 @@ def write(file_name: str, content: Union[str, bytes], extras: dict | None = None
     )
 
 
+def write_from_file(file_name: str, file_path: str, bucket: str | None = None) -> None:
+    return object_storage_client().write_from_file(
+        bucket=bucket or settings.OBJECT_STORAGE_BUCKET,
+        key=file_name,
+        file_path=file_path,
+    )
+
+
 def delete(file_name: str, bucket: str | None = None) -> None:
     return object_storage_client().delete(bucket=bucket or settings.OBJECT_STORAGE_BUCKET, key=file_name)
 
@@ -295,13 +339,15 @@ def tag(file_name: str, tags: dict[str, str]) -> None:
     return object_storage_client().tag(bucket=settings.OBJECT_STORAGE_BUCKET, key=file_name, tags=tags)
 
 
-def read(file_name: str, bucket: str | None = None) -> Optional[str]:
-    return object_storage_client().read(bucket=bucket or settings.OBJECT_STORAGE_BUCKET, key=file_name)
+def read(file_name: str, bucket: str | None = None, *, missing_ok: bool = False) -> Optional[str]:
+    return object_storage_client().read(
+        bucket=bucket or settings.OBJECT_STORAGE_BUCKET, key=file_name, missing_ok=missing_ok
+    )
 
 
-def read_bytes(file_name: str, bucket: str | None = None) -> Optional[bytes]:
+def read_bytes(file_name: str, bucket: str | None = None, *, missing_ok: bool = False) -> Optional[bytes]:
     bucket = bucket or settings.OBJECT_STORAGE_BUCKET
-    return object_storage_client().read_bytes(bucket, file_name)
+    return object_storage_client().read_bytes(bucket, file_name, missing_ok=missing_ok)
 
 
 def list_objects(prefix: str) -> Optional[list[str]]:

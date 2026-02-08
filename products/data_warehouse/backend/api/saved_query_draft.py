@@ -1,4 +1,7 @@
+from drf_spectacular.utils import extend_schema
 from rest_framework import pagination, serializers, viewsets
+
+from posthog.schema import ProductKey
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
@@ -42,6 +45,7 @@ class DataWarehouseSavedQueryDraftSerializer(serializers.ModelSerializer):
         return draft
 
 
+@extend_schema(tags=[ProductKey.DATA_WAREHOUSE])
 class DataWarehouseSavedQueryDraftViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "INTERNAL"
     queryset = DataWarehouseSavedQueryDraft.objects.all()

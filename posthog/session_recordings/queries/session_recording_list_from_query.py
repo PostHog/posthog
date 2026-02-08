@@ -8,7 +8,9 @@ from posthog.schema import (
     FilterLogicalOperator,
     HogQLQueryModifiers,
     PropertyGroupFilterValue,
+    PropertyOperator,
     RecordingOrder,
+    RecordingPropertyFilter,
     RecordingsQuery,
 )
 
@@ -20,7 +22,6 @@ from posthog.hogql.property import property_to_expr
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.insights.paginators import HogQLCursorPaginator, HogQLHasMorePaginator
 from posthog.models import Team
-from posthog.session_recordings.queries.session_replay_events import ttl_days
 from posthog.session_recordings.queries.sub_queries.base_query import SessionRecordingsListingBaseQuery
 from posthog.session_recordings.queries.sub_queries.cohort_subquery import CohortPropertyGroupsSubQuery
 from posthog.session_recordings.queries.sub_queries.events_subquery import ReplayFiltersEventsSubQuery
@@ -60,7 +61,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
             sum(s.console_warn_count) as console_warn_count,
             sum(s.console_error_count) as console_error_count,
             max(s.retention_period_days) as retention_period_days,
-            dateTrunc('DAY', start_time) + toIntervalDay(coalesce(retention_period_days, {ttl_days})) as expiry_time,
+            dateTrunc('DAY', start_time) + toIntervalDay(coalesce(retention_period_days, 30)) as expiry_time,
             date_diff('DAY', {python_now}, expiry_time) as recording_ttl,
             {ongoing_selection},
             round((
@@ -126,6 +127,24 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         if expanded_query.filter_test_accounts:
             expanded_query.properties = expand_test_account_filters(team) + (expanded_query.properties or [])
 
+        # Convert $lib event property filters to snapshot_library recording filters
+        # This avoids expensive events table scans by using the pre-aggregated column
+        if expanded_query.properties:
+            remaining_properties = []
+            for prop in expanded_query.properties:
+                if getattr(prop, "type", None) == "event" and getattr(prop, "key", None) == "$lib":
+                    # Convert to recording property filter and add to having_predicates
+                    recording_filter = RecordingPropertyFilter(
+                        type="recording",
+                        key="snapshot_library",
+                        value=getattr(prop, "value", None),
+                        operator=getattr(prop, "operator", PropertyOperator.EXACT),
+                    )
+                    expanded_query.having_predicates = (expanded_query.having_predicates or []) + [recording_filter]
+                else:
+                    remaining_properties.append(prop)
+            expanded_query.properties = remaining_properties if remaining_properties else None
+
         super().__init__(team, expanded_query)
 
         # Use offset-based pagination only when offset is explicitly provided, otherwise use cursor-based
@@ -148,6 +167,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
                 after=expanded_query.after,
                 order_field=order_field,
                 order_direction=order_direction,
+                secondary_sort_field="session_id",
                 field_indices=field_indices,
                 use_having_clause=True,  # Session recordings query uses GROUP BY, so cursor conditions must be in HAVING
             )
@@ -201,7 +221,6 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
                 "where_predicates": self._where_predicates(),
                 "having_predicates": self._having_predicates() or ast.Constant(value=True),
                 "python_now": ast.Constant(value=datetime.now(UTC)),
-                "ttl_days": ast.Constant(value=ttl_days(self._team)),
             },
         )
         if isinstance(parsed_query, ast.SelectSetQuery):

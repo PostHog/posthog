@@ -1,5 +1,6 @@
 import dataclasses
 from enum import Enum
+from typing import Literal
 
 from posthog.temporal.ai.session_summary.types.single import SingleSessionSummaryInputs
 
@@ -19,6 +20,7 @@ class SessionGroupSummaryInputs:
 
     session_ids: list[str]
     user_id: int
+    user_distinct_id_to_log: str | None = None
     team_id: int
     redis_key_base: str
     summary_title: str | None
@@ -28,15 +30,16 @@ class SessionGroupSummaryInputs:
     model_to_use: str
     extra_summary_context: ExtraSummaryContext | None = None
     local_reads_prod: bool = False
-    video_validation_enabled: bool | None = None
+    video_validation_enabled: bool | Literal["full"] | None = None
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
-class SessionGroupSummarySingleSessionOutput:
-    """Output after generating a single session summary to pass through to the next group summary activity"""
+class SessionBatchFetchOutput:
+    """Result of fetching session batch data, tracking both successful and expected skips."""
 
-    session_summary_str: str
-    redis_input_key: str
+    fetched_session_ids: list[str]
+    # Sessions skipped due to known unsummarizable conditions (too short, no events after filtering)
+    expected_skip_session_ids: list[str]
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
@@ -45,6 +48,7 @@ class SessionGroupSummaryOfSummariesInputs:
 
     single_session_summaries_inputs: list[SingleSessionSummaryInputs]
     user_id: int
+    user_distinct_id_to_log: str | None = None
     team_id: int
     summary_title: str | None
     redis_key_base: str
@@ -59,6 +63,7 @@ class SessionGroupSummaryPatternsExtractionChunksInputs:
     redis_keys_of_chunks_to_combine: list[str]
     session_ids: list[str]
     user_id: int
+    user_distinct_id_to_log: str | None = None
     team_id: int
     redis_key_base: str
     extra_summary_context: ExtraSummaryContext | None = None

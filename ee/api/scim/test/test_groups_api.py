@@ -102,7 +102,9 @@ class TestSCIMGroupsAPI(APILicensedTest):
             "members": [],
         }
 
-        response = self.client.post(f"/scim/v2/{self.domain.id}/Groups", data=group_data, format="json")
+        response = self.client.post(
+            f"/scim/v2/{self.domain.id}/Groups", data=group_data, content_type="application/scim+json"
+        )
 
         assert response.status_code == status.HTTP_201_CREATED
         data = response.json()
@@ -129,7 +131,9 @@ class TestSCIMGroupsAPI(APILicensedTest):
             "members": [{"value": str(user.id)}],
         }
 
-        response = self.client.post(f"/scim/v2/{self.domain.id}/Groups", data=group_data_first, format="json")
+        response = self.client.post(
+            f"/scim/v2/{self.domain.id}/Groups", data=group_data_first, content_type="application/scim+json"
+        )
 
         assert response.status_code == status.HTTP_201_CREATED
         first_role = Role.objects.get(name="Developers", organization=self.organization)
@@ -142,7 +146,9 @@ class TestSCIMGroupsAPI(APILicensedTest):
             "members": [],
         }
 
-        response = self.client.post(f"/scim/v2/{self.domain.id}/Groups", data=group_data_second, format="json")
+        response = self.client.post(
+            f"/scim/v2/{self.domain.id}/Groups", data=group_data_second, content_type="application/scim+json"
+        )
 
         assert response.status_code == status.HTTP_201_CREATED
 
@@ -168,7 +174,9 @@ class TestSCIMGroupsAPI(APILicensedTest):
             "members": [{"value": str(user.id)}],
         }
 
-        response = self.client.put(f"/scim/v2/{self.domain.id}/Groups/{role.id}", data=put_data, format="json")
+        response = self.client.put(
+            f"/scim/v2/{self.domain.id}/Groups/{role.id}", data=put_data, content_type="application/scim+json"
+        )
 
         assert response.status_code == status.HTTP_200_OK
         role.refresh_from_db()
@@ -183,11 +191,13 @@ class TestSCIMGroupsAPI(APILicensedTest):
         }
 
         fake_group_id = str(uuid.uuid4())
-        response = self.client.put(f"/scim/v2/{self.domain.id}/Groups/{fake_group_id}", data=put_data, format="json")
+        response = self.client.put(
+            f"/scim/v2/{self.domain.id}/Groups/{fake_group_id}", data=put_data, content_type="application/scim+json"
+        )
 
-        assert (
-            response.status_code == status.HTTP_404_NOT_FOUND
-        ), f"Expected 404, got {response.status_code}: {response.content}"
+        assert response.status_code == status.HTTP_404_NOT_FOUND, (
+            f"Expected 404, got {response.status_code}: {response.content}"
+        )
         assert not Role.objects.filter(name="ShouldFail", organization=self.organization).exists()
 
     def test_patch_group_not_found(self):
@@ -198,12 +208,12 @@ class TestSCIMGroupsAPI(APILicensedTest):
 
         fake_group_id = str(uuid.uuid4())
         response = self.client.patch(
-            f"/scim/v2/{self.domain.id}/Groups/{fake_group_id}", data=patch_data, format="json"
+            f"/scim/v2/{self.domain.id}/Groups/{fake_group_id}", data=patch_data, content_type="application/scim+json"
         )
 
-        assert (
-            response.status_code == status.HTTP_404_NOT_FOUND
-        ), f"Expected 404, got {response.status_code}: {response.content}"
+        assert response.status_code == status.HTTP_404_NOT_FOUND, (
+            f"Expected 404, got {response.status_code}: {response.content}"
+        )
 
     def test_patch_replace_group_without_path(self):
         user = User.objects.create_user(
@@ -222,7 +232,9 @@ class TestSCIMGroupsAPI(APILicensedTest):
             ],
         }
 
-        response = self.client.patch(f"/scim/v2/{self.domain.id}/Groups/{role.id}", data=patch_data, format="json")
+        response = self.client.patch(
+            f"/scim/v2/{self.domain.id}/Groups/{role.id}", data=patch_data, content_type="application/scim+json"
+        )
 
         assert response.status_code == status.HTTP_200_OK
         role.refresh_from_db()
@@ -237,7 +249,9 @@ class TestSCIMGroupsAPI(APILicensedTest):
             "Operations": [{"op": "replace", "path": "displayName", "value": "UpdatedName"}],
         }
 
-        response = self.client.patch(f"/scim/v2/{self.domain.id}/Groups/{role.id}", data=patch_data, format="json")
+        response = self.client.patch(
+            f"/scim/v2/{self.domain.id}/Groups/{role.id}", data=patch_data, content_type="application/scim+json"
+        )
 
         assert response.status_code == status.HTTP_200_OK
         role.refresh_from_db()
@@ -258,7 +272,9 @@ class TestSCIMGroupsAPI(APILicensedTest):
             "Operations": [{"op": "replace", "path": "members", "value": [{"value": str(user.id)}]}],
         }
 
-        response = self.client.patch(f"/scim/v2/{self.domain.id}/Groups/{role.id}", data=patch_data, format="json")
+        response = self.client.patch(
+            f"/scim/v2/{self.domain.id}/Groups/{role.id}", data=patch_data, content_type="application/scim+json"
+        )
 
         assert response.status_code == status.HTTP_200_OK
         assert RoleMembership.objects.filter(role=role, user=user).exists()
@@ -291,7 +307,9 @@ class TestSCIMGroupsAPI(APILicensedTest):
             "Operations": [{"op": "replace", "path": f'members[value eq "{user1.id}"].value', "value": str(user2.id)}],
         }
 
-        response = self.client.patch(f"/scim/v2/{self.domain.id}/Groups/{role.id}", data=patch_data, format="json")
+        response = self.client.patch(
+            f"/scim/v2/{self.domain.id}/Groups/{role.id}", data=patch_data, content_type="application/scim+json"
+        )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert RoleMembership.objects.filter(role=role, user=user1).exists()
@@ -312,7 +330,9 @@ class TestSCIMGroupsAPI(APILicensedTest):
             "Operations": [{"op": "add", "value": {"members": [{"value": str(user.id)}]}}],
         }
 
-        response = self.client.patch(f"/scim/v2/{self.domain.id}/Groups/{role.id}", data=patch_data, format="json")
+        response = self.client.patch(
+            f"/scim/v2/{self.domain.id}/Groups/{role.id}", data=patch_data, content_type="application/scim+json"
+        )
 
         assert response.status_code == status.HTTP_200_OK
         role.refresh_from_db()
@@ -327,7 +347,9 @@ class TestSCIMGroupsAPI(APILicensedTest):
             "Operations": [{"op": "add", "path": "displayName", "value": "AddedName"}],
         }
 
-        response = self.client.patch(f"/scim/v2/{self.domain.id}/Groups/{role.id}", data=patch_data, format="json")
+        response = self.client.patch(
+            f"/scim/v2/{self.domain.id}/Groups/{role.id}", data=patch_data, content_type="application/scim+json"
+        )
 
         assert response.status_code == status.HTTP_200_OK
         role.refresh_from_db()
@@ -360,7 +382,9 @@ class TestSCIMGroupsAPI(APILicensedTest):
             "Operations": [{"op": "add", "path": "members", "value": [{"value": str(user2.id)}]}],
         }
 
-        response = self.client.patch(f"/scim/v2/{self.domain.id}/Groups/{role.id}", data=patch_data, format="json")
+        response = self.client.patch(
+            f"/scim/v2/{self.domain.id}/Groups/{role.id}", data=patch_data, content_type="application/scim+json"
+        )
 
         assert response.status_code == status.HTTP_200_OK
         assert RoleMembership.objects.filter(role=role, user=user1).exists()
@@ -387,7 +411,9 @@ class TestSCIMGroupsAPI(APILicensedTest):
             "Operations": [{"op": "add", "path": f'members[value eq "{user1.id}"]'}],
         }
 
-        response = self.client.patch(f"/scim/v2/{self.domain.id}/Groups/{role.id}", data=patch_data, format="json")
+        response = self.client.patch(
+            f"/scim/v2/{self.domain.id}/Groups/{role.id}", data=patch_data, content_type="application/scim+json"
+        )
 
         assert response.status_code == status.HTTP_200_OK
         assert RoleMembership.objects.filter(role=role, user=user1).exists()
@@ -400,7 +426,9 @@ class TestSCIMGroupsAPI(APILicensedTest):
             "Operations": [{"op": "remove", "path": "displayName"}],
         }
 
-        response = self.client.patch(f"/scim/v2/{self.domain.id}/Groups/{role.id}", data=patch_data, format="json")
+        response = self.client.patch(
+            f"/scim/v2/{self.domain.id}/Groups/{role.id}", data=patch_data, content_type="application/scim+json"
+        )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         role.refresh_from_db()
@@ -426,7 +454,9 @@ class TestSCIMGroupsAPI(APILicensedTest):
             "Operations": [{"op": "remove", "path": "members"}],
         }
 
-        response = self.client.patch(f"/scim/v2/{self.domain.id}/Groups/{role.id}", data=patch_data, format="json")
+        response = self.client.patch(
+            f"/scim/v2/{self.domain.id}/Groups/{role.id}", data=patch_data, content_type="application/scim+json"
+        )
 
         assert response.status_code == status.HTTP_200_OK
         assert not RoleMembership.objects.filter(role=role).exists()
@@ -462,7 +492,9 @@ class TestSCIMGroupsAPI(APILicensedTest):
             "Operations": [{"op": "remove", "path": f'members[value eq "{user1.id}"]'}],
         }
 
-        response = self.client.patch(f"/scim/v2/{self.domain.id}/Groups/{role.id}", data=patch_data, format="json")
+        response = self.client.patch(
+            f"/scim/v2/{self.domain.id}/Groups/{role.id}", data=patch_data, content_type="application/scim+json"
+        )
 
         assert response.status_code == status.HTTP_200_OK
         assert not RoleMembership.objects.filter(role=role, user=user1).exists()

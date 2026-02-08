@@ -1,10 +1,10 @@
 import './MarketingAnalyticsTableStyleOverride.scss'
 
 import { BuiltLogic, LogicWrapper, useActions, useValues } from 'kea'
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 
-import { IconGear } from '@posthog/icons'
-import { LemonButton, LemonSwitch } from '@posthog/lemon-ui'
+import { IconGear, IconInfo } from '@posthog/icons'
+import { LemonButton, LemonInput, Tooltip } from '@posthog/lemon-ui'
 
 import { Query } from '~/queries/Query/Query'
 import { ColumnFeature } from '~/queries/nodes/DataTable/DataTable'
@@ -20,12 +20,12 @@ import { InsightLogicProps } from '~/types'
 import { marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
 import { marketingAnalyticsTableLogic } from '../../logic/marketingAnalyticsTableLogic'
+import { rowMatchesSearch } from '../../logic/utils'
 import { MarketingAnalyticsCell } from '../../shared'
 import {
     MarketingAnalyticsValidationWarningBanner,
     validateConversionGoals,
 } from '../MarketingAnalyticsValidationWarningBanner'
-import { DraftConversionGoalControls } from './DraftConversionGoalControls'
 import { MarketingAnalyticsColumnConfigModal } from './MarketingAnalyticsColumnConfigModal'
 
 export type MarketingAnalyticsTableProps = {
@@ -43,66 +43,66 @@ export const MarketingAnalyticsTable = ({
     const { showColumnConfigModal } = useActions(marketingAnalyticsLogic)
     const { conversion_goals } = useValues(marketingAnalyticsSettingsLogic)
 
+    const [searchTerm, setSearchTerm] = useState('')
+
     const validationWarnings = useMemo(() => validateConversionGoals(conversion_goals), [conversion_goals])
 
-    const handleIncludeAllConversionsChange = (checked: boolean): void => {
-        const sourceQuery = query.source as MarketingAnalyticsTableQuery
-        setQuery({
-            ...query,
-            source: {
-                ...sourceQuery,
-                includeAllConversions: checked,
-            },
-        })
-    }
-
-    // Create custom context with sortable headers for marketing analytics
-    const marketingAnalyticsContext: QueryContext = {
-        ...webAnalyticsDataTableQueryContext,
-        insightProps,
-        columnFeatures: [ColumnFeature.canSort, ColumnFeature.canRemove, ColumnFeature.canPin],
-        columns: (query.source as MarketingAnalyticsTableQuery).select?.reduce(
-            (acc, column) => {
-                acc[column] = {
-                    title: column,
-                    render: (props) => (
-                        <MarketingAnalyticsCell
-                            {...props}
-                            style={{
-                                maxWidth:
-                                    column.toLocaleLowerCase() ===
-                                    MarketingAnalyticsColumnsSchemaNames.Campaign.toLocaleLowerCase()
-                                        ? '200px'
-                                        : undefined,
-                            }}
-                        />
-                    ),
+    const marketingAnalyticsContext: QueryContext = useMemo(
+        () => ({
+            ...webAnalyticsDataTableQueryContext,
+            insightProps,
+            columnFeatures: [ColumnFeature.canSort, ColumnFeature.canRemove, ColumnFeature.canPin],
+            rowProps: (record: unknown) => {
+                if (!rowMatchesSearch(record, searchTerm)) {
+                    return { style: { display: 'none' } }
                 }
-                return acc
+                return {}
             },
-            {} as Record<string, QueryContextColumn>
-        ),
-    }
+            columns: (query.source as MarketingAnalyticsTableQuery).select?.reduce(
+                (acc, column) => {
+                    acc[column] = {
+                        title: column,
+                        render: (props) => (
+                            <MarketingAnalyticsCell
+                                {...props}
+                                style={{
+                                    maxWidth:
+                                        column.toLocaleLowerCase() ===
+                                        MarketingAnalyticsColumnsSchemaNames.Campaign.toLocaleLowerCase()
+                                            ? '200px'
+                                            : undefined,
+                                }}
+                            />
+                        ),
+                    }
+                    return acc
+                },
+                {} as Record<string, QueryContextColumn>
+            ),
+        }),
+        [insightProps, query.source, searchTerm]
+    )
 
     return (
         <div className="bg-surface-primary">
             <div className="p-4 border-b border-border bg-bg-light">
-                <div className="flex gap-4">
-                    <div className="flex-1">
-                        <DraftConversionGoalControls />
-                    </div>
-                    <div className="self-start flex flex-col gap-2">
-                        <LemonButton type="secondary" icon={<IconGear />} onClick={showColumnConfigModal}>
-                            Configure columns
-                        </LemonButton>
-                        <LemonSwitch
-                            checked={(query.source as MarketingAnalyticsTableQuery).includeAllConversions ?? false}
-                            onChange={handleIncludeAllConversionsChange}
-                            label="Non-integrated conversions"
-                            tooltip="Include conversion goal rows even when they don't match any campaign data from integrations. This will be based on the utm campaign and source"
-                            size="small"
+                <div className="flex gap-4 justify-between items-center">
+                    <div className="flex items-center gap-2">
+                        <LemonInput
+                            type="search"
+                            placeholder="Search campaigns..."
+                            value={searchTerm}
+                            onChange={setSearchTerm}
+                            className="w-64"
+                            data-attr="marketing-analytics-search"
                         />
+                        <Tooltip title="Filters the currently loaded results" delayMs={0}>
+                            <IconInfo className="text-xl text-secondary" />
+                        </Tooltip>
                     </div>
+                    <LemonButton type="secondary" icon={<IconGear />} onClick={showColumnConfigModal}>
+                        Configure columns
+                    </LemonButton>
                 </div>
             </div>
             {validationWarnings && validationWarnings.length > 0 && (

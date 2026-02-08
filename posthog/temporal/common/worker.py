@@ -1,14 +1,20 @@
+import socket
 import datetime as dt
 import itertools
 import collections.abc
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 
+from prometheus_client import REGISTRY
 from temporalio.runtime import PrometheusConfig, Runtime, TelemetryConfig
 from temporalio.worker import ResourceBasedSlotConfig, UnsandboxedWorkflowRunner, Worker, WorkerTuner
 
 from posthog.temporal.common.client import connect
+from posthog.temporal.common.combined_metrics_server import CombinedMetricsServer
+from posthog.temporal.common.liveness_tracker import LivenessInterceptor
 from posthog.temporal.common.logger import get_write_only_logger
 from posthog.temporal.common.posthog_client import PostHogClientInterceptor
+from posthog.temporal.llm_analytics.metrics import EvalsMetricsInterceptor
 
 from products.batch_exports.backend.temporal.metrics import BatchExportsMetricsInterceptor
 
@@ -33,6 +39,45 @@ BATCH_EXPORTS_LATENCY_HISTOGRAM_BUCKETS = [
     86_400_000.0,  # 24 hours
 ]
 
+EVALS_LATENCY_HISTOGRAM_METRICS = (
+    "llma_eval_activity_execution_latency",
+    "llma_eval_workflow_execution_latency",
+    "llma_eval_activity_schedule_to_start_latency",
+)
+EVALS_LATENCY_HISTOGRAM_BUCKETS = [
+    100.0,  # 100ms
+    500.0,  # 500ms
+    1_000.0,  # 1 second
+    2_000.0,  # 2 seconds
+    5_000.0,  # 5 seconds
+    10_000.0,  # 10 seconds
+    30_000.0,  # 30 seconds
+    60_000.0,  # 1 minute
+    120_000.0,  # 2 minutes
+    300_000.0,  # 5 minutes
+]
+
+
+@dataclass
+class ManagedWorker:
+    """A Temporal worker bundled with its associated resources for unified lifecycle management."""
+
+    worker: Worker
+    metrics_server: CombinedMetricsServer | None = None
+
+    async def run(self) -> None:
+        if self.metrics_server:
+            await self.metrics_server.start()
+        await self.worker.run()
+
+    def is_shutdown(self) -> bool:
+        return self.worker.is_shutdown
+
+    async def shutdown(self) -> None:
+        await self.worker.shutdown()
+        if self.metrics_server:
+            await self.metrics_server.stop()
+
 
 async def create_worker(
     host: str,
@@ -52,8 +97,9 @@ async def create_worker(
     use_pydantic_converter: bool = False,
     target_memory_usage: float | None = None,
     target_cpu_usage: float | None = None,
-) -> Worker:
-    """Connect to Temporal server and return a Worker.
+    enable_combined_metrics_server: bool = True,
+) -> ManagedWorker:
+    """Connect to Temporal server and return a ManagedWorker containing the Worker and metrics server.
 
     Arguments:
         host: The Temporal Server host.
@@ -80,13 +126,32 @@ async def create_worker(
             If not set, worker will use max_concurrent_{activities, workflow_tasks} to dictate number of slots.
         target_cpu_usage: Fraction of available CPU to use, between 0.0 and 1.0.
             Defaults to 1.0. Only takes effect if target_memory_usage is set.
+        enable_combined_metrics_server: Whether to start the combined metrics server. Defaults to True.
+            Set to False to disable the metrics server (useful when it causes GIL contention issues).
     """
+
+    metrics_server: CombinedMetricsServer | None = None
+
+    if enable_combined_metrics_server:
+        # Use an internal port for Temporal SDK metrics, which the combined metrics server
+        # will fetch from and merge with prometheus_client metrics on the main metrics port.
+        temporal_metrics_port = get_free_port()
+        temporal_metrics_bind_address = f"127.0.0.1:{temporal_metrics_port}"
+
+        metrics_server = CombinedMetricsServer(
+            port=metrics_port,
+            temporal_metrics_url=f"http://{temporal_metrics_bind_address}/metrics",
+            registry=REGISTRY,
+        )
+    else:
+        # Expose Temporal SDK metrics directly on the public metrics port.
+        temporal_metrics_bind_address = f"0.0.0.0:{metrics_port}"
 
     runtime = Runtime(
         telemetry=TelemetryConfig(
             metric_prefix=metric_prefix,
             metrics=PrometheusConfig(
-                bind_address=f"0.0.0.0:{metrics_port:d}",
+                bind_address=temporal_metrics_bind_address,
                 durations_as_seconds=False,
                 # Units are u64 milliseconds in sdk-core,
                 # given that the `duration_as_seconds` is `False`.
@@ -95,6 +160,12 @@ async def create_worker(
                     zip(
                         BATCH_EXPORTS_LATENCY_HISTOGRAM_METRICS,
                         itertools.repeat(BATCH_EXPORTS_LATENCY_HISTOGRAM_BUCKETS),
+                    )
+                )
+                | dict(
+                    zip(
+                        EVALS_LATENCY_HISTOGRAM_METRICS,
+                        itertools.repeat(EVALS_LATENCY_HISTOGRAM_BUCKETS),
                     )
                 )
                 | {"batch_exports_activity_attempt": [1.0, 5.0, 10.0, 100.0]},
@@ -120,7 +191,12 @@ async def create_worker(
             activities=activities,
             workflow_runner=UnsandboxedWorkflowRunner(),
             graceful_shutdown_timeout=graceful_shutdown_timeout or dt.timedelta(minutes=5),
-            interceptors=[PostHogClientInterceptor(), BatchExportsMetricsInterceptor()],
+            interceptors=[
+                LivenessInterceptor(),
+                PostHogClientInterceptor(),
+                BatchExportsMetricsInterceptor(),
+                EvalsMetricsInterceptor(),
+            ],
             activity_executor=ThreadPoolExecutor(max_workers=max_concurrent_activities or 50),
             tuner=WorkerTuner.create_resource_based(
                 target_memory_usage=target_memory_usage,
@@ -140,7 +216,12 @@ async def create_worker(
             activities=activities,
             workflow_runner=UnsandboxedWorkflowRunner(),
             graceful_shutdown_timeout=graceful_shutdown_timeout or dt.timedelta(minutes=5),
-            interceptors=[PostHogClientInterceptor(), BatchExportsMetricsInterceptor()],
+            interceptors=[
+                LivenessInterceptor(),
+                PostHogClientInterceptor(),
+                BatchExportsMetricsInterceptor(),
+                EvalsMetricsInterceptor(),
+            ],
             activity_executor=ThreadPoolExecutor(max_workers=max_concurrent_activities or 50),
             max_concurrent_activities=max_concurrent_activities or 50,
             max_concurrent_workflow_tasks=max_concurrent_workflow_tasks or 50,
@@ -149,4 +230,16 @@ async def create_worker(
             max_heartbeat_throttle_interval=dt.timedelta(seconds=5),
         )
 
-    return worker
+    return ManagedWorker(worker=worker, metrics_server=metrics_server)
+
+
+def get_free_port() -> int:
+    """Find an available port on localhost.
+
+    Note: There's a small race window between this returning and binding.
+    Acceptable for localhost internal ports where collisions are rare,
+    and would fail fast with a port-in-use exception if it occurs.
+    """
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]

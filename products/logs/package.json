@@ -4,12 +4,18 @@
     "dependencies": {
         "kea": "^3.1.7",
         "kea-loaders": "^3.1.1",
-        "kea-router": "^3.4.1"
+        "kea-router": "^3.4.1",
+        "kea-subscriptions": "^3.0.1",
+        "posthog-js": "1.342.1"
     },
     "peerDependencies": {
         "@posthog/icons": "*",
         "@posthog/products-error-tracking": "workspace:*",
         "@storybook/react": "*",
+        "@testing-library/jest-dom": "*",
+        "@testing-library/react": "*",
+        "@testing-library/user-event": "*",
+        "@types/papaparse": "*",
         "@types/react": "*",
         "ansi-colors": "*",
         "classnames": "*",
@@ -17,10 +23,15 @@
         "eslint": "*",
         "fast-deep-equal": "*",
         "jest": "*",
+        "papaparse": "*",
         "prettier": "*",
         "react": "*",
+        "react-window": "*",
         "stylelint": "*",
         "typescript": "*",
         "use-debounce": "*"
+    },
+    "devDependencies": {
+        "kea-test-utils": "*"
     }
 }

@@ -13,6 +13,7 @@ from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import AvailableFeature
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import EmailNormalizer
+from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.settings import INSTANCE_TAG, SITE_URL
 from posthog.utils import get_instance_realm
 
@@ -28,6 +29,11 @@ class Notifications(TypedDict, total=False):
     discussions_mentioned: bool
     project_weekly_digest_disabled: dict[str, Any]  # Maps project ID to disabled status, str is the team_id as a string
     all_weekly_digest_disabled: bool
+    data_pipeline_error_threshold: (
+        float  # Failure rate threshold (0.0 to 1.0) - only notify if failure rate exceeds this
+    )
+    project_api_key_exposed: bool
+    materialized_view_sync_failed: bool
 
 
 NOTIFICATION_DEFAULTS: Notifications = {
@@ -36,9 +42,12 @@ NOTIFICATION_DEFAULTS: Notifications = {
     "discussions_mentioned": True,  # Mentions in comments enabled by default
     "project_weekly_digest_disabled": {},  # Empty dict by default - no projects disabled
     "all_weekly_digest_disabled": False,  # Weekly digests enabled by default
+    "data_pipeline_error_threshold": 0.0,  # Default: notify on any failure (0% threshold)
+    "project_api_key_exposed": True,  # Project API key exposure alerts enabled by default
+    "materialized_view_sync_failed": False,  # Materialized view failure disabled by default
 }
 
-# We don't ned the following attributes in most cases, so we defer them by default
+# We don't need the following attributes in most cases, so we defer them by default
 DEFERED_ATTRS = ["requested_password_reset_at"]
 
 ROLE_CHOICES = (
@@ -71,6 +80,7 @@ class UserManager(BaseUserManager):
         extra_fields.setdefault("distinct_id", generate_random_token())
         user = self.model(email=email, first_name=first_name, **extra_fields)
         if password is not None:
+            # nosemgrep: python.django.security.audit.unvalidated-password.unvalidated-password (validation happens at serializer/view layer before reaching this method)
             user.set_password(password)
         user.save()
         return user
@@ -147,7 +157,13 @@ class ThemeMode(models.TextChoices):
     SYSTEM = "system", "System"
 
 
-class User(AbstractUser, UUIDTClassicModel):
+class ShortcutPosition(models.TextChoices):
+    ABOVE = "above", "Above"
+    BELOW = "below", "Below"
+    HIDDEN = "hidden", "Hidden"
+
+
+class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS: list[str] = []
 
@@ -168,6 +184,7 @@ class User(AbstractUser, UUIDTClassicModel):
     distinct_id = models.CharField(max_length=200, null=True, blank=True, unique=True)
     is_email_verified = models.BooleanField(null=True, blank=True)
     requested_password_reset_at = models.DateTimeField(null=True, blank=True)
+    requested_2fa_reset_at = models.DateTimeField(null=True, blank=True)
     has_seen_product_intro_for = models.JSONField(null=True, blank=True)
     strapi_id = models.PositiveSmallIntegerField(null=True, blank=True)
     is_active = models.BooleanField(
@@ -182,9 +199,19 @@ class User(AbstractUser, UUIDTClassicModel):
     # These override the notification settings
     partial_notification_settings = models.JSONField(null=True, blank=True)
     anonymize_data = models.BooleanField(default=False, null=True, blank=True)
+    allow_impersonation = models.BooleanField(default=True, null=True, blank=True)
     toolbar_mode = models.CharField(max_length=200, null=True, blank=True, choices=TOOLBAR_CHOICES, default=TOOLBAR)
     hedgehog_config = models.JSONField(null=True, blank=True)
     allow_sidebar_suggestions = models.BooleanField(default=True, null=True, blank=True)
+    shortcut_position = models.CharField(
+        max_length=20, null=True, blank=True, choices=ShortcutPosition.choices, default=ShortcutPosition.ABOVE
+    )
+    passkeys_enabled_for_2fa = models.BooleanField(
+        default=False,
+        null=True,
+        blank=True,
+        help_text="Whether passkeys are enabled for 2FA authentication. Users can disable this to use only TOTP for 2FA while keeping passkeys for login.",
+    )
 
     # DEPRECATED
     events_column_config = models.JSONField(default=events_column_config_default)
@@ -195,6 +222,32 @@ class User(AbstractUser, UUIDTClassicModel):
     username = None
 
     objects: UserManager = UserManager()
+
+    @classmethod
+    def from_db(cls, db, field_names, values):
+        """
+        Track the original is_active value when loading from the database.
+
+        This allows signal handlers to detect when is_active actually changes,
+        avoiding unnecessary cache warming on unrelated user saves. The
+        _original_is_active attribute is compared against the current is_active
+        value in the user_saved signal handler.
+        """
+        instance = super().from_db(db, field_names, values)
+        instance._original_is_active = instance.is_active
+        return instance
+
+    def refresh_from_db(self, using=None, fields=None, from_queryset=None):
+        """
+        Update _original_is_active when refreshing from the database.
+
+        This ensures the tracking stays accurate after explicit refresh calls.
+        The from_queryset parameter is accepted for django-stubs compatibility
+        but not passed to super() since Django 4.2 doesn't support it yet.
+        """
+        super().refresh_from_db(using=using, fields=fields)
+        if fields is None or "is_active" in fields:
+            self._original_is_active = self.is_active
 
     @property
     def is_superuser(self) -> bool:
@@ -379,7 +432,7 @@ class User(AbstractUser, UUIDTClassicModel):
         from ee.billing.billing_manager import BillingManager  # avoid circular import
 
         if is_cloud() and get_cached_instance_license() is not None:
-            BillingManager(get_cached_instance_license()).update_billing_organization_users(organization)
+            BillingManager(get_cached_instance_license(), self).update_billing_organization_users(organization)
 
     def get_analytics_metadata(self):
         team_member_count_all: int = (

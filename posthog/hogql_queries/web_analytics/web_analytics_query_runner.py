@@ -25,7 +25,6 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
-from posthog.hogql.database.schema.exchange_rate import revenue_where_expr_for_events
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.property import action_to_expr, apply_path_cleaning, property_to_expr
 from posthog.hogql.query import execute_hogql_query
@@ -62,20 +61,21 @@ class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
         return user_access_control.assert_access_level_for_resource("web_analytics", "viewer")
 
     @cached_property
-    def query_date_range(self):
+    def _timezone_info(self) -> ZoneInfo:
         # Respect the convertToProjectTimezone modifier for date range calculation
         # When convertToProjectTimezone=False, use UTC for both date boundaries AND column conversion
-        timezone_info = (
-            ZoneInfo("UTC")
-            if self.modifiers and not self.modifiers.convertToProjectTimezone
-            else self.team.timezone_info
-        )
+        if self.modifiers and not self.modifiers.convertToProjectTimezone:
+            return ZoneInfo("UTC")
+        return self.team.timezone_info
+
+    @cached_property
+    def query_date_range(self):
         return QueryDateRange(
             date_range=self.query.dateRange,
             team=self.team,
-            timezone_info=timezone_info,
-            interval=None,
-            now=datetime.now(timezone_info),
+            timezone_info=self._timezone_info,
+            interval=self.query.interval,
+            now=datetime.now(self._timezone_info),
         )
 
     @cached_property
@@ -85,16 +85,18 @@ class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
                 return QueryCompareToDateRange(
                     date_range=self.query.dateRange,
                     team=self.team,
-                    interval=None,
-                    now=datetime.now(),
+                    interval=self.query.interval,
+                    now=datetime.now(self._timezone_info),
+                    timezone_info=self._timezone_info,
                     compare_to=self.query.compareFilter.compare_to,
                 )
             elif self.query.compareFilter.compare:
                 return QueryPreviousPeriodDateRange(
                     date_range=self.query.dateRange,
                     team=self.team,
-                    interval=None,
-                    now=datetime.now(),
+                    interval=self.query.interval,
+                    now=datetime.now(self._timezone_info),
+                    timezone_info=self._timezone_info,
                 )
 
         return None
@@ -200,48 +202,6 @@ class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
             return None
 
     @cached_property
-    def conversion_revenue_expr(self) -> ast.Expr:
-        if not self.team.revenue_analytics_config.events:
-            return ast.Constant(value=None)
-
-        if isinstance(self.query.conversionGoal, CustomEventConversionGoal):
-            event_name = self.query.conversionGoal.customEventName
-            revenue_property = next(
-                (
-                    event_item.revenueProperty
-                    for event_item in self.team.revenue_analytics_config.events
-                    if event_item.eventName == event_name
-                ),
-                None,
-            )
-
-            if not revenue_property:
-                return ast.Constant(value=None)
-
-            return ast.Call(
-                name="sumIf",
-                args=[
-                    ast.Call(
-                        name="ifNull",
-                        args=[
-                            ast.Call(
-                                name="toFloat", args=[ast.Field(chain=["events", "properties", revenue_property])]
-                            ),
-                            ast.Constant(value=0),
-                        ],
-                    ),
-                    ast.CompareOperation(
-                        op=ast.CompareOperationOp.Eq,
-                        left=ast.Field(chain=["event"]),
-                        right=ast.Constant(value=event_name),
-                    ),
-                ],
-            )
-        else:
-            # for now, don't support conversion revenue for actions
-            return ast.Constant(value=None)
-
-    @cached_property
     def event_type_expr(self) -> ast.Expr:
         exprs: list[ast.Expr] = [
             ast.CompareOperation(
@@ -254,10 +214,6 @@ class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
 
         if self.conversion_goal_expr:
             exprs.append(self.conversion_goal_expr)
-        elif self.query.includeRevenue:
-            # Use elif here, we don't need to include revenue events if we already included conversion events, because
-            # if there is a conversion goal set then we only show revenue from conversion events.
-            exprs.append(revenue_where_expr_for_events(self.team))
 
         return ast.Or(exprs=exprs)
 

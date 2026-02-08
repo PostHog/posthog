@@ -1,25 +1,27 @@
+use std::sync::Arc;
+
 use crate::{
+    app_context::AppContext,
     assignment_rules::NewAssignment,
     error::UnhandledError,
-    teams::TeamManager,
     types::{Exception, RawErrProps},
 };
 use common_types::TeamId;
 use grouping_rules::{try_grouping_rules, GroupingRule};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha512};
-use sqlx::PgConnection;
 use uuid::Uuid;
 
 pub mod grouping_rules;
 
 pub async fn resolve_fingerprint(
-    conn: &mut PgConnection,
-    team_manager: &TeamManager,
+    ctx: &Arc<AppContext>,
     team_id: TeamId,
     props: &RawErrProps,
 ) -> Result<Fingerprint, UnhandledError> {
-    if let Some(rule) = try_grouping_rules(conn, team_id, team_manager, props).await? {
+    let mut conn = ctx.posthog_pool.acquire().await?;
+    let team_manager = &ctx.team_manager;
+    if let Some(rule) = try_grouping_rules(&mut conn, team_id, team_manager, props).await? {
         Ok(Fingerprint::from_rule(rule))
     } else {
         Ok(generate_fingerprint(&props.exception_list))
@@ -145,7 +147,6 @@ mod test {
                 synthetic: false,
                 suspicious: false,
                 module: None,
-                exception_type: None,
             },
             Frame {
                 frame_id: FrameId::new(String::new(), team_id, 0),
@@ -165,7 +166,6 @@ mod test {
                 synthetic: false,
                 suspicious: false,
                 module: None,
-                exception_type: None,
             },
         ];
 
@@ -187,7 +187,6 @@ mod test {
             synthetic: false,
             suspicious: false,
             module: None,
-            exception_type: None,
         };
 
         exception.stack = Some(Stacktrace::Resolved {
@@ -239,7 +238,6 @@ mod test {
                 synthetic: false,
                 suspicious: false,
                 module: None,
-                exception_type: None,
             },
             Frame {
                 frame_id: FrameId::new(String::new(), 1, 0),
@@ -259,7 +257,6 @@ mod test {
                 synthetic: false,
                 suspicious: false,
                 module: None,
-                exception_type: None,
             },
             Frame {
                 frame_id: FrameId::new(String::new(), 1, 0),
@@ -279,7 +276,6 @@ mod test {
                 synthetic: false,
                 suspicious: false,
                 module: None,
-                exception_type: None,
             },
         ];
 
@@ -325,7 +321,6 @@ mod test {
             synthetic: false,
             suspicious: false,
             module: None,
-            exception_type: None,
         }];
 
         let non_app_frame = Frame {
@@ -346,7 +341,6 @@ mod test {
             synthetic: false,
             suspicious: false,
             module: None,
-            exception_type: None,
         };
 
         exception.stack = Some(Stacktrace::Resolved {

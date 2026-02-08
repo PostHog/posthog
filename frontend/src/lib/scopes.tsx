@@ -4,41 +4,55 @@ export const MAX_API_KEYS_PER_USER = 10 // Same as in posthog/api/personal_api_k
 
 export type APIScope = {
     key: APIScopeObject
+    objectName: string
+    objectPlural: string
     info?: string | JSX.Element
     disabledActions?: ('read' | 'write')[]
     disabledWhenProjectScoped?: boolean
     description?: string
     warnings?: Partial<Record<'read' | 'write', string | JSX.Element>>
-    objectPlural: string
 }
 
 export const API_SCOPES: APIScope[] = [
-    { key: 'action', objectPlural: 'actions' },
-    { key: 'access_control', objectPlural: 'access controls' },
-    { key: 'activity_log', objectPlural: 'activity logs' },
-    { key: 'annotation', objectPlural: 'annotations' },
-    { key: 'batch_export', objectPlural: 'batch exports' },
-    { key: 'cohort', objectPlural: 'cohorts' },
-    { key: 'dashboard', objectPlural: 'dashboards' },
-    { key: 'dashboard_template', objectPlural: 'dashboard templates' },
-    { key: 'dataset', objectPlural: 'datasets' },
-    { key: 'desktop_recording', objectPlural: 'desktop recordings' },
-    { key: 'early_access_feature', objectPlural: 'early access features' },
-    { key: 'endpoint', objectPlural: 'endpoints' },
-    { key: 'event_definition', objectPlural: 'event definitions' },
-    { key: 'error_tracking', objectPlural: 'error tracking' },
-    { key: 'experiment', objectPlural: 'experiments' },
-    { key: 'export', objectPlural: 'exports' },
-    { key: 'feature_flag', objectPlural: 'feature flags' },
-    { key: 'group', objectPlural: 'groups' },
-    { key: 'hog_function', objectPlural: 'hog functions' },
-    { key: 'insight', objectPlural: 'insights' },
-    { key: 'integration', disabledActions: ['write'], objectPlural: 'integrations' },
-    { key: 'logs', objectPlural: 'logs' },
-    { key: 'notebook', objectPlural: 'notebooks' },
-    { key: 'organization', disabledWhenProjectScoped: true, objectPlural: 'organizations' },
+    { key: 'action', objectName: 'Action', objectPlural: 'actions' },
+    { key: 'access_control', objectName: 'Access control', objectPlural: 'access controls' },
+    { key: 'activity_log', objectName: 'Activity log', objectPlural: 'activity logs' },
+    { key: 'alert', objectName: 'Alert', objectPlural: 'alerts' },
+    { key: 'annotation', objectName: 'Annotation', objectPlural: 'annotations' },
+    { key: 'batch_export', objectName: 'Batch export', objectPlural: 'batch exports' },
+    { key: 'cohort', objectName: 'Cohort', objectPlural: 'cohorts' },
+    { key: 'dashboard', objectName: 'Dashboard', objectPlural: 'dashboards' },
+    { key: 'dashboard_template', objectName: 'Dashboard template', objectPlural: 'dashboard templates' },
+    { key: 'dataset', objectName: 'Dataset', objectPlural: 'datasets' },
+    { key: 'desktop_recording', objectName: 'Desktop recording', objectPlural: 'desktop recordings' },
+    { key: 'early_access_feature', objectName: 'Early access feature', objectPlural: 'early access features' },
+    { key: 'endpoint', objectName: 'Endpoint', objectPlural: 'endpoints' },
+    { key: 'event_definition', objectName: 'Event definition', objectPlural: 'event definitions' },
+    { key: 'error_tracking', objectName: 'Error tracking', objectPlural: 'error tracking' },
+    { key: 'experiment', objectName: 'Experiment', objectPlural: 'experiments' },
+    { key: 'experiment_saved_metric', objectName: 'Shared metric', objectPlural: 'shared metrics' },
+    { key: 'external_data_source', objectName: 'External data source', objectPlural: 'external data sources' },
+    { key: 'export', objectName: 'Export', objectPlural: 'exports' },
+    { key: 'feature_flag', objectName: 'Feature flag', objectPlural: 'feature flags' },
+    { key: 'group', objectName: 'Group', objectPlural: 'groups' },
+    { key: 'hog_function', objectName: 'Hog function', objectPlural: 'hog functions' },
+    { key: 'insight', objectName: 'Insight', objectPlural: 'insights' },
+    { key: 'insight_variable', objectName: 'Insight variable', objectPlural: 'insight variables' },
+    { key: 'integration', objectName: 'Integration', objectPlural: 'integrations', disabledActions: ['write'] },
+    { key: 'llm_gateway', objectName: 'LLM gateway', objectPlural: 'LLM gateway', disabledActions: ['write'] },
+    { key: 'llm_prompt', objectName: 'LLM prompt', objectPlural: 'LLM prompts' },
+    { key: 'logs', objectName: 'Logs', objectPlural: 'logs' },
+    { key: 'notebook', objectName: 'Notebook', objectPlural: 'notebooks' },
+    { key: 'organization', objectName: 'Organization', objectPlural: 'organizations', disabledWhenProjectScoped: true },
+    {
+        key: 'organization_integration',
+        objectName: 'Organization integration',
+        objectPlural: 'organization integrations',
+        disabledWhenProjectScoped: true,
+    },
     {
         key: 'organization_member',
+        objectName: 'Organization member',
         objectPlural: 'organization members',
         disabledWhenProjectScoped: true,
         warnings: {
@@ -51,24 +65,33 @@ export const API_SCOPES: APIScope[] = [
             ),
         },
     },
-    { key: 'person', objectPlural: 'persons' },
-    { key: 'plugin', objectPlural: 'plugins' },
+    { key: 'person', objectName: 'Person', objectPlural: 'persons' },
+    { key: 'customer_profile_config', objectName: 'Customer profile config', objectPlural: 'customer profile configs' },
+    { key: 'plugin', objectName: 'Plugin', objectPlural: 'plugins' },
+    { key: 'product_tour', objectName: 'Product tour', objectPlural: 'product tours' },
     {
         key: 'project',
+        objectName: 'Project',
         objectPlural: 'projects',
         warnings: {
             write: 'This scope can be used to create or modify projects, including settings about how data is ingested.',
         },
     },
-    { key: 'property_definition', objectPlural: 'property definitions' },
-    { key: 'query', disabledActions: ['write'], objectPlural: 'queries' },
-    { key: 'session_recording', objectPlural: 'session recordings' },
-    { key: 'session_recording_playlist', objectPlural: 'session recording playlists' },
-    { key: 'sharing_configuration', objectPlural: 'sharing configurations' },
-    { key: 'subscription', objectPlural: 'subscriptions' },
-    { key: 'survey', objectPlural: 'surveys' },
+    { key: 'property_definition', objectName: 'Property definition', objectPlural: 'property definitions' },
+    { key: 'query', objectName: 'Query', objectPlural: 'queries', disabledActions: ['write'] },
+    { key: 'session_recording', objectName: 'Session recording', objectPlural: 'session recordings' },
+    {
+        key: 'session_recording_playlist',
+        objectName: 'Session recording playlist',
+        objectPlural: 'session recording playlists',
+    },
+    { key: 'sharing_configuration', objectName: 'Sharing configuration', objectPlural: 'sharing configurations' },
+    { key: 'subscription', objectName: 'Subscription', objectPlural: 'subscriptions' },
+    { key: 'survey', objectName: 'Survey', objectPlural: 'surveys' },
+    { key: 'ticket', objectName: 'Ticket', objectPlural: 'tickets' },
     {
         key: 'user',
+        objectName: 'User',
         objectPlural: 'users',
         disabledActions: ['write'],
         warnings: {
@@ -81,14 +104,15 @@ export const API_SCOPES: APIScope[] = [
             ),
         },
     },
-    { key: 'task', objectPlural: 'tasks' },
+    { key: 'task', objectName: 'Task', objectPlural: 'tasks' },
     {
         key: 'webhook',
-        info: 'Webhook configuration is currently only enabled for the Zapier integration.',
+        objectName: 'Webhook',
         objectPlural: 'webhooks',
+        info: 'Webhook configuration is currently only enabled for the Zapier integration.',
     },
-    { key: 'warehouse_view', objectPlural: 'warehouse views' },
-    { key: 'warehouse_table', objectPlural: 'warehouse tables' },
+    { key: 'warehouse_view', objectName: 'Warehouse view', objectPlural: 'warehouse views' },
+    { key: 'warehouse_table', objectName: 'Warehouse table', objectPlural: 'warehouse tables' },
 ]
 
 export const API_KEY_SCOPE_PRESETS: {
@@ -109,7 +133,13 @@ export const API_KEY_SCOPE_PRESETS: {
         label: 'Zapier integration',
         scopes: ['action:read', 'query:read', 'project:read', 'organization:read', 'user:read', 'webhook:write'],
     },
+    {
+        value: 'n8n',
+        label: 'n8n integration',
+        scopes: ['action:read', 'query:read', 'project:read', 'organization:read', 'user:read', 'webhook:write'],
+    },
     { value: 'analytics', label: 'Performing analytics queries', scopes: ['query:read'] },
+    { value: 'endpoints', label: 'Endpoint execution', scopes: ['endpoint:read'] },
     {
         value: 'project_management',
         label: 'Project & user management',
@@ -118,8 +148,8 @@ export const API_KEY_SCOPE_PRESETS: {
     {
         value: 'mcp_server',
         label: 'MCP Server',
-        scopes: API_SCOPES.map(({ key }) =>
-            ['feature_flag', 'insight', 'dashboard', 'survey', 'experiment'].includes(key)
+        scopes: API_SCOPES.filter(({ key }) => !key.includes('llm_gateway')).map(({ key }) =>
+            ['feature_flag', 'insight', 'dashboard', 'survey', 'experiment', 'event_definition'].includes(key)
                 ? `${key}:write`
                 : `${key}:read`
         ),
@@ -134,6 +164,33 @@ export const APIScopeActionLabels: Record<APIScopeAction, string> = {
 }
 
 export const DEFAULT_OAUTH_SCOPES = ['openid', 'email', 'profile']
+
+// Scopes required by the PostHog MCP server (https://mcp.posthog.com)
+// These match the scopes_supported in the MCP server's OAuth protected resource metadata
+export const MCP_SERVER_OAUTH_SCOPES = [
+    'openid',
+    'profile',
+    'email',
+    'introspection',
+    'user:read',
+    'organization:read',
+    'project:read',
+    'feature_flag:read',
+    'feature_flag:write',
+    'experiment:read',
+    'experiment:write',
+    'insight:read',
+    'insight:write',
+    'dashboard:read',
+    'dashboard:write',
+    'query:read',
+    'survey:read',
+    'survey:write',
+    'event_definition:read',
+    'event_definition:write',
+    'error_tracking:read',
+    'logs:read',
+]
 
 export const getScopeDescription = (scope: string): string | undefined => {
     if (scope === '*') {

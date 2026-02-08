@@ -5,7 +5,7 @@ import { useState } from 'react'
 import { IconCollapse, IconExpand, IconSort } from '@posthog/icons'
 import { LemonButton, LemonCard } from '@posthog/lemon-ui'
 
-import { RecordingEventType } from '~/types'
+import { RecordingEventType, SessionEventType } from '~/types'
 
 import { sessionProfileLogic } from '../sessionProfileLogic'
 import { SessionEventItem } from './SessionEventItem'
@@ -24,6 +24,8 @@ export interface SessionEventsListProps {
 
 export function SessionEventsList(): JSX.Element {
     const {
+        sessionId,
+        sessionData,
         sessionEvents,
         totalEventCount,
         isInitialLoading,
@@ -31,6 +33,7 @@ export function SessionEventsList(): JSX.Element {
         hasMoreEvents,
         sortOrder,
         eventsListFolded,
+        hasRecording,
     } = useValues(sessionProfileLogic)
     const { loadEventDetails, loadMoreSessionEvents, setSortOrder, setEventsListFolded } =
         useActions(sessionProfileLogic)
@@ -121,14 +124,17 @@ export function SessionEventsList(): JSX.Element {
                     className="p-2 space-y-1 max-h-[600px] overflow-y-auto bg-primary border-t border-border"
                     onScroll={handleScroll}
                 >
-                    {sessionEvents?.map((event, index) => (
+                    {sessionEvents?.map((event: SessionEventType, index: number) => (
                         <SessionEventItem
                             key={event.id}
-                            event={{ ...event, fullyLoaded: true } as RecordingEventType}
+                            event={event as RecordingEventType}
                             index={index}
                             isExpanded={expandedIndices.has(index)}
                             onToggleExpand={handleToggleExpand}
                             onLoadEventDetails={loadEventDetails}
+                            sessionId={sessionId}
+                            sessionStartTimestamp={sessionData?.start_timestamp}
+                            hasRecording={hasRecording}
                         />
                     ))}
                     {hasMoreEvents && (

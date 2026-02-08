@@ -6,8 +6,9 @@ from django.conf import settings
 from django.db import transaction
 from django.shortcuts import get_object_or_404
 
+from drf_spectacular.utils import extend_schema
 from loginas.utils import is_impersonated_session
-from rest_framework import exceptions, request, response, serializers, viewsets
+from rest_framework import exceptions, filters, request, response, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import BasePermission, IsAuthenticated
 
@@ -15,9 +16,16 @@ from posthog.schema import ProductKey
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import ProjectBackwardCompatBasicSerializer
-from posthog.api.team import TEAM_CONFIG_FIELDS_SET, TeamSerializer, validate_team_attrs
-from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
+from posthog.api.team import (
+    TEAM_CONFIG_FIELDS_SET,
+    TeamSerializer,
+    handle_conversations_token_on_update,
+    validate_team_attrs,
+)
+from posthog.api.utils import raise_if_user_provided_url_unsafe
+from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.constants import AvailableFeature
+from posthog.decorators import disallow_if_impersonated
 from posthog.event_usage import report_user_action
 from posthog.geoip import get_geoip_properties
 from posthog.jwt import PosthogJwtAudience, encode_jwt
@@ -30,7 +38,6 @@ from posthog.models.activity_logging.activity_log import (
     log_activity,
 )
 from posthog.models.activity_logging.activity_page import activity_page_response
-from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.group_type_mapping import GROUP_TYPE_MAPPING_SERIALIZER_FIELDS, GroupTypeMapping
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.product_intent.product_intent import (
@@ -39,8 +46,7 @@ from posthog.models.product_intent.product_intent import (
     calculate_product_activation,
 )
 from posthog.models.project import Project
-from posthog.models.signals import mute_selected_signals
-from posthog.models.team.util import actions_that_require_current_team, delete_batch_exports, delete_bulky_postgres_data
+from posthog.models.team.util import actions_that_require_current_team
 from posthog.models.utils import UUIDT
 from posthog.permissions import (
     CREATE_ACTIONS,
@@ -52,6 +58,7 @@ from posthog.permissions import (
     get_organization_from_view,
 )
 from posthog.scopes import APIScopeObjectOrNotSupported
+from posthog.tasks.tasks import delete_project_data_and_notify_task
 from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
 from posthog.utils import get_instance_realm, get_ip_address, get_week_start_for_country_code
 
@@ -83,6 +90,26 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
         if value is None:
             return value
         return [domain for domain in value if domain]
+
+    def validate_conversations_settings(self, value: dict | None) -> dict | None:
+        if value is None:
+            return value
+        # Filter out None values from widget_domains if present
+        if "widget_domains" in value and value["widget_domains"] is not None:
+            value["widget_domains"] = [domain for domain in value["widget_domains"] if domain]
+        return value
+
+    def validate_slack_incoming_webhook(self, value: str | None) -> str | None:
+        if value is None or value == "":
+            return None
+        if not settings.DEBUG:
+            try:
+                raise_if_user_provided_url_unsafe(value)
+            except ValueError:
+                raise exceptions.ValidationError(
+                    "Invalid webhook URL. Ensure the URL is valid and points to an external server."
+                )
+        return value
 
     class Meta:
         model = Project
@@ -145,6 +172,10 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
             "secret_api_token",  # Compat with TeamSerializer
             "secret_api_token_backup",  # Compat with TeamSerializer
             "receive_org_level_activity_logs",  # Compat with TeamSerializer
+            "business_model",  # Compat with TeamSerializer
+            "conversations_enabled",  # Compat with TeamSerializer
+            "conversations_settings",  # Compat with TeamSerializer
+            "logs_settings",  # Compat with TeamSerializer
         )
         read_only_fields = (
             "id",
@@ -214,6 +245,10 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
             "secret_api_token",
             "secret_api_token_backup",
             "receive_org_level_activity_logs",
+            "business_model",
+            "conversations_enabled",
+            "conversations_settings",
+            "logs_settings",
         }
 
     def get_effective_membership_level(self, project: Project) -> Optional[OrganizationMembership.Level]:
@@ -269,6 +304,13 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
 
     def validate_receive_org_level_activity_logs(self, value: bool | None) -> bool | None:
         return TeamSerializer.validate_receive_org_level_activity_logs(cast(TeamSerializer, self), value)
+
+    def validate_logs_settings(self, value: dict | None) -> dict | None:
+        return TeamSerializer.validate_logs_settings(cast(TeamSerializer, self), value)
+
+    @staticmethod
+    def validate_modifiers(value: dict | None) -> dict | None:
+        return TeamSerializer.validate_modifiers(value)
 
     def validate(self, attrs: Any) -> Any:
         attrs = validate_team_attrs(attrs, self.context["view"], self.context["request"], self.instance)
@@ -387,6 +429,23 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
                 **validated_data["session_replay_config"],
             }
 
+        # Merge modifiers with existing values so that updating one modifier doesn't wipe out others
+        if "modifiers" in validated_data and validated_data["modifiers"] is not None:
+            validated_data["modifiers"] = {
+                **(team.modifiers or {}),
+                **validated_data["modifiers"],
+            }
+
+        # Merge conversations_settings with existing values, unless explicitly clearing with null
+        if "conversations_settings" in validated_data and validated_data["conversations_settings"] is not None:
+            existing_settings = team.conversations_settings or {}
+            new_settings = validated_data["conversations_settings"]
+            validated_data["conversations_settings"] = {**existing_settings, **new_settings}
+
+        validated_data = handle_conversations_token_on_update(
+            validated_data, team.conversations_enabled, team.conversations_settings
+        )
+
         should_team_be_saved_too = False
         for attr, value in validated_data.items():
             if attr not in self.Meta.team_passthrough_fields:
@@ -440,6 +499,7 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
         return instance
 
 
+@extend_schema(tags=["core"])
 class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     """
     Projects for the current organization.
@@ -450,6 +510,8 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
     queryset = Project.objects.all().select_related("organization").prefetch_related("teams")
     lookup_field = "id"
     ordering = "-created_by"
+    filter_backends = [filters.SearchFilter]
+    search_fields = ["name"]
 
     def safely_get_queryset(self, queryset):
         # IMPORTANT: This is actually what ensures that a user cannot read/update a project for which they don't have permission
@@ -476,11 +538,16 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
 
         # If the request only contains config fields, require read:team scope
         # Otherwise, require write:team scope (handled by APIScopePermission)
+        # NOTE: This downgrade only applies to session-based auth (browser users).
+        # All other auth methods (API keys, OAuth tokens, etc.) must have project:write
+        # to modify any fields, preserving the semantic meaning of read-only API keys.
         if self.action == "partial_update":
-            request_fields = set(request.data.keys())
-            non_team_config_fields = request_fields - TEAM_CONFIG_FIELDS_SET
-            if not non_team_config_fields:
-                return ["project:read"]
+            is_session_auth = isinstance(request.successful_authenticator, SessionAuthentication)
+            if is_session_auth:
+                request_fields = set(request.data.keys())
+                non_team_config_fields = request_fields - TEAM_CONFIG_FIELDS_SET
+                if not non_team_config_fields:
+                    return ["project:read"]
 
         # Fall back to the default behavior
         return None
@@ -547,24 +614,15 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
         user = cast(User, self.request.user)
 
         teams = list(project.teams.only("id", "uuid", "name", "organization_id").all())
-        delete_bulky_postgres_data(team_ids=[team.id for team in teams])
-        delete_batch_exports(team_ids=[team.id for team in teams])
+        team_ids = [team.id for team in teams]
 
-        with mute_selected_signals():
-            super().perform_destroy(project)
-
-        # Once the project is deleted, queue deletion of associated data
-        AsyncDeletion.objects.bulk_create(
-            [
-                AsyncDeletion(
-                    deletion_type=DeletionType.Team,
-                    team_id=team.id,
-                    key=str(team.id),
-                    created_by=user,
-                )
-                for team in teams
-            ],
-            ignore_conflicts=True,
+        # Queue background task to handle all deletion
+        # bulky postgres, batch exports, project/team records, ClickHouse, email
+        delete_project_data_and_notify_task.delay(
+            team_ids=team_ids,
+            project_id=project_id,
+            user_id=user.id,
+            project_name=project_name,
         )
 
         for team in teams:
@@ -636,6 +694,18 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
         return response.Response(ProjectBackwardCompatSerializer(project, context=self.get_serializer_context()).data)
 
     @action(
+        methods=["POST"],
+        detail=True,
+        permission_classes=[TeamMemberStrictManagementPermission],
+    )
+    def generate_conversations_public_token(self, request: request.Request, id: str, **kwargs) -> response.Response:
+        project = self.get_object()
+        project.passthrough_team.generate_conversations_public_token_and_save(
+            user=request.user, is_impersonated_session=is_impersonated_session(request)
+        )
+        return response.Response(ProjectBackwardCompatSerializer(project, context=self.get_serializer_context()).data)
+
+    @action(
         methods=["GET"],
         detail=True,
         permission_classes=[IsAuthenticated],
@@ -666,6 +736,7 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
         detail=True,
         required_scopes=["project:read"],
     )
+    @disallow_if_impersonated(message="Impersonated sessions cannot set product intents.")
     def add_product_intent(self, request: request.Request, *args, **kwargs):
         project = self.get_object()
         team = project.passthrough_team
@@ -692,6 +763,7 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
         detail=True,
         required_scopes=["project:read"],
     )
+    @disallow_if_impersonated(message="Impersonated sessions cannot set product intents.")
     def complete_product_onboarding(self, request: request.Request, *args, **kwargs):
         project = self.get_object()
         team = project.passthrough_team

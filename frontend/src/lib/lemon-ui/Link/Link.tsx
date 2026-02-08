@@ -5,15 +5,27 @@ import React from 'react'
 
 import { IconExternal, IconOpenSidebar, IconSend } from '@posthog/icons'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitiveProps, buttonPrimitiveVariants } from 'lib/ui/Button/ButtonPrimitives'
+import {
+    ContextMenu,
+    ContextMenuContent,
+    ContextMenuGroup,
+    ContextMenuItem,
+    ContextMenuTrigger,
+} from 'lib/ui/ContextMenu/ContextMenu'
+import { MenuSeparator } from 'lib/ui/Menus/Menus'
 import { isExternalLink } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { newInternalTab } from 'lib/utils/newInternalTab'
-import { addProjectIdIfMissing } from 'lib/utils/router-utils'
+import { addProjectIdIfMissing, removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import { useNotebookDrag } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
+import { urlToResource } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { BrowserLikeMenuItems } from '~/layout/panel-layout/ProjectTree/menus/BrowserLikeMenuItems'
 import { SidePanelTab } from '~/types'
 
 import { Tooltip, TooltipProps } from '../Tooltip'
@@ -68,6 +80,10 @@ export type LinkProps = Pick<React.HTMLProps<HTMLAnchorElement>, 'target' | 'cla
     tooltipDocLink?: TooltipProps['docLink']
     tooltipPlacement?: TooltipProps['placement']
     tooltipCloseDelayMs?: TooltipProps['closeDelayMs']
+
+    extraContextMenuItems?: React.ReactNode
+    /** Skip the context menu */
+    skipContext?: boolean
 }
 
 const shouldForcePageLoad = (input: any): boolean => {
@@ -125,6 +141,8 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
             tooltipCloseDelayMs,
             role,
             tabIndex,
+            skipContext,
+            extraContextMenuItems,
             ...props
         },
         ref
@@ -150,8 +168,12 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
             }
 
             const mountedSidePanelLogic = sidePanelStateLogic.findMounted()
+            const mountedFeatureFlagLogic = featureFlagLogic.findMounted()
+            const { featureFlags } = mountedFeatureFlagLogic?.values || {}
 
-            if (shouldOpenInDocsPanel && mountedSidePanelLogic) {
+            const isRemovingSidePanelFlag = featureFlags?.[FEATURE_FLAGS.UX_REMOVE_SIDEPANEL]
+
+            if (shouldOpenInDocsPanel && mountedSidePanelLogic && !isRemovingSidePanelFlag) {
                 // TRICKY: We do this instead of hooks as there is some weird cyclic issue in tests
                 const { sidePanelOpen } = mountedSidePanelLogic.values
                 const { openSidePanel } = mountedSidePanelLogic.actions
@@ -199,6 +221,8 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
                 : '#'
             : undefined
 
+        const resource = href && href.startsWith('/') ? urlToResource(removeProjectIdIfPresent(href)) : null
+
         const elementClasses = buttonProps
             ? buttonPrimitiveVariants(buttonProps)
             : `Link ${subtle ? 'Link--subtle' : ''}`
@@ -217,6 +241,7 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
                 tabIndex={tabIndex}
                 {...props}
                 {...draggableProps}
+                {...(resource ? { 'data-resource-type': resource.type, 'data-resource-ref': resource.ref } : undefined)}
             >
                 {children}
                 {targetBlankIcon &&
@@ -230,6 +255,7 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
             </a>
         )
 
+        // Wrap with tooltip first (before context menu) so trigger props can be applied to the <a> element
         if ((tooltip && to) || tooltipDocLink) {
             element = (
                 <Tooltip
@@ -240,6 +266,28 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
                 >
                     {element}
                 </Tooltip>
+            )
+        }
+
+        if (href && !externalLink && !skipContext) {
+            element = (
+                <ContextMenu key={props.key}>
+                    <ContextMenuTrigger asChild>
+                        {/* Span so we can have both tooltip and context menu, without it the tooltip doesn't work with context menu */}
+                        <span className="contents">{element}</span>
+                    </ContextMenuTrigger>
+                    <ContextMenuContent className="max-w-[300px]">
+                        <ContextMenuGroup>
+                            <BrowserLikeMenuItems MenuItem={ContextMenuItem} href={href} resetPanelLayout={() => {}} />
+                            {extraContextMenuItems && (
+                                <>
+                                    <MenuSeparator />
+                                    {extraContextMenuItems}
+                                </>
+                            )}
+                        </ContextMenuGroup>
+                    </ContextMenuContent>
+                </ContextMenu>
             )
         }
 

@@ -8,6 +8,7 @@ from posthog.models.dashboard import Dashboard
 from posthog.models.event_definition import EventDefinition
 from posthog.models.experiment import Experiment
 from posthog.models.feature_flag import FeatureFlag
+from posthog.models.file_system.user_product_list import UserProductList
 from posthog.models.organization import OrganizationMembership
 from posthog.models.surveys.survey import Survey
 from posthog.models.team import Team
@@ -29,15 +30,16 @@ def query_teams_for_digest() -> QuerySet:
             "organization__created_at",
             "organization__available_product_features",
         )
+        .order_by("id")
     )
 
 
 def query_orgs_for_digest() -> QuerySet:
-    return Organization.objects.exclude(Q(for_internal_metrics=True)).only("id", "name", "created_at")
+    return Organization.objects.exclude(Q(for_internal_metrics=True)).only("id", "name", "created_at").order_by("id")
 
 
 def query_org_teams(organization: Organization) -> QuerySet:
-    return Team.objects.only("id", "name").filter(organization=organization).exclude(is_demo=True)
+    return Team.objects.only("id", "name").filter(organization=organization).exclude(is_demo=True).order_by("id")
 
 
 def query_org_members(organization: Organization) -> QuerySet:
@@ -45,7 +47,7 @@ def query_org_members(organization: Organization) -> QuerySet:
         OrganizationMembership.objects.filter(organization_id=organization.id)
         .select_related("user")
         .only("id", "user__distinct_id", "user__first_name", "user__email")
-    )
+    ).order_by("id")
 
 
 def query_new_dashboards(period_start: datetime, period_end: datetime) -> QuerySet:
@@ -134,6 +136,19 @@ def query_saved_filters(period_start: datetime, period_end: datetime) -> QuerySe
         .values("name", "short_id", "view_count")
         .order_by("-view_count")
     )
+
+
+def query_user_product_suggestions(
+    user_id: int, team_id: int, period_start: datetime, period_end: datetime
+) -> QuerySet:
+    return UserProductList.objects.filter(
+        user_id=user_id,
+        team_id=team_id,
+        enabled=True,
+        reason__in=[UserProductList.Reason.SALES_LED, UserProductList.Reason.NEW_PRODUCT],
+        created_at__gt=period_start,
+        created_at__lte=period_end,
+    ).values("product_path", "reason", "reason_text")
 
 
 @database_sync_to_async

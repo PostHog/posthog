@@ -4,6 +4,29 @@ from posthog.hogql import ast
 from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.parser import parse_expr
 
+
+def get_s3_function_call(s3_folder: str, s3_key: str | None, s3_secret: str | None, num_partitions: int) -> str:
+    """Generate the s3() function call for ClickHouse INSERT queries.
+
+    When using keyless S3 auth (IAM roles), we omit credentials and ClickHouse uses the
+    default credential provider chain. Otherwise, we pass the access key and secret.
+
+    Note: We use %% for the modulo operator because the ClickHouse client uses % for
+    parameter substitution, so %% produces a literal % in the final query.
+    """
+    s3_url = f"{s3_folder}/export_{{{{_partition_id}}}}.arrow"
+    if s3_key is not None and s3_secret is not None:
+        # Escape single quotes by doubling them (ClickHouse SQL escaping)
+        escaped_key = s3_key.replace("'", "''")
+        escaped_secret = s3_secret.replace("'", "''")
+        s3_call = f"s3('{s3_url}', '{escaped_key}', '{escaped_secret}', 'ArrowStream')"
+    else:
+        s3_call = f"s3('{s3_url}', 'ArrowStream')"
+
+    return f"""{s3_call}
+    PARTITION BY rand() %% {num_partitions}"""
+
+
 SELECT_FROM_PERSONS = """
 SELECT
     persons.team_id AS team_id,
@@ -16,84 +39,104 @@ SELECT
     persons._inserted_at AS _inserted_at,
     persons.is_deleted AS is_deleted
 FROM (
-    with new_persons as (
-        select
-            id,
-            max(version) as version,
-            argMax(_timestamp, person.version) AS _timestamp2
-        from
-            person
-        where
-            team_id = {team_id}::Int64
-            and id in (
-                select
-                    id
-                from
-                    person
-                where
-                    team_id = {team_id}::Int64
-                    and _timestamp >= {interval_start}::DateTime64
-                    AND _timestamp < {interval_end}::DateTime64
-            )
-        group by
-            id
-        having
-            (
-                _timestamp2 >= {interval_start}::DateTime64
-                AND _timestamp2 < {interval_end}::DateTime64
-            )
-    ),
-    new_distinct_ids as (
+    WITH new_persons AS (
         SELECT
-            argMax(person_id, person_distinct_id2.version) as person_id
-        from
-            person_distinct_id2
-        where
+            id
+        FROM
+            person
+        WHERE
             team_id = {team_id}::Int64
-            and distinct_id in (
-                select
-                    distinct_id
-                from
-                    person_distinct_id2
-                where
+            AND id in (
+                SELECT
+                    id
+                FROM
+                    person
+                WHERE
                     team_id = {team_id}::Int64
-                    and _timestamp >= {interval_start}::DateTime64
+                    AND _timestamp >= {interval_start}::DateTime64
                     AND _timestamp < {interval_end}::DateTime64
             )
-        group by
-            distinct_id
-        having
-            (
-                argMax(_timestamp, person_distinct_id2.version) >= {interval_start}::DateTime64
-                AND argMax(_timestamp, person_distinct_id2.version) < {interval_end}::DateTime64
-            )
+        GROUP BY
+            id
+        HAVING
+            argMax(_timestamp, person.version) >= {interval_start}::DateTime64
+            AND argMax(_timestamp, person.version) < {interval_end}::DateTime64
     ),
-    all_new_persons as (
-        select
-            id,
-            version
-        from
-            new_persons
-        UNION
-        ALL
-        select
-            id,
-            max(version)
-        from
-            person
-        where
+    distinct_ids AS (
+        -- new distinct_ids
+        SELECT
+            distinct_id
+        FROM
+            person_distinct_id2
+        WHERE
             team_id = {team_id}::Int64
-            and id in new_distinct_ids
-        group by
+            AND distinct_id in (
+                SELECT
+                    distinct_id
+                FROM
+                    person_distinct_id2
+                WHERE
+                    team_id = {team_id}::Int64
+                    AND _timestamp >= {interval_start}::DateTime64
+                    AND _timestamp < {interval_end}::DateTime64
+            )
+        GROUP BY
+            distinct_id
+        HAVING
+            argMax(_timestamp, person_distinct_id2.version) >= {interval_start}::DateTime64
+            AND argMax(_timestamp, person_distinct_id2.version) < {interval_end}::DateTime64
+
+        UNION DISTINCT
+
+        -- existing distinct_ids for new/updated persons
+        SELECT
+            DISTINCT distinct_id
+        FROM
+            person_distinct_id2
+        WHERE
+            team_id = {team_id}::Int64
+            AND person_id IN new_persons
+    ),
+    latest_distinct_ids AS (
+        SELECT
+            distinct_id,
+            argMax(person_id, person_distinct_id2.version) AS person_id2,
+            max(version) AS version,
+            argMax(_timestamp, person_distinct_id2.version) AS _timestamp
+        FROM
+            person_distinct_id2
+        WHERE
+            team_id = {team_id}::Int64
+            AND distinct_id IN distinct_ids
+        GROUP BY
+            distinct_id
+    ),
+    latest_person_versions AS (
+        SELECT
+            id,
+            max(version) AS version,
+            max(_timestamp) AS _timestamp
+        FROM
+            person
+        WHERE
+            team_id = {team_id}::Int64
+            AND
+            id IN (
+                SELECT
+                    DISTINCT person_id2
+                FROM
+                    latest_distinct_ids
+            )
+        GROUP BY
             id
     )
-    select
+    SELECT
         p.team_id AS team_id,
         pd.distinct_id AS distinct_id,
-        toString(p.id) AS person_id,
-        p.properties AS properties,
-        pd.version AS person_distinct_id_version,
+        toString(pd.person_id2) AS person_id,
         p.version AS person_version,
+        pd.version AS person_distinct_id_version,
+        p.properties AS properties,
         p.created_at AS created_at,
         toBool(p.is_deleted) AS is_deleted,
         multiIf(
@@ -117,30 +160,13 @@ FROM (
             p._timestamp,
             least(p._timestamp, pd._timestamp)
         ) AS _inserted_at
-    from
+    FROM
         person p
-        INNER JOIN (
-            SELECT
-                distinct_id,
-                max(version) AS version,
-                argMax(person_id, person_distinct_id2.version) AS person_id2,
-                argMax(_timestamp, person_distinct_id2.version) AS _timestamp
-            FROM
-                person_distinct_id2
-            WHERE
-                team_id = {team_id}::Int64
-                and person_id IN (
-                    select
-                        id
-                    from
-                        all_new_persons
-                )
-            GROUP BY
-                distinct_id
-        ) AS pd ON p.id = pd.person_id2
-    where
-        team_id = {team_id}::Int64
-        and (id, version) in all_new_persons
+        INNER JOIN latest_distinct_ids pd
+            ON p.id = pd.person_id2
+    WHERE
+        p.team_id = {team_id}::Int64
+        AND (p.id, p.version, p._timestamp) in latest_person_versions
     ORDER BY
         _inserted_at
 ) AS persons
@@ -251,6 +277,27 @@ FROM (
         $filters
     $order
 ) AS events
+FORMAT ArrowStream
+SETTINGS
+    -- This is half of configured MAX_MEMORY_USAGE for batch exports.
+    max_bytes_before_external_sort=50000000000,
+    optimize_aggregation_in_order=1
+"""
+)
+
+SELECT_FROM_EVENTS_WORKFLOWS = Template(
+    """
+SELECT
+    $fields
+FROM events
+    PREWHERE
+        COALESCE(events.timestamp) >= {{interval_start:DateTime64}}
+        AND COALESCE(events.timestamp) < {{interval_end:DateTime64}}
+    WHERE
+        team_id = {{team_id:Int64}}
+        AND (length({{include_events:Array(String)}}) = 0 OR event IN {{include_events:Array(String)}})
+        AND (length({{exclude_events:Array(String)}}) = 0 OR event NOT IN {{exclude_events:Array(String)}})
+        $filters
 FORMAT ArrowStream
 SETTINGS
     -- This is half of configured MAX_MEMORY_USAGE for batch exports.
@@ -482,14 +529,7 @@ SELECT_FROM_SESSIONS_HOGQL = ast.SelectQuery(
 
 EXPORT_TO_S3_FROM_DISTRIBUTED_EVENTS_RECENT = Template(
     """
-INSERT INTO FUNCTION
-   s3(
-       '$s3_folder/export_{{_partition_id}}.arrow',
-       '$s3_key',
-       '$s3_secret',
-       'ArrowStream'
-    )
-    PARTITION BY rand() %% $num_partitions
+INSERT INTO FUNCTION $s3_function
 SELECT
     $fields
 FROM (
@@ -530,14 +570,7 @@ SETTINGS
 
 EXPORT_TO_S3_FROM_EVENTS_RECENT = Template(
     """
-INSERT INTO FUNCTION
-   s3(
-       '$s3_folder/export_{{_partition_id}}.arrow',
-       '$s3_key',
-       '$s3_secret',
-       'ArrowStream'
-    )
-    PARTITION BY rand() %% $num_partitions
+INSERT INTO FUNCTION $s3_function
 SELECT
     $fields
 FROM (
@@ -577,14 +610,7 @@ SETTINGS
 
 EXPORT_TO_S3_FROM_EVENTS_UNBOUNDED = Template(
     """
-INSERT INTO FUNCTION
-   s3(
-       '$s3_folder/export_{{_partition_id}}.arrow',
-       '$s3_key',
-       '$s3_secret',
-       'ArrowStream'
-    )
-    PARTITION BY rand() %% $num_partitions
+INSERT INTO FUNCTION $s3_function
 SELECT
     $fields
 FROM (
@@ -623,14 +649,7 @@ SETTINGS
 
 EXPORT_TO_S3_FROM_EVENTS_BACKFILL = Template(
     """
-INSERT INTO FUNCTION
-   s3(
-       '$s3_folder/export_{{_partition_id}}.arrow',
-       '$s3_key',
-       '$s3_secret',
-       'ArrowStream'
-    )
-    PARTITION BY rand() %% $num_partitions
+INSERT INTO FUNCTION $s3_function
 SELECT
     $fields
 FROM (
@@ -666,16 +685,30 @@ SETTINGS
 """
 )
 
+EXPORT_TO_S3_FROM_EVENTS_WORKFLOWS = Template(
+    """
+INSERT INTO FUNCTION $s3_function
+SELECT
+    $fields
+FROM
+    events
+WHERE
+    team_id = {{team_id:Int64}}
+    AND events.timestamp >= {{interval_start:DateTime64}}
+    AND events.timestamp < {{interval_end:DateTime64}}
+    AND (length({{include_events:Array(String)}}) = 0 OR event IN {{include_events:Array(String)}})
+    AND (length({{exclude_events:Array(String)}}) = 0 OR event NOT IN {{exclude_events:Array(String)}})
+    $filters
+SETTINGS
+    -- This is half of configured MAX_MEMORY_USAGE for batch exports.
+    max_bytes_before_external_sort=50000000000,
+    optimize_aggregation_in_order=1,
+    log_comment={log_comment}
+"""
+)
 EXPORT_TO_S3_FROM_EVENTS = Template(
     """
-INSERT INTO FUNCTION
-   s3(
-       '$s3_folder/export_{{_partition_id}}.arrow',
-       '$s3_key',
-       '$s3_secret',
-       'ArrowStream'
-    )
-    PARTITION BY rand() %% $num_partitions
+INSERT INTO FUNCTION $s3_function
 SELECT
     $fields
 FROM (
@@ -715,14 +748,7 @@ SETTINGS
 )
 
 EXPORT_TO_S3_FROM_PERSONS_BACKFILL = Template("""
-INSERT INTO FUNCTION
-   s3(
-       '$s3_folder/export_{{_partition_id}}.arrow',
-       '$s3_key',
-       '$s3_secret',
-       'ArrowStream'
-    )
-    PARTITION BY rand() %% $num_partitions
+INSERT INTO FUNCTION $s3_function
 SELECT
     pd.team_id AS team_id,
     pd.distinct_id AS distinct_id,
@@ -787,15 +813,9 @@ SETTINGS
     log_comment={log_comment}
 """)
 
+
 EXPORT_TO_S3_FROM_PERSONS = Template("""
-INSERT INTO FUNCTION
-   s3(
-       '$s3_folder/export_{{_partition_id}}.arrow',
-       '$s3_key',
-       '$s3_secret',
-       'ArrowStream'
-    )
-    PARTITION BY rand() %% $num_partitions
+INSERT INTO FUNCTION $s3_function
 SELECT
     persons.team_id AS team_id,
     persons.distinct_id AS distinct_id,
@@ -807,84 +827,105 @@ SELECT
     persons._inserted_at AS _inserted_at,
     persons.is_deleted AS is_deleted
 FROM (
-    with new_persons as (
-        select
-            id,
-            max(version) as version,
-            argMax(_timestamp, person.version) AS _timestamp2
-        from
-            person
-        where
-            team_id = {team_id}::Int64
-            and id in (
-                select
-                    id
-                from
-                    person
-                where
-                    team_id = {team_id}::Int64
-                    and _timestamp >= {interval_start}::DateTime64
-                    AND _timestamp < {interval_end}::DateTime64
-            )
-        group by
-            id
-        having
-            (
-                _timestamp2 >= {interval_start}::DateTime64
-                AND _timestamp2 < {interval_end}::DateTime64
-            )
-    ),
-    new_distinct_ids as (
+    WITH new_persons AS (
         SELECT
-            argMax(person_id, person_distinct_id2.version) as person_id
-        from
-            person_distinct_id2
-        where
+            id
+        FROM
+            person
+        WHERE
             team_id = {team_id}::Int64
-            and distinct_id in (
-                select
-                    distinct_id
-                from
-                    person_distinct_id2
-                where
+            AND id in (
+                SELECT
+                    id
+                FROM
+                    person
+                WHERE
                     team_id = {team_id}::Int64
-                    and _timestamp >= {interval_start}::DateTime64
+                    AND _timestamp >= {interval_start}::DateTime64
                     AND _timestamp < {interval_end}::DateTime64
             )
-        group by
-            distinct_id
-        having
-            (
-                argMax(_timestamp, person_distinct_id2.version) >= {interval_start}::DateTime64
-                AND argMax(_timestamp, person_distinct_id2.version) < {interval_end}::DateTime64
-            )
+        GROUP BY
+            id
+        HAVING
+            argMax(_timestamp, person.version) >= {interval_start}::DateTime64
+            AND argMax(_timestamp, person.version) < {interval_end}::DateTime64
     ),
-    all_new_persons as (
-        select
-            id,
-            version
-        from
-            new_persons
-        UNION
-        ALL
-        select
-            id,
-            max(version)
-        from
-            person
-        where
+    distinct_ids AS (
+        -- new distinct_ids
+        SELECT
+            distinct_id
+        FROM
+            person_distinct_id2
+        WHERE
             team_id = {team_id}::Int64
-            and id in new_distinct_ids
-        group by
+            AND distinct_id in (
+                SELECT
+                    distinct_id
+                FROM
+                    person_distinct_id2
+                WHERE
+                    team_id = {team_id}::Int64
+                    AND _timestamp >= {interval_start}::DateTime64
+                    AND _timestamp < {interval_end}::DateTime64
+            )
+        GROUP BY
+            distinct_id
+        HAVING
+            argMax(_timestamp, person_distinct_id2.version) >= {interval_start}::DateTime64
+            AND argMax(_timestamp, person_distinct_id2.version) < {interval_end}::DateTime64
+
+        UNION DISTINCT
+
+        -- existing distinct_ids for new/updated persons
+        SELECT
+            DISTINCT distinct_id
+        FROM
+            person_distinct_id2
+        WHERE
+            team_id = {team_id}::Int64
+            AND person_id IN new_persons
+    ),
+    latest_distinct_ids AS (
+        SELECT
+            distinct_id,
+            argMax(person_id, person_distinct_id2.version) AS person_id2,
+            max(version) AS version,
+            argMax(_timestamp, person_distinct_id2.version) AS _timestamp
+        FROM
+            person_distinct_id2
+        WHERE
+            team_id = {team_id}::Int64
+            AND distinct_id IN distinct_ids
+        GROUP BY
+            distinct_id
+        $filter_distinct_ids
+    ),
+    latest_person_versions AS (
+        SELECT
+            id,
+            max(version) AS version,
+            max(_timestamp) AS _timestamp
+        FROM
+            person
+        WHERE
+            team_id = {team_id}::Int64
+            AND
+            id IN (
+                SELECT
+                    DISTINCT person_id2
+                FROM
+                    latest_distinct_ids
+            )
+        GROUP BY
             id
     )
-    select
+    SELECT
         p.team_id AS team_id,
         pd.distinct_id AS distinct_id,
-        toString(p.id) AS person_id,
-        p.properties AS properties,
-        pd.version AS person_distinct_id_version,
+        toString(pd.person_id2) AS person_id,
         p.version AS person_version,
+        pd.version AS person_distinct_id_version,
+        p.properties AS properties,
         p.created_at AS created_at,
         toBool(p.is_deleted) AS is_deleted,
         multiIf(
@@ -908,31 +949,13 @@ FROM (
             p._timestamp,
             least(p._timestamp, pd._timestamp)
         ) AS _inserted_at
-    from
+    FROM
         person p
-        INNER JOIN (
-            SELECT
-                distinct_id,
-                max(version) AS version,
-                argMax(person_id, person_distinct_id2.version) AS person_id2,
-                argMax(_timestamp, person_distinct_id2.version) AS _timestamp
-            FROM
-                person_distinct_id2
-            WHERE
-                team_id = {team_id}::Int64
-                and person_id IN (
-                    select
-                        id
-                    from
-                        all_new_persons
-                )
-            GROUP BY
-                distinct_id
-            $filter_distinct_ids
-        ) AS pd ON p.id = pd.person_id2
-    where
-        team_id = {team_id}::Int64
-        and (id, version) in all_new_persons
+        INNER JOIN latest_distinct_ids pd
+            ON p.id = pd.person_id2
+    WHERE
+        p.team_id = {team_id}::Int64
+        AND (p.id, p.version, p._timestamp) in latest_person_versions
 ) AS persons
 SETTINGS
     max_bytes_before_external_group_by=50000000000,

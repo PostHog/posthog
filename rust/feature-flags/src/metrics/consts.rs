@@ -3,13 +3,14 @@ pub const FLAG_EVALUATION_ERROR_COUNTER: &str = "flags_flag_evaluation_error_tot
 pub const FLAG_HASH_KEY_WRITES_COUNTER: &str = "flags_flag_hash_key_writes_total";
 pub const FLAG_HASH_KEY_RETRIES_COUNTER: &str = "flags_hash_key_retries_total";
 pub const TEAM_CACHE_HIT_COUNTER: &str = "flags_team_cache_hit_total";
-pub const TEAM_CACHE_ERRORS_COUNTER: &str = "flags_team_cache_errors_total";
 pub const DB_TEAM_READS_COUNTER: &str = "flags_db_team_reads_total";
 pub const TOKEN_VALIDATION_ERRORS_COUNTER: &str = "flags_token_validation_errors_total";
 pub const DB_COHORT_READS_COUNTER: &str = "flags_db_cohort_reads_total";
 pub const DB_COHORT_ERRORS_COUNTER: &str = "flags_db_cohort_errors_total";
 pub const COHORT_CACHE_HIT_COUNTER: &str = "flags_cohort_cache_hit_total";
 pub const COHORT_CACHE_MISS_COUNTER: &str = "flags_cohort_cache_miss_total";
+pub const COHORT_CACHE_SIZE_BYTES_GAUGE: &str = "flags_cohort_cache_size_bytes";
+pub const COHORT_CACHE_ENTRIES_GAUGE: &str = "flags_cohort_cache_entries";
 pub const PROPERTY_CACHE_HITS_COUNTER: &str = "flags_property_cache_hits_total";
 pub const PROPERTY_CACHE_MISSES_COUNTER: &str = "flags_property_cache_misses_total";
 pub const DB_PERSON_AND_GROUP_PROPERTIES_READS_COUNTER: &str =
@@ -26,8 +27,6 @@ pub const DB_CONNECTION_POOL_MAX_COUNTER: &str = "flags_db_connection_pool_max_t
 // Flag evaluation timing
 pub const FLAG_EVALUATION_TIME: &str = "flags_evaluation_time";
 pub const FLAG_HASH_KEY_PROCESSING_TIME: &str = "flags_hash_key_processing_time";
-pub const FLAG_LOCAL_PROPERTY_OVERRIDE_MATCH_TIME: &str =
-    "flags_local_property_override_match_time";
 pub const FLAG_DB_PROPERTIES_FETCH_TIME: &str = "flags_properties_db_fetch_time";
 pub const FLAG_GROUP_DB_FETCH_TIME: &str = "flags_groups_db_fetch_time"; // this is how long it takes to fetch the group type mappings from the DB
 pub const FLAG_GROUP_CACHE_FETCH_TIME: &str = "flags_groups_cache_fetch_time"; // this is how long it takes to fetch the group type mappings from the cache
@@ -48,9 +47,20 @@ pub const FLAG_REQUEST_KLUDGE_COUNTER: &str = "flags_request_kludge_total";
 // New diagnostic metrics for pool exhaustion investigation
 pub const FLAG_POOL_UTILIZATION_GAUGE: &str = "flags_pool_utilization_ratio";
 pub const FLAG_CONNECTION_HOLD_TIME: &str = "flags_connection_hold_time_ms";
-pub const FLAG_CONNECTION_QUEUE_DEPTH_GAUGE: &str = "flags_connection_queue_depth";
 pub const FLAG_EXPERIENCE_CONTINUITY_REQUESTS_COUNTER: &str =
     "flags_experience_continuity_requests_total";
+
+// Experience continuity optimization metric
+// Tracks requests where optimization could apply, with status label:
+// - status="skipped": lookup was actually skipped (optimization enabled, no flags needed it)
+// - status="eligible": lookup could be skipped but wasn't (optimization feature is disabled)
+pub const FLAG_EXPERIENCE_CONTINUITY_OPTIMIZED: &str =
+    "flags_experience_continuity_optimized_total";
+
+// Hash key override query result metric
+// Tracks the result of hash key override queries to understand cache optimization potential
+// Labels: result="empty" (no overrides found) | result="has_overrides" (overrides exist)
+pub const FLAG_HASH_KEY_QUERY_RESULT: &str = "flags_hash_key_query_result_total";
 
 // Flag definitions rate limiting
 pub const FLAG_DEFINITIONS_RATE_LIMITED_COUNTER: &str = "flags_flag_definitions_rate_limited_total";
@@ -65,3 +75,9 @@ pub const FLAG_DATABASE_ERROR_COUNTER: &str = "flags_database_error_total";
 // Tombstone metric for tracking "impossible" failures that should never happen in production
 // Different failure types are tracked via the "failure_type" label
 pub const TOMBSTONE_COUNTER: &str = "posthog_tombstone_total";
+
+// DB operations per request metric
+// Tracks the count of DB operations per request, labeled by team_id and operation_type.
+// This surfaces teams generating excessive DB load regardless of individual query latency.
+// Labels: team_id, operation_type (person_query, cohort_query, group_query)
+pub const FLAG_DB_OPERATIONS_PER_REQUEST: &str = "flags_db_operations_per_request";

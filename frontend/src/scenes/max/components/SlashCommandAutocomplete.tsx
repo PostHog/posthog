@@ -73,6 +73,7 @@ export function SlashCommandAutocomplete({ onClose, visible, children }: SlashCo
 
     return (
         <LemonMenu
+            matchWidth
             items={filteredCommands
                 .map((command: SlashCommand, index: number) =>
                     convertSlashCommandToMenuItem(command, activateCommand, index === activeItemIndex)
@@ -99,7 +100,6 @@ export function SlashCommandAutocomplete({ onClose, visible, children }: SlashCo
                 // Offset against the textarea's padding, to align the popover with the "/" character
                 offset({
                     mainAxis: -8,
-                    crossAxis: 8,
                 }),
             ]}
             focusBasedKeyboardNavigation={false}

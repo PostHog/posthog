@@ -1,8 +1,11 @@
+/**
+ * @deprecated Use ProjectMenu instead
+ */
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useMemo, useState } from 'react'
 
-import { IconCheck, IconCornerDownRight, IconGear, IconPlusSmall, IconWarning } from '@posthog/icons'
+import { IconCheck, IconCornerDownRight, IconGear, IconPlusSmall } from '@posthog/icons'
 import { LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
@@ -10,8 +13,8 @@ import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo'
 import { IconBlank } from 'lib/lemon-ui/icons'
 import { ButtonGroupPrimitive, ButtonPrimitive, ButtonPrimitiveProps } from 'lib/ui/Button/ButtonPrimitives'
 import { Combobox } from 'lib/ui/Combobox/Combobox'
-import { DropdownMenuOpenIndicator } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { Label } from 'lib/ui/Label/Label'
+import { MenuOpenIndicator, MenuSeparator } from 'lib/ui/Menus/Menus'
 import {
     PopoverPrimitive,
     PopoverPrimitiveContent,
@@ -20,7 +23,6 @@ import {
 import { cn } from 'lib/utils/css-classes'
 import { getProjectSwitchTargetUrl } from 'lib/utils/router-utils'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { environmentRollbackModalLogic } from 'scenes/settings/environment/environmentRollbackModalLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -40,19 +42,16 @@ const EMOJI_INITIAL_REGEX =
 export function EnvironmentSwitcherOverlay({
     buttonProps = { className: 'font-semibold' },
     onClickInside,
-    iconOnly = false,
 }: {
     buttonProps?: ButtonPrimitiveProps
     onClickInside?: () => void
-    iconOnly?: boolean
 }): JSX.Element {
+    const iconOnly = buttonProps?.iconOnly ?? false
     const { searchedProjectsMap } = useValues(environmentSwitcherLogic)
     const { currentOrganization, projectCreationForbiddenReason } = useValues(organizationLogic)
     const { currentTeam, currentProject } = useValues(teamLogic)
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
-    const { showCreateProjectModal, showCreateEnvironmentModal } = useActions(globalModalsLogic)
-    const { hasEnvironmentsRollbackFeature } = useValues(environmentRollbackModalLogic)
-    const { openModal } = useActions(environmentRollbackModalLogic)
+    const { showCreateProjectModal } = useActions(globalModalsLogic)
     const [open, setOpen] = useState(false)
 
     const { location } = useValues(router)
@@ -75,7 +74,7 @@ export function EnvironmentSwitcherOverlay({
                     <Label intent="menu" className="px-2 mt-2">
                         Current project
                     </Label>
-                    <div className="-mx-1 my-1 h-px bg-border-primary shrink-0" />
+                    <MenuSeparator />
 
                     <Combobox.Group value={[projectName]}>
                         <ButtonGroupPrimitive fullWidth className="[&>span]:contents">
@@ -140,13 +139,6 @@ export function EnvironmentSwitcherOverlay({
                     className="shrink-0"
                     tooltip="We're temporarily pausing new environments as we make some improvements! Stay tuned for more. In the meantime, you can create new projects."
                     disabled
-                    onClick={() => {
-                        guardAvailableFeature(AvailableFeature.ENVIRONMENTS, showCreateEnvironmentModal, {
-                            currentUsage: currentOrganization?.teams?.filter(
-                                (team) => team.project_id === currentTeam.project_id
-                            ).length,
-                        })
-                    }}
                 >
                     <IconBlank />
                     <IconPlusSmall />
@@ -171,7 +163,7 @@ export function EnvironmentSwitcherOverlay({
                         <Label intent="menu" className="px-2 mt-2">
                             Other projects
                         </Label>
-                        <div className="-mx-1.5 my-1 h-px bg-border-primary shrink-0" />
+                        <MenuSeparator className="-mx-1.5" />
                     </>
                 )
             }
@@ -228,16 +220,7 @@ export function EnvironmentSwitcherOverlay({
             }
         }
         return [
-            hasEnvironmentsRollbackFeature ? (
-                <Combobox.Group value={['warning']} key="warning">
-                    <Combobox.Item asChild>
-                        <ButtonPrimitive menuItem onClick={openModal} variant="danger" className="h-auto">
-                            <IconWarning />
-                            We're rolling back the environments beta
-                        </ButtonPrimitive>
-                    </Combobox.Item>
-                </Combobox.Group>
-            ) : null,
+            null,
             currentProjectItems.length ? <>{currentProjectItems}</> : null,
             otherProjectsItems.length ? <>{otherProjectsItems}</> : null,
         ]
@@ -249,9 +232,6 @@ export function EnvironmentSwitcherOverlay({
         location.pathname,
         onClickInside,
         guardAvailableFeature,
-        showCreateEnvironmentModal,
-        hasEnvironmentsRollbackFeature,
-        openModal,
     ])
 
     if (!currentOrganization || !currentTeam) {
@@ -275,7 +255,7 @@ export function EnvironmentSwitcherOverlay({
                     ) : (
                         <span className="truncate">{currentProject?.name ?? 'Project'}</span>
                     )}
-                    {!iconOnly && <DropdownMenuOpenIndicator />}
+                    {!iconOnly && <MenuOpenIndicator />}
                 </ButtonPrimitive>
             </PopoverPrimitiveTrigger>
             <PopoverPrimitiveContent align="start" className="w-[300px] sm:w-[500px] max-w-[300px] sm:max-w-[500px]">

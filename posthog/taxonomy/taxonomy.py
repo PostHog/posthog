@@ -376,6 +376,23 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "type": "String",
             "used_for_debug": True,
         },
+        "$sdk_debug_replay_full_snapshots": {
+            "label": "Replay full snapshots debug info",
+            "description": "Debug information about full snapshots in the replay session.",
+            "used_for_debug": True,
+        },
+        "$debug_first_full_snapshot_timestamp": {
+            "label": "First full snapshot timestamp",
+            "description": "The timestamp of the first full snapshot in the replay session.",
+            "type": "Numeric",
+            "used_for_debug": True,
+        },
+        "$product_tours_enabled_server_side": {
+            "label": "Product tours enabled server side",
+            "description": "Whether product tours are enabled server-side.",
+            "type": "Boolean",
+            "used_for_debug": True,
+        },
         "$sess_rec_flush_size": {
             "label": "Estimated bytes flushed",
             "description": "Estimated size in bytes of flushed recording data so far in this session. Added to events as a debug property.",
@@ -445,16 +462,18 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "ignored_in_assistant": True,
             "used_for_debug": True,
         },
-        "sdk_debug_extensions_init_method": {
+        "$sdk_debug_extensions_init_method": {
             "label": "PostHog.js extensions init method",
             "description": "The method used to initialize PostHog.js extensions.",
             "examples": ["deferred", "synchronous"],
+            "type": "String",
             "used_for_debug": True,
         },
-        "sdk_debug_extensions_init_time_ms": {
+        "$sdk_debug_extensions_init_time_ms": {
             "label": "PostHog.js extensions init time (ms)",
             "description": "The time taken to initialize PostHog.js extensions in milliseconds.",
             "examples": ["150"],
+            "type": "Numeric",
             "used_for_debug": True,
         },
         "$sdk_debug_retry_queue_size": {
@@ -901,10 +920,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "system": True,
             "used_for_debug": True,
         },
-        "$cymbal_errors": {
-            "label": "Exception processing errors",
-            "description": "Errors encountered while trying to process exceptions.",
+        "$has_recording": {
+            "label": "Has recording",
+            "description": "Whether a session recording exists for this event's session. This is a computed property used for display purposes and is not stored on events.",
             "system": True,
+            "used_for_debug": True,
         },
         "$geoip_city_name": {
             "label": "City name",
@@ -1872,6 +1892,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "The latency of the request made to the LLM API, in seconds.",
             "examples": [0.361],
         },
+        "$ai_time_to_first_token": {
+            "label": "AI time to first token (LLM)",
+            "description": "The time in seconds from request start until the first token was received. Only applicable for streaming responses.",
+            "examples": [0.125, 0.5],
+        },
         "$ai_model": {
             "label": "AI model (LLM)",
             "description": "The model used to generate the output from the LLM API.",
@@ -1956,6 +1981,31 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "AI Evaluation Reasoning (LLM)",
             "description": "The LLM's explanation for why the evaluation passed or failed.",
             "examples": ["The response accurately addresses the query", "The output contains factual inaccuracies"],
+        },
+        "$ai_evaluation_provider": {
+            "label": "AI Evaluation Provider (LLM)",
+            "description": "The LLM provider used as the judge (e.g., openai, anthropic, gemini).",
+            "examples": ["openai", "anthropic", "gemini"],
+        },
+        "$ai_evaluation_allows_na": {
+            "label": "AI Evaluation Allows N/A (LLM)",
+            "description": "Whether the evaluation allows N/A responses when the criteria doesn't apply.",
+            "examples": [True, False],
+        },
+        "$ai_evaluation_key_type": {
+            "label": "AI Evaluation Key Type (LLM)",
+            "description": "The type of API key used for the evaluation (byok = user's own key, posthog = PostHog default).",
+            "examples": ["byok", "posthog"],
+        },
+        "$ai_evaluation_key_id": {
+            "label": "AI Evaluation Key ID (LLM)",
+            "description": "The ID of the LLM provider key used for the evaluation.",
+            "examples": ["550e8400-e29b-41d4-a716-446655440000"],
+        },
+        "$ai_evaluation_applicable": {
+            "label": "AI Evaluation Applicable (LLM)",
+            "description": "Whether the evaluation criteria was applicable to this generation (only present when N/A is allowed).",
+            "examples": [True, False],
         },
         "$ai_target_event_id": {
             "label": "AI Target Event ID (LLM)",
@@ -2099,9 +2149,9 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "type": "Numeric",
             "virtual": True,
         },
-        "$virt_revenue_last_30_days": {
-            "description": "The total revenue for this person in the last 30 days.",
-            "label": "Total revenue in the last 30 days",
+        "$virt_mrr": {
+            "description": "The current MRR for this person.",
+            "label": "Total MRR",
             "type": "Numeric",
             "virtual": True,
         },
@@ -2213,9 +2263,9 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "type": "Numeric",
             "virtual": True,
         },
-        "$virt_revenue_last_30_days": {
-            "description": "The total revenue for this group in the last 30 days.",
-            "label": "Total revenue in the last 30 days",
+        "$virt_mrr": {
+            "description": "The current MRR for this group.",
+            "label": "Total MRR",
             "type": "Numeric",
             "virtual": True,
         },

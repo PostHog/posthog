@@ -43,17 +43,15 @@ function Header({
     onEdit: _onEdit,
     onView: _onView,
 }: HeaderProps): JSX.Element {
-    const { state, type, viewFullDetailUrl, hasTaxonomyFeatures, hideView, hideEdit, isViewable, openDetailInNewTab } =
+    const { state, type, viewFullDetailUrl, hideView, hideEdit, isViewable, openDetailInNewTab } =
         useValues(definitionPopoverLogic)
     const { setPopoverState } = useActions(definitionPopoverLogic)
     const { reportDataManagementDefinitionClickView, reportDataManagementDefinitionClickEdit } =
         useActions(eventUsageLogic)
     const onEdit = (): void => {
-        if (hasTaxonomyFeatures) {
-            setPopoverState(DefinitionPopoverState.Edit)
-            _onEdit?.()
-            reportDataManagementDefinitionClickEdit(type)
-        }
+        setPopoverState(DefinitionPopoverState.Edit)
+        _onEdit?.()
+        reportDataManagementDefinitionClickEdit(type)
     }
     const onView = (): void => {
         setPopoverState(DefinitionPopoverState.View)
@@ -69,7 +67,7 @@ function Header({
                 </div>
                 {state === DefinitionPopoverState.View && (
                     <div className="definition-popover-header-row-buttons click-outside-block">
-                        {!hideEdit && isViewable && hasTaxonomyFeatures && <Link onClick={onEdit}>Edit</Link>}
+                        {!hideEdit && isViewable && <Link onClick={onEdit}>Edit</Link>}
                         {!hideView && isViewable && (
                             <Link
                                 target={openDetailInNewTab ? '_blank' : undefined}
@@ -157,7 +155,7 @@ function TimeMeta({
     // If updatedAt doesn't exist, fallback on showing creator
     if (updatedAt) {
         return (
-            <span className="definition-popover-timemeta">
+            <div className="definition-popover-timemeta">
                 <span className="definition-popover-timemeta-time">
                     Last modified {dayjs().to(dayjs.utc(updatedAt))}{' '}
                 </span>
@@ -167,7 +165,7 @@ function TimeMeta({
                         <Owner user={updatedBy} />
                     </span>
                 )}
-            </span>
+            </div>
         )
     }
     if (createdAt) {

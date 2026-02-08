@@ -1,0 +1,340 @@
+#!/usr/bin/env bash
+
+set -e
+set -o pipefail
+
+show_help() {
+    cat <<'EOF'
+PostgreSQL 12 → 15 Upgrade Script
+
+⚠️  IMPORTANT: This script is designed for LOCAL DEVELOPMENT environments.
+
+The script automatically:
+- Detects and dumps from running postgres:12 container (no need to stop services)
+- Stops the old database before starting postgres:15
+- Restores your data to postgres:15
+
+For HOBBY DEPLOYMENTS with production data:
+- Small databases (< 1GB): Can use this script
+- Large databases (> 1GB): Manual pg_upgrade recommended for faster migration
+
+Manual upgrade steps for hobby (large databases):
+  1. Backup: docker-compose exec -T db pg_dumpall --clean -U posthog | gzip > backup.sql.gz
+  2. Stop: docker-compose down
+  3. Remove volume: docker volume rm postgres-data
+  4. Upgrade PostHog code (pulls postgres:15 compose files)
+  5. Start: docker-compose up -d db
+  6. Restore: gunzip -c backup.sql.gz | docker-compose exec -T db psql -U posthog
+
+For large hobby databases, consider using pg_upgrade for faster in-place migration.
+
+Usage:
+  hogli db:upgrade                  Interactive mode (default)
+  hogli db:upgrade --list           List all PostgreSQL 12 volumes
+  hogli db:upgrade --dump-only      Dump postgres:12 data and exit (verify before restore)
+  ./bin/upgrade-postgres <volume-id>          Migrate specific volume
+
+Examples:
+  # Interactive: scan and choose volume
+  hogli db:upgrade
+
+  # Dump only (verify backup before continuing)
+  hogli db:upgrade --dump-only
+
+  # Migrate specific volume
+  ./bin/upgrade-postgres 6e93806fad73d030739a55dd1c6594bf925833dd1a2ef59b3fb14b54bd6f5d73
+
+  # Find orphaned postgres:12 volumes
+  hogli db:upgrade --list
+
+EOF
+}
+
+list_pg12_volumes() {
+    echo "Scanning for PostgreSQL 12 volumes..."
+    echo ""
+
+    docker volume ls -q | while read -r vol; do
+        PG_VER=$(docker run --rm -v "$vol:/data:ro" alpine cat /data/PG_VERSION 2>/dev/null || echo "")
+        if [ "$PG_VER" = "12" ]; then
+            SIZE=$(docker system df -v 2>/dev/null | awk -v vol="$vol" '$1==vol {print $3}' || echo "unknown")
+            IN_USE=$(docker ps -a --filter "volume=$vol" --format "{{.Names}}" 2>/dev/null)
+
+            if [ -n "$IN_USE" ]; then
+                echo "✅ $vol"
+                echo "   Size: $SIZE | In use by: $IN_USE"
+            else
+                echo "⚠️  $vol"
+                echo "   Size: $SIZE | ORPHANED (not mounted)"
+            fi
+            echo ""
+        fi
+    done
+}
+
+detect_compose_file() {
+    # Try to detect from running container first
+    DB_CONTAINER=$(docker ps -a --filter "label=com.docker.compose.service=db" --format "{{.ID}}" | head -1)
+    if [ -n "$DB_CONTAINER" ]; then
+        DETECTED=$(docker inspect "$DB_CONTAINER" --format '{{index .Config.Labels "com.docker.compose.project.config_files"}}' 2>/dev/null || echo "")
+        if [ -n "$DETECTED" ]; then
+            echo "$DETECTED"
+            return
+        fi
+    fi
+
+    # Fallback to file detection
+    if [ -f "docker-compose.dev.yml" ]; then
+        echo "docker-compose.dev.yml"
+    elif [ -f "docker-compose.yml" ]; then
+        echo "docker-compose.yml"
+    else
+        echo ""
+    fi
+}
+
+detect_pg12_volume() {
+    # First try to find volume from running or stopped container (fast path)
+    DB_CONTAINER=$(docker ps -a --filter "label=com.docker.compose.service=db" --format "{{.ID}}" | head -1)
+    if [ -n "$DB_CONTAINER" ]; then
+        VOL=$(docker inspect "$DB_CONTAINER" --format '{{range .Mounts}}{{if eq .Destination "/var/lib/postgresql/data"}}{{.Name}}{{end}}{{end}}' 2>/dev/null)
+        if [ -n "$VOL" ]; then
+            # Check if it's postgres:12
+            PG_VER=$(docker run --rm -v "$VOL:/data:ro" alpine cat /data/PG_VERSION 2>/dev/null || echo "")
+            if [ "$PG_VER" = "12" ]; then
+                echo "$VOL"
+                return
+            fi
+        fi
+    fi
+
+    # Fallback: scan all volumes for postgres:12 (handles case where container was removed)
+    docker volume ls -q | while read -r vol; do
+        PG_VER=$(docker run --rm -v "$vol:/data:ro" alpine cat /data/PG_VERSION 2>/dev/null || echo "")
+        if [ "$PG_VER" = "12" ]; then
+            echo "$vol"
+            return
+        fi
+    done
+}
+
+migrate_volume() {
+    local SOURCE_VOLUME="$1"
+    local COMPOSE_FILE="$2"
+    local DUMP_ONLY="${3:-false}"
+
+    # Verify source volume exists and is postgres:12
+    PG_VER=$(docker run --rm -v "$SOURCE_VOLUME:/data:ro" alpine cat /data/PG_VERSION 2>/dev/null || echo "")
+    if [ "$PG_VER" != "12" ]; then
+        echo "❌ Error: Volume $SOURCE_VOLUME is not PostgreSQL 12 (found: $PG_VER)"
+        exit 1
+    fi
+
+    SIZE=$(docker run --rm -v "$SOURCE_VOLUME:/data:ro" alpine du -sh /data | awk '{print $1}')
+    echo "Found PostgreSQL 12 volume: $SOURCE_VOLUME ($SIZE)"
+    echo ""
+
+    if [ "$DUMP_ONLY" = "false" ]; then
+        read -r -p "Migrate this volume to PostgreSQL 15? [y/N] " confirm
+        if [[ ! "$confirm" =~ ^([yY][eE][sS]|[yY])$ ]]; then
+            echo "Cancelled."
+            exit 0
+        fi
+    fi
+
+    mkdir -p .postgres-backups
+    BACKUP_FILE=".postgres-backups/posthog_pg12_backup_$(date +%Y%m%d_%H%M%S).sql.gz"
+
+    # Check if db container is already running with this volume
+    RUNNING_CONTAINER=$(docker ps --filter "volume=$SOURCE_VOLUME" --filter "label=com.docker.compose.service=db" --format "{{.ID}}" | head -1)
+
+    if [ -n "$RUNNING_CONTAINER" ]; then
+        echo ""
+        echo "Step 1: Dumping from running db container..."
+        echo "Step 2: Backing up data to $BACKUP_FILE (compressed)..."
+
+        if docker exec "$RUNNING_CONTAINER" pg_dumpall --clean -U posthog | gzip > "$BACKUP_FILE"; then
+            BACKUP_SIZE=$(du -h "$BACKUP_FILE" | cut -f1)
+            echo "✅ Backup complete! Size: $BACKUP_SIZE (compressed)"
+        else
+            echo "❌ Backup failed!"
+            exit 1
+        fi
+
+        TEMP_CONTAINER=""
+    else
+        echo ""
+        echo "Step 1: Creating temporary postgres:12 container to dump data..."
+        TEMP_CONTAINER=$(docker run -d \
+            -v "$SOURCE_VOLUME:/var/lib/postgresql/data" \
+            -e POSTGRES_USER=posthog \
+            -e POSTGRES_DB=posthog \
+            -e POSTGRES_PASSWORD=posthog \
+            postgres:12-alpine)
+
+        echo "Waiting for database to be ready..."
+        sleep 10
+
+        echo ""
+        echo "Step 2: Backing up data to $BACKUP_FILE (compressed)..."
+        if docker exec "$TEMP_CONTAINER" pg_dumpall --clean -U posthog | gzip > "$BACKUP_FILE"; then
+            BACKUP_SIZE=$(du -h "$BACKUP_FILE" | cut -f1)
+            echo "✅ Backup complete! Size: $BACKUP_SIZE (compressed)"
+        else
+            echo "❌ Backup failed!"
+            docker rm -f "$TEMP_CONTAINER" 2>/dev/null
+            exit 1
+        fi
+
+        echo ""
+        echo "Step 3: Stopping temporary container..."
+        docker rm -f "$TEMP_CONTAINER"
+    fi
+
+    if [ "$DUMP_ONLY" = "true" ]; then
+        echo ""
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "✅ Dump complete! (dump-only mode)"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo ""
+        echo "Backup saved at: $BACKUP_FILE"
+        echo ""
+        echo "Verify the backup, then run:"
+        echo "  ./bin/hogli db:restore $BACKUP_FILE"
+        echo ""
+        exit 0
+    fi
+
+    echo ""
+    echo "Step 3: Removing old database container..."
+    docker compose -f "$COMPOSE_FILE" rm -f -s db
+
+    echo ""
+    echo "Step 4: Starting PostgreSQL 15..."
+    docker compose -f "$COMPOSE_FILE" up -d db
+    echo "Waiting for PostgreSQL 15 to be ready..."
+    sleep 10
+
+    echo ""
+    echo "Step 5: Restoring data..."
+    ./bin/hogli db:restore "$BACKUP_FILE"
+
+    echo ""
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "✅ PostgreSQL upgrade complete!"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+    echo "Backup saved at: $BACKUP_FILE"
+    echo "You can delete it once verified."
+    echo ""
+}
+
+# Main script logic
+case "${1:-}" in
+    --help|-h)
+        show_help
+        exit 0
+        ;;
+
+    --list)
+        list_pg12_volumes
+        exit 0
+        ;;
+
+    --dump-only)
+        # Dump-only mode
+        echo ""
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "🐘 PostgreSQL 12 Dump (verify before restore)"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo ""
+
+        COMPOSE_FILE=$(detect_compose_file)
+        if [ -z "$COMPOSE_FILE" ]; then
+            echo "❌ Error: No docker-compose file found"
+            exit 1
+        fi
+        echo "Using compose file: $COMPOSE_FILE"
+        echo ""
+
+        DETECTED_VOLUME=$(detect_pg12_volume)
+        if [ -z "$DETECTED_VOLUME" ]; then
+            echo "❌ No PostgreSQL 12 volume found"
+            echo "Use: ./bin/upgrade-postgres --list"
+            exit 1
+        fi
+
+        migrate_volume "$DETECTED_VOLUME" "$COMPOSE_FILE" "true"
+        ;;
+
+    "")
+        # Interactive mode
+        echo ""
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "🐘 PostgreSQL 12 → 15 Upgrade"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo ""
+
+        COMPOSE_FILE=$(detect_compose_file)
+        if [ -z "$COMPOSE_FILE" ]; then
+            echo "❌ Error: No docker-compose file found"
+            exit 1
+        fi
+        echo "Using compose file: $COMPOSE_FILE"
+        echo ""
+
+        # Check if already on postgres:15
+        DB_RUNNING=$(docker compose -f "$COMPOSE_FILE" ps db --quiet 2>/dev/null || true)
+        if [ -n "$DB_RUNNING" ]; then
+            PG_VERSION=$(docker compose -f "$COMPOSE_FILE" exec -T db psql -U posthog -t -c "SHOW server_version;" 2>/dev/null | head -n1 | xargs || true)
+            if [[ "$PG_VERSION" == 15.* ]]; then
+                echo "✅ Already running PostgreSQL 15!"
+                exit 0
+            fi
+        fi
+
+        # Try to detect existing postgres:12 volume
+        DETECTED_VOLUME=$(detect_pg12_volume)
+
+        if [ -n "$DETECTED_VOLUME" ]; then
+            SIZE=$(docker run --rm -v "$DETECTED_VOLUME:/data:ro" alpine du -sh /data 2>/dev/null | awk '{print $1}' || echo "unknown")
+            echo "Found PostgreSQL 12 data:"
+            echo "  Volume: $DETECTED_VOLUME"
+            echo "  Size: $SIZE"
+            echo ""
+
+            migrate_volume "$DETECTED_VOLUME" "$COMPOSE_FILE"
+        else
+            echo "No PostgreSQL 12 data detected."
+            echo ""
+            echo "Starting fresh with PostgreSQL 15."
+            echo "Run: hogli start"
+            echo ""
+            echo "If you have data in an orphaned postgres:12 volume:"
+            echo "  hogli db:upgrade --list              # List all postgres:12 volumes"
+            echo "  ./bin/upgrade-postgres <volume-id>   # Migrate specific volume"
+            echo ""
+        fi
+        ;;
+
+    *)
+        # Direct volume migration mode
+        VOLUME_ID="$1"
+
+        COMPOSE_FILE=$(detect_compose_file)
+        if [ -z "$COMPOSE_FILE" ]; then
+            echo "❌ Error: No docker-compose file found"
+            exit 1
+        fi
+
+        echo ""
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "🐘 PostgreSQL 12 → 15 Upgrade"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo ""
+        echo "Using compose file: $COMPOSE_FILE"
+        echo ""
+
+        migrate_volume "$VOLUME_ID" "$COMPOSE_FILE"
+        ;;
+esac

@@ -3,16 +3,14 @@ import './DashboardItems.scss'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Responsive as ReactGridLayout } from 'react-grid-layout'
 
 import { InsightCard } from 'lib/components/Cards/InsightCard'
 import { TextCard } from 'lib/components/Cards/TextCard/TextCard'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { BREAKPOINTS, BREAKPOINT_COLUMN_COUNTS } from 'scenes/dashboard/dashboardUtils'
 import { useSurveyLinkedInsights } from 'scenes/surveys/hooks/useSurveyLinkedInsights'
@@ -22,7 +20,10 @@ import { urls } from 'scenes/urls'
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
-import { DashboardMode, DashboardPlacement, DashboardTile, DashboardType, QueryBasedInsightModel } from '~/types'
+import { DashboardMode, DashboardPlacement, DashboardType } from '~/types'
+
+const DRAG_AUTO_SCROLL_THRESHOLD = 100
+const DRAG_AUTO_SCROLL_SPEED = 8
 
 export function DashboardItems(): JSX.Element {
     const {
@@ -36,6 +37,7 @@ export function DashboardItems(): JSX.Element {
         highlightedInsightId,
         refreshStatus,
         itemsLoading,
+        dashboardStreaming,
         effectiveEditBarFilters,
         effectiveDashboardVariableOverrides,
         temporaryBreakdownColors,
@@ -51,14 +53,11 @@ export function DashboardItems(): JSX.Element {
         moveToDashboard,
         setTileOverride,
     } = useActions(dashboardLogic)
-    const { duplicateInsight, renameInsight } = useActions(insightsModel)
+    const { renameInsight } = useActions(insightsModel)
     const { push } = useActions(router)
     const { nameSortedDashboards } = useValues(dashboardsModel)
     const otherDashboards = nameSortedDashboards.filter((nsdb) => nsdb.id !== dashboard?.id)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const { data: surveyLinkedInsights, loading: surveyLinkedInsightsLoading } = useSurveyLinkedInsights({
-        skip: !featureFlags[FEATURE_FLAGS.SURVEYS_FUNNELS_CROSS_SELL],
-    })
+    const { data: surveyLinkedInsights, loading: surveyLinkedInsightsLoading } = useSurveyLinkedInsights({})
 
     const bestSurveyOpportunityFunnel = surveyLinkedInsightsLoading
         ? null
@@ -69,6 +68,17 @@ export function DashboardItems(): JSX.Element {
     // cannot click links when dragging and 250ms after
     const isDragging = useRef(false)
     const dragEndTimeout = useRef<number | null>(null)
+    const scrollAnimationRef = useRef<number | null>(null)
+    const scrollContainerRef = useRef<HTMLElement | null>(null)
+    const scrollContainerRectRef = useRef<DOMRect | null>(null)
+
+    useEffect(() => {
+        return () => {
+            if (scrollAnimationRef.current) {
+                cancelAnimationFrame(scrollAnimationRef.current)
+            }
+        }
+    }, [])
     const className = clsx({
         'dashboard-view-mode': dashboardMode !== DashboardMode.Edit,
         'dashboard-edit-mode': dashboardMode === DashboardMode.Edit,
@@ -76,15 +86,6 @@ export function DashboardItems(): JSX.Element {
 
     const { width: gridWrapperWidth, ref: gridWrapperRef } = useResizeObserver()
     const canResizeWidth = !gridWrapperWidth || gridWrapperWidth > BREAKPOINTS['sm']
-
-    const canAccessTileOverrides = !!featureFlags[FEATURE_FLAGS.DASHBOARD_TILE_OVERRIDES]
-    const duplicate = (tile: DashboardTile<QueryBasedInsightModel>, insight: QueryBasedInsightModel): void => {
-        if (canAccessTileOverrides) {
-            duplicateTile(tile)
-        } else {
-            duplicateInsight(insight)
-        }
-    }
 
     return (
         <div className="dashboard-items-wrapper" ref={gridWrapperRef}>
@@ -118,13 +119,58 @@ export function DashboardItems(): JSX.Element {
                     onResizeStop={() => {
                         setResizingItem(null)
                     }}
-                    onDrag={() => {
+                    onDragStart={() => {
+                        scrollContainerRef.current = document.getElementById('main-content')
+                        scrollContainerRectRef.current = scrollContainerRef.current?.getBoundingClientRect() ?? null
+                    }}
+                    onDrag={(_layout, _oldItem, _newItem, _placeholder, e) => {
                         isDragging.current = true
                         if (dragEndTimeout.current) {
                             window.clearTimeout(dragEndTimeout.current)
                         }
+                        if (scrollAnimationRef.current) {
+                            cancelAnimationFrame(scrollAnimationRef.current)
+                            scrollAnimationRef.current = null
+                        }
+
+                        const scrollContainer = scrollContainerRef.current
+                        const containerRect = scrollContainerRectRef.current
+                        if (!scrollContainer || !containerRect) {
+                            return
+                        }
+
+                        const mouseY = e.clientY
+
+                        let scrollSpeed = 0
+                        if (mouseY < containerRect.top + DRAG_AUTO_SCROLL_THRESHOLD) {
+                            scrollSpeed = -DRAG_AUTO_SCROLL_SPEED
+                        } else if (mouseY > containerRect.bottom - DRAG_AUTO_SCROLL_THRESHOLD) {
+                            scrollSpeed = DRAG_AUTO_SCROLL_SPEED
+                        }
+
+                        if (scrollSpeed !== 0) {
+                            const scroll = (): void => {
+                                const atTop = scrollSpeed < 0 && scrollContainer.scrollTop === 0
+                                const atBottom =
+                                    scrollSpeed > 0 &&
+                                    scrollContainer.scrollTop + scrollContainer.clientHeight >=
+                                        scrollContainer.scrollHeight
+                                if (atTop || atBottom) {
+                                    return
+                                }
+                                scrollContainer.scrollBy(0, scrollSpeed)
+                                scrollAnimationRef.current = requestAnimationFrame(scroll)
+                            }
+                            scrollAnimationRef.current = requestAnimationFrame(scroll)
+                        }
                     }}
                     onDragStop={() => {
+                        if (scrollAnimationRef.current) {
+                            cancelAnimationFrame(scrollAnimationRef.current)
+                            scrollAnimationRef.current = null
+                        }
+                        scrollContainerRef.current = null
+                        scrollContainerRectRef.current = null
                         if (dragEndTimeout.current) {
                             window.clearTimeout(dragEndTimeout.current)
                         }
@@ -183,7 +229,7 @@ export function DashboardItems(): JSX.Element {
                                     refresh={() => refreshDashboardItem({ tile })}
                                     refreshEnabled={!itemsLoading}
                                     rename={() => renameInsight(insight)}
-                                    duplicate={() => duplicate(tile, insight)}
+                                    duplicate={() => duplicateTile(tile)}
                                     setOverride={() => setTileOverride(tile)}
                                     showDetailsControls={
                                         placement != DashboardPlacement.Export &&
@@ -276,7 +322,7 @@ export function DashboardItems(): JSX.Element {
                     })}
                 </ReactGridLayout>
             )}
-            {itemsLoading && (
+            {dashboardStreaming && (
                 <div className="mt-4 flex items-center justify-center">
                     <div className="flex items-center gap-2 text-muted">
                         <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600" />
