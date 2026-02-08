@@ -57,7 +57,7 @@
         "tsx": "^4.20.5",
         "typed-openapi": "^2.2.2",
         "typescript": "^5.2.2",
-        "vite": "^5.4.21",
+        "vite": "^6.4.1",
         "vite-plugin-singlefile": "^2.3.0",
         "vite-tsconfig-paths": "^5.1.4",
         "vitest": "^3.2.4",
