@@ -24,7 +24,7 @@ from rest_framework import status
 from posthog import redis
 from posthog.api.cohort import get_cohort_actors_for_feature_flag
 from posthog.api.feature_flag import FeatureFlagSerializer, extract_etag_from_header
-from posthog.models import Experiment, FeatureFlag, GroupTypeMapping, Tag, TaggedItem, User
+from posthog.models import Experiment, FeatureFlag, GroupTypeMapping, PersonDistinctId, Tag, TaggedItem, User
 from posthog.models.cohort import Cohort
 from posthog.models.dashboard import Dashboard
 from posthog.models.feature_flag import FeatureFlagDashboards, get_feature_flags_for_team_in_cache
@@ -9139,3 +9139,31 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
         assert result_keys == {"stale_by_usage_flag", "stale_by_config_flag"}
         for result in results:
             assert result["status"] == "STALE"
+
+    def test_random_person_returns_valid_distinct_id(self):
+        person = Person.objects.create(team=self.team)
+        PersonDistinctId.objects.create(team=self.team, person=person, distinct_id="user-1", version=0)
+        PersonDistinctId.objects.create(team=self.team, person=person, distinct_id="user-2", version=0)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/random_person")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["distinct_id"] in {"user-1", "user-2"}
+
+    def test_random_person_404_when_no_persons(self):
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/random_person")
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_random_person_scoped_to_current_team(self):
+        other_team = self.organization.teams.create(name="other")
+        other_person = Person.objects.create(team=other_team)
+        PersonDistinctId.objects.create(team=other_team, person=other_person, distinct_id="other-user", version=0)
+
+        person = Person.objects.create(team=self.team)
+        PersonDistinctId.objects.create(team=self.team, person=person, distinct_id="my-user", version=0)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/random_person")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["distinct_id"] == "my-user"

@@ -14,6 +14,11 @@ import type { flagsToolbarLogicType } from './flagsToolbarLogicType'
 
 export type PayloadOverrides = Record<string, any>
 
+type EvaluationReasonsResponse = Record<
+    string,
+    { value: boolean | string; evaluation: { reason: string; condition_index: number | null } }
+>
+
 export const flagsToolbarLogic = kea<flagsToolbarLogicType>([
     path(['toolbar', 'flags', 'flagsToolbarLogic']),
     connect(() => ({
@@ -45,6 +50,13 @@ export const flagsToolbarLogic = kea<flagsToolbarLogicType>([
         setPayloadError: (flagKey: string, error: string | null) => ({ flagKey, error }),
         setPayloadEditorOpen: (flagKey: string, isOpen: boolean) => ({ flagKey, isOpen }),
         clearAllOverrides: true,
+        // Impersonation: view flags as a different user
+        loadFlagsForDistinctId: (distinctId: string) => ({ distinctId }),
+        setImpersonatedFlagValues: (flagValues: Record<string, string | boolean>) => ({ flagValues }),
+        loadRandomUser: true,
+        clearImpersonation: true,
+        setDraftDistinctId: (draftDistinctId: string) => ({ draftDistinctId }),
+        setImpersonationOpen: (isOpen: boolean) => ({ isOpen }),
     }),
     loaders(({ values }) => ({
         userFlags: [
@@ -143,18 +155,62 @@ export const flagsToolbarLogic = kea<flagsToolbarLogicType>([
                 },
             },
         ],
+        impersonatedDistinctId: [
+            null as string | null,
+            {
+                loadFlagsForDistinctId: (_, { distinctId }) => distinctId,
+                clearImpersonation: () => null,
+            },
+        ],
+        impersonatedFlagValues: [
+            null as Record<string, string | boolean> | null,
+            {
+                setImpersonatedFlagValues: (_, { flagValues }) => flagValues,
+                clearImpersonation: () => null,
+            },
+        ],
+        randomUserLoading: [
+            false,
+            {
+                loadRandomUser: () => true,
+                loadFlagsForDistinctId: () => false,
+                clearImpersonation: () => false,
+            },
+        ],
+        draftDistinctId: [
+            '',
+            {
+                setDraftDistinctId: (_, { draftDistinctId }) => draftDistinctId,
+                loadFlagsForDistinctId: () => '',
+            },
+        ],
+        impersonationOpen: [
+            false,
+            {
+                setImpersonationOpen: (_, { isOpen }) => isOpen,
+                clearImpersonation: () => false,
+            },
+        ],
     }),
     selectors({
         userFlagsWithOverrideInfo: [
-            (s) => [s.userFlags, s.localOverrides, s.posthogClientFlagValues, s.payloadOverrides],
-            (userFlags, localOverrides, posthogClientFlagValues, payloadOverrides) => {
+            (s) => [
+                s.userFlags,
+                s.localOverrides,
+                s.posthogClientFlagValues,
+                s.payloadOverrides,
+                s.impersonatedFlagValues,
+            ],
+            (userFlags, localOverrides, posthogClientFlagValues, payloadOverrides, impersonatedFlagValues) => {
                 return userFlags.map((flag) => {
                     const hasVariants = (flag.feature_flag.filters?.multivariate?.variants?.length || 0) > 0
 
+                    const baseValue = impersonatedFlagValues
+                        ? (impersonatedFlagValues[flag.feature_flag.key] ?? false)
+                        : (posthogClientFlagValues[flag.feature_flag.key] ?? flag.value)
+
                     const currentValue =
-                        flag.feature_flag.key in localOverrides
-                            ? localOverrides[flag.feature_flag.key]
-                            : (posthogClientFlagValues[flag.feature_flag.key] ?? flag.value)
+                        flag.feature_flag.key in localOverrides ? localOverrides[flag.feature_flag.key] : baseValue
 
                     return {
                         ...flag,
@@ -249,6 +305,46 @@ export const flagsToolbarLogic = kea<flagsToolbarLogicType>([
                     actions.setPayloadError(flagKey, 'Invalid JSON')
                     console.error('Invalid JSON:', e)
                 }
+            },
+            loadFlagsForDistinctId: async ({ distinctId }, breakpoint) => {
+                const params = { distinct_id: distinctId }
+                const response = await toolbarFetch(
+                    `/api/projects/@current/feature_flags/evaluation_reasons${encodeParams(params, '?')}`
+                )
+                breakpoint()
+
+                if (!response.ok) {
+                    return
+                }
+
+                const data: EvaluationReasonsResponse = await response.json()
+                const flagValues: Record<string, string | boolean> = {}
+                for (const [key, entry] of Object.entries(data)) {
+                    flagValues[key] = entry.value
+                }
+                actions.setImpersonatedFlagValues(flagValues)
+
+                // Apply as overrides so the page actually re-renders with these flags
+                const clientPostHog = values.posthog
+                if (clientPostHog) {
+                    clientPostHog.featureFlags.overrideFeatureFlags({ flags: flagValues })
+                    actions.checkLocalOverrides()
+                }
+                toolbarPosthogJS.capture('toolbar flags impersonated', { distinct_id: distinctId })
+            },
+            loadRandomUser: async (_, breakpoint) => {
+                const response = await toolbarFetch('/api/projects/@current/feature_flags/random_person')
+                breakpoint()
+                if (!response.ok) {
+                    return
+                }
+                const data = await response.json()
+                if (data.distinct_id) {
+                    actions.loadFlagsForDistinctId(data.distinct_id)
+                }
+            },
+            clearImpersonation: () => {
+                clearFeatureFlagOverrides()
             },
             clearAllOverrides: () => {
                 clearFeatureFlagOverrides()

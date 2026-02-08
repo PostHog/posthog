@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 import json
 import time
+import random
 import logging
 from datetime import datetime
 from typing import Any, Optional, cast
@@ -73,6 +74,7 @@ from posthog.models.feature_flag.local_evaluation import (
     get_flags_response_if_none_match,
 )
 from posthog.models.feature_flag.types import PropertyFilterType
+from posthog.models.person import PersonDistinctId
 from posthog.models.property import Property
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.surveys.survey import Survey
@@ -2103,6 +2105,23 @@ class FeatureFlagViewSet(
             }
 
         return Response(flags_with_evaluation_reasons)
+
+    @action(methods=["GET"], detail=False, url_path="random_person")
+    def random_person(self, request: request.Request, **kwargs):
+        """Return a random person's distinct_id for the current project. Used by the toolbar
+        to let developers preview feature flags as a random user would see them."""
+        qs = PersonDistinctId.objects.filter(team_id=self.team_id)
+        count = qs.count()
+        if count == 0:
+            raise exceptions.NotFound("No persons found for this project")
+        offset = random.randint(0, count - 1)
+        result = qs.order_by('id').values_list("distinct_id", flat=True)[offset : offset + 1]
+        if not result:
+            # Offset exceeded actual count, just grab the last one
+            result = qs.order_by("-id")[:1]
+        if not result:
+            raise exceptions.NotFound("No persons found for this project")
+        return Response({"distinct_id": result[0]})
 
     @action(methods=["POST"], detail=False)
     def user_blast_radius(self, request: request.Request, **kwargs):
