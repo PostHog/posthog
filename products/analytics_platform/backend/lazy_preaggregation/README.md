@@ -146,3 +146,4 @@ If an executor crashes while a job is PENDING, other waiters detect this via the
 - Our stale job detection just waits for the default timeout of a clickhouse query. Instead the executor could send a heartbeat, triggered by the `progress` arg, and we could mark a job as stale if it misses N heartbeats
 - If we're generating a lot of updates (e.g. heartbeat timestamps) we might want to move that off of the main pg, either to a redis or other pg instance.
 - The stale enum value isn't used for anything, we just mark stale jobs as errored
+- Add posthog logging for state transitions
