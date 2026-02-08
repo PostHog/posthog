@@ -10,7 +10,7 @@
          e.session_id AS formal_session_id,
          first_value(e.uuid) OVER (PARTITION BY tuple(e.person_id, e.session_id_flip_index)
                                    ORDER BY toInt64(e.timestamp) ASC RANGE BETWEEN 1800 PRECEDING AND CURRENT ROW) AS informal_session_uuid,
-                                  dateDiff('s', sre.start_time, sre.end_time) AS recording_duration_s
+         dateDiff('s', sre.start_time, sre.end_time) AS recording_duration_s
   FROM
     (SELECT uuid AS uuid,
                     person_id AS person_id,
@@ -82,7 +82,7 @@
          e.session_id AS formal_session_id,
          first_value(e.uuid) OVER (PARTITION BY tuple(e.person_id, e.session_id_flip_index)
                                    ORDER BY toInt64(e.timestamp) ASC RANGE BETWEEN 1800 PRECEDING AND CURRENT ROW) AS informal_session_uuid,
-                                  dateDiff('s', sre.start_time, sre.end_time) AS recording_duration_s
+         dateDiff('s', sre.start_time, sre.end_time) AS recording_duration_s
   FROM
     (SELECT uuid AS uuid,
                     person_id AS person_id,
@@ -154,7 +154,7 @@
          e.session_id AS formal_session_id,
          first_value(e.uuid) OVER (PARTITION BY tuple(e.person_id, e.session_id_flip_index)
                                    ORDER BY toInt64(e.timestamp) ASC RANGE BETWEEN 1800 PRECEDING AND CURRENT ROW) AS informal_session_uuid,
-                                  dateDiff('s', sre.start_time, sre.end_time) AS recording_duration_s
+         dateDiff('s', sre.start_time, sre.end_time) AS recording_duration_s
   FROM
     (SELECT uuid AS uuid,
                     person_id AS person_id,
@@ -226,7 +226,7 @@
          e.session_id AS formal_session_id,
          first_value(e.uuid) OVER (PARTITION BY tuple(e.person_id, e.session_id_flip_index)
                                    ORDER BY toInt64(e.timestamp) ASC RANGE BETWEEN 1800 PRECEDING AND CURRENT ROW) AS informal_session_uuid,
-                                  dateDiff('s', sre.start_time, sre.end_time) AS recording_duration_s
+         dateDiff('s', sre.start_time, sre.end_time) AS recording_duration_s
   FROM
     (SELECT uuid AS uuid,
                     person_id AS person_id,
@@ -298,7 +298,7 @@
          e.session_id AS formal_session_id,
          first_value(e.uuid) OVER (PARTITION BY tuple(e.person_id, e.session_id_flip_index)
                                    ORDER BY toInt64(e.timestamp) ASC RANGE BETWEEN 1800 PRECEDING AND CURRENT ROW) AS informal_session_uuid,
-                                  dateDiff('s', sre.start_time, sre.end_time) AS recording_duration_s
+         dateDiff('s', sre.start_time, sre.end_time) AS recording_duration_s
   FROM
     (SELECT uuid AS uuid,
                     person_id AS person_id,
@@ -370,7 +370,7 @@
          e.session_id AS formal_session_id,
          first_value(e.uuid) OVER (PARTITION BY tuple(e.person_id, e.session_id_flip_index)
                                    ORDER BY toInt64(e.timestamp) ASC RANGE BETWEEN 1800 PRECEDING AND CURRENT ROW) AS informal_session_uuid,
-                                  dateDiff('s', sre.start_time, sre.end_time) AS recording_duration_s
+         dateDiff('s', sre.start_time, sre.end_time) AS recording_duration_s
   FROM
     (SELECT uuid AS uuid,
                     person_id AS person_id,
@@ -442,7 +442,7 @@
          e.session_id AS formal_session_id,
          first_value(e.uuid) OVER (PARTITION BY tuple(e.person_id, e.session_id_flip_index)
                                    ORDER BY toInt64(e.timestamp) ASC RANGE BETWEEN 1800 PRECEDING AND CURRENT ROW) AS informal_session_uuid,
-                                  dateDiff('s', sre.start_time, sre.end_time) AS recording_duration_s
+         dateDiff('s', sre.start_time, sre.end_time) AS recording_duration_s
   FROM
     (SELECT uuid AS uuid,
                     person_id AS person_id,
