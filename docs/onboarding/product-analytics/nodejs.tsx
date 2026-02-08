@@ -92,7 +92,6 @@ export const getNodeJSSteps = (ctx: OnboardingComponentsContext): StepDefinition
                             },
                         ]}
                     />
-                    <PersonProfiles language="javascript" file="Node.js" />
                 </>
             ),
         },
