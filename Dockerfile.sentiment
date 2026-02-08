@@ -1,0 +1,39 @@
+# Sentiment worker image — bakes the HuggingFace sentiment model (ONNX) into
+# the image so there's no runtime download from HuggingFace on every pod restart.
+#
+# Built on top of the main PostHog Cloud image (posthog-cloud) which already
+# contains the full Python environment and dependencies.
+#
+# The model is pre-downloaded, converted to ONNX, and saved to
+# /opt/posthog-sentiment-model. The existing model.py code detects this via
+# the POSTHOG_SENTIMENT_MODEL_CACHE env var and loads from disk.
+
+ARG BASE_IMAGE=ghcr.io/posthog/posthog:latest
+FROM ${BASE_IMAGE}
+
+USER root
+
+# Pre-download and convert sentiment model to ONNX at build time.
+# Uses the same dynamo workaround as model.py to avoid the PyTorch 2.9+
+# external data file issue with torch.onnx.export(dynamo=True).
+RUN /python-runtime/bin/python -c "\
+from optimum.onnxruntime import ORTModelForSequenceClassification; \
+from transformers import AutoTokenizer; \
+import torch; \
+model_name = 'cardiffnlp/twitter-roberta-base-sentiment-latest'; \
+cache_dir = '/opt/posthog-sentiment-model'; \
+tokenizer = AutoTokenizer.from_pretrained(model_name); \
+original_export = torch.onnx.export; \
+def export_no_dynamo(*a, **kw): kw.setdefault('dynamo', False); return original_export(*a, **kw); \
+torch.onnx.export = export_no_dynamo; \
+model = ORTModelForSequenceClassification.from_pretrained(model_name, export=True); \
+torch.onnx.export = original_export; \
+model.save_pretrained(cache_dir); \
+tokenizer.save_pretrained(cache_dir); \
+print('Sentiment model baked successfully')"
+
+USER posthog
+
+ENV POSTHOG_SENTIMENT_MODEL_CACHE=/opt/posthog-sentiment-model
+
+CMD ["./bin/temporal-django-worker"]

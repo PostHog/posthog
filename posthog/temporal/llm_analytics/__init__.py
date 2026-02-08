@@ -28,6 +28,7 @@ from posthog.temporal.llm_analytics.trace_summarization import (
 
 EVAL_WORKFLOWS = [
     RunEvaluationWorkflow,
+    # Keep sentiment registered on evals queue temporarily for backward compatibility
     RunSentimentClassificationWorkflow,
 ]
 
@@ -39,6 +40,15 @@ EVAL_ACTIVITIES = [
     execute_llm_judge_activity,
     emit_evaluation_event_activity,
     emit_internal_telemetry_activity,
+    # Keep sentiment registered on evals queue temporarily for backward compatibility
+    classify_sentiment_activity,
+]
+
+SENTIMENT_WORKFLOWS = [
+    RunSentimentClassificationWorkflow,
+]
+
+SENTIMENT_ACTIVITIES = [
     classify_sentiment_activity,
 ]
 
