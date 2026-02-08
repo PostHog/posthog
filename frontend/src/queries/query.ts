@@ -38,7 +38,7 @@ export const QUERY_TIMEOUT_ERROR_MESSAGE = 'Query timed out'
  * This function safely extracts the message and code, falling back to the
  * original string if parsing fails.
  */
-function parseErrorMessage(errorMessage: string | undefined): { message: string; code: string | null } {
+export function parseErrorMessage(errorMessage: string | undefined): { message: string; code: string | null } {
     if (!errorMessage || typeof errorMessage !== 'string') {
         return { message: errorMessage || '', code: null }
     }
@@ -106,10 +106,17 @@ export async function pollForResults(
                 e.code = parsed.code
             }
 
+            // Attach queryId to error for downstream error handling
+            e.queryId = queryId
+
             throw e
         }
     }
-    throw new Error(QUERY_TIMEOUT_ERROR_MESSAGE)
+
+    // if we get here, the query timed out
+    const timeoutError = new Error(QUERY_TIMEOUT_ERROR_MESSAGE)
+    ;(timeoutError as Error & { queryId?: string }).queryId = queryId
+    throw timeoutError
 }
 
 /**
