@@ -4,13 +4,14 @@ use cyclotron_core::{
     Job, JobInit, JobState, ManagerConfig, PoolConfig, QueueManager, Worker, WorkerConfig,
 };
 use neon::{
+    event::Channel,
     handle::Handle,
     object::Object,
     prelude::{Context, FunctionContext, ModuleContext, TaskContext},
     result::{JsResult, NeonResult},
     types::{
-        buffer::TypedArray, JsArray, JsArrayBuffer, JsNull, JsNumber, JsObject, JsPromise,
-        JsString, JsUint32Array, JsUint8Array, JsUndefined, JsValue,
+        buffer::TypedArray, Deferred, JsArray, JsArrayBuffer, JsNull, JsNumber, JsObject,
+        JsPromise, JsString, JsUint32Array, JsUint8Array, JsUndefined, JsValue,
     },
 };
 use once_cell::sync::OnceCell;
@@ -62,6 +63,42 @@ fn hello(mut cx: FunctionContext) -> JsResult<JsString> {
     Ok(cx.string(string))
 }
 
+/// Ensures the Neon Deferred is always settled (resolve or reject), even when the async future
+/// is dropped (e.g. runtime shutdown / process exit). Prevents "Deferred was dropped without
+/// being settled" when the plugin server exits before init completes.
+struct DeferredGuard {
+    inner: Option<(Deferred, Channel)>,
+}
+
+impl DeferredGuard {
+    fn new(deferred: Deferred, channel: Channel) -> Self {
+        Self {
+            inner: Some((deferred, channel)),
+        }
+    }
+
+    /// Settle the promise with the given closure and disarm the guard so Drop does nothing.
+    fn settle_with<V, F>(&mut self, f: F)
+    where
+        V: neon::types::Value,
+        F: FnOnce(TaskContext) -> JsResult<V> + Send + 'static,
+    {
+        if let Some((deferred, channel)) = self.inner.take() {
+            deferred.settle_with::<V, _>(&channel, f);
+        }
+    }
+}
+
+impl Drop for DeferredGuard {
+    fn drop(&mut self) {
+        if let Some((deferred, channel)) = self.inner.take() {
+            deferred.settle_with::<JsNull, _>(&channel, |mut cx| {
+                cx.throw_error::<_, Handle<JsNull>>("cyclotron init cancelled or runtime shut down")
+            });
+        }
+    }
+}
+
 fn init_worker_impl(mut cx: FunctionContext, throw_on_reinit: bool) -> JsResult<JsPromise> {
     let arg1 = cx.argument::<JsString>(0)?;
 
@@ -76,10 +113,11 @@ fn init_worker_impl(mut cx: FunctionContext, throw_on_reinit: bool) -> JsResult<
     let (deferred, promise) = cx.promise();
     let channel = cx.channel();
     let runtime = runtime(&mut cx)?;
+    let mut guard = DeferredGuard::new(deferred, channel);
 
     let fut = async move {
         let worker = Worker::new(config, worker_config).await;
-        deferred.settle_with(&channel, move |mut cx| {
+        guard.settle_with::<JsNull, _>(move |mut cx| {
             if WORKER.get().is_some() && !throw_on_reinit {
                 return Ok(cx.null()); // Short circuit to make using maybe_init a no-op
             }
@@ -105,10 +143,11 @@ fn init_manager_impl(mut cx: FunctionContext, throw_on_reinit: bool) -> JsResult
     let (deferred, promise) = cx.promise();
     let channel = cx.channel();
     let runtime = runtime(&mut cx)?;
+    let mut guard = DeferredGuard::new(deferred, channel);
 
     let fut = async move {
         let manager = QueueManager::new(config).await;
-        deferred.settle_with(&channel, move |mut cx| {
+        guard.settle_with::<JsNull, _>(move |mut cx| {
             if MANAGER.get().is_some() && !throw_on_reinit {
                 return Ok(cx.null()); // Short circuit to make using maybe_init a no-op
             }
@@ -150,10 +189,11 @@ fn init_shadow_manager_impl(mut cx: FunctionContext, throw_on_reinit: bool) -> J
     let (deferred, promise) = cx.promise();
     let channel = cx.channel();
     let runtime = runtime(&mut cx)?;
+    let mut guard = DeferredGuard::new(deferred, channel);
 
     let fut = async move {
         let manager = QueueManager::new(config).await;
-        deferred.settle_with(&channel, move |mut cx| {
+        guard.settle_with::<JsNull, _>(move |mut cx| {
             if SHADOW_MANAGER.get().is_some() && !throw_on_reinit {
                 return Ok(cx.null()); // Short circuit to make using maybe_init a no-op
             }
@@ -232,14 +272,14 @@ fn create_job(mut cx: FunctionContext) -> JsResult<JsPromise> {
         let manager = match MANAGER.get() {
             Some(manager) => manager,
             None => {
-                deferred.settle_with(&channel, |mut cx| {
+                deferred.settle_with::<JsNull, _>(&channel, |mut cx| {
                     throw_null_err(&mut cx, "manager not initialized")
                 });
                 return;
             }
         };
         let res = manager.create_job(job).await;
-        deferred.settle_with(&channel, move |mut cx| {
+        deferred.settle_with::<JsString, _>(&channel, move |mut cx| {
             let id = res.or_else(|e| cx.throw_error(format!("{e}")))?;
             Ok(cx.string(id.to_string()))
         });
@@ -304,7 +344,7 @@ fn bulk_create_jobs(mut cx: FunctionContext) -> JsResult<JsPromise> {
         let manager = match MANAGER.get() {
             Some(manager) => manager,
             None => {
-                deferred.settle_with(&channel, |mut cx| {
+                deferred.settle_with::<JsNull, _>(&channel, |mut cx| {
                     throw_null_err(&mut cx, "manager not initialized")
                 });
                 return;
@@ -312,7 +352,7 @@ fn bulk_create_jobs(mut cx: FunctionContext) -> JsResult<JsPromise> {
         };
 
         let res = manager.bulk_create_jobs(jobs).await;
-        deferred.settle_with(&channel, move |mut cx| {
+        deferred.settle_with::<JsArray, _>(&channel, move |mut cx| {
             let ids = res.or_else(|e| cx.throw_error(format!("{e}")))?;
             let returned = JsArray::new(&mut cx, ids.len());
             for (i, id) in ids.iter().enumerate() {
@@ -354,14 +394,14 @@ fn shadow_create_job(mut cx: FunctionContext) -> JsResult<JsPromise> {
         let manager = match SHADOW_MANAGER.get() {
             Some(manager) => manager,
             None => {
-                deferred.settle_with(&channel, |mut cx| {
+                deferred.settle_with::<JsNull, _>(&channel, |mut cx| {
                     throw_null_err(&mut cx, "shadow manager not initialized")
                 });
                 return;
             }
         };
         let res = manager.create_job(job).await;
-        deferred.settle_with(&channel, move |mut cx| {
+        deferred.settle_with::<JsString, _>(&channel, move |mut cx| {
             let id = res.or_else(|e| cx.throw_error(format!("{e}")))?;
             Ok(cx.string(id.to_string()))
         });
@@ -426,7 +466,7 @@ fn shadow_bulk_create_jobs(mut cx: FunctionContext) -> JsResult<JsPromise> {
         let manager = match SHADOW_MANAGER.get() {
             Some(manager) => manager,
             None => {
-                deferred.settle_with(&channel, |mut cx| {
+                deferred.settle_with::<JsNull, _>(&channel, |mut cx| {
                     throw_null_err(&mut cx, "shadow manager not initialized")
                 });
                 return;
@@ -434,7 +474,7 @@ fn shadow_bulk_create_jobs(mut cx: FunctionContext) -> JsResult<JsPromise> {
         };
 
         let res = manager.bulk_create_jobs(jobs).await;
-        deferred.settle_with(&channel, move |mut cx| {
+        deferred.settle_with::<JsArray, _>(&channel, move |mut cx| {
             let ids = res.or_else(|e| cx.throw_error(format!("{e}")))?;
             let returned = JsArray::new(&mut cx, ids.len());
             for (i, id) in ids.iter().enumerate() {
@@ -463,14 +503,14 @@ fn dequeue_jobs(mut cx: FunctionContext) -> JsResult<JsPromise> {
         let worker = match WORKER.get() {
             Some(worker) => worker,
             None => {
-                deferred.settle_with(&channel, |mut cx| {
+                deferred.settle_with::<JsNull, _>(&channel, |mut cx| {
                     throw_null_err(&mut cx, "worker not initialized")
                 });
                 return;
             }
         };
         let jobs = worker.dequeue_jobs(&queue_name, limit).await;
-        deferred.settle_with(&channel, move |mut cx| {
+        deferred.settle_with::<JsArray, _>(&channel, move |mut cx| {
             let jobs = jobs.or_else(|e| cx.throw_error(format!("{e}")))?;
             let jobs = jobs_to_js_array(&mut cx, jobs)?;
             Ok(jobs)
@@ -495,14 +535,14 @@ fn dequeue_with_vm_state(mut cx: FunctionContext) -> JsResult<JsPromise> {
         let worker = match WORKER.get() {
             Some(worker) => worker,
             None => {
-                deferred.settle_with(&channel, |mut cx| {
+                deferred.settle_with::<JsNull, _>(&channel, |mut cx| {
                     throw_null_err(&mut cx, "worker not initialized")
                 });
                 return;
             }
         };
         let jobs = worker.dequeue_with_vm_state(&queue_name, limit).await;
-        deferred.settle_with(&channel, move |mut cx| {
+        deferred.settle_with::<JsArray, _>(&channel, move |mut cx| {
             let jobs = jobs.or_else(|e| cx.throw_error(format!("{e}")))?;
             let jobs = jobs_to_js_array(&mut cx, jobs)?;
             Ok(jobs)
@@ -528,7 +568,7 @@ fn release_job(mut cx: FunctionContext) -> JsResult<JsPromise> {
         let worker = match WORKER.get() {
             Some(worker) => worker,
             None => {
-                deferred.settle_with(&channel, |mut cx| {
+                deferred.settle_with::<JsNull, _>(&channel, |mut cx| {
                     throw_null_err(&mut cx, "worker not initialized")
                 });
                 return;
@@ -537,7 +577,7 @@ fn release_job(mut cx: FunctionContext) -> JsResult<JsPromise> {
         // We await the handle here because this translates waiting on the join handle all the way to
         // a Js Promise.await.
         let res = worker.release_job(job_id, None).await;
-        deferred.settle_with(&channel, move |mut cx| {
+        deferred.settle_with::<JsNull, _>(&channel, move |mut cx| {
             res.or_else(|e| cx.throw_error(format!("{e}")))?;
             Ok(cx.null())
         });
@@ -557,14 +597,14 @@ fn force_flush(mut cx: FunctionContext) -> JsResult<JsPromise> {
         let worker = match WORKER.get() {
             Some(worker) => worker,
             None => {
-                deferred.settle_with(&channel, |mut cx| {
+                deferred.settle_with::<JsNull, _>(&channel, |mut cx| {
                     throw_null_err(&mut cx, "worker not initialized")
                 });
                 return;
             }
         };
         let res = worker.force_flush().await;
-        deferred.settle_with(&channel, |mut cx| {
+        deferred.settle_with::<JsNull, _>(&channel, |mut cx| {
             res.or_else(|e| cx.throw_error(format!("{e}")))?;
             Ok(cx.null())
         });
