@@ -381,10 +381,10 @@ export function SidePanelSupport(): JSX.Element {
                             {showMaxAI && isBillingLoaded && (
                                 <Section title="Ask PostHog AI">
                                     <div>
-                                        <p>PostHog AI can now answer 80%+ of the support questions we receive! Nice.</p>
                                         <p>
-                                            Let PostHog AI read 100s of pages of docs for you, write SQL queries and
-                                            expressions, regex patterns, etc.
+                                            Your AI assistant for PostHog. Search through 1000s of pages of docs, write
+                                            and fix SQL queries, build insights, find errors, and analyze data - all in
+                                            seconds.
                                         </p>
                                         <LemonButton
                                             type="primary"
