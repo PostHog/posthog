@@ -48,9 +48,14 @@ export class PlaywrightSetup {
     async callSetupEndpoint(setupType: string, options: PlaywrightSetupOptions = {}): Promise<TestSetupResponse> {
         const { data = {}, throwOnError = true, baseURL } = options
         const url = `${baseURL || this.baseURL}/api/setup_test/${setupType}/`
+        const startTime = Date.now()
+
+        console.log(`[PlaywrightSetup] Starting ${setupType} setup...`)
 
         try {
             const response = await this.request.post(url, { data })
+            const requestDuration = Date.now() - startTime
+            console.log(`[PlaywrightSetup] ${setupType} API request completed in ${requestDuration}ms (status: ${response.status()})`)
 
             const responseText = await response.text()
 
@@ -67,10 +72,14 @@ export class PlaywrightSetup {
                 throw new Error(`Playwright setup failed for '${setupType}': ${result.error || 'Unknown error'}`)
             }
 
+            const totalDuration = Date.now() - startTime
+            console.log(`[PlaywrightSetup] ${setupType} setup completed in ${totalDuration}ms (success: ${result.success})`)
+
             return result
         } catch (error) {
+            const errorDuration = Date.now() - startTime
             const errorMessage = error instanceof Error ? error.message : String(error)
-            console.error(`[PlaywrightSetup] Setup endpoint error:`, errorMessage)
+            console.error(`[PlaywrightSetup] Setup endpoint error after ${errorDuration}ms:`, errorMessage)
 
             if (throwOnError) {
                 throw new Error(`Failed to call setup endpoint: ${errorMessage}`)
@@ -93,7 +102,12 @@ export class PlaywrightSetup {
     async createWorkspace(
         dataOrName?: string | Partial<PlaywrightWorkspaceSetupData>
     ): Promise<PlaywrightWorkspaceSetupResult> {
+        const workspaceStartTime = Date.now()
         const data = typeof dataOrName === 'string' ? { organization_name: dataOrName } : (dataOrName ?? {})
+        const orgName = (data as PlaywrightWorkspaceSetupData).organization_name || 'default'
+
+        console.log(`[PlaywrightSetup] Creating workspace "${orgName}"...`)
+
         const result = await this.callSetupEndpoint('organization_with_team', {
             data: data as PlaywrightWorkspaceSetupData,
         })
@@ -115,10 +129,19 @@ export class PlaywrightSetup {
             throw new Error(`Workspace creation returned incomplete data. Missing fields: ${missingFields.join(', ')}`)
         }
 
+        const workspaceTotalDuration = Date.now() - workspaceStartTime
+        console.log(
+            `[PlaywrightSetup] Workspace "${orgName}" created successfully in ${workspaceTotalDuration}ms ` +
+                `(org_id: ${workspace.organization_id}, team_id: ${workspace.team_id})`
+        )
+
         return workspace
     }
 
     async login(page: Page, workspace: PlaywrightWorkspaceSetupResult): Promise<void> {
+        const loginStartTime = Date.now()
+        console.log(`[PlaywrightSetup] Logging in as ${workspace.user_email}...`)
+
         // Use page.request to share cookies/session with the browser context
         await page.request.post(`${this.baseURL}/api/login/`, {
             data: {
@@ -126,6 +149,9 @@ export class PlaywrightSetup {
                 password: LOGIN_PASSWORD,
             },
         })
+
+        const loginDuration = Date.now() - loginStartTime
+        console.log(`[PlaywrightSetup] Login completed in ${loginDuration}ms`)
     }
 
     /**
