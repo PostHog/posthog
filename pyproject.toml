@@ -37,7 +37,7 @@ dependencies = [
     "dagster-postgres==0.26.18",
     "dagster-slack==0.26.18",
     "dagster-webserver==1.10.18",
-    "deltalake==0.25.2",
+    "deltalake[pyarrow]==1.4.0",
     "dj-database-url==0.5.0",
     "django~=4.2.28",
     "django-axes[ipware]==8.0.0",
