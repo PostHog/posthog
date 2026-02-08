@@ -234,6 +234,7 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
             })() as { primary: ExperimentMetric[]; secondary: ExperimentMetric[] },
             {
                 setSharedMetrics: (_, { sharedMetrics }) => sharedMetrics,
+                resetExperiment: () => ({ primary: [], secondary: [] }),
             },
         ],
         isExperimentSubmitting: [
@@ -322,10 +323,8 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
     })),
     listeners(({ values, actions, props }) => ({
         clearDraft: () => {
-            if (props.experiment || values.experiment.id !== 'new') {
-                return
-            }
             clearDraftStorage(props.tabId)
+            actions.resetExperiment()
         },
         setExperiment: () => {},
         setExperimentValue: () => {},
