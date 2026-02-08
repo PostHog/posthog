@@ -119,6 +119,14 @@ semgrep --test .semgrep/rules/
 docker run --rm -v "${PWD}:/src" semgrep/semgrep semgrep --test /src/.semgrep/rules/
 ```
 
+## Architecture guidelines
+
+- API views should declare request/response schemas — prefer `@validated_request` from `posthog.api.mixins` or `@extend_schema` from drf-spectacular
+- Django serializers are the source of truth for frontend API types — they auto-generate TypeScript via Orval, so serializer changes propagate to the frontend automatically
+- See `docs/published/type-system.md` for the full type generation pipeline and conventions
+- If possible, new features should live in `products/` as Django apps with `backend/` and `frontend/` subdirectories
+- Always filter querysets by `team_id` — in serializers, access the team via `self.context["get_team"]()`
+
 ## Important rules for Code Style
 
 - Python: Use type hints, follow mypy strict rules
