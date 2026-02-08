@@ -9,6 +9,7 @@ from posthog.temporal.llm_analytics.run_evaluation import (
     increment_trial_eval_count_activity,
     update_key_state_activity,
 )
+from posthog.temporal.llm_analytics.sentiment import RunSentimentClassificationWorkflow, classify_sentiment_activity
 from posthog.temporal.llm_analytics.team_discovery import get_team_ids_for_llm_analytics
 from posthog.temporal.llm_analytics.trace_clustering import (
     DailyTraceClusteringWorkflow,
@@ -27,6 +28,7 @@ from posthog.temporal.llm_analytics.trace_summarization import (
 
 EVAL_WORKFLOWS = [
     RunEvaluationWorkflow,
+    RunSentimentClassificationWorkflow,
 ]
 
 EVAL_ACTIVITIES = [
@@ -37,6 +39,7 @@ EVAL_ACTIVITIES = [
     execute_llm_judge_activity,
     emit_evaluation_event_activity,
     emit_internal_telemetry_activity,
+    classify_sentiment_activity,
 ]
 
 WORKFLOWS = [
@@ -46,6 +49,7 @@ WORKFLOWS = [
     TraceClusteringCoordinatorWorkflow,
     # Keep eval workflow registered here temporarily so orphaned workflows on general-purpose queue can complete
     RunEvaluationWorkflow,
+    RunSentimentClassificationWorkflow,
 ]
 
 ACTIVITIES = [
@@ -67,4 +71,6 @@ ACTIVITIES = [
     execute_llm_judge_activity,
     emit_evaluation_event_activity,
     emit_internal_telemetry_activity,
+    # Sentiment activities
+    classify_sentiment_activity,
 ]
