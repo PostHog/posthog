@@ -134,6 +134,27 @@ export function ActionsTable(): JSX.Element {
                                                             </>
                                                         )
                                                 }
+                                            case '$screen': {
+                                                const screenFilter = step.properties?.find(
+                                                    (p) => 'key' in p && p.key === '$screen_name'
+                                                )
+                                                if (screenFilter && 'value' in screenFilter && screenFilter.value) {
+                                                    const matching =
+                                                        'operator' in screenFilter && screenFilter.operator === 'regex'
+                                                            ? 'matches regex'
+                                                            : 'operator' in screenFilter &&
+                                                                screenFilter.operator === 'exact'
+                                                              ? 'matches exactly'
+                                                              : 'contains'
+                                                    return (
+                                                        <>
+                                                            Screen name {matching}{' '}
+                                                            <strong>{String(screenFilter.value)}</strong>
+                                                        </>
+                                                    )
+                                                }
+                                                return 'Screen'
+                                            }
                                             case '':
                                             case null:
                                             case undefined:
