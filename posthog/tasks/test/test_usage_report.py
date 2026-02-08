@@ -3556,6 +3556,54 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
         self.assertEqual(result[0][0], self.org_1_team_1.id)
         self.assertEqual(result[0][1], 240)
 
+    def test_non_billable_ai_events_excluded_from_ai_event_count(self) -> None:
+        from posthog.tasks.usage_report import (
+            get_teams_with_ai_event_count_in_period,
+            get_teams_with_billable_event_count_in_period,
+        )
+
+        self._setup_teams()
+
+        period = get_previous_day(at=now() + relativedelta(days=1))
+        period_start, period_end = period
+
+        # Create billable AI events
+        for i in range(3):
+            _create_event(
+                distinct_id="test_id",
+                event="$ai_generation",
+                properties={"$ai_trace_id": "some_id", "$ai_model": "gpt-4o"},
+                timestamp=period_start + relativedelta(hours=i + 1),
+                team=self.org_1_team_1,
+            )
+
+        # Create non-billable AI events (system-generated from $ai_generation)
+        for i in range(5):
+            _create_event(
+                distinct_id="test_id",
+                event="$ai_sentiment",
+                properties={
+                    "$ai_trace_id": "some_id",
+                    "$ai_sentiment_label": "positive",
+                    "$ai_sentiment_score": 0.9,
+                },
+                timestamp=period_start + relativedelta(hours=i + 1),
+                team=self.org_1_team_1,
+            )
+
+        flush_persons_and_events()
+
+        ai_result = get_teams_with_ai_event_count_in_period(period_start, period_end)
+        billable_result = get_teams_with_billable_event_count_in_period(period_start, period_end)
+
+        ai_count = dict(ai_result).get(self.org_1_team_1.id, 0)
+        billable_count = dict(billable_result).get(self.org_1_team_1.id, 0)
+
+        # Only the 3 $ai_generation events should be counted as AI events
+        self.assertEqual(ai_count, 3)
+        # $ai_sentiment should not appear in standard billing either
+        self.assertEqual(billable_count, 0)
+
 
 class TestSendUsage(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest):
     def setUp(self) -> None:
