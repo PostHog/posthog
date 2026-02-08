@@ -246,7 +246,7 @@ function TaxonomicBreakdownComboboxInner({
                             value.map((item) => (
                                 <Combobox.Chip
                                     key={item.id}
-                                    className="inline-flex items-center gap-0.5 bg-fill-button-tertiary rounded-sm px-1.5 py-0.5 text-xs font-medium max-w-[200px] cursor-default outline-none focus-visible:ring-1 focus-visible:ring-primary"
+                                    className="inline-flex items-center gap-0.5 bg-fill-button-tertiary rounded-sm pl-1.5 pr-1 py-0.5 font-medium max-w-[200px] cursor-default outline-none focus-visible:bg-fill-button-tertiary-active ring-1 ring-secondary"
                                 >
                                     <PropertyKeyInfo value={item.name} disablePopover type={item.groupType} />
                                     <Combobox.ChipRemove
