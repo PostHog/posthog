@@ -11,7 +11,7 @@ import { objectsEqual } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
-import { DataTableNode, LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
+import { DataTableNode, LLMTrace } from '~/queries/schema/schema-general'
 import { QueryContext, QueryContextColumnComponent } from '~/queries/types'
 import { isTracesQuery } from '~/queries/utils'
 
@@ -19,6 +19,7 @@ import { LLMMessageDisplay } from './ConversationDisplay/ConversationMessagesDis
 import { SentimentBar } from './components/SentimentTag'
 import { llmAnalyticsColumnRenderers } from './llmAnalyticsColumnRenderers'
 import { llmAnalyticsSharedLogic } from './llmAnalyticsSharedLogic'
+import { findWorstSentimentEvent } from './sentimentUtils'
 import { llmAnalyticsTracesTabLogic } from './tabs/llmAnalyticsTracesTabLogic'
 import { formatLLMCost, formatLLMLatency, formatLLMUsage, getTraceTimestamp, normalizeMessages } from './utils'
 
@@ -221,24 +222,9 @@ const OutputMessageColumn: QueryContextColumnComponent = ({ record }) => {
 }
 OutputMessageColumn.displayName = 'OutputMessageColumn'
 
-function findTraceSentiment(events: LLMTraceEvent[]): LLMTraceEvent | null {
-    let worst: LLMTraceEvent | null = null
-    const priority: Record<string, number> = { negative: 3, neutral: 2, positive: 1 }
-    for (const event of events) {
-        if (event.event !== '$ai_sentiment') {
-            continue
-        }
-        const label = event.properties.$ai_sentiment_label
-        if (!worst || (priority[label] ?? 0) > (priority[worst.properties.$ai_sentiment_label] ?? 0)) {
-            worst = event
-        }
-    }
-    return worst
-}
-
 const SentimentColumn: QueryContextColumnComponent = ({ record }) => {
     const row = record as LLMTrace
-    const sentimentEvent = Array.isArray(row.events) ? findTraceSentiment(row.events) : null
+    const sentimentEvent = Array.isArray(row.events) ? findWorstSentimentEvent(row.events) : null
     if (!sentimentEvent) {
         return <>–</>
     }

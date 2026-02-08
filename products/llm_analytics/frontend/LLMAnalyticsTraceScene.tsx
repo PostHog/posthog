@@ -62,13 +62,14 @@ import { EvalsTabContent } from './components/EvalsTabContent'
 import { EventContentDisplayAsync, EventContentGeneration } from './components/EventContentWithAsyncData'
 import { FeedbackTag } from './components/FeedbackTag'
 import { MetricTag } from './components/MetricTag'
-import { SENTIMENT_COLOR, SentimentDot } from './components/SentimentTag'
+import { SentimentDot } from './components/SentimentTag'
 import { SaveToDatasetButton } from './datasets/SaveToDatasetButton'
 import { FeedbackViewDisplay } from './feedback-view/FeedbackViewDisplay'
 import { useAIData } from './hooks/useAIData'
 import { llmAnalyticsPlaygroundLogic } from './llmAnalyticsPlaygroundLogic'
 import { EnrichedTraceTreeNode, llmAnalyticsTraceDataLogic } from './llmAnalyticsTraceDataLogic'
 import { DisplayOption, TraceViewMode, llmAnalyticsTraceLogic } from './llmAnalyticsTraceLogic'
+import { SENTIMENT_COLOR } from './sentimentUtils'
 import { SummaryViewDisplay } from './summary-view/SummaryViewDisplay'
 import { TextViewDisplay } from './text-view/TextViewDisplay'
 import { exportTraceToClipboard } from './traceExportUtils'
@@ -165,7 +166,6 @@ function TraceSceneWrapper(): JSX.Element {
         responseError,
         feedbackEvents,
         metricEvents,
-        sentimentByEventId,
         eventMetadata,
         effectiveEventId,
     } = useValues(llmAnalyticsTraceDataLogic)
@@ -205,7 +205,6 @@ function TraceSceneWrapper(): JSX.Element {
                                 trace={trace}
                                 metricEvents={metricEvents as LLMTraceEvent[]}
                                 feedbackEvents={feedbackEvents as LLMTraceEvent[]}
-                                sentimentByEventId={sentimentByEventId}
                                 billedTotalUsd={billedTotalUsd}
                                 billedCredits={billedCredits}
                                 markupUsd={markupUsd}
@@ -288,7 +287,6 @@ function TraceMetadata({
     trace,
     metricEvents,
     feedbackEvents,
-    sentimentByEventId,
     billedTotalUsd,
     billedCredits,
     markupUsd,
@@ -297,7 +295,6 @@ function TraceMetadata({
     trace: LLMTrace
     metricEvents: LLMTraceEvent[]
     feedbackEvents: LLMTraceEvent[]
-    sentimentByEventId: Map<string, LLMTraceEvent>
     billedTotalUsd?: number
     billedCredits?: number
     markupUsd?: number
@@ -384,60 +381,20 @@ function TraceMetadata({
             {feedbackEvents.map((feedback) => (
                 <FeedbackTag key={feedback.id} properties={feedback.properties} />
             ))}
-            {featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT] && sentimentByEventId.size > 0 && (
-                <TraceSentimentChip sentimentByEventId={sentimentByEventId} />
-            )}
+            {featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT] && <TraceSentimentChip />}
         </header>
     )
 }
 
-function TraceSentimentChip({
-    sentimentByEventId,
-}: {
-    sentimentByEventId: Map<string, LLMTraceEvent>
-}): JSX.Element | null {
-    if (sentimentByEventId.size === 0) {
+function TraceSentimentChip(): JSX.Element | null {
+    const { traceSentimentSummary } = useValues(llmAnalyticsTraceDataLogic)
+    if (!traceSentimentSummary) {
         return null
     }
 
-    // Average sentiment scores across all events
-    let totalPositive = 0
-    let totalNeutral = 0
-    let totalNegative = 0
-    let count = 0
-    for (const event of sentimentByEventId.values()) {
-        const scores = event.properties.$ai_sentiment_scores
-        if (scores) {
-            totalPositive += scores.positive ?? 0
-            totalNeutral += scores.neutral ?? 0
-            totalNegative += scores.negative ?? 0
-            count++
-        }
-    }
-    if (count === 0) {
-        return null
-    }
-
-    const avgPositive = totalPositive / count
-    const avgNeutral = totalNeutral / count
-    const avgNegative = totalNegative / count
-
-    // Derive label from highest averaged score
-    let label: string
-    let avgScore: number
-    if (avgPositive >= avgNeutral && avgPositive >= avgNegative) {
-        label = 'positive'
-        avgScore = avgPositive
-    } else if (avgNegative >= avgPositive && avgNegative >= avgNeutral) {
-        label = 'negative'
-        avgScore = avgNegative
-    } else {
-        label = 'neutral'
-        avgScore = avgNeutral
-    }
-
+    const { label, avgScore, avgPositive, avgNeutral, avgNegative, count } = traceSentimentSummary
     const widthPercent = Math.round(avgScore * 100)
-    const barColor = SENTIMENT_COLOR[label as keyof typeof SENTIMENT_COLOR] ?? 'bg-border'
+    const barColor = SENTIMENT_COLOR[label]
     const prefix = count > 1 ? `Avg of ${count} generations — ` : ''
     const tooltipText = `Sentiment — ${prefix}Positive: ${Math.round(avgPositive * 100)}% / Neutral: ${Math.round(avgNeutral * 100)}% / Negative: ${Math.round(avgNegative * 100)}%`
 

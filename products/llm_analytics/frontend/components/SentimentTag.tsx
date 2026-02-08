@@ -2,13 +2,10 @@ import { LemonTag, LemonTagProps, Tooltip } from '@posthog/lemon-ui'
 
 import { LLMTraceEvent } from '~/queries/schema/schema-general'
 
-export type SentimentLabel = 'positive' | 'neutral' | 'negative'
+import { SENTIMENT_COLOR, SentimentLabel, getSentimentLabelFromScores } from '../sentimentUtils'
 
-export const SENTIMENT_COLOR: Record<SentimentLabel, string> = {
-    positive: 'bg-success',
-    negative: 'bg-danger',
-    neutral: 'bg-border',
-}
+export type { SentimentLabel }
+export { SENTIMENT_COLOR }
 
 const SENTIMENT_TAG_TYPE: Record<SentimentLabel, LemonTagProps['type']> = {
     positive: 'success',
@@ -77,14 +74,8 @@ export function UserSentimentBar({ scores }: { scores: [number, number, number, 
         return <>–</>
     }
 
-    let label: SentimentLabel = 'neutral'
+    const label = getSentimentLabelFromScores(positive, neutral, negative)
     const maxScore = Math.max(positive, neutral, negative)
-    if (positive === maxScore) {
-        label = 'positive'
-    } else if (negative === maxScore) {
-        label = 'negative'
-    }
-
     const barColor = SENTIMENT_COLOR[label]
     const widthPercent = Math.round(maxScore * 100)
 
