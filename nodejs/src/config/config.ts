@@ -134,7 +134,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         MAX_TEAM_ID_TO_BUFFER_ANONYMOUS_EVENTS_FOR: 0,
         CLOUD_DEPLOYMENT: null,
         EXTERNAL_REQUEST_TIMEOUT_MS: 3000, // 3 seconds
-        EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS: 3000, // 3 seconds
+        EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS: 10000, // 10 seconds
         EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS: 10000, // 10 seconds
         EXTERNAL_REQUEST_CONNECTIONS: 500, // 500 connections
         DROP_EVENTS_BY_TOKEN_DISTINCT_ID: '',

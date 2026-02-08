@@ -58,6 +58,7 @@ describe('reddit template', () => {
                 "User-Agent": "hog:com.posthog.cdp:0.0.1 (by /u/PostHogTeam)",
               },
               "method": "POST",
+              "timeoutMs": undefined,
               "type": "fetch",
               "url": "https://ads-api.reddit.com/api/v2.0/conversions/events/pixel-id",
             }
@@ -93,6 +94,7 @@ describe('reddit template', () => {
                 "User-Agent": "hog:com.posthog.cdp:0.0.1 (by /u/PostHogTeam)",
               },
               "method": "POST",
+              "timeoutMs": undefined,
               "type": "fetch",
               "url": "https://ads-api.reddit.com/api/v2.0/conversions/events/pixel-id",
             }
@@ -128,6 +130,7 @@ describe('reddit template', () => {
                 "User-Agent": "hog:com.posthog.cdp:0.0.1 (by /u/PostHogTeam)",
               },
               "method": "POST",
+              "timeoutMs": undefined,
               "type": "fetch",
               "url": "https://ads-api.reddit.com/api/v2.0/conversions/events/pixel-id",
             }

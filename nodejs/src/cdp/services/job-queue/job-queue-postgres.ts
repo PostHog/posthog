@@ -223,7 +223,7 @@ function invocationToCyclotronJobInitial(invocation: CyclotronJobInvocation): Cy
 
     // TODO: Ditch this queue params stuff
     if (queueParameters) {
-        if (queueParameters.type === 'fetch') {
+        if (queueParameters.type === 'fetch' || queueParameters.type === 'sendPushNotification') {
             const { body, ...rest } = queueParameters
             parameters = rest
             blob = body ? Buffer.from(body) : null
@@ -262,8 +262,7 @@ function invocationToCyclotronJobUpdate(invocation: CyclotronJobInvocation): Cyc
 function cyclotronJobToInvocation(job: CyclotronJob): CyclotronJobInvocation {
     const params = job.parameters as CyclotronInvocationQueueParametersType | undefined
 
-    if (job.blob && params && params.type === 'fetch') {
-        // Deserialize the blob into the params
+    if (job.blob && params && (params.type === 'fetch' || params.type === 'sendPushNotification')) {
         try {
             params.body = job.blob ? Buffer.from(job.blob).toString('utf-8') : undefined
         } catch (e) {

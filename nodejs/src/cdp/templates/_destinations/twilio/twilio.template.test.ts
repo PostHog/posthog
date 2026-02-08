@@ -43,6 +43,7 @@ describe('twilio template', () => {
                 "Content-Type": "application/x-www-form-urlencoded",
               },
               "method": "POST",
+              "timeoutMs": undefined,
               "type": "fetch",
               "url": "https://api.twilio.com/2010-04-01/Accounts/sid_12345/Messages.json",
             }

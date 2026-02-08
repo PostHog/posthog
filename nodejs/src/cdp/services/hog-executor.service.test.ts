@@ -138,6 +138,7 @@ describe('Hog Executor', () => {
                     "first_name": "Pumpkin",
                   },
                   "method": "POST",
+                  "timeoutMs": undefined,
                   "type": "fetch",
                   "url": "https://example.com/posthog-webhook",
                 }
@@ -177,6 +178,7 @@ describe('Hog Executor', () => {
                     "first_name": "Pumpkin",
                   },
                   "method": "POST",
+                  "timeoutMs": undefined,
                   "type": "fetch",
                   "url": "https://example.com/posthog-webhook",
                 }
@@ -240,6 +242,26 @@ describe('Hog Executor', () => {
                     properties: { email: 'test@posthog.com', first_name: 'Pumpkin' },
                 },
                 event_url: 'http://localhost:8000/events/1-test',
+            })
+        })
+
+        it('queues up sendPushNotification async function call', async () => {
+            const pushHogFunction = createHogFunction({
+                name: 'Test push function',
+                ...HOG_EXAMPLES.simple_send_push_notification,
+                ...HOG_INPUTS_EXAMPLES.simple_send_push_notification,
+                ...HOG_FILTERS_EXAMPLES.no_filters,
+            })
+            const invocation = createExampleInvocation(pushHogFunction)
+            const result = await executor.execute(invocation)
+
+            expect(result.invocation).toMatchObject({
+                queue: 'hog',
+                queueParameters: {
+                    type: 'sendPushNotification',
+                    url: 'https://fcm.googleapis.com/v1/projects/test/messages:send',
+                    method: 'POST',
+                },
             })
         })
 
@@ -569,20 +591,17 @@ describe('Hog Executor', () => {
             })
 
             const result = await executor.buildHogFunctionInvocations([fn], pageviewGlobals)
-            // First mapping has input overrides that should be applied
-            expect(result.invocations[0].state.globals.inputs.headers).toEqual({
+            expect(result.invocations).toHaveLength(2)
+
+            const byUrl = Object.fromEntries(
+                result.invocations.map((inv) => [inv.state.globals.inputs.url as string, inv])
+            )
+            expect(byUrl['https://example.com?q=$pageview'].state.globals.inputs.headers).toEqual({
                 version: 'v=',
             })
-            expect(result.invocations[0].state.globals.inputs.url).toMatchInlineSnapshot(
-                `"https://example.com?q=$pageview"`
-            )
-            // Second mapping has no input overrides
-            expect(result.invocations[1].state.globals.inputs.headers).toEqual({
+            expect(byUrl['https://example.com/posthog-webhook'].state.globals.inputs.headers).toEqual({
                 version: 'v=',
             })
-            expect(result.invocations[1].state.globals.inputs.url).toMatchInlineSnapshot(
-                `"https://example.com/posthog-webhook"`
-            )
         })
     })
 

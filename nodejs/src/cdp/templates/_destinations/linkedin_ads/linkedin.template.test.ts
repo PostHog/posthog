@@ -51,6 +51,7 @@ describe('linkedin template', () => {
                 "LinkedIn-Version": "202508",
               },
               "method": "POST",
+              "timeoutMs": undefined,
               "type": "fetch",
               "url": "https://api.linkedin.com/rest/conversionEvents",
             }
@@ -83,6 +84,7 @@ describe('linkedin template', () => {
                 "LinkedIn-Version": "202508",
               },
               "method": "POST",
+              "timeoutMs": undefined,
               "type": "fetch",
               "url": "https://api.linkedin.com/rest/conversionEvents",
             }

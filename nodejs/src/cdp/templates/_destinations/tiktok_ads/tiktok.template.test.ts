@@ -56,6 +56,7 @@ describe('tiktok template', () => {
                 "Content-Type": "application/json",
               },
               "method": "POST",
+              "timeoutMs": undefined,
               "type": "fetch",
               "url": "https://business-api.tiktok.com/open_api/v1.3/event/track/",
             }
@@ -136,6 +137,7 @@ describe('tiktok template', () => {
                 "Content-Type": "application/json",
               },
               "method": "POST",
+              "timeoutMs": undefined,
               "type": "fetch",
               "url": "https://business-api.tiktok.com/open_api/v1.3/event/track/",
             }
@@ -170,6 +172,7 @@ describe('tiktok template', () => {
                 "Content-Type": "application/json",
               },
               "method": "POST",
+              "timeoutMs": undefined,
               "type": "fetch",
               "url": "https://business-api.tiktok.com/open_api/v1.3/event/track/",
             }
@@ -204,6 +207,7 @@ describe('tiktok template', () => {
                 "Content-Type": "application/json",
               },
               "method": "POST",
+              "timeoutMs": undefined,
               "type": "fetch",
               "url": "https://business-api.tiktok.com/open_api/v1.3/event/track/",
             }
@@ -241,6 +245,7 @@ describe('tiktok template', () => {
                 "Content-Type": "application/json",
               },
               "method": "POST",
+              "timeoutMs": undefined,
               "type": "fetch",
               "url": "https://business-api.tiktok.com/open_api/v1.3/event/track/",
             }
@@ -283,6 +288,7 @@ describe('tiktok template', () => {
                 "Content-Type": "application/json",
               },
               "method": "POST",
+              "timeoutMs": undefined,
               "type": "fetch",
               "url": "https://business-api.tiktok.com/open_api/v1.3/event/track/",
             }

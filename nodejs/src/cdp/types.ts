@@ -222,6 +222,7 @@ export type MinimalAppMetric = {
         | 'inputs_failed'
         | 'missing_addon'
         | 'fetch'
+        | 'sendPushNotification'
         | 'billable_invocation'
         | 'dropped'
         | 'email_sent'
@@ -337,6 +338,7 @@ export type HogFunctionInputSchemaType = {
         | 'integration_field'
         | 'email'
         | 'native_email'
+        | 'push_subscription'
     key: string
     label?: string
     choices?: { value: string; label: string }[]
@@ -349,6 +351,7 @@ export type HogFunctionInputSchemaType = {
     integration_key?: string
     requires_field?: string
     integration_field?: string
+    platform?: 'android' | 'ios'
     requiredScopes?: string
     /**
      * templating: true indicates the field supports templating. Alternatively

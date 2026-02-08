@@ -468,6 +468,16 @@ function CyclotronJobInputRenderer({
                     sampleGlobalsWithInputs={sampleGlobalsWithInputs}
                 />
             )
+        case 'push_subscription':
+            return (
+                <CyclotronJobTemplateInput
+                    input={input}
+                    onChange={disabled ? () => {} : onChange}
+                    className="ph-no-capture"
+                    templating={templating}
+                    sampleGlobalsWithInputs={sampleGlobalsWithInputs}
+                />
+            )
         default:
             return (
                 <strong className="text-danger">
