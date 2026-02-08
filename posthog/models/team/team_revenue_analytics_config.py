@@ -8,6 +8,7 @@ from django.dispatch import receiver
 from posthog.schema import RevenueAnalyticsEventItem, RevenueAnalyticsGoal
 
 from posthog.models.team import Team
+from posthog.models.team.extensions import create_extension_signal_receiver
 from posthog.models.team.team import CURRENCY_CODE_CHOICES, DEFAULT_CURRENCY
 from posthog.rbac.decorators import field_access_control
 
@@ -75,14 +76,11 @@ class TeamRevenueAnalyticsConfig(models.Model):
         }
 
 
-# This is best effort, we always attempt to create the config manually
-# when accessing it via `Team.revenue_analytics_config`.
-# In theory, this shouldn't ever fail, but it does fail in some tests cases
-# so let's make it very forgiving
+# Best-effort auto-creation on Team save. The extension is also created lazily
+# via Team.revenue_analytics_config if this fails.
+_create_revenue_config = create_extension_signal_receiver(TeamRevenueAnalyticsConfig, logger=logger)
+
+
 @receiver(post_save, sender=Team)
-def create_team_revenue_analytics_config(sender, instance, created, **kwargs):
-    try:
-        if created:
-            TeamRevenueAnalyticsConfig.objects.get_or_create(team=instance)
-    except Exception as e:
-        logger.warning(f"Error creating team revenue analytics config: {e}")
+def create_team_revenue_analytics_config(sender, instance, created, **kwargs):  # noqa: ARG001
+    _create_revenue_config(sender, instance, created, **kwargs)
