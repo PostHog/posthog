@@ -471,6 +471,45 @@ jobs:
                         "timestamp": "${{ github.event.head_commit.timestamp }}"
                       }
 
+            - name: Check for changes that affect llm analytics sentiment temporal worker
+              id: check_changes_llm_analytics_sentiment_temporal_worker
+              run: |
+                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/llm_analytics/sentiment|^posthog/temporal/common|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$|^Dockerfile.sentiment$' && echo true) || echo false)" >> $GITHUB_OUTPUT
+
+            - name: Build and push sentiment worker image
+              if: steps.check_changes_llm_analytics_sentiment_temporal_worker.outputs.changed == 'true'
+              id: build_sentiment
+              uses: depot/build-push-action@9785b135c3c76c33db102e45be96a25ab55cd507 # v1.16.2
+              with:
+                  buildx-fallback: false
+                  push: true
+                  file: Dockerfile.sentiment
+                  tags: ${{ steps.aws-ecr.outputs.registry }}/posthog-sentiment:master,${{ steps.aws-ecr.outputs.registry }}/posthog-sentiment:${{ github.sha }}
+                  platforms: linux/arm64,linux/amd64
+                  build-args: |
+                      BASE_IMAGE=${{ steps.aws-ecr.outputs.registry }}/posthog-cloud:${{ github.sha }}
+
+            - name: Trigger LLM Analytics Sentiment Temporal Worker Cloud deployment
+              if: steps.check_changes_llm_analytics_sentiment_temporal_worker.outputs.changed == 'true'
+              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
+              with:
+                  token: ${{ steps.deployer.outputs.token }}
+                  repository: PostHog/charts
+                  event-type: commit_state_update
+                  client-payload: |
+                      {
+                        "values": {
+                          "image": {
+                            "sha": "${{ github.sha }}@${{ steps.build_sentiment.outputs.digest }}"
+                          }
+                        },
+                        "release": "temporal-worker-llm-analytics-sentiment",
+                        "commit": ${{ toJson(github.event.head_commit) }},
+                        "repository": ${{ toJson(github.repository) }},
+                        "labels": ${{ steps.labels.outputs.labels }},
+                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                      }
+
             - name: Trigger Messaging Temporal Worker Cloud deployment
               if: steps.check_changes_messaging_temporal_worker.outputs.changed == 'true'
               uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
