@@ -75,7 +75,7 @@ export const QueryServerError: StoryFn = () => {
             ],
         },
         post: {
-            '/api/environments/:team_id/query/': (_, __, ctx) => [
+            '/api/environments/:team_id/query/:kind/': (_, __, ctx) => [
                 ctx.delay(100),
                 ctx.status(500),
                 ctx.json({
@@ -127,7 +127,7 @@ export const EstimatedQueryExecutionTimeTooLong: StoryFn = () => {
             ],
         },
         post: {
-            '/api/environments/:team_id/query/': (_, __, ctx) => [
+            '/api/environments/:team_id/query/:kind/': (_, __, ctx) => [
                 ctx.delay(100),
                 ctx.status(512),
                 ctx.json({
@@ -156,7 +156,7 @@ export const LongLoading: StoryFn = () => {
             ],
         },
         post: {
-            '/api/environments/:team_id/query/': (_, __, ctx) => [ctx.delay('infinite')],
+            '/api/environments/:team_id/query/:kind/': (_, __, ctx) => [ctx.delay('infinite')],
         },
     })
 

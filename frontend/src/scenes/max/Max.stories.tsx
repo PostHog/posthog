@@ -1157,7 +1157,7 @@ export const MultiVisualizationInThread: StoryFn = () => {
     // Mock the queries endpoint to return dummy data
     useStorybookMocks({
         post: {
-            '/api/environments/:team_id/query/': () => [
+            '/api/environments/:team_id/query/:kind/': () => [
                 200,
                 {
                     results: [[100, 120, 130, 140, 150]],

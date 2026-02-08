@@ -129,7 +129,7 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             post: {
-                '/api/environments/:team_id/query/': (req) => {
+                '/api/environments/:team_id/query/:kind/': (req) => {
                     const query = (req.body as any)?.query
                     if (query?.kind === 'HogQLQuery' && query?.values?.id === personUUID) {
                         return [200, personQueryResponse]
@@ -148,7 +148,7 @@ export const PersonRecordingTabEmpty: StoryFn = () => {
             '/api/environments/:team_id/session_recordings': () => [200, { results: [] }],
         },
         post: {
-            '/api/environments/:team_id/query/': (req) => {
+            '/api/environments/:team_id/query/:kind/': (req) => {
                 const query = (req.body as any)?.query
                 if (query?.kind === 'HogQLQuery' && query?.values?.id === personUUID) {
                     return [200, personQueryResponse]

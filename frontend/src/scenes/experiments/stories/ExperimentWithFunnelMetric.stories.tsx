@@ -30,7 +30,7 @@ const meta: Meta = {
                 [`/api/projects/:team_id/feature_flags/${EXPERIMENT_WITH_FUNNEL_METRIC.feature_flag.id}/status/`]: {},
             },
             post: {
-                '/api/environments/:team_id/query': (req, res, ctx) => {
+                '/api/environments/:team_id/query/:kind': (req, res, ctx) => {
                     const body = req.body as Record<string, any>
 
                     if (body.query.kind === NodeKind.ExperimentExposureQuery) {

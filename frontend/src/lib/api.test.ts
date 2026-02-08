@@ -1,7 +1,8 @@
 import posthog from 'posthog-js'
 
-import api, { ApiRequest } from 'lib/api'
+import api, { ApiConfig, ApiRequest } from 'lib/api'
 
+import { NodeKind } from '~/queries/schema/schema-general'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
 describe('API helper', () => {
@@ -18,6 +19,7 @@ describe('API helper', () => {
             return undefined
         })
         jest.spyOn(posthog, 'get_session_id').mockReturnValue('fake-session-id')
+        ApiConfig.setCurrentTeamId(2)
     })
 
     describe('events', () => {
@@ -46,6 +48,31 @@ describe('API helper', () => {
                     },
                 }
             )
+        })
+    })
+
+    describe('query endpoints', () => {
+        it('adds query kind to the query URL when present', async () => {
+            await api.query({ kind: NodeKind.HogQLQuery, query: 'select 1' })
+
+            expect(fakeFetch.mock.calls[0][0]).toEqual('/api/environments/2/query/HogQLQuery/')
+        })
+
+        it('keeps the query URL kind optional', async () => {
+            await api.query({} as Record<string, any>)
+
+            expect(fakeFetch.mock.calls[0][0]).toEqual('/api/environments/2/query/')
+        })
+
+        it('throws when the query URL kind does not match the request body', async () => {
+            await expect(
+                api.query(
+                    { kind: NodeKind.HogQLQuery, query: 'select 1' },
+                    {
+                        queryKind: NodeKind.EventsQuery,
+                    }
+                )
+            ).rejects.toThrow('Query kind mismatch')
         })
     })
 

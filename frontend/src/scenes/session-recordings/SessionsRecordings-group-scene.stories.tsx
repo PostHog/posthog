@@ -158,7 +158,7 @@ const meta: Meta = {
                 '/api/environments/:team_id/session_recordings/': () => [200, { results: threeRecordings }],
             },
             post: {
-                '/api/environments/:team_id/query/': () => [200, { results: [] }],
+                '/api/environments/:team_id/query/:kind/': () => [200, { results: [] }],
             },
         }),
     ],
@@ -211,7 +211,7 @@ export const GroupRecordingTabMultipleAndFound: StoryFn = () => {
             },
         },
         post: {
-            '/api/environments/:team_id/query/': () => [200, { results: [] }],
+            '/api/environments/:team_id/query/:kind/': () => [200, { results: [] }],
         },
     })
 
@@ -262,7 +262,7 @@ export const GroupRecordingTabWide: StoryFn = () => {
             },
         },
         post: {
-            '/api/environments/:team_id/query/': () => [200, { results: [] }],
+            '/api/environments/:team_id/query/:kind/': () => [200, { results: [] }],
         },
     })
 
@@ -314,7 +314,7 @@ export const GroupRecordingTabNarrow: StoryFn = () => {
             },
         },
         post: {
-            '/api/environments/:team_id/query/': () => [200, { results: [] }],
+            '/api/environments/:team_id/query/:kind/': () => [200, { results: [] }],
         },
     })
 
@@ -365,7 +365,7 @@ export const GroupEventsTabWithModal: StoryFn = () => {
             },
         },
         post: {
-            '/api/environments/:team_id/query/': () => [200, { results: [] }],
+            '/api/environments/:team_id/query/:kind/': () => [200, { results: [] }],
         },
     })
 
@@ -398,7 +398,7 @@ export const GroupEventsTabWithModalNotFound: StoryFn = () => {
             '/api/environments/:team_id/session_recordings/:id/snapshots': () => [404, { detail: 'Not found.' }],
         },
         post: {
-            '/api/environments/:team_id/query/': () => [200, { results: [] }],
+            '/api/environments/:team_id/query/:kind/': () => [200, { results: [] }],
         },
     })
 

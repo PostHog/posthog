@@ -22,7 +22,7 @@ const meta: Meta<typeof Query> = {
     decorators: [
         mswDecorator({
             post: {
-                '/api/environments/:team_id/query/': (req) => {
+                '/api/environments/:team_id/query/:kind/': (req) => {
                     if ((req.body as any).query.kind === 'WebVitalsQuery') {
                         return [200, webVitals]
                     } else if ((req.body as any).query.kind === 'TrendsQuery') {
