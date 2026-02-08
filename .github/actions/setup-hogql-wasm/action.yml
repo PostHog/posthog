@@ -1,0 +1,41 @@
+name: 'Setup HogQL WASM Build Tools'
+description: 'Setup emscripten and ninja for hogql-parser WASM build'
+
+inputs:
+    emsdk-version:
+        description: 'Emscripten SDK version'
+        required: false
+        default: '4.0.23'
+
+runs:
+    using: 'composite'
+    steps:
+        - name: Restore emsdk cache
+          id: emsdk-cache
+          uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+          with:
+              path: emsdk-cache
+              key: emsdk-${{ runner.os }}-${{ inputs.emsdk-version }}
+
+        - name: Install build dependencies
+          shell: bash
+          run: |
+              if command -v apt-get &> /dev/null; then
+                sudo apt-get update && sudo apt-get install -y unzip ninja-build
+              elif command -v apk &> /dev/null; then
+                apk add --no-cache unzip ninja
+              fi
+
+        - name: Setup Emscripten
+          uses: mymindstorm/setup-emsdk@6ab9eb1bda2574c4ddb79809fc9247783eaf9021 # v14
+          with:
+              version: ${{ inputs.emsdk-version }}
+              actions-cache-folder: emsdk-cache
+              no-cache: true
+
+        - name: Save emsdk cache
+          if: github.ref == 'refs/heads/master' && steps.emsdk-cache.outputs.cache-hit != 'true'
+          uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+          with:
+              path: emsdk-cache
+              key: emsdk-${{ runner.os }}-${{ inputs.emsdk-version }}
