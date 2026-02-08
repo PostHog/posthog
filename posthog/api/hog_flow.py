@@ -7,7 +7,6 @@ import structlog
 import posthoganalytics
 from django_filters import BaseInFilter, CharFilter, FilterSet
 from django_filters.rest_framework import DjangoFilterBackend
-from loginas.utils import is_impersonated_session
 from rest_framework import exceptions, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
@@ -19,13 +18,13 @@ from posthog.api.hog_flow_batch_job import HogFlowBatchJobSerializer
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.api.utils import log_activity_from_viewset
 from posthog.cdp.validation import (
     HogFunctionFiltersSerializer,
     InputsSchemaItemSerializer,
     InputsSerializer,
     generate_template_bytecode,
 )
-from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
 from posthog.models.feature_flag.user_blast_radius import get_user_blast_radius
 from posthog.models.hog_flow.hog_flow import BILLABLE_ACTION_TYPES, HogFlow
 from posthog.models.hog_function_template import HogFunctionTemplate
@@ -310,16 +309,7 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
 
     def perform_create(self, serializer):
         serializer.save()
-        log_activity(
-            organization_id=self.organization.id,
-            team_id=self.team_id,
-            user=serializer.context["request"].user,
-            was_impersonated=is_impersonated_session(serializer.context["request"]),
-            item_id=serializer.instance.id,
-            scope="HogFlow",
-            activity="created",
-            detail=Detail(name=serializer.instance.name, type="standard"),
-        )
+        log_activity_from_viewset(self, serializer.instance, name=serializer.instance.name, detail_type="standard")
 
         try:
             # Count edges and actions
@@ -353,18 +343,7 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
 
         serializer.save()
 
-        changes = changes_between("HogFlow", previous=before_update, current=serializer.instance)
-
-        log_activity(
-            organization_id=self.organization.id,
-            team_id=self.team_id,
-            user=serializer.context["request"].user,
-            was_impersonated=is_impersonated_session(serializer.context["request"]),
-            item_id=instance_id,
-            scope="HogFlow",
-            activity="updated",
-            detail=Detail(changes=changes, name=serializer.instance.name),
-        )
+        log_activity_from_viewset(self, serializer.instance, name=serializer.instance.name, previous=before_update)
 
         # PostHog capture for hog_flow activated (draft -> active)
         if (

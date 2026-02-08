@@ -22,7 +22,7 @@ from posthog.api.hog_function_template import HogFunctionTemplateSerializer
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.api.utils import action
+from posthog.api.utils import action, log_activity_from_viewset
 from posthog.cdp.services.icons import CDPIconsService
 from posthog.cdp.site_functions import get_transpiled_function
 from posthog.cdp.validation import (
@@ -35,7 +35,7 @@ from posthog.cdp.validation import (
 )
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
-from posthog.models.activity_logging.activity_log import Change, Detail, changes_between, log_activity
+from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.hog_function_template import HogFunctionTemplate
 from posthog.models.hog_functions.hog_function import (
     TYPES_WITH_JAVASCRIPT_SOURCE,
@@ -507,18 +507,11 @@ class HogFunctionViewSet(
 
     def perform_create(self, serializer):
         serializer.save()
-        log_activity(
-            organization_id=self.organization.id,
-            team_id=self.team_id,
-            user=serializer.context["request"].user,
-            was_impersonated=is_impersonated_session(serializer.context["request"]),
-            item_id=serializer.instance.id,
-            scope="HogFunction",
-            activity="created",
-            detail=Detail(
-                name=serializer.instance.name,
-                type=humanize_hog_function_type(serializer.instance.type),
-            ),
+        log_activity_from_viewset(
+            self,
+            serializer.instance,
+            name=serializer.instance.name,
+            detail_type=humanize_hog_function_type(serializer.instance.type),
         )
 
     def perform_update(self, serializer):
@@ -531,21 +524,12 @@ class HogFunctionViewSet(
 
         serializer.save()
 
-        changes = changes_between("HogFunction", previous=before_update, current=serializer.instance)
-
-        log_activity(
-            organization_id=self.organization.id,
-            team_id=self.team_id,
-            user=serializer.context["request"].user,
-            was_impersonated=is_impersonated_session(serializer.context["request"]),
-            item_id=instance_id,
-            scope="HogFunction",
-            activity="updated",
-            detail=Detail(
-                changes=changes,
-                name=serializer.instance.name,
-                type=humanize_hog_function_type(serializer.instance.type),
-            ),
+        log_activity_from_viewset(
+            self,
+            serializer.instance,
+            name=serializer.instance.name,
+            previous=before_update,
+            detail_type=humanize_hog_function_type(serializer.instance.type),
         )
 
     @action(methods=["PATCH"], detail=False)
