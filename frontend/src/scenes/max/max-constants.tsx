@@ -607,7 +607,8 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
     },
     experiment_session_replays_summary: {
         name: 'Summarize experiment session replays',
-        description: 'Analyze user behavior patterns across experiment variants using session recordings',
+        description:
+            'Summarize experiment session replays to analyze user behavior patterns across experiment variants using session recordings',
         product: Scene.Experiment,
         icon: iconForType('session_replay'),
         modes: [AgentMode.Flags],
