@@ -14,6 +14,7 @@ import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { IconSync } from 'lib/lemon-ui/icons'
+import { urls } from 'scenes/urls'
 
 import { ToolbarMenu } from '~/toolbar/bar/ToolbarMenu'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
@@ -23,7 +24,7 @@ import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
 import { toolbarConfigLogic } from '../toolbarConfigLogic'
 
 const HeatmapsJSWarning = (): JSX.Element | null => {
-    const { posthog } = useValues(toolbarConfigLogic)
+    const { posthog, uiHost } = useValues(toolbarConfigLogic)
 
     if (!posthog || posthog?.heatmaps?.isEnabled) {
         return null
@@ -36,7 +37,10 @@ const HeatmapsJSWarning = (): JSX.Element | null => {
             ) : !posthog.heatmaps.isEnabled ? (
                 <>
                     You can enable heatmap collection in your posthog-js configuration or{' '}
-                    <Link to="https://us.posthog.com/settings/project#heatmaps">in your project config</Link>.
+                    <Link to={`${uiHost}${urls.settings()}#heatmaps`} target="_blank">
+                        in your project config
+                    </Link>
+                    .
                 </>
             ) : null}
         </p>

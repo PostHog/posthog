@@ -31,7 +31,10 @@ export const WebVitalsToolbarMenu = (): JSX.Element => {
                     {!posthog?.webVitalsAutocapture?.isEnabled && !inStorybookTestRunner() && !inStorybook() && (
                         <LemonBanner type="warning">
                             Web vitals are not enabled for this project so you won't see any data here. Enable it on the{' '}
-                            <Link to={urls.settings()}>settings page</Link> to start capturing web vitals.
+                            <Link to={`${uiHost}${urls.settings()}`} target="_blank">
+                                settings page
+                            </Link>{' '}
+                            to start capturing web vitals.
                         </LemonBanner>
                     )}
 
