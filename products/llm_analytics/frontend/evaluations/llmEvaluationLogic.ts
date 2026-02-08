@@ -155,7 +155,6 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         originalEvaluation: [
             null as EvaluationConfig | null,
             {
-                setBaseUrl: (_, { baseUrl }) => baseUrl,
                 loadEvaluationSuccess: (_, { evaluation }) => evaluation,
                 saveEvaluationSuccess: (_, { evaluation }) => evaluation,
             },
