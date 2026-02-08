@@ -13,7 +13,7 @@ const SENTIMENT_TAG_TYPE: Record<SentimentLabel, LemonTagProps['type']> = {
 const SENTIMENT_DOT_COLOR: Record<SentimentLabel, string> = {
     positive: 'bg-success',
     negative: 'bg-danger',
-    neutral: 'bg-muted-alt',
+    neutral: 'bg-border',
 }
 
 function getSentimentLabel(event: LLMTraceEvent): SentimentLabel | null {
@@ -74,7 +74,7 @@ export function SentimentDot({ event }: { event: LLMTraceEvent }): JSX.Element |
 const SENTIMENT_BAR_COLOR: Record<SentimentLabel, string> = {
     positive: 'bg-success',
     negative: 'bg-danger',
-    neutral: 'bg-muted-alt',
+    neutral: 'bg-border',
 }
 
 export function UserSentimentBar({ scores }: { scores: [number, number, number, number] }): JSX.Element | null {
