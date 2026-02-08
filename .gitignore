@@ -169,3 +169,11 @@ agent-os/
 
 # MCP build files
 services/mcp/ui-apps-dist
+filters-research/architecture.md
+filters-research/bugs.md
+filters-research/improvements.md
+filters-research/key-files.md
+filters-research/migration.md
+filters-research/README.md
+filters-research/usage-patterns.md
+.github/workflows/ci-flaky-test-detection.yml
