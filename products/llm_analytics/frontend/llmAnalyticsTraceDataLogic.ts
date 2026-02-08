@@ -21,6 +21,7 @@ import {
     findSidebarOccurrences,
     findTraceOccurrences,
 } from './searchUtils'
+import { SentimentLabel, getSentimentLabelFromScores } from './sentimentUtils'
 import { formatLLMUsage, getEventType, isLLMEvent, normalizeMessages } from './utils'
 
 export interface TraceDataLogicProps {
@@ -45,7 +46,7 @@ function getDataNodeLogicProps({ traceId, query, cachedResults }: TraceDataLogic
     return dataNodeLogicProps
 }
 
-const FEEDBACK_EVENTS = new Set(['$ai_feedback', '$ai_metric'])
+const FEEDBACK_EVENTS = new Set(['$ai_feedback', '$ai_metric', '$ai_sentiment'])
 
 /**
  * Find all parent events for a given event, including the event itself
@@ -224,6 +225,60 @@ export const llmAnalyticsTraceDataLogic = kea<llmAnalyticsTraceDataLogicType>([
             (s) => [s.trace],
             (trace): LLMTraceEvent[] | undefined =>
                 trace?.events.filter((event) => event.event === '$ai_feedback' && event.properties.$ai_feedback_text),
+        ],
+        sentimentByEventId: [
+            (s) => [s.trace],
+            (trace: LLMTrace | undefined): Map<string, LLMTraceEvent> => {
+                const map = new Map<string, LLMTraceEvent>()
+                if (!trace) {
+                    return map
+                }
+                for (const event of trace.events) {
+                    if (event.event === '$ai_sentiment' && event.properties.$ai_parent_id) {
+                        map.set(event.properties.$ai_parent_id, event)
+                    }
+                }
+                return map
+            },
+        ],
+        traceSentimentSummary: [
+            (s) => [s.sentimentByEventId],
+            (
+                sentimentByEventId: Map<string, LLMTraceEvent>
+            ): {
+                label: SentimentLabel
+                avgScore: number
+                avgPositive: number
+                avgNeutral: number
+                avgNegative: number
+                count: number
+            } | null => {
+                if (sentimentByEventId.size === 0) {
+                    return null
+                }
+                let totalPositive = 0
+                let totalNeutral = 0
+                let totalNegative = 0
+                let count = 0
+                for (const event of sentimentByEventId.values()) {
+                    const scores = event.properties.$ai_sentiment_scores
+                    if (scores) {
+                        totalPositive += scores.positive ?? 0
+                        totalNeutral += scores.neutral ?? 0
+                        totalNegative += scores.negative ?? 0
+                        count++
+                    }
+                }
+                if (count === 0) {
+                    return null
+                }
+                const avgPositive = totalPositive / count
+                const avgNeutral = totalNeutral / count
+                const avgNegative = totalNegative / count
+                const label = getSentimentLabelFromScores(avgPositive, avgNeutral, avgNegative)
+                const avgScore = Math.max(avgPositive, avgNeutral, avgNegative)
+                return { label, avgScore, avgPositive, avgNeutral, avgNegative, count }
+            },
         ],
         metricsAndFeedbackEvents: [
             (s) => [s.metricEvents, s.feedbackEvents],

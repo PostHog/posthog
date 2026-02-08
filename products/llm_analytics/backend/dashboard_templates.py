@@ -277,6 +277,34 @@ def get_llm_analytics_default_template() -> DashboardTemplate:
             },
             {
                 "type": "INSIGHT",
+                "name": "Sentiment",
+                "description": "Distribution of user message sentiment across generations",
+                "query": {
+                    "kind": "InsightVizNode",
+                    "source": {
+                        "kind": "TrendsQuery",
+                        "series": [
+                            {
+                                "event": "$ai_sentiment",
+                                "name": "$ai_sentiment",
+                                "kind": "EventsNode",
+                            }
+                        ],
+                        "breakdownFilter": {
+                            "breakdown": "$ai_sentiment_label",
+                        },
+                        "dateRange": {"date_from": "-7d"},
+                        "properties": [],
+                        "filterTestAccounts": False,
+                    },
+                },
+                "layouts": {
+                    "sm": {"h": 5, "w": 4, "x": 4, "y": 15, "minH": 5, "minW": 3},
+                    "xs": {"h": 5, "w": 1, "x": 0, "y": 40, "minH": 5, "minW": 3},
+                },
+            },
+            {
+                "type": "INSIGHT",
                 "name": "Generations by HTTP status",
                 "description": "",
                 "query": {
@@ -306,7 +334,7 @@ def get_llm_analytics_default_template() -> DashboardTemplate:
                 },
                 "layouts": {
                     "sm": {"h": 5, "w": 4, "x": 0, "y": 15, "minH": 5, "minW": 3},
-                    "xs": {"h": 5, "w": 1, "x": 0, "y": 40, "minH": 5, "minW": 3},
+                    "xs": {"h": 5, "w": 1, "x": 0, "y": 45, "minH": 5, "minW": 3},
                 },
             },
         ],
