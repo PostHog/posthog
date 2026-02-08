@@ -1788,6 +1788,27 @@ importers:
 
   products/data_warehouse: {}
 
+  products/desktop_recordings:
+    dependencies:
+      '@posthog/icons':
+        specifier: '*'
+        version: 0.36.5(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@types/react':
+        specifier: 18.3.27
+        version: 18.3.27
+      kea:
+        specifier: ^3.1.7
+        version: 3.1.7(react@18.3.1)
+      kea-loaders:
+        specifier: ^3.1.1
+        version: 3.1.1(kea@3.1.7(react@18.3.1))
+      kea-router:
+        specifier: ^3.4.1
+        version: 3.4.1(kea@3.1.7(react@18.3.1))
+      react:
+        specifier: 18.3.1
+        version: 18.3.1
+
   products/early_access_features:
     dependencies:
       '@posthog/icons':
@@ -2560,6 +2581,27 @@ importers:
       posthog-js:
         specifier: 1.342.1
         version: 1.342.1
+      react:
+        specifier: 18.3.1
+        version: 18.3.1
+
+  products/visual_review:
+    dependencies:
+      '@posthog/icons':
+        specifier: '*'
+        version: 0.36.5(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@types/react':
+        specifier: 18.3.27
+        version: 18.3.27
+      kea:
+        specifier: ^3.1.7
+        version: 3.1.7(react@18.3.1)
+      kea-loaders:
+        specifier: ^3.1.1
+        version: 3.1.1(kea@3.1.7(react@18.3.1))
+      kea-router:
+        specifier: ^3.4.1
+        version: 3.4.1(kea@3.1.7(react@18.3.1))
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -12293,9 +12335,6 @@ packages:
   cssstyle@2.3.0:
     resolution: {integrity: sha512-AZL67abkUzIuvcHqk7c09cezpGNcxUxU4Ioi/05xHk4DQeTkWmGYftIE6ctU6AEt+Gn4n1lDStOtj7FKycP71A==}
     engines: {node: '>=8'}
-
-  csstype@3.1.3:
-    resolution: {integrity: sha512-M1uQkMl8rQK/szD0LNhtqxIPLpimGm8sOBwU7lLnCpSbTyY3yeU1Vc7l4KT5zT4s/yOxHH5O7tIuuLOCnLADRw==}
 
   csstype@3.2.3:
     resolution: {integrity: sha512-z1HGKcYy2xA8AGQfwrn0PAy+PB7X/GSj3UVJW9qKyn43xWa+gl5nXmU4qqLMRzWVLFC8KusUX8T/0kCiOYpAIQ==}
@@ -33469,8 +33508,6 @@ snapshots:
     dependencies:
       cssom: 0.3.8
 
-  csstype@3.1.3: {}
-
   csstype@3.2.3: {}
 
   cva@1.0.0-beta.3(typescript@5.4.5):
@@ -33866,7 +33903,7 @@ snapshots:
   dom-helpers@5.2.1:
     dependencies:
       '@babel/runtime': 7.28.6
-      csstype: 3.1.3
+      csstype: 3.2.3
 
   dom-serializer@0.2.2:
     dependencies:
@@ -40878,7 +40915,7 @@ snapshots:
       '@types/lodash': 4.17.16
       base16: 1.0.0
       color: 3.2.1
-      csstype: 3.1.3
+      csstype: 3.2.3
       lodash.curry: 4.1.1
 
   react-colorful@5.6.1(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
