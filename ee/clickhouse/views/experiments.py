@@ -13,7 +13,7 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.schema import ActionsNode, ExperimentEventExposureConfig
+from posthog.schema import ActionsNode, ExperimentEventExposureConfig, ExperimentMetric
 
 from posthog.api.cohort import CohortSerializer
 from posthog.api.feature_flag import FeatureFlagSerializer, MinimalFeatureFlagSerializer
@@ -231,6 +231,29 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
                 raise ValidationError("Invalid exposure criteria")
 
         return exposure_criteria
+
+    def _validate_metrics_list(self, metrics: list | None) -> list | None:
+        if metrics is None:
+            return metrics
+
+        if not isinstance(metrics, list):
+            raise ValidationError("Metrics must be a list")
+
+        for i, metric in enumerate(metrics):
+            if not isinstance(metric, dict) or metric.get("kind") != "ExperimentMetric":
+                continue
+            try:
+                ExperimentMetric.model_validate(metric)
+            except Exception:
+                raise ValidationError(f"Invalid metric at index {i}")
+
+        return metrics
+
+    def validate_metrics(self, value):
+        return self._validate_metrics_list(value)
+
+    def validate_metrics_secondary(self, value):
+        return self._validate_metrics_list(value)
 
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Experiment:
         is_draft = "start_date" not in validated_data or validated_data["start_date"] is None

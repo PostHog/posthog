@@ -1126,7 +1126,7 @@ describe('API Client Integration Tests', { concurrent: false }, () => {
                           metric_type: metric.metric_type,
                           event_name: metric.event_name || '$pageview',
                           funnel_steps: metric.funnel_steps,
-                          properties: metric.properties || {},
+                          properties: metric.properties,
                           description: metric.description,
                       }))
                     : undefined,
@@ -1518,7 +1518,6 @@ describe('API Client Integration Tests', { concurrent: false }, () => {
                         metric_type: 'funnel' as const,
                         event_name: 'landing',
                         funnel_steps: ['landing', 'signup', 'activation'],
-                        properties: {},
                     },
                 ],
                 variants: [
