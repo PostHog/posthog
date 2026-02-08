@@ -377,6 +377,9 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
         localItems: [
             (s) => [s.rawLocalItems, s.searchQuery, s.swappedInQuery, s.fuse, s.group],
             (rawLocalItems, searchQuery, swappedInQuery, fuse, group): ListStorage => {
+                if (!group) {
+                    return createEmptyListStorage()
+                }
                 if (group.localItemsSearch) {
                     const filtered = group.localItemsSearch(rawLocalItems || [], swappedInQuery || searchQuery)
                     return {

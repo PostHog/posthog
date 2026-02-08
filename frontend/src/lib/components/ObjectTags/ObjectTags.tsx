@@ -1,6 +1,7 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { CSSProperties, useMemo } from 'react'
+// @ts-expect-error - useId exists in React 18 but @types/react is pinned to v17
+import { CSSProperties, useId } from 'react'
 
 import { IconPencil, IconPlus } from '@posthog/icons'
 import { LemonInputSelect, LemonTag, LemonTagType } from '@posthog/lemon-ui'
@@ -41,8 +42,6 @@ const COLOR_OVERRIDES: Record<string, LemonTagType> = {
     deprecated: 'danger',
 }
 
-let uniqueMemoizedIndex = 1
-
 export function ObjectTags({
     tags,
     onChange, // Required unless `staticOnly`
@@ -54,7 +53,7 @@ export function ObjectTags({
     className,
     'data-attr': dataAttr,
 }: ObjectTagsProps): JSX.Element {
-    const objectTagId = useMemo(() => uniqueMemoizedIndex++, [])
+    const objectTagId = useId()
     const logic = objectTagsLogic({ id: objectTagId, onChange })
     const { editingTags } = useValues(logic)
     const { setEditingTags, setTags } = useActions(logic)
