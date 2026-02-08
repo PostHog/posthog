@@ -22540,6 +22540,8 @@
                 "workflow_created",
                 "data_pipeline_created",
                 "batch_export_created",
+                "batch_export_updated",
+                "batch_export_backfill_created",
                 "notebook_created",
                 "product_tour_created",
                 "task_created",
