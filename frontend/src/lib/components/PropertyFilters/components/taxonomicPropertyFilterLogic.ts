@@ -13,6 +13,8 @@ import {
     TaxonomicFilterGroup,
     TaxonomicFilterLogicProps,
     TaxonomicFilterValue,
+    isQuickFilterItem,
+    quickFilterToPropertyFilter,
 } from 'lib/components/TaxonomicFilter/types'
 
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
@@ -90,6 +92,12 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
     }),
     listeners(({ actions, values, props }) => ({
         selectItem: ({ taxonomicGroup, propertyKey, itemPropertyFilterType, item, originalQuery }) => {
+            if (isQuickFilterItem(item)) {
+                props.setFilter(props.filterIndex, quickFilterToPropertyFilter(item))
+                actions.closeDropdown()
+                return
+            }
+
             const propertyType = itemPropertyFilterType ?? taxonomicFilterTypeToPropertyFilterType(taxonomicGroup.type)
             if (propertyKey && propertyType) {
                 const filter = createDefaultPropertyFilter(

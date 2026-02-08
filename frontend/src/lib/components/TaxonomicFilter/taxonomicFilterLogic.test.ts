@@ -3,14 +3,18 @@ import { MOCK_TEAM_ID } from 'lib/api.mock'
 import { expectLogic } from 'kea-test-utils'
 
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
-import { TaxonomicFilterGroupType, TaxonomicFilterLogicProps } from 'lib/components/TaxonomicFilter/types'
+import {
+    QuickFilterItem,
+    TaxonomicFilterGroupType,
+    TaxonomicFilterLogicProps,
+} from 'lib/components/TaxonomicFilter/types'
 
 import { useMocks } from '~/mocks/jest'
 import { actionsModel } from '~/models/actionsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { initKeaTests } from '~/test/init'
 import { mockEventDefinitions, mockSessionPropertyDefinitions } from '~/test/mocks'
-import { AppContext } from '~/types'
+import { AppContext, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { infiniteListLogic } from './infiniteListLogic'
 
@@ -222,6 +226,253 @@ describe('taxonomicFilterLogic', () => {
                     [TaxonomicFilterGroupType.SessionProperties]: 0,
                 },
             })
+    })
+
+    describe('QuickFilters localItemsSearch', () => {
+        let quickFilterSearch: (items: QuickFilterItem[], q: string) => QuickFilterItem[]
+
+        beforeEach(() => {
+            const quickFiltersLogicProps: TaxonomicFilterLogicProps = {
+                taxonomicFilterLogicKey: 'testQuickFilters',
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.QuickFilters, TaxonomicFilterGroupType.PageviewUrls],
+            }
+            const quickFiltersLogic = taxonomicFilterLogic(quickFiltersLogicProps)
+            quickFiltersLogic.mount()
+
+            const quickFiltersGroup = quickFiltersLogic.values.taxonomicGroups.find(
+                (g) => g.type === TaxonomicFilterGroupType.QuickFilters
+            )
+            quickFilterSearch = quickFiltersGroup!.localItemsSearch! as typeof quickFilterSearch
+        })
+
+        it.each([
+            { query: '', expectedLength: 0, description: 'empty query returns empty array' },
+            {
+                query: 'blog',
+                expectedLength: 3,
+                description: 'plain text returns pageview, screen, and email suggestions',
+            },
+            {
+                query: 'user@example.com',
+                expectedLength: 3,
+                description: 'email returns exact email match first, then pageview, screen, no email contains',
+            },
+            {
+                query: 'https://example.com/page',
+                expectedLength: 4,
+                description: 'URL returns exact URL match, then contains suggestions plus email',
+            },
+        ])('$description', ({ query, expectedLength }) => {
+            expect(quickFilterSearch([], query)).toHaveLength(expectedLength)
+        })
+
+        it.each([
+            {
+                query: 'blog',
+                index: 0,
+                expected: {
+                    name: 'Current URL containing "blog"',
+                    filterValue: 'blog',
+                    operator: PropertyOperator.IContains,
+                    propertyKey: '$current_url',
+                    propertyFilterType: PropertyFilterType.Event,
+                    eventName: '$pageview',
+                },
+                description: 'property mode: plain text[0] is URL contains without event prefix',
+            },
+            {
+                query: 'blog',
+                index: 1,
+                expected: {
+                    name: 'Screen name containing "blog"',
+                    filterValue: 'blog',
+                    operator: PropertyOperator.IContains,
+                    propertyKey: '$screen_name',
+                    propertyFilterType: PropertyFilterType.Event,
+                    eventName: '$screen',
+                },
+                description: 'property mode: plain text[1] is screen name contains without event prefix',
+            },
+            {
+                query: 'blog',
+                index: 2,
+                expected: {
+                    name: 'Email address containing "blog"',
+                    filterValue: 'blog',
+                    operator: PropertyOperator.IContains,
+                    propertyKey: 'email',
+                    propertyFilterType: PropertyFilterType.Person,
+                },
+                description: 'property mode: plain text[2] is email contains',
+            },
+            {
+                query: 'user@example.com',
+                index: 0,
+                expected: {
+                    name: 'Email address = "user@example.com"',
+                    filterValue: 'user@example.com',
+                    operator: PropertyOperator.Exact,
+                    propertyKey: 'email',
+                    propertyFilterType: PropertyFilterType.Person,
+                },
+                description: 'property mode: email[0] is exact email match',
+            },
+            {
+                query: 'https://posthog.com/pricing',
+                index: 0,
+                expected: {
+                    name: 'Current URL = "https://posthog.com/pricing"',
+                    filterValue: 'https://posthog.com/pricing',
+                    operator: PropertyOperator.Exact,
+                    propertyKey: '$current_url',
+                    propertyFilterType: PropertyFilterType.Event,
+                    eventName: '$pageview',
+                },
+                description: 'property mode: URL[0] is exact URL match without event prefix',
+            },
+        ])('$description', ({ query, index, expected }) => {
+            const results = quickFilterSearch([], query)
+            expect(results[index]).toEqual(expected)
+        })
+    })
+
+    describe('QuickFilters localItemsSearch in event mode', () => {
+        let quickFilterSearch: (items: QuickFilterItem[], q: string) => QuickFilterItem[]
+
+        beforeEach(() => {
+            const eventModeLogicProps: TaxonomicFilterLogicProps = {
+                taxonomicFilterLogicKey: 'testQuickFiltersEventMode',
+                taxonomicGroupTypes: [
+                    TaxonomicFilterGroupType.QuickFilters,
+                    TaxonomicFilterGroupType.Events,
+                    TaxonomicFilterGroupType.Actions,
+                ],
+            }
+            const eventModeLogic = taxonomicFilterLogic(eventModeLogicProps)
+            eventModeLogic.mount()
+
+            const quickFiltersGroup = eventModeLogic.values.taxonomicGroups.find(
+                (g) => g.type === TaxonomicFilterGroupType.QuickFilters
+            )
+            quickFilterSearch = quickFiltersGroup!.localItemsSearch! as typeof quickFilterSearch
+        })
+
+        it.each([
+            {
+                query: 'blog',
+                index: 0,
+                expected: {
+                    name: 'Pageview with Current URL containing "blog"',
+                    filterValue: 'blog',
+                    operator: PropertyOperator.IContains,
+                    propertyKey: '$current_url',
+                    propertyFilterType: PropertyFilterType.Event,
+                    eventName: '$pageview',
+                },
+                description: 'event mode: plain text[0] includes event prefix',
+            },
+            {
+                query: 'blog',
+                index: 1,
+                expected: {
+                    name: 'Screen with Screen name containing "blog"',
+                    filterValue: 'blog',
+                    operator: PropertyOperator.IContains,
+                    propertyKey: '$screen_name',
+                    propertyFilterType: PropertyFilterType.Event,
+                    eventName: '$screen',
+                },
+                description: 'event mode: plain text[1] includes event prefix',
+            },
+            {
+                query: 'blog',
+                index: 2,
+                expected: {
+                    name: 'Pageview with Email address containing "blog"',
+                    filterValue: 'blog',
+                    operator: PropertyOperator.IContains,
+                    propertyKey: 'email',
+                    propertyFilterType: PropertyFilterType.Person,
+                    eventName: '$pageview',
+                },
+                description: 'event mode: plain text[2] email has pageview context',
+            },
+            {
+                query: 'blog',
+                index: 3,
+                expected: {
+                    name: 'Screen with Email address containing "blog"',
+                    filterValue: 'blog',
+                    operator: PropertyOperator.IContains,
+                    propertyKey: 'email',
+                    propertyFilterType: PropertyFilterType.Person,
+                    eventName: '$screen',
+                },
+                description: 'event mode: plain text[3] email has screen context',
+            },
+            {
+                query: 'user@example.com',
+                index: 0,
+                expected: {
+                    name: 'Pageview with Email address = "user@example.com"',
+                    filterValue: 'user@example.com',
+                    operator: PropertyOperator.Exact,
+                    propertyKey: 'email',
+                    propertyFilterType: PropertyFilterType.Person,
+                    eventName: '$pageview',
+                },
+                description: 'event mode: email exact match[0] has pageview context',
+            },
+            {
+                query: 'user@example.com',
+                index: 1,
+                expected: {
+                    name: 'Screen with Email address = "user@example.com"',
+                    filterValue: 'user@example.com',
+                    operator: PropertyOperator.Exact,
+                    propertyKey: 'email',
+                    propertyFilterType: PropertyFilterType.Person,
+                    eventName: '$screen',
+                },
+                description: 'event mode: email exact match[1] has screen context',
+            },
+        ])('$description', ({ query, index, expected }) => {
+            const results = quickFilterSearch([], query)
+            expect(results[index]).toEqual(expected)
+        })
+    })
+
+    describe('QuickFilters opt-in', () => {
+        it.each([
+            {
+                groupTypes: [TaxonomicFilterGroupType.QuickFilters, TaxonomicFilterGroupType.Events],
+                expectQuickFilters: true,
+                description: 'includes QuickFilters when explicitly listed',
+            },
+            {
+                groupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
+                expectQuickFilters: false,
+                description: 'excludes QuickFilters when not listed',
+            },
+            {
+                groupTypes: [TaxonomicFilterGroupType.EventProperties, TaxonomicFilterGroupType.PersonProperties],
+                expectQuickFilters: false,
+                description: 'breakdown-like contexts without QuickFilters stay without it',
+            },
+        ])('$description', ({ groupTypes, expectQuickFilters }) => {
+            const testLogicProps: TaxonomicFilterLogicProps = {
+                taxonomicFilterLogicKey: `testOptIn-${groupTypes.join('-')}`,
+                taxonomicGroupTypes: groupTypes,
+            }
+            const testLogic = taxonomicFilterLogic(testLogicProps)
+            testLogic.mount()
+
+            expect(testLogic.values.taxonomicGroupTypes.includes(TaxonomicFilterGroupType.QuickFilters)).toBe(
+                expectQuickFilters
+            )
+
+            testLogic.unmount()
+        })
     })
 
     describe('maxContextOptions prop', () => {
