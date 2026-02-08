@@ -1,0 +1,88 @@
+{% extends "admin/base_site.html" %}
+{% load i18n admin_urls static %}
+
+{% block extrastyle %}
+{{ super }}
+<style>
+    .form-row { margin-bottom: 15px; }
+    .help { font-size: 11px; color: #666; }
+    .submit-row { margin-top: 30px; }
+    .alert { padding: 10px; margin: 20px 0; border-radius: 5px; }
+    .alert-info { background: #e3f2fd; border: 1px solid #90caf9; color: #1565c0; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="alert alert-info">
+    <strong>Note:</strong> This tool allows you to recalculate cohorts or reset stuck cohorts.
+    For recalculation, the cohort must not be static or deleted. Use the force option to override if the cohort is currently calculating.
+    For reset, this removes the "calculating" status from stuck cohorts. Check server logs for detailed output.
+</div>
+
+{% if messages %}
+    {% for message in messages %}
+        <div class="alert alert-{{ message.tags }}">
+            {{ message }}
+        </div>
+    {% endfor %}
+{% endif %}
+
+<!-- Recalculate Cohort Form -->
+<form method="post" id="recalculate-cohort-form">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="recalculate" />
+
+    <fieldset class="module aligned">
+        <h2>Cohort Recalculation</h2>
+
+        <div class="form-row">
+            <label for="{{ form.cohort_id.id_for_label }}" class="required">{{ form.cohort_id.label }}:</label>
+            {{ form.cohort_id }}
+            {% if form.cohort_id.help_text %}<p class="help">{{ form.cohort_id.help_text }}</p>{% endif %}
+            {{ form.cohort_id.errors }}
+        </div>
+
+        <div class="form-row">
+            <label for="{{ form.force.id_for_label }}">{{ form.force.label }}:</label>
+            {{ form.force }}
+            {% if form.force.help_text %}<p class="help">{{ form.force.help_text }}</p>{% endif %}
+            {{ form.force.errors }}
+        </div>
+    </fieldset>
+
+    <div class="submit-row">
+        <input type="submit" value="Recalculate Cohort" class="default" />
+    </div>
+</form>
+
+<br><br>
+
+<!-- Reset Stuck Cohort Form -->
+<form method="post" id="reset-cohort-form">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="reset" />
+
+    <fieldset class="module aligned">
+        <h2>Reset Stuck Cohort</h2>
+        <p class="help">Use this to reset cohorts that are stuck in "calculating" status. This will mark them as not calculating and increment their error count.</p>
+
+        <div class="form-row">
+            <label for="{{ reset_form.cohort_id.id_for_label }}" class="required">{{ reset_form.cohort_id.label }}:</label>
+            {{ reset_form.cohort_id }}
+            {% if reset_form.cohort_id.help_text %}<p class="help">{{ reset_form.cohort_id.help_text }}</p>{% endif %}
+            {{ reset_form.cohort_id.errors }}
+        </div>
+
+        <div class="form-row">
+            <label for="{{ reset_form.force_reset.id_for_label }}">{{ reset_form.force_reset.label }}:</label>
+            {{ reset_form.force_reset }}
+            {% if reset_form.force_reset.help_text %}<p class="help">{{ reset_form.force_reset.help_text }}</p>{% endif %}
+            {{ reset_form.force_reset.errors }}
+        </div>
+    </fieldset>
+
+    <div class="submit-row">
+        <input type="submit" value="Reset Cohort" class="default" style="background-color: #ff9800;" />
+    </div>
+</form>
+{% endblock %}
