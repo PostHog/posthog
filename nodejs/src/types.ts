@@ -57,6 +57,7 @@ export enum PluginServerMode {
     cdp_api = 'cdp-api',
     cdp_legacy_on_event = 'cdp-legacy-on-event',
     evaluation_scheduler = 'evaluation-scheduler',
+    sentiment_scheduler = 'sentiment-scheduler',
     ingestion_logs = 'ingestion-logs',
     cdp_batch_hogflow_requests = 'cdp-batch-hogflow-requests',
     cdp_cyclotron_shadow_worker = 'cdp-cyclotron-shadow-worker',
@@ -450,6 +451,7 @@ export interface PluginsServerConfig
     TEMPORAL_CLIENT_ROOT_CA: string | undefined
     TEMPORAL_CLIENT_CERT: string | undefined
     TEMPORAL_CLIENT_KEY: string | undefined
+    LLMA_SENTIMENT_SAMPLE_RATE: number
     PERSON_INFO_CACHE_TTL: number
     KAFKA_HEALTHCHECK_SECONDS: number
     PLUGIN_SERVER_MODE: PluginServerMode | null
@@ -554,6 +556,7 @@ export interface PluginServerCapabilities {
     cdpApi?: boolean
     appManagementSingleton?: boolean
     evaluationScheduler?: boolean
+    sentimentScheduler?: boolean
     cdpCyclotronShadowWorker?: boolean
 }
 
