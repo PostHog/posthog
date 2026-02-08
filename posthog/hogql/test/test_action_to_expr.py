@@ -153,3 +153,33 @@ class TestActionToExpr(BaseTest):
             clear_locations(action_to_expr(action)),
             self._parse_expr("event = '$autocapture' and arrayExists(x -> x = 'blabla', elements_chain_texts)"),
         )
+
+    def test_action_to_expr_screen_url_contains(self):
+        action = Action.objects.create(
+            team=self.team,
+            steps_json=[{"event": "$screen", "url": "HomeScreen", "url_matching": "contains"}],
+        )
+        self.assertEqual(
+            clear_locations(action_to_expr(action)),
+            self._parse_expr("event = '$screen' and properties.$screen_name like '%HomeScreen%'"),
+        )
+
+    def test_action_to_expr_screen_url_exact(self):
+        action = Action.objects.create(
+            team=self.team,
+            steps_json=[{"event": "$screen", "url": "Settings", "url_matching": "exact"}],
+        )
+        self.assertEqual(
+            clear_locations(action_to_expr(action)),
+            self._parse_expr("event = '$screen' and properties.$screen_name = 'Settings'"),
+        )
+
+    def test_action_to_expr_screen_url_regex(self):
+        action = Action.objects.create(
+            team=self.team,
+            steps_json=[{"event": "$screen", "url": "Home.*", "url_matching": "regex"}],
+        )
+        self.assertEqual(
+            clear_locations(action_to_expr(action)),
+            self._parse_expr("event = '$screen' and properties.$screen_name =~ 'Home.*'"),
+        )

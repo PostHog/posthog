@@ -129,7 +129,9 @@ def filter_event(
         table_name += "."
 
     if step.url:
-        value_expr, _ = get_property_string_expr("events", "$current_url", "'$current_url'", f"{table_name}properties")
+        # $screen events match against $screen_name, all others match against $current_url
+        url_property = "$screen_name" if step.event == "$screen" else "$current_url"
+        value_expr, _ = get_property_string_expr("events", url_property, f"'{url_property}'", f"{table_name}properties")
         prop_name = f"{prepend}_prop_val_{index}"
         if step.url_matching == "exact":
             conditions.append(f"{value_expr} = %({prop_name})s")
@@ -157,7 +159,8 @@ def get_action_tables_and_properties(action: Action) -> TCounter[PropertyIdentif
 
     for action_step in action.steps:
         if action_step.url:
-            result[("$current_url", "event", None)] += 1
+            url_property = "$screen_name" if action_step.event == "$screen" else "$current_url"
+            result[(url_property, "event", None)] += 1
         result += extract_tables_and_properties(
             Filter(data={"properties": action_step.properties or []}).property_groups.flat,
             team_id=action.team_id,

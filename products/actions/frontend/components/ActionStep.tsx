@@ -78,30 +78,33 @@ export function ActionStep({
                         disabledReason={disabledReason}
                     />
                 )}
-                {step.event !== undefined && step.event !== '$autocapture' && step.event !== '$pageview' && (
-                    <div className="deprecated-space-y-1">
-                        <LemonLabel>Event name</LemonLabel>
-                        <EventName
-                            value={step.event}
-                            onChange={(value) =>
-                                sendStep({
-                                    ...step,
-                                    event: value,
-                                })
-                            }
-                            placeholder="All events"
-                            allEventsOption="explicit"
-                            disabled={!!disabledReason}
-                        />
+                {step.event !== undefined &&
+                    step.event !== '$autocapture' &&
+                    step.event !== '$pageview' &&
+                    step.event !== '$screen' && (
+                        <div className="deprecated-space-y-1">
+                            <LemonLabel>Event name</LemonLabel>
+                            <EventName
+                                value={step.event}
+                                onChange={(value) =>
+                                    sendStep({
+                                        ...step,
+                                        event: value,
+                                    })
+                                }
+                                placeholder="All events"
+                                allEventsOption="explicit"
+                                disabled={!!disabledReason}
+                            />
 
-                        <small>
-                            <Link to="https://posthog.com/docs/libraries" target="_blank">
-                                See documentation
-                            </Link>{' '}
-                            on how to send custom events in lots of languages.
-                        </small>
-                    </div>
-                )}
+                            <small>
+                                <Link to="https://posthog.com/docs/libraries" target="_blank">
+                                    See documentation
+                                </Link>{' '}
+                                on how to send custom events in lots of languages.
+                            </small>
+                        </div>
+                    )}
                 {step.event === '$pageview' && (
                     <div>
                         <Option
@@ -117,6 +120,29 @@ export function ActionStep({
                                 />
                             }
                             label="URL"
+                            disabledReason={disabledReason}
+                        />
+                        {step.url_matching && step.url_matching in URL_MATCHING_HINTS && (
+                            <small>{URL_MATCHING_HINTS[step.url_matching]}</small>
+                        )}
+                    </div>
+                )}
+                {step.event === '$screen' && (
+                    <div>
+                        <Option
+                            step={step}
+                            sendStep={sendStep}
+                            item="url"
+                            labelExtra={
+                                <StringMatchingSelection
+                                    field="url"
+                                    step={step}
+                                    sendStep={sendStep}
+                                    disabledReason={disabledReason}
+                                />
+                            }
+                            label="Screen name"
+                            placeholder="e.g. HomeScreen, Settings"
                             disabledReason={disabledReason}
                         />
                         {step.url_matching && step.url_matching in URL_MATCHING_HINTS && (
@@ -359,6 +385,12 @@ function TypeSwitcher({
                 event: '$pageview',
                 url: step.url,
             })
+        } else if (type === '$screen') {
+            sendStep({
+                ...step,
+                event: '$screen',
+                url: step.url,
+            })
         }
     }
 
@@ -367,7 +399,10 @@ function TypeSwitcher({
             <LemonSegmentedButton
                 onChange={handleChange}
                 value={
-                    step.event === '$autocapture' || step.event === '$pageview' || step.event === undefined
+                    step.event === '$autocapture' ||
+                    step.event === '$pageview' ||
+                    step.event === '$screen' ||
+                    step.event === undefined
                         ? step.event
                         : 'event'
                 }
@@ -382,6 +417,12 @@ function TypeSwitcher({
                         value: '$autocapture',
                         label: 'Autocapture',
                         'data-attr': 'action-type-autocapture',
+                        disabledReason,
+                    },
+                    {
+                        value: '$screen',
+                        label: 'Screen',
+                        'data-attr': 'action-type-screen',
                         disabledReason,
                     },
                     {

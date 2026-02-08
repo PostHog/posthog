@@ -993,14 +993,14 @@ def action_to_expr(action: Action, events_alias: Optional[str] = None) -> ast.Ex
                     )
 
         if step.url:
+            # $screen events match against $screen_name, all others match against $current_url
+            url_property = "$screen_name" if step.event == "$screen" else "$current_url"
             if step.url_matching == "exact":
                 expr = ast.CompareOperation(
                     op=ast.CompareOperationOp.Eq,
                     left=ast.Field(
                         chain=(
-                            [events_alias, "properties", "$current_url"]
-                            if events_alias
-                            else ["properties", "$current_url"]
+                            [events_alias, "properties", url_property] if events_alias else ["properties", url_property]
                         )
                     ),
                     right=ast.Constant(value=step.url),
@@ -1010,9 +1010,7 @@ def action_to_expr(action: Action, events_alias: Optional[str] = None) -> ast.Ex
                     op=ast.CompareOperationOp.Regex,
                     left=ast.Field(
                         chain=(
-                            [events_alias, "properties", "$current_url"]
-                            if events_alias
-                            else ["properties", "$current_url"]
+                            [events_alias, "properties", url_property] if events_alias else ["properties", url_property]
                         )
                     ),
                     right=ast.Constant(value=step.url),
@@ -1022,9 +1020,7 @@ def action_to_expr(action: Action, events_alias: Optional[str] = None) -> ast.Ex
                     op=ast.CompareOperationOp.Like,
                     left=ast.Field(
                         chain=(
-                            [events_alias, "properties", "$current_url"]
-                            if events_alias
-                            else ["properties", "$current_url"]
+                            [events_alias, "properties", url_property] if events_alias else ["properties", url_property]
                         )
                     ),
                     right=ast.Constant(value=f"%{step.url}%"),
