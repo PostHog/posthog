@@ -2043,8 +2043,15 @@
                     "type": "string"
                 },
                 "ui_payload": {
-                    "description": "Payload passed through to the frontend - specifically for calls of contextual tool. Tool call messages without a ui_payload are not passed through to the frontend.",
-                    "type": "object"
+                    "anyOf": [
+                        {
+                            "type": "object"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Payload passed through to the frontend - specifically for calls of contextual tool. Tool call messages without a ui_payload are not passed through to the frontend."
                 }
             },
             "required": ["type", "content", "tool_call_id"],

@@ -1825,16 +1825,18 @@ export async function onEventImplementation(
                 }
             }
         } else if (isAssistantToolCallMessage(parsedResponse)) {
-            for (const [toolName, toolResult] of Object.entries(parsedResponse.ui_payload)) {
-                if (values.availableStaticTools.some((tool) => tool.identifier === toolName)) {
-                    continue // Static tools (mode-level) don't operate via ui_payload
+            if (parsedResponse.ui_payload != null) {
+                for (const [toolName, toolResult] of Object.entries(parsedResponse.ui_payload)) {
+                    if (values.availableStaticTools.some((tool) => tool.identifier === toolName)) {
+                        continue // Static tools (mode-level) don't operate via ui_payload
+                    }
+                    // Track pending approval proposals for auto-rejection and to disable input
+                    const proposalId = toolResult?.proposalId || toolResult?.proposal_id
+                    if (toolResult?.status === PENDING_APPROVAL_STATUS && proposalId) {
+                        actions.setPendingApproval(proposalId)
+                    }
+                    await values.toolMap[toolName]?.callback?.(toolResult, props.conversationId)
                 }
-                // Track pending approval proposals for auto-rejection and to disable input
-                const proposalId = toolResult?.proposalId || toolResult?.proposal_id
-                if (toolResult?.status === PENDING_APPROVAL_STATUS && proposalId) {
-                    actions.setPendingApproval(proposalId)
-                }
-                await values.toolMap[toolName]?.callback?.(toolResult, props.conversationId)
             }
             actions.addMessage({
                 ...parsedResponse,
