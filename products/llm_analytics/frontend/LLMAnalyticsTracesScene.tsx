@@ -3,8 +3,10 @@ import { useActions, useValues } from 'kea'
 import { LemonTag } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
@@ -54,6 +56,7 @@ export function LLMAnalyticsTraces(): JSX.Element {
 }
 
 export const useTracesQueryContext = (): QueryContext<DataTableNode> => {
+    const { featureFlags } = useValues(featureFlagLogic)
     return {
         emptyStateHeading: 'There were no traces in this period',
         emptyStateDetail: 'Try changing the date range or filters.',
@@ -99,12 +102,18 @@ export const useTracesQueryContext = (): QueryContext<DataTableNode> => {
                 ),
                 render: CostColumn,
             },
-            sentiment: {
-                renderTitle: () => (
-                    <Tooltip title="Sentiment classification of user messages in this trace">Sentiment</Tooltip>
-                ),
-                render: SentimentColumn,
-            },
+            ...(featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT]
+                ? {
+                      sentiment: {
+                          renderTitle: () => (
+                              <Tooltip title="Sentiment classification of user messages in this trace">
+                                  Sentiment
+                              </Tooltip>
+                          ),
+                          render: SentimentColumn,
+                      },
+                  }
+                : {}),
         },
     }
 }

@@ -3,7 +3,9 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { urls } from 'scenes/urls'
 
@@ -50,7 +52,12 @@ function getDayDateRange(day: string): { date_from: string; date_to: string } {
 export const llmAnalyticsDashboardLogic = kea<llmAnalyticsDashboardLogicType>([
     path(['products', 'llm_analytics', 'frontend', 'tabs', 'llmAnalyticsDashboardLogic']),
     connect(() => ({
-        values: [llmAnalyticsSharedLogic, ['dashboardDateFilter', 'shouldFilterTestAccounts', 'propertyFilters']],
+        values: [
+            llmAnalyticsSharedLogic,
+            ['dashboardDateFilter', 'shouldFilterTestAccounts', 'propertyFilters'],
+            featureFlagLogic,
+            ['featureFlags'],
+        ],
     })),
 
     actions({
@@ -184,8 +191,13 @@ export const llmAnalyticsDashboardLogic = kea<llmAnalyticsDashboardLogicType>([
         // Used when LLM_ANALYTICS_CUSTOMIZABLE_DASHBOARD feature flag is OFF.
         // When feature flag is ON, dashboard is loaded from backend template instead.
         tiles: [
-            (s) => [s.dashboardDateFilter, s.shouldFilterTestAccounts, s.propertyFilters],
-            (dashboardDateFilter, shouldFilterTestAccounts, propertyFilters): QueryTile[] => [
+            (s) => [s.dashboardDateFilter, s.shouldFilterTestAccounts, s.propertyFilters, s.featureFlags],
+            (
+                dashboardDateFilter,
+                shouldFilterTestAccounts,
+                propertyFilters,
+                featureFlags: Record<string, boolean | string | undefined>
+            ): QueryTile[] => [
                 {
                     title: 'Traces',
                     query: {
@@ -526,32 +538,39 @@ export const llmAnalyticsDashboardLogic = kea<llmAnalyticsDashboardLogicType>([
                         },
                     },
                 },
-                {
-                    title: 'Sentiment',
-                    description: 'Distribution of user message sentiment across generations',
-                    query: {
-                        kind: NodeKind.TrendsQuery,
-                        series: [
-                            {
-                                event: '$ai_sentiment',
-                                name: '$ai_sentiment',
-                                kind: NodeKind.EventsNode,
-                            },
-                        ],
-                        breakdownFilter: {
-                            breakdown: '$ai_sentiment_label',
-                        },
-                        dateRange: { date_from: dashboardDateFilter.dateFrom, date_to: dashboardDateFilter.dateTo },
-                        properties: propertyFilters,
-                        filterTestAccounts: shouldFilterTestAccounts,
-                    },
-                    context: {
-                        groupTypeLabel: 'sentiment events',
-                        insightProps: {
-                            dashboardItemId: `new-sentiment-query`,
-                        },
-                    },
-                },
+                ...(featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT]
+                    ? [
+                          {
+                              title: 'Sentiment',
+                              description: 'Distribution of user message sentiment across generations',
+                              query: {
+                                  kind: NodeKind.TrendsQuery,
+                                  series: [
+                                      {
+                                          event: '$ai_sentiment',
+                                          name: '$ai_sentiment',
+                                          kind: NodeKind.EventsNode,
+                                      },
+                                  ],
+                                  breakdownFilter: {
+                                      breakdown: '$ai_sentiment_label',
+                                  },
+                                  dateRange: {
+                                      date_from: dashboardDateFilter.dateFrom,
+                                      date_to: dashboardDateFilter.dateTo,
+                                  },
+                                  properties: propertyFilters,
+                                  filterTestAccounts: shouldFilterTestAccounts,
+                              },
+                              context: {
+                                  groupTypeLabel: 'sentiment events',
+                                  insightProps: {
+                                      dashboardItemId: `new-sentiment-query`,
+                                  },
+                              },
+                          },
+                      ]
+                    : []),
                 {
                     title: 'Generations by HTTP status',
                     query: {

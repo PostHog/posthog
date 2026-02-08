@@ -1,6 +1,8 @@
 import { useActions, useValues } from 'kea'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { isHogQLQuery } from '~/queries/utils'
@@ -15,6 +17,7 @@ export function LLMAnalyticsUsers(): JSX.Element {
     const { setDates, setShouldFilterTestAccounts, setPropertyFilters } = useActions(llmAnalyticsSharedLogic)
     const { setUsersSort } = useActions(llmAnalyticsUsersLogic)
     const { usersQuery, usersSort } = useValues(llmAnalyticsUsersLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const { renderSortableColumnTitle } = useSortableColumns(usersSort, setUsersSort)
 
@@ -78,17 +81,21 @@ export function LLMAnalyticsUsers(): JSX.Element {
                             return <span>${Number(value).toFixed(4)}</span>
                         },
                     },
-                    sentiment: {
-                        renderTitle: () => (
-                            <Tooltip title="Average sentiment across this user's traces">Sentiment</Tooltip>
-                        ),
-                        render: function RenderSentiment({ value }) {
-                            if (!Array.isArray(value) || value.length < 4) {
-                                return <>–</>
-                            }
-                            return <UserSentimentBar scores={value as [number, number, number, number]} />
-                        },
-                    },
+                    ...(featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT]
+                        ? {
+                              sentiment: {
+                                  renderTitle: () => (
+                                      <Tooltip title="Average sentiment across this user's traces">Sentiment</Tooltip>
+                                  ),
+                                  render: function RenderSentiment({ value }: { value: unknown }) {
+                                      if (!Array.isArray(value) || value.length < 4) {
+                                          return <>–</>
+                                      }
+                                      return <UserSentimentBar scores={value as [number, number, number, number]} />
+                                  },
+                              },
+                          }
+                        : {}),
                 },
             }}
             uniqueKey="llm-analytics-users"

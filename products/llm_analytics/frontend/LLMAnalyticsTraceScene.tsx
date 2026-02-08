@@ -384,7 +384,9 @@ function TraceMetadata({
             {feedbackEvents.map((feedback) => (
                 <FeedbackTag key={feedback.id} properties={feedback.properties} />
             ))}
-            {sentimentByEventId.size > 0 && <TraceSentimentChip sentimentByEventId={sentimentByEventId} />}
+            {featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT] && sentimentByEventId.size > 0 && (
+                <TraceSentimentChip sentimentByEventId={sentimentByEventId} />
+            )}
         </header>
     )
 }
@@ -611,6 +613,7 @@ const TreeNode = React.memo(function TraceNode({
     const usage = node.displayUsage
     const item = node.event
 
+    const { featureFlags } = useValues(featureFlagLogic)
     const { eventTypeExpanded } = useValues(llmAnalyticsTraceLogic)
     const { sentimentByEventId } = useValues(llmAnalyticsTraceDataLogic)
     const eventType = getEventType(item)
@@ -670,7 +673,9 @@ const TreeNode = React.memo(function TraceNode({
                             💰
                         </span>
                     )}
-                    {sentimentEvent && <SentimentDot event={sentimentEvent} />}
+                    {featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT] && sentimentEvent && (
+                        <SentimentDot event={sentimentEvent} />
+                    )}
                     {!isCollapsedDueToFilter && (
                         <Tooltip title={formatLLMEventTitle(item)}>
                             {searchQuery?.trim() ? (
@@ -1080,11 +1085,13 @@ const EventContent = React.memo(
                                                                 raisedError={event.properties.$ai_is_error}
                                                                 searchQuery={searchQuery}
                                                                 messageSentiments={
-                                                                    sentimentByEventId.get(
-                                                                        event.properties.$ai_generation_id ??
-                                                                            event.properties.$ai_span_id ??
-                                                                            event.id
-                                                                    )?.properties.$ai_sentiment_messages
+                                                                    featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT]
+                                                                        ? sentimentByEventId.get(
+                                                                              event.properties.$ai_generation_id ??
+                                                                                  event.properties.$ai_span_id ??
+                                                                                  event.id
+                                                                          )?.properties.$ai_sentiment_messages
+                                                                        : undefined
                                                                 }
                                                             />
                                                         ) : event.event === '$ai_embedding' ? (
