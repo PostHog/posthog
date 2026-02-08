@@ -47,7 +47,6 @@ class ObjectMediaPreview(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
             models.Index(fields=["team", "event_definition"]),
         ]
         constraints = [
-            # Exactly one media must be set
             models.CheckConstraint(
                 check=(
                     models.Q(uploaded_media__isnull=False, exported_asset__isnull=True)
@@ -55,7 +54,6 @@ class ObjectMediaPreview(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
                 ),
                 name="exactly_one_media",
             ),
-            # Exactly one related object must be set
             models.CheckConstraint(
                 check=models.Q(event_definition__isnull=False),
                 name="exactly_one_object",
@@ -65,7 +63,6 @@ class ObjectMediaPreview(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
     def clean(self):
         super().clean()
 
-        # Validate exactly one media is set
         media_count = sum(
             [
                 self.uploaded_media_id is not None,
@@ -75,7 +72,6 @@ class ObjectMediaPreview(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
         if media_count != 1:
             raise ValidationError("Exactly one of uploaded_media or exported_asset must be set")
 
-        # Validate object is set
         if not self.event_definition_id:
             raise ValidationError("event_definition must be set")
 

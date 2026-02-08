@@ -9,7 +9,7 @@ import posthog.models.utils
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0917_alter_survey_linked_insight"),
+        ("posthog", "0999_remove_presorted_events_modifier"),
     ]
 
     operations = [
