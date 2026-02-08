@@ -1,0 +1,17 @@
+[package]
+name = "personhog-merger"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+async-trait = { workspace = true }
+futures = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util", "macros", "rt-multi-thread"] }
+
+[lints]
+workspace = true
