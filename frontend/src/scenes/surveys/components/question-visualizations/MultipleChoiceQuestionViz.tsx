@@ -1,6 +1,9 @@
 import { BindLogic } from 'kea'
 import { useMemo } from 'react'
 
+import { IconInfo } from '@posthog/icons'
+import { Tooltip } from '@posthog/lemon-ui'
+
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { LineGraph } from 'scenes/insights/views/LineGraph/LineGraph'
 import { OpenQuestionSummaryV2 } from 'scenes/surveys/components/question-visualizations/OpenQuestionSummaryV2'
@@ -30,7 +33,7 @@ interface Props {
 
 interface ProcessedData {
     chartData: ChoiceQuestionResponseData[]
-    openEndedResponses: ChoiceQuestionResponseData[]
+    nonPredefinedResponses: ChoiceQuestionResponseData[]
 }
 
 function toOpenQuestionFormat(responses: ChoiceQuestionResponseData[]): OpenQuestionResponseData[] {
@@ -42,24 +45,29 @@ function toOpenQuestionFormat(responses: ChoiceQuestionResponseData[]): OpenQues
     }))
 }
 
-function OpenEndedResponsesSection({
-    openEndedResponses,
+function NonPredefinedResponsesSection({
+    responses,
     questionId,
     questionIndex,
 }: {
-    openEndedResponses: ChoiceQuestionResponseData[]
+    responses: ChoiceQuestionResponseData[]
     questionId?: string
     questionIndex: number
 }): JSX.Element {
     return (
         <div>
-            <h4 className="font-semibold mb-3 text-sm text-muted-foreground">Open-ended responses:</h4>
+            <h4 className="font-semibold mb-3 text-sm text-muted-foreground">
+                <Tooltip title="Includes open-ended responses and responses to choices that have been edited or removed">
+                    <span>Other responses</span>
+                    <IconInfo className="text-lg text-secondary shrink-0 ml-0.5 mt-0.5" />
+                </Tooltip>
+            </h4>
             <OpenQuestionSummaryV2
                 questionId={questionId}
                 questionIndex={questionIndex}
-                totalResponses={openEndedResponses.length}
+                totalResponses={responses.length}
             />
-            <VirtualizedResponseList responses={toOpenQuestionFormat(openEndedResponses)} />
+            <VirtualizedResponseList responses={toOpenQuestionFormat(responses)} />
         </div>
     )
 }
@@ -70,17 +78,17 @@ export function MultipleChoiceQuestionViz({
     responseData,
     totalResponses,
 }: Props): JSX.Element | null {
-    const { chartData, openEndedResponses } = useMemo((): ProcessedData => {
+    const { chartData, nonPredefinedResponses } = useMemo((): ProcessedData => {
         const predefinedResponses = responseData.filter((d) => d.isPredefined)
         const nonPredefinedResponses = responseData.filter((d) => !d.isPredefined)
 
         const chartData = [...predefinedResponses]
 
         if (nonPredefinedResponses.length > 0) {
-            const totalOpenEndedCount = nonPredefinedResponses.reduce((sum, d) => sum + d.value, 0)
+            const totalNonPredefinedCount = nonPredefinedResponses.reduce((sum, d) => sum + d.value, 0)
             chartData.push({
-                label: 'Other (open-ended)',
-                value: totalOpenEndedCount,
+                label: 'Other',
+                value: totalNonPredefinedCount,
                 isPredefined: true,
             })
         }
@@ -89,7 +97,7 @@ export function MultipleChoiceQuestionViz({
 
         return {
             chartData,
-            openEndedResponses: nonPredefinedResponses,
+            nonPredefinedResponses,
         }
     }, [responseData])
 
@@ -130,9 +138,9 @@ export function MultipleChoiceQuestionViz({
                 </BindLogic>
             </div>
 
-            {openEndedResponses.length > 0 && (
-                <OpenEndedResponsesSection
-                    openEndedResponses={openEndedResponses}
+            {nonPredefinedResponses.length > 0 && (
+                <NonPredefinedResponsesSection
+                    responses={nonPredefinedResponses}
                     questionId={question.id}
                     questionIndex={questionIndex}
                 />
