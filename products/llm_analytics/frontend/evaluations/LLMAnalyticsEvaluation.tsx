@@ -261,7 +261,7 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
                                         fullWidth
                                     />
                                 </Field>
-                                {}
+
                                 <Field name="base_url" label="Base URL (optional)">
                                     <LemonInput
                                         value={baseUrl}
@@ -270,7 +270,6 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
                                         fullWidth
                                     />
                                 </Field>
-                                {}
 
                                 <Field name="model" label="Model">
                                     <>

@@ -1,4 +1,5 @@
 from django.core.exceptions import ValidationError
+from django.core.validators import URLValidator
 from django.db import models
 
 from posthog.models.utils import UUIDTModel
@@ -26,7 +27,7 @@ class LLMModelConfiguration(UUIDTModel):
         blank=True,
         related_name="model_configurations",
     )
-    base_url = models.CharField(max_length=500, null=True, blank=True)
+    base_url = models.CharField(max_length=500, null=True, blank=True, validators=[URLValidator()])
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

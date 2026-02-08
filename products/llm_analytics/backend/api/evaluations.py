@@ -31,6 +31,7 @@ class ModelConfigurationSerializer(serializers.Serializer):
     provider = serializers.ChoiceField(choices=LLMProvider.choices)
     model = serializers.CharField(max_length=100)
     provider_key_id = serializers.UUIDField(required=False, allow_null=True)
+    base_url = serializers.CharField(max_length=500, required=False, allow_null=True, allow_blank=True)
     provider_key_name = serializers.SerializerMethodField(read_only=True)
 
     def get_provider_key_name(self, obj: LLMModelConfiguration) -> str | None:
@@ -44,6 +45,7 @@ class ModelConfigurationSerializer(serializers.Serializer):
             "model": instance.model,
             "provider_key_id": str(instance.provider_key_id) if instance.provider_key_id else None,
             "provider_key_name": instance.provider_key.name if instance.provider_key else None,
+            "base_url": instance.base_url,
         }
 
 
@@ -106,6 +108,7 @@ class EvaluationSerializer(serializers.ModelSerializer):
             provider=model_config_data["provider"],
             model=model_config_data["model"],
             provider_key=provider_key,
+            base_url=model_config_data.get("base_url"),
         )
         model_config.full_clean()
         model_config.save()

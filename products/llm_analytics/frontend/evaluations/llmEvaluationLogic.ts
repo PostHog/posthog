@@ -478,6 +478,18 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 actions.setModelConfiguration(null)
             }
         },
+        setBaseUrl: ({ baseUrl }) => {
+            // When base URL changes, update the model configuration if a model is selected
+            if (values.selectedModel) {
+                const modelConfig: ModelConfiguration = {
+                    provider: values.selectedProvider,
+                    model: values.selectedModel,
+                    provider_key_id: values.selectedKeyId,
+                    base_url: baseUrl || null,
+                }
+                actions.setModelConfiguration(modelConfig)
+            }
+        },
 
         loadAvailableModelsSuccess: ({ availableModels }) => {
             // If the currently selected model is not in the available models, reset it
