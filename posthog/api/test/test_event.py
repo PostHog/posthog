@@ -1203,7 +1203,7 @@ class TestEventListTimeWindowOptimization(ClickhouseTestMixin, APIBaseTest):
 
     @patch("posthog.api.event.cache")
     @patch("posthog.models.event.query_event_list.insight_query_with_columns")
-    def test_caches_successful_window(self, patch_query_with_columns, mock_cache):
+    def test_caches_successful_window_with_result_count(self, patch_query_with_columns, mock_cache):
         mock_cache.get.return_value = None  # No cached window
 
         # Return enough results (>= half of limit) to succeed on first window
@@ -1222,18 +1222,19 @@ class TestEventListTimeWindowOptimization(ClickhouseTestMixin, APIBaseTest):
 
         self.client.get(f"/api/projects/{self.team.id}/events/")
 
-        # Should cache the successful window (60 seconds = first window)
+        # Should cache the successful window AND result count
         mock_cache.set.assert_called_once()
         call_args = mock_cache.set.call_args
-        assert call_args[0][1] == 60  # First window
+        cached_data = call_args[0][1]
+        assert cached_data == {"window": 60, "result_count": 50}
         assert call_args[0][2] == 86400  # TTL
 
     @patch("posthog.api.event.cache")
     @patch("posthog.models.event.query_event_list.insight_query_with_columns")
-    def test_uses_cached_window_first(self, patch_query_with_columns, mock_cache):
-        mock_cache.get.return_value = 3600  # Cached window: 1 hour
+    def test_uses_cached_window_when_result_count_meets_threshold(self, patch_query_with_columns, mock_cache):
+        # Cached window with result_count >= half_limit (60 >= 50 for limit=100)
+        mock_cache.get.return_value = {"window": 3600, "result_count": 60}
 
-        # Return enough results on first try
         patch_query_with_columns.return_value = [
             {
                 "uuid": "event",
@@ -1244,7 +1245,7 @@ class TestEventListTimeWindowOptimization(ClickhouseTestMixin, APIBaseTest):
                 "distinct_id": "1",
                 "elements_chain": "",
             }
-            for _ in range(50)
+            for _ in range(60)
         ]
 
         self.client.get(f"/api/projects/{self.team.id}/events/")
@@ -1252,8 +1253,88 @@ class TestEventListTimeWindowOptimization(ClickhouseTestMixin, APIBaseTest):
         # Should only call once since cached window returned enough results
         assert patch_query_with_columns.call_count == 1
 
-        # Should not update cache since we used the cached value
+        # Should NOT update cache when data is identical (optimization)
         mock_cache.set.assert_not_called()
+
+    @patch("posthog.api.event.cache")
+    @patch("posthog.api.event.query_events_list")
+    def test_ignores_cached_window_when_result_count_below_threshold(self, mock_query_events_list, mock_cache):
+        """
+        This test verifies the fix for the cache key bug where different limits
+        could share the same cache key but have different half_limit thresholds.
+
+        Scenario: A previous request with limit=4999 (half_limit=2499) cached window=3600
+        with result_count=2700. A new request with limit=6000 (half_limit=3000) should
+        ignore this cache because 2700 < 3000.
+        """
+        # Cached from a smaller limit request - not enough for current threshold
+        mock_cache.get.return_value = {"window": 3600, "result_count": 2700}
+
+        # Return 3500 results (enough for limit=6000's half_limit=3000)
+        mock_query_events_list.return_value = (
+            [
+                {
+                    "uuid": f"event-{i}",
+                    "event": "test",
+                    "properties": "{}",
+                    "timestamp": timezone.now(),
+                    "team_id": str(self.team.pk),
+                    "distinct_id": "1",
+                    "elements_chain": "",
+                }
+                for i in range(3500)
+            ],
+            60,  # applied_window
+        )
+
+        # Request with limit=6000 (half_limit=3000)
+        self.client.get(f"/api/projects/{self.team.id}/events/?limit=6000")
+
+        # Cache result_count (2700) < half_limit (3000), so cache should be ignored.
+        # Should start from smallest window (60s), not cached 3600s.
+        first_call_kwargs = mock_query_events_list.call_args_list[0][1]
+        assert first_call_kwargs["time_window_seconds"] == 60  # Not 3600
+
+        # Should cache new successful window with correct structure
+        mock_cache.set.assert_called_once()
+        cached_data = mock_cache.set.call_args[0][1]
+        assert cached_data == {"window": 60, "result_count": 3500}
+
+    @patch("posthog.api.event.cache")
+    @patch("posthog.api.event.query_events_list")
+    def test_backwards_compat_uses_old_integer_cache_format(self, mock_query_events_list, mock_cache):
+        """
+        Old cache entries are just integers (the window). For backwards compatibility,
+        we use these directly (we can't know if they have enough results).
+        """
+        mock_cache.get.return_value = 3600  # Old format: just the window integer
+
+        mock_query_events_list.return_value = (
+            [
+                {
+                    "uuid": "event",
+                    "event": "test",
+                    "properties": "{}",
+                    "timestamp": timezone.now(),
+                    "team_id": str(self.team.pk),
+                    "distinct_id": "1",
+                    "elements_chain": "",
+                }
+                for _ in range(50)
+            ],
+            3600,  # applied_window
+        )
+
+        self.client.get(f"/api/projects/{self.team.id}/events/")
+
+        # Should use cached window (3600) first due to backwards compatibility
+        first_call_kwargs = mock_query_events_list.call_args_list[0][1]
+        assert first_call_kwargs["time_window_seconds"] == 3600
+
+        # Should update cache to new format
+        mock_cache.set.assert_called_once()
+        cached_data = mock_cache.set.call_args[0][1]
+        assert cached_data == {"window": 3600, "result_count": 50}
 
     @patch("posthog.api.event.cache")
     @patch("posthog.models.event.query_event_list.insight_query_with_columns")
