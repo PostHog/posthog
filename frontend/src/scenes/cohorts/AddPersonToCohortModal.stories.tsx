@@ -1,9 +1,11 @@
 import { Meta, StoryFn } from '@storybook/react'
 
 import { IconExternal } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonModal, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonInput, LemonModal, LemonTag } from '@posthog/lemon-ui'
 
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
+
+import './AddPersonToCohortModalBody.scss'
 
 const meta: Meta = {
     title: 'Scenes-App/People/Cohorts/Add Person To Cohort Modal',
@@ -16,58 +18,31 @@ const meta: Meta = {
 export default meta
 
 const mockPersons = [
-    {
-        id: '017cf78e-a849-0000-0000-01fe9b8d7233',
-        distinct_id: 'user-1',
-        display_name: 'Jane Doe',
-        isInCohort: true,
-        isAdded: false,
-    },
-    {
-        id: '01804f4e-0fb7-0000-0000-0db0398f4d98',
-        distinct_id: 'user-2',
-        display_name: 'John Smith',
-        isInCohort: false,
-        isAdded: true,
-    },
+    { id: '017cf78e-a849-0000-0000-01fe9b8d7233', display_name: 'Jane Doe', isInCohort: true, isAdded: false },
+    { id: '01804f4e-0fb7-0000-0000-0db0398f4d98', display_name: 'John Smith', isInCohort: false, isAdded: true },
     {
         id: '0188f346-0564-0000-0000-16bc74aebc20',
-        distinct_id: 'user-3',
         display_name: 'alice@example.com',
         isInCohort: false,
         isAdded: false,
     },
-    {
-        id: '0184f5e9-bb76-0000-0000-2ac415274e4a',
-        distinct_id: 'user-4',
-        display_name: 'Bob Wilson',
-        isInCohort: false,
-        isAdded: true,
-    },
-    {
-        id: '017fc2b7-d6f0-0000-0000-31f9a1f40e06',
-        distinct_id: 'user-5',
-        display_name: 'charlie@test.com',
-        isInCohort: true,
-        isAdded: false,
-    },
+    { id: '0184f5e9-bb76-0000-0000-2ac415274e4a', display_name: 'Bob Wilson', isInCohort: false, isAdded: true },
+    { id: '017fc2b7-d6f0-0000-0000-31f9a1f40e06', display_name: 'charlie@test.com', isInCohort: true, isAdded: false },
 ]
 
 function PersonRow({ person }: { person: (typeof mockPersons)[0] }): JSX.Element {
-    const isChecked = person.isInCohort || person.isAdded
-
     return (
-        <div className="flex items-center gap-3 px-3 py-2 rounded hover:bg-[var(--color-bg-light)]">
+        <div className="AddPersonToCohortModalBody__row" style={{ height: 44 }}>
             <LemonCheckbox
-                checked={isChecked}
+                checked={person.isInCohort || person.isAdded}
                 disabled={person.isInCohort}
                 onChange={() => {}}
                 data-attr="cohort-person-checkbox"
             />
-            <div className="flex items-center justify-between w-full gap-2">
+            <div className="flex items-center justify-between flex-1 gap-2 min-w-0">
                 <div className="flex items-center gap-2 min-w-0">
                     <PersonDisplay
-                        person={{ id: person.id, distinct_id: person.distinct_id }}
+                        person={{ id: person.id }}
                         displayName={person.display_name}
                         withIcon
                         noLink
@@ -106,8 +81,9 @@ export const ModalInline: StoryFn = () => {
                     </div>
                 }
             >
-                <div className="min-w-180 AddPersonToCohortModalBody">
-                    <div className="flex flex-col gap-0">
+                <div className="AddPersonToCohortModalBody">
+                    <LemonInput type="search" placeholder="Search by name, email, Person ID or Distinct ID" fullWidth />
+                    <div className="flex flex-col">
                         {mockPersons.map((person) => (
                             <PersonRow key={person.id} person={person} />
                         ))}
@@ -118,7 +94,7 @@ export const ModalInline: StoryFn = () => {
     )
 }
 
-export const ModalWithSelectedPersons: StoryFn = () => {
+export const ModalWithAllSelected: StoryFn = () => {
     return (
         <div className="bg-default p-4">
             <LemonModal
@@ -137,8 +113,9 @@ export const ModalWithSelectedPersons: StoryFn = () => {
                     </div>
                 }
             >
-                <div className="min-w-180 AddPersonToCohortModalBody">
-                    <div className="flex flex-col gap-0">
+                <div className="AddPersonToCohortModalBody">
+                    <LemonInput type="search" placeholder="Search by name, email, Person ID or Distinct ID" fullWidth />
+                    <div className="flex flex-col">
                         {mockPersons.map((person) => (
                             <PersonRow key={person.id} person={{ ...person, isAdded: true }} />
                         ))}
@@ -172,8 +149,9 @@ export const ModalEmpty: StoryFn = () => {
                     </div>
                 }
             >
-                <div className="min-w-180 AddPersonToCohortModalBody">
-                    <div className="flex flex-col items-center justify-center py-8 text-muted">
+                <div className="AddPersonToCohortModalBody">
+                    <LemonInput type="search" placeholder="Search by name, email, Person ID or Distinct ID" fullWidth />
+                    <div className="flex items-center justify-center py-8 text-muted">
                         Search for persons to add to this cohort.
                     </div>
                 </div>

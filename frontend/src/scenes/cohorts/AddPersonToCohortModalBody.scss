@@ -1,12 +1,21 @@
 .AddPersonToCohortModalBody {
-    .LemonTable__content > table > tbody > tr > td {
-        border-top: none;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    min-width: 40rem;
+
+    &__list {
+        height: 28rem;
     }
 
-    .LemonTable__content > table > tbody > tr {
+    &__row {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        padding: 0 0.75rem;
         border-radius: var(--radius);
 
-        &:hover > td {
+        &:hover {
             background-color: var(--color-bg-light);
         }
     }
