@@ -14,7 +14,11 @@ from posthog.redis import get_async_client
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.llm_analytics.trace_summarization.constants import MAX_RAW_TRACE_SIZE
-from posthog.temporal.llm_analytics.trace_summarization.models import FetchAndFormatInput, FetchAndFormatResult
+from posthog.temporal.llm_analytics.trace_summarization.models import (
+    FetchAndFormatInput,
+    FetchAndFormatResult,
+    FetchResult,
+)
 from posthog.temporal.llm_analytics.trace_summarization.queries import fetch_trace
 from posthog.temporal.llm_analytics.trace_summarization.state import generate_redis_key, store_text_repr
 from posthog.temporal.llm_analytics.trace_summarization.utils import format_datetime_for_clickhouse
@@ -30,10 +34,10 @@ logger = structlog.get_logger(__name__)
 
 def _fetch_and_format_trace(
     trace_id: str, team_id: int, window_start: str, window_end: str, max_length: int | None = None
-) -> tuple[str, int] | tuple[None, int] | None:
+) -> FetchResult | None:
     """Fetch trace data and format text representation.
 
-    Returns (text_repr, event_count), (None, event_count) if oversized, or None if not found.
+    Returns FetchResult with text_repr=None if oversized, or None if not found.
     """
     team = Team.objects.get(id=team_id)
 
@@ -52,7 +56,7 @@ def _fetch_and_format_trace(
             max_raw_size=MAX_RAW_TRACE_SIZE,
         )
         _trace_dict, hierarchy = llm_trace_to_formatter_format(llm_trace)
-        return None, len(hierarchy)
+        return FetchResult(text_repr=None, event_count=len(hierarchy))
 
     trace_dict, hierarchy = llm_trace_to_formatter_format(llm_trace)
 
@@ -70,15 +74,15 @@ def _fetch_and_format_trace(
         options=options,
     )
 
-    return text_repr, len(hierarchy)
+    return FetchResult(text_repr=text_repr, event_count=len(hierarchy))
 
 
 def _fetch_and_format_generation(
     generation_id: str, team_id: int, window_start: str, window_end: str, max_length: int | None = None
-) -> tuple[str, int] | None:
+) -> FetchResult | None:
     """Fetch generation event data and format text representation.
 
-    Returns (text_repr, event_count=1) or None if not found.
+    Returns FetchResult or None if not found.
     """
     team = Team.objects.get(id=team_id)
 
@@ -134,7 +138,7 @@ def _fetch_and_format_generation(
     if max_length and len(text_repr) > max_length:
         text_repr = text_repr[:max_length] + "\n... [truncated]"
 
-    return text_repr, 1
+    return FetchResult(text_repr=text_repr, event_count=1)
 
 
 def _format_generation_text_repr(generation_data: dict) -> str:
@@ -229,14 +233,12 @@ async def fetch_and_format_activity(input: FetchAndFormatInput) -> FetchAndForma
                 skip_reason=skip_reason,
             )
 
-        text_repr, event_count = result
-
         # Oversized trace (text_repr is None but event_count is known)
-        if text_repr is None:
+        if result.text_repr is None:
             log.warning(
                 "Skipping trace - exceeds max raw size",
                 fetch_duration_s=round(fetch_duration_s, 2),
-                event_count=event_count,
+                event_count=result.event_count,
             )
             return FetchAndFormatResult(
                 redis_key="",
@@ -244,7 +246,7 @@ async def fetch_and_format_activity(input: FetchAndFormatInput) -> FetchAndForma
                 team_id=input.team_id,
                 trace_first_timestamp=input.trace_first_timestamp,
                 generation_id=input.generation_id,
-                event_count=event_count,
+                event_count=result.event_count,
                 skipped=True,
                 skip_reason="trace_too_large",
             )
@@ -252,14 +254,14 @@ async def fetch_and_format_activity(input: FetchAndFormatInput) -> FetchAndForma
         # Store in Redis
         redis_key = generate_redis_key(item_type, input.team_id, item_id)
         redis_client = get_async_client()
-        compressed_size = await store_text_repr(redis_client, redis_key, text_repr)
+        compressed_size = await store_text_repr(redis_client, redis_key, result.text_repr)
 
         log.info(
             f"{item_type.capitalize()} fetched and formatted",
             fetch_duration_s=round(fetch_duration_s, 2),
-            text_repr_length=len(text_repr),
+            text_repr_length=len(result.text_repr),
             compressed_size=compressed_size,
-            event_count=event_count,
+            event_count=result.event_count,
         )
 
         return FetchAndFormatResult(
@@ -267,8 +269,8 @@ async def fetch_and_format_activity(input: FetchAndFormatInput) -> FetchAndForma
             trace_id=input.trace_id,
             team_id=input.team_id,
             trace_first_timestamp=input.trace_first_timestamp,
-            text_repr_length=len(text_repr),
+            text_repr_length=len(result.text_repr),
             compressed_size=compressed_size,
-            event_count=event_count,
+            event_count=result.event_count,
             generation_id=input.generation_id,
         )

@@ -124,6 +124,14 @@ class FetchAndFormatResult:
 
 
 @dataclass
+class FetchResult:
+    """Internal result from fetch helpers — not serialized through Temporal."""
+
+    text_repr: str | None  # None if oversized (event_count still set)
+    event_count: int
+
+
+@dataclass
 class SummarizeAndSaveInput:
     redis_key: str
     trace_id: str
