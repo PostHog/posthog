@@ -10,6 +10,7 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { SceneDuplicate } from 'lib/components/Scenes/SceneDuplicate'
 import { SceneFile } from 'lib/components/Scenes/SceneFile'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
@@ -23,6 +24,7 @@ import { SurveyOverview } from 'scenes/surveys/SurveyOverview'
 import { SurveyResponseFilters } from 'scenes/surveys/SurveyResponseFilters'
 import { SurveyResultDemo } from 'scenes/surveys/SurveyResultDemo'
 import { SurveyStatsSummary } from 'scenes/surveys/SurveyStatsSummary'
+import { SurveyViewRedesign } from 'scenes/surveys/SurveyViewRedesign'
 import { LaunchSurveyButton } from 'scenes/surveys/components/LaunchSurveyButton'
 import { SurveyFeedbackButton } from 'scenes/surveys/components/SurveyFeedbackButton'
 import { SurveyQuestionVisualization } from 'scenes/surveys/components/question-visualizations/SurveyQuestionVisualization'
@@ -79,6 +81,16 @@ export const getThumbIcon = (value: unknown): JSX.Element | null => {
 }
 
 export function SurveyView({ id }: { id: string }): JSX.Element {
+    const isRedesignEnabled = useFeatureFlag('SURVEYS_REDESIGNED_VIEW')
+
+    if (isRedesignEnabled) {
+        return <SurveyViewRedesign />
+    }
+
+    return <SurveyViewLegacy id={id} />
+}
+
+function SurveyViewLegacy({ id }: { id: string }): JSX.Element {
     const { survey, surveyLoading } = useValues(surveyLogic)
     const { editingSurvey, updateSurvey, stopSurvey, resumeSurvey, archiveSurvey } = useActions(surveyLogic)
     const { deleteSurvey, duplicateSurvey, setSurveyToDuplicate } = useActions(surveysLogic)
