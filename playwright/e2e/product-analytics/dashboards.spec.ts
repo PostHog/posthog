@@ -14,11 +14,54 @@ test.describe('Dashboards', () => {
         await playwrightSetup.login(page, workspace!)
     })
 
+    test('Can create a new dashboard with an insight', async ({ page }) => {
+        const dashboard = new DashboardPage(page)
+        const dashboardName = randomString('dash-edit')
+
+        await test.step('create a dashboard', async () => {
+            await dashboard.createNew(dashboardName)
+        })
+
+        await test.step('add the insight to the dashboard', async () => {
+            await dashboard.addInsightToNewDashboard()
+            await expect(page.locator('.InsightCard')).toBeVisible()
+        })
+    })
+
     test('Editing an insight updates the dashboard tile', async ({ page }) => {
+        const dashboard = new DashboardPage(page)
+        const insight = new InsightPage(page)
+        const updatedName = randomString('dash-updated')
+
+        await test.step('create a dashboard with an insight', async () => {
+            await dashboard.createNew()
+            await dashboard.addInsightToNewDashboard()
+            await expect(page.locator('.InsightCard')).toBeVisible()
+        })
+
+        await test.step('select to edit an insight', async () => {
+            await dashboard.openFirstTileMenu()
+            await dashboard.selectTileMenuOption('Edit')
+            await expect(page).toHaveURL(/edit/)
+        })
+
+        await test.step('edit the insight name', async () => {
+            await insight.editName(updatedName)
+            await expect(insight.topBarName).toContainText(updatedName)
+        })
+
+        await test.step('navigate back and verify the updated insight on the dashboard', async () => {
+            await page.goBack()
+
+            await expect(page).toHaveURL(/\/dashboard\//)
+            await expect(page.getByText(updatedName)).toBeVisible()
+        })
+    })
+
+    test('Add insight to new dashboard and view it there', async ({ page }) => {
         const insight = new InsightPage(page)
         const dashboard = new DashboardPage(page)
-        const insightName = randomString('dash-insight')
-        const updatedName = randomString('dash-updated')
+        const insightName = randomString('add-to-dash')
 
         await test.step('create and save a Trends insight', async () => {
             await insight.goToNewTrends()
@@ -28,59 +71,56 @@ test.describe('Dashboards', () => {
             await expect(insight.editButton).toBeVisible()
         })
 
-        await test.step('add the insight to a new dashboard', async () => {
-            await dashboard.addInsightToNewDashboard()
-            await expect(page.getByText(insightName)).toBeVisible()
+        await test.step('add insight to a new dashboard', async () => {
+            await dashboard.addToNewDashboardFromInsightPage()
         })
 
-        await test.step('open the insight from dashboard tile', async () => {
-            await page.locator('.InsightCard').getByText(insightName).click()
-            await expect(page).toHaveURL(/\/insights\//)
-        })
-
-        await test.step('edit the insight name', async () => {
-            await insight.edit()
-            await insight.editName(updatedName)
-            await insight.save()
-            await expect(insight.topBarName).toContainText(updatedName)
-        })
-
-        await test.step('navigate back and verify the updated name on the dashboard', async () => {
-            await page.locator('a[href*="/dashboard/"]').first().click()
+        await test.step('verify insight is visible on the new dashboard', async () => {
             await expect(page).toHaveURL(/\/dashboard\//)
-            await expect(page.getByText(updatedName)).toBeVisible()
+            const card = page.locator('.InsightCard').filter({ hasText: insightName })
+            await expect(card).toBeVisible()
+            await expect(card.locator('canvas')).toBeVisible()
         })
     })
 
     test('Can duplicate, rename, and remove dashboard tiles', async ({ page }) => {
-        const insight = new InsightPage(page)
         const dashboard = new DashboardPage(page)
-        const insightName = randomString('tile-ops')
-        const renamedTileName = randomString('tile-renamed')
+        const newTileName = randomString('tile-name')
 
-        await test.step('create insight and add to dashboard', async () => {
-            await insight.goToNewTrends()
-            await insight.trends.waitForChart()
-            await insight.editName(insightName)
-            await insight.save()
+        await test.step('create a dashboard with an insight', async () => {
+            await dashboard.createNew()
             await dashboard.addInsightToNewDashboard()
-            await expect(page.locator('.InsightCard')).toHaveCount(1)
+            await expect(page.locator('.InsightCard')).toBeVisible()
         })
 
         await test.step('duplicate the tile', async () => {
-            await dashboard.closeSidePanels()
-            await dashboard.duplicateFirstTile()
-            await expect(page.locator('.InsightCard')).toHaveCount(2)
+            const titleLocator = page.locator('.InsightCard').first().getByTestId('insight-card-title')
+            await expect(titleLocator).not.toContainText('Loading')
+            const title = await titleLocator.textContent()
+            await dashboard.openFirstTileMenu()
+            await dashboard.selectTileMenuOption('Duplicate')
+
+            const duplicateTile = page.getByText(`${title} (Copy)`)
+            await duplicateTile.scrollIntoViewIfNeeded()
+            await expect(duplicateTile).toBeVisible()
         })
 
         await test.step('rename the first tile', async () => {
-            await dashboard.renameFirstTile(renamedTileName)
-            await expect(page.locator('.InsightCard').first().getByText(renamedTileName)).toBeVisible()
+            await dashboard.openFirstTileMenu()
+            await dashboard.selectTileMenuOption('Rename')
+
+            const renameModal = page.locator('.LemonModal').filter({ has: page.getByTestId('insight-name') })
+            await renameModal.getByTestId('insight-name').fill(newTileName)
+            await renameModal.getByText('Submit').click()
+
+            await expect(page.locator('.InsightCard').first().getByText(newTileName)).toBeVisible()
         })
 
         await test.step('remove the first tile', async () => {
-            await dashboard.removeFirstTile()
-            await expect(page.locator('.InsightCard')).toHaveCount(1)
+            await dashboard.openFirstTileMenu()
+            await dashboard.selectTileMenuOption('Remove from dashboard')
+
+            await expect(page.locator('.InsightCard').first().getByText(newTileName)).not.toBeVisible()
         })
     })
 })
