@@ -66,49 +66,61 @@ impl Janitor {
         let _loop_start = common_metrics::timing_guard(RUN_TIME, &self.metrics_labels);
         common_metrics::inc(RUN_STARTS, &self.metrics_labels, 1);
 
-        let aggregated_deletes = {
+        let (completed_count, failed_count, canceled_count) = if self.settings.skip_aggregation {
             let _time = common_metrics::timing_guard(CLEANUP_TIME, &self.metrics_labels);
-            self.inner.delete_completed_and_failed_jobs().await?
+            let deleted = self
+                .inner
+                .delete_completed_and_failed_jobs_batch(self.settings.delete_batch_limit)
+                .await?;
+            common_metrics::inc(DELETED_COUNT, &self.metrics_labels, deleted);
+            (0u64, 0u64, 0u64)
+        } else {
+            let aggregated_deletes = {
+                let _time = common_metrics::timing_guard(CLEANUP_TIME, &self.metrics_labels);
+                self.inner.delete_completed_and_failed_jobs().await?
+            };
+
+            let mut completed_count = 0u64;
+            let mut failed_count = 0u64;
+            let mut canceled_count = 0u64;
+            for delete in &aggregated_deletes {
+                if delete.state == "completed" {
+                    completed_count += delete.count as u64;
+                } else if delete.state == "failed" {
+                    failed_count += delete.count as u64;
+                } else if delete.state == "canceled" {
+                    canceled_count += delete.count as u64;
+                }
+            }
+            common_metrics::inc(COMPLETED_COUNT, &self.metrics_labels, completed_count);
+            common_metrics::inc(FAILED_COUNT, &self.metrics_labels, failed_count);
+            common_metrics::inc(CANCELED_COUNT, &self.metrics_labels, canceled_count);
+
+            match send_iter_to_kafka(
+                &self.kafka_producer,
+                APP_METRICS2_TOPIC,
+                aggregated_deletes
+                    .into_iter()
+                    .map(aggregated_delete_to_app_metric2),
+            )
+            .await
+            .into_iter()
+            .collect::<Result<Vec<_>, _>>()
+            {
+                Ok(_) => {}
+                Err(KafkaProduceError::SerializationError { error }) => {
+                    error!("Failed to serialize app_metrics2: {error}");
+                }
+                Err(KafkaProduceError::KafkaProduceError { error }) => {
+                    error!("Failed to produce to app_metrics2 kafka: {error}");
+                }
+                Err(KafkaProduceError::KafkaProduceCanceled) => {
+                    error!("Failed to produce to app_metrics2 kafka (timeout)");
+                }
+            }
+
+            (completed_count, failed_count, canceled_count)
         };
-
-        let mut completed_count = 0u64;
-        let mut failed_count = 0u64;
-        let mut canceled_count = 0u64;
-        for delete in &aggregated_deletes {
-            if delete.state == "completed" {
-                completed_count += delete.count as u64;
-            } else if delete.state == "failed" {
-                failed_count += delete.count as u64;
-            } else if delete.state == "canceled" {
-                canceled_count += delete.count as u64;
-            }
-        }
-        common_metrics::inc(COMPLETED_COUNT, &self.metrics_labels, completed_count);
-        common_metrics::inc(FAILED_COUNT, &self.metrics_labels, failed_count);
-        common_metrics::inc(CANCELED_COUNT, &self.metrics_labels, canceled_count);
-
-        match send_iter_to_kafka(
-            &self.kafka_producer,
-            APP_METRICS2_TOPIC,
-            aggregated_deletes
-                .into_iter()
-                .map(aggregated_delete_to_app_metric2),
-        )
-        .await
-        .into_iter()
-        .collect::<Result<Vec<_>, _>>()
-        {
-            Ok(_) => {}
-            Err(KafkaProduceError::SerializationError { error }) => {
-                error!("Failed to serialize app_metrics2: {error}");
-            }
-            Err(KafkaProduceError::KafkaProduceError { error }) => {
-                error!("Failed to produce to app_metrics2 kafka: {error}");
-            }
-            Err(KafkaProduceError::KafkaProduceCanceled) => {
-                error!("Failed to produce to app_metrics2 kafka (timeout)");
-            }
-        }
 
         let poisoned = {
             let _time = common_metrics::timing_guard(POISONED_TIME, &self.metrics_labels);

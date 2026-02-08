@@ -47,6 +47,36 @@ FROM aggregated_data"#
     Ok(result)
 }
 
+pub async fn delete_completed_and_failed_jobs_batch<'c, E>(
+    executor: E,
+    limit: i64,
+) -> Result<u64, QueueError>
+where
+    E: sqlx::Executor<'c, Database = sqlx::Postgres>,
+{
+    // LIMIT NULL is treated as no limit in Postgres
+    let effective_limit: Option<i64> = if limit <= 0 { None } else { Some(limit) };
+
+    let result = sqlx::query!(
+        r#"
+WITH to_delete AS (
+    SELECT id FROM cyclotron_jobs
+    WHERE state IN ('failed', 'completed', 'canceled')
+    LIMIT $1
+    FOR UPDATE SKIP LOCKED
+)
+DELETE FROM cyclotron_jobs
+USING to_delete
+WHERE cyclotron_jobs.id = to_delete.id"#,
+        effective_limit
+    )
+    .execute(executor)
+    .await
+    .map_err(QueueError::from)?;
+
+    Ok(result.rows_affected())
+}
+
 // Jobs are considered stalled if their lock is held and their last_heartbeat is older than `timeout`.
 //
 // TODO - this /could/ return the lock_id's held, which might help with debugging (if workers reported

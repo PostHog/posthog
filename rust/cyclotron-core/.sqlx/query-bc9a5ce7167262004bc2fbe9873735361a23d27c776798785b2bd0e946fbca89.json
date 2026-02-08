@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\nWITH to_delete AS (\n    SELECT id FROM cyclotron_jobs\n    WHERE state IN ('failed', 'completed', 'canceled')\n    LIMIT $1\n    FOR UPDATE SKIP LOCKED\n)\nDELETE FROM cyclotron_jobs\nUSING to_delete\nWHERE cyclotron_jobs.id = to_delete.id",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "bc9a5ce7167262004bc2fbe9873735361a23d27c776798785b2bd0e946fbca89"
+}
