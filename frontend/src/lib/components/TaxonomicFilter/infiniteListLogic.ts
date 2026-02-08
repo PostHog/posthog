@@ -201,9 +201,12 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                     }
                     breakpoint()
 
-                    const queryChanged = values.remoteItems.searchQuery !== (swappedInQuery || searchQuery)
+                    // Capture values before await - logic can unmount causing kea error
+                    const previousRemoteItems = values.remoteItems
+                    const { currentTeamId } = values
+                    const queryChanged = previousRemoteItems.searchQuery !== (swappedInQuery || searchQuery)
 
-                    await captureTimeToSeeData(values.currentTeamId, {
+                    await captureTimeToSeeData(currentTeamId, {
                         type: 'properties_load',
                         context: 'filters',
                         action: listGroupType,
@@ -216,7 +219,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
 
                     return {
                         results: appendAtIndex(
-                            queryChanged ? [] : values.remoteItems.results,
+                            queryChanged ? [] : previousRemoteItems.results,
                             response.results || response,
                             offset
                         ),

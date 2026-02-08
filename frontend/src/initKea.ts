@@ -97,6 +97,14 @@ export function initKea({
         formsPlugin,
         loadersPlugin({
             onFailure({ error, reducerKey, actionKey }: { error: any; reducerKey: string; actionKey: string }) {
+                // "Can not find path" errors are benign race conditions that occur when a kea logic
+                // unmounts while an async loader is still in progress. The loader tries to read from
+                // the Redux store after the logic's reducer has been detached. These are normal
+                // React lifecycle events, not real failures.
+                if (error?.message?.includes('[KEA] Can not find path')) {
+                    return
+                }
+
                 // Toast if it's a fetch error or a specific API update error
                 const isLoadAction = typeof actionKey === 'string' && /^(load|get|fetch)[A-Z]/.test(actionKey)
                 if (
