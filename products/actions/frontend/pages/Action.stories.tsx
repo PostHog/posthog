@@ -39,13 +39,21 @@ const MOCK_ACTION: ActionType = {
         },
         {
             event: '$screen',
+            properties: [
+                {
+                    key: '$screen_name',
+                    value: 'HomeScreen',
+                    operator: 'exact',
+                    type: 'event',
+                },
+            ] as any,
             selector: null,
             text: null,
             text_matching: null,
             href: null,
             href_matching: 'contains',
-            url: 'HomeScreen',
-            url_matching: 'exact',
+            url: null,
+            url_matching: null,
         },
         {
             event: '$identify',
@@ -85,23 +93,39 @@ const MOCK_SCREEN_ACTION: ActionType = {
     steps: [
         {
             event: '$screen',
+            properties: [
+                {
+                    key: '$screen_name',
+                    value: 'HomeScreen',
+                    operator: 'exact',
+                    type: 'event',
+                },
+            ] as any,
             selector: null,
             text: null,
             text_matching: null,
             href: null,
             href_matching: 'contains',
-            url: 'HomeScreen',
-            url_matching: 'exact',
+            url: null,
+            url_matching: null,
         },
         {
             event: '$screen',
+            properties: [
+                {
+                    key: '$screen_name',
+                    value: 'Settings',
+                    operator: 'icontains',
+                    type: 'event',
+                },
+            ] as any,
             selector: null,
             text: null,
             text_matching: null,
             href: null,
             href_matching: 'contains',
-            url: 'Settings',
-            url_matching: 'contains',
+            url: null,
+            url_matching: null,
         },
     ],
     created_at: '2024-05-21T12:57:50.907581Z',

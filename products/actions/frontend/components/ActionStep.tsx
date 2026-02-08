@@ -13,7 +13,13 @@ import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { IconOpenInApp } from 'lib/lemon-ui/icons'
 
 import { groupsModel } from '~/models/groupsModel'
-import { ActionStepStringMatching, ActionStepType } from '~/types'
+import {
+    ActionStepStringMatching,
+    ActionStepType,
+    AnyPropertyFilter,
+    PropertyFilterType,
+    PropertyOperator,
+} from '~/types'
 
 import { URL_MATCHING_HINTS } from '../utils/hints'
 import { EventName } from './EventName'
@@ -128,40 +134,28 @@ export function ActionStep({
                     </div>
                 )}
                 {step.event === '$screen' && (
-                    <div>
-                        <Option
-                            step={step}
-                            sendStep={sendStep}
-                            item="url"
-                            labelExtra={
-                                <StringMatchingSelection
-                                    field="url"
-                                    step={step}
-                                    sendStep={sendStep}
-                                    disabledReason={disabledReason}
-                                />
-                            }
-                            label="Screen name"
-                            placeholder="e.g. HomeScreen, Settings"
-                            disabledReason={disabledReason}
-                        />
-                        {step.url_matching && step.url_matching in URL_MATCHING_HINTS && (
-                            <small>{URL_MATCHING_HINTS[step.url_matching]}</small>
-                        )}
-                    </div>
+                    <ScreenNameField step={step} sendStep={sendStep} disabledReason={disabledReason} />
                 )}
 
                 <div className="mt-4 deprecated-space-y-2">
                     <LemonLabel>Filters</LemonLabel>
                     <PropertyFilters
-                        propertyFilters={step.properties}
+                        propertyFilters={
+                            step.event === '$screen'
+                                ? step.properties?.filter((p) => !isScreenNameFilter(p))
+                                : step.properties
+                        }
                         pageKey={identifier}
                         eventNames={step.event ? [step.event] : []}
                         taxonomicGroupTypes={[...DEFAULT_TAXONOMIC_GROUP_TYPES, ...groupsTaxonomicTypes]}
                         onChange={(properties) => {
+                            const screenNameFilter =
+                                step.event === '$screen'
+                                    ? (step.properties?.filter((p) => isScreenNameFilter(p)) ?? [])
+                                    : []
                             sendStep({
                                 ...step,
-                                properties: properties as [],
+                                properties: [...screenNameFilter, ...(properties as [])] as AnyPropertyFilter[],
                             })
                         }}
                         showConditionBadge
@@ -386,11 +380,7 @@ function TypeSwitcher({
                 url: step.url,
             })
         } else if (type === '$screen') {
-            sendStep({
-                ...step,
-                event: '$screen',
-                url: step.url,
-            })
+            sendStep({ ...step, event: '$screen' })
         }
     }
 
@@ -434,6 +424,81 @@ function TypeSwitcher({
                 ]}
                 fullWidth
                 size="small"
+            />
+        </div>
+    )
+}
+
+const SCREEN_NAME_PROPERTY = '$screen_name'
+
+function isScreenNameFilter(p: AnyPropertyFilter): boolean {
+    return 'key' in p && p.key === SCREEN_NAME_PROPERTY && p.type === PropertyFilterType.Event
+}
+
+type ScreenNameMatching = 'exact' | 'icontains' | 'regex'
+
+const MATCHING_LABEL: Record<ScreenNameMatching, string> = {
+    exact: 'matches exactly',
+    regex: 'matches regex',
+    icontains: 'contains',
+}
+
+function ScreenNameField({
+    step,
+    sendStep,
+    disabledReason,
+}: {
+    step: ActionStepType
+    sendStep: (stepToSend: ActionStepType) => void
+    disabledReason?: string
+}): JSX.Element {
+    const existingFilter = step.properties?.find(isScreenNameFilter)
+    const screenName = (existingFilter && 'value' in existingFilter ? (existingFilter.value as string) : '') ?? ''
+    const operator: ScreenNameMatching =
+        existingFilter && 'operator' in existingFilter
+            ? (existingFilter.operator as ScreenNameMatching)
+            : PropertyOperator.IContains
+
+    const updateScreenName = (name: string | null, op: ScreenNameMatching = operator): void => {
+        const otherProperties = (step.properties || []).filter((p) => !isScreenNameFilter(p))
+        const newProperties: AnyPropertyFilter[] = name
+            ? [
+                  ...otherProperties,
+                  {
+                      key: SCREEN_NAME_PROPERTY,
+                      value: name,
+                      operator: op as PropertyOperator,
+                      type: PropertyFilterType.Event,
+                  },
+              ]
+            : otherProperties
+        sendStep({ ...step, properties: newProperties })
+    }
+
+    return (
+        <div className="deprecated-space-y-1">
+            <div className="flex flex-wrap gap-1">
+                <LemonLabel>Screen name</LemonLabel>
+                <div className="flex flex-1 justify-end">
+                    <LemonSegmentedButton
+                        onChange={(value) => updateScreenName(screenName || null, value as ScreenNameMatching)}
+                        value={operator}
+                        options={Object.entries(MATCHING_LABEL).map(([value, label]) => ({
+                            value,
+                            label,
+                            disabledReason,
+                        }))}
+                        size="xsmall"
+                    />
+                </div>
+            </div>
+            <LemonInput
+                data-attr="edit-action-screen-name-input"
+                allowClear
+                onChange={(val) => updateScreenName(val || null)}
+                value={screenName}
+                placeholder="e.g. HomeScreen, Settings"
+                disabledReason={disabledReason}
             />
         </div>
     )
