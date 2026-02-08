@@ -1,3 +1,5 @@
+import './AddPersonToCohortModalBody.scss'
+
 import { useActions, useValues } from 'kea'
 import React from 'react'
 
@@ -56,23 +58,18 @@ export function AddPersonToCohortModalBody(): JSX.Element {
             },
             person_display_name: {
                 render: (props) => {
-                    const value = props.value as { id: string; distinct_id: string; display_name: string } | null
+                    const value = props.value as { id: string; display_name: string } | null
                     const record = props.record as any[]
                     const id = record?.[0] as string | undefined
                     const isInCohort = id ? cohortPersonsSet.has(id) : false
-
-                    const personUrl = value?.distinct_id
-                        ? urls.personByDistinctId(value.distinct_id)
-                        : value?.id
-                          ? urls.personByUUID(value.id)
-                          : undefined
+                    const personUrl = value?.id ? urls.personByUUID(value.id) : undefined
 
                     return (
                         <div className="flex items-center justify-between w-full gap-2">
                             <div className="flex items-center gap-2 min-w-0">
                                 {value ? (
                                     <PersonDisplay
-                                        person={{ id: value.id, distinct_id: value.distinct_id }}
+                                        person={{ id: value.id }}
                                         displayName={value.display_name}
                                         withIcon
                                         noLink

@@ -10,20 +10,9 @@ interface PersonSearchProps {
     setQuery?: (query: PersonsNode | ActorsQuery) => void
 }
 
-interface LabelType {
-    label: string
-    placeholder: string
-}
-
-const labels: Record<ActorType, LabelType> = {
-    person: {
-        label: 'persons',
-        placeholder: 'Search by name, email, Person ID or Distinct ID',
-    },
-    group: {
-        label: 'groups',
-        placeholder: 'Search by group name or Distinct ID (group name matches partially, Distinct ID must match exactly)',
-    },
+const placeholders: Record<ActorType, string> = {
+    person: 'Search by name, email, Person ID or Distinct ID',
+    group: 'Search by group name or Distinct ID (group name matches partially, Distinct ID must match exactly)',
 }
 
 export function PersonsSearch({ query, setQuery }: PersonSearchProps): JSX.Element {
@@ -40,7 +29,7 @@ export function PersonsSearch({ query, setQuery }: PersonSearchProps): JSX.Eleme
             <LemonInput
                 type="search"
                 value={value ?? ''}
-                placeholder={labels[target].placeholder}
+                placeholder={placeholders[target]}
                 data-attr="persons-search"
                 disabled={!setQuery}
                 onChange={onChange}

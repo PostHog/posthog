@@ -1,0 +1,13 @@
+.AddPersonToCohortModalBody {
+    .LemonTable__content > table > tbody > tr > td {
+        border-top: none;
+    }
+
+    .LemonTable__content > table > tbody > tr {
+        border-radius: var(--radius);
+
+        &:hover > td {
+            background-color: var(--color-bg-light);
+        }
+    }
+}
