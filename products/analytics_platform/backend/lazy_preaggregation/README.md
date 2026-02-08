@@ -95,6 +95,7 @@ query = parse_select(
         "time_end": ast.Constant(value=datetime(2025, 12, 25)),
     },
 )
+# note that this is using HogQL, which automatically adds a team_id condition
 ```
 
 ## Concurrency and race conditions
@@ -136,3 +137,12 @@ If an executor crashes while a job is PENDING, other waiters detect this via the
 - Person merges and late-arriving events can cause stale data
 - Running the executor and then reading back the results takes about 30% longer than just reading results
 - Storing intermediate results takes space, we can't just YOLO this
+
+## TODOs
+
+- If we are waiting for another executor to insert a job that we need, right now we poll pg with an exp backoff. We should use a better mechanism like redis pubsub or pgnotify
+- While we are waiting, we block an entire django thread despite not doing any useful work. We should make it easier for people to use e.g. celery with this, this would involve using async queries though.
+- The TTL of an inserted job should be conditional on how recent the data is. Data from the same day might want a very short (e.g. 15 mins!) TTL, or to be skipped entirely and UNION'ed with real data, which we could make a bit easier.
+- Our stale job detection just waits for the default timeout of a clickhouse query. Instead the executor could send a heartbeat, triggered by the `progress` arg, and we could mark a job as stale if it misses N heartbeats
+- If we're generating a lot of updates (e.g. heartbeat timestamps) we might want to move that off of the main pg, either to a redis or other pg instance.
+- The stale enum value isn't used for anything, we just mark stale jobs as errored
