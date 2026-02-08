@@ -27,27 +27,32 @@ from posthog.temporal.llm_analytics.trace_summarization.constants import (
     DEFAULT_MODEL,
     DEFAULT_WINDOW_MINUTES,
     DEFAULT_WINDOW_OFFSET_MINUTES,
-    GENERATE_SUMMARY_TIMEOUT_SECONDS,
+    FETCH_AND_FORMAT_HEARTBEAT_TIMEOUT,
+    FETCH_AND_FORMAT_RETRY_POLICY,
+    FETCH_AND_FORMAT_SCHEDULE_TO_CLOSE_TIMEOUT,
+    FETCH_AND_FORMAT_START_TO_CLOSE_TIMEOUT,
     MAX_TEXT_REPR_LENGTH,
     SAMPLE_HEARTBEAT_TIMEOUT,
     SAMPLE_SCHEDULE_TO_CLOSE_TIMEOUT,
     SAMPLE_TIMEOUT_SECONDS,
-    SUMMARIZE_HEARTBEAT_TIMEOUT,
-    SUMMARIZE_SCHEDULE_TO_CLOSE_TIMEOUT,
+    SUMMARIZE_AND_SAVE_HEARTBEAT_TIMEOUT,
+    SUMMARIZE_AND_SAVE_RETRY_POLICY,
+    SUMMARIZE_AND_SAVE_SCHEDULE_TO_CLOSE_TIMEOUT,
+    SUMMARIZE_AND_SAVE_START_TO_CLOSE_TIMEOUT,
     WORKFLOW_NAME,
 )
-from posthog.temporal.llm_analytics.trace_summarization.generation_summarization import (
-    generate_and_save_generation_summary_activity,
-)
+from posthog.temporal.llm_analytics.trace_summarization.fetch_and_format import fetch_and_format_activity
 from posthog.temporal.llm_analytics.trace_summarization.models import (
     BatchSummarizationInputs,
     BatchSummarizationMetrics,
     BatchSummarizationResult,
+    FetchAndFormatInput,
     SampledItem,
     SummarizationActivityResult,
+    SummarizeAndSaveInput,
 )
 from posthog.temporal.llm_analytics.trace_summarization.sampling import sample_items_in_window_activity
-from posthog.temporal.llm_analytics.trace_summarization.summarization import generate_and_save_summary_activity
+from posthog.temporal.llm_analytics.trace_summarization.summarize_and_save import summarize_and_save_activity
 
 from products.llm_analytics.backend.summarization.models import SummarizationMode
 
@@ -96,49 +101,57 @@ class BatchTraceSummarizationWorkflow(PostHogWorkflow):
     ) -> SummarizationActivityResult:
         """Process a single trace or generation with semaphore-controlled concurrency."""
         async with semaphore:
-            if item.generation_id:
-                # Generation-level
-                return await temporalio.workflow.execute_activity(
-                    generate_and_save_generation_summary_activity,
-                    args=[
-                        item.generation_id,
-                        item.trace_id,
-                        item.trace_first_timestamp,
-                        team_id,
-                        window_start,
-                        window_end,
-                        mode,
-                        batch_run_id,
-                        model,
-                        max_length,
-                    ],
-                    activity_id=f"summarize-gen-{item.generation_id}-{idx}",
-                    start_to_close_timeout=timedelta(seconds=GENERATE_SUMMARY_TIMEOUT_SECONDS),
-                    schedule_to_close_timeout=SUMMARIZE_SCHEDULE_TO_CLOSE_TIMEOUT,
-                    heartbeat_timeout=SUMMARIZE_HEARTBEAT_TIMEOUT,
-                    retry_policy=constants.SUMMARIZE_RETRY_POLICY,
+            item_suffix = f"gen-{item.generation_id}" if item.generation_id else item.trace_id
+
+            # Step 1: Fetch + format + store in Redis
+            fetch_result = await temporalio.workflow.execute_activity(
+                fetch_and_format_activity,
+                FetchAndFormatInput(
+                    trace_id=item.trace_id,
+                    trace_first_timestamp=item.trace_first_timestamp,
+                    team_id=team_id,
+                    window_start=window_start,
+                    window_end=window_end,
+                    max_length=max_length,
+                    generation_id=item.generation_id,
+                ),
+                activity_id=f"llma-fetch-{item_suffix}-{idx}",
+                start_to_close_timeout=FETCH_AND_FORMAT_START_TO_CLOSE_TIMEOUT,
+                schedule_to_close_timeout=FETCH_AND_FORMAT_SCHEDULE_TO_CLOSE_TIMEOUT,
+                heartbeat_timeout=FETCH_AND_FORMAT_HEARTBEAT_TIMEOUT,
+                retry_policy=FETCH_AND_FORMAT_RETRY_POLICY,
+            )
+
+            if fetch_result.skipped:
+                return SummarizationActivityResult(
+                    trace_id=item.trace_id,
+                    success=False,
+                    generation_id=item.generation_id,
+                    skipped=True,
+                    skip_reason=fetch_result.skip_reason,
                 )
-            else:
-                # Trace-level
-                return await temporalio.workflow.execute_activity(
-                    generate_and_save_summary_activity,
-                    args=[
-                        item.trace_id,
-                        item.trace_first_timestamp,
-                        team_id,
-                        window_start,
-                        window_end,
-                        mode,
-                        batch_run_id,
-                        model,
-                        max_length,
-                    ],
-                    activity_id=f"summarize-{item.trace_id}-{idx}",
-                    start_to_close_timeout=timedelta(seconds=GENERATE_SUMMARY_TIMEOUT_SECONDS),
-                    schedule_to_close_timeout=SUMMARIZE_SCHEDULE_TO_CLOSE_TIMEOUT,
-                    heartbeat_timeout=SUMMARIZE_HEARTBEAT_TIMEOUT,
-                    retry_policy=constants.SUMMARIZE_RETRY_POLICY,
-                )
+
+            # Step 2: Summarize + save
+            return await temporalio.workflow.execute_activity(
+                summarize_and_save_activity,
+                SummarizeAndSaveInput(
+                    redis_key=fetch_result.redis_key,
+                    trace_id=item.trace_id,
+                    team_id=team_id,
+                    trace_first_timestamp=item.trace_first_timestamp,
+                    mode=mode,
+                    batch_run_id=batch_run_id,
+                    model=model,
+                    generation_id=item.generation_id,
+                    event_count=fetch_result.event_count,
+                    text_repr_length=fetch_result.text_repr_length,
+                ),
+                activity_id=f"llma-summarize-{item_suffix}-{idx}",
+                start_to_close_timeout=SUMMARIZE_AND_SAVE_START_TO_CLOSE_TIMEOUT,
+                schedule_to_close_timeout=SUMMARIZE_AND_SAVE_SCHEDULE_TO_CLOSE_TIMEOUT,
+                heartbeat_timeout=SUMMARIZE_AND_SAVE_HEARTBEAT_TIMEOUT,
+                retry_policy=SUMMARIZE_AND_SAVE_RETRY_POLICY,
+            )
 
     @temporalio.workflow.run
     async def run(self, inputs: BatchSummarizationInputs) -> BatchSummarizationResult:
@@ -156,7 +169,6 @@ class BatchTraceSummarizationWorkflow(PostHogWorkflow):
         metrics = BatchSummarizationMetrics()
 
         # Compute window dates for queries using workflow time for determinism
-        # This ensures consistent windows even if activities are delayed
         if inputs.window_start and inputs.window_end:
             window_start = inputs.window_start
             window_end = inputs.window_end
