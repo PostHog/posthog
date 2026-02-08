@@ -117,53 +117,56 @@ export function InsightsTable({
     // Build up columns to include. Order matters.
     const columns: LemonTableColumn<IndexedTrendResult, keyof IndexedTrendResult | undefined>[] = []
 
-    columns.push({
-        title: (
-            <div className="flex items-center gap-4">
-                {hasCheckboxes && (
-                    <SeriesCheckColumnTitle
+    // Hide series column for single series in table view, but always show in legends
+    if (!isSingleSeries || isLegend) {
+        columns.push({
+            title: (
+                <div className="flex items-center gap-4">
+                    {hasCheckboxes && (
+                        <SeriesCheckColumnTitle
+                            indexedResults={indexedResults}
+                            canCheckUncheckSeries={canCheckUncheckSeries}
+                            getTrendsHidden={getTrendsHidden}
+                            toggleAllResultsHidden={toggleAllResultsHidden}
+                            disabledReason={editingDisabledReason}
+                        />
+                    )}
+                    <span>Series</span>
+                </div>
+            ),
+            render: (_, item) => {
+                const label = (
+                    <SeriesColumnItem
+                        item={item}
                         indexedResults={indexedResults}
+                        canEditSeriesNameInline={canEditSeriesNameInline}
+                        seriesNameTooltip={seriesNameTooltip}
+                        handleEditClick={handleSeriesEditClick}
+                        hasMultipleSeries={!isSingleSeries}
+                        hasBreakdown={isValidBreakdown(breakdownFilter)}
+                    />
+                )
+                return hasCheckboxes ? (
+                    <SeriesCheckColumnItem
+                        item={item}
                         canCheckUncheckSeries={canCheckUncheckSeries}
-                        getTrendsHidden={getTrendsHidden}
-                        toggleAllResultsHidden={toggleAllResultsHidden}
+                        isHidden={getTrendsHidden(item)}
+                        toggleResultHidden={toggleResultHidden}
+                        label={<div className="ml-2 font-normal">{label}</div>}
                         disabledReason={editingDisabledReason}
                     />
-                )}
-                <span>Series</span>
-            </div>
-        ),
-        render: (_, item) => {
-            const label = (
-                <SeriesColumnItem
-                    item={item}
-                    indexedResults={indexedResults}
-                    canEditSeriesNameInline={canEditSeriesNameInline}
-                    seriesNameTooltip={seriesNameTooltip}
-                    handleEditClick={handleSeriesEditClick}
-                    hasMultipleSeries={!isSingleSeries}
-                    hasBreakdown={isValidBreakdown(breakdownFilter)}
-                />
-            )
-            return hasCheckboxes ? (
-                <SeriesCheckColumnItem
-                    item={item}
-                    canCheckUncheckSeries={canCheckUncheckSeries}
-                    isHidden={getTrendsHidden(item)}
-                    toggleResultHidden={toggleResultHidden}
-                    label={<div className="ml-2 font-normal">{label}</div>}
-                    disabledReason={editingDisabledReason}
-                />
-            ) : (
-                label
-            )
-        },
-        key: 'label',
-        sorter: (a, b) => {
-            const labelA = a.action?.name || a.label || ''
-            const labelB = b.action?.name || b.label || ''
-            return labelA.localeCompare(labelB)
-        },
-    })
+                ) : (
+                    label
+                )
+            },
+            key: 'label',
+            sorter: (a, b) => {
+                const labelA = a.action?.name || a.label || ''
+                const labelB = b.action?.name || b.label || ''
+                return labelA.localeCompare(labelB)
+            },
+        })
+    }
 
     if (breakdownFilter?.breakdown) {
         const formatItemBreakdownLabel = (item: IndexedTrendResult): string =>
