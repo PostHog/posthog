@@ -92,7 +92,7 @@
         "js-big-decimal": "^2.2.0",
         "jsonwebtoken": "^9.0.2",
         "liquidjs": "^10.21.1",
-        "lodash": "^4.17.21",
+        "lodash": "^4.17.23",
         "lru-cache": "^11.0.0",
         "luxon": "^3.4.4",
         "node-fetch": "^2.6.1",
