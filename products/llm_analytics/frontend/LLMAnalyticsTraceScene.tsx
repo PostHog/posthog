@@ -445,19 +445,16 @@ function TraceSentimentChip({
     const widthPercent = Math.round(avgScore * 100)
     const barColor = SENTIMENT_CHIP_COLOR[label] ?? 'bg-muted-alt'
     const prefix = count > 1 ? `Avg of ${count} generations — ` : ''
-    const tooltipText = `${prefix}Positive: ${Math.round(avgPositive * 100)}% / Neutral: ${Math.round(avgNeutral * 100)}% / Negative: ${Math.round(avgNegative * 100)}%`
+    const tooltipText = `Sentiment — ${prefix}Positive: ${Math.round(avgPositive * 100)}% / Neutral: ${Math.round(avgNeutral * 100)}% / Negative: ${Math.round(avgNegative * 100)}%`
 
     return (
         <Chip title={tooltipText}>
-            <span className="flex items-center gap-1.5">
-                Sentiment
-                <span className="w-10 h-1.5 bg-border-light rounded-full overflow-hidden inline-block">
-                    <span
-                        className={`block h-full rounded-full ${barColor}`}
-                        // eslint-disable-next-line react/forbid-dom-props
-                        style={{ width: `${widthPercent}%` }}
-                    />
-                </span>
+            <span className="w-10 h-1.5 bg-border-light rounded-full overflow-hidden inline-block">
+                <span
+                    className={`block h-full rounded-full ${barColor}`}
+                    // eslint-disable-next-line react/forbid-dom-props
+                    style={{ width: `${widthPercent}%` }}
+                />
             </span>
         </Chip>
     )
