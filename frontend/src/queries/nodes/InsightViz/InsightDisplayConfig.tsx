@@ -4,7 +4,7 @@ import { ReactNode } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 
 import { IconInfo } from '@posthog/icons'
-import { LemonButton, LemonInput, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonSelect, Tooltip } from '@posthog/lemon-ui'
 import { LemonSwitch } from '@posthog/lemon-ui'
 
 import { ChartFilter } from 'lib/components/ChartFilter'
@@ -92,9 +92,13 @@ export function InsightDisplayConfig(): JSX.Element {
     const isLineGraph = display === ChartDisplayType.ActionsLineGraph || (!display && isTrendsQuery(querySource))
     const isLinearScale = !yAxisScaleType || yAxisScaleType === 'linear'
 
-    const { showValuesOnSeries, mightContainFractionalNumbers, showConfidenceIntervals, showMovingAverage } = useValues(
-        trendsDataLogic(insightProps)
-    )
+    const {
+        showValuesOnSeries,
+        mightContainFractionalNumbers,
+        showConfidenceIntervals,
+        showMovingAverage,
+        incompletePeriodDisplay,
+    } = useValues(trendsDataLogic(insightProps))
 
     const advancedOptions: LemonMenuItems = [
         ...((isTrends && display !== ChartDisplayType.CalendarHeatmap) ||
@@ -150,6 +154,35 @@ export function InsightDisplayConfig(): JSX.Element {
                   {
                       title: 'Y-axis scale',
                       items: [{ label: () => <ScalePicker /> }],
+                  },
+                  {
+                      title: 'Incomplete period',
+                      items: [
+                          {
+                              label: () => (
+                                  <LemonSelect
+                                      size="small"
+                                      className="w-full"
+                                      value={incompletePeriodDisplay}
+                                      options={[
+                                          { value: 'dashed', label: 'Dashed line' },
+                                          { value: 'solid', label: 'Solid line' },
+                                          { value: 'hidden', label: 'Hidden' },
+                                      ]}
+                                      onChange={(value) => {
+                                          if (isTrendsQuery(querySource)) {
+                                              const newQuery = { ...querySource }
+                                              newQuery.trendsFilter = {
+                                                  ...trendsFilter,
+                                                  incompletePeriodDisplay: value,
+                                              }
+                                              updateQuerySource(newQuery)
+                                          }
+                                      }}
+                                  />
+                              ),
+                          },
+                      ],
                   },
                   {
                       title: 'Statistical analysis',
