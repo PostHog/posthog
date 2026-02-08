@@ -380,7 +380,7 @@ function TypeSwitcher({
                 url: step.url,
             })
         } else if (type === '$screen') {
-            sendStep({ ...step, event: '$screen' })
+            sendStep({ ...step, event: '$screen', url: null, url_matching: null })
         }
     }
 
