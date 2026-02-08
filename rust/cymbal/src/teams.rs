@@ -15,6 +15,7 @@ use crate::{
     sanitize_string, WithIndices,
 };
 
+#[derive(Clone)]
 pub struct TeamManager {
     pub token_cache: Cache<String, Option<Team>>,
     pub assignment_rules: Cache<TeamId, Vec<AssignmentRule>>,
