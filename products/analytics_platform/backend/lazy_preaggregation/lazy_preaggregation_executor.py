@@ -40,13 +40,7 @@ DEFAULT_POLL_INTERVAL_SECONDS = 1.0  # Initial poll interval (doubles each itera
 DEFAULT_MAX_POLL_INTERVAL_SECONDS = 30.0  # Cap for exponential backoff
 DEFAULT_MAX_ATTEMPTS = 2  # Maximum retry attempts for failed jobs
 
-# Threshold for detecting stale PENDING jobs (executor may have crashed).
-# Without a heartbeat, we use ClickHouse's max_execution_time (default 5 min)
-# plus a generous buffer for network overhead, query queuing, etc.
-# TODO: Improve stale detection latency — currently we must wait the full
-# threshold before recovering from a crashed executor. Options include a
-# heartbeat via Redis/pg_notify, or using ClickHouse query progress callbacks
-# once INSERT support is available in clickhouse-driver.
+# How long to wait for another executor to insert a job, before we assume it has failed. See README about improving this behaviour
 DEFAULT_STALE_PENDING_THRESHOLD_SECONDS = 600  # 10 minutes
 
 # ClickHouse error codes that should NOT be retried.
