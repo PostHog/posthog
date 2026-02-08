@@ -5,6 +5,7 @@ Persisting SignalReports and SignalReportArtefacts.
 
 import json
 from datetime import timedelta
+from typing import Any
 
 from django.utils import timezone as django_timezone
 
@@ -13,8 +14,18 @@ from asgiref.sync import sync_to_async
 from temporalio import activity
 
 from posthog.models.team import Team
+from posthog.temporal.ai.video_segment_clustering.constants import (
+    DEFAULT_SEGMENT_SAMPLES_PER_CLUSTER_FOR_LABELING,
+    LABELING_LLM_MODEL,
+)
 from posthog.temporal.ai.video_segment_clustering.data import count_distinct_persons
-from posthog.temporal.ai.video_segment_clustering.models import PersistReportsActivityInputs, PersistReportsResult
+from posthog.temporal.ai.video_segment_clustering.models import (
+    Cluster,
+    ClusterLabel,
+    PersistReportsActivityInputs,
+    PersistReportsResult,
+    ReportMatch,
+)
 from posthog.temporal.ai.video_segment_clustering.priority import (
     calculate_priority_score,
     calculate_task_metrics,
@@ -25,6 +36,50 @@ from posthog.temporal.ai.video_segment_clustering.priority import (
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 
 logger = structlog.get_logger(__name__)
+
+
+def _build_pipeline_metadata_for_new_cluster(
+    *,
+    cluster: Cluster,
+    label: ClusterLabel,
+    algorithm: str,
+    relevant_user_count: int,
+    occurrence_count: int,
+    segment_sample_count: int,
+) -> dict[str, Any]:
+    return {
+        "algorithm": algorithm,
+        "cluster_size": cluster.size,
+        "intra_cluster_distance_p95": cluster.intra_cluster_distance_p95,
+        "is_new_cluster": True,
+        "matched_report_id": None,
+        "match_distance": None,
+        "labeling": {
+            "actionable": label.actionable,
+            "model": LABELING_LLM_MODEL,
+            "segment_sample_count": segment_sample_count,
+            "relevant_user_count": relevant_user_count,
+            "occurrence_count": occurrence_count,
+        },
+    }
+
+
+def _build_pipeline_metadata_for_matched_cluster(
+    *,
+    match: ReportMatch,
+    algorithm: str,
+    cluster_size: int,
+    intra_cluster_distance_p95: float | None,
+) -> dict[str, Any]:
+    return {
+        "algorithm": algorithm,
+        "cluster_size": cluster_size,
+        "intra_cluster_distance_p95": intra_cluster_distance_p95,
+        "is_new_cluster": False,
+        "matched_report_id": match.report_id,
+        "match_distance": match.distance,
+        "labeling": None,
+    }
 
 
 @activity.defn
@@ -66,6 +121,14 @@ async def persist_reports_activity(inputs: PersistReportsActivityInputs) -> Pers
             total_weight=total_weight,
             signal_count=metrics["occurrence_count"],
             relevant_user_count=metrics["relevant_user_count"],
+            pipeline_metadata=_build_pipeline_metadata_for_new_cluster(
+                cluster=cluster,
+                label=label,
+                algorithm=inputs.algorithm,
+                relevant_user_count=metrics["relevant_user_count"],
+                occurrence_count=metrics["occurrence_count"],
+                segment_sample_count=min(len(cluster_segments), DEFAULT_SEGMENT_SAMPLES_PER_CLUSTER_FOR_LABELING),
+            ),
         )
 
         report_ids.append(str(report.id))
@@ -92,6 +155,15 @@ async def persist_reports_activity(inputs: PersistReportsActivityInputs) -> Pers
         # Find segments for this matched cluster from segment_to_cluster
         matched_segment_ids = [doc_id for doc_id, cid in inputs.segment_to_cluster.items() if cid == match.cluster_id]
         cluster_segments = [segment_lookup[sid] for sid in matched_segment_ids if sid in segment_lookup]
+
+        # Update pipeline_metadata with latest match info
+        p95 = inputs.cluster_intra_distances.get(match.cluster_id) if inputs.cluster_intra_distances else None
+        report.pipeline_metadata = _build_pipeline_metadata_for_matched_cluster(
+            match=match,
+            algorithm=inputs.algorithm,
+            cluster_size=len(cluster_segments),
+            intra_cluster_distance_p95=p95,
+        )
 
         if cluster_segments:
             # Check which segments already have artefacts for this report (idempotency)
@@ -161,6 +233,12 @@ async def persist_reports_activity(inputs: PersistReportsActivityInputs) -> Pers
                     new_segments=len(new_segments),
                     skipped_existing=len(cluster_segments) - len(new_segments),
                 )
+            else:
+                # Still save pipeline_metadata even when no new segments
+                await report.asave(update_fields=["pipeline_metadata"])
+        else:
+            # No cluster_segments but still save pipeline_metadata
+            await report.asave(update_fields=["pipeline_metadata"])
 
         report_ids.append(str(report.id))
 

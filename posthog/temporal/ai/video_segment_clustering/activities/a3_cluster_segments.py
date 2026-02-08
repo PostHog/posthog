@@ -261,6 +261,7 @@ def _perform_iterative_kmeans_clustering(
                         segment_ids=cluster_doc_ids,
                         centroid=centroid.tolist(),
                         size=len(cluster_doc_ids),
+                        intra_cluster_distance_p95=near_max_dist,
                     )
                 )
                 # Remove from remaining
@@ -340,6 +341,7 @@ def _perform_iterative_kmeans_clustering(
         noise_segment_ids=list(remaining_doc_ids),
         labels=labels_list,
         segment_to_cluster=segment_to_cluster,
+        algorithm="iterative_kmeans",
     )
 
 
@@ -411,12 +413,17 @@ def _perform_agglomerative_clustering(
         # Compute centroid
         centroid = np.mean(cluster_embeddings, axis=0)
 
+        # Compute p95 intra-cluster distance
+        distances = cosine_distances(cluster_embeddings, centroid.reshape(1, -1)).flatten()
+        p95_distance = float(np.percentile(distances, 95)) if len(distances) > 0 else None
+
         clusters.append(
             Cluster(
                 cluster_id=int(label),
                 segment_ids=cluster_doc_ids,
                 centroid=centroid.tolist(),
                 size=len(cluster_doc_ids),
+                intra_cluster_distance_p95=p95_distance,
             )
         )
 
@@ -431,4 +438,5 @@ def _perform_agglomerative_clustering(
         noise_segment_ids=[],  # Agglomerative assigns all segments to clusters
         labels=labels_list,
         segment_to_cluster=segment_to_cluster,
+        algorithm="agglomerative",
     )

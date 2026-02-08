@@ -10,6 +10,7 @@ import { humanFriendlyDuration, objectClean, toParams } from 'lib/utils'
 import { CohortCalculationHistoryResponse } from 'scenes/cohorts/cohortCalculationHistorySceneLogic'
 import { EventSchema } from 'scenes/data-management/events/eventDefinitionSchemaLogic'
 import { SchemaPropertyGroup } from 'scenes/data-management/schema/schemaManagementLogic'
+import { SignalReport, SignalReportArtefactResponse, SignalReportDebugResponse } from 'scenes/inbox/types'
 import { MaxBillingContext } from 'scenes/max/maxBillingContextLogic'
 import { NotebookListItemType, NotebookNodeResource, NotebookType } from 'scenes/notebooks/types'
 import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
@@ -1092,6 +1093,15 @@ export class ApiRequest {
             return this.addPathComponent('users').withQueryString({ email })
         }
         return this.addPathComponent('users')
+    }
+
+    // # Signal Reports
+    public signalReports(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('signal_reports')
+    }
+
+    public signalReport(id: SignalReport['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.signalReports(teamId).addPathComponent(id)
     }
 
     // # Tasks
@@ -4118,6 +4128,21 @@ const api = {
     users: {
         async list(email?: string): Promise<PaginatedResponse<UserType>> {
             return await new ApiRequest().users(email).get()
+        },
+    },
+
+    signalReports: {
+        async list(): Promise<PaginatedResponse<SignalReport>> {
+            return await new ApiRequest().signalReports().get()
+        },
+        async get(id: SignalReport['id']): Promise<SignalReport> {
+            return await new ApiRequest().signalReport(id).get()
+        },
+        async artefacts(id: SignalReport['id']): Promise<SignalReportArtefactResponse> {
+            return await new ApiRequest().signalReport(id).withAction('artefacts').get()
+        },
+        async debug(id: SignalReport['id']): Promise<SignalReportDebugResponse> {
+            return await new ApiRequest().signalReport(id).withAction('debug').get()
         },
     },
 

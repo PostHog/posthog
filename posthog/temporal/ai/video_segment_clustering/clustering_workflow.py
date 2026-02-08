@@ -203,6 +203,7 @@ class VideoSegmentClusteringWorkflow(PostHogWorkflow):
                         actionable_new_clusters.append(cluster)
 
             # Activity 6: Persist reports and artefacts
+            cluster_intra_distances = {c.cluster_id: c.intra_cluster_distance_p95 for c in all_clusters}
             persist_result = await workflow.execute_activity(
                 persist_reports_activity,
                 args=[
@@ -213,6 +214,8 @@ class VideoSegmentClusteringWorkflow(PostHogWorkflow):
                         labels=labeling_result.labels if labeling_result else {},
                         segments=segments,
                         segment_to_cluster=clustering_result.segment_to_cluster,
+                        algorithm=clustering_result.algorithm,
+                        cluster_intra_distances=cluster_intra_distances,
                     )
                 ],
                 start_to_close_timeout=timedelta(seconds=300),
