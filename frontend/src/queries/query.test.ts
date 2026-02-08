@@ -3,7 +3,7 @@ import posthog from 'posthog-js'
 import api, { ApiError } from 'lib/api'
 
 import { useMocks } from '~/mocks/jest'
-import { performQuery, pollForResults, queryExportContext } from '~/queries/query'
+import { parseErrorMessage, performQuery, pollForResults, queryExportContext } from '~/queries/query'
 import { EventsQuery, HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { PropertyFilterType, PropertyOperator } from '~/types'
@@ -197,6 +197,80 @@ describe('query', () => {
             await expect(pollForResults('test-query-id')).rejects.toMatchObject({
                 detail: { nested: 'object' },
             })
+        })
+    })
+
+    describe('parseErrorMessage', () => {
+        it('parses ErrorDetail list format', () => {
+            const result = parseErrorMessage(
+                "[ErrorDetail(string='Query exceeded memory limit', code='memory_limit_exceeded')]"
+            )
+            expect(result).toEqual({ message: 'Query exceeded memory limit', code: 'memory_limit_exceeded' })
+        })
+
+        it('parses ErrorDetail single format', () => {
+            const result = parseErrorMessage("ErrorDetail(string='Database connection failed', code='db_error')")
+            expect(result).toEqual({ message: 'Database connection failed', code: 'db_error' })
+        })
+
+        it('handles plain string messages', () => {
+            const result = parseErrorMessage('Simple error message')
+            expect(result).toEqual({ message: 'Simple error message', code: null })
+        })
+
+        it('handles empty string', () => {
+            const result = parseErrorMessage('')
+            expect(result).toEqual({ message: '', code: null })
+        })
+
+        it('handles undefined', () => {
+            const result = parseErrorMessage(undefined)
+            expect(result).toEqual({ message: '', code: null })
+        })
+
+        it('handles messages with special characters', () => {
+            const result = parseErrorMessage(
+                "[ErrorDetail(string='Error: Invalid query \"SELECT *\"', code='syntax_error')]"
+            )
+            expect(result).toEqual({ message: 'Error: Invalid query "SELECT *"', code: 'syntax_error' })
+        })
+
+        it('preserves messages with escaped quotes as-is', () => {
+            const result = parseErrorMessage("ErrorDetail(string='User\\'s query failed', code='user_error')")
+            expect(result).toEqual({
+                message: "ErrorDetail(string='User\\'s query failed', code='user_error')",
+                code: null,
+            })
+        })
+
+        it('preserves malformed ErrorDetail strings', () => {
+            const result = parseErrorMessage("ErrorDetail(string='Incomplete")
+            expect(result).toEqual({ message: "ErrorDetail(string='Incomplete", code: null })
+        })
+
+        it('handles ErrorDetail with missing code', () => {
+            const result = parseErrorMessage("ErrorDetail(string='Error message')")
+            expect(result).toEqual({ message: "ErrorDetail(string='Error message')", code: null })
+        })
+
+        it('handles ErrorDetail with extra whitespace', () => {
+            const result = parseErrorMessage("[ErrorDetail(string='Test error',   code='test_code')]")
+            expect(result).toEqual({ message: 'Test error', code: 'test_code' })
+        })
+
+        it('parses ErrorDetail with double quotes in list format', () => {
+            const result = parseErrorMessage(
+                "[ErrorDetail(string=\"Invalid metric configuration: breakdown property 'user_id' does not exist.\", code='invalid')]"
+            )
+            expect(result).toEqual({
+                message: "Invalid metric configuration: breakdown property 'user_id' does not exist.",
+                code: 'invalid',
+            })
+        })
+
+        it('parses ErrorDetail with double quotes in single format', () => {
+            const result = parseErrorMessage('ErrorDetail(string="Database error occurred", code=\'db_error\')')
+            expect(result).toEqual({ message: 'Database error occurred', code: 'db_error' })
         })
     })
 })
