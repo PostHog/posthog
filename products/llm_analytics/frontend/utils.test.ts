@@ -512,6 +512,7 @@ describe('LLM Analytics utils', () => {
             const trace: LLMTrace = {
                 id: 'trace-1',
                 createdAt: '2024-01-01T00:00:00Z',
+                distinctId: 'user-1',
                 traceName: 'My Custom Trace',
                 person: {
                     uuid: 'person-1',
@@ -528,6 +529,7 @@ describe('LLM Analytics utils', () => {
             const trace: LLMTrace = {
                 id: 'trace-1',
                 createdAt: '2024-01-01T00:00:00Z',
+                distinctId: 'user-1',
                 person: {
                     uuid: 'person-1',
                     created_at: '2024-01-01T00:00:00Z',
@@ -962,6 +964,7 @@ describe('LLM Analytics utils', () => {
         const baseTrace = (events: LLMTraceEvent[]): LLMTrace => ({
             id: 'trace-id',
             createdAt: '2024-01-01T00:00:00Z',
+            distinctId: 'distinct-id',
             person: {
                 uuid: 'person-id',
                 created_at: '2024-01-01T00:00:00Z',

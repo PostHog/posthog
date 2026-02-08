@@ -202,6 +202,7 @@ class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
             "id": "id",
             "ai_session_id": "aiSessionId",
             "created_at": "createdAt",
+            "distinct_id": "distinctId",
             "person": "person",
             "total_latency": "totalLatency",
             "input_state_parsed": "inputState",
@@ -219,10 +220,13 @@ class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
         for uuid, event_name, timestamp, properties in result["events"]:
             generations.append(self._map_event(uuid, event_name, timestamp, properties))
 
+        person = self._map_person(result["first_person"])
+
         trace_dict = {
             **result,
             "created_at": created_at.isoformat(),
-            "person": self._map_person(result["first_person"]),
+            "distinct_id": person.distinct_id,
+            "person": person,
             "events": generations,
         }
         try:

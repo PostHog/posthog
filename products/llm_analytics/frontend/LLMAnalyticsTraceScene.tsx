@@ -323,11 +323,9 @@ function TraceMetadata({
 
     return (
         <header className="flex gap-1.5 flex-wrap">
-            {'person' in trace && (
-                <Chip title="Person">
-                    <PersonDisplay withIcon="sm" person={trace.person} />
-                </Chip>
-            )}
+            <Chip title="Person">
+                <PersonDisplay withIcon="sm" person={trace.person ?? { distinct_id: trace.distinctId }} />
+            </Chip>
             {trace.aiSessionId && (
                 <Chip
                     title={
@@ -1068,7 +1066,7 @@ const EventContent = React.memo(
                                                       generationEventId={event.id}
                                                       timestamp={event.createdAt}
                                                       event={event.event}
-                                                      distinctId={trace.person.distinct_id}
+                                                      distinctId={trace.person?.distinct_id ?? trace.distinctId}
                                                   />
                                               ),
                                           },
