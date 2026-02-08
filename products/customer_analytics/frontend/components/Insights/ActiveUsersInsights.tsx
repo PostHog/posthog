@@ -11,7 +11,7 @@ import { ChartDisplayType, InsightLogicProps } from '~/types'
 
 import { revenueAnalyticsLogic } from 'products/revenue_analytics/frontend/revenueAnalyticsLogic'
 
-import { CUSTOMER_ANALYTICS_DATA_COLLECTION_NODE_ID } from '../../constants'
+import { CUSTOMER_ANALYTICS_DATA_COLLECTION_NODE_ID, CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS } from '../../constants'
 import { InsightDefinition, customerAnalyticsSceneLogic } from '../../customerAnalyticsSceneLogic'
 import { buildDashboardItemId, isPageviewWithoutFilters } from '../../utils'
 import { CustomerAnalyticsQueryCard } from '../CustomerAnalyticsQueryCard'
@@ -96,6 +96,7 @@ function PowerUsersTable(): JSX.Element {
             },
             orderBy: ['event_count DESC'],
             limit: 10,
+            tags: CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS,
         },
     }
 
