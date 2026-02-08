@@ -5,18 +5,7 @@
          source.id AS id,
          source.matching_events AS matching_events
   FROM
-    (SELECT funnel_actors.actor_id AS actor_id,
-            any(funnel_actors.matching_events) AS matching_events,
-            actor_id AS id
-     FROM events AS event
-     LEFT OUTER JOIN
-       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
-               person_distinct_id_overrides.distinct_id AS distinct_id
-        FROM person_distinct_id_overrides
-        WHERE equals(person_distinct_id_overrides.team_id, 99999)
-        GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS event__override ON equals(event.distinct_id, event__override.distinct_id)
-     JOIN
+    (WITH funnel_actors AS
        (SELECT aggregation_target AS actor_id,
                matched_events_array[plus(step_reached, 1)] AS matching_events,
                (matched_events_array[1][1]).1 AS timestamp,
@@ -63,8 +52,24 @@
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 0)
-        ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors ON equals(if(not(empty(event__override.distinct_id)), event__override.person_id, event.person_id), funnel_actors.actor_id)
-     WHERE and(equals(event.team_id, 99999), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2021-01-01 00:00:00', 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2021-01-08 23:59:59', 'UTC'))), equals(event.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(toDateTime('2021-01-08 23:59:59', 'UTC')))), notIn(event.event, ['$pageview', 'insight analyzed']), equals(event.event, 'insight loaded'), ifNull(equals(funnel_actors.steps, 2), 0))
+        ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
+          assumeNotNull(toDateTime('2021-01-01 00:00:00', 'UTC')) AS date_from,
+          assumeNotNull(toDateTime('2021-01-08 23:59:59', 'UTC')) AS date_to,
+          2 AS target_step,
+          ['$pageview', 'insight analyzed'] AS funnel_step_names SELECT funnel_actors.actor_id AS actor_id,
+                                                                        any(funnel_actors.matching_events) AS matching_events,
+                                                                        actor_id AS id
+     FROM events AS event
+     LEFT OUTER JOIN
+       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+               person_distinct_id_overrides.distinct_id AS distinct_id
+        FROM person_distinct_id_overrides
+        WHERE equals(person_distinct_id_overrides.team_id, 99999)
+        GROUP BY person_distinct_id_overrides.distinct_id
+        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS event__override ON equals(event.distinct_id, event__override.distinct_id)
+     JOIN funnel_actors ON equals(if(not(empty(event__override.distinct_id)), event__override.person_id, event.person_id), funnel_actors.actor_id)
+     WHERE and(equals(event.team_id, 99999), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), date_from), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), date_to), equals(event.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), date_to)), notIn(event.event, funnel_step_names), equals(event.event, 'insight loaded'), ifNull(equals(funnel_actors.steps, target_step), isNull(funnel_actors.steps)
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              and isNull(target_step)))
      GROUP BY actor_id
      ORDER BY actor_id ASC) AS source
   ORDER BY source.id ASC
@@ -113,18 +118,7 @@
          source.id AS id,
          source.matching_events AS matching_events
   FROM
-    (SELECT funnel_actors.actor_id AS actor_id,
-            any(funnel_actors.matching_events) AS matching_events,
-            actor_id AS id
-     FROM events AS event
-     LEFT OUTER JOIN
-       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
-               person_distinct_id_overrides.distinct_id AS distinct_id
-        FROM person_distinct_id_overrides
-        WHERE equals(person_distinct_id_overrides.team_id, 99999)
-        GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS event__override ON equals(event.distinct_id, event__override.distinct_id)
-     JOIN
+    (WITH funnel_actors AS
        (SELECT aggregation_target AS actor_id,
                matched_events_array[plus(step_reached, 1)] AS matching_events,
                (matched_events_array[1][1]).1 AS timestamp,
@@ -172,8 +166,24 @@
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 0)
-        ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors ON equals(if(not(empty(event__override.distinct_id)), event__override.person_id, event.person_id), funnel_actors.actor_id)
-     WHERE and(equals(event.team_id, 99999), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2021-01-01 00:00:00', 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2021-01-08 23:59:59', 'UTC'))), equals(event.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(toDateTime('2021-01-08 23:59:59', 'UTC')))), notIn(event.event, ['$pageview', 'insight analyzed', 'insight updated']), equals(event.event, 'insight loaded'), ifNull(notEquals(funnel_actors.steps, 3), 1))
+        ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
+          assumeNotNull(toDateTime('2021-01-01 00:00:00', 'UTC')) AS date_from,
+          assumeNotNull(toDateTime('2021-01-08 23:59:59', 'UTC')) AS date_to,
+          3 AS target_step,
+          ['$pageview', 'insight analyzed', 'insight updated'] AS funnel_step_names SELECT funnel_actors.actor_id AS actor_id,
+                                                                                           any(funnel_actors.matching_events) AS matching_events,
+                                                                                           actor_id AS id
+     FROM events AS event
+     LEFT OUTER JOIN
+       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+               person_distinct_id_overrides.distinct_id AS distinct_id
+        FROM person_distinct_id_overrides
+        WHERE equals(person_distinct_id_overrides.team_id, 99999)
+        GROUP BY person_distinct_id_overrides.distinct_id
+        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS event__override ON equals(event.distinct_id, event__override.distinct_id)
+     JOIN funnel_actors ON equals(if(not(empty(event__override.distinct_id)), event__override.person_id, event.person_id), funnel_actors.actor_id)
+     WHERE and(equals(event.team_id, 99999), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), date_from), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), date_to), equals(event.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), date_to)), notIn(event.event, funnel_step_names), equals(event.event, 'insight loaded'), ifNull(notEquals(funnel_actors.steps, target_step), isNotNull(funnel_actors.steps)
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              or isNotNull(target_step)))
      GROUP BY actor_id
      ORDER BY actor_id ASC) AS source
   ORDER BY source.id ASC
@@ -222,10 +232,7 @@
          source.id AS id,
          source.matching_events AS matching_events
   FROM
-    (SELECT funnel_actors.actor_id AS actor_id,
-            any(funnel_actors.matching_events) AS matching_events,
-            actor_id AS id
-     FROM
+    (WITH funnel_actors AS
        (SELECT aggregation_target AS actor_id,
                matched_events_array[plus(step_reached, 1)] AS matching_events,
                (matched_events_array[1][1]).1 AS timestamp,
@@ -282,8 +289,13 @@
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 0)
-        ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors
-     WHERE ifNull(equals(funnel_actors.steps, 2), 0)
+        ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
+          2 AS target_step SELECT funnel_actors.actor_id AS actor_id,
+                                  any(funnel_actors.matching_events) AS matching_events,
+                                  actor_id AS id
+     FROM funnel_actors
+     WHERE ifNull(equals(funnel_actors.steps, target_step), isNull(funnel_actors.steps)
+                  and isNull(target_step))
      GROUP BY funnel_actors.actor_id
      ORDER BY funnel_actors.actor_id ASC) AS source
   ORDER BY source.id ASC

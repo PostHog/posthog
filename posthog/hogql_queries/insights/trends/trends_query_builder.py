@@ -136,11 +136,11 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             return parse_select(
                 f"""
                 WITH
-                (
+                breakdown_series AS (
                     -- Raw per-day breakdown rows
                     SELECT * FROM {{inner_query}}
-                ) AS breakdown_series,
-                (
+                ),
+                totals_per_breakdown AS (
                     -- Aggregate totals per breakdown for ranking
                     SELECT
                         breakdown_value,
@@ -148,8 +148,8 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                         {{breakdown_order}} AS ordering
                     FROM breakdown_series
                     GROUP BY breakdown_value
-                ) AS totals_per_breakdown,
-                (
+                ),
+                ranked_breakdown_totals AS (
                     -- Global rank applied to aggregated totals
                     SELECT
                         breakdown_value,
@@ -159,8 +159,8 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                             ORDER BY ordering ASC, total_count_for_breakdown DESC, breakdown_value ASC
                         ) AS breakdown_rank
                     FROM totals_per_breakdown
-                ) AS ranked_breakdown_totals,
-                (
+                ),
+                ranked_breakdown_values AS (
                     -- Attach ranks back to per-day rows
                     SELECT
                         breakdown_series.*,
@@ -168,8 +168,8 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                         ranked_breakdown_totals.breakdown_rank
                     FROM breakdown_series
                     JOIN ranked_breakdown_totals ON ranked_breakdown_totals.breakdown_value = breakdown_series.breakdown_value
-                ) AS ranked_breakdown_values,
-                (
+                ),
+                top_n_breakdown_values AS (
                     -- Top N breakdown values
                     SELECT
                         day_start,
@@ -177,8 +177,8 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                         breakdown_value
                     FROM ranked_breakdown_values
                     WHERE breakdown_rank <= {{breakdown_limit}}
-                ) AS top_n_breakdown_values,
-                (
+                ),
+                other_breakdown_values AS (
                     -- "Other" breakdown value
                     SELECT
                         day_start,
@@ -187,15 +187,15 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                     FROM ranked_breakdown_values
                     WHERE breakdown_rank > {{breakdown_limit}}
                     GROUP BY day_start
-                ) AS other_breakdown_values,
-                (
+                ),
+                top_n_and_other_breakdown_values AS (
                     -- Combine and order top N and "other" breakdown values
                     SELECT * FROM (
                         SELECT * FROM top_n_breakdown_values
                         UNION ALL
                         SELECT * FROM other_breakdown_values
                     ) ORDER BY day_start, value
-                ) AS top_n_and_other_breakdown_values,
+                )
 
                 -- Transpose the results into arrays for each breakdown value
                 {"SELECT date, total, breakdown_value FROM (" if is_cumulative else ""}
