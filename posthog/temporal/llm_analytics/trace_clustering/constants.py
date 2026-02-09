@@ -6,7 +6,7 @@ from temporalio.common import RetryPolicy
 
 # Clustering parameters
 DEFAULT_LOOKBACK_DAYS = 7
-DEFAULT_MAX_SAMPLES = 2500
+DEFAULT_MAX_SAMPLES = 1500
 DEFAULT_MIN_K = 2
 DEFAULT_MAX_K = 10
 
