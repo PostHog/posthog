@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconBrackets, IconChevronRight } from '@posthog/icons'
+import { IconBrackets, IconChevronRight, IconGear } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
 
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
@@ -32,9 +32,12 @@ const buildVariableMenuItems = (
             custom: true,
             label: (
                 <span className="flex items-center justify-between w-full gap-2 group">
-                    <span className="flex items-center gap-2">
-                        <span>{variable.name}</span>
-                        <span className="text-xs text-muted-alt">{variable.type}</span>
+                    <span className="flex flex-col gap-0.5">
+                        <span className="flex items-center gap-2">
+                            <span>{variable.name}</span>
+                            <span className="text-xs text-muted-alt">{variable.type}</span>
+                        </span>
+                        <span className="text-xs text-muted-alt">{variable.code_name}</span>
                     </span>
                 </span>
             ),
@@ -74,6 +77,39 @@ const buildVariableMenuItems = (
     })
 }
 
+const buildOtherVariableMenuItems = (
+    variables: Variable[],
+    insertTextAtCursor: (text: string) => void,
+    openExistingVariableModal: (variable: Variable) => void
+): LemonMenuItems => {
+    return variables.map((variable) => {
+        const variableAsHogQL = `{variables.${variable.code_name}}`
+
+        return {
+            key: variable.id,
+            custom: true,
+            label: (
+                <span className="flex items-center justify-between w-full gap-2 group">
+                    <span className="flex flex-col gap-0.5">
+                        <span>{variable.name}</span>
+                        <span className="text-xs text-muted-alt">{variable.code_name}</span>
+                    </span>
+                    <button
+                        className="opacity-0 group-hover:opacity-100 flex items-center text-muted-alt"
+                        onClick={(event) => {
+                            event.stopPropagation()
+                            openExistingVariableModal(variable)
+                        }}
+                    >
+                        <IconGear />
+                    </button>
+                </span>
+            ),
+            onClick: () => insertTextAtCursor(variableAsHogQL),
+        }
+    })
+}
+
 export function QueryVariablesMenu({ disabledReason }: QueryVariablesMenuProps): JSX.Element | null {
     const { showEditingUI } = useValues(dataVisualizationLogic)
     const { variablesLoading, variablesUsedInQuery, variablesNotInQuery, searchTerm, internalSelectedVariables } =
@@ -105,6 +141,11 @@ export function QueryVariablesMenu({ disabledReason }: QueryVariablesMenuProps):
     const variablesNotInQueryItems = buildVariableMenuItems(
         variablesNotInQuery,
         null,
+        insertTextAtCursor,
+        openExistingVariableModal
+    )
+    const otherVariablesItems = buildOtherVariableMenuItems(
+        variablesNotInQuery,
         insertTextAtCursor,
         openExistingVariableModal
     )
@@ -147,9 +188,35 @@ export function QueryVariablesMenu({ disabledReason }: QueryVariablesMenuProps):
         if (variablesUsedItems.length && variablesNotInQueryItems.length) {
             variableSections.push({
                 title: 'Other variables',
-                items: variablesNotInQueryItems,
+                items: otherVariablesItems,
             })
         }
+    }
+
+    const newVariableMenuItem = {
+        label: 'New variable',
+        items: [
+            {
+                label: 'String',
+                onClick: () => openNewVariableModal('String'),
+            },
+            {
+                label: 'Number',
+                onClick: () => openNewVariableModal('Number'),
+            },
+            {
+                label: 'Boolean',
+                onClick: () => openNewVariableModal('Boolean'),
+            },
+            {
+                label: 'List',
+                onClick: () => openNewVariableModal('List'),
+            },
+            {
+                label: 'Date',
+                onClick: () => openNewVariableModal('Date'),
+            },
+        ],
     }
 
     const menuItems: LemonMenuItems = variablesLoading
@@ -160,34 +227,7 @@ export function QueryVariablesMenu({ disabledReason }: QueryVariablesMenuProps):
               },
           ]
         : variablesUsedItems.length || variablesNotInQueryItems.length
-          ? [
-                ...variableSections,
-                {
-                    title: 'New variable',
-                    items: [
-                        {
-                            label: 'String',
-                            onClick: () => openNewVariableModal('String'),
-                        },
-                        {
-                            label: 'Number',
-                            onClick: () => openNewVariableModal('Number'),
-                        },
-                        {
-                            label: 'Boolean',
-                            onClick: () => openNewVariableModal('Boolean'),
-                        },
-                        {
-                            label: 'List',
-                            onClick: () => openNewVariableModal('List'),
-                        },
-                        {
-                            label: 'Date',
-                            onClick: () => openNewVariableModal('Date'),
-                        },
-                    ],
-                },
-            ]
+          ? [...variableSections, newVariableMenuItem]
           : [
                 {
                     items: [
@@ -199,31 +239,7 @@ export function QueryVariablesMenu({ disabledReason }: QueryVariablesMenuProps):
                         },
                     ],
                 },
-                {
-                    title: 'New variable',
-                    items: [
-                        {
-                            label: 'String',
-                            onClick: () => openNewVariableModal('String'),
-                        },
-                        {
-                            label: 'Number',
-                            onClick: () => openNewVariableModal('Number'),
-                        },
-                        {
-                            label: 'Boolean',
-                            onClick: () => openNewVariableModal('Boolean'),
-                        },
-                        {
-                            label: 'List',
-                            onClick: () => openNewVariableModal('List'),
-                        },
-                        {
-                            label: 'Date',
-                            onClick: () => openNewVariableModal('Date'),
-                        },
-                    ],
-                },
+                newVariableMenuItem,
             ]
 
     return (
