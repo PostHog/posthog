@@ -659,6 +659,22 @@ describe('Hog Executor', () => {
                 "Function completed in REPLACEDms. Sync: 0ms. Mem: 0.17kb. Ops: 28. Event: 'http://localhost:8000/events/1'",
             ])
         })
+
+        it('sets execResult when VM returns an object synchronously', async () => {
+            // This tests a simple return statement without any async functions
+            const fn = createHogFunction({
+                ...HOG_EXAMPLES.simple_return_object,
+                ...HOG_FILTERS_EXAMPLES.no_filters,
+            })
+
+            const res = await executor.execute(createExampleInvocation(fn))
+            expect(res.finished).toBe(true)
+            expect(res.execResult).toEqual({
+                status: 'pending',
+                priority: 'high',
+                ticket_number: 42,
+            })
+        })
     })
 
     describe('posthogCaptue', () => {
