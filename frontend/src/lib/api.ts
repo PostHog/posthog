@@ -4812,7 +4812,7 @@ const api = {
 
     media: {
         async upload(data: FormData): Promise<MediaUploadResponse> {
-            return await new ApiRequest().media(ApiConfig.getCurrentProjectId()).create({ data })
+            return await new ApiRequest().media().create({ data })
         },
     },
 

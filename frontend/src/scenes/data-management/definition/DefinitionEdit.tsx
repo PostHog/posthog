@@ -171,34 +171,32 @@ export function DefinitionEdit(props: DefinitionLogicProps): JSX.Element {
                                         }
                                     >
                                         <div>
-                                            <div className="mb-4">
-                                                <div
-                                                    ref={mediaPreviewDragTarget}
-                                                    className="border-2 border-dashed rounded p-4 flex items-center justify-center cursor-pointer"
-                                                    onClick={(e) => {
-                                                        if (e.target === e.currentTarget) {
-                                                            const input = mediaPreviewDragTarget.current?.querySelector(
-                                                                'input[type="file"]'
-                                                            ) as HTMLInputElement
-                                                            input?.click()
-                                                        }
-                                                    }}
-                                                >
-                                                    <LemonFileInput
-                                                        accept="image/*"
-                                                        multiple={false}
-                                                        onChange={setFilesToUpload}
-                                                        loading={uploading}
-                                                        value={filesToUpload}
-                                                        alternativeDropTargetRef={mediaPreviewDragTarget}
-                                                        callToAction={
-                                                            <div className="flex items-center gap-2">
-                                                                <IconImage />
-                                                                <span>Click or drag and drop to upload an image</span>
-                                                            </div>
-                                                        }
-                                                    />
-                                                </div>
+                                            <div
+                                                ref={mediaPreviewDragTarget}
+                                                className="mb-4 border-2 border-dashed rounded p-4 flex items-center justify-center cursor-pointer"
+                                                onClick={(e) => {
+                                                    if (e.target === e.currentTarget) {
+                                                        const input = mediaPreviewDragTarget.current?.querySelector(
+                                                            'input[type="file"]'
+                                                        ) as HTMLInputElement
+                                                        input?.click()
+                                                    }
+                                                }}
+                                            >
+                                                <LemonFileInput
+                                                    accept="image/*"
+                                                    multiple={false}
+                                                    onChange={setFilesToUpload}
+                                                    loading={uploading}
+                                                    value={filesToUpload}
+                                                    alternativeDropTargetRef={mediaPreviewDragTarget}
+                                                    callToAction={
+                                                        <div className="flex items-center gap-2">
+                                                            <IconImage />
+                                                            <span>Click or drag and drop to upload an image</span>
+                                                        </div>
+                                                    }
+                                                />
                                             </div>
 
                                             {(previewsLoading || (previews && previews.length > 0)) && (
