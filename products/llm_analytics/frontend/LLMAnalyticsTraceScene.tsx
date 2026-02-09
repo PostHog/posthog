@@ -415,24 +415,26 @@ function TraceSentimentChip(): JSX.Element | null {
 
     return (
         <Chip title={tooltipText}>
-            <span className="relative w-10 h-1.5 bg-border-light rounded-full overflow-hidden inline-block">
-                <span
-                    className={`block h-full rounded-full ${barColor}`}
-                    // eslint-disable-next-line react/forbid-dom-props
-                    style={{ width: `${widthPercent}%` }}
-                />
+            <span className="relative w-10 my-0.5 inline-block">
+                <span className="block h-1.5 bg-border-light rounded-full overflow-hidden">
+                    <span
+                        className={`block h-full rounded-full ${barColor}`}
+                        // eslint-disable-next-line react/forbid-dom-props
+                        style={{ width: `${widthPercent}%` }}
+                    />
+                </span>
                 {showMaxPositive && (
                     <span
-                        className="absolute top-0 h-full w-0.5 bg-success rounded-full"
+                        className="absolute w-0.5 bg-success rounded-full"
                         // eslint-disable-next-line react/forbid-dom-props
-                        style={{ left: `${Math.round(maxPositive * 100)}%` }}
+                        style={{ left: `${Math.round(maxPositive * 100)}%`, top: '-2px', bottom: '2px' }}
                     />
                 )}
                 {showMaxNegative && (
                     <span
-                        className="absolute top-0 h-full w-0.5 bg-danger rounded-full"
+                        className="absolute w-0.5 bg-danger rounded-full"
                         // eslint-disable-next-line react/forbid-dom-props
-                        style={{ left: `${Math.round(maxNegative * 100)}%` }}
+                        style={{ left: `${Math.round(maxNegative * 100)}%`, top: '2px', bottom: '-2px' }}
                     />
                 )}
             </span>

@@ -98,24 +98,26 @@ export function SentimentDot({ event }: { event: LLMTraceEvent }): JSX.Element |
 
     return (
         <Tooltip title={buildSentimentTooltip(derivedLabel, maxScore, maxPositive, maxNegative)}>
-            <div className="relative w-10 h-1.5 bg-border-light rounded-full overflow-hidden shrink-0">
-                <div
-                    className={`h-full rounded-full ${barColor}`}
-                    // eslint-disable-next-line react/forbid-dom-props
-                    style={{ width: `${widthPercent}%` }}
-                />
+            <div className="relative w-10 my-0.5 shrink-0">
+                <div className="h-1.5 bg-border-light rounded-full overflow-hidden">
+                    <div
+                        className={`h-full rounded-full ${barColor}`}
+                        // eslint-disable-next-line react/forbid-dom-props
+                        style={{ width: `${widthPercent}%` }}
+                    />
+                </div>
                 {showMaxPositive && (
                     <span
-                        className="absolute top-0 h-full w-0.5 bg-success rounded-full"
+                        className="absolute w-0.5 bg-success rounded-full"
                         // eslint-disable-next-line react/forbid-dom-props
-                        style={{ left: `${Math.round(maxPositive * 100)}%` }}
+                        style={{ left: `${Math.round(maxPositive * 100)}%`, top: '-2px', bottom: '2px' }}
                     />
                 )}
                 {showMaxNegative && (
                     <span
-                        className="absolute top-0 h-full w-0.5 bg-danger rounded-full"
+                        className="absolute w-0.5 bg-danger rounded-full"
                         // eslint-disable-next-line react/forbid-dom-props
-                        style={{ left: `${Math.round(maxNegative * 100)}%` }}
+                        style={{ left: `${Math.round(maxNegative * 100)}%`, top: '2px', bottom: '-2px' }}
                     />
                 )}
             </div>
@@ -142,24 +144,26 @@ export function UserSentimentBar({ scores }: { scores: SentimentScores }): JSX.E
 
     return (
         <Tooltip title={buildSentimentTooltip(label, maxScore, maxPositive, maxNegative)}>
-            <div className="relative w-16 h-1.5 bg-border-light rounded-full overflow-hidden">
-                <div
-                    className={`h-full rounded-full ${barColor}`}
-                    // eslint-disable-next-line react/forbid-dom-props
-                    style={{ width: `${widthPercent}%` }}
-                />
+            <div className="relative w-16 my-0.5">
+                <div className="h-1.5 bg-border-light rounded-full overflow-hidden">
+                    <div
+                        className={`h-full rounded-full ${barColor}`}
+                        // eslint-disable-next-line react/forbid-dom-props
+                        style={{ width: `${widthPercent}%` }}
+                    />
+                </div>
                 {showMaxPositive && (
                     <span
-                        className="absolute top-0 h-full w-0.5 bg-success rounded-full"
+                        className="absolute w-0.5 bg-success rounded-full"
                         // eslint-disable-next-line react/forbid-dom-props
-                        style={{ left: `${Math.round(maxPositive * 100)}%` }}
+                        style={{ left: `${Math.round(maxPositive * 100)}%`, top: '-2px', bottom: '2px' }}
                     />
                 )}
                 {showMaxNegative && (
                     <span
-                        className="absolute top-0 h-full w-0.5 bg-danger rounded-full"
+                        className="absolute w-0.5 bg-danger rounded-full"
                         // eslint-disable-next-line react/forbid-dom-props
-                        style={{ left: `${Math.round(maxNegative * 100)}%` }}
+                        style={{ left: `${Math.round(maxNegative * 100)}%`, top: '2px', bottom: '-2px' }}
                     />
                 )}
             </div>
