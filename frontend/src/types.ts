@@ -3403,6 +3403,8 @@ export const PRODUCT_TOUR_STEP_WIDTHS: Record<ProductTourStepWidth, number> = {
     'extra-wide': 700,
 }
 
+export type ProductTourStepTargeting = 'auto' | 'manual'
+
 export interface ProductTourStep {
     id: string
     type: ProductTourStepType
@@ -3428,8 +3430,10 @@ export interface ProductTourStep {
     screenshotMediaId?: string
     /** enhanced element data for more reliable lookup at runtime */
     inferenceData?: InferredSelector
-    /** When true, SDK uses selector directly instead of inferenceData for element matching */
+    /** SDK-only: derived from elementTargeting on save. Do not read directly in editor code. */
     useManualSelector?: boolean
+    /** Editor-only: explicit targeting mode. Derived from legacy fields on load via normalizeStep(). */
+    elementTargeting?: ProductTourStepTargeting
     /** Button configuration for tour steps (modals / announcements) */
     buttons?: ProductTourStepButtons
     /** Banner configuration (only for banner steps) */
