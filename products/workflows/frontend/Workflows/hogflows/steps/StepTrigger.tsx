@@ -428,8 +428,8 @@ function StepTriggerConfigurationSurvey({
                   },
               ]
             : []),
-        // Show "Any survey" option only if surveys exist
-        ...(allSurveys.length > 0
+        // Show "Any survey" option only when not searching
+        ...(allSurveys.length > 0 && !searchTerm
             ? [
                   {
                       label: 'Any survey',
