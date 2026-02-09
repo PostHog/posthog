@@ -7,6 +7,34 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface CustomerJourneyApi {
+    readonly id: string
+    insight: number
+    /** @maxLength 400 */
+    name: string
+    /** @nullable */
+    description?: string | null
+    /**
+     * @minimum -2147483648
+     * @maximum 2147483647
+     */
+    order?: number
+    readonly created_at: string
+    /** @nullable */
+    readonly created_by: number | null
+    /** @nullable */
+    readonly updated_at: string | null
+}
+
+export interface PaginatedCustomerJourneyListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: CustomerJourneyApi[]
+}
+
 /**
  * * `person` - Person
  * `group_0` - Group 0
@@ -44,6 +72,17 @@ export interface PaginatedCustomerProfileConfigListApi {
     /** @nullable */
     previous?: string | null
     results: CustomerProfileConfigApi[]
+}
+
+export type CustomerJourneysListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
 }
 
 export type CustomerProfileConfigsListParams = {

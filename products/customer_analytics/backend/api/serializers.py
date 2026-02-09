@@ -2,7 +2,7 @@ import json
 
 from rest_framework import serializers
 
-from products.customer_analytics.backend.models import CustomerProfileConfig
+from products.customer_analytics.backend.models import CustomerJourney, CustomerProfileConfig
 
 
 class CustomerProfileConfigSerializer(serializers.ModelSerializer):
@@ -58,5 +58,17 @@ class CustomerProfileConfigSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         request = self.context["request"]
         validated_data["created_by"] = request.user
+        validated_data["team_id"] = self.context["team_id"]
+        return super().create(validated_data)
+
+
+class CustomerJourneySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = CustomerJourney
+        fields = ["id", "insight", "name", "description", "order", "created_at", "created_by", "updated_at"]
+        read_only_fields = ["id", "created_at", "created_by", "updated_at"]
+
+    def create(self, validated_data):
+        validated_data["created_by"] = self.context["request"].user
         validated_data["team_id"] = self.context["team_id"]
         return super().create(validated_data)
