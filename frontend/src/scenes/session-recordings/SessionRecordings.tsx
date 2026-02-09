@@ -9,11 +9,13 @@ import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { LiveRecordingsCount } from 'lib/components/LiveUserCount'
 import { WarningHog } from 'lib/components/hedgehogs'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useAsyncHandler } from 'lib/hooks/useAsyncHandler'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { cn } from 'lib/utils/css-classes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
@@ -28,6 +30,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, ReplayTab, ReplayTabs } from '~/types'
 
 import { SessionRecordingCollections } from './collections/SessionRecordingCollections'
+import { SessionRecordingsPlaylistRedesign } from './playlist-redesign/SessionRecordingsPlaylistRedesign'
 import { SessionRecordingsPlaylist } from './playlist/SessionRecordingsPlaylist'
 import { createPlaylist } from './playlist/playlistUtils'
 import {
@@ -191,6 +194,9 @@ function Warnings(): JSX.Element {
 
 function MainPanel({ tabId }: { tabId: string }): JSX.Element {
     const { tab } = useValues(sessionReplaySceneLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    const isRedesignEnabled = featureFlags[FEATURE_FLAGS.REPLAY_UI_REDESIGN_2026] === 'test'
 
     const playlistLogicProps: SessionRecordingPlaylistLogicProps = {
         logicKey: `scene-${tabId}`,
@@ -207,7 +213,11 @@ function MainPanel({ tabId }: { tabId: string }): JSX.Element {
                 <Spinner />
             ) : tab === ReplayTabs.Home ? (
                 <div className="SessionRecordingPlaylistHeightWrapper grow">
-                    <SessionRecordingsPlaylist {...playlistLogicProps} />
+                    {isRedesignEnabled ? (
+                        <SessionRecordingsPlaylistRedesign {...playlistLogicProps} />
+                    ) : (
+                        <SessionRecordingsPlaylist {...playlistLogicProps} />
+                    )}
                 </div>
             ) : tab === ReplayTabs.Playlists ? (
                 <SessionRecordingCollections />
