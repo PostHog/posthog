@@ -37,17 +37,17 @@ import { inStorybook, inStorybookTestRunner } from 'lib/utils'
 import { ActionsToolbarMenu } from '~/toolbar/actions/ActionsToolbarMenu'
 import { PII_MASKING_PRESET_COLORS } from '~/toolbar/bar/piiMaskingStyles'
 import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
-import { ScreenshotUploadModal } from '~/toolbar/components/ScreenshotUploadModal'
 import { EventDebugMenu } from '~/toolbar/debug/EventDebugMenu'
 import { ExperimentsToolbarMenu } from '~/toolbar/experiments/ExperimentsToolbarMenu'
 import { FlagsToolbarMenu } from '~/toolbar/flags/FlagsToolbarMenu'
 import { ProductToursSidebar } from '~/toolbar/product-tours/ProductToursSidebar'
 import { ProductToursToolbarMenu } from '~/toolbar/product-tours/ProductToursToolbarMenu'
 import { productToursLogic } from '~/toolbar/product-tours/productToursLogic'
+import { ScreenshotUploadModal } from '~/toolbar/screenshot-upload/ScreenshotUploadModal'
+import { screenshotUploadLogic } from '~/toolbar/screenshot-upload/screenshotUploadLogic'
 import { HeatmapToolbarMenu } from '~/toolbar/stats/HeatmapToolbarMenu'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { useToolbarFeatureFlag } from '~/toolbar/toolbarPosthogJS'
-import { captureScreenshot } from '~/toolbar/utils/screenshot'
 import { WebVitalsToolbarMenu } from '~/toolbar/web-vitals/WebVitalsToolbarMenu'
 
 import { HedgehogMenu } from '../hedgehog/HedgehogMenu'
@@ -202,12 +202,11 @@ function piiMaskingMenuItem(
 }
 
 function MoreMenu(): JSX.Element {
-    const [isScreenshotModalOpen, setIsScreenshotModalOpen] = useState(false)
-    const [screenshotBlob, setScreenshotBlob] = useState<Blob | null>(null)
-    const [isTakingScreenshot, setIsTakingScreenshot] = useState(false)
     const { hedgehogMode, theme, posthog, piiMaskingEnabled, piiMaskingColor, piiWarning } = useValues(toolbarLogic)
     const { setHedgehogMode, toggleTheme, setVisibleMenu, togglePiiMasking, setPiiMaskingColor, startGracefulExit } =
         useActions(toolbarLogic)
+    const { isTakingScreenshot } = useValues(screenshotUploadLogic)
+    const { takeScreenshot } = useActions(screenshotUploadLogic)
 
     const [loadingSurveys, setLoadingSurveys] = useState(true)
     const [surveysCount, setSurveysCount] = useState(0)
@@ -224,26 +223,9 @@ function MoreMenu(): JSX.Element {
     // KLUDGE: if there is no theme, assume light mode, which shouldn't be, but seems to be, necessary
     const currentlyLightMode = !theme || theme === 'light'
 
-    const handleScreenshotClick = async (): Promise<void> => {
-        setIsTakingScreenshot(true)
-        const blob = await captureScreenshot()
-        if (blob) {
-            setScreenshotBlob(blob)
-            setIsScreenshotModalOpen(true)
-        }
-        setIsTakingScreenshot(false)
-    }
-
     return (
         <>
-            <ScreenshotUploadModal
-                isOpen={isScreenshotModalOpen}
-                setIsOpen={setIsScreenshotModalOpen}
-                screenshot={screenshotBlob}
-                onSuccess={() => {
-                    setScreenshotBlob(null)
-                }}
-            />
+            <ScreenshotUploadModal />
             <LemonMenu
                 placement="top-end"
                 fallbackPlacements={['bottom-end']}
@@ -274,7 +256,7 @@ function MoreMenu(): JSX.Element {
                             ? {
                                   icon: <IconCamera />,
                                   label: 'Screenshot for event',
-                                  onClick: handleScreenshotClick,
+                                  onClick: takeScreenshot,
                                   disabled: isTakingScreenshot,
                               }
                             : undefined,
