@@ -135,6 +135,7 @@ export function BulkDeleteResultsModal(): JSX.Element | null {
             isOpen={resultsModalVisible}
             onClose={hideResultsModal}
             title="Bulk delete results"
+            width={600}
             footer={
                 <LemonButton type="primary" onClick={hideResultsModal}>
                     Done
