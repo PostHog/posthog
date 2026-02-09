@@ -168,8 +168,6 @@ procs:
     migrate-clickhouse:
         shell: 'bin/check_kafka_clickhouse_up && bin/check_ducklake_up && bin/migrate --scope=clickhouse'
         capability: core_infra
-        env:
-            CLICKHOUSE_LOGS_CLUSTER: posthog
 
     migrate-cyclotron:
         shell: 'bin/check_postgres_up cyclotron && bin/migrate --scope=cyclotron'
