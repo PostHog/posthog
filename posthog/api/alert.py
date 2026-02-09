@@ -456,12 +456,15 @@ def handle_alert_subscription_change(before_update, after_update, activity, user
 def cleanup_alert_hog_functions(sender, instance: AlertConfiguration, **kwargs):
     from posthog.models.hog_functions.hog_function import HogFunction
 
-    HogFunction.objects.filter(
+    for hog_function in HogFunction.objects.filter(
         team_id=instance.team_id,
         type="internal_destination",
         deleted=False,
         filters__contains={"properties": [{"key": "alert_id", "value": str(instance.id)}]},
-    ).update(enabled=False, deleted=True)
+    ):
+        hog_function.enabled = False
+        hog_function.deleted = True
+        hog_function.save()
 
 
 @receiver(pre_delete, sender=AlertSubscription)
