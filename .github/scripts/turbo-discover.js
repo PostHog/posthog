@@ -12,7 +12,8 @@ const { execSync } = require('child_process')
 const fs = require('fs')
 const path = require('path')
 
-const SMALL_THRESHOLD = 50
+const SMALL_THRESHOLD_TESTS = 50
+const SMALL_THRESHOLD_SECONDS = 2 * 60
 const TARGET_SHARD_SECONDS = 10 * 60
 
 function getTurboTasks() {
@@ -113,7 +114,7 @@ function buildMatrix(products, durations) {
         console.error(`  ${product}: ${count} tests, ${(duration / 60).toFixed(1)} min, ${shards} shard(s)`)
         const filters = `--filter=@posthog/products-${product}`
 
-        if (count < SMALL_THRESHOLD) {
+        if (count < SMALL_THRESHOLD_TESTS || duration < SMALL_THRESHOLD_SECONDS) {
             small.push(product)
         } else if (shards > 1) {
             for (let i = 1; i <= shards; i++) {
