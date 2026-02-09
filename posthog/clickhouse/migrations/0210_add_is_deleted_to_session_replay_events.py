@@ -13,9 +13,13 @@ from posthog.session_recordings.sql.session_replay_event_sql import (
 )
 
 operations = [
-    # Drop the MV and Kafka table first
-    run_sql_with_exceptions(DROP_SESSION_REPLAY_EVENTS_TABLE_MV_SQL(on_cluster=False), node_roles=[NodeRole.DATA]),
-    run_sql_with_exceptions(DROP_KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL(on_cluster=False), node_roles=[NodeRole.DATA]),
+    # Drop the MV and Kafka table first (these live on ingestion nodes)
+    run_sql_with_exceptions(
+        DROP_SESSION_REPLAY_EVENTS_TABLE_MV_SQL(on_cluster=False), node_roles=[NodeRole.INGESTION_SMALL]
+    ),
+    run_sql_with_exceptions(
+        DROP_KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL(on_cluster=False), node_roles=[NodeRole.INGESTION_SMALL]
+    ),
     # Add is_deleted column to the target tables
     # Writable table - Distributed engine (not replicated MergeTree)
     run_sql_with_exceptions(
@@ -37,7 +41,11 @@ operations = [
         sharded=True,
         is_alter_on_replicated_table=True,
     ),
-    # Recreate the Kafka table and MV
-    run_sql_with_exceptions(KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL(on_cluster=False), node_roles=[NodeRole.DATA]),
-    run_sql_with_exceptions(SESSION_REPLAY_EVENTS_TABLE_MV_SQL(on_cluster=False), node_roles=[NodeRole.DATA]),
+    # Recreate the Kafka table and MV (these live on ingestion nodes)
+    run_sql_with_exceptions(
+        KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL(on_cluster=False), node_roles=[NodeRole.INGESTION_SMALL]
+    ),
+    run_sql_with_exceptions(
+        SESSION_REPLAY_EVENTS_TABLE_MV_SQL(on_cluster=False), node_roles=[NodeRole.INGESTION_SMALL]
+    ),
 ]
