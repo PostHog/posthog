@@ -1,7 +1,7 @@
 import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 import { StepDefinition } from '../steps'
 
-export const getAnthropicSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
+export const getPerplexitySteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
     const { CodeBlock, CalloutBox, Markdown, Blockquote, dedent, snippets } = ctx
 
     const NotableGenerationProperties = snippets?.NotableGenerationProperties
@@ -39,14 +39,11 @@ export const getAnthropicSteps = (ctx: OnboardingComponentsContext): StepDefinit
             ),
         },
         {
-            title: 'Install the Anthropic SDK',
+            title: 'Install the OpenAI SDK',
             badge: 'required',
             content: (
                 <>
-                    <Markdown>
-                        Install the Anthropic SDK. The PostHog SDK instruments your LLM calls by wrapping the Anthropic client.
-                        The PostHog SDK **does not** proxy your calls.
-                    </Markdown>
+                    <Markdown>Install the OpenAI SDK. The PostHog SDK instruments your LLM calls by wrapping the OpenAI client. The PostHog SDK **does not** proxy your calls.</Markdown>
 
                     <CodeBlock
                         blocks={[
@@ -54,18 +51,84 @@ export const getAnthropicSteps = (ctx: OnboardingComponentsContext): StepDefinit
                                 language: 'bash',
                                 file: 'Python',
                                 code: dedent`
-                                    pip install anthropic
+                                    pip install openai
                                 `,
                             },
                             {
                                 language: 'bash',
                                 file: 'Node',
                                 code: dedent`
-                                    npm install @anthropic-ai/sdk
+                                    npm install openai
                                 `,
                             },
                         ]}
                     />
+                </>
+            ),
+        },
+        {
+            title: 'Initialize PostHog and OpenAI client',
+            badge: 'required',
+            content: (
+                <>
+                    <Markdown>
+                        We call Perplexity through the OpenAI client and generate a response. We'll use PostHog's OpenAI
+                        provider to capture all the details of the call. Initialize PostHog with your PostHog project API
+                        key and host from [your project settings](https://app.posthog.com/settings/project), then pass the
+                        PostHog client along with the Perplexity config (the base URL and API key) to our OpenAI wrapper.
+                    </Markdown>
+
+                    <CodeBlock
+                        blocks={[
+                            {
+                                language: 'python',
+                                file: 'Python',
+                                code: dedent`
+                                    from posthog.ai.openai import OpenAI
+                                    from posthog import Posthog
+
+                                    posthog = Posthog(
+                                        "<ph_project_api_key>",
+                                        host="<ph_client_api_host>"
+                                    )
+
+                                    client = OpenAI(
+                                        base_url="https://api.perplexity.ai",
+                                        api_key="<perplexity_api_key>",
+                                        posthog_client=posthog
+                                    )
+                                `,
+                            },
+                            {
+                                language: 'typescript',
+                                file: 'Node',
+                                code: dedent`
+                                    import { OpenAI } from '@posthog/ai'
+                                    import { PostHog } from 'posthog-node'
+
+                                    const phClient = new PostHog(
+                                      '<ph_project_api_key>',
+                                      { host: '<ph_client_api_host>' }
+                                    );
+
+                                    const openai = new OpenAI({
+                                      baseURL: 'https://api.perplexity.ai',
+                                      apiKey: '<perplexity_api_key>',
+                                      posthog: phClient,
+                                    });
+
+                                    // ... your code here ...
+
+                                    // IMPORTANT: Shutdown the client when you're done to ensure all events are sent
+                                    phClient.shutdown()
+                                `,
+                            },
+                        ]}
+                    />
+
+                    <Blockquote>
+                        <Markdown>**Note:** This also works with the `AsyncOpenAI` client.</Markdown>
+                    </Blockquote>
 
                     <CalloutBox type="fyi" icon="IconInfo" title="Proxy note">
                         <Markdown>
@@ -79,13 +142,14 @@ export const getAnthropicSteps = (ctx: OnboardingComponentsContext): StepDefinit
             ),
         },
         {
-            title: 'Initialize PostHog and the Anthropic wrapper',
+            title: 'Call Perplexity',
             badge: 'required',
             content: (
                 <>
                     <Markdown>
-                        Initialize PostHog with your project API key and host from [your project
-                        settings](https://app.posthog.com/settings/project), then pass it to our Anthropic wrapper.
+                        Now, when you call Perplexity with the OpenAI SDK, PostHog automatically captures an
+                        `$ai_generation` event. You can also capture or modify additional properties with the distinct ID,
+                        trace ID, properties, groups, and privacy mode parameters.
                     </Markdown>
 
                     <CodeBlock
@@ -94,74 +158,10 @@ export const getAnthropicSteps = (ctx: OnboardingComponentsContext): StepDefinit
                                 language: 'python',
                                 file: 'Python',
                                 code: dedent`
-                                    from posthog.ai.anthropic import Anthropic
-                                    from posthog import Posthog
-
-                                    posthog = Posthog(
-                                        "<ph_project_api_key>",
-                                        host="<ph_client_api_host>"
-                                    )
-
-                                    client = Anthropic(
-                                        api_key="sk-ant-api...", # Replace with your Anthropic API key
-                                        posthog_client=posthog # This is an optional parameter. If it is not provided, a default client will be used.
-                                    )
-                                `,
-                            },
-                            {
-                                language: 'typescript',
-                                file: 'Node',
-                                code: dedent`
-                                    import { Anthropic } from '@posthog/ai'
-                                    import { PostHog } from 'posthog-node'
-
-                                    const phClient = new PostHog(
-                                      '<ph_project_api_key>',
-                                      { host: '<ph_client_api_host>' }
-                                    )
-
-                                    const client = new Anthropic({
-                                      apiKey: 'sk-ant-api...', // Replace with your Anthropic API key
-                                      posthog: phClient
-                                    })
-                                `,
-                            },
-                        ]}
-                    />
-
-                    <Blockquote>
-                        <Markdown>
-                            **Note:** This also works with the `AsyncAnthropic` client as well as `AnthropicBedrock`,
-                            `AnthropicVertex`, and the async versions of those.
-                        </Markdown>
-                    </Blockquote>
-                </>
-            ),
-        },
-        {
-            title: 'Call Anthropic LLMs',
-            badge: 'required',
-            content: (
-                <>
-                    <Markdown>
-                        Now, when you use the Anthropic SDK to call LLMs, PostHog automatically captures an `$ai_generation`
-                        event. You can enrich the event with additional data such as the trace ID, distinct ID, custom
-                        properties, groups, and privacy mode options.
-                    </Markdown>
-
-                    <CodeBlock
-                        blocks={[
-                            {
-                                language: 'python',
-                                file: 'Python',
-                                code: dedent`
-                                    response = client.messages.create(
-                                        model="claude-3-opus-20240229",
+                                    response = client.chat.completions.create(
+                                        model="sonar",
                                         messages=[
-                                            {
-                                                "role": "user",
-                                                "content": "Tell me a fun fact about hedgehogs"
-                                            }
+                                            {"role": "user", "content": "Tell me a fun fact about hedgehogs"}
                                         ],
                                         posthog_distinct_id="user_123", # optional
                                         posthog_trace_id="trace_123", # optional
@@ -170,30 +170,24 @@ export const getAnthropicSteps = (ctx: OnboardingComponentsContext): StepDefinit
                                         posthog_privacy_mode=False # optional
                                     )
 
-                                    print(response.content[0].text)
+                                    print(response.choices[0].message.content)
                                 `,
                             },
                             {
                                 language: 'typescript',
                                 file: 'Node',
                                 code: dedent`
-                                    const response = await client.messages.create({
-                                      model: "claude-3-5-sonnet-latest",
-                                      messages: [
-                                        {
-                                          role: "user",
-                                          content: "Tell me a fun fact about hedgehogs"
-                                        }
-                                      ],
-                                      posthogDistinctId: "user_123", // optional
-                                      posthogTraceId: "trace_123", // optional
-                                      posthogProperties: { conversationId: "abc123", paid: true }, // optional
-                                      posthogGroups: { company: "company_id_in_your_db" }, // optional
-                                      posthogPrivacyMode: false // optional
-                                    })
+                                    const completion = await openai.chat.completions.create({
+                                        model: "sonar",
+                                        messages: [{ role: "user", content: "Tell me a fun fact about hedgehogs" }],
+                                        posthogDistinctId: "user_123", // optional
+                                        posthogTraceId: "trace_123", // optional
+                                        posthogProperties: { conversation_id: "abc123", paid: true }, // optional
+                                        posthogGroups: { company: "company_id_in_your_db" }, // optional
+                                        posthogPrivacyMode: false // optional
+                                    });
 
-                                    console.log(response.content[0].text)
-                                    phClient.shutdown()
+                                    console.log(completion.choices[0].message.content)
                                 `,
                             },
                         ]}
@@ -203,7 +197,8 @@ export const getAnthropicSteps = (ctx: OnboardingComponentsContext): StepDefinit
                         <Markdown>
                             {dedent`
                             **Notes:**
-                            - This also works when message streams are used (e.g. \`stream=True\` or \`client.messages.stream(...)\`).
+                            - We also support the old \`chat.completions\` API.
+                            - This works with responses where \`stream=True\`.
                             - If you want to capture LLM events anonymously, **don't** pass a distinct ID to the request.
 
                             See our docs on [anonymous vs identified events](https://posthog.com/docs/data/anonymous-vs-identified-events) to learn more.
@@ -224,4 +219,4 @@ export const getAnthropicSteps = (ctx: OnboardingComponentsContext): StepDefinit
     ]
 }
 
-export const AnthropicInstallation = createInstallation(getAnthropicSteps)
+export const PerplexityInstallation = createInstallation(getPerplexitySteps)
