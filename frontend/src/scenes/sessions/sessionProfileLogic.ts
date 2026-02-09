@@ -10,6 +10,19 @@ import { SessionEventType } from '~/types'
 import { teamLogic } from '../teamLogic'
 import type { sessionProfileLogicType } from './sessionProfileLogicType'
 
+/**
+ * Extract the timestamp embedded in a UUIDv7.
+ * UUIDv7 encodes the Unix timestamp in milliseconds in the first 48 bits.
+ */
+function getTimestampFromUUIDv7(sessionId: string): { startDate: Date; endDate: Date } {
+    const uuidHex = sessionId.replace(/-/g, '')
+    const timestampMs = parseInt(uuidHex.substring(0, 12), 16)
+    const startDate = new Date(timestampMs)
+    // Add 2 days buffer to ensure we capture all events for the session
+    const endDate = new Date(timestampMs + 2 * 24 * 60 * 60 * 1000)
+    return { startDate, endDate }
+}
+
 export interface SessionProfileLogicProps {
     sessionId: string
 }
@@ -95,7 +108,7 @@ export const sessionProfileLogic = kea<sessionProfileLogicType>([
             {
                 loadSessionData: async () => {
                     // Check the session table version to optimize the query
-                    const currentTeam = teamLogic.values.currentTeam
+                    const { currentTeam } = values
                     const sessionTableVersion =
                         currentTeam?.modifiers?.sessionTableVersion ??
                         currentTeam?.default_modifiers?.sessionTableVersion ??
@@ -132,7 +145,12 @@ export const sessionProfileLogic = kea<sessionProfileLogicType>([
                         WHERE session_id = ${props.sessionId}
                         LIMIT 1
                     `
-                            : hogql`
+                            : (() => {
+                                  // Extract timestamp from UUIDv7 and use simple date constants
+                                  // This allows ClickHouse to push predicates down for partition pruning
+                                  const { startDate } = getTimestampFromUUIDv7(props.sessionId)
+                                  const endDate = new Date(startDate.getTime() + 60 * 60 * 1000) // +1 hour
+                                  return hogql`
                         SELECT
                             session_id,
                             distinct_id,
@@ -156,11 +174,12 @@ export const sessionProfileLogic = kea<sessionProfileLogicType>([
                             $entry_referring_domain,
                             $last_external_click_url
                         FROM sessions
-                        WHERE $start_timestamp >= UUIDv7ToDateTime(toUUID(${props.sessionId}))
-                            AND $start_timestamp <= UUIDv7ToDateTime(toUUID(${props.sessionId})) + INTERVAL 1 HOUR
+                        WHERE $start_timestamp >= toDateTime(${startDate.toISOString()})
+                            AND $start_timestamp <= toDateTime(${endDate.toISOString()})
                             AND session_id = ${props.sessionId}
                         LIMIT 1
                     `
+                              })()
 
                     const tags = { scene: 'SessionProfile', productKey: 'persons' }
                     const response = await api.queryHogQL(sessionQuery, tags)
@@ -229,6 +248,8 @@ export const sessionProfileLogic = kea<sessionProfileLogicType>([
             {
                 loadSessionEvents: async () => {
                     const sortOrder = values.sortOrder || 'asc'
+                    // Extract timestamp from UUIDv7 for partition pruning
+                    const { startDate, endDate } = getTimestampFromUUIDv7(props.sessionId)
                     const eventsQuery =
                         sortOrder === 'asc'
                             ? hogql`
@@ -248,8 +269,8 @@ export const sessionProfileLogic = kea<sessionProfileLogicType>([
                             properties.$exception_list,
                             distinct_id
                         FROM events
-                        WHERE timestamp >= UUIDv7ToDateTime(toUUID(${props.sessionId}))
-                            AND timestamp <= UUIDv7ToDateTime(toUUID(${props.sessionId})) + INTERVAL 2 DAY
+                        WHERE timestamp >= toDateTime(${startDate.toISOString()})
+                            AND timestamp <= toDateTime(${endDate.toISOString()})
                             AND \`$session_id\` = ${props.sessionId}
                         ORDER BY timestamp ASC
                         LIMIT 50
@@ -271,8 +292,8 @@ export const sessionProfileLogic = kea<sessionProfileLogicType>([
                             properties.$exception_list,
                             distinct_id
                         FROM events
-                        WHERE timestamp >= UUIDv7ToDateTime(toUUID(${props.sessionId}))
-                            AND timestamp <= UUIDv7ToDateTime(toUUID(${props.sessionId})) + INTERVAL 2 DAY
+                        WHERE timestamp >= toDateTime(${startDate.toISOString()})
+                            AND timestamp <= toDateTime(${endDate.toISOString()})
                             AND \`$session_id\` = ${props.sessionId}
                         ORDER BY timestamp DESC
                         LIMIT 50
@@ -341,6 +362,8 @@ export const sessionProfileLogic = kea<sessionProfileLogicType>([
                     const currentEvents = values.sessionEvents || []
                     const offset = values.eventsOffset
                     const sortOrder = values.sortOrder || 'asc'
+                    // Extract timestamp from UUIDv7 for partition pruning
+                    const { startDate, endDate } = getTimestampFromUUIDv7(props.sessionId)
 
                     const eventsQuery =
                         sortOrder === 'asc'
@@ -361,8 +384,8 @@ export const sessionProfileLogic = kea<sessionProfileLogicType>([
                             properties.$exception_list,
                             distinct_id
                         FROM events
-                        WHERE timestamp >= UUIDv7ToDateTime(toUUID(${props.sessionId}))
-                            AND timestamp <= UUIDv7ToDateTime(toUUID(${props.sessionId})) + INTERVAL 2 DAY
+                        WHERE timestamp >= toDateTime(${startDate.toISOString()})
+                            AND timestamp <= toDateTime(${endDate.toISOString()})
                             AND \`$session_id\` = ${props.sessionId}
                         ORDER BY timestamp ASC
                         LIMIT 50
@@ -385,8 +408,8 @@ export const sessionProfileLogic = kea<sessionProfileLogicType>([
                             properties.$exception_list,
                             distinct_id
                         FROM events
-                        WHERE timestamp >= UUIDv7ToDateTime(toUUID(${props.sessionId}))
-                            AND timestamp <= UUIDv7ToDateTime(toUUID(${props.sessionId})) + INTERVAL 2 DAY
+                        WHERE timestamp >= toDateTime(${startDate.toISOString()})
+                            AND timestamp <= toDateTime(${endDate.toISOString()})
                             AND \`$session_id\` = ${props.sessionId}
                         ORDER BY timestamp DESC
                         LIMIT 50
@@ -460,12 +483,13 @@ export const sessionProfileLogic = kea<sessionProfileLogicType>([
                     // Fetch full properties for the specific event
                     // Use timestamp filtering based on session_id to enable partition pruning
                     // Also filter by event name to improve query performance
+                    const { startDate, endDate } = getTimestampFromUUIDv7(props.sessionId)
                     const detailsQuery = hogql`
                         SELECT properties, uuid
                         FROM events
                         WHERE event = ${eventName}
-                        AND timestamp >= UUIDv7ToDateTime(toUUID(${props.sessionId}))
-                        AND timestamp <= UUIDv7ToDateTime(toUUID(${props.sessionId})) + INTERVAL 2 DAY
+                        AND timestamp >= toDateTime(${startDate.toISOString()})
+                        AND timestamp <= toDateTime(${endDate.toISOString()})
                         AND uuid = ${eventId}
                         LIMIT 1
                     `
@@ -490,11 +514,12 @@ export const sessionProfileLogic = kea<sessionProfileLogicType>([
             null as number | null,
             {
                 loadTotalEventCount: async () => {
+                    const { startDate, endDate } = getTimestampFromUUIDv7(props.sessionId)
                     const countQuery = hogql`
                         SELECT count(*) as total
                         FROM events
-                        WHERE timestamp >= UUIDv7ToDateTime(toUUID(${props.sessionId}))
-                            AND timestamp <= UUIDv7ToDateTime(toUUID(${props.sessionId})) + INTERVAL 2 DAY
+                        WHERE timestamp >= toDateTime(${startDate.toISOString()})
+                            AND timestamp <= toDateTime(${endDate.toISOString()})
                             AND \`$session_id\` = ${props.sessionId}
                     `
 
@@ -510,11 +535,9 @@ export const sessionProfileLogic = kea<sessionProfileLogicType>([
             false as boolean,
             {
                 loadRecordingAvailability: async () => {
-                    // Extract timestamp from UUIDv7 for date filtering
-                    const uuidHex = props.sessionId.replace(/-/g, '')
-                    const timestampMs = parseInt(uuidHex.substring(0, 12), 16)
-                    const startDate = new Date(timestampMs)
-                    const endDate = new Date(timestampMs + 24 * 60 * 60 * 1000)
+                    const { startDate } = getTimestampFromUUIDv7(props.sessionId)
+                    // Only need +1 day for recording availability check
+                    const endDate = new Date(startDate.getTime() + 24 * 60 * 60 * 1000)
 
                     const response = await api.recordings.list({
                         kind: NodeKind.RecordingsQuery,
@@ -531,6 +554,7 @@ export const sessionProfileLogic = kea<sessionProfileLogicType>([
             [] as SessionEventType[],
             {
                 loadSupportTicketEvents: async () => {
+                    const { startDate, endDate } = getTimestampFromUUIDv7(props.sessionId)
                     const ticketsQuery = hogql`
                         SELECT
                             uuid,
@@ -539,8 +563,8 @@ export const sessionProfileLogic = kea<sessionProfileLogicType>([
                             properties.zendesk_ticket_id,
                             distinct_id
                         FROM events
-                        WHERE timestamp >= UUIDv7ToDateTime(toUUID(${props.sessionId}))
-                            AND timestamp <= UUIDv7ToDateTime(toUUID(${props.sessionId})) + INTERVAL 2 DAY
+                        WHERE timestamp >= toDateTime(${startDate.toISOString()})
+                            AND timestamp <= toDateTime(${endDate.toISOString()})
                             AND \`$session_id\` = ${props.sessionId}
                             AND event = 'support_ticket'
                         ORDER BY timestamp DESC

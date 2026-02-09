@@ -36,7 +36,7 @@ const renderSessionId: QueryContextColumnComponent = ({ value, record, query }) 
         isLive = isSessionLive(endTimestamp)
     }
 
-    return <SessionDisplay sessionId={sessionId} isLive={isLive} />
+    return <SessionDisplay sessionId={sessionId} isLive={isLive} noPopover />
 }
 
 export function getSessionsColumns(): QueryContext['columns'] {
