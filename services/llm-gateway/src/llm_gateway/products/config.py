@@ -35,6 +35,7 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
                 "claude-opus-4-6",
                 "claude-sonnet-4-5",
                 "claude-haiku-4-5",
+                "codex-5.3",
                 "gpt-5.2",
                 "gpt-5-mini",
             }

@@ -42,6 +42,7 @@ const LogsSceneContent = (): JSX.Element => {
         orderBy,
         sparklineData,
         sparklineBreakdownBy,
+        maxExportableLogs,
     } = useValues(logsSceneLogic)
     const { teamHasLogsCheckFailed } = useValues(logsIngestionLogic)
     const { runQuery, fetchNextLogsPage, setOrderBy, addFilter, setDateRange, setSparklineBreakdownBy, zoomDateRange } =
@@ -101,6 +102,7 @@ const LogsSceneContent = (): JSX.Element => {
                         sparklineBreakdownBy={sparklineBreakdownBy}
                         onSparklineBreakdownByChange={setSparklineBreakdownBy}
                         onExpandTimeRange={() => zoomDateRange(2)}
+                        maxExportableLogs={maxExportableLogs}
                     />
                 </div>
             </LogsSetupPrompt>
