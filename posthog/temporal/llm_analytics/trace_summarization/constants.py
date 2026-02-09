@@ -10,7 +10,8 @@ from products.llm_analytics.backend.summarization.models import OpenAIModel, Sum
 DEFAULT_MAX_ITEMS_PER_WINDOW = (
     15  # Max items to process per window (targets ~2500 summaries in 7-day clustering window)
 )
-DEFAULT_BATCH_SIZE = 3  # Number of traces to process in parallel (reduced to avoid rate limits)
+DEFAULT_BATCH_SIZE = 5  # Number of generations to process in parallel
+DEFAULT_TRACE_BATCH_SIZE = 2  # Traces processed in small parallel batches
 DEFAULT_MODE = SummarizationMode.DETAILED
 DEFAULT_WINDOW_MINUTES = 60  # Process traces from last N minutes (matches schedule frequency)
 DEFAULT_WINDOW_OFFSET_MINUTES = 30  # Offset window into the past so traces have time to fully complete
@@ -21,35 +22,76 @@ DEFAULT_MODEL = OpenAIModel.GPT_4_1_NANO
 # 2M chars = ~800K tokens, leaving room for system prompt and output.
 MAX_TEXT_REPR_LENGTH = 2_000_000
 
+# Max estimated raw trace size (in characters) before formatting.
+# Traces exceeding this are skipped — formatting huge traces is CPU-intensive
+# and can block the worker for 10+ minutes. Estimated cheaply from
+# sum(len(str(properties))) per event before entering the formatter.
+MAX_RAW_TRACE_SIZE = 5_000_000
+
+# Max events per trace for sampling. Traces with more events than this are
+# excluded at the ClickHouse query level during sampling, preventing them
+# from ever reaching the CPU-intensive formatting activity.
+MAX_TRACE_EVENTS_LIMIT = 50
+
+# Max total estimated properties size (in characters) per trace for sampling.
+# Estimated at the ClickHouse level as sum(length(properties)) across all events
+# in a trace. Traces exceeding this are excluded during sampling, preventing
+# oversized traces from reaching the CPU-intensive formatting activity — even if
+# they have few events. Complements MAX_TRACE_EVENTS_LIMIT which only filters
+# by event count. Set lower than MAX_RAW_TRACE_SIZE (5M) to be conservative —
+# formatting traces in the 2-5M range is still CPU-intensive enough to block
+# workers for minutes.
+MAX_TRACE_PROPERTIES_SIZE = 2_000_000
+
+# AI event types used in trace queries (sampling and fetching)
+AI_EVENT_TYPES = (
+    "$ai_span",
+    "$ai_generation",
+    "$ai_embedding",
+    "$ai_metric",
+    "$ai_feedback",
+    "$ai_trace",
+)
+
+# Expand the time window by this amount each side when fetching traces,
+# so traces that started just before/after the window are still found.
+TRACE_CAPTURE_RANGE = timedelta(minutes=10)
+
 # Schedule configuration
 SCHEDULE_INTERVAL_HOURS = 1  # How often the coordinator runs
 
 # Coordinator concurrency settings
-DEFAULT_MAX_CONCURRENT_TEAMS = 3  # Max teams to process in parallel
+DEFAULT_MAX_CONCURRENT_TEAMS = 5  # Max teams to process in parallel
 
 # Timeout configuration (in seconds)
 SAMPLE_TIMEOUT_SECONDS = 900  # 15 minutes for sampling query (buffer above QUERY_ASYNC 600s ClickHouse timeout)
-GENERATE_SUMMARY_TIMEOUT_SECONDS = 300  # 5 minutes per summary generation (increased for LLM API latency/rate limits)
+GENERATE_SUMMARY_TIMEOUT_SECONDS = (
+    900  # 15 minutes per summary generation (large traces can produce ~800K token LLM calls)
+)
 
 # Heartbeat timeouts - allows Temporal to detect dead workers faster than
 # waiting for the full start_to_close_timeout to expire. Activities must
 # send heartbeats within this interval or Temporal will consider them failed
 # and retry on another worker.
 SAMPLE_HEARTBEAT_TIMEOUT = timedelta(seconds=120)  # 2 minutes - sampling has long CH queries
-SUMMARIZE_HEARTBEAT_TIMEOUT = timedelta(seconds=60)  # 1 minute - LLM calls can be slow but should heartbeat regularly
+SUMMARIZE_HEARTBEAT_TIMEOUT: timedelta | None = (
+    None  # Disabled - large trace formatting holds the GIL and blocks heartbeats. Relies on start_to_close (15 min) and schedule_to_close (45 min) for stuck activity detection.
+)
 
 # Schedule-to-close timeouts - caps total time including all retry attempts,
 # backoff intervals, and queue time. Prevents runaway retries from blocking
 # the workflow indefinitely when something is fundamentally broken.
 SAMPLE_SCHEDULE_TO_CLOSE_TIMEOUT = timedelta(seconds=1800)  # 30 min total for sampling (3 attempts * 900s + backoff)
 SUMMARIZE_SCHEDULE_TO_CLOSE_TIMEOUT = timedelta(
-    seconds=900
-)  # 15 min total per summary (4 attempts * 300s + backoff, but cut off early)
+    seconds=2700
+)  # 45 min total per summary (3 full attempts * 900s + backoff)
 
 # Workflow-level timeouts (in minutes)
-WORKFLOW_EXECUTION_TIMEOUT_MINUTES = 120  # Max time for single team workflow (increased with longer activity timeouts)
+WORKFLOW_EXECUTION_TIMEOUT_MINUTES = (
+    180  # Max time for single team workflow (5 batches * 45 min worst case, usually ~75 min)
+)
 COORDINATOR_EXECUTION_TIMEOUT_MINUTES = (
-    180  # 3 hours - 209 teams with 3 concurrent, most finish instantly but a few hit 120-min child timeout
+    240  # 4 hours - 211 teams with 3 concurrent, most finish instantly but a few hit child timeout
 )
 
 # Retry policies

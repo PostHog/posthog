@@ -204,8 +204,6 @@ export const searchLogic = kea<searchLogicType>([
             false,
             {
                 setSearch: (_, { search }) => search.trim() !== '',
-                loadRecentsSuccess: () => false,
-                loadRecentsFailure: () => false,
                 loadUnifiedSearchResultsSuccess: () => false,
                 loadUnifiedSearchResultsFailure: () => false,
             },
@@ -987,9 +985,9 @@ export const searchLogic = kea<searchLogicType>([
         setSearch: async ({ search }, breakpoint) => {
             await breakpoint(150)
 
-            actions.loadRecents({ search })
-
-            if (search.trim() !== '') {
+            if (search.trim() === '') {
+                actions.loadRecents({ search: '' })
+            } else {
                 actions.loadUnifiedSearchResults({ searchTerm: search })
                 actions.loadPersonSearchResults({ searchTerm: search })
                 actions.loadGroupSearchResults({ searchTerm: search })
