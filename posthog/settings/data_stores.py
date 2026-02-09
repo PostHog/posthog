@@ -253,7 +253,7 @@ CLICKHOUSE_LOGS_CLUSTER_SECURE: bool = get_from_env(
     "CLICKHOUSE_LOGS_CLUSTER_SECURE", not TEST and not DEBUG, type_cast=str_to_bool
 )
 CLICKHOUSE_LOGS_ENABLE_STORAGE_POLICY: bool = get_from_env(
-    "CLICKHOUSE_LOGS_ENABLE_STORAGE_POLICY", not TEST and not DEBUG, type_cast=str_to_bool
+    "CLICKHOUSE_LOGS_ENABLE_STORAGE_POLICY", False, type_cast=str_to_bool
 )
 
 CLICKHOUSE_KAFKA_NAMED_COLLECTION: str = os.getenv("CLICKHOUSE_KAFKA_NAMED_COLLECTION", "msk_cluster")
