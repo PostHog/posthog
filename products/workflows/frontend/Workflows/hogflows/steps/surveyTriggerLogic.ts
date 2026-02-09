@@ -1,4 +1,4 @@
-import { actions, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -80,6 +80,9 @@ export const surveyTriggerLogic = kea<surveyTriggerLogicType>([
             },
         ],
     })),
+    afterMount(({ actions }) => {
+        actions.loadSurveys()
+    }),
     listeners(({ values, actions }) => ({
         loadMoreSurveys: async () => {
             const response = await api.surveys.list({

@@ -1,7 +1,6 @@
 import { Node } from '@xyflow/react'
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import { useEffect } from 'react'
 
 import {
     IconBolt,
@@ -371,10 +370,6 @@ function StepTriggerConfigurationSurvey({
         }
         return properties
     }
-
-    useEffect(() => {
-        loadSurveys()
-    }, [loadSurveys])
 
     // Label for selected survey; fallback when not in list so we never show raw UUID (reset effect clears selection)
     const selectedSurveyLabel = (() => {
