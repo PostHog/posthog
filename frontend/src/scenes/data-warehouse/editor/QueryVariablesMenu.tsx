@@ -20,28 +20,70 @@ interface QueryVariablesMenuProps {
     disabledReason?: string
 }
 
+const buildVariableMenuLabel = (
+    variable: Variable,
+    showSettingsButton: boolean,
+    openExistingVariableModal: (variable: Variable) => void,
+    closeMenu: () => void
+): JSX.Element => {
+    const settingsButton = showSettingsButton ? (
+        <button
+            className="opacity-0 group-hover:opacity-100 flex items-center text-muted-alt"
+            onClick={(event) => {
+                event.stopPropagation()
+                openExistingVariableModal(variable)
+                closeMenu()
+            }}
+        >
+            <IconGear />
+        </button>
+    ) : null
+
+    return (
+        <span className="flex items-center justify-between w-full gap-2 group">
+            <span className="flex flex-col gap-0.5">
+                <span>{variable.name}</span>
+                <span className="text-xxs text-muted-alt">{variable.code_name}</span>
+            </span>
+            <span className="flex items-center gap-2">
+                <LemonTag type="default">{variable.type}</LemonTag>
+                {settingsButton}
+            </span>
+        </span>
+    )
+}
+
 const buildVariableMenuItems = (
     variables: Variable[],
     handleChange: null | ((variable: Variable, value: any, isNull: boolean) => void),
     insertTextAtCursor: (text: string) => void,
     openExistingVariableModal: (variable: Variable) => void,
-    closeMenu: () => void
+    closeMenu: () => void,
+    options?: { showSettingsButton?: boolean; insertOnClick?: boolean }
 ): LemonMenuItems => {
     return variables.map((variable) => {
         const variableAsHogQL = `{variables.${variable.code_name}}`
+        const showSettingsButton = options?.showSettingsButton ?? false
+        const insertOnClick = options?.insertOnClick ?? false
 
-        return {
+        const menuItem = {
             key: variable.id,
             custom: true,
-            label: (
-                <span className="flex items-center justify-between w-full gap-2 group">
-                    <span className="flex flex-col gap-0.5">
-                        <span>{variable.name}</span>
-                        <span className="text-xxs text-muted-alt">{variable.code_name}</span>
-                    </span>
-                    <LemonTag type="default">{variable.type}</LemonTag>
-                </span>
-            ),
+            label: buildVariableMenuLabel(variable, showSettingsButton, openExistingVariableModal, closeMenu),
+        }
+
+        if (insertOnClick) {
+            return {
+                ...menuItem,
+                onClick: () => {
+                    insertTextAtCursor(variableAsHogQL)
+                    closeMenu()
+                },
+            }
+        }
+
+        return {
+            ...menuItem,
             sideIcon: <IconChevronRight className="text-muted-alt" />,
             items: [
                 handleChange
@@ -87,47 +129,6 @@ const buildVariableMenuItems = (
     })
 }
 
-const buildOtherVariableMenuItems = (
-    variables: Variable[],
-    insertTextAtCursor: (text: string) => void,
-    openExistingVariableModal: (variable: Variable) => void,
-    closeMenu: () => void
-): LemonMenuItems => {
-    return variables.map((variable) => {
-        const variableAsHogQL = `{variables.${variable.code_name}}`
-
-        return {
-            key: variable.id,
-            custom: true,
-            label: (
-                <span className="flex items-center justify-between w-full gap-2 group">
-                    <span className="flex flex-col gap-0.5">
-                        <span>{variable.name}</span>
-                        <span className="text-xxs text-muted-alt">{variable.code_name}</span>
-                    </span>
-                    <span className="flex items-center gap-2">
-                        <LemonTag>{variable.type}</LemonTag>
-                        <button
-                            className="opacity-0 group-hover:opacity-100 flex items-center text-muted-alt"
-                            onClick={(event) => {
-                                event.stopPropagation()
-                                openExistingVariableModal(variable)
-                                closeMenu()
-                            }}
-                        >
-                            <IconGear />
-                        </button>
-                    </span>
-                </span>
-            ),
-            onClick: () => {
-                insertTextAtCursor(variableAsHogQL)
-                closeMenu()
-            },
-        }
-    })
-}
-
 export function QueryVariablesMenu({ disabledReason }: QueryVariablesMenuProps): JSX.Element | null {
     const { showEditingUI } = useValues(dataVisualizationLogic)
     const { variablesLoading, variablesUsedInQuery, variablesNotInQuery, searchTerm, internalSelectedVariables } =
@@ -162,18 +163,13 @@ export function QueryVariablesMenu({ disabledReason }: QueryVariablesMenuProps):
         openExistingVariableModal,
         closeMenu
     )
-    const variablesNotInQueryItems = buildVariableMenuItems(
+    const otherVariablesItems = buildVariableMenuItems(
         variablesNotInQuery,
         null,
         insertTextAtCursor,
         openExistingVariableModal,
-        closeMenu
-    )
-    const otherVariablesItems = buildOtherVariableMenuItems(
-        variablesNotInQuery,
-        insertTextAtCursor,
-        openExistingVariableModal,
-        closeMenu
+        closeMenu,
+        { showSettingsButton: true, insertOnClick: true }
     )
 
     const searchItem = {
@@ -206,14 +202,14 @@ export function QueryVariablesMenu({ disabledReason }: QueryVariablesMenuProps):
                 title: 'Used in query',
                 items: variablesUsedItems,
             })
-        } else if (variablesNotInQueryItems.length) {
+        } else if (variablesNotInQuery.length) {
             variableSections.push({
                 title: 'Variables',
                 items: otherVariablesItems,
             })
         }
 
-        if (variablesUsedItems.length && variablesNotInQueryItems.length) {
+        if (variablesUsedItems.length && variablesNotInQuery.length) {
             variableSections.push({
                 title: 'Other variables',
                 items: otherVariablesItems,
@@ -261,7 +257,7 @@ export function QueryVariablesMenu({ disabledReason }: QueryVariablesMenuProps):
                   onClick: () => {},
               },
           ]
-        : variablesUsedItems.length || variablesNotInQueryItems.length
+        : variablesUsedItems.length || variablesNotInQuery.length
           ? [...variableSections, manageVariablesMenuItem, newVariableMenuItem]
           : [
                 {

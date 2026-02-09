@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
-import { IconInfo } from '@posthog/icons'
+import { IconCopy, IconInfo } from '@posthog/icons'
 import {
     LemonInput,
     LemonInputSelect,
@@ -14,6 +14,7 @@ import {
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -209,6 +210,16 @@ export function SqlVariableEditScene(): JSX.Element {
                                     <code className="bg-bg-3000 px-1 py-0.5 rounded">
                                         {formatVariableReference(referenceCodeName)}
                                     </code>
+                                    <LemonButton
+                                        className="inline-block align-middle"
+                                        icon={<IconCopy />}
+                                        type="tertiary"
+                                        size="xsmall"
+                                        onClick={() => {
+                                            copyToClipboard(formatVariableReference(referenceCodeName), 'code')
+                                        }}
+                                        tooltip="Copy to clipboard"
+                                    />
                                 </div>
                             )}
 

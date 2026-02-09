@@ -1,8 +1,9 @@
-import { IconInfo } from '@posthog/icons'
-import { LemonInput, LemonSelect } from '@posthog/lemon-ui'
+import { IconCopy, IconInfo } from '@posthog/icons'
+import { LemonButton, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { Variable, VariableType } from '../../types'
 import {
@@ -16,6 +17,7 @@ import {
     VARIABLE_TYPE_OPTIONS,
     formatVariableReference,
     getCodeName,
+    sanitizeCodeName,
 } from './VariableFields'
 
 function renderField<T extends Variable>(
@@ -99,9 +101,19 @@ export const VariableForm = ({
                     }}
                 />
                 {modalType === 'new' && variable.name.length > 0 && (
-                    <span className="text-xs">{`Use this variable by referencing ${formatVariableReference(
-                        referenceCodeName
-                    )}.`}</span>
+                    <span className="text-xs">
+                        Use this variable by referencing <code>{formatVariableReference(referenceCodeName)}</code>
+                        <LemonButton
+                            className="inline-block align-middle"
+                            icon={<IconCopy />}
+                            type="tertiary"
+                            size="xsmall"
+                            onClick={() => {
+                                copyToClipboard(formatVariableReference(referenceCodeName), 'code')
+                            }}
+                            tooltip="Copy to clipboard"
+                        />
+                    </span>
                 )}
             </LemonField.Pure>
             <LemonField.Pure label="Code name" className="gap-1">
@@ -111,7 +123,7 @@ export const VariableForm = ({
                     onChange={(value) => {
                         updateVariable({
                             ...variable,
-                            code_name: getCodeName(value),
+                            code_name: sanitizeCodeName(value),
                         })
                     }}
                 />
