@@ -45,7 +45,7 @@ class VideoSegmentClusteringWorkflow(PostHogWorkflow):
     2. Cluster: Clustering segments into groups, i.e. potential reports
     3. Match: Match clusters to existing SignalReports (deduplication)
     4. Label: Generate LLM-based labels for new clusters
-    5. Persist: Create/update SignalReorts and SignalReportArtefacts
+    5. Persist: Create/update SignalReports and SignalReportArtefacts
     """
 
     @staticmethod
