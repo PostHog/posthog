@@ -370,7 +370,7 @@ export const workflowLogic = kea<workflowLogicType>([
 
                         if (action.type === 'trigger') {
                             // custom validation here that we can't easily express in the schema
-                            if (action.config.type === 'event') {
+                            if ('type' in action.config && action.config.type === 'event') {
                                 const events = action.config.filters?.events ?? []
                                 const isSurveyTrigger = events.some((e: any) => e.id === SurveyEventName.SENT)
 
@@ -401,14 +401,14 @@ export const workflowLogic = kea<workflowLogicType>([
                                         filters: 'At least one event or action is required',
                                     }
                                 }
-                            } else if (action.config.type === 'schedule') {
+                            } else if ('type' in action.config && action.config.type === 'schedule') {
                                 if (!action.config.scheduled_at) {
                                     result.valid = false
                                     result.errors = {
                                         scheduled_at: 'A scheduled time is required',
                                     }
                                 }
-                            } else if (action.config.type === 'batch') {
+                            } else if ('type' in action.config && action.config.type === 'batch') {
                                 if (!action.config.filters.properties?.length) {
                                     result.valid = false
                                     result.errors = {

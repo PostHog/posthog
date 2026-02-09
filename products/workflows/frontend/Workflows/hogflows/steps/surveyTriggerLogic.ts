@@ -18,7 +18,7 @@ export function isSurveyTrigger(workflow: HogFlow | null | undefined): boolean {
         return false
     }
     const trigger = workflow.actions?.find((a) => a.type === 'trigger')
-    if (!trigger || trigger.config.type !== 'event') {
+    if (!trigger || !('type' in trigger.config) || trigger.config.type !== 'event') {
         return false
     }
     const events = trigger.config.filters?.events ?? []
