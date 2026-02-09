@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 
-import { IconTarget } from '@posthog/icons'
+import { IconPerson } from '@posthog/icons'
 
 import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
@@ -90,10 +90,10 @@ export const FlagsToolbarMenu = (): JSX.Element => {
                     <LemonButton
                         className="flex-shrink-0"
                         size="small"
-                        icon={<IconTarget />}
+                        icon={<IconPerson />}
                         type={impersonatedDistinctId ? 'primary' : 'secondary'}
                         onClick={() => setImpersonationOpen(!impersonationOpen)}
-                        tooltip="View as another user"
+                        tooltip="Load feature flags for a provided distinct ID"
                     />
                 </div>
             </ToolbarMenu.Header>
