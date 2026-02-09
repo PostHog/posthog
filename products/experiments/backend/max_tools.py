@@ -5,13 +5,15 @@ from typing import Any, Literal
 from posthoganalytics import capture_exception
 from pydantic import BaseModel, Field
 
-from posthog.schema import MaxExperimentSummaryContext
+from posthog.schema import MaxExperimentMetricResult
 
+from posthog.hogql_queries.experiments.utils import get_experiment_stats_method
 from posthog.models import Experiment, FeatureFlag
 from posthog.session_recordings.session_recording_api import list_recordings_from_query
 from posthog.session_recordings.utils import filter_from_params_to_query
 from posthog.sync import database_sync_to_async
 
+from ee.hogai.context.experiment.context import ExperimentContext
 from ee.hogai.tool import MaxTool
 
 CREATE_EXPERIMENT_TOOL_DESCRIPTION = dedent("""
@@ -233,10 +235,10 @@ EXPERIMENT_SUMMARY_TOOL_DESCRIPTION = dedent("""
 
 
 class ExperimentSummaryArgs(BaseModel):
-    """
-    Retrieve experiment results data for analysis.
-    All experiment data and results are automatically provided from context.
-    """
+    experiment_id: int | None = Field(
+        default=None,
+        description="The ID of the experiment to summarize. Only required when results context is not already available (e.g. when the user asks about an experiment from chat).",
+    )
 
 
 class ExperimentSummaryTool(MaxTool):
@@ -247,127 +249,28 @@ class ExperimentSummaryTool(MaxTool):
     def get_required_resource_access(self):
         return [("experiment", "viewer")]
 
-    def _format_experiment_data(self, context: MaxExperimentSummaryContext) -> str:
-        """Format experiment data for the agent to analyze."""
-        lines = []
+    async def _arun_impl(self, experiment_id: int | None = None) -> tuple[str, dict[str, Any]]:
+        """Retrieve experiment data and format it for the agent."""
 
-        lines.append(f"## Experiment: {context.experiment_name}")
-        lines.append(f"**ID:** {context.experiment_id}")
-        lines.append(f"**Statistical Method:** {context.stats_method.title()}")
-
-        if context.description:
-            lines.append(f"**Hypothesis:** {context.description}")
-
-        if context.variants:
-            lines.append(f"\n**Variants:** {', '.join(context.variants)}")
-
-        if context.exposures:
-            exposures = context.exposures
-            lines.append("\n### Exposures")
-            total = sum(exposures.values())
-            lines.append(f"**Total:** {int(total)}")
-
-            for variant_key, count in exposures.items():
-                if variant_key == "$multiple":
-                    continue
-                percentage = (count / total * 100) if total > 0 else 0
-                lines.append(f"- {variant_key}: {int(count)} ({percentage:.1f}%)")
-
-            if "$multiple" in exposures:
-                multiple_count = exposures.get("$multiple", 0)
-                multiple_pct = (multiple_count / total * 100) if total > 0 else 0
-                lines.append(f"- $multiple: {int(multiple_count)} ({multiple_pct:.1f}%)")
-                if multiple_pct > 0.5:
-                    lines.append("**Warning:** Users exposed to multiple variants detected")
-
-        if not context.primary_metrics_results and not context.secondary_metrics_results:
-            lines.append("\n**No metrics results available yet.**")
-            return "\n".join(lines)
-
-        def format_metrics_section(metrics: list, section_name: str) -> None:
-            """Helper to format a section of metrics (primary or secondary)."""
-            if not metrics:
-                return
-
-            lines.append(f"\n### {section_name}")
-            for metric in metrics[:10]:  # Limit to 10 metrics per section
-                lines.append(f"\n**Metric: {metric.name}**")
-                if metric.goal and metric.goal.value:
-                    lines.append(f"Goal: {metric.goal.value.title()}")
-
-                if not metric.variant_results:
-                    continue
-
-                for variant in metric.variant_results:
-                    lines.append(f"\n*{variant.key}:*")
-
-                    if context.stats_method == "bayesian":
-                        if hasattr(variant, "chance_to_win") and variant.chance_to_win is not None:
-                            lines.append(f"  - Chance to win: {variant.chance_to_win:.1%}")
-
-                        if hasattr(variant, "credible_interval") and variant.credible_interval:
-                            ci_low, ci_high = variant.credible_interval[:2]
-                            lines.append(f"  - 95% credible interval: {ci_low:.1%} - {ci_high:.1%}")
-
-                        if hasattr(variant, "delta") and variant.delta is not None:
-                            lines.append(f"  - Delta (effect size): {variant.delta:.1%}")
-
-                        lines.append(f"  - Significant: {'Yes' if variant.significant else 'No'}")
-                    else:
-                        if hasattr(variant, "p_value") and variant.p_value is not None:
-                            lines.append(f"  - P-value: {variant.p_value:.4f}")
-
-                        if hasattr(variant, "confidence_interval") and variant.confidence_interval:
-                            ci_low, ci_high = variant.confidence_interval[:2]
-                            lines.append(f"  - 95% confidence interval: {ci_low:.1%} - {ci_high:.1%}")
-
-                        if hasattr(variant, "delta") and variant.delta is not None:
-                            lines.append(f"  - Delta (effect size): {variant.delta:.1%}")
-
-                        lines.append(f"  - Significant: {'Yes' if variant.significant else 'No'}")
-
-        format_metrics_section(context.primary_metrics_results, "Primary Metrics")
-        format_metrics_section(context.secondary_metrics_results, "Secondary Metrics")
-
-        return "\n".join(lines)
-
-    async def _arun_impl(self) -> tuple[str, dict[str, Any]]:
         try:
-            try:
-                validated_context = MaxExperimentSummaryContext(**self.context)
-            except Exception as e:
-                error_details = str(e)
-                error_context: dict[str, Any] = {
-                    "error": "invalid_context",
-                    "details": error_details,
-                }
+            context = self.context
 
-                if hasattr(e, "__cause__") and e.__cause__:
-                    error_context["validation_cause"] = str(e.__cause__)
+            resolved_experiment_id = context.get("experiment_id") or experiment_id
 
-                capture_exception(
-                    e,
-                    properties={
-                        "team_id": self._team.id,
-                        "user_id": self._user.id,
-                        "context_keys": list(self.context.keys()) if isinstance(self.context, dict) else None,
-                        "experiment_id": self.context.get("experiment_id") if isinstance(self.context, dict) else None,
-                    },
-                )
+            if resolved_experiment_id is None:
+                return "No experiment specified. Please provide an experiment_id.", {"error": "invalid_context"}
 
-                return f"Invalid experiment context: {error_details}", error_context
+            resolved_experiment_id = int(resolved_experiment_id)
 
-            formatted_data = self._format_experiment_data(validated_context)
+            # When frontend context has metrics data, use it directly
+            if (
+                context.get("primary_metrics_results") is not None
+                or context.get("secondary_metrics_results") is not None
+            ):
+                return await self._format_from_context(resolved_experiment_id, context)
 
-            return formatted_data, {
-                "experiment_id": validated_context.experiment_id,
-                "experiment_name": validated_context.experiment_name,
-                "stats_method": validated_context.stats_method,
-                "variants": validated_context.variants,
-                "has_results": bool(
-                    validated_context.primary_metrics_results or validated_context.secondary_metrics_results
-                ),
-            }
+            # Otherwise, fetch data via the data service (agent-initiated call)
+            return await self._fetch_and_format(resolved_experiment_id)
 
         except Exception as e:
             capture_exception(
@@ -378,7 +281,92 @@ class ExperimentSummaryTool(MaxTool):
                     "experiment_id": self.context.get("experiment_id") if isinstance(self.context, dict) else None,
                 },
             )
-            return f"❌ Failed to summarize experiment: {str(e)}", {"error": "summary_failed", "details": str(e)}
+            return f"Failed to summarize experiment: {str(e)}", {"error": "summary_failed", "details": str(e)}
+
+    async def _format_from_context(self, experiment_id: int, context: dict) -> tuple[str, dict[str, Any]]:
+        """Format experiment data using pre-computed context from the frontend."""
+        experiment_context = ExperimentContext(team=self._team, experiment_id=experiment_id)
+        experiment = await experiment_context.aget_experiment()
+        if experiment is None:
+            return f"Experiment {experiment_id} not found", {"error": "not_found"}
+
+        try:
+            primary_metrics = [MaxExperimentMetricResult(**m) for m in context.get("primary_metrics_results", [])]
+            secondary_metrics = [MaxExperimentMetricResult(**m) for m in context.get("secondary_metrics_results", [])]
+        except Exception as e:
+            capture_exception(
+                e,
+                properties={
+                    "team_id": self._team.id,
+                    "user_id": self._user.id,
+                    "experiment_id": experiment_id,
+                },
+            )
+            return f"Invalid experiment context: {str(e)}", {"error": "invalid_context", "details": str(e)}
+
+        exposures = context.get("exposures")
+
+        formatted_data = await experiment_context.format_experiment_results_data(
+            experiment,
+            exposures=exposures,
+            primary_metrics_results=primary_metrics,
+            secondary_metrics_results=secondary_metrics,
+        )
+
+        return self._build_result(experiment, formatted_data, primary_metrics, secondary_metrics)
+
+    async def _fetch_and_format(self, experiment_id: int) -> tuple[str, dict[str, Any]]:
+        """Fetch experiment data from query runners and format it."""
+        from products.experiments.backend.experiment_summary_data_service import ExperimentSummaryDataService
+
+        data_service = ExperimentSummaryDataService(self._team)
+
+        try:
+            summary_context, _last_refresh, pending = await data_service.fetch_experiment_data(experiment_id)
+        except ValueError as e:
+            return str(e), {"error": "not_found"}
+
+        experiment_context = ExperimentContext(team=self._team, experiment_id=experiment_id)
+        experiment = await experiment_context.aget_experiment()
+        if experiment is None:
+            return f"Experiment {experiment_id} not found", {"error": "not_found"}
+
+        formatted_data = await experiment_context.format_experiment_results_data(
+            experiment,
+            exposures=summary_context.exposures,
+            primary_metrics_results=summary_context.primary_metrics_results,
+            secondary_metrics_results=summary_context.secondary_metrics_results,
+        )
+
+        if pending:
+            formatted_data += "\n\n**Note:** Some metrics are still being calculated. Results may be incomplete."
+
+        return self._build_result(
+            experiment,
+            formatted_data,
+            summary_context.primary_metrics_results,
+            summary_context.secondary_metrics_results,
+        )
+
+    def _build_result(
+        self,
+        experiment: Experiment,
+        formatted_data: str,
+        primary_metrics: list,
+        secondary_metrics: list,
+    ) -> tuple[str, dict[str, Any]]:
+        """Build the final result tuple with artifact metadata."""
+        stats_method = get_experiment_stats_method(experiment)
+        multivariate = experiment.feature_flag.filters.get("multivariate", {})
+        variants = [v.get("key") for v in multivariate.get("variants", []) if v.get("key")]
+
+        return formatted_data, {
+            "experiment_id": experiment.id,
+            "experiment_name": experiment.name,
+            "stats_method": stats_method,
+            "variants": variants,
+            "has_results": bool(primary_metrics or secondary_metrics),
+        }
 
 
 # Session Replay Summary Tool
