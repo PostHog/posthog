@@ -374,6 +374,12 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
                 left=ast.Field(chain=["expiry_time"]),
                 right=ast.Constant(value=datetime.now(UTC)),
             ),
+            # Exclude deleted recordings (crypto shredding)
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq,
+                left=ast.Call(name="max", args=[ast.Field(chain=["s", "is_deleted"])]),
+                right=ast.Constant(value=0),
+            ),
         ]
 
         if self._query.having_predicates:
