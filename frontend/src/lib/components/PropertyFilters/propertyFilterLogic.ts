@@ -8,12 +8,12 @@ import { AnyPropertyFilter, EmptyPropertyFilter } from '~/types'
 
 import type { propertyFilterLogicType } from './propertyFilterLogicType'
 
-interface FilterItem {
+export interface FilterItem {
     _id: number
     filter: AnyPropertyFilter
 }
 
-interface FiltersState {
+export interface FiltersState {
     nextId: number
     items: FilterItem[]
 }
