@@ -271,3 +271,34 @@ jobs:
               if: failure()
               shell: bash
               run: docker compose -f docker-compose.dev.yml logs
+
+    # Collation job for required status check
+    mcp-tests:
+        needs: [changes, build, unit-tests, integration-tests]
+        name: MCP tests pass
+        runs-on: ubuntu-latest
+        if: always()
+        steps:
+            - name: Check job results
+              run: |
+                  if [[ "${{ needs.changes.outputs.mcp }}" != "true" ]]; then
+                    echo "MCP checks were skipped (no relevant changes)."
+                    exit 0
+                  fi
+
+                  if [[ "${{ needs.build.result }}" != "success" ]]; then
+                    echo "Build job failed."
+                    exit 1
+                  fi
+
+                  if [[ "${{ needs.unit-tests.result }}" != "success" ]]; then
+                    echo "Unit tests job failed."
+                    exit 1
+                  fi
+
+                  if [[ "${{ needs.integration-tests.result }}" != "success" ]]; then
+                    echo "Integration tests job failed."
+                    exit 1
+                  fi
+
+                  echo "All MCP CI jobs passed."
