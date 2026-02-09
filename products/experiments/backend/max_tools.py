@@ -442,12 +442,22 @@ class SessionReplaySummaryArgs(BaseModel):
 class SessionReplaySummaryOutput(BaseModel):
     """Structured output for session replay summary"""
 
+    experiment_id: int = Field(description="ID of the experiment")
+    experiment_name: str = Field(default="", description="Name of the experiment")
     behavioral_patterns: list[str] = Field(
-        description="Key behavioral patterns observed across experiment variants", max_length=20
+        default_factory=list,
+        description="Key behavioral patterns observed across experiment variants",
+        max_length=20,
     )
-    recording_counts: dict[str, int] = Field(description="Number of recordings available per variant")
+    recording_counts: dict[str, int] = Field(
+        default_factory=dict, description="Number of recordings available per variant"
+    )
+    total_recordings: int = Field(default=0, description="Total number of recordings across all variants")
+    variants: list[str] = Field(default_factory=list, description="List of variant keys")
+    date_range: dict[str, str | None] = Field(default_factory=dict, description="Experiment date range")
     variant_insights: dict[str, list[str]] = Field(default_factory=dict, description="Specific insights per variant")
     warning: str | None = Field(default=None, description="Warning about data quality or availability")
+    error: str | None = Field(default=None, description="Error code if something went wrong")
 
 
 SESSION_REPLAY_SUMMARY_TOOL_DESCRIPTION = """
@@ -505,10 +515,12 @@ class SessionReplaySummaryTool(MaxTool):
             experiment = await get_experiment()
 
             if not experiment.start_date:
-                return "❌ Experiment has not started yet. No session replays available.", {
-                    "error": "not_started",
-                    "experiment_id": experiment_id,
-                }
+                output = SessionReplaySummaryOutput(
+                    experiment_id=experiment_id,
+                    experiment_name=experiment.name,
+                    error="not_started",
+                )
+                return "❌ Experiment has not started yet. No session replays available.", output.model_dump()
 
             # Get variants from feature flag
             feature_flag = experiment.feature_flag
@@ -517,10 +529,12 @@ class SessionReplaySummaryTool(MaxTool):
             variant_keys = [v["key"] for v in variants]
 
             if not variant_keys:
-                return "❌ No variants configured for this experiment.", {
-                    "error": "no_variants",
-                    "experiment_id": experiment_id,
-                }
+                output = SessionReplaySummaryOutput(
+                    experiment_id=experiment_id,
+                    experiment_name=experiment.name,
+                    error="no_variants",
+                )
+                return "❌ No variants configured for this experiment.", output.model_dump()
 
             # Count recordings per variant
             recording_counts = {}
@@ -534,12 +548,12 @@ class SessionReplaySummaryTool(MaxTool):
                     query.limit = 100
 
                     @database_sync_to_async
-                    def count_recordings(query=query):
-                        recordings, has_more, _, _ = list_recordings_from_query(query=query, user=None, team=self._team)
+                    def count_recordings(q):
+                        recordings, has_more, _, _ = list_recordings_from_query(query=q, user=None, team=self._team)
                         # If has_more, there are 100+ recordings
                         return len(recordings) if not has_more else 100
 
-                    count = await count_recordings()
+                    count = await count_recordings(query)
                     recording_counts[variant_key] = count
                 except Exception as e:
                     capture_exception(
@@ -555,15 +569,17 @@ class SessionReplaySummaryTool(MaxTool):
             total_recordings = sum(recording_counts.values())
 
             if total_recordings == 0:
+                output = SessionReplaySummaryOutput(
+                    experiment_id=experiment_id,
+                    experiment_name=experiment.name,
+                    recording_counts=recording_counts,
+                    variants=variant_keys,
+                    error="no_recordings",
+                )
                 return (
                     f"❌ No session recordings found for experiment '{experiment.name}'. "
                     "Make sure session replay is enabled and users have been exposed to the experiment.",
-                    {
-                        "error": "no_recordings",
-                        "experiment_id": experiment_id,
-                        "experiment_name": experiment.name,
-                        "recording_counts": recording_counts,
-                    },
+                    output.model_dump(),
                 )
 
             # Build response
@@ -584,17 +600,20 @@ class SessionReplaySummaryTool(MaxTool):
                 total_recordings=total_recordings,
             )
 
-            return user_message, {
-                "experiment_id": experiment_id,
-                "experiment_name": experiment.name,
-                "recording_counts": recording_counts,
-                "total_recordings": total_recordings,
-                "variants": variant_keys,
-                "date_range": {
+            output = SessionReplaySummaryOutput(
+                experiment_id=experiment_id,
+                experiment_name=experiment.name,
+                behavioral_patterns=behavioral_patterns,
+                recording_counts=recording_counts,
+                total_recordings=total_recordings,
+                variants=variant_keys,
+                date_range={
                     "start": experiment.start_date.isoformat() if experiment.start_date else None,
                     "end": experiment.end_date.isoformat() if experiment.end_date else None,
                 },
-            }
+            )
+
+            return user_message, output.model_dump()
 
         except ValueError as e:
             return f"❌ {str(e)}", {"error": "validation_error", "details": str(e)}
