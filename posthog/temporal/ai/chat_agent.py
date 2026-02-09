@@ -141,7 +141,7 @@ class ChatAgentWorkflow(AgentBaseWorkflow):
             process_chat_agent_activity,
             inputs,
             start_to_close_timeout=timedelta(seconds=CHAT_AGENT_WORKFLOW_TIMEOUT),
-            schedule_to_close_timeout=timedelta(hours=CHAT_AGENT_WORKFLOW_SCHEDULE_TO_CLOSE_TIMEOUT),
+            schedule_to_close_timeout=timedelta(seconds=CHAT_AGENT_WORKFLOW_SCHEDULE_TO_CLOSE_TIMEOUT),
             retry_policy=RetryPolicy(
                 initial_interval=timedelta(seconds=CHAT_AGENT_ACTIVITY_RETRY_INTERVAL),
                 maximum_interval=timedelta(seconds=CHAT_AGENT_ACTIVITY_RETRY_MAX_INTERVAL),
