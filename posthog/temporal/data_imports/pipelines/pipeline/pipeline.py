@@ -1,6 +1,9 @@
 import sys
 import time
+import asyncio
+import threading
 from collections.abc import AsyncIterator, Iterable
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Generic, Literal, TypeVar
 
 import pyarrow as pa
@@ -54,35 +57,43 @@ from products.data_warehouse.backend.types import ExternalDataSourceType
 
 T = TypeVar("T")
 
+# Dedicated thread pool for source iteration so that long-running HTTP calls
+# (e.g. Stripe API pagination) can't starve the default executor which is
+# shared by logging, DB operations, and S3 writes.
+_SOURCE_ITERATOR_EXECUTOR = ThreadPoolExecutor(max_workers=32, thread_name_prefix="source-iter")
+
 
 async def async_iterate(iterable: Iterable[T]) -> AsyncIterator[T]:
     """
     Wrap a sync iterable to be used with `async for`.
 
-    Each call to `next()` is run in a thread pool via `database_sync_to_async_pool`,
-    allowing lazy iterables that make Django/DB calls to work safely
-    in an async context.
+    Each call to `next()` is run in a dedicated thread pool so that
+    blocking source HTTP calls can't exhaust the default executor.
     """
     iterator = iter(iterable)
+    lock = threading.Lock()
+    loop = asyncio.get_running_loop()
 
     def _next() -> tuple[bool, T | None]:
-        try:
-            return (True, next(iterator))
-        except StopIteration:
-            return (False, None)
+        with lock:
+            try:
+                return (True, next(iterator))
+            except StopIteration:
+                return (False, None)
 
     def _close() -> None:
-        if hasattr(iterator, "close") and callable(iterator.close):
-            iterator.close()
+        with lock:
+            if hasattr(iterator, "close") and callable(iterator.close):
+                iterator.close()
 
     try:
         while True:
-            has_value, item = await database_sync_to_async_pool(_next)()
+            has_value, item = await loop.run_in_executor(_SOURCE_ITERATOR_EXECUTOR, _next)
             if not has_value:
                 break
             yield item  # type: ignore[misc]
     finally:
-        await database_sync_to_async_pool(_close)()
+        await loop.run_in_executor(_SOURCE_ITERATOR_EXECUTOR, _close)
 
 
 class PipelineNonDLT(Generic[ResumableData]):
