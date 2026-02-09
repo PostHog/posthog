@@ -35,8 +35,8 @@ export function SceneTitlePanelButton({ inPanel = false }: { inPanel?: boolean }
     const { sidePanelOpen } = useValues(sidePanelStateLogic)
 
     if (isRemovingSidePanelFlag) {
-        // Open Info tab if scene has panel content, otherwise default to Discussion
-        const defaultTab = scenePanelIsPresent ? SidePanelTab.Info : SidePanelTab.Discussion
+        // Open Info tab if scene has panel content, otherwise default to PostHog AI
+        const defaultTab = scenePanelIsPresent ? SidePanelTab.Info : SidePanelTab.Max
         return (
             <AppShortcut
                 name="OpenSidePanel"

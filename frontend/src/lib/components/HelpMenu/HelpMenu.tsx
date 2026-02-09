@@ -17,6 +17,7 @@ import {
 } from '@posthog/icons'
 
 import { Logomark } from 'lib/brand/Logomark'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Link } from 'lib/lemon-ui/Link/Link'
 import { IconBlank } from 'lib/lemon-ui/icons'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -37,6 +38,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
+import { sidePanelOfframpLogic } from '~/layout/navigation-3000/sidepanel/sidePanelOfframpLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SidePanelTab } from '~/types'
 
@@ -55,6 +57,8 @@ export function HelpMenu(): JSX.Element {
     const { setAppShortcutMenuOpen } = useActions(appShortcutLogic)
     const { user } = useValues(userLogic)
     const { isCloud, preflight } = useValues(preflightLogic)
+    const { showOfframpModal } = useActions(sidePanelOfframpLogic)
+    const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
 
     return (
         <DropdownMenu open={isHelpMenuOpen} onOpenChange={setHelpMenuOpen}>
@@ -177,13 +181,13 @@ export function HelpMenu(): JSX.Element {
 
                     {user?.is_staff && (
                         <DropdownMenuSub>
-                            <DropdownMenuSubTrigger asChild>
+                            {/* <DropdownMenuSubTrigger asChild>
                                 <ButtonPrimitive menuItem>
                                     <IconBlank />
                                     Admin (lucky you!)
                                     <MenuOpenIndicator intent="sub" />
                                 </ButtonPrimitive>
-                            </DropdownMenuSubTrigger>
+                            </DropdownMenuSubTrigger> */}
                             <DropdownMenuSubContent className="min-w-[250px]">
                                 <DropdownMenuGroup>
                                     <DropdownMenuItem asChild>
@@ -235,6 +239,21 @@ export function HelpMenu(): JSX.Element {
                             </DropdownMenuSubContent>
                         </DropdownMenuSub>
                     )}
+                    {isRemovingSidePanelFlag && (
+                        <DropdownMenuItem asChild>
+                            <ButtonPrimitive
+                                menuItem
+                                onClick={() => {
+                                    showOfframpModal()
+                                    setHelpMenuOpen(false)
+                                }}
+                            >
+                                <IconBlank />
+                                Show tour
+                            </ButtonPrimitive>
+                        </DropdownMenuItem>
+                    )}
+
                     <DropdownMenuSub>
                         <DropdownMenuSubTrigger asChild>
                             <ButtonPrimitive menuItem>
