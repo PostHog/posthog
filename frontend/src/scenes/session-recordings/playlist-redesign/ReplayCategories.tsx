@@ -57,9 +57,9 @@ const REPLAY_CATEGORIES: ReplayCategory[] = [
     },
     {
         id: 'high_errors',
-        label: 'High errors',
+        label: 'Frustrated users',
         icon: <IconErrorOutline />,
-        description: 'Recordings with errors or exceptions',
+        description: 'Rage clicks and exceptions',
         action: 'apply_filter',
         filters: {
             filter_group: {
