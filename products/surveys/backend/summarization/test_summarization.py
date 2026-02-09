@@ -8,6 +8,7 @@ from rest_framework import exceptions
 from .formatting import format_as_markdown
 from .llm.gemini import SummarizationResult, summarize_with_gemini
 from .llm.schema import SurveySummaryResponse, SurveyTheme
+from .quality import should_skip_llm_summary
 
 
 class TestSurveyThemeSchema:
@@ -122,3 +123,19 @@ class TestSummarizeWithGemini:
         assert isinstance(result.summary, SurveySummaryResponse)
         assert result.trace_id is not None
         assert len(result.trace_id) == 36  # UUID format
+
+
+class TestSkipLLMSummary:
+    @pytest.mark.parametrize(
+        "responses,expected",
+        [
+            (["asdfasdf"], True),
+            (["hjdashdjksahd"], True),  # keyboard mash
+            (["hello", "test", "asdf"], True),
+            (["make it faster", "better docs please"], False),
+            (["performance"], False),  # single-word but meaningful enough, don't skip
+            (["asdf", "make it faster", "better docs"], False),  # mixed data, don't skip
+        ],
+    )
+    def test_should_skip_llm_summary(self, responses, expected):
+        assert should_skip_llm_summary(responses) is expected

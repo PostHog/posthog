@@ -72,6 +72,32 @@ class TestSurvey(APIBaseTest):
         ]
         assert response_data["created_by"]["id"] == self.user.id
 
+    @patch("posthog.api.survey.summarize_responses")
+    @patch("posthog.api.survey.fetch_responses")
+    def test_summarize_responses_skips_llm_for_placeholder_data(self, mock_fetch_responses, mock_summarize_responses):
+        survey = Survey.objects.create(
+            team=self.team,
+            name="Feedback survey",
+            type=Survey.SurveyType.POPOVER,
+            questions=[{"type": "open", "question": "What can we do to improve our product?"}],
+            start_date=datetime.now(UTC) - timedelta(days=1),
+        )
+
+        mock_fetch_responses.return_value = ["hjdashdjksahd"]
+        mock_summarize_responses.side_effect = AssertionError("LLM call should be skipped for placeholder responses")
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/summarize_responses/?question_index=0",
+            data={},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        payload = response.json()
+        assert "test/placeholder" in payload["content"]
+        assert payload["trace_id"] is None
+        mock_summarize_responses.assert_not_called()
+
     @patch("posthog.api.feature_flag.report_user_action")
     def test_creation_context_is_set_to_surveys(self, mock_capture):
         response = self.client.post(

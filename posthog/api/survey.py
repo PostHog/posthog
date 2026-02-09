@@ -63,6 +63,7 @@ from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.utils_cors import cors_response
 
 from products.surveys.backend.summarization import fetch_responses, format_as_markdown, summarize_responses
+from products.surveys.backend.summarization.quality import should_skip_llm_summary
 
 from ee.surveys.summaries.headline_summary import generate_survey_headline
 
@@ -1528,11 +1529,6 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
         if cached_response is not None and not force_refresh:
             return Response(cached_response)
 
-        environment_is_allowed = settings.DEBUG or is_cloud()
-        has_gemini_api_key = bool(settings.GEMINI_API_KEY)
-        if not environment_is_allowed or not has_gemini_api_key:
-            raise exceptions.ValidationError("survey summary is only supported in PostHog Cloud")
-
         end_date: datetime = (survey.end_date or datetime.now()).replace(
             hour=0, minute=0, second=0, microsecond=0
         ) + timedelta(days=1)
@@ -1583,31 +1579,49 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
                 }
             )
 
-        # Generate summary using Gemini
-        try:
-            result = summarize_responses(
-                question_text,
-                responses,
-                distinct_id=str(user.distinct_id),
-                survey_id=str(survey_id),
-                question_id=question_id,
-                team_id=self.team.pk,
+        # If the dataset is clearly test/placeholder responses, avoid a paid LLM call and return an honest message.
+        # This also makes the endpoint useful on self-hosted instances without Gemini configured.
+        trace_id: str | None = None
+        if should_skip_llm_summary(responses):
+            # Keep this in Markdown (frontend renders via `LemonMarkdown`).
+            examples = ", ".join([repr(r[:40]) for r in responses[:3]])
+            content = (
+                "These responses look like test/placeholder input (e.g. random keystrokes), so there isn't "
+                "meaningful feedback to summarize yet.\n\n"
+                f"Examples: {examples}\n\n"
+                "Once you have real responses, click **Regenerate summary**."
             )
-            content = format_as_markdown(result.summary)
-            trace_id = result.trace_id
-        except exceptions.ValidationError:
-            raise
-        except exceptions.APIException:
-            raise
-        except Exception as e:
-            logger.exception(
-                "Failed to generate survey summary",
-                survey_id=survey_id,
-                question_id=question_id,
-                error_type=type(e).__name__,
-                error=str(e),
-            )
-            raise exceptions.APIException("Failed to generate summary. Please try again.")
+        else:
+            environment_is_allowed = settings.DEBUG or is_cloud()
+            has_gemini_api_key = bool(settings.GEMINI_API_KEY)
+            if not environment_is_allowed or not has_gemini_api_key:
+                raise exceptions.ValidationError("survey summary is only supported in PostHog Cloud")
+
+            # Generate summary using Gemini
+            try:
+                result = summarize_responses(
+                    question_text,
+                    responses,
+                    distinct_id=str(user.distinct_id),
+                    survey_id=str(survey_id),
+                    question_id=question_id,
+                    team_id=self.team.pk,
+                )
+                content = format_as_markdown(result.summary)
+                trace_id = result.trace_id
+            except exceptions.ValidationError:
+                raise
+            except exceptions.APIException:
+                raise
+            except Exception as e:
+                logger.exception(
+                    "Failed to generate survey summary",
+                    survey_id=survey_id,
+                    question_id=question_id,
+                    error_type=type(e).__name__,
+                    error=str(e),
+                )
+                raise exceptions.APIException("Failed to generate summary. Please try again.")
 
         generated_at = datetime.now(UTC).isoformat()
 
