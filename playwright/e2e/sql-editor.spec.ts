@@ -63,6 +63,6 @@ test.describe('SQL Editor', () => {
 
     test('Query variables pane', async ({ page }) => {
         await page.getByText('Variables').click()
-        await expect(page.locator('[data-attr=sql-editor-sidebar-query-variables-pane]')).toBeVisible()
+        await expect(page.locator('[data-attr=sql-editor-variables-button]')).toBeVisible()
     })
 })
