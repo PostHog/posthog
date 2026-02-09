@@ -376,6 +376,9 @@ function StepTriggerConfigurationSurvey({
         if (!selectedSurveyId) {
             return null
         }
+        if (selectedSurveyId === 'any') {
+            return 'Any survey'
+        }
         const survey = allSurveys.find((s) => s.id === selectedSurveyId)
         if (survey) {
             return survey.name
