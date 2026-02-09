@@ -763,7 +763,12 @@ def property_to_expr(
                 ],
             )
 
-        if isinstance(value, list) and operator not in (PropertyOperator.BETWEEN, PropertyOperator.NOT_BETWEEN):
+        if isinstance(value, list) and operator not in (
+            PropertyOperator.BETWEEN,
+            PropertyOperator.NOT_BETWEEN,
+            PropertyOperator.ICONTAINS,
+            PropertyOperator.NOT_ICONTAINS,
+        ):
             if len(value) == 0:
                 return ast.Constant(value=1)
             elif len(value) == 1:

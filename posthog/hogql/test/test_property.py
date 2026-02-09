@@ -410,6 +410,32 @@ class TestProperty(BaseTest):
                 {
                     "type": "event",
                     "key": "$exception_types",
+                    "value": "ValidationError",
+                    "operator": "icontains",
+                }
+            ),
+            self._parse_expr(
+                "arrayExists(v -> toString(v) ILIKE '%ValidationError%', JSONExtract(ifNull(properties.$exception_types, ''), 'Array(String)'))"
+            ),
+        )
+        self.assertEqual(
+            self._property_to_expr(
+                {
+                    "type": "event",
+                    "key": "$exception_types",
+                    "value": "ValidationError",
+                    "operator": "not_icontains",
+                }
+            ),
+            self._parse_expr(
+                "arrayExists(v -> toString(v) NOT ILIKE '%ValidationError%', JSONExtract(ifNull(properties.$exception_types, ''), 'Array(String)'))"
+            ),
+        )
+        self.assertEqual(
+            self._property_to_expr(
+                {
+                    "type": "event",
+                    "key": "$exception_types",
                     "value": ["ReferenceError", "TypeError"],
                     "operator": "icontains",
                 }
@@ -433,18 +459,29 @@ class TestProperty(BaseTest):
         )
 
     def test_property_to_expr_multiSearch_edge_cases(self):
-        # Test empty array
-        self.assertEqual(
-            self._property_to_expr(
-                {
-                    "type": "event",
-                    "key": "a",
-                    "value": [],
-                    "operator": "icontains",
-                }
-            ),
-            self._parse_expr("true"),
+        # Test empty array with icontains - generates multiSearchAnyCaseInsensitive with empty array
+        result = self._property_to_expr(
+            {
+                "type": "event",
+                "key": "a",
+                "value": [],
+                "operator": "icontains",
+            }
         )
+        expected = self._parse_expr("multiSearchAnyCaseInsensitive(toString(properties.a), []) > 0")
+        self.assertEqual(result, expected)
+
+        # Test empty array with not_icontains - generates multiSearchAnyCaseInsensitive with empty array
+        result = self._property_to_expr(
+            {
+                "type": "event",
+                "key": "a",
+                "value": [],
+                "operator": "not_icontains",
+            }
+        )
+        expected = self._parse_expr("multiSearchAnyCaseInsensitive(toString(properties.a), []) = 0")
+        self.assertEqual(result, expected)
 
         # Test non-string values being stringified
         self.assertEqual(
