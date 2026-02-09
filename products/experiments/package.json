@@ -1,5 +1,8 @@
 {
     "name": "@posthog/products-experiments",
+    "scripts": {
+        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ stats/tests -v --tb=short"
+    },
     "dependencies": {
         "kea": "^3.1.7",
         "kea-loaders": "^3.1.1",

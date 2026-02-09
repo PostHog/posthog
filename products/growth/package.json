@@ -1,8 +1,11 @@
 {
-    "name": "@posthog/products-analytics-platform",
+    "name": "@posthog/products-growth",
     "scripts": {
         "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short"
     },
-    "dependencies": {},
-    "peerDependencies": {}
+    "turbo": {
+        "extends": [
+            "//"
+        ]
+    }
 }

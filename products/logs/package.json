@@ -1,6 +1,8 @@
 {
     "name": "@posthog/products-logs",
-    "scripts": {},
+    "scripts": {
+        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short"
+    },
     "dependencies": {
         "kea": "^3.1.7",
         "kea-loaders": "^3.1.1",

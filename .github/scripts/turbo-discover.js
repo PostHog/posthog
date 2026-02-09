@@ -2,19 +2,21 @@
 
 // Discovers which products need testing and builds a GitHub Actions matrix.
 //
-// Products with < THRESHOLD tests get grouped into one matrix entry
+// Products under SMALL_THRESHOLD duration get grouped into one matrix entry
 // to avoid spinning up a full Docker stack for a handful of tests.
+// Durations come from .test_durations (maintained by pytest-split).
 //
 // Input:  LEGACY_CHANGED env var ("true"/"false")
 // Output: JSON matrix on stdout, diagnostics on stderr
 
 const { execSync } = require('child_process')
 const fs = require('fs')
-const path = require('path')
 
-const SMALL_THRESHOLD_TESTS = 50
 const SMALL_THRESHOLD_SECONDS = 2 * 60
 const TARGET_SHARD_SECONDS = 10 * 60
+// Tests under these paths need special infrastructure (Temporal server, etc.)
+// and are handled by Django CI's dedicated segments — exclude from duration estimates
+const EXCLUDED_PATH_SEGMENTS = ['/temporal/']
 
 function getTurboTasks() {
     try {
@@ -48,36 +50,6 @@ function getProducts(tasks, legacyChanged) {
     ]
 }
 
-// Skip temporal/ — those tests need a Temporal server (handled by Django CI's Temporal segment)
-const SKIP_DIRS = new Set(['__pycache__', 'temporal'])
-
-function countTestsInDir(dir) {
-    let count = 0
-    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-        const full = path.join(dir, entry.name)
-        if (entry.isDirectory() && !SKIP_DIRS.has(entry.name)) {
-            count += countTestsInDir(full)
-        } else if (entry.isFile() && entry.name.endsWith('.py')) {
-            const content = fs.readFileSync(full, 'utf-8')
-            const matches = content.match(/def test_/g)
-            if (matches) {
-                count += matches.length
-            }
-        }
-    }
-    return count
-}
-
-function countTests(product) {
-    // Package names use hyphens (batch-exports) but directories use underscores (batch_exports)
-    const dirName = product.replace(/-/g, '_')
-    const testDir = path.join('products', dirName, 'backend', 'tests')
-    if (!fs.existsSync(testDir)) {
-        return 0
-    }
-    return countTestsInDir(testDir)
-}
-
 function loadTestDurations() {
     try {
         return JSON.parse(fs.readFileSync('.test_durations', 'utf-8'))
@@ -93,10 +65,9 @@ function getProductDuration(product, durations) {
     }
     const dirName = product.replace(/-/g, '_')
     const prefix = `products/${dirName}/`
-    const temporalPrefix = `${prefix}backend/tests/temporal/`
     let total = 0
     for (const [test, dur] of Object.entries(durations)) {
-        if (test.startsWith(prefix) && !test.startsWith(temporalPrefix)) {
+        if (test.startsWith(prefix) && !EXCLUDED_PATH_SEGMENTS.some((seg) => test.includes(seg))) {
             total += dur
         }
     }
@@ -108,13 +79,12 @@ function buildMatrix(products, durations) {
     const small = []
 
     for (const product of products) {
-        const count = countTests(product)
         const duration = getProductDuration(product, durations)
         const shards = duration > TARGET_SHARD_SECONDS ? Math.ceil(duration / TARGET_SHARD_SECONDS) : 1
-        console.error(`  ${product}: ${count} tests, ${(duration / 60).toFixed(1)} min, ${shards} shard(s)`)
+        console.error(`  ${product}: ${(duration / 60).toFixed(1)} min, ${shards} shard(s)`)
         const filters = `--filter=@posthog/products-${product}`
 
-        if (count < SMALL_THRESHOLD_TESTS || duration < SMALL_THRESHOLD_SECONDS) {
+        if (duration < SMALL_THRESHOLD_SECONDS) {
             small.push(product)
         } else if (shards > 1) {
             for (let i = 1; i <= shards; i++) {
