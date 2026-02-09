@@ -155,7 +155,7 @@
                             toTimeZone(events.timestamp, 'UTC') AS timestamp,
                             events.uuid AS uuid
                      FROM events
-                     WHERE and(equals(events.team_id, 99999), equals(events.event, '$pageview'))) AS e
+                     WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), equals(events.event, '$pageview'))) AS e
                   LEFT OUTER JOIN
                     (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                             person_distinct_id_overrides.distinct_id AS distinct_id
@@ -210,7 +210,7 @@
                             toTimeZone(events.timestamp, 'UTC') AS timestamp,
                             events.uuid AS uuid
                      FROM events
-                     WHERE and(equals(events.team_id, 99999), equals(events.event, '$pageview'))) AS e
+                     WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), equals(events.event, '$pageview'))) AS e
                   LEFT OUTER JOIN
                     (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                             person_distinct_id_overrides.distinct_id AS distinct_id
@@ -418,7 +418,7 @@
                             toTimeZone(events.timestamp, 'UTC') AS timestamp,
                             events.uuid AS uuid
                      FROM events
-                     WHERE and(equals(events.team_id, 99999), equals(events.event, '$pageview'))) AS e
+                     WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), equals(events.event, '$pageview'))) AS e
                   LEFT OUTER JOIN
                     (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                             person_distinct_id_overrides.distinct_id AS distinct_id
@@ -473,7 +473,7 @@
                             toTimeZone(events.timestamp, 'UTC') AS timestamp,
                             events.uuid AS uuid
                      FROM events
-                     WHERE and(equals(events.team_id, 99999), equals(events.event, '$pageview'))) AS e
+                     WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), equals(events.event, '$pageview'))) AS e
                   LEFT OUTER JOIN
                     (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                             person_distinct_id_overrides.distinct_id AS distinct_id
