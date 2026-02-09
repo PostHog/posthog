@@ -949,18 +949,35 @@ class KernelRuntimeService:
             "\n"
             '_HOGQL_PLACEHOLDER_PATTERN = re.compile(r"\\{([A-Za-z_][\\w$]*)\\}")\n'
             "\n"
-            "def _find_hogql_placeholders(query: str) -> list[str]:\n"
-            "    if not query:\n"
-            "        return []\n"
-            "    seen = set()\n"
-            "    names = []\n"
-            "    for match in _HOGQL_PLACEHOLDER_PATTERN.finditer(query):\n"
-            "        name = match.group(1)\n"
-            "        if name and name not in seen:\n"
-            "            seen.add(name)\n"
-            "            names.append(name)\n"
-            "    return names\n"
-            "\n"
+            """
+def _find_hogql_placeholders(query: str) -> list[str]:
+    if not query:
+        return []
+
+    # Strip SQL comments before finding placeholders
+    # First, remove multi-line comments
+    while "/*" in query and "*/" in query:
+        start = query.find("/*")
+        end = query.find("*/", start) + 2
+        query = query[:start] + " " + query[end:]
+
+    # Then remove single-line comments
+    lines = query.split('\\n')
+    cleaned_lines = []
+    for line in lines:
+        cleaned_lines.append(line.split('--')[0])
+    query = '\\n'.join(cleaned_lines)
+
+    # Find placeholders in the cleaned query
+    seen = set()
+    names = []
+    for match in _HOGQL_PLACEHOLDER_PATTERN.finditer(query):
+        name = match.group(1)
+        if name and name not in seen:
+            seen.add(name)
+            names.append(name)
+    return names
+            """
             "def _hogql_execute_raw(\n"
             "    query: str, *, timeout: float | None = 30.0, placeholders: dict[str, Any] | None = None\n"
             ") -> Any:\n"
