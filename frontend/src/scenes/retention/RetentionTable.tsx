@@ -7,7 +7,7 @@ import React from 'react'
 import { IconChevronDown, IconChevronRight } from '@posthog/icons'
 
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { gradateColor } from 'lib/utils'
+import { gradateColor, humanFriendlyNumber } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
@@ -51,6 +51,9 @@ export function RetentionTable({
     // only one breakdown value so don't need to highlight using different colors/autoexpand it
     const isSingleBreakdown = Object.keys(tableRowsSplitByBreakdownValue).length === 1
 
+    const aggregationType = retentionFilter?.aggregationType
+    const showSizeColumn = (!hideSizeColumn && !aggregationType) || aggregationType === 'count'
+
     return (
         <table
             className={clsx('RetentionTable', {
@@ -68,7 +71,7 @@ export function RetentionTable({
             <tbody>
                 <tr>
                     <th className="bg whitespace-nowrap">Cohort</th>
-                    {!hideSizeColumn && <th className="bg">Size</th>}
+                    {showSizeColumn && <th className="bg">Size</th>}
                     {tableHeaders.map((header, columnIndex) => (
                         <th
                             key={header}
@@ -132,7 +135,7 @@ export function RetentionTable({
                                     </div>
                                 </td>
 
-                                {!hideSizeColumn && (
+                                {showSizeColumn && (
                                     <td>
                                         <span className="RetentionTable__TextTab">
                                             {noBreakdown
@@ -155,6 +158,12 @@ export function RetentionTable({
                                     >
                                         <CohortDay
                                             percentage={meanData?.meanPercentages?.[interval] ?? 0}
+                                            value={
+                                                aggregationType === 'sum' || aggregationType === 'avg'
+                                                    ? (meanData?.meanValues?.[interval] ?? 0)
+                                                    : undefined
+                                            }
+                                            aggregationType={aggregationType}
                                             clickable={false}
                                             backgroundColor={backgroundColorMean}
                                         />
@@ -182,7 +191,7 @@ export function RetentionTable({
                                         <td className={clsx('pl-2 whitespace-nowrap', { 'pl-6': !isSingleBreakdown })}>
                                             {row.label}
                                         </td>
-                                        {!hideSizeColumn && (
+                                        {showSizeColumn && (
                                             <td>
                                                 <span className="RetentionTable__TextTab">{row.cohortSize}</span>
                                             </td>
@@ -202,6 +211,12 @@ export function RetentionTable({
                                                     {column && (
                                                         <CohortDay
                                                             percentage={column.percentage}
+                                                            value={
+                                                                aggregationType === 'sum' || aggregationType === 'avg'
+                                                                    ? column.count
+                                                                    : undefined
+                                                            }
+                                                            aggregationType={aggregationType}
                                                             clickable={true}
                                                             isCurrentPeriod={column.isCurrentPeriod}
                                                             backgroundColor={backgroundColor}
@@ -222,11 +237,15 @@ export function RetentionTable({
 
 function CohortDay({
     percentage,
+    value,
+    aggregationType,
     clickable,
     backgroundColor,
     isCurrentPeriod,
 }: {
     percentage: number
+    value?: number
+    aggregationType?: 'count' | 'sum' | 'avg'
     clickable: boolean
     backgroundColor: string
     isCurrentPeriod?: boolean
@@ -244,7 +263,9 @@ function CohortDay({
             // eslint-disable-next-line react/forbid-dom-props
             style={!isCurrentPeriod ? { backgroundColor: saturatedBackgroundColor, color: textColor } : undefined}
         >
-            {percentage.toFixed(1)}%
+            {(aggregationType === 'sum' || aggregationType === 'avg') && value !== undefined
+                ? humanFriendlyNumber(value)
+                : `${percentage.toFixed(1)}%`}
         </div>
     )
     return isCurrentPeriod ? <Tooltip title="Period in progress">{numberCell}</Tooltip> : numberCell
