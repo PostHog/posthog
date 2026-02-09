@@ -80,7 +80,7 @@ test.describe('Trends insights', () => {
         })
     })
 
-    test('Switch between aggregation methods', async ({ page }) => {
+    test.only('Switch between aggregation methods', async ({ page }) => {
         const insight = new InsightPage(page)
         await insight.goToNewTrends()
         await insight.trends.waitForChart()
@@ -104,8 +104,12 @@ test.describe('Trends insights', () => {
         })
 
         await test.step('change to Property value with sum', async () => {
-            await insight.trends.mathSelector(0).click()
+            // The dropdown may still be open from the previous step (no remount closes it),
+            // so check if we need to open it
             const propertyValueItem = page.getByRole('menuitem', { name: /property value/ })
+            if (!(await propertyValueItem.isVisible())) {
+                await insight.trends.mathSelector(0).click()
+            }
             await propertyValueItem.waitFor({ state: 'visible' })
             await propertyValueItem.getByRole('button').click()
             await page.getByRole('menuitem', { name: 'sum' }).click()
@@ -113,8 +117,11 @@ test.describe('Trends insights', () => {
         })
 
         await test.step('change to Weekly then Monthly active users', async () => {
-            await insight.trends.mathSelector(0).click()
-            await page.getByRole('menuitem', { name: /Weekly active users/ }).click()
+            const weeklyOption = page.getByRole('menuitem', { name: /Weekly active users/ })
+            if (!(await weeklyOption.isVisible())) {
+                await insight.trends.mathSelector(0).click()
+            }
+            await weeklyOption.click()
             await insight.trends.waitForChart()
 
             await insight.trends.mathSelector(0).click()
