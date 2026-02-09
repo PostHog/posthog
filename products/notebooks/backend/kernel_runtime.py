@@ -958,8 +958,7 @@ class KernelRuntimeService:
             '    while "/*" in query and "*/" in query:\n'
             '        start = query.find("/*")\n'
             '        end = query.find("*/", start) + 2\n'
-            "        query = query[:start] + "
-            " + query[end:]\n"
+            "        query = query[:start] + ' ' + query[end:]\n"
             "\n"
             "    # Then remove single-line comments\n"
             "    lines = query.split('\\n')\n"
