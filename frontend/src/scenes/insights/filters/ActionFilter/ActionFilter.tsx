@@ -5,7 +5,8 @@ import { restrictToParentElement, restrictToVerticalAxis } from '@dnd-kit/modifi
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
-import React, { useEffect } from 'react'
+import isEqual from 'lodash.isequal'
+import React, { useEffect, useRef } from 'react'
 
 import { IconPlusSmall } from '@posthog/icons'
 
@@ -158,10 +159,15 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
     const { addFilter, setLocalFilters, showModal } = useActions(logic)
     const { featureFlags } = useValues(featureFlagLogic)
 
-    // No way around this. Somehow the ordering of the logic calling each other causes stale "localFilters"
-    // to be shown on the /funnels page, even if we try to use a selector with props to hydrate it
+    // Parents like TrendsSeries recreate the filters object every render (via queryNodeToFilter).
+    // The reducer's isEqual can't catch this because toFilters includes uuid fields that the
+    // incoming filters don't have. So we guard here to avoid unnecessary setLocalFilters calls.
+    const prevFiltersRef = useRef(filters)
     useEffect(() => {
-        setLocalFilters(filters)
+        if (!isEqual(prevFiltersRef.current, filters)) {
+            prevFiltersRef.current = filters
+            setLocalFilters(filters)
+        }
     }, [filters]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     function onSortEnd({ oldIndex, newIndex }: { oldIndex: number; newIndex: number }): void {
