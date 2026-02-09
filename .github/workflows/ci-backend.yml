@@ -269,7 +269,7 @@ jobs:
             needs.turbo-discover.result == 'success' &&
             needs.turbo-discover.outputs.matrix != '[]' &&
             needs.turbo-discover.outputs.matrix != ''
-        runs-on: depot-ubuntu-latest
+        runs-on: depot-ubuntu-latest-4
         timeout-minutes: 30
         name: Product tests (${{ matrix.group }})
         strategy:
@@ -299,12 +299,15 @@ jobs:
                   token: ${{ secrets.POSTHOG_BOT_PAT }}
 
             - name: Install uv
-              uses: astral-sh/setup-uv@3259c6206f993105e3a61b142c2d97bf4b9ef83d # v7.1.0
+              id: setup-uv
+              uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b # v7.2.0
               with:
                   enable-cache: true
+                  save-cache: ${{ github.ref == 'refs/heads/master' }}
                   version: 0.9.9
 
             - name: Install SAML dependencies
+              if: steps.setup-uv.outputs.cache-hit != 'true'
               run: sudo apt-get update && sudo apt-get install -y libxml2-dev libxmlsec1-dev libxmlsec1-openssl
 
             - name: Install Rust
@@ -316,7 +319,9 @@ jobs:
             - name: Cache Rust dependencies
               uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
               with:
+                  shared-key: 'v2-rust-backend'
                   workspaces: rust
+                  save-if: ${{ github.ref == 'refs/heads/master' }}
 
             - name: Install sqlx-cli
               run: cargo install sqlx-cli --version 0.8.0 --features postgres --no-default-features --locked

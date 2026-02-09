@@ -1786,6 +1786,8 @@ importers:
         specifier: 18.3.1
         version: 18.3.1
 
+  products/data_modeling: {}
+
   products/data_warehouse: {}
 
   products/desktop_recordings:
@@ -2061,6 +2063,8 @@ importers:
         specifier: 18.3.1
         version: 18.3.1
 
+  products/growth: {}
+
   products/links:
     dependencies:
       '@posthog/icons':
@@ -2310,6 +2314,8 @@ importers:
         specifier: 18.3.1
         version: 18.3.1
 
+  products/marketing_analytics: {}
+
   products/notebooks:
     dependencies:
       '@posthog/icons':
@@ -2363,6 +2369,8 @@ importers:
       react:
         specifier: 18.3.1
         version: 18.3.1
+
+  products/posthog_ai: {}
 
   products/product_analytics:
     dependencies:

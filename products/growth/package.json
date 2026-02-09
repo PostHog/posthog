@@ -1,8 +1,5 @@
 {
     "name": "@posthog/products-growth",
-    "scripts": {
-        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short"
-    },
     "turbo": {
         "extends": [
             "//"
