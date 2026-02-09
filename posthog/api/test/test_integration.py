@@ -490,6 +490,161 @@ class TestDatabricksIntegration:
         assert response.json()["detail"] == expected_error_message
 
 
+class TestCursorIntegration:
+    @pytest.fixture(autouse=True)
+    def setup_integration(self, db):
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+        self.user = User.objects.create_and_join(self.organization, "test@posthog.com", "test")
+
+    @patch("posthog.models.integration.requests.get")
+    def test_create_cursor_integration_with_valid_api_key(self, mock_get, client: HttpClient):
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"userEmail": "user@example.com", "apiKeyName": "test-key"}
+        mock_response.raise_for_status = MagicMock()
+        mock_get.return_value = mock_response
+
+        client.force_login(self.user)
+
+        response = client.post(
+            f"/api/environments/{self.team.pk}/integrations",
+            {"kind": "cursor", "config": {"api_key": "cur_abc123"}},
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        data = response.json()
+        assert data["kind"] == "cursor"
+        assert "id" in data
+
+        integration = Integration.objects.get(id=data["id"])
+        assert integration.kind == "cursor"
+        assert integration.team == self.team
+        assert integration.integration_id == "user@example.com"
+        assert integration.config == {"email": "user@example.com", "key_name": "test-key"}
+        assert integration.sensitive_config == {"api_key": "cur_abc123"}
+        assert integration.created_by == self.user
+
+    @pytest.mark.parametrize(
+        "config,expected_error",
+        [
+            ({}, "API key must be provided"),
+            ({"api_key": None}, "API key must be provided"),
+            ({"api_key": 123}, "API key must be a string"),
+            ({"api_key": []}, "API key must be a string"),
+        ],
+    )
+    def test_create_cursor_integration_invalid_config(self, config, expected_error, client: HttpClient):
+        client.force_login(self.user)
+
+        response = client.post(
+            f"/api/environments/{self.team.pk}/integrations",
+            {"kind": "cursor", "config": config},
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert expected_error in str(response.json()["detail"])
+
+    @patch("posthog.models.integration.requests.get")
+    def test_create_cursor_integration_invalid_api_key(self, mock_get, client: HttpClient):
+        mock_get.side_effect = Exception("Connection refused")
+
+        client.force_login(self.user)
+
+        response = client.post(
+            f"/api/environments/{self.team.pk}/integrations",
+            {"kind": "cursor", "config": {"api_key": "cur_invalid"}},
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Invalid Cursor API key" in str(response.json()["detail"])
+
+
+class TestCursorRepositoriesEndpoint:
+    @pytest.fixture(autouse=True)
+    def setup_integration(self, db):
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+        self.user = User.objects.create_and_join(self.organization, "test@posthog.com", "test")
+        self.cursor_integration = Integration.objects.create(
+            team=self.team,
+            kind="cursor",
+            integration_id="user@example.com",
+            config={"email": "user@example.com", "key_name": "test-key"},
+            sensitive_config={"api_key": "cur_abc123"},
+            created_by=self.user,
+        )
+
+    @patch("posthog.models.integration.CursorIntegration.list_repositories")
+    def test_cursor_repositories_returns_repos(self, mock_list_repos, client: HttpClient):
+        mock_list_repos.return_value = [
+            {"owner": "acme", "name": "my-repo", "repository": "https://github.com/acme/my-repo"},
+            {"owner": "foo", "name": "bar", "repository": "https://github.com/foo/bar"},
+        ]
+
+        client.force_login(self.user)
+
+        response = client.get(
+            f"/api/environments/{self.team.pk}/integrations/{self.cursor_integration.id}/cursor_repositories/"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["repositories"] == [
+            {"name": "acme/my-repo", "url": "https://github.com/acme/my-repo"},
+            {"name": "foo/bar", "url": "https://github.com/foo/bar"},
+        ]
+        assert "lastRefreshedAt" in data
+
+    @patch("posthog.models.integration.CursorIntegration.list_repositories")
+    def test_cursor_repositories_uses_cache(self, mock_list_repos, client: HttpClient):
+        mock_list_repos.return_value = [{"owner": "acme", "name": "repo", "repository": "https://github.com/acme/repo"}]
+
+        client.force_login(self.user)
+
+        response1 = client.get(
+            f"/api/environments/{self.team.pk}/integrations/{self.cursor_integration.id}/cursor_repositories/"
+        )
+        response2 = client.get(
+            f"/api/environments/{self.team.pk}/integrations/{self.cursor_integration.id}/cursor_repositories/"
+        )
+
+        assert response1.status_code == status.HTTP_200_OK
+        assert response2.status_code == status.HTTP_200_OK
+        assert mock_list_repos.call_count == 1
+        assert response1.json() == response2.json()
+
+    @patch("posthog.models.integration.CursorIntegration.list_repositories")
+    def test_cursor_repositories_force_refresh_bypasses_cache(self, mock_list_repos, client: HttpClient):
+        mock_list_repos.return_value = [{"owner": "acme", "name": "repo", "repository": "https://github.com/acme/repo"}]
+
+        client.force_login(self.user)
+
+        client.get(f"/api/environments/{self.team.pk}/integrations/{self.cursor_integration.id}/cursor_repositories/")
+        client.get(
+            f"/api/environments/{self.team.pk}/integrations/{self.cursor_integration.id}/cursor_repositories/",
+            {"force_refresh": "true"},
+        )
+
+        assert mock_list_repos.call_count == 2
+
+    @patch("posthog.models.integration.CursorIntegration.list_repositories")
+    def test_cursor_repositories_failure_raises_validation_error(self, mock_list_repos, client: HttpClient):
+        mock_list_repos.side_effect = Exception("API error")
+
+        client.force_login(self.user)
+
+        response = client.get(
+            f"/api/environments/{self.team.pk}/integrations/{self.cursor_integration.id}/cursor_repositories/"
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Failed to fetch repositories from Cursor" in str(response.json()["detail"])
+
+
 class TestIntegrationAPIKeyAccess:
     @pytest.fixture(autouse=True)
     def setup_integration(self, db):
