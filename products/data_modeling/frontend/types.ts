@@ -37,7 +37,7 @@ export interface EdgeData extends Record<string, unknown> {
 
 export type ViewMode = 'list' | 'graph'
 
-export type SearchMode = 'search' | 'upstream' | 'downstream' | 'all'
+export type SearchMode = 'search' | 'tag' | 'upstream' | 'downstream' | 'all'
 
 export type ElkDirection = 'DOWN' | 'RIGHT'
 

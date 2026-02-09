@@ -44,7 +44,7 @@ export const urls = {
     apps: (): string => '/apps',
     appsNew: (): string => '/apps/new',
     destinations: (): string => '/data-management/destinations',
-    models: (): string => '/models',
+    models: (): string => '/data-modeling',
     sources: (): string => '/data-management/sources',
     transformations: (): string => '/data-management/transformations',
     activity: (tab: ActivityTab | ':tab' = ActivityTab.ExploreEvents): string => `/activity/${tab}`,

@@ -78,7 +78,7 @@ export interface ParsedSearch {
     baseName: string
 }
 
-/** Parse search term for +name (upstream), name+ (downstream), or +name+ (both) syntax */
+/** Parse search term for +name (upstream), name+ (downstream), +name+ (both), and #tag syntax */
 export function parseSearchTerm(searchTerm: string): ParsedSearch {
     const trimmed = searchTerm.trim()
     if (trimmed.startsWith('+') && trimmed.endsWith('+') && trimmed.length > 2) {
@@ -89,6 +89,9 @@ export function parseSearchTerm(searchTerm: string): ParsedSearch {
     }
     if (trimmed.endsWith('+') && trimmed.length > 1) {
         return { mode: 'downstream', baseName: trimmed.slice(0, -1) }
+    }
+    if (trimmed.startsWith('#') && trimmed.length > 1) {
+        return { mode: 'tag', baseName: trimmed.slice(1) }
     }
     return { mode: 'search', baseName: trimmed }
 }
@@ -454,8 +457,12 @@ export const dataModelingLogic = kea<dataModelingLogicType>([
                 if (!searchTerm) {
                     return dataModelingNodes
                 }
-                const { baseName } = parseSearchTerm(searchTerm)
-                return dataModelingNodes.filter((n) => n.name.toLowerCase().includes(baseName.toLowerCase()))
+                const { baseName, mode } = parseSearchTerm(searchTerm)
+                const lower = baseName.toLowerCase()
+                if (mode === 'tag') {
+                    return dataModelingNodes.filter((n) => n.user_tag?.toLowerCase().includes(lower))
+                }
+                return dataModelingNodes.filter((n) => n.name.toLowerCase().includes(lower))
             },
         ],
         availableDagIds: [

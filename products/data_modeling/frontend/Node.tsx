@@ -332,6 +332,9 @@ const NodeComponent = React.memo(function NodeComponent(props: { id: string; dat
         if (debouncedSearchTerm.length === 0) {
             return undefined
         }
+        if (parsedSearch.mode === 'tag') {
+            return userTag?.toLowerCase().includes(parsedSearch.baseName.toLowerCase()) ?? false
+        }
         if (parsedSearch.mode !== 'search') {
             // graph traversal for +name, name+, or +name+ syntax
             const highlighted = highlightedNodeIds(parsedSearch.baseName, parsedSearch.mode)

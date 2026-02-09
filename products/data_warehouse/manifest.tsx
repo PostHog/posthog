@@ -23,7 +23,7 @@ export const manifest: ProductManifest = {
             projectBased: true,
             defaultDocsPath: '/docs/data-warehouse',
             description: 'Create and manage views and materialized views for transforming and organizing your data.',
-            iconType: 'sql_editor',
+            iconType: 'directed_graph',
         },
         SQLEditor: {
             projectBased: true,
@@ -36,11 +36,11 @@ export const manifest: ProductManifest = {
     },
     routes: {
         '/data-warehouse': ['DataWarehouse', 'dataWarehouse'],
-        '/models': ['Models', 'models'],
+        '/data-modeling': ['Models', 'models'],
     },
     urls: {
         dataWarehouse: (): string => '/data-warehouse',
-        models: (): string => '/models',
+        models: (): string => '/data-modeling',
     },
     treeItemsProducts: [
         {
@@ -79,7 +79,7 @@ export const manifest: ProductManifest = {
             path: 'Models',
             category: 'Tools',
             type: 'sql',
-            iconType: 'sql_editor',
+            iconType: 'directed_graph',
             iconColor: ['var(--color-product-data-warehouse-light)'],
             href: urls.models(),
             sceneKey: 'Models',

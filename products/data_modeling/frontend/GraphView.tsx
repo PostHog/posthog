@@ -180,7 +180,11 @@ function GraphViewContent(): JSX.Element {
         if (debouncedSearchTerm.length > 0 && enrichedNodes.length > 0) {
             const { baseName, mode } = parseSearchTerm(debouncedSearchTerm)
             let matchingNodes: Node[]
-            if (mode !== 'search') {
+            if (mode === 'tag') {
+                matchingNodes = enrichedNodes.filter((n: Node) =>
+                    n.data.userTag?.toLowerCase().includes(baseName.toLowerCase())
+                )
+            } else if (mode !== 'search') {
                 const highlightedIds = highlightedNodeIds(baseName, mode)
                 matchingNodes = enrichedNodes.filter((n: Node) => highlightedIds.has(n.id))
             } else {
