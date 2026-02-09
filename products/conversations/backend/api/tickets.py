@@ -79,6 +79,8 @@ class TicketSerializer(serializers.ModelSerializer):
             "unread_team_count",
             "session_id",
             "session_context",
+            "slack_channel_id",
+            "slack_thread_ts",
             "person",
         ]
         read_only_fields = [
@@ -94,6 +96,8 @@ class TicketSerializer(serializers.ModelSerializer):
             "assignee",
             "session_id",
             "session_context",
+            "slack_channel_id",
+            "slack_thread_ts",
             "person",
         ]
 

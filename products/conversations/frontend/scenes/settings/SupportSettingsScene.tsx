@@ -10,10 +10,13 @@ import {
     LemonInput,
     LemonSelect,
     LemonSwitch,
+    LemonTag,
 } from '@posthog/lemon-ui'
 
 import { MemberSelectMultiple } from 'lib/components/MemberSelectMultiple'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -123,6 +126,180 @@ function AuthorizedDomains(): JSX.Element {
     )
 }
 
+function SlackSection(): JSX.Element | null {
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    if (!featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT_SLACK]) {
+        return null
+    }
+
+    return (
+        <SceneSection
+            title="Slack channel"
+            description="Connect Slack to create and manage support tickets directly from Slack messages."
+            className="mt-4"
+        >
+            <LemonCard hoverEffect={false} className="flex flex-col gap-y-2 max-w-[800px] px-4 py-3">
+                <SlackChannelSection />
+            </LemonCard>
+        </SceneSection>
+    )
+}
+
+function SlackChannelSection(): JSX.Element {
+    const {
+        slackBotToken,
+        slackBotTokenValue,
+        slackChannelId,
+        slackChannels,
+        slackChannelsLoading,
+        slackTicketEmoji,
+        slackTicketEmojiValue,
+    } = useValues(supportSettingsLogic)
+    const {
+        setSlackBotTokenValue,
+        saveSlackBotToken,
+        setSlackChannel,
+        loadSlackChannelsWithToken,
+        setSlackTicketEmojiValue,
+        saveSlackTicketEmoji,
+        disconnectSlack,
+    } = useActions(supportSettingsLogic)
+
+    const isConfigured = !!slackBotToken
+
+    return (
+        <div className="flex flex-col gap-y-2">
+            <div className="flex items-center gap-4 justify-between">
+                <div>
+                    <label className="font-medium">Bot token</label>
+                    <p className="text-xs text-muted-alt">
+                        Enter your Slack bot token (starts with xoxb-). Get it from your Slack app's OAuth & Permissions
+                        page.
+                    </p>
+                </div>
+                <div className="flex gap-2 items-center">
+                    <LemonInput
+                        value={slackBotTokenValue ?? (slackBotToken ? '••••••••' : '')}
+                        onChange={setSlackBotTokenValue}
+                        placeholder="xoxb-..."
+                        type="password"
+                        className="w-[300px]"
+                    />
+                    <LemonButton
+                        type="primary"
+                        size="small"
+                        onClick={saveSlackBotToken}
+                        disabledReason={!slackBotTokenValue ? 'Enter a bot token' : undefined}
+                    >
+                        Save
+                    </LemonButton>
+                </div>
+            </div>
+
+            {isConfigured && (
+                <>
+                    <LemonDivider />
+                    <div className="flex items-center gap-4 justify-between">
+                        <div>
+                            <label className="font-medium">Support channel</label>
+                            <p className="text-xs text-muted-alt">
+                                Messages posted in this channel will automatically create support tickets. Thread
+                                replies become ticket messages.
+                            </p>
+                        </div>
+                        <div className="flex gap-2 items-center">
+                            <LemonSelect
+                                value={slackChannelId}
+                                options={[
+                                    { value: null, label: 'None' },
+                                    ...slackChannels.map((c: { id: string; name: string }) => ({
+                                        value: c.id,
+                                        label: `#${c.name}`,
+                                    })),
+                                ]}
+                                onChange={(value) => {
+                                    const channel = slackChannels.find((c: { id: string }) => c.id === value)
+                                    setSlackChannel(value, channel?.name ?? null)
+                                }}
+                                loading={slackChannelsLoading}
+                                placeholder="Select channel"
+                            />
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                onClick={loadSlackChannelsWithToken}
+                                loading={slackChannelsLoading}
+                            >
+                                Refresh
+                            </LemonButton>
+                        </div>
+                    </div>
+                    <LemonDivider />
+                    <div className="flex items-center gap-4 justify-between">
+                        <div>
+                            <label className="font-medium">Ticket emoji trigger</label>
+                            <p className="text-xs text-muted-alt">
+                                React with this emoji on any message to create a support ticket from it.
+                            </p>
+                        </div>
+                        <div className="flex gap-2 items-center">
+                            <LemonInput
+                                value={slackTicketEmojiValue ?? slackTicketEmoji}
+                                onChange={setSlackTicketEmojiValue}
+                                placeholder="ticket"
+                                className="max-w-[200px]"
+                            />
+                            <LemonButton
+                                type="primary"
+                                size="small"
+                                onClick={saveSlackTicketEmoji}
+                                disabledReason={!slackTicketEmojiValue ? 'Enter an emoji name' : undefined}
+                            >
+                                Save
+                            </LemonButton>
+                        </div>
+                    </div>
+                    <LemonDivider />
+                    <div className="flex items-center gap-4 justify-between">
+                        <div>
+                            <label className="font-medium">Bot mention</label>
+                            <p className="text-xs text-muted-alt">
+                                Users can @mention the bot in any channel to create a support ticket. This works
+                                automatically when the bot token is configured.
+                            </p>
+                        </div>
+                        <LemonTag type="success">Active</LemonTag>
+                    </div>
+                    <LemonDivider />
+                    <div className="flex justify-end">
+                        <LemonButton
+                            type="secondary"
+                            status="danger"
+                            size="small"
+                            onClick={() => {
+                                LemonDialog.open({
+                                    title: 'Disconnect Slack?',
+                                    description:
+                                        'This will stop creating tickets from Slack messages. Existing tickets will not be affected.',
+                                    primaryButton: {
+                                        status: 'danger',
+                                        children: 'Disconnect',
+                                        onClick: disconnectSlack,
+                                    },
+                                    secondaryButton: { children: 'Cancel' },
+                                })
+                            }}
+                        >
+                            Disconnect Slack
+                        </LemonButton>
+                    </div>
+                </>
+            )}
+        </div>
+    )
+}
+
 export function SupportSettingsScene(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
@@ -212,6 +389,7 @@ export function SupportSettingsScene(): JSX.Element {
                             <BrowserNotificationsSection />
                         </LemonCard>
                     </SceneSection>
+                    <SlackSection />
                     <SceneSection title="In-app widget" className="mt-4">
                         <LemonCard hoverEffect={false} className="flex flex-col gap-y-2 max-w-[800px] px-4 py-3">
                             <div className="flex items-center gap-4 justify-between">

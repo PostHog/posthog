@@ -9,6 +9,7 @@ import structlog
 from posthog.models.comment import Comment
 
 from .models import Ticket
+from .models.constants import Channel
 
 logger = structlog.get_logger(__name__)
 
@@ -154,3 +155,77 @@ def handle_comment_soft_delete(sender, instance: Comment, **kwargs):
                 )
 
         transaction.on_commit(do_soft_delete_update)
+
+
+@receiver(post_save, sender=Comment)
+def post_slack_reply_on_team_message(sender, instance: Comment, created: bool, **kwargs):
+    """
+    When a team member replies to a Slack-sourced ticket, post the reply
+    back to the Slack thread via a Celery task.
+
+    Only triggers for:
+    - Newly created comments (not edits)
+    - Non-private messages
+    - Messages with a created_by (team member, not customer)
+    - Tickets with channel_source="slack" and valid slack thread info
+    """
+    if instance.scope != "conversations_ticket":
+        return
+
+    if not instance.item_id or not created:
+        return
+
+    item_context = instance.item_context
+    if _is_private_message(item_context):
+        return
+
+    # Only team messages (has created_by, not customer-authored)
+    if not instance.created_by_id:
+        return
+
+    author_type = item_context.get("author_type") if isinstance(item_context, dict) else None
+    if author_type == "customer":
+        return
+
+    # Capture values for the deferred callback
+    team_id = instance.team_id
+    item_id = instance.item_id
+    content = instance.content or ""
+    created_by = instance.created_by
+
+    def do_post_to_slack():
+        try:
+            ticket = Ticket.objects.filter(
+                id=item_id,
+                team_id=team_id,
+                channel_source=Channel.SLACK,
+            ).first()
+
+            if not ticket or not ticket.slack_channel_id or not ticket.slack_thread_ts:
+                return
+
+            team = ticket.team
+            settings_dict = team.conversations_settings or {}
+            integration_id = settings_dict.get("slack_integration_id")
+            if not integration_id:
+                return
+
+            author_name = ""
+            if created_by:
+                author_name = f"{created_by.first_name} {created_by.last_name}".strip() or created_by.email
+
+            from .tasks import post_reply_to_slack
+
+            post_reply_to_slack.delay(
+                ticket_id=str(ticket.id),
+                team_id=team_id,
+                content=content,
+                author_name=author_name,
+                slack_channel_id=ticket.slack_channel_id,
+                slack_thread_ts=ticket.slack_thread_ts,
+                integration_id=integration_id,
+            )
+        except Exception:
+            logger.exception("slack_reply_signal_failed", item_id=item_id)
+
+    transaction.on_commit(do_post_to_slack)

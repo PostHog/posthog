@@ -613,6 +613,12 @@ export interface ConversationsSettings {
     widget_identification_form_description?: string
     widget_placeholder_text?: string
     widget_position?: 'bottom_left' | 'bottom_right' | 'top_left' | 'top_right'
+    // Slack channel settings
+    slack_integration_id?: number | null
+    slack_channel_id?: string | null
+    slack_channel_name?: string | null
+    slack_ticket_emoji?: string | null
+    slack_bot_token?: string | null
 }
 
 export interface LogsSettings {

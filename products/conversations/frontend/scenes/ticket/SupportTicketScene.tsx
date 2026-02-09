@@ -3,7 +3,7 @@ import { router } from 'kea-router'
 import { useRef } from 'react'
 
 import { IconChevronDown } from '@posthog/icons'
-import { LemonButton, LemonCard, LemonSelect, Link, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonCard, LemonSelect, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
@@ -195,6 +195,20 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                     </span>
                                 </div>
                             )}
+                            {ticket?.channel_source === 'slack' &&
+                                ticket?.slack_channel_id &&
+                                ticket?.slack_thread_ts && (
+                                    <div className="flex justify-between items-center">
+                                        <span className="text-muted-alt">Slack thread</span>
+                                        <Link
+                                            to={`https://app.slack.com/client/T0/${ticket.slack_channel_id}/thread/${ticket.slack_channel_id}-${ticket.slack_thread_ts.replace('.', '')}`}
+                                            target="_blank"
+                                            className="text-xs"
+                                        >
+                                            <LemonTag type="highlight">Open in Slack</LemonTag>
+                                        </Link>
+                                    </div>
+                                )}
                             {ticket?.session_context?.current_url && (
                                 <div className="flex justify-between items-start gap-2">
                                     <span className="text-muted-alt shrink-0">Page URL</span>

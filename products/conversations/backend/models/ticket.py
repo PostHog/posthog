@@ -57,6 +57,10 @@ class Ticket(UUIDTModel):
     last_message_at = models.DateTimeField(null=True, blank=True)
     last_message_text = models.CharField(max_length=500, null=True, blank=True)  # Truncated preview
 
+    # Slack channel fields (only set for channel_source="slack")
+    slack_channel_id = models.CharField(max_length=64, null=True, blank=True)  # Slack channel ID
+    slack_thread_ts = models.CharField(max_length=64, null=True, blank=True)  # Slack thread timestamp (thread ID)
+
     # Session context (captured when ticket is created)
     session_id = models.CharField(max_length=64, null=True, blank=True)  # PostHog session ID
     session_context = models.JSONField(default=dict, blank=True)  # session_replay_url, current_url, etc.
@@ -72,6 +76,11 @@ class Ticket(UUIDTModel):
             models.Index(fields=["team", "status"]),
             models.Index(fields=["team", "-ticket_number"], name="posthog_con_team_id_ticket_idx"),  # MAX() lookups
             models.Index(fields=["team", "session_id"]),  # Session context queries
+            # Slack thread lookup: find ticket by (team, slack_channel_id, slack_thread_ts)
+            models.Index(
+                fields=["team", "slack_channel_id", "slack_thread_ts"],
+                name="posthog_con_slack_thread_idx",
+            ),
             # Dashboard ordering optimization
             models.Index(fields=["team", "-updated_at"], name="posthog_con_team_updated_idx"),
             # Dashboard filtered + ordered queries

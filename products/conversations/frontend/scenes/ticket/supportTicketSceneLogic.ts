@@ -285,13 +285,19 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                             message.created_by.email ||
                             'Support'
                     } else if (authorType === 'customer') {
-                        // Try person properties first (from ticket.person), then ticket traits
-                        displayName =
-                            ticket?.person?.properties?.name ||
-                            ticket?.person?.properties?.email ||
-                            ticket?.anonymous_traits?.name ||
-                            ticket?.anonymous_traits?.email ||
-                            'Anonymous user'
+                        // For Slack messages, use the per-message author info
+                        const slackAuthorName = message.item_context?.slack_author_name
+                        if (slackAuthorName) {
+                            displayName = slackAuthorName
+                        } else {
+                            // Fallback to ticket-level info for widget messages
+                            displayName =
+                                ticket?.person?.properties?.name ||
+                                ticket?.person?.properties?.email ||
+                                ticket?.anonymous_traits?.name ||
+                                ticket?.anonymous_traits?.email ||
+                                'Anonymous user'
+                        }
                     }
 
                     return {
