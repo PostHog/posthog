@@ -31,6 +31,12 @@ MOCK_COST_DATA: dict[str, ModelCost] = {
         "supports_vision": True,
         "mode": "chat",
     },
+    "codex-5.3": {
+        "litellm_provider": "openai",
+        "max_input_tokens": 200000,
+        "supports_vision": False,
+        "mode": "chat",
+    },
     "o1": {
         "litellm_provider": "openai",
         "max_input_tokens": 200000,
@@ -44,6 +50,12 @@ MOCK_COST_DATA: dict[str, ModelCost] = {
         "mode": "chat",
     },
     "claude-opus-4-5": {
+        "litellm_provider": "anthropic",
+        "max_input_tokens": 200000,
+        "supports_vision": True,
+        "mode": "chat",
+    },
+    "claude-opus-4-6": {
         "litellm_provider": "anthropic",
         "max_input_tokens": 200000,
         "supports_vision": True,
