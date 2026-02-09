@@ -128,7 +128,7 @@ describe('propertyFilterLogic', () => {
                         eventFilter('$device', 'Mobile', PropertyOperator.Exact),
                     ],
                 })
-                const [osId, deviceId] = logic.values.filterIds
+                const [browserId, osId, deviceId] = logic.values.filterIds
 
                 logic.actions.remove(0)
 
