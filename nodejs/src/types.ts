@@ -444,6 +444,7 @@ export interface PluginsServerConfig
     EVENT_PROPERTY_LRU_SIZE: number // size of the event property tracker's LRU cache (keyed by [team.id, event])
     HEALTHCHECK_MAX_STALE_SECONDS: number // maximum number of seconds the service can go without ingesting events before the healthcheck fails
     SITE_URL: string
+    POSTHOG_INTERNAL_SERVICE_TOKEN: string | null // Internal service-to-service authentication token for calling Django internal endpoints
     TEMPORAL_HOST: string
     TEMPORAL_PORT: string | undefined
     TEMPORAL_NAMESPACE: string
@@ -500,13 +501,6 @@ export interface PluginsServerConfig
     POD_TERMINATION_ENABLED: boolean
     POD_TERMINATION_BASE_TIMEOUT_MINUTES: number
     POD_TERMINATION_JITTER_MINUTES: number
-
-    // ClickHouse
-    CLICKHOUSE_HOST: string
-    CLICKHOUSE_PORT: number
-    CLICKHOUSE_USERNAME: string
-    CLICKHOUSE_PASSWORD: string
-    CLICKHOUSE_DATABASE: string
 }
 
 export interface Hub extends PluginsServerConfig {

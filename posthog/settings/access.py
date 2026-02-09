@@ -80,6 +80,18 @@ SALT_KEY = get_list(os.getenv("SALT_KEY", "0123456789abcdefghijklmnopqrstuvwxyz"
 # We provide a default as it is needed for hobby deployments
 ENCRYPTION_SALT_KEYS = get_list(os.getenv("ENCRYPTION_SALT_KEYS", "00beef0000beef0000beef0000beef00"))
 
+# Internal service-to-service authentication token
+# Used for Node.js services to call internal Django endpoints
+POSTHOG_INTERNAL_SERVICE_TOKEN = get_from_env("POSTHOG_INTERNAL_SERVICE_TOKEN", optional=True)
+
+if not DEBUG and not TEST and not POSTHOG_INTERNAL_SERVICE_TOKEN:
+    logger.warning(
+        """
+No POSTHOG_INTERNAL_SERVICE_TOKEN set. Internal service-to-service endpoints will be publicly accessible.
+Generate a secure random token and set it in both Django and Node.js services.
+"""
+    )
+
 INTERNAL_IPS = ["127.0.0.1", "172.18.0.1"]  # Docker IP
 if os.getenv("CORS_ALLOWED_ORIGINS", False):
     CORS_ORIGIN_ALLOW_ALL = False

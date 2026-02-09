@@ -267,22 +267,14 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
                     .build()
             )
 
-            // Mock the personsManager to return some persons
-            const mockCountMany = jest.fn().mockResolvedValue(2)
-            const mockStreamMany = jest.fn().mockImplementation(async ({ onPersonBatch }: any) => {
-                await onPersonBatch([
-                    { personId: 'person-1', distinctId: 'distinct-1' },
-                    { personId: 'person-2', distinctId: 'distinct-2' },
-                ])
+            // Mock the batch person query service to return some persons
+            const mockGetBlastRadiusPersons = jest.fn().mockResolvedValue({
+                users_affected: [
+                    { person_id: 'person-1', distinct_id: 'distinct-1' },
+                    { person_id: 'person-2', distinct_id: 'distinct-2' },
+                ],
             })
-
-            processor['clickHousePersonsManager'].countMany = mockCountMany
-            processor['clickHousePersonsManager'].streamMany = mockStreamMany
-
-            // Mock rate limiter to not limit
-            jest.spyOn(processor['hogRateLimiter'], 'rateLimitMany').mockResolvedValue([
-                [hogFlow.id, { isRateLimited: false, tokens: 100 }],
-            ])
+            processor['hogFlowBatchPersonQueryService'].getBlastRadiusPersons = mockGetBlastRadiusPersons
 
             const batchRequest: BatchHogFlowRequest = {
                 teamId: team.id,
@@ -337,17 +329,7 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
                 }),
             })
 
-            expect(mockCountMany).toHaveBeenCalledWith({
-                teamId: team.id,
-                properties: batchRequest.filters.properties,
-            })
-            expect(mockStreamMany).toHaveBeenCalledWith({
-                filters: {
-                    teamId: team.id,
-                    properties: batchRequest.filters.properties,
-                },
-                onPersonBatch: expect.any(Function),
-            })
+            expect(mockGetBlastRadiusPersons).toHaveBeenCalledWith(team, batchRequest.filters, undefined)
         })
 
         it('should include default variables from hogFlow', async () => {
@@ -370,17 +352,11 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
                 { key: 'customVar3', type: 'string', label: 'Custom Var 3' }, // No default
             ]
 
-            // Mock the personsManager
-            const mockStreamMany = jest.fn().mockImplementation(async ({ onPersonBatch }: any) => {
-                await onPersonBatch([{ personId: 'person-1', distinctId: 'distinct-1' }])
+            // Mock the batch person query service
+            const mockGetBlastRadiusPersons = jest.fn().mockResolvedValue({
+                users_affected: [{ person_id: 'person-1', distinct_id: 'distinct-1' }],
             })
-            jest.spyOn(processor['clickHousePersonsManager'], 'countMany').mockResolvedValue(1)
-            processor['clickHousePersonsManager'].streamMany = mockStreamMany
-
-            // Mock rate limiter
-            jest.spyOn(processor['hogRateLimiter'], 'rateLimitMany').mockResolvedValue([
-                [hogFlow.id, { isRateLimited: false, tokens: 100 }],
-            ])
+            processor['hogFlowBatchPersonQueryService'].getBlastRadiusPersons = mockGetBlastRadiusPersons
 
             const batchRequest: BatchHogFlowRequest = {
                 teamId: team.id,
@@ -420,17 +396,11 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
                     .build()
             )
 
-            // Mock the personsManager
-            const mockStreamMany = jest.fn().mockImplementation(async ({ onPersonBatch }: any) => {
-                await onPersonBatch([{ personId: 'person-1', distinctId: 'distinct-1' }])
+            // Mock the batch person query service
+            const mockGetBlastRadiusPersons = jest.fn().mockResolvedValue({
+                users_affected: [{ person_id: 'person-1', distinct_id: 'distinct-1' }],
             })
-            jest.spyOn(processor['clickHousePersonsManager'], 'countMany').mockResolvedValue(1)
-            processor['clickHousePersonsManager'].streamMany = mockStreamMany
-
-            // Mock rate limiter
-            jest.spyOn(processor['hogRateLimiter'], 'rateLimitMany').mockResolvedValue([
-                [hogFlow.id, { isRateLimited: false, tokens: 100 }],
-            ])
+            processor['hogFlowBatchPersonQueryService'].getBlastRadiusPersons = mockGetBlastRadiusPersons
 
             const batchRequest: BatchHogFlowRequest = {
                 teamId: team.id,
@@ -492,18 +462,11 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
                     .build()
             )
 
-            // Mock the personsManager
-            const mockStreamMany = jest.fn().mockImplementation(async ({ onPersonBatch }: any) => {
-                await onPersonBatch([{ personId: 'person-1', distinctId: 'distinct-1' }])
+            // Mock the batch person query service
+            const mockGetBlastRadiusPersons = jest.fn().mockResolvedValue({
+                users_affected: [{ person_id: 'person-1', distinct_id: 'distinct-1' }],
             })
-            jest.spyOn(processor['clickHousePersonsManager'], 'countMany').mockResolvedValue(1)
-            processor['clickHousePersonsManager'].streamMany = mockStreamMany
-
-            // Mock rate limiter
-            jest.spyOn(processor['hogRateLimiter'], 'rateLimitMany').mockResolvedValue([
-                [hogFlow1.id, { isRateLimited: false, tokens: 100 }],
-                [hogFlow2.id, { isRateLimited: false, tokens: 100 }],
-            ])
+            processor['hogFlowBatchPersonQueryService'].getBlastRadiusPersons = mockGetBlastRadiusPersons
 
             const batchRequest1: BatchHogFlowRequest = {
                 teamId: team.id,
@@ -553,20 +516,14 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
                     .build()
             )
 
-            // Mock the personsManager
-            const mockStreamMany = jest.fn().mockImplementation(async ({ onPersonBatch }: any) => {
-                await onPersonBatch([
-                    { personId: 'person-1', distinctId: 'distinct-1' },
-                    { personId: 'person-2', distinctId: 'distinct-2' },
-                ])
+            // Mock the batch person query service
+            const mockGetBlastRadiusPersons = jest.fn().mockResolvedValue({
+                users_affected: [
+                    { person_id: 'person-1', distinct_id: 'distinct-1' },
+                    { person_id: 'person-2', distinct_id: 'distinct-2' },
+                ],
             })
-            jest.spyOn(processor['clickHousePersonsManager'], 'countMany').mockResolvedValue(2)
-            processor['clickHousePersonsManager'].streamMany = mockStreamMany
-
-            // Mock rate limiter
-            jest.spyOn(processor['hogRateLimiter'], 'rateLimitMany').mockResolvedValue([
-                [hogFlow.id, { isRateLimited: false, tokens: 100 }],
-            ])
+            processor['hogFlowBatchPersonQueryService'].getBlastRadiusPersons = mockGetBlastRadiusPersons
 
             const batchRequest: BatchHogFlowRequest = {
                 teamId: team.id,
