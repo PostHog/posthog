@@ -322,7 +322,10 @@ describe('LogsIngestionConsumer', () => {
             await waitForBackgroundTasks(consumer.processKafkaBatch(messages))
 
             expect(getProducedKafkaMessages()).toHaveLength(0)
-            expect(logMessageDroppedCounterSpy).toHaveBeenCalledWith({ reason: 'parse_error', team_id: 'unknown' })
+            expect(logMessageDroppedCounterSpy).toHaveBeenCalledWith({
+                reason: 'team_lookup_error',
+                team_id: 'unknown',
+            })
         })
     })
 
