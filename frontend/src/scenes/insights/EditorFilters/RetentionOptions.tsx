@@ -7,6 +7,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { retentionLogic } from 'scenes/retention/retentionLogic'
 
 import { MinimumOccurrencesInput } from '../filters/MinimumOccurrencesInput'
+import { RetentionAggregationSelector } from '../filters/RetentionAggregationSelector'
 import { RetentionCumulativeButton } from '../filters/RetentionCumulativeButton'
 import { RetentionMeanDropdown } from '../filters/RetentionMeanDropdown'
 import { RetentionReferencePicker } from '../filters/RetentionReferencePicker'
@@ -22,6 +23,10 @@ export function RetentionOptions(): JSX.Element {
             <div className="flex items-center gap-2">
                 <div>Retention relative to</div>
                 <RetentionReferencePicker />
+            </div>
+            <div className="flex items-center gap-2">
+                <div>Calculate</div>
+                <RetentionAggregationSelector />
             </div>
             <div className="flex items-center gap-2">
                 <div>When users return</div>
