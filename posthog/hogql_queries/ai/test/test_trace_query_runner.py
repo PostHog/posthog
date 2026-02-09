@@ -575,11 +575,67 @@ class TestTraceQueryRunner(ClickhouseTestMixin, BaseTest):
             response.results[0].outputState,
             {"messages": [{"role": "user", "content": "Foo"}, {"role": "assistant", "content": "Bar"}]},
         )
-        # Should return all events except $ai_trace
-        self.assertEqual(len(response.results[0].events), 3)
+        # Should return all events including $ai_trace
+        self.assertEqual(len(response.results[0].events), 4)
 
         self.assertEqual(response.results[0].events[0].event, "$ai_span")
         self.assertEqual(response.results[0].events[0].properties["$ai_trace_id"], "trace1")
+
+    def test_ai_trace_event_with_custom_properties(self):
+        """Test that custom properties on $ai_trace events are returned in the events array."""
+        _create_person(distinct_ids=["person1"], team=self.team)
+        trace_id = "trace_with_custom_props"
+
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id=trace_id,
+            team=self.team,
+            timestamp=datetime(2024, 12, 1, 0, 0),
+        )
+        _create_ai_trace_event(
+            trace_id=trace_id,
+            trace_name="custom_props_trace",
+            input_state={"messages": [{"role": "user", "content": "Hello"}]},
+            output_state={"response": "Hi there"},
+            team=self.team,
+            distinct_id="person1",
+            timestamp=datetime(2024, 12, 1, 0, 1),
+            properties={
+                "custom_field": "custom_value",
+                "conversation_id": "conv_123",
+                "user_tier": "premium",
+            },
+        )
+
+        response = TraceQueryRunner(
+            team=self.team,
+            query=TraceQuery(
+                traceId=trace_id,
+                dateRange=DateRange(date_from="2024-12-01T00:00:00Z", date_to="2024-12-01T00:10:00Z"),
+            ),
+        ).calculate()
+
+        self.assertEqual(len(response.results), 1)
+        trace = response.results[0]
+        self.assertEqual(trace.id, trace_id)
+        self.assertEqual(trace.traceName, "custom_props_trace")
+
+        # Should have both generation and trace events
+        self.assertEqual(len(trace.events), 2)
+
+        # Find the $ai_trace event
+        trace_events = [e for e in trace.events if e.event == "$ai_trace"]
+        self.assertEqual(len(trace_events), 1)
+        trace_event = trace_events[0]
+
+        # Verify custom properties are accessible
+        self.assertEqual(trace_event.properties["custom_field"], "custom_value")
+        self.assertEqual(trace_event.properties["conversation_id"], "conv_123")
+        self.assertEqual(trace_event.properties["user_tier"], "premium")
+
+        # Standard properties should also be present
+        self.assertEqual(trace_event.properties["$ai_trace_id"], trace_id)
+        self.assertEqual(trace_event.properties["$ai_span_name"], "custom_props_trace")
 
     def test_embedding_events_in_trace(self):
         """Test that embedding events are included in full trace (detail view specific)."""
@@ -636,8 +692,8 @@ class TestTraceQueryRunner(ClickhouseTestMixin, BaseTest):
         self.assertEqual(trace.id, trace_id)
         self.assertEqual(trace.traceName, "embedding_test")
 
-        # Check that all events are present (1 generation + 2 embeddings = 3 events)
-        self.assertEqual(len(trace.events), 3)
+        # Check that all events are present (1 trace + 1 generation + 2 embeddings = 4 events)
+        self.assertEqual(len(trace.events), 4)
 
         # Verify event types
         event_types = [event.event for event in trace.events]
@@ -691,7 +747,8 @@ class TestTraceQueryRunner(ClickhouseTestMixin, BaseTest):
             ),
         ).calculate()
         self.assertEqual(len(response.results), 1)
-        self.assertEqual(len(response.results[0].events), 1)
+        # 1 generation (deduplicated) + 1 $ai_trace = 2 events
+        self.assertEqual(len(response.results[0].events), 2)
 
     def test_trace_name_from_trace_event(self):
         """Test that trace_name comes from $ai_trace events when they exist."""

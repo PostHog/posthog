@@ -134,9 +134,8 @@ class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
                 arrayDistinct(
                     arraySort(
                         x -> x.3,
-                        groupArrayIf(
-                            tuple(uuid, event, timestamp, properties),
-                            event != '$ai_trace'
+                        groupArray(
+                            tuple(uuid, event, timestamp, properties)
                         )
                     )
                 ) AS events,
@@ -172,7 +171,7 @@ class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
         return {
             **super().get_cache_payload(),
             # When the response schema changes, increment this version to invalidate the cache.
-            "schema_version": 2,
+            "schema_version": 3,
         }
 
     @cached_property
