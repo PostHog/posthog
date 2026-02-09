@@ -77,7 +77,7 @@ function Rules<T extends ErrorTrackingRule>({
 
                             return (
                                 <SortableRule key={rule.id} ruleId={rule.id} reorderable={isReorderingRules}>
-                                    {disabled && <DisabledBanner />}
+                                    {disabled && <DisabledBanner rule={rule} />}
                                     {children({ rule, editing, disabled })}
                                 </SortableRule>
                             )
@@ -146,8 +146,10 @@ const ReorderRules = (): JSX.Element | null => {
     )
 }
 
-const DisabledBanner = (): JSX.Element => {
+const DisabledBanner = ({ rule }: { rule: ErrorTrackingRule }): JSX.Element => {
     const { openSidePanel } = useActions(sidePanelLogic)
+    const message =
+        'disabled_data' in rule && rule.disabled_data ? (rule.disabled_data as Record<string, any>).message : null
 
     return (
         <LemonBanner
@@ -158,7 +160,10 @@ const DisabledBanner = (): JSX.Element => {
                 children: 'Contact support',
             }}
         >
-            This rule has been disabled due to an error and is being investigated by our team
+            <div>
+                This rule has been disabled due to an error while trying to evaluate it - "{message}". Editing the rule
+                will re enable it. If you need help, reach out to support.
+            </div>
         </LemonBanner>
     )
 }
