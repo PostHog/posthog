@@ -127,7 +127,7 @@ describe('VariantsPanel', () => {
         it('shows variant keys section when feature flag key is set', () => {
             render(<VariantsPanel experiment={defaultExperiment} updateFeatureFlag={mockUpdateFeatureFlag} />)
 
-            expect(screen.getByText('Variant keys')).toBeInTheDocument()
+            expect(screen.getByText('Variant key')).toBeInTheDocument()
         })
     })
 
@@ -538,15 +538,15 @@ describe('VariantsPanel', () => {
                 <VariantsPanel experiment={experimentWithEmptyKey} updateFeatureFlag={mockUpdateFeatureFlag} />
             )
 
-            // Find variant rows
-            const variantRows = container.querySelectorAll('.grid.grid-cols-24')
+            // Find variant rows in the table
+            const variantRows = container.querySelectorAll('tbody tr')
 
             // First variant (control) should not have error highlighting
-            expect(variantRows[1]).not.toHaveClass('bg-danger-highlight')
+            expect(variantRows[0]).not.toHaveClass('bg-danger-highlight')
 
             // Second variant (empty key) should have error highlighting
-            expect(variantRows[2]).toHaveClass('bg-danger-highlight')
-            expect(variantRows[2]).toHaveClass('border-danger')
+            expect(variantRows[1]).toHaveClass('bg-danger-highlight')
+            expect(variantRows[1]).toHaveClass('border-danger')
         })
     })
 

@@ -88,11 +88,11 @@ export function OpenQuestionSummaryV2({
             return
         }
 
-        // Only auto-load if we don't have a summary yet
-        if (!summary && !loading) {
+        // Only auto-load if we don't have a summary yet and haven't errored
+        if (!summary && !loading && !error) {
             loadSummary(false)
         }
-    }, [shouldShowSummary, dataProcessingAccepted, summary, loading, loadSummary])
+    }, [shouldShowSummary, dataProcessingAccepted, summary, loading, error, loadSummary])
 
     const handleRegenerateClick = (): void => {
         if (!dataProcessingAccepted) {
