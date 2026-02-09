@@ -1,5 +1,6 @@
 """Fetch survey responses for summarization."""
 
+from collections import Counter
 from datetime import datetime
 from typing import cast
 
@@ -8,6 +9,57 @@ from posthog.hogql.parser import parse_select
 
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.models import Team
+
+_SHORT_RESPONSE_ALLOWLIST = {
+    # Common, meaningful short responses that are useful for summarization.
+    "ui",
+    "ux",
+    "bug",
+    "bugs",
+    "slow",
+    "speed",
+    "crash",
+    "lag",
+    "docs",
+    "pricing",
+    "support",
+    "mobile",
+    "android",
+    "ios",
+    "api",
+    "sdk",
+    "sso",
+    "rbac",
+}
+
+
+def _is_low_quality_survey_response_for_summarization(response: str) -> bool:
+    """
+    Heuristics to drop obvious noise from LLM summaries.
+
+    This does NOT affect raw survey response storage or display — only the inputs
+    we send to the summarization model.
+    """
+    normalized = response.strip()
+    if not normalized:
+        return True
+
+    # Super-short, single-token answers are almost always low-signal unless they are
+    # known useful keywords (e.g. "UI", "pricing").
+    tokens = normalized.split()
+    if len(tokens) == 1 and len(normalized) < 10:
+        token = tokens[0].casefold()
+        if token not in _SHORT_RESPONSE_ALLOWLIST:
+            return True
+
+    # Repetition/keyboard mashing (e.g. "aaaaaa", "!!!!!!") adds no summarization value.
+    if len(normalized) >= 6:
+        counts = Counter(normalized)
+        most_common = counts.most_common(1)[0][1]
+        if most_common / len(normalized) > 0.6:
+            return True
+
+    return False
 
 
 def fetch_responses(
@@ -82,4 +134,5 @@ def fetch_responses(
         exclude_set = set(exclude_values)
         responses = [r for r in responses if r not in exclude_set]
 
-    return responses
+    # Drop obvious noise that would pollute LLM summaries.
+    return [r for r in responses if not _is_low_quality_survey_response_for_summarization(r)]
