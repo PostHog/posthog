@@ -757,6 +757,9 @@ const ReplayFiltersTab = ({
                             openSupportForm({
                                 kind: 'feedback',
                                 target_area: 'session_replay',
+                                isEmailFormOpen: true,
+                                message: `## Don't forget to add additional context on what you expected. including links to events/persons/etc. \n 
+                                I got unexpected results with these filters:\n\n\`\`\`\n${JSON.stringify(filters, null, 2)}\n\`\`\`\n\n`,
                             })
                         }
                     >
