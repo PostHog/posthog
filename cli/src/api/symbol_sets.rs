@@ -154,11 +154,15 @@ fn start_upload(symbol_sets: &[&SymbolSetUpload]) -> Result<BulkUploadStartRespo
     });
 
     match res {
-        Ok(response) => Ok(response.json().context("Failed to parse start upload response")?),
+        Ok(response) => Ok(response
+            .json()
+            .context("Failed to parse start upload response")?),
         Err(ClientError::ApiError(_, _, body)) if body.contains("release_id_mismatch") => {
             Err(UploadError::ReleaseIdMismatch)
         }
-        Err(e) => Err(UploadError::Other(anyhow::anyhow!(e).context("Failed to start upload"))),
+        Err(e) => Err(UploadError::Other(
+            anyhow::anyhow!(e).context("Failed to start upload"),
+        )),
     }
 }
 
