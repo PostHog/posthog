@@ -1,11 +1,12 @@
-import { BindLogic, useActions, useValues } from 'kea'
+import { BindLogic, BuiltLogic, LogicWrapper, useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { groupLogic } from 'scenes/groups/groupLogic'
 import { Notebook } from 'scenes/notebooks/Notebook/Notebook'
-import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
+import { NotebookLogicProps, notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 
 import { groupsModel } from '~/models/groupsModel'
 import { AnyPropertyFilter, CustomerProfileScope, Group, PropertyFilterType, PropertyOperator } from '~/types'
@@ -17,9 +18,10 @@ import { FeedbackBanner } from './FeedbackBanner'
 interface GroupProfileCanvasProps {
     group: Group
     tabId: string
+    attachTo: BuiltLogic | LogicWrapper
 }
 
-export const GroupProfileCanvas = ({ group, tabId }: GroupProfileCanvasProps): JSX.Element => {
+export const GroupProfileCanvas = ({ group, tabId, attachTo }: GroupProfileCanvasProps): JSX.Element => {
     const { aggregationLabel } = useValues(groupsModel)
     const { reportGroupProfileViewed } = useActions(eventUsageLogic)
 
@@ -55,9 +57,16 @@ export const GroupProfileCanvas = ({ group, tabId }: GroupProfileCanvasProps): J
     useOnMountEffect(() => {
         reportGroupProfileViewed()
     })
+    const notebookLogicProps: NotebookLogicProps = {
+        shortId,
+        mode,
+        canvasFiltersOverride: groupFilter,
+    }
+    const mountedNotebookLogic = notebookLogic(notebookLogicProps)
+    useAttachedLogic(mountedNotebookLogic, attachTo)
 
     return (
-        <BindLogic logic={notebookLogic} props={{ shortId, mode, canvasFiltersOverride: groupFilter }}>
+        <BindLogic logic={notebookLogic} props={notebookLogicProps}>
             <BindLogic logic={groupLogic} props={{ groupKey, groupTypeIndex, tabId }}>
                 <BindLogic logic={customerProfileLogic} props={customerProfileLogicProps}>
                     <FeedbackBanner

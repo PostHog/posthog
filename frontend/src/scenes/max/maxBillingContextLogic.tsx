@@ -1,4 +1,5 @@
 import { connect, kea, path, selectors } from 'kea'
+import { objectsEqual } from 'kea-test-utils'
 
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -306,22 +307,7 @@ export const maxBillingContextLogic = kea<maxBillingContextLogicType>([
                     billingSpendResponse
                 )
             },
-            {
-                equalityCheck: (prev: any[], next: any[]) => {
-                    if (!prev || !next) {
-                        return prev === next
-                    }
-                    return (
-                        prev[0] === next[0] /* billing */ &&
-                        prev[1] === next[1] /* billingUsageResponse */ &&
-                        prev[2] === next[2] /* billingSpendResponse */ &&
-                        prev[3] === next[3] /* isAdminOrOwner */ &&
-                        prev[4]?.autocapture_opt_out === next[4]?.autocapture_opt_out /* currentTeam */ &&
-                        prev[5] === next[5] /* featureFlags */ &&
-                        prev[6]?.length === next[6]?.length /* destinations */
-                    )
-                },
-            },
+            { resultEqualityCheck: objectsEqual },
         ],
     }),
 ])

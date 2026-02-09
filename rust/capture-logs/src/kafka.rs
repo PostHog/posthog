@@ -241,6 +241,10 @@ impl KafkaSink {
                         key: "created_at",
                         value: Some(&created_at),
                     })
+                    .insert(Header {
+                        key: "batch_uuid",
+                        value: Some(&uuid::Uuid::new_v4().to_string()),
+                    })
             }),
         }) {
             Err((err, _)) => Err(anyhow!(format!("kafka error: {err}"))),

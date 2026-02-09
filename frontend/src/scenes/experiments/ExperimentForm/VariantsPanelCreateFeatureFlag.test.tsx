@@ -78,7 +78,7 @@ describe('VariantsPanelCreateFeatureFlag', () => {
         it('renders variant keys section', () => {
             renderComponent(defaultExperiment)
 
-            expect(screen.getByText('Variant keys')).toBeInTheDocument()
+            expect(screen.getByText('Variant key')).toBeInTheDocument()
         })
 
         it('renders default variants (control and test)', () => {
@@ -91,14 +91,11 @@ describe('VariantsPanelCreateFeatureFlag', () => {
             expect(testInput).toBeInTheDocument()
         })
 
-        it('renders rollout percentages for each variant', () => {
-            const { container } = renderComponent(defaultExperiment)
+        it('renders variant split labels by default', () => {
+            renderComponent(defaultExperiment)
 
-            const percentageInputs = container.querySelectorAll(
-                '[data-attr="experiment-variant-rollout-percentage-input"]'
-            )
-
-            expect(percentageInputs).toHaveLength(2)
+            const splitLabels = screen.getAllByText('50%')
+            expect(splitLabels).toHaveLength(2)
         })
 
         it('renders add variant button', () => {
@@ -178,20 +175,12 @@ describe('VariantsPanelCreateFeatureFlag', () => {
             expect(hasVariantUpdate).toBe(true)
         })
 
-        it('updates variant description', async () => {
-            renderComponent(defaultExperiment)
-
-            const descriptionInputs = screen.getAllByPlaceholderText('Description')
-            await userEvent.type(descriptionInputs[0], 'Control group')
-
-            // Verify onChange was called with variant updates
-            expect(mockOnChange).toHaveBeenCalled()
-            const hasVariantUpdate = mockOnChange.mock.calls.some((call) => call[0].parameters?.feature_flag_variants)
-            expect(hasVariantUpdate).toBe(true)
-        })
-
-        it('updates rollout percentage', async () => {
+        it('updates rollout percentage after enabling custom split', async () => {
             const { container } = renderComponent(defaultExperiment)
+
+            // Click pencil button to enable custom split editing
+            const customizeButton = screen.getByRole('button', { name: /customize split/i })
+            await userEvent.click(customizeButton)
 
             const percentageInputs = container.querySelectorAll(
                 '[data-attr="experiment-variant-rollout-percentage-input"]'
@@ -274,8 +263,8 @@ describe('VariantsPanelCreateFeatureFlag', () => {
                 <VariantsPanelCreateFeatureFlag experiment={experimentWithThreeVariants} onChange={mockOnChange} />
             )
 
-            const rows = container.querySelectorAll('.grid.grid-cols-24')
-            const controlRow = rows[1] // First row after header
+            const rows = container.querySelectorAll('tbody tr')
+            const controlRow = rows[0] // First row (control variant)
 
             // Control variant should not have a delete button
             const deleteButton = controlRow.querySelector('[data-attr^="delete-prop-filter"]')
@@ -297,7 +286,7 @@ describe('VariantsPanelCreateFeatureFlag', () => {
 
             renderComponent(unevenExperiment)
 
-            const balanceButton = screen.getByRole('button', { name: /normalize variant rollout/i })
+            const balanceButton = screen.getByRole('button', { name: /distribute split evenly/i })
             await userEvent.click(balanceButton)
 
             expect(mockOnChange).toHaveBeenCalledWith({

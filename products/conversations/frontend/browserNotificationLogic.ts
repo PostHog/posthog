@@ -44,9 +44,9 @@ const setStoredPreference = (enabled: boolean): void => {
 
 export const browserNotificationLogic = kea<browserNotificationLogicType>([
     path(['products', 'conversations', 'frontend', 'browserNotificationLogic']),
-    connect({
+    connect(() => ({
         values: [teamLogic, ['currentTeam']],
-    }),
+    })),
     actions({
         requestPermission: true,
         setPermission: (permission: NotificationPermission) => ({ permission }),

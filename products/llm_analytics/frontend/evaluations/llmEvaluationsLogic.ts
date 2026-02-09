@@ -1,13 +1,18 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import api from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 
 import type { llmEvaluationsLogicType } from './llmEvaluationsLogicType'
 import { EvaluationConfig } from './types'
+
+const INITIAL_DATE_FROM = '-1h' as string | null
+const INITIAL_DATE_TO = null as string | null
 
 export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
     path(['products', 'llm_analytics', 'evaluations', 'llmEvaluationsLogic']),
@@ -16,6 +21,7 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
     })),
 
     actions({
+        setDates: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
         loadEvaluations: true,
         loadEvaluationsSuccess: (evaluations: EvaluationConfig[]) => ({ evaluations }),
         createEvaluation: (evaluation: Partial<EvaluationConfig>) => ({ evaluation }),
@@ -32,6 +38,16 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
     }),
 
     reducers({
+        dateFilter: [
+            {
+                dateFrom: INITIAL_DATE_FROM,
+                dateTo: INITIAL_DATE_TO,
+            },
+            {
+                setDates: (_, { dateFrom, dateTo }) => ({ dateFrom, dateTo }),
+            },
+        ],
+
         evaluations: [
             [] as EvaluationConfig[],
             {
@@ -192,6 +208,28 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
             },
         ],
     }),
+
+    urlToAction(({ actions, values }) => ({
+        [urls.llmAnalyticsEvaluations()]: (_, searchParams) => {
+            const dateFrom = (searchParams.date_from as string | null) || INITIAL_DATE_FROM
+            const dateTo = (searchParams.date_to as string | null) || INITIAL_DATE_TO
+
+            if (dateFrom !== values.dateFilter.dateFrom || dateTo !== values.dateFilter.dateTo) {
+                actions.setDates(dateFrom, dateTo)
+            }
+        },
+    })),
+
+    actionToUrl(() => ({
+        setDates: ({ dateFrom, dateTo }) => [
+            urls.llmAnalyticsEvaluations(),
+            {
+                ...router.values.searchParams,
+                date_from: dateFrom === INITIAL_DATE_FROM ? undefined : dateFrom || undefined,
+                date_to: dateTo || undefined,
+            },
+        ],
+    })),
 
     afterMount(({ actions }) => {
         actions.loadEvaluations()
