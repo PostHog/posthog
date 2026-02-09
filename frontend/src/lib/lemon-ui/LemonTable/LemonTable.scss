@@ -38,7 +38,8 @@
     &.LemonTable--with-ribbon {
         --row-ribbon-width: 0.25rem;
 
-        .LemonTable__content > table > tbody > tr > :first-child {
+        .LemonTable__content > table > tbody > tr > :first-child,
+        .LemonTable__virtualized-cell:first-child {
             position: relative;
 
             &::after {
@@ -377,5 +378,118 @@ body:not(.storybook-test-runner) {
         .LemonTable__header--pinned::before {
             box-shadow: -16px 0 16px 16px rgb(0 0 0 / 25%);
         }
+    }
+}
+
+// Virtualized table styles
+.LemonTable--virtualized {
+    display: flex;
+    flex-direction: column;
+
+    &.LemonTable--stealth {
+        .LemonTable__virtualized-header {
+            background: none;
+            box-shadow: none;
+        }
+
+        .LemonTable__virtualized-row {
+            border-top: none;
+        }
+    }
+
+    &.LemonTable--lowercase-header {
+        .LemonTable__virtualized-header {
+            text-transform: none;
+            letter-spacing: normal;
+        }
+    }
+}
+
+.LemonTable__virtualized-header {
+    display: grid;
+    position: relative;
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.03125rem;
+    text-align: left;
+    background: var(--lemon-table-background-color);
+    box-shadow: inset 0 -1px var(--color-border-primary);
+
+    > .LemonTable__header {
+        padding: 0.5rem var(--row-horizontal-padding);
+        overflow: hidden;
+        text-overflow: ellipsis;
+
+        &:first-child {
+            padding-left: calc(var(--row-horizontal-padding) * 2 + var(--row-ribbon-width, 0px));
+        }
+
+        &:last-child {
+            padding-right: calc(var(--row-horizontal-padding) * 2 + var(--row-ribbon-width, 0px));
+        }
+
+        .LemonButton {
+            margin: -0.5rem 0;
+        }
+    }
+}
+
+.LemonTable__virtualized-body {
+    flex: 1;
+    min-height: 0;
+}
+
+.LemonTable__virtualized-empty {
+    padding: 0.5rem;
+    color: var(--color-text-secondary);
+}
+
+.LemonTable__virtualized-row {
+    &:not(:first-child) {
+        border-top: 1px solid var(--color-border-primary);
+    }
+
+    &.LemonTable__row--status-highlighted {
+        font-weight: 600;
+        color: var(--text-3000);
+
+        .LemonTable__virtualized-cell:not(.LemonTable__cell--sticky) {
+            background: var(--color-accent-highlight-secondary);
+        }
+    }
+
+    &.LemonTable__row--status-highlight-new {
+        animation: LemonTable__row__highlight__animation 1.5s ease-out;
+    }
+
+    .LemonButton {
+        margin-top: -0.25rem;
+        margin-bottom: -0.25rem;
+    }
+}
+
+.LemonTable__virtualized-cells {
+    display: grid;
+    height: 100%;
+    align-items: center;
+}
+
+.LemonTable__virtualized-cell {
+    padding: 0.3125rem var(--row-horizontal-padding);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: var(--color-text-secondary);
+
+    &:first-child {
+        padding-left: calc(var(--row-horizontal-padding) * 2 + var(--row-ribbon-width, 0px));
+    }
+
+    &:last-child {
+        padding-right: calc(var(--row-horizontal-padding) * 2 + var(--row-ribbon-width, 0px));
+    }
+
+    &.LemonTable__boundary:not(:first-of-type) {
+        border-left: 1px solid var(--color-border-primary);
     }
 }
