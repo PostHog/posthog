@@ -60,7 +60,7 @@ export function TableView(): JSX.Element {
     }
     return (
         <LemonTable
-            className="max-h-[calc(100vh-14rem)] overflow-y-auto"
+            className="h-[calc(100vh-14rem)] overflow-y-auto"
             stickyHeader={true}
             dataSource={visibleNodes}
             loading={nodesLoading}

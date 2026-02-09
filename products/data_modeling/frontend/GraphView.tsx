@@ -195,10 +195,7 @@ function GraphViewContent(): JSX.Element {
     }, [debouncedSearchTerm, enrichedNodes, reactFlowInstance, highlightedNodeIds])
 
     return (
-        <div
-            ref={reactFlowWrapper}
-            className="relative w-full border rounded-lg overflow-hidden h-[calc(100vh-14rem)] min-h-[400px]"
-        >
+        <div ref={reactFlowWrapper} className="relative w-full border rounded-lg overflow-hidden h-[calc(100vh-14rem)]">
             <ReactFlow<Node, Edge>
                 fitView={!savedViewport}
                 defaultViewport={savedViewport ?? undefined}

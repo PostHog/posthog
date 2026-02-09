@@ -128,7 +128,7 @@ function NodeLabelAndAction({
     action: (e: React.MouseEvent) => void
 }): JSX.Element {
     return (
-        <div className="flex items-center justify-between py-1.5">
+        <div className="flex items-center justify-between py-2">
             <Tooltip title={label}>
                 <span className="font-medium text-sm truncate">{label}</span>
             </Tooltip>
