@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { IconMessage } from '@posthog/icons'
 import { LemonBanner, LemonDivider, LemonInput, LemonSelect, Spinner } from '@posthog/lemon-ui'
@@ -50,14 +50,13 @@ function buildProperties(surveyId: string | null | 'any', completedResponsesOnly
 function StepTriggerConfigurationSurvey({ node }: { node: any }): JSX.Element {
     const { setWorkflowActionConfig } = useActions(workflowLogic)
     const config = node.data.config as EventTriggerConfig
-    const { allSurveys, surveysLoading, moreSurveysLoading, hasMoreSurveys, responseCounts } =
+    const { allSurveys, filteredSurveys, searchTerm, surveysLoading, moreSurveysLoading, hasMoreSurveys, responseCounts } =
         useValues(surveyTriggerLogic)
-    const { loadSurveys, loadMoreSurveys } = useActions(surveyTriggerLogic)
+    const { loadSurveys, loadMoreSurveys, setSearchTerm } = useActions(surveyTriggerLogic)
     const selectedSurveyId = getSelectedSurveyId(config)
     const completedOnly = getCompletedResponsesOnly(config)
     const filterTestAccounts = config.filters?.filter_test_accounts ?? false
 
-    const [searchTerm, setSearchTerm] = useState('')
     const [selectedSurveyName, setSelectedSurveyName] = useState<string | null>(null)
 
     useEffect(() => {
@@ -65,7 +64,7 @@ function StepTriggerConfigurationSurvey({ node }: { node: any }): JSX.Element {
     }, [loadSurveys])
 
     useEffect(() => {
-        if (selectedSurveyId) {
+        if (selectedSurveyId && selectedSurveyId !== 'any') {
             const survey = allSurveys.find((s) => s.id === selectedSurveyId)
             if (survey) {
                 setSelectedSurveyName(survey.name)
@@ -74,14 +73,6 @@ function StepTriggerConfigurationSurvey({ node }: { node: any }): JSX.Element {
             setSelectedSurveyName(null)
         }
     }, [selectedSurveyId, allSurveys])
-
-    const filteredSurveys = useMemo(() => {
-        if (!searchTerm) {
-            return allSurveys
-        }
-        const lower = searchTerm.toLowerCase()
-        return allSurveys.filter((s) => s.name.toLowerCase().includes(lower))
-    }, [allSurveys, searchTerm])
 
     const selectedSurveyLabel = selectedSurveyName ?? (selectedSurveyId ? 'Loading...' : null)
 
