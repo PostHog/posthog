@@ -25,7 +25,7 @@ export function PersonsSearch({ query, setQuery }: PersonSearchProps): JSX.Eleme
     const target: ActorType = isQueryForGroup(query) ? 'group' : 'person'
 
     return (
-        <div className="flex items-center w-full">
+        <div className="flex items-center flex-1 min-w-0">
             <LemonInput
                 type="search"
                 value={value ?? ''}
