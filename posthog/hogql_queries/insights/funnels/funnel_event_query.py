@@ -133,108 +133,25 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
 
                 table_configs_to_steps[key].steps_with_index.append((step_index, node))
 
-        def _build_events_table_query(
-            steps_with_index: Sequence[tuple[int, EventsNode | ActionsNode]],
-        ) -> ast.SelectQuery:
-            all_step_cols = self._get_funnel_cols()
-
-            select: list[ast.Expr] = [
-                ast.Alias(alias="timestamp", expr=ast.Field(chain=[self.EVENT_TABLE_ALIAS, "timestamp"])),
-                ast.Alias(alias="aggregation_target", expr=self._aggregation_target_expr()),
-                *all_step_cols,
-            ]
-
-            select_from = ast.JoinExpr(
-                table=ast.Field(chain=["events"]),
-                alias=self.EVENT_TABLE_ALIAS,
-                sample=self._sample_expr(),
-            )
-
-            where_exprs = [
-                self._date_range_expr(),
-                self._entity_expr(skip_entity_filter),
-                *self._properties_expr(),
-                self._aggregation_target_filter(),
-            ]
-            where = ast.And(exprs=[expr for expr in where_exprs if expr is not None])
-
-            if not skip_step_filter:
-                steps_conditions = self._get_steps_conditions(steps_with_index)
-                where = ast.And(exprs=[where, steps_conditions])
-
-            stmt = ast.SelectQuery(
-                select=select,
-                select_from=select_from,
-                where=where,
-            )
-            return stmt
-
-        def _build_data_warehouse_table_query(
-            table_config_index: int, steps_with_index: Sequence[tuple[int, DataWarehouseNode]]
-        ) -> ast.SelectQuery:
-            table_entity = steps_with_index[0][1]
-
-            all_step_cols = self._get_funnel_cols(table_entity, table_config_index)
-
-            field = self.get_warehouse_field(table_entity.table_name, table_entity.timestamp_field)
-
-            timestamp_expr: ast.Expr
-            if isinstance(field, DateTimeDatabaseField) or isinstance(field, DateDatabaseField):
-                timestamp_expr = ast.Field(chain=[self.EVENT_TABLE_ALIAS, table_entity.timestamp_field])
-            elif isinstance(field, StringDatabaseField):
-                timestamp_expr = ast.Call(
-                    name="toDateTime", args=[ast.Field(chain=[self.EVENT_TABLE_ALIAS, table_entity.timestamp_field])]
-                )
-            else:
-                raise ValidationError(
-                    detail=f"Unsupported timestamp field type for {table_entity.table_name}.{table_entity.timestamp_field}"
-                )
-
-            select: list[ast.Expr] = [
-                ast.Alias(
-                    alias="timestamp",
-                    expr=timestamp_expr,
-                ),
-                ast.Alias(alias="aggregation_target", expr=parse_expr(table_entity.distinct_id_field)),
-                *all_step_cols,
-            ]
-
-            select_from = ast.JoinExpr(table=ast.Field(chain=[table_entity.table_name]), alias=self.EVENT_TABLE_ALIAS)
-
-            date_range = self._date_range()
-            where_exprs: list[ast.Expr] = [
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.GtEq,
-                    left=ast.Field(chain=["timestamp"]),
-                    right=ast.Constant(value=date_range.date_from()),
-                ),
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.LtEq,
-                    left=ast.Field(chain=["timestamp"]),
-                    right=ast.Constant(value=date_range.date_to()),
-                ),
-            ]
-            where = ast.And(exprs=[expr for expr in where_exprs if expr is not None])
-
-            if not skip_step_filter:
-                steps_conditions = self._get_steps_conditions(steps_with_index)
-                where = ast.And(exprs=[where, steps_conditions])
-
-            return ast.SelectQuery(
-                select=select,
-                select_from=select_from,
-                where=where,
-            )
-
         queries: list[ast.SelectQuery] = []
 
         for key, config in table_configs_to_steps.items():
             if key == "events":
-                steps_with_index = cast(Sequence[tuple[int, EventsNode | ActionsNode]], config.steps_with_index)
-                queries.append(_build_events_table_query(steps_with_index))
+                queries.append(
+                    self._build_events_table_query(
+                        steps_with_index=cast(Sequence[tuple[int, EventsNode | ActionsNode]], config.steps_with_index),
+                        skip_entity_filter=skip_entity_filter,
+                        skip_step_filter=skip_step_filter,
+                    )
+                )
             else:
-                steps_with_index = cast(Sequence[tuple[int, DataWarehouseNode]], config.steps_with_index)
-                queries.append(_build_data_warehouse_table_query(config.table_config_index, steps_with_index))
+                queries.append(
+                    self._build_data_warehouse_table_query(
+                        table_config_index=config.table_config_index,
+                        steps_with_index=cast(Sequence[tuple[int, DataWarehouseNode]], config.steps_with_index),
+                        skip_step_filter=skip_step_filter,
+                    )
+                )
 
         if len(queries) == 1:
             return queries[0]
@@ -249,6 +166,105 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
                 table=ast.SelectSetQuery.create_from_queries(queries, "UNION ALL"),
                 alias=self.EVENT_TABLE_ALIAS,
             ),
+        )
+
+    def _build_events_table_query(
+        self,
+        steps_with_index: Sequence[tuple[int, EventsNode | ActionsNode]],
+        skip_entity_filter: bool,
+        skip_step_filter: bool,
+    ) -> ast.SelectQuery:
+        all_step_cols = self._get_funnel_cols()
+
+        select: list[ast.Expr] = [
+            ast.Alias(alias="timestamp", expr=ast.Field(chain=[self.EVENT_TABLE_ALIAS, "timestamp"])),
+            ast.Alias(alias="aggregation_target", expr=self._aggregation_target_expr()),
+            *all_step_cols,
+        ]
+
+        select_from = ast.JoinExpr(
+            table=ast.Field(chain=["events"]),
+            alias=self.EVENT_TABLE_ALIAS,
+            sample=self._sample_expr(),
+        )
+
+        where_exprs = [
+            self._date_range_expr(),
+            self._entity_expr(skip_entity_filter),
+            *self._properties_expr(),
+            self._aggregation_target_filter(),
+        ]
+        where = ast.And(exprs=[expr for expr in where_exprs if expr is not None])
+
+        if not skip_step_filter:
+            steps_conditions = self._get_steps_conditions(steps_with_index)
+            where = ast.And(exprs=[where, steps_conditions])
+
+        stmt = ast.SelectQuery(
+            select=select,
+            select_from=select_from,
+            where=where,
+        )
+        return stmt
+
+    def _build_data_warehouse_table_query(
+        self,
+        table_config_index: int,
+        steps_with_index: Sequence[tuple[int, DataWarehouseNode]],
+        skip_step_filter: bool,
+    ) -> ast.SelectQuery:
+        table_entity = steps_with_index[0][1]
+
+        all_step_cols = self._get_funnel_cols(table_entity, table_config_index)
+
+        field = self.get_warehouse_field(table_entity.table_name, table_entity.timestamp_field)
+
+        timestamp_expr: ast.Expr
+        if isinstance(field, DateTimeDatabaseField) or isinstance(field, DateDatabaseField):
+            timestamp_expr = ast.Field(chain=[self.EVENT_TABLE_ALIAS, table_entity.timestamp_field])
+        elif isinstance(field, StringDatabaseField):
+            timestamp_expr = ast.Call(
+                name="toDateTime", args=[ast.Field(chain=[self.EVENT_TABLE_ALIAS, table_entity.timestamp_field])]
+            )
+        else:
+            raise ValidationError(
+                detail=f"Unsupported timestamp field type for {table_entity.table_name}.{table_entity.timestamp_field}"
+            )
+
+        select: list[ast.Expr] = [
+            ast.Alias(
+                alias="timestamp",
+                expr=timestamp_expr,
+            ),
+            ast.Alias(alias="aggregation_target", expr=parse_expr(table_entity.distinct_id_field)),
+            *all_step_cols,
+        ]
+
+        select_from = ast.JoinExpr(table=ast.Field(chain=[table_entity.table_name]), alias=self.EVENT_TABLE_ALIAS)
+
+        date_range = self._date_range()
+        where_exprs: list[ast.Expr] = [
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.GtEq,
+                left=ast.Field(chain=["timestamp"]),
+                right=ast.Constant(value=date_range.date_from()),
+            ),
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.LtEq,
+                left=ast.Field(chain=["timestamp"]),
+                right=ast.Constant(value=date_range.date_to()),
+            ),
+        ]
+        where = ast.And(exprs=[expr for expr in where_exprs if expr is not None])
+
+        if not skip_step_filter:
+            steps_conditions = self._get_steps_conditions(steps_with_index)
+            where = ast.And(exprs=[where, steps_conditions])
+
+        return ast.SelectQuery(
+            select=select,
+            select_from=select_from,
+            where=where,
         )
 
     def _get_funnel_cols(
