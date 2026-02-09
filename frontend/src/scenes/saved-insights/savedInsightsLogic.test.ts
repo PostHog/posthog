@@ -215,6 +215,27 @@ describe('savedInsightsLogic', () => {
         )
     })
 
+    it('handles rapid filter changes correctly (race condition)', async () => {
+        // This tests the scenario where a user changes a filter while a previous request is in flight.
+        // The breakpoint() after the API call ensures stale responses are discarded.
+        // Rapidly change filters multiple times
+        logic.actions.setSavedInsightsFilters({ search: 'first' }, true, false)
+        logic.actions.setSavedInsightsFilters({ search: 'second' }, true, false)
+        logic.actions.setSavedInsightsFilters({ search: 'third' }, true, false)
+
+        // Wait for all actions to complete
+        await expectLogic(logic).toFinishAllListeners()
+
+        // The final state should match the last filter applied
+        await expectLogic(logic).toMatchValues({
+            filters: partial({ search: 'third' }),
+            insights: partial({
+                filters: partial({ search: 'third' }),
+                results: partial([partial({ name: 'third 1' })]),
+            }),
+        })
+    })
+
     describe('reacts to external updates', () => {
         it('loads insights when a dashboard is duplicated', async () => {
             await expectLogic(logic, () => {
