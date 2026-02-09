@@ -270,7 +270,7 @@ function MoreMenu(): JSX.Element {
                         },
                         {
                             icon: <IconCamera />,
-                            label: 'Take an event definition screenshot',
+                            label: 'Screenshot for event',
                             onClick: handleScreenshotClick,
                             disabled: isTakingScreenshot,
                         },
