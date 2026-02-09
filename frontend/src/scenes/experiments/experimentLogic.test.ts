@@ -158,6 +158,8 @@ describe('experimentLogic', () => {
                             },
                             hasDiagnostics: true,
                             statusCode: 400,
+                            queryId: expect.any(String),
+                            timestamp: expect.any(Number),
                         },
                     ],
                 })
@@ -232,6 +234,8 @@ describe('experimentLogic', () => {
                             },
                             hasDiagnostics: true,
                             statusCode: 400,
+                            queryId: expect.any(String),
+                            timestamp: expect.any(Number),
                         },
                         null,
                     ],
