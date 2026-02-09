@@ -22,6 +22,7 @@ import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
 import api, { ApiMethodOptions, getJSONOrNull } from 'lib/api'
 import { DataColorTheme } from 'lib/colors'
+import { quickFiltersSectionLogic } from 'lib/components/QuickFilters'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Dayjs, dayjs, now } from 'lib/dayjs'
@@ -50,6 +51,7 @@ import {
     DataVisualizationNode,
     HogQLVariable,
     NodeKind,
+    QuickFilterContext,
     RefreshType,
 } from '~/queries/schema/schema-general'
 import {
@@ -77,6 +79,7 @@ import { teamLogic } from '../teamLogic'
 import { BreakdownColorConfig } from './DashboardInsightColorsModal'
 import { TileFiltersOverride } from './TileFiltersOverride'
 import type { dashboardLogicType } from './dashboardLogicType'
+import { dashboardQuickFiltersLogic } from './dashboardQuickFiltersLogic'
 import {
     AUTO_REFRESH_INITIAL_INTERVAL_SECONDS,
     BREAKPOINT_COLUMN_COUNTS,
@@ -149,6 +152,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
             ['variables'],
             dataThemeLogic,
             ['getTheme'],
+            dashboardQuickFiltersLogic,
+            ['quickFilterPropertyFiltersById'],
         ],
         logic: [dashboardsModel, insightsModel, eventUsageLogic],
     })),
@@ -908,30 +913,62 @@ export const dashboardLogic = kea<dashboardLogicType>([
             (canAutoPreview, hasIntermittentFilters) => !canAutoPreview && hasIntermittentFilters,
         ],
         urlFilters: [() => [router.selectors.searchParams], (searchParams) => parseURLFilters(searchParams)],
+        scopedQuickFiltersAsPropertyFilters: [
+            (s) => [s.dashboard, s.quickFilterPropertyFiltersById],
+            (
+                dashboard: DashboardType<QueryBasedInsightModel> | null,
+                quickFilterPropertyFiltersById: Record<string, AnyPropertyFilter>
+            ): AnyPropertyFilter[] => {
+                const allowedIds = dashboard?.quick_filter_ids
+                if (!allowedIds || allowedIds.length === 0) {
+                    return []
+                }
+                return allowedIds
+                    .filter((id) => id in quickFilterPropertyFiltersById)
+                    .map((id) => quickFilterPropertyFiltersById[id])
+            },
+        ],
         filtersOverrideForLoad: [
-            (s) => [s.externalFilters, s.urlFilters],
-            (externalFilters, urlFilters) => combineDashboardFilters(externalFilters, urlFilters),
+            (s) => [s.externalFilters, s.urlFilters, s.scopedQuickFiltersAsPropertyFilters],
+            (externalFilters, urlFilters, scopedQuickFilters) => {
+                const combined = combineDashboardFilters(externalFilters, urlFilters)
+                if (scopedQuickFilters.length > 0) {
+                    combined.properties = [...(combined.properties || []), ...scopedQuickFilters]
+                }
+                return combined
+            },
         ],
         effectiveEditBarFilters: [
             (s) => [s.dashboard, s.externalFilters, s.urlFilters, s.intermittentFilters],
             (dashboard, externalFilters, urlFilters, intermittentFilters) => {
-                const effectiveEditBarFilters = combineDashboardFilters(
+                // Quick filters are intentionally excluded here so they don't appear
+                // as duplicates in the PropertyFilters UI component.
+                // They are still applied to queries via filtersOverrideForLoad and effectiveRefreshFilters
+                return combineDashboardFilters(
                     dashboard?.persisted_filters || {},
                     externalFilters,
                     urlFilters,
                     intermittentFilters
                 )
-                return effectiveEditBarFilters
             },
         ],
         effectiveRefreshFilters: [
-            (s) => [s.dashboard, s.externalFilters, s.urlFilters],
+            (s) => [s.dashboard, s.externalFilters, s.urlFilters, s.scopedQuickFiltersAsPropertyFilters],
             (
                 dashboard: DashboardType<QueryBasedInsightModel> | null,
                 externalFilters: DashboardFilter,
-                urlFilters: DashboardFilter
+                urlFilters: DashboardFilter,
+                scopedQuickFilters: AnyPropertyFilter[]
             ): DashboardFilter => {
-                return combineDashboardFilters(dashboard?.persisted_filters || {}, externalFilters, urlFilters)
+                const combined = combineDashboardFilters(
+                    dashboard?.persisted_filters || {},
+                    externalFilters,
+                    urlFilters
+                )
+                if (scopedQuickFilters.length > 0) {
+                    combined.properties = [...(combined.properties || []), ...scopedQuickFilters]
+                }
+                return combined
             },
         ],
         effectiveDashboardVariableOverrides: [
@@ -1872,6 +1909,21 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 forceRefresh: false,
             })
             actions.setDashboardMode(DashboardMode.Edit, null)
+        },
+        [quickFiltersSectionLogic({ context: QuickFilterContext.Dashboards }).actionTypes.setQuickFilterValue]: () => {
+            // Quick filters always auto-refresh, regardless of dashboard size
+            // This makes them "quick" - unlike normal filters which require manual apply on large dashboards
+            actions.refreshDashboardItems({
+                action: RefreshDashboardItemsAction.Preview,
+                forceRefresh: false,
+            })
+        },
+        [quickFiltersSectionLogic({ context: QuickFilterContext.Dashboards }).actionTypes.clearQuickFilter]: () => {
+            // Quick filters always auto-refresh, regardless of dashboard size
+            actions.refreshDashboardItems({
+                action: RefreshDashboardItemsAction.Preview,
+                forceRefresh: false,
+            })
         },
         [variableDataLogic.actionTypes.getVariablesSuccess]: () => {
             // Only run this handler once on startup
