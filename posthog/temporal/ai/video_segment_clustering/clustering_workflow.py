@@ -107,7 +107,7 @@ class VideoSegmentClusteringWorkflow(PostHogWorkflow):
                             model_to_use=DEFAULT_VIDEO_UNDERSTANDING_MODEL,
                             video_validation_enabled="full",
                         ),
-                        id=f"session-summary:single:direct:{inputs.team_id}:{session_id}:{prime_info.user_id}:{session_id}:{workflow.uuid4()}",
+                        id=f"session-summary:single:direct:{inputs.team_id}:{session_id}:{prime_info.user_id}:{workflow.uuid4()}",
                         execution_timeout=timedelta(minutes=30),
                         retry_policy=RetryPolicy(
                             maximum_attempts=1,  # No retries - if video export times out, just skip
