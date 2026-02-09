@@ -635,6 +635,7 @@
       snapshot_source LowCardinality(Nullable(String)),
       snapshot_library Nullable(String),
       retention_period_days Nullable(Int64),
+      is_deleted UInt8,
   ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_session_replay_events_test', kafka_group_name = 'group1', kafka_format = 'JSONEachRow')
   
   '''
@@ -2195,6 +2196,7 @@
       snapshot_source LowCardinality(Nullable(String)),
       snapshot_library Nullable(String),
       retention_period_days Nullable(Int64),
+      is_deleted UInt8,
   ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_session_replay_events_test', kafka_group_name = 'group1', kafka_format = 'JSONEachRow')
   
   '''
@@ -3739,6 +3741,8 @@
       _timestamp SimpleAggregateFunction(max, DateTime),
       -- retention period for this session, in days. Useful to show TTL for the recording
       retention_period_days SimpleAggregateFunction(max, Nullable(Int64)),
+      -- marks the recording as deleted for crypto shredding; once 1, merges keep it as 1
+      is_deleted SimpleAggregateFunction(max, UInt8) DEFAULT 0,
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_session_replay_events', sipHash64(distinct_id))
   
   '''
@@ -3765,6 +3769,7 @@
   `snapshot_library` AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
   `_timestamp` Nullable(DateTime)
   ,`retention_period_days` SimpleAggregateFunction(max, Nullable(Int64))
+  ,`is_deleted` SimpleAggregateFunction(max, UInt8)
   )
   AS SELECT
   session_id,
@@ -3801,6 +3806,7 @@
   argMinState(snapshot_library, first_timestamp) as snapshot_library,
   max(_timestamp) as _timestamp
   ,max(retention_period_days) as retention_period_days
+  ,max(is_deleted) as is_deleted
   FROM posthog_test.kafka_session_replay_events
   group by session_id, team_id
   
@@ -4732,6 +4738,8 @@
       _timestamp SimpleAggregateFunction(max, DateTime),
       -- retention period for this session, in days. Useful to show TTL for the recording
       retention_period_days SimpleAggregateFunction(max, Nullable(Int64)),
+      -- marks the recording as deleted for crypto shredding; once 1, merges keep it as 1
+      is_deleted SimpleAggregateFunction(max, UInt8) DEFAULT 0,
   ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.session_replay_events', '{replica}')
   
       PARTITION BY toYYYYMM(min_first_timestamp)
@@ -6072,6 +6080,8 @@
       _timestamp SimpleAggregateFunction(max, DateTime),
       -- retention period for this session, in days. Useful to show TTL for the recording
       retention_period_days SimpleAggregateFunction(max, Nullable(Int64)),
+      -- marks the recording as deleted for crypto shredding; once 1, merges keep it as 1
+      is_deleted SimpleAggregateFunction(max, UInt8) DEFAULT 0,
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_session_replay_events', sipHash64(distinct_id))
   
   '''
@@ -7662,6 +7672,8 @@
       _timestamp SimpleAggregateFunction(max, DateTime),
       -- retention period for this session, in days. Useful to show TTL for the recording
       retention_period_days SimpleAggregateFunction(max, Nullable(Int64)),
+      -- marks the recording as deleted for crypto shredding; once 1, merges keep it as 1
+      is_deleted SimpleAggregateFunction(max, UInt8) DEFAULT 0,
   ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.session_replay_events', '{replica}')
   
       PARTITION BY toYYYYMM(min_first_timestamp)
@@ -8216,6 +8228,8 @@
       _timestamp SimpleAggregateFunction(max, DateTime),
       -- retention period for this session, in days. Useful to show TTL for the recording
       retention_period_days SimpleAggregateFunction(max, Nullable(Int64)),
+      -- marks the recording as deleted for crypto shredding; once 1, merges keep it as 1
+      is_deleted SimpleAggregateFunction(max, UInt8) DEFAULT 0,
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_session_replay_events', sipHash64(distinct_id))
   
   '''
