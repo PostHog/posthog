@@ -491,10 +491,9 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
                                     {
                                         'font-semibold !border-brand-yellow': tab.key === activeTab,
                                         'border-transparent': tab.key !== activeTab,
-                                        'opacity-50 cursor-not-allowed': tab.disabled,
                                     }
                                 )}
-                                onClick={() => !tab.disabled && setActiveTab(tab.key)}
+                                onClick={() => setActiveTab(tab.key)}
                             >
                                 <span className="mr-1">{tab.icon}</span>
                                 {tab.label}
