@@ -22,8 +22,12 @@ import type { HogFlowTemplate } from '../hogflows/types'
 import { newWorkflowLogic } from '../newWorkflowLogic'
 import { workflowTemplatesLogic } from './workflowTemplatesLogic'
 
+interface WorkflowTemplateChooserProps {
+    showEmptyWorkflow?: boolean
+}
+
 // Adapted from DashboardTemplateChooser.tsx; try to keep parity for a consistent user experience
-export function WorkflowTemplateChooser(): JSX.Element {
+export function WorkflowTemplateChooser(props: WorkflowTemplateChooserProps): JSX.Element {
     const { filteredTemplates, workflowTemplatesLoading, tagFilter, availableTags } = useValues(workflowTemplatesLogic)
     const { deleteHogflowTemplate, setTagFilter } = useActions(workflowTemplatesLogic)
     const { user } = useValues(userLogic)
@@ -46,13 +50,15 @@ export function WorkflowTemplateChooser(): JSX.Element {
     return (
         <div>
             <div className="mb-4 flex flex-wrap gap-2">
-                <LemonButton
-                    type={tagFilter === null ? 'primary' : 'secondary'}
-                    onClick={() => setTagFilter(null)}
-                    size="small"
-                >
-                    All
-                </LemonButton>
+                {availableTags.length > 0 && (
+                    <LemonButton
+                        type={tagFilter === null ? 'primary' : 'secondary'}
+                        onClick={() => setTagFilter(null)}
+                        size="small"
+                    >
+                        All
+                    </LemonButton>
+                )}
                 {availableTags.map((tag) => (
                     <LemonButton
                         key={tag}
@@ -65,19 +71,21 @@ export function WorkflowTemplateChooser(): JSX.Element {
                 ))}
             </div>
             <div className="WorkflowTemplateChooser">
-                <TemplateItem
-                    key={0}
-                    template={{
-                        name: 'Empty workflow',
-                        description: 'Create a blank workflow from scratch',
-                        image_url: BlankWorkflowHog,
-                        scope: 'team',
-                        tags: [],
-                    }}
-                    onClick={createEmptyWorkflow}
-                    index={0}
-                    data-attr="create-workflow-blank"
-                />
+                {props.showEmptyWorkflow && (
+                    <TemplateItem
+                        key={0}
+                        template={{
+                            name: 'Empty workflow',
+                            description: 'Create a blank workflow from scratch',
+                            image_url: BlankWorkflowHog,
+                            scope: 'team',
+                            tags: [],
+                        }}
+                        onClick={createEmptyWorkflow}
+                        index={0}
+                        data-attr="create-workflow-blank"
+                    />
+                )}
                 {workflowTemplatesLoading ? (
                     <Spinner className="text-6xl" />
                 ) : (
@@ -126,7 +134,7 @@ export function WorkflowTemplateChooser(): JSX.Element {
                                       }
                                     : undefined
                             }
-                            index={index + 1}
+                            index={props.showEmptyWorkflow ? index + 1 : index}
                             data-attr="create-workflow-from-template"
                         />
                     ))
