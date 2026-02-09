@@ -33,7 +33,6 @@ from posthog.hogql_queries.insights.funnels.utils import (
     data_warehouse_config_key,
     entity_config_mismatch,
     get_breakdown_expr,
-    is_data_warehouse_entity,
 )
 from posthog.hogql_queries.insights.utils.data_warehouse_schema_mixin import DataWarehouseSchemaMixin
 from posthog.hogql_queries.insights.utils.properties import Properties
@@ -105,7 +104,7 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
 
         # collect the steps by their source table and configuration, so we can build one query per source table/configuration
         for step_index, node in enumerate(self.context.query.series):
-            if is_data_warehouse_entity(node):
+            if isinstance(node, DataWarehouseNode):
                 # we may have multiple steps using the same data warehouse table but with different configurations
                 config_key = data_warehouse_config_key(node)
 

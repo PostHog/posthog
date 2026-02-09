@@ -1,4 +1,3 @@
-from enum import Enum, auto
 from typing import TypeGuard
 
 from rest_framework.exceptions import ValidationError
@@ -17,11 +16,6 @@ from posthog.hogql.parser import parse_expr
 
 from posthog.constants import FUNNEL_WINDOW_INTERVAL_TYPES
 from posthog.types import EntityNode, ExclusionEntityNode
-
-
-class SourceTableKind(Enum):
-    EVENTS = auto()
-    DATA_WAREHOUSE = auto()
 
 
 def funnel_window_interval_unit_to_sql(
@@ -85,14 +79,6 @@ def get_breakdown_expr(
     return expression
 
 
-def is_events_source(source_kind: SourceTableKind) -> bool:
-    return source_kind is SourceTableKind.EVENTS
-
-
-def is_data_warehouse_source(source_kind: SourceTableKind) -> bool:
-    return source_kind is SourceTableKind.DATA_WAREHOUSE
-
-
 def is_events_entity(entity: EntityNode | ExclusionEntityNode) -> TypeGuard[EventsNode | FunnelExclusionEventsNode]:
     return (
         isinstance(entity, EventsNode)
@@ -104,24 +90,6 @@ def is_events_entity(entity: EntityNode | ExclusionEntityNode) -> TypeGuard[Even
 
 def is_data_warehouse_entity(entity: EntityNode | ExclusionEntityNode) -> TypeGuard[DataWarehouseNode]:
     return isinstance(entity, DataWarehouseNode)
-
-
-def entity_source_mismatch(entity: EntityNode, source_kind: SourceTableKind) -> bool:
-    if source_kind is SourceTableKind.EVENTS:
-        return not is_events_entity(entity)
-    if source_kind is SourceTableKind.DATA_WAREHOUSE:
-        return not is_data_warehouse_entity(entity)
-    raise ValueError(f"Unknown SourceTableKind: {source_kind}")
-
-
-def entity_source_or_table_mismatch(entity: EntityNode, source_kind: SourceTableKind, table_name: str) -> bool:
-    if entity_source_mismatch(entity, source_kind):
-        return True
-    if is_events_entity(entity) and table_name != "events":
-        return True
-    if is_data_warehouse_entity(entity) and table_name != entity.table_name:
-        return True
-    return False
 
 
 def data_warehouse_config_key(node: DataWarehouseNode) -> tuple[str | None, str | None, str | None]:
