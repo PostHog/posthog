@@ -61,6 +61,8 @@ describe('PropertyValue', () => {
 
         // Select a value from the dropdown
         userEvent.click(screen.getByText('Chrome'))
+        // Flush pending microtasks so any async loadPropertyValues calls settle before we assert
+        await new Promise((r) => setTimeout(r, 0))
 
         // loadPropertyValues should not have been called again
         expect(loadPropertyValuesSpy.mock.calls.length).toBe(callCountAfterLoad)
