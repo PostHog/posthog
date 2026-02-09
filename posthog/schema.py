@@ -2908,6 +2908,8 @@ class ProductIntentContext(StrEnum):
     WORKFLOW_CREATED = "workflow_created"
     DATA_PIPELINE_CREATED = "data_pipeline_created"
     BATCH_EXPORT_CREATED = "batch_export_created"
+    BATCH_EXPORT_UPDATED = "batch_export_updated"
+    BATCH_EXPORT_BACKFILL_CREATED = "batch_export_backfill_created"
     NOTEBOOK_CREATED = "notebook_created"
     PRODUCT_TOUR_CREATED = "product_tour_created"
     TASK_CREATED = "task_created"
