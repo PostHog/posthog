@@ -26,6 +26,7 @@ from posthog.tasks.alerts.utils import (
     WRAPPER_NODE_KINDS,
     AlertEvaluationResult,
     calculation_interval_to_order,
+    compute_insight_query_hash,
     next_check_time,
     send_notifications_for_breaches,
     send_notifications_for_errors,
@@ -422,6 +423,11 @@ def add_alert_check(
         alert.last_notified_at = now
         targets_notified = {"users": list(alert.subscribed_users.all().values_list("email", flat=True))}
 
+    # Compute insight query hash for change detection
+    # Use upgrade_query to ensure consistent hash even if query schema evolves
+    with upgrade_query(alert.insight):
+        insight_query_hash = compute_insight_query_hash(alert.insight.query, alert.team)
+
     alert_check = AlertCheck.objects.create(
         alert_configuration=alert,
         calculated_value=value,
@@ -429,6 +435,7 @@ def add_alert_check(
         targets_notified=targets_notified,
         state=alert.state,
         error=error,
+        insight_query_hash=insight_query_hash,
     )
 
     alert.save()

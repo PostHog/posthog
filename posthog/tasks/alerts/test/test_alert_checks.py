@@ -689,3 +689,58 @@ class TestAlertChecks(APIBaseTest, ClickhouseDestroyTablesMixin):
         assert mock_send_notifications_for_breaches.call_count == 0
         assert mock_send_errors.call_count == 0
         assert AlertCheck.objects.filter(alert_configuration=self.alert["id"]).count() == 0
+
+    def test_alert_check_stores_insight_query_hash(
+        self, mock_send_notifications_for_breaches: MagicMock, mock_send_errors: MagicMock
+    ) -> None:
+        self.set_thresholds(lower=1)
+
+        check_alert(self.alert["id"])
+
+        alert_check = AlertCheck.objects.filter(alert_configuration=self.alert["id"]).latest("created_at")
+        assert alert_check.insight_query_hash is not None
+        # SHA256 hash is 64 hex chars
+        assert len(alert_check.insight_query_hash) == 64
+
+    def test_alert_check_query_has_changed_false_when_insight_unchanged(
+        self, mock_send_notifications_for_breaches: MagicMock, mock_send_errors: MagicMock
+    ) -> None:
+        self.set_thresholds(lower=1)
+
+        check_alert(self.alert["id"])
+
+        # Fetch the alert via API to check query_has_changed
+        response = self.client.get(f"/api/projects/{self.team.id}/alerts/{self.alert['id']}")
+        assert response.status_code == 200
+        checks = response.json()["checks"]
+        assert len(checks) == 1
+        assert checks[0]["query_has_changed"] is False
+
+    def test_alert_check_query_has_changed_true_when_insight_modified(
+        self, mock_send_notifications_for_breaches: MagicMock, mock_send_errors: MagicMock
+    ) -> None:
+        self.set_thresholds(lower=1)
+
+        check_alert(self.alert["id"])
+
+        # Now modify the insight query
+        new_query_dict = TrendsQuery(
+            series=[
+                EventsNode(
+                    event="$pageleave",  # Changed from $pageview
+                ),
+            ],
+            trendsFilter=TrendsFilter(display=ChartDisplayType.BOLD_NUMBER),
+        ).model_dump()
+
+        self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{self.insight['id']}",
+            data={"query": new_query_dict},
+        )
+
+        # Fetch the alert via API to check query_has_changed
+        response = self.client.get(f"/api/projects/{self.team.id}/alerts/{self.alert['id']}")
+        assert response.status_code == 200
+        checks = response.json()["checks"]
+        assert len(checks) == 1
+        assert checks[0]["query_has_changed"] is True

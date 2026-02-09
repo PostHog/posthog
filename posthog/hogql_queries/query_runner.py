@@ -77,7 +77,13 @@ from posthog.hogql.query import create_default_modifiers_for_team
 from posthog.hogql.timings import HogQLTimings
 
 from posthog import settings
-from posthog.caching.utils import ThresholdMode, cache_target_age, is_stale, last_refresh_from_cached_result
+from posthog.caching.utils import (
+    ThresholdMode,
+    cache_target_age,
+    generate_query_cache_payload,
+    is_stale,
+    last_refresh_from_cached_result,
+)
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client.execute_async import QueryNotFoundError, enqueue_process_query_task, get_query_status
 from posthog.clickhouse.client.limit import (
@@ -96,7 +102,6 @@ from posthog.hogql_queries.query_cache_factory import get_query_cache_manager
 from posthog.hogql_queries.query_metadata import extract_query_metadata
 from posthog.hogql_queries.utils.event_usage import log_event_usage_from_query_metadata
 from posthog.models import Team, User
-from posthog.models.team import WeekStartDay
 from posthog.rbac.user_access_control import UserAccessControlError
 from posthog.schema_helpers import to_dict
 from posthog.utils import generate_cache_key, get_from_dict_or_attr, to_json
@@ -1382,26 +1387,16 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             )[0]
 
     def get_cache_payload(self) -> dict:
-        # remove the tags key, these are used in the query log comment but shouldn't break caching
         # note: to_dict already strips custom_name from series (see schema_helpers.py)
-        query = to_dict(self.query)
-        query.pop("tags", None)
-
-        return {
-            "query_runner": self.__class__.__name__,
-            "query": query,
-            "team_id": self.team.pk,
-            "hogql_modifiers": to_dict(self.modifiers),
-            "products_modifiers": {
-                "revenue_analytics": self.team.revenue_analytics_config.to_cache_key_dict(),
-                "marketing_analytics": self.team.marketing_analytics_config.to_cache_key_dict(),
-                "customer_analytics": self.team.customer_analytics_config.to_cache_key_dict(),
+        return generate_query_cache_payload(
+            team=self.team,
+            query=to_dict(self.query),
+            modifiers=self.modifiers,
+            extra={
+                "query_runner": self.__class__.__name__,
+                "limit_context": self._limit_context_aliased_for_cache,
             },
-            "limit_context": self._limit_context_aliased_for_cache,
-            "timezone": self.team.timezone,
-            "week_start_day": self.team.week_start_day or WeekStartDay.SUNDAY,
-            "version": 2,
-        }
+        )
 
     def get_cache_key(self) -> str:
         return generate_cache_key(self.team.pk, f"query_{bytes.decode(to_json(self.get_cache_payload()))}")

@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from datetime import datetime
+from typing import TYPE_CHECKING, Optional
 
 from django.utils import timezone
 
@@ -9,10 +10,15 @@ from dateutil.relativedelta import MO, relativedelta
 
 from posthog.schema import AlertCalculationInterval, ChartDisplayType, NodeKind
 
+from posthog.caching.utils import generate_query_cache_payload
 from posthog.cdp.internal_events import InternalEventEvent, produce_internal_event
 from posthog.email import EmailMessage
 from posthog.exceptions_capture import capture_exception
 from posthog.models import AlertConfiguration
+from posthog.utils import generate_content_hash, to_json
+
+if TYPE_CHECKING:
+    from posthog.models import Team
 
 logger = structlog.get_logger(__name__)
 
@@ -21,6 +27,23 @@ logger = structlog.get_logger(__name__)
 class AlertEvaluationResult:
     value: float | None
     breaches: list[str] | None
+
+
+def compute_insight_query_hash(query: dict | None, team: "Team") -> Optional[str]:
+    """
+    Compute a deterministic hash of an insight query for change detection.
+
+    Returns None if query is None, otherwise returns a SHA256 hex string.
+    Uses the same cache payload logic as the query cache API to ensure
+    all relevant context (team settings, etc.) is included.
+    """
+    if query is None:
+        return None
+
+    # Use the same cache payload structure as the query runner
+    # This ensures we detect changes to team settings that affect query results
+    payload = generate_query_cache_payload(team=team, query=query)
+    return generate_content_hash(bytes.decode(to_json(payload)))
 
 
 WRAPPER_NODE_KINDS = [NodeKind.DATA_TABLE_NODE, NodeKind.DATA_VISUALIZATION_NODE, NodeKind.INSIGHT_VIZ_NODE]
