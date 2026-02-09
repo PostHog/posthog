@@ -493,7 +493,7 @@ class TestTicketAPI(APIBaseTest):
         # Includes: session, user, org, team, permissions, feature flag check, count query, tickets query,
         # person distinct_id query (batch), person prefetch, all distinct_ids query (batch)
         # Note: message stats are denormalized, no subqueries needed
-        with self.assertNumQueries(14):
+        with self.assertNumQueries(13):
             response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             # Should have original ticket + 10 new tickets = 11 total
