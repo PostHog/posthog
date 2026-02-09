@@ -2,7 +2,7 @@
 
 Lazy preaggregation speeds up queries by saving and reusing intermediate aggregated results. Instead of scanning the raw events table on every query, we compute aggregated data once and reuse it for subsequent queries with the same shape.
 
-This is intended be used on our most important queries, by our biggest customers, and run against our clickhouse and postgres databases which are some of the biggest in the world, and takes that into account in the design.
+This is intended to be used for our most important queries by our biggest customers. It runs against our ClickHouse and Postgres databases — some of the largest in the world — and the design takes that into account.
 
 ## How it works
 

@@ -256,10 +256,10 @@ def find_missing_contiguous_windows(
     end_timestamp: datetime,
 ) -> list[tuple[datetime, datetime]]:
     """
-    Find which daily windows are not covered by existing READY jobs,
+    Find which daily windows are not covered by existing READY or PENDING jobs,
     then merge contiguous missing windows into ranges.
 
-    For example, if the range is Jan 1-4 and a READY job exists for Jan 2,
+    For example, if the range is Jan 1-4 and a job exists for Jan 2,
     this returns: [(Jan 1, Jan 2), (Jan 3, Jan 4)]
 
     If no jobs exist for Jan 1-4, it returns: [(Jan 1, Jan 4)]
@@ -270,7 +270,7 @@ def find_missing_contiguous_windows(
     # Step 2: Find missing daily windows
     missing = []
     for window_start, window_end in daily_windows:
-        # Check if this window is covered by any READY job
+        # Check if this window is covered by any READY or PENDING job
         is_covered = False
         for job in existing_jobs:
             if (
@@ -695,6 +695,7 @@ class PreaggregationExecutor:
                 job = jobs_by_id.get(entry.job.id)
                 if job is None:
                     # Job was deleted from DB — treat as permanently failed
+                    entry.job.error = entry.job.error or "Job row deleted while waiting"
                     failed_jobs.append(entry.job)
                     del waiting_for[tracking_key]
                     continue
@@ -703,7 +704,7 @@ class PreaggregationExecutor:
                     ready_jobs.append(job)
                     del waiting_for[tracking_key]
 
-                elif job.status == PreaggregationJob.Status.FAILED:
+                elif job.status in (PreaggregationJob.Status.FAILED, PreaggregationJob.Status.STALE):
                     entry.retries += 1
 
                     if entry.retries > self.max_retries:
