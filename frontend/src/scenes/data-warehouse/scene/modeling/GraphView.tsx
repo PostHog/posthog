@@ -97,7 +97,7 @@ export function NodeTypePanel(): JSX.Element {
 
     if (collapsed) {
         return (
-            <div className="absolute right-1.5 bottom-1.5 z-10 bg-primary p-2">
+            <div className="absolute right-1.5 bottom-1.5 z-10 bg-transparent p-2">
                 <LemonButton
                     className="dark:bg-primary bg-white"
                     icon={<IconExpand />}
@@ -157,7 +157,8 @@ export function NodeTypePanel(): JSX.Element {
 function GraphViewContent(): JSX.Element {
     const { isDarkModeOn } = useValues(themeLogic)
 
-    const { enrichedNodes, enrichedEdges, highlightedNodeIds, debouncedSearchTerm } = useValues(dataModelingLogic)
+    const { enrichedNodes, enrichedEdges, highlightedNodeIds, debouncedSearchTerm, savedViewport } =
+        useValues(dataModelingLogic)
     const { onEdgesChange, onNodesChange, setReactFlowInstance, setReactFlowWrapper } = useActions(dataModelingLogic)
 
     const reactFlowWrapper = useRef<HTMLDivElement>(null)
@@ -199,7 +200,8 @@ function GraphViewContent(): JSX.Element {
             className="relative w-full border rounded-lg overflow-hidden h-[calc(100vh-17rem)] min-h-[400px]"
         >
             <ReactFlow<Node, Edge>
-                fitView
+                fitView={!savedViewport}
+                defaultViewport={savedViewport ?? undefined}
                 nodes={enrichedNodes}
                 edges={enrichedEdges}
                 onNodesChange={onNodesChange}

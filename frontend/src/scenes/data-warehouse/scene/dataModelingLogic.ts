@@ -4,6 +4,7 @@ import {
     NodeChange,
     Position,
     ReactFlowInstance,
+    Viewport,
     applyEdgeChanges,
     applyNodeChanges,
 } from '@xyflow/react'
@@ -106,6 +107,7 @@ export const dataModelingLogic = kea<dataModelingLogicType>([
         setReactFlowWrapper: (reactFlowWrapper: RefObject<HTMLDivElement>) => ({ reactFlowWrapper }),
         setHighlightedNodeType: (highlightedNodeType: DataModelingNodeType | null) => ({ highlightedNodeType }),
         setHoveredNodeId: (hoveredNodeId: string | null) => ({ hoveredNodeId }),
+        setSavedViewport: (viewport: Viewport) => ({ viewport }),
         resetGraph: (
             dataModelingNodes: DataModelingNode[],
             dataModelingEdges: DataModelingEdge[],
@@ -184,6 +186,12 @@ export const dataModelingLogic = kea<dataModelingLogicType>([
             null as string | null,
             {
                 setHoveredNodeId: (_, { hoveredNodeId }) => hoveredNodeId,
+            },
+        ],
+        savedViewport: [
+            null as Viewport | null,
+            {
+                setSavedViewport: (_, { viewport }) => viewport,
             },
         ],
         edges: [
@@ -479,6 +487,11 @@ export const dataModelingLogic = kea<dataModelingLogicType>([
         ],
     }),
     listeners(({ values, actions }) => ({
+        setViewMode: ({ viewMode }) => {
+            if (viewMode !== 'graph' && values.reactFlowInstance) {
+                actions.setSavedViewport(values.reactFlowInstance.getViewport())
+            }
+        },
         onEdgesChange: ({ edges }) => {
             actions.setEdges(applyEdgeChanges(edges, values.edges))
         },

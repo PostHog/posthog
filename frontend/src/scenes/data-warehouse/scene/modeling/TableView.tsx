@@ -77,7 +77,7 @@ export function TableView(): JSX.Element {
                         const settings = NODE_TYPE_TAG_SETTINGS[node.type]
                         return <LemonTag type={settings.type}>{settings.label}</LemonTag>
                     },
-                    moreIcon: <IconFilter />,
+                    moreIcon: <IconFilter className="w-4 h-4" />,
                     moreFilterCount: filterTypes.length,
                     more: (
                         <div className="space-y-1">
@@ -105,7 +105,7 @@ export function TableView(): JSX.Element {
                     title: 'DAG',
                     key: 'dag_id',
                     render: (_, node: DataModelingNode) => <span className="text-muted">{node.dag_id}</span>,
-                    moreIcon: <IconFilter />,
+                    moreIcon: <IconFilter className="w-4 h-4" />,
                     moreFilterCount: filterDagIds.length,
                     more: (
                         <div className="space-y-1">
