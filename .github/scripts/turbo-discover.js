@@ -13,8 +13,7 @@ const fs = require('fs')
 const path = require('path')
 
 const SMALL_THRESHOLD = 50
-const SHARD_THRESHOLD = 200
-const TESTS_PER_SHARD = 100
+const TARGET_SHARD_SECONDS = 10 * 60
 
 function getTurboTasks() {
     try {
@@ -48,11 +47,14 @@ function getProducts(tasks, legacyChanged) {
     ]
 }
 
+// Skip temporal/ — those tests need a Temporal server (handled by Django CI's Temporal segment)
+const SKIP_DIRS = new Set(['__pycache__', 'temporal'])
+
 function countTestsInDir(dir) {
     let count = 0
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
         const full = path.join(dir, entry.name)
-        if (entry.isDirectory() && entry.name !== '__pycache__') {
+        if (entry.isDirectory() && !SKIP_DIRS.has(entry.name)) {
             count += countTestsInDir(full)
         } else if (entry.isFile() && entry.name.endsWith('.py')) {
             const content = fs.readFileSync(full, 'utf-8')
@@ -75,14 +77,40 @@ function countTests(product) {
     return countTestsInDir(testDir)
 }
 
-function buildMatrix(products) {
+function loadTestDurations() {
+    try {
+        return JSON.parse(fs.readFileSync('.test_durations', 'utf-8'))
+    } catch {
+        console.error('Warning: .test_durations not found, sharding disabled')
+        return null
+    }
+}
+
+function getProductDuration(product, durations) {
+    if (!durations) {
+        return 0
+    }
+    const dirName = product.replace(/-/g, '_')
+    const prefix = `products/${dirName}/`
+    const temporalPrefix = `${prefix}backend/tests/temporal/`
+    let total = 0
+    for (const [test, dur] of Object.entries(durations)) {
+        if (test.startsWith(prefix) && !test.startsWith(temporalPrefix)) {
+            total += dur
+        }
+    }
+    return total
+}
+
+function buildMatrix(products, durations) {
     const matrix = []
     const small = []
 
     for (const product of products) {
         const count = countTests(product)
-        const shards = count >= SHARD_THRESHOLD ? Math.ceil(count / TESTS_PER_SHARD) : 1
-        console.error(`  ${product}: ${count} tests, ${shards} shard(s)`)
+        const duration = getProductDuration(product, durations)
+        const shards = duration > TARGET_SHARD_SECONDS ? Math.ceil(duration / TARGET_SHARD_SECONDS) : 1
+        console.error(`  ${product}: ${count} tests, ${(duration / 60).toFixed(1)} min, ${shards} shard(s)`)
         const filters = `--filter=@posthog/products-${product}`
 
         if (count < SMALL_THRESHOLD) {
@@ -116,5 +144,6 @@ const tasks = getTurboTasks()
 const products = getProducts(tasks, legacyChanged)
 console.error(`Products to test: ${JSON.stringify(products)}`)
 
-const matrix = buildMatrix(products)
+const durations = loadTestDurations()
+const matrix = buildMatrix(products, durations)
 console.log(JSON.stringify(matrix))
