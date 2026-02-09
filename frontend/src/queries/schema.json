@@ -27595,7 +27595,7 @@
             "type": "object"
         },
         "QuickFilterContext": {
-            "enum": ["error-tracking-issue-filters", "logs-filters"],
+            "enum": ["error-tracking-issue-filters", "logs-filters", "dashboards"],
             "type": "string"
         },
         "QuickFilterType": {
