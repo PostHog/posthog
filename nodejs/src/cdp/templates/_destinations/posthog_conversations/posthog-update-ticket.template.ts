@@ -17,11 +17,11 @@ if (empty(inputs.ticket_id)) {
 
 let updates := {}
 
-if (not empty(inputs.status)) {
+if (not empty(inputs.status) and inputs.status != '') {
   updates.status := inputs.status
 }
 
-if (not empty(inputs.priority)) {
+if (not empty(inputs.priority) and inputs.priority != '') {
   updates.priority := inputs.priority
 }
 

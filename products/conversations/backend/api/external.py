@@ -126,7 +126,7 @@ class ExternalTicketView(APIView):
         update_fields: list[str] = []
 
         new_status = serializer.validated_data.get("status")
-        if new_status:
+        if new_status is not None:
             old_status = ticket.status
             ticket.status = new_status
             update_fields.append("status")
@@ -135,7 +135,7 @@ class ExternalTicketView(APIView):
                 invalidate_unread_count_cache(team.id)
 
         new_priority = serializer.validated_data.get("priority")
-        if new_priority:
+        if new_priority is not None:
             ticket.priority = new_priority
             update_fields.append("priority")
 

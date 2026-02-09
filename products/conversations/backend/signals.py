@@ -76,9 +76,9 @@ def update_ticket_on_message(sender, instance: Comment, created: bool, **kwargs)
         try:
             ticket = Ticket.objects.get(id=item_id, team_id=team_id)
             if is_team_message:
-                capture_message_sent(ticket, comment_id, content, created_by_id)
+                capture_message_sent(ticket, comment_id, content or "", created_by_id)
             else:
-                capture_message_received(ticket, comment_id, content)
+                capture_message_received(ticket, comment_id, content or "")
         except Ticket.DoesNotExist:
             pass
 
