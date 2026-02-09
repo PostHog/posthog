@@ -1114,6 +1114,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'LLMAnalyticsPrompt',
             'LLMAnalyticsClusters',
             'LLMAnalyticsCluster',
+            'LLMAnalyticsTracePreview',
         ],
     },
     {
@@ -1190,6 +1191,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'LLMAnalyticsPrompt',
             'LLMAnalyticsClusters',
             'LLMAnalyticsCluster',
+            'LLMAnalyticsTracePreview',
         ],
     },
     {
@@ -1264,6 +1266,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'LLMAnalyticsPrompt',
             'LLMAnalyticsClusters',
             'LLMAnalyticsCluster',
+            'LLMAnalyticsTracePreview',
         ],
     },
     {
@@ -1435,6 +1438,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'LLMAnalyticsPrompt',
             'LLMAnalyticsClusters',
             'LLMAnalyticsCluster',
+            'LLMAnalyticsTracePreview',
         ],
     },
     {
