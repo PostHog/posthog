@@ -86,6 +86,8 @@ export interface LemonTableProps<T extends Record<string, any>> {
     pinnedColumns?: string[]
     // Max width for the column headers
     maxHeaderWidth?: string
+    /** Whether the header row should stick to the top when scrolling vertically. */
+    stickyHeader?: boolean
     /** Whether to hide the scrollbar. */
     hideScrollbar?: boolean
     /** Row actions to display in a "More" menu at the end of each row. Return null to hide actions for specific rows. */
@@ -128,6 +130,7 @@ export function LemonTable<T extends Record<string, any>>({
     firstColumnSticky,
     pinnedColumns,
     maxHeaderWidth,
+    stickyHeader = false,
     hideScrollbar,
     rowActions,
     hideSortingIndicatorWhenInactive = false,
@@ -258,6 +261,7 @@ export function LemonTable<T extends Record<string, any>>({
                 rowRibbonColor !== undefined && `LemonTable--with-ribbon`,
                 stealth && 'LemonTable--stealth',
                 !uppercaseHeader && 'LemonTable--lowercase-header',
+                stickyHeader && 'LemonTable--sticky-header',
                 className
             )}
             // eslint-disable-next-line react/forbid-dom-props

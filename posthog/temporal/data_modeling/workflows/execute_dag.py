@@ -6,6 +6,7 @@ from collections import defaultdict
 import temporalio.common
 import temporalio.workflow
 import temporalio.exceptions
+from temporalio.workflow import ParentClosePolicy
 
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.base import PostHogWorkflow
@@ -284,7 +285,8 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
                         dag_id=inputs.dag_id,
                         node_id=node_id,
                     ),
-                    id=f"materialize-{inputs.dag_id}-{node_id}-{temporalio.workflow.now().isoformat()}",
+                    id=f"materialize-view-{node_id}-{start_time.isoformat()}",
+                    parent_close_policy=ParentClosePolicy.REQUEST_CANCEL,
                     retry_policy=temporalio.common.RetryPolicy(
                         maximum_attempts=1,  # retries handled within child workflow
                     ),

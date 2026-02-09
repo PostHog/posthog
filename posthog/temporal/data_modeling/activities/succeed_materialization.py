@@ -30,7 +30,7 @@ def _succeed_node_and_data_modeling_job(inputs: SucceedMaterializationInputs):
     node = Node.objects.get(id=inputs.node_id, team_id=inputs.team_id, dag_id=inputs.dag_id)
     update_node_system_properties(
         node,
-        status="completed",
+        status="Completed",
         job_id=inputs.job_id,
         rows=inputs.row_count,
         duration_seconds=inputs.duration_seconds,

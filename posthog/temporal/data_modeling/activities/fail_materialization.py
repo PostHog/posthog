@@ -21,21 +21,23 @@ class FailMaterializationInputs:
     dag_id: str
     job_id: str
     error: str
+    cancelled: bool = False
 
 
 @database_sync_to_async
 def _fail_node_and_data_modeling_job(inputs: FailMaterializationInputs):
     node = Node.objects.get(id=inputs.node_id, team_id=inputs.team_id, dag_id=inputs.dag_id)
+    status = "Cancelled" if inputs.cancelled else "Failed"
     update_node_system_properties(
         node,
-        status="failed",
+        status=status,
         job_id=inputs.job_id,
         error=inputs.error,
     )
     node.save()
 
     job = DataModelingJob.objects.get(id=inputs.job_id)
-    job.status = DataModelingJob.Status.FAILED
+    job.status = status
     job.error = inputs.error
     job.save()
 
