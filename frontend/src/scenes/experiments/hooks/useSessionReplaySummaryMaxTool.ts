@@ -28,11 +28,12 @@ export const useSessionReplaySummaryMaxTool = (): ReturnType<typeof useMaxTool> 
         [experiment.id, experiment.name]
     )
 
+    const resultsCount = orderedPrimaryMetricsWithResults.length
     const shouldShowButton = useMemo(() => {
-        const hasResults = orderedPrimaryMetricsWithResults.length > 0
+        const hasResults = resultsCount > 0
         const hasStarted = !!experiment.start_date
         return hasResults && hasStarted
-    }, [orderedPrimaryMetricsWithResults, experiment.start_date])
+    }, [resultsCount, experiment.start_date])
 
     const maxToolResult = useMaxTool({
         identifier: 'experiment_session_replays_summary',
@@ -42,7 +43,7 @@ export const useSessionReplaySummaryMaxTool = (): ReturnType<typeof useMaxTool> 
             icon: iconForType('session_replay'),
         },
         active: shouldShowButton,
-        initialMaxPrompt: `!Summarize session replays for experiment "${experiment.name}"`,
+        initialMaxPrompt: `!Summarize session replays for experiment "${maxToolContext.experiment_name}"`,
         callback(toolOutput) {
             if (toolOutput?.error) {
                 posthog.captureException(
@@ -56,7 +57,7 @@ export const useSessionReplaySummaryMaxTool = (): ReturnType<typeof useMaxTool> 
             } else {
                 posthog.capture('experiment session replays analyzed', {
                     experiment_id: experiment.id,
-                    has_recordings: toolOutput.total_recordings > 0,
+                    has_recordings: (toolOutput?.total_recordings ?? 0) > 0,
                 })
             }
         },
