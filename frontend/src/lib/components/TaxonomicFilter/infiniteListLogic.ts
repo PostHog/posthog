@@ -38,7 +38,7 @@ export interface RowInfo {
  */
 export const NO_ITEM_SELECTED = -1
 
-function appendAtIndex<T>(array: T[], items: any[], startIndex?: number): T[] {
+function appendAtIndex<T>(array: T[], items: T[], startIndex?: number): T[] {
     if (startIndex === undefined) {
         return [...array, ...items]
     }
@@ -156,8 +156,8 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                     const start = performance.now()
                     actions.abortAnyRunningQuery()
 
-                    let response: any
-                    let expandedCountResponse: any = null
+                    let response: ListStorage
+                    let expandedCountResponse: { count?: number } | null = null
 
                     // Querying groups from /groups/ endpoint may result in query timeouts. Let's query clickhouse instead
                     const isGroupNamesFilter = values.listGroupType.startsWith(
@@ -172,7 +172,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
 
                         const transformedGroups = mapGroupQueryResponse(groupsResponse)
                         response = {
-                            results: transformedGroups,
+                            results: transformedGroups as unknown as TaxonomicDefinitionTypes[],
                             count: transformedGroups.length,
                         }
                         actions.setHasMore(groupsResponse.hasMore || false)

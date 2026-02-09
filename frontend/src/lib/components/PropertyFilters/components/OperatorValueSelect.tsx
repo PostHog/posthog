@@ -68,25 +68,25 @@ interface OperatorSelectProps extends Omit<LemonSelectProps<any>, 'options'> {
     startVisible?: LemonDropdownProps['startVisible']
 }
 
-function getRegexValidationError(operator: PropertyOperator, value: any): string | null {
+function getRegexValidationError(operator: PropertyOperator, value: PropertyFilterValue): string | null {
     if (isOperatorRegex(operator)) {
         try {
-            RE2JS.compile(value)
+            RE2JS.compile(String(value))
         } catch (error) {
-            return formatRE2Error(error as Error, value)
+            return formatRE2Error(error as Error, String(value))
         }
     }
     return null
 }
 
-function getValidationError(operator: PropertyOperator, value: any, property?: string): string | null {
+function getValidationError(operator: PropertyOperator, value: PropertyFilterValue, property?: string): string | null {
     const regexErrorMessage = getRegexValidationError(operator, value)
     if (regexErrorMessage != null) {
         return regexErrorMessage
     }
-    if (isOperatorRange(operator) && isNaN(value)) {
+    if (isOperatorRange(operator) && isNaN(Number(value))) {
         let message = `Range operators only work with numeric values`
-        if (dayjs(value).isValid()) {
+        if (typeof value === 'string' && dayjs(value).isValid()) {
             const propertyReference = property ? `property ${property}` : 'this property'
             message += `. If you'd like to compare dates and times, make sure ${propertyReference} is typed as DateTime in Data Management. You will then be able to use operators "before" and "after"`
         }
