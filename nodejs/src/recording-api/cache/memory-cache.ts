@@ -44,16 +44,9 @@ export class MemoryCachedKeyStore implements KeyStore {
     }
 
     async deleteKey(sessionId: string, teamId: number): Promise<boolean> {
-        const result = await this.delegate.deleteKey(sessionId, teamId)
-        if (result) {
-            try {
-                const deletedKey = await this.delegate.getKey(sessionId, teamId)
-                this.cache.set(this.cacheKey(sessionId, teamId), deletedKey)
-            } catch {
-                this.cache.delete(this.cacheKey(sessionId, teamId))
-            }
-        }
-        return result
+        // Clear cache first to ensure stale data isn't served
+        this.cache.delete(this.cacheKey(sessionId, teamId))
+        return this.delegate.deleteKey(sessionId, teamId)
     }
 
     stop(): void {

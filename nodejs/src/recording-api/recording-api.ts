@@ -1,6 +1,7 @@
 import { GetObjectCommand, S3Client, S3ClientConfig } from '@aws-sdk/client-s3'
 import express from 'ultimate-express'
 
+import { ValidRetentionPeriods } from '../session-recording/constants'
 import { RetentionService } from '../session-recording/retention/retention-service'
 import { TeamService } from '../session-recording/teams/team-service'
 import {
@@ -15,14 +16,13 @@ import { logger } from '../utils/logger'
 import { MemoryCachedKeyStore, RedisCachedKeyStore } from './cache'
 import { getBlockDecryptor } from './crypto'
 import { getKeyStore } from './keystore'
-import { RecordingParamsSchema, createGetBlockQuerySchema } from './schemas'
+import { GetBlockQuerySchema, RecordingParamsSchema } from './schemas'
 import { KeyStore, RecordingApiHub, RecordingDecryptor, SessionKeyDeletedError } from './types'
 
 export class RecordingApi {
     private s3Client: S3Client | null = null
     private s3Bucket: string | null = null
     private s3Prefix: string | null = null
-    private getBlockQuerySchema: ReturnType<typeof createGetBlockQuerySchema> | null = null
     private keyStore: KeyStore | null = null
     private decryptor: RecordingDecryptor | null = null
     private keystoreRedisPool: RedisPool | null = null
@@ -47,7 +47,6 @@ export class RecordingApi {
 
         this.s3Bucket = this.hub.SESSION_RECORDING_V2_S3_BUCKET
         this.s3Prefix = this.hub.SESSION_RECORDING_V2_S3_PREFIX
-        this.getBlockQuerySchema = createGetBlockQuerySchema(this.s3Prefix)
 
         logger.info('[RecordingApi] Starting with S3 config', {
             region: s3Region,
@@ -115,6 +114,17 @@ export class RecordingApi {
         }
     }
 
+    // S3 key format: {prefix}/{retention_period}/{timestamp}-{hex_suffix}
+    // Example: session_recordings/30d/1764634738680-3cca0f5d3c7cc7ee
+    private validateS3Key(key: string): boolean {
+        const pattern = `^${this.s3Prefix}/(${ValidRetentionPeriods.join('|')})/\\d+-[0-9a-f]{16}$`
+        return new RegExp(pattern).test(key)
+    }
+
+    private formatS3KeyError(): string {
+        return `Invalid key format: must match ${this.s3Prefix}/{${ValidRetentionPeriods.join(',')}}/{timestamp}-{hex}`
+    }
+
     isHealthy(): HealthCheckResult {
         const uninitializedComponents: string[] = []
 
@@ -159,7 +169,7 @@ export class RecordingApi {
         }
 
         // Check service initialization before processing
-        if (!this.s3Client || !this.s3Bucket || !this.getBlockQuerySchema) {
+        if (!this.s3Client || !this.s3Bucket || !this.s3Prefix) {
             res.status(503).json({ error: 'S3 client not initialized' })
             return
         }
@@ -169,7 +179,7 @@ export class RecordingApi {
             return
         }
 
-        const queryResult = this.getBlockQuerySchema.safeParse(req.query)
+        const queryResult = GetBlockQuerySchema.safeParse(req.query)
         if (!queryResult.success) {
             res.status(400).json({ error: queryResult.error.issues[0].message })
             return
@@ -177,6 +187,12 @@ export class RecordingApi {
 
         const { team_id: teamId, session_id: sessionId } = paramsResult.data
         const { key, start: startByte, end: endByte } = queryResult.data
+
+        // Validate S3 key format matches expected prefix
+        if (!this.validateS3Key(key)) {
+            res.status(400).json({ error: this.formatS3KeyError() })
+            return
+        }
 
         logger.info('[RecordingApi] getBlock request', {
             teamId,

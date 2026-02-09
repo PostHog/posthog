@@ -154,53 +154,27 @@ describe('RedisCachedKeyStore', () => {
     })
 
     describe('deleteKey', () => {
-        it('should call delegate and update Redis cache with deleted state including deletedAt', async () => {
-            const deletedKey: SessionKey = {
-                plaintextKey: Buffer.alloc(0),
-                encryptedKey: Buffer.alloc(0),
-                sessionState: 'deleted',
-                deletedAt: 1234567890,
-            }
-            mockDelegate.getKey.mockResolvedValue(deletedKey)
-
+        it('should clear cache and call delegate', async () => {
             const result = await cachedKeyStore.deleteKey('session-123', 1)
 
+            expect(mockRedisClient.del).toHaveBeenCalledWith('@posthog/replay/recording-key:1:session-123')
             expect(mockDelegate.deleteKey).toHaveBeenCalledWith('session-123', 1)
-            expect(mockDelegate.getKey).toHaveBeenCalledWith('session-123', 1)
-            expect(mockRedisClient.setex).toHaveBeenCalledWith(
-                '@posthog/replay/recording-key:1:session-123',
-                86400,
-                expect.stringContaining('"sessionState":"deleted"')
-            )
-            expect(mockRedisClient.setex).toHaveBeenCalledWith(
-                '@posthog/replay/recording-key:1:session-123',
-                86400,
-                expect.stringContaining('"deletedAt":1234567890')
-            )
             expect(result).toBe(true)
         })
 
-        it('should not update Redis cache if delegate returns false', async () => {
+        it('should clear cache even if delegate returns false', async () => {
             mockDelegate.deleteKey.mockResolvedValue(false)
 
             const result = await cachedKeyStore.deleteKey('session-123', 1)
 
+            expect(mockRedisClient.del).toHaveBeenCalledWith('@posthog/replay/recording-key:1:session-123')
             expect(result).toBe(false)
-            expect(mockRedisClient.setex).not.toHaveBeenCalled()
         })
 
         it('should propagate delegate deleteKey error', async () => {
             mockDelegate.deleteKey.mockRejectedValue(new Error('Delete failed'))
 
             await expect(cachedKeyStore.deleteKey('session-123', 1)).rejects.toThrow('Delete failed')
-        })
-
-        it('should delete Redis cache entry if getKey fails after successful delete', async () => {
-            mockDelegate.getKey.mockRejectedValue(new Error('Get failed after delete'))
-
-            const result = await cachedKeyStore.deleteKey('session-123', 1)
-
-            expect(result).toBe(true)
             expect(mockRedisClient.del).toHaveBeenCalledWith('@posthog/replay/recording-key:1:session-123')
         })
     })

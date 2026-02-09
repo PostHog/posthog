@@ -119,71 +119,41 @@ describe('MemoryCachedKeyStore', () => {
     })
 
     describe('deleteKey', () => {
-        it('should call delegate and update cache with deleted state including deletedAt', async () => {
-            const deletedKey: SessionKey = {
-                plaintextKey: Buffer.alloc(0),
-                encryptedKey: Buffer.alloc(0),
-                sessionState: 'deleted',
-                deletedAt: 1234567890,
-            }
-            mockDelegate.getKey.mockResolvedValue(deletedKey)
+        it('should clear cache and call delegate', async () => {
+            // First, populate the cache
+            await cachedKeyStore.getKey('session-123', 1)
+            mockDelegate.getKey.mockClear()
 
             const result = await cachedKeyStore.deleteKey('session-123', 1)
 
             expect(mockDelegate.deleteKey).toHaveBeenCalledWith('session-123', 1)
-            expect(mockDelegate.getKey).toHaveBeenCalledWith('session-123', 1)
             expect(result).toBe(true)
 
-            // Subsequent getKey should return deleted state from cache with deletedAt preserved
-            mockDelegate.getKey.mockClear()
-            const cachedResult = await cachedKeyStore.getKey('session-123', 1)
-
-            expect(mockDelegate.getKey).not.toHaveBeenCalled()
-            expect(cachedResult.sessionState).toBe('deleted')
-            expect(cachedResult.deletedAt).toBe(1234567890)
+            // Cache should be cleared, so next getKey should call delegate
+            await cachedKeyStore.getKey('session-123', 1)
+            expect(mockDelegate.getKey).toHaveBeenCalledWith('session-123', 1)
         })
 
-        it('should not update cache if delegate returns false', async () => {
+        it('should clear cache even if delegate returns false', async () => {
+            // First, populate the cache
+            await cachedKeyStore.getKey('session-123', 1)
+            mockDelegate.getKey.mockClear()
+
             mockDelegate.deleteKey.mockResolvedValue(false)
 
             const result = await cachedKeyStore.deleteKey('session-123', 1)
 
             expect(result).toBe(false)
 
-            // getKey should still call delegate since cache wasn't updated
+            // Cache should still be cleared
             await cachedKeyStore.getKey('session-123', 1)
-            expect(mockDelegate.getKey).toHaveBeenCalled()
+            expect(mockDelegate.getKey).toHaveBeenCalledWith('session-123', 1)
         })
 
         it('should propagate delegate deleteKey error', async () => {
             mockDelegate.deleteKey.mockRejectedValue(new Error('Delete failed'))
 
             await expect(cachedKeyStore.deleteKey('session-123', 1)).rejects.toThrow('Delete failed')
-        })
-
-        it('should remove stale cache entry if getKey fails after successful delete', async () => {
-            // First, populate the cache
-            await cachedKeyStore.getKey('session-123', 1)
-            mockDelegate.getKey.mockClear()
-
-            // Verify cache is populated
-            await cachedKeyStore.getKey('session-123', 1)
-            expect(mockDelegate.getKey).not.toHaveBeenCalled()
-
-            // Now make getKey fail after deleteKey succeeds
-            mockDelegate.getKey.mockRejectedValue(new Error('Get failed after delete'))
-
-            const result = await cachedKeyStore.deleteKey('session-123', 1)
-
-            // deleteKey should still return true
-            expect(result).toBe(true)
-
-            // Cache should be cleared, so next getKey should call delegate
-            mockDelegate.getKey.mockResolvedValue(mockSessionKey)
-            mockDelegate.getKey.mockClear()
-
-            await cachedKeyStore.getKey('session-123', 1)
-            expect(mockDelegate.getKey).toHaveBeenCalledWith('session-123', 1)
         })
     })
 

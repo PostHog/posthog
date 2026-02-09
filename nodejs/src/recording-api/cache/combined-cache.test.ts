@@ -91,34 +91,25 @@ describe('Combined MemoryCachedKeyStore and RedisCachedKeyStore', () => {
     })
 
     describe('deleteKey with combined caches', () => {
-        it('should propagate delete through all layers and preserve deletedAt', async () => {
-            mockBaseDelegate.getKey.mockResolvedValue(mockDeletedKey)
+        it('should clear all caches and propagate delete to delegate', async () => {
+            // First populate the caches
+            await combinedKeyStore.getKey('session-123', 1)
+            mockRedisClient.get.mockClear()
+            mockBaseDelegate.getKey.mockClear()
 
             const result = await combinedKeyStore.deleteKey('session-123', 1)
 
             expect(mockBaseDelegate.deleteKey).toHaveBeenCalledWith('session-123', 1)
+            expect(mockRedisClient.del).toHaveBeenCalledWith('@posthog/replay/recording-key:1:session-123')
             expect(result).toBe(true)
 
-            // Verify Redis was updated with deleted state including deletedAt
-            expect(mockRedisClient.setex).toHaveBeenCalledWith(
-                '@posthog/replay/recording-key:1:session-123',
-                86400,
-                expect.stringContaining('"sessionState":"deleted"')
-            )
-            expect(mockRedisClient.setex).toHaveBeenCalledWith(
-                '@posthog/replay/recording-key:1:session-123',
-                86400,
-                expect.stringContaining('"deletedAt":1234567890')
-            )
-
-            // Subsequent getKey should return from memory cache with deletedAt preserved
-            mockRedisClient.get.mockClear()
-            mockBaseDelegate.getKey.mockClear()
+            // Subsequent getKey should go through all layers since caches are cleared
+            mockBaseDelegate.getKey.mockResolvedValue(mockDeletedKey)
 
             const cachedResult = await combinedKeyStore.getKey('session-123', 1)
 
-            expect(mockRedisClient.get).not.toHaveBeenCalled()
-            expect(mockBaseDelegate.getKey).not.toHaveBeenCalled()
+            expect(mockRedisClient.get).toHaveBeenCalled()
+            expect(mockBaseDelegate.getKey).toHaveBeenCalled()
             expect(cachedResult.sessionState).toBe('deleted')
             expect(cachedResult.deletedAt).toBe(1234567890)
         })

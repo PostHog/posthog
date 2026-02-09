@@ -6,10 +6,14 @@ import { RetentionPeriod } from '../types'
 import { TeamServiceMetrics } from './metrics'
 import { TeamForReplay } from './types'
 
+interface TeamServiceData {
+    tokenMap: Record<string, TeamForReplay>
+    retentionMap: Record<TeamId, RetentionPeriod>
+    encryptionMap: Record<TeamId, boolean>
+}
+
 export class TeamService {
-    private readonly teamRefresher: BackgroundRefresher<
-        [Record<string, TeamForReplay>, Record<TeamId, RetentionPeriod>, Record<TeamId, boolean>]
-    >
+    private readonly teamRefresher: BackgroundRefresher<TeamServiceData>
 
     constructor(private postgres: PostgresRouter) {
         this.teamRefresher = new BackgroundRefresher(
@@ -24,7 +28,7 @@ export class TeamService {
     }
 
     public async getTeamByToken(token: string): Promise<TeamForReplay | null> {
-        const tokenMap = (await this.teamRefresher.get())[0]
+        const { tokenMap } = await this.teamRefresher.get()
         const teamConfig = tokenMap[token]
 
         if (!teamConfig?.teamId) {
@@ -35,7 +39,7 @@ export class TeamService {
     }
 
     public async getRetentionPeriodByTeamId(teamId: TeamId): Promise<RetentionPeriod | null> {
-        const retentionMap = (await this.teamRefresher.get())[1]
+        const { retentionMap } = await this.teamRefresher.get()
         const retentionPeriod = retentionMap[teamId]
 
         if (retentionPeriod === undefined) {
@@ -46,20 +50,16 @@ export class TeamService {
     }
 
     public async getEncryptionEnabledByTeamId(teamId: TeamId): Promise<boolean> {
-        const encryptionMap = (await this.teamRefresher.get())[2]
+        const { encryptionMap } = await this.teamRefresher.get()
         return encryptionMap[teamId] ?? false
     }
 
-    private async fetchTeamTokensWithRecordings(): Promise<
-        [Record<string, TeamForReplay>, Record<TeamId, RetentionPeriod>, Record<TeamId, boolean>]
-    > {
+    private async fetchTeamTokensWithRecordings(): Promise<TeamServiceData> {
         return fetchTeamTokensWithRecordings(this.postgres)
     }
 }
 
-export async function fetchTeamTokensWithRecordings(
-    client: PostgresRouter
-): Promise<[Record<string, TeamForReplay>, Record<TeamId, RetentionPeriod>, Record<TeamId, boolean>]> {
+export async function fetchTeamTokensWithRecordings(client: PostgresRouter): Promise<TeamServiceData> {
     const selectResult = await client.query<
         {
             capture_console_log_opt_in: boolean
@@ -106,5 +106,5 @@ export async function fetchTeamTokensWithRecordings(
 
     TeamServiceMetrics.incrementRefreshCount()
 
-    return [tokenMap, retentionMap, encryptionMap]
+    return { tokenMap, retentionMap, encryptionMap }
 }

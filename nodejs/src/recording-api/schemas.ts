@@ -1,7 +1,5 @@
 import { z } from 'zod'
 
-import { ValidRetentionPeriods } from '../session-recording/constants'
-
 // Schema for positive integer string (e.g., "123" -> 123)
 const positiveIntString = (fieldName: string) =>
     z
@@ -24,25 +22,14 @@ export const RecordingParamsSchema = z.object({
     session_id: z.string({ required_error: 'Missing session_id parameter' }).min(1, 'Invalid session_id parameter'),
 })
 
-// Creates a schema for getBlock query params with S3 key validation using the configured prefix
-export function createGetBlockQuerySchema(s3Prefix: string) {
-    // Key format: {prefix}/{retention_period}/{timestamp}-{hex_suffix}
-    // Example: session_recordings/30d/1764634738680-3cca0f5d3c7cc7ee
-    const s3KeyRegex = new RegExp(`^${s3Prefix}/(${ValidRetentionPeriods.join('|')})/\\d+-[0-9a-f]{16}$`)
-
-    return z
-        .object({
-            key: z
-                .string({ required_error: 'Missing key query parameter' })
-                .min(1, 'Invalid key query parameter')
-                .regex(s3KeyRegex, {
-                    message: `Invalid key format: must match ${s3Prefix}/{${ValidRetentionPeriods.join(',')}}/{timestamp}-{hex}`,
-                }),
-            start: nonNegativeIntString('start'),
-            end: nonNegativeIntString('end'),
-        })
-        .refine((data) => data.start <= data.end, {
-            message: 'start must be less than or equal to end',
-            path: ['start'],
-        })
-}
+// Static schema for getBlock query params (validates structure only)
+export const GetBlockQuerySchema = z
+    .object({
+        key: z.string({ required_error: 'Missing key query parameter' }).min(1, 'Invalid key query parameter'),
+        start: nonNegativeIntString('start'),
+        end: nonNegativeIntString('end'),
+    })
+    .refine((data) => data.start <= data.end, {
+        message: 'start must be less than or equal to end',
+        path: ['start'],
+    })
