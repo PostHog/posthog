@@ -122,6 +122,40 @@ class QuickFilterSerializer(serializers.ModelSerializer):
         return instance
 
 
+def remove_quick_filter_from_dashboards(team_id: int, quick_filter_id: str) -> int:
+    """
+    Remove a quick filter ID from all dashboards that reference it.
+    Uses raw SQL for efficient JSONB array manipulation.
+    Returns the number of dashboards updated.
+    """
+    from django.db import connection
+
+    with connection.cursor() as cursor:
+        # This query:
+        # 1. Finds dashboards where quick_filter_ids contains the target ID (@> operator)
+        # 2. Rebuilds the array excluding the target ID (jsonb_array_elements + jsonb_agg)
+        # 3. Uses COALESCE to return empty array if all elements are removed (jsonb_agg returns NULL for empty)
+        # Parameters: %s[0] = quoted ID for comparison, %s[1] = team_id, %s[2] = array containing ID for @> check
+        cursor.execute(
+            """
+            UPDATE posthog_dashboard
+            SET quick_filter_ids = COALESCE(
+                (
+                    SELECT jsonb_agg(elem)
+                    FROM jsonb_array_elements(quick_filter_ids) AS elem
+                    WHERE elem::text != %s
+                ),
+                '[]'::jsonb
+            )
+            WHERE team_id = %s
+              AND quick_filter_ids IS NOT NULL
+              AND quick_filter_ids @> %s::jsonb
+            """,
+            [f'"{quick_filter_id}"', team_id, f'["{quick_filter_id}"]'],
+        )
+        return cursor.rowcount
+
+
 class QuickFilterViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "INTERNAL"
     queryset = QuickFilter.objects.all()
@@ -133,3 +167,12 @@ class QuickFilterViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if context:
             queryset = queryset.filter(context_memberships__context=context).distinct()
         return queryset.order_by("-created_at")
+
+    def perform_destroy(self, instance):
+        quick_filter_id = str(instance.id)
+        team_id = instance.team_id
+
+        # Remove this quick filter from all dashboards before deleting
+        remove_quick_filter_from_dashboards(team_id, quick_filter_id)
+
+        instance.delete()

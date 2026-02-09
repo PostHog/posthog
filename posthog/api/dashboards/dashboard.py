@@ -82,6 +82,7 @@ DASHBOARD_SHARED_FIELDS = [
     "persisted_filters",
     "persisted_variables",
     "team_id",
+    "quick_filter_ids",
 ]
 
 
@@ -295,6 +296,19 @@ class DashboardSerializer(DashboardMetadataSerializer):
 
         return value
 
+    def validate_quick_filter_ids(self, value) -> list:
+        if value is None:
+            return []
+
+        if not isinstance(value, list):
+            raise serializers.ValidationError("quick_filter_ids must be a list")
+
+        for item in value:
+            if not isinstance(item, str):
+                raise serializers.ValidationError("quick_filter_ids must be a list of strings")
+
+        return value
+
     @monitor(feature=Feature.DASHBOARD, endpoint="dashboard", method="POST")
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Dashboard:
         request = self.context["request"]
@@ -335,6 +349,9 @@ class DashboardSerializer(DashboardMetadataSerializer):
 
         if existing_dashboard and existing_dashboard.data_color_theme_id:
             validated_data["data_color_theme_id"] = existing_dashboard.data_color_theme_id
+
+        if existing_dashboard and existing_dashboard.quick_filter_ids:
+            validated_data["quick_filter_ids"] = existing_dashboard.quick_filter_ids
 
         dashboard = Dashboard.objects.create(team_id=team_id, filters=filters, **validated_data)
 
