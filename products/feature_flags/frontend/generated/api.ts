@@ -409,8 +409,8 @@ export const featureFlagsBulkDeleteCreate = async (
     projectId: string,
     featureFlagApi: NonReadonly<FeatureFlagApi>,
     options?: RequestInit
-): Promise<Record<string, unknown>> => {
-    return apiMutator<Record<string, unknown>>(getFeatureFlagsBulkDeleteCreateUrl(projectId), {
+): Promise<void> => {
+    return apiMutator<void>(getFeatureFlagsBulkDeleteCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
