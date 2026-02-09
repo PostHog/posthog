@@ -230,9 +230,7 @@ class TestGenerateSummaryActivity:
             patch(
                 "posthog.temporal.llm_analytics.trace_summarization.summarization.format_trace_text_repr"
             ) as mock_format,
-            patch(
-                "posthog.temporal.llm_analytics.trace_summarization.summarization.TraceQueryRunner"
-            ) as mock_runner_class,
+            patch("posthog.temporal.llm_analytics.trace_summarization.summarization.fetch_trace") as mock_fetch_trace,
             patch("posthog.temporal.llm_analytics.trace_summarization.summarization.create_event") as mock_create_event,
         ):
             mock_person = LLMTracePerson(
@@ -247,8 +245,7 @@ class TestGenerateSummaryActivity:
                 events=[],
                 person=mock_person,
             )
-            mock_runner = mock_runner_class.return_value
-            mock_runner.calculate.return_value.results = [mock_trace]
+            mock_fetch_trace.return_value = mock_trace
 
             mock_to_format.return_value = ({"id": sample_trace_data["trace_id"], "properties": {}}, [])
             mock_format.return_value = ("L1: Test trace\nL2: Content", False)
@@ -292,9 +289,7 @@ class TestGenerateSummaryActivity:
             patch(
                 "posthog.temporal.llm_analytics.trace_summarization.summarization.format_trace_text_repr"
             ) as mock_format,
-            patch(
-                "posthog.temporal.llm_analytics.trace_summarization.summarization.TraceQueryRunner"
-            ) as mock_runner_class,
+            patch("posthog.temporal.llm_analytics.trace_summarization.summarization.fetch_trace") as mock_fetch_trace,
             patch("posthog.temporal.llm_analytics.trace_summarization.summarization.create_event"),
             patch(
                 "posthog.temporal.llm_analytics.trace_summarization.summarization.LLMTracesSummarizerEmbedder"
@@ -309,7 +304,7 @@ class TestGenerateSummaryActivity:
                 events=[],
                 person=mock_person,
             )
-            mock_runner_class.return_value.calculate.return_value.results = [mock_trace]
+            mock_fetch_trace.return_value = mock_trace
             mock_to_format.return_value = ({}, [])
             mock_format.return_value = ("test", False)
             mock_summarize.return_value = mock_summary
@@ -346,9 +341,7 @@ class TestGenerateSummaryActivity:
             patch(
                 "posthog.temporal.llm_analytics.trace_summarization.summarization.format_trace_text_repr"
             ) as mock_format,
-            patch(
-                "posthog.temporal.llm_analytics.trace_summarization.summarization.TraceQueryRunner"
-            ) as mock_runner_class,
+            patch("posthog.temporal.llm_analytics.trace_summarization.summarization.fetch_trace") as mock_fetch_trace,
             patch("posthog.temporal.llm_analytics.trace_summarization.summarization.create_event"),
             patch(
                 "posthog.temporal.llm_analytics.trace_summarization.summarization.LLMTracesSummarizerEmbedder"
@@ -363,7 +356,7 @@ class TestGenerateSummaryActivity:
                 events=[],
                 person=mock_person,
             )
-            mock_runner_class.return_value.calculate.return_value.results = [mock_trace]
+            mock_fetch_trace.return_value = mock_trace
             mock_to_format.return_value = ({}, [])
             mock_format.return_value = ("test", False)
             mock_summarize.return_value = mock_summary
