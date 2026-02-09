@@ -48,7 +48,7 @@ export class ClickHousePersonRepository implements PersonRepository {
                 FROM person
                 WHERE team_id = ${parseInt(String(teamId))}
                   AND (id, version) IN (
-                      SELECT id, max(version) as version
+                      SELECT id, max(version) as max_ver
                       FROM person
                       WHERE team_id = ${parseInt(String(teamId))}
                       GROUP BY id
@@ -67,7 +67,7 @@ export class ClickHousePersonRepository implements PersonRepository {
             FROM person
             WHERE team_id = ${parseInt(String(teamId))}
               AND (id, version) IN (
-                  SELECT id, max(version) as version
+                  SELECT id, max(version) as max_ver
                   FROM person
                   WHERE team_id = ${parseInt(String(teamId))}
                   GROUP BY id
@@ -100,33 +100,31 @@ export class ClickHousePersonRepository implements PersonRepository {
                 p.is_identified,
                 p.created_at,
                 p.properties,
-                p.version,
+                p.max_ver as version,
                 pd.distinct_id
             FROM (
-                SELECT
-                    id,
-                    max(version) as version
-                FROM person
-                WHERE team_id = ${parseInt(String(teamId))}
-                  ${cursorFilter}
-                GROUP BY id
-                HAVING argMax(is_deleted, version) = 0
-                  ${propertyFilters ? `AND ${propertyFilters}` : ''}
-                ORDER BY id
-                LIMIT ${Math.min(Math.max(1, parseInt(String(limit))), 10000)}
-            ) person_ids
-            INNER JOIN (
                 SELECT
                     id,
                     team_id,
                     argMax(is_identified, version) as is_identified,
                     argMax(properties, version) as properties,
                     argMin(created_at, version) as created_at,
-                    max(version) as version
+                    max(version) as max_ver
                 FROM person
                 WHERE team_id = ${parseInt(String(teamId))}
+                  ${cursorFilter}
+                  AND (id, version) IN (
+                      SELECT id, max(version) as max_ver
+                      FROM person
+                      WHERE team_id = ${parseInt(String(teamId))}
+                      GROUP BY id
+                      HAVING argMax(is_deleted, version) = 0
+                        ${propertyFilters ? `AND ${propertyFilters}` : ''}
+                  )
                 GROUP BY id, team_id
-            ) p ON person_ids.id = p.id AND person_ids.version = p.version
+                ORDER BY id
+                LIMIT ${Math.min(Math.max(1, parseInt(String(limit))), 10000)}
+            ) p
             LEFT JOIN (
                 SELECT
                     team_id,
