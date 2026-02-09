@@ -2,6 +2,8 @@ import { useValues } from 'kea'
 
 import { Link } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { pluralize } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { retentionLogic } from 'scenes/retention/retentionLogic'
@@ -16,14 +18,17 @@ import { RetentionTimeWindowModePicker } from '../filters/RetentionTimeWindowMod
 export function RetentionOptions(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { retentionFilter } = useValues(retentionLogic(insightProps))
+    const { featureFlags } = useValues(featureFlagLogic)
     const { minimumOccurrences = 1, aggregationType } = retentionFilter || {}
 
     return (
         <div className="deprecated-space-y-3" data-attr="retention-options">
-            <div className="flex items-center gap-2">
-                <div>Calculate</div>
-                <RetentionAggregationSelector />
-            </div>
+            {featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_RETENTION_AGGREGATION] && (
+                <div className="flex items-center gap-2">
+                    <div>Calculate</div>
+                    <RetentionAggregationSelector />
+                </div>
+            )}
             {(!aggregationType || aggregationType === 'count') && (
                 <>
                     <div className="flex items-center gap-2">
