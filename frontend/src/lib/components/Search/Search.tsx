@@ -607,8 +607,9 @@ function SearchResults({
                                     {Array.from({
                                         length: group.category === 'recents' ? RECENTS_LIMIT : 10,
                                     }).map((_, i) => (
-                                        <div key={i} className="px-2">
-                                            <WrappingLoadingSkeleton fullWidth>
+                                        // We give the height to the parent div and padding so the skeleton vibibily has some space and isn't a block
+                                        <div key={i} className="px-2 h-[30px] py-px">
+                                            <WrappingLoadingSkeleton fullWidth className="h-full">
                                                 <ButtonPrimitive fullWidth className="invisible">
                                                     &nbsp;
                                                 </ButtonPrimitive>

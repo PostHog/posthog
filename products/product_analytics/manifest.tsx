@@ -62,7 +62,8 @@ export const manifest: ProductManifest = {
                     source: { kind: 'HogQLQuery', query, filters },
                 } as any,
             }),
-        insightEdit: (id: InsightShortId): string => `/insights/${id}/edit`,
+        insightEdit: (id: InsightShortId, dashboardId?: number): string =>
+            `/insights/${id}/edit${dashboardId ? `?dashboard=${dashboardId}` : ''}`,
         insightView: (
             id: InsightShortId,
             dashboardId?: number,

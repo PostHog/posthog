@@ -11,7 +11,7 @@ DEFAULT_MAX_ITEMS_PER_WINDOW = (
     15  # Max items to process per window (targets ~2500 summaries in 7-day clustering window)
 )
 DEFAULT_BATCH_SIZE = 5  # Number of generations to process in parallel
-DEFAULT_TRACE_BATCH_SIZE = 1  # Traces processed sequentially - formatting is CPU-intensive and holds the GIL
+DEFAULT_TRACE_BATCH_SIZE = 2  # Traces processed in small parallel batches
 DEFAULT_MODE = SummarizationMode.DETAILED
 DEFAULT_WINDOW_MINUTES = 60  # Process traces from last N minutes (matches schedule frequency)
 DEFAULT_WINDOW_OFFSET_MINUTES = 30  # Offset window into the past so traces have time to fully complete
@@ -42,6 +42,20 @@ MAX_TRACE_EVENTS_LIMIT = 50
 # formatting traces in the 2-5M range is still CPU-intensive enough to block
 # workers for minutes.
 MAX_TRACE_PROPERTIES_SIZE = 2_000_000
+
+# AI event types used in trace queries (sampling and fetching)
+AI_EVENT_TYPES = (
+    "$ai_span",
+    "$ai_generation",
+    "$ai_embedding",
+    "$ai_metric",
+    "$ai_feedback",
+    "$ai_trace",
+)
+
+# Expand the time window by this amount each side when fetching traces,
+# so traces that started just before/after the window are still found.
+TRACE_CAPTURE_RANGE = timedelta(minutes=10)
 
 # Schedule configuration
 SCHEDULE_INTERVAL_HOURS = 1  # How often the coordinator runs

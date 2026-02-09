@@ -5384,6 +5384,8 @@ export enum ProductIntentContext {
     // Data Pipelines
     DATA_PIPELINE_CREATED = 'data_pipeline_created',
     BATCH_EXPORT_CREATED = 'batch_export_created',
+    BATCH_EXPORT_UPDATED = 'batch_export_updated',
+    BATCH_EXPORT_BACKFILL_CREATED = 'batch_export_backfill_created',
 
     // Notebooks
     NOTEBOOK_CREATED = 'notebook_created',
