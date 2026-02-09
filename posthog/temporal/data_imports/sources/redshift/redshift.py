@@ -58,6 +58,9 @@ def get_redshift_row_count(
         password=password,
         sslmode="require",
         connect_timeout=15,
+        sslrootcert="/tmp/no.txt",
+        sslcert="/tmp/no.txt",
+        sslkey="/tmp/no.txt",
         options="-c client_encoding=UTF8",
     )
 
