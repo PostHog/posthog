@@ -550,6 +550,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             metric,
         }),
         reportExperimentAiSummaryRequested: (experiment: Experiment) => ({ experiment }),
+        reportExperimentSessionReplaySummaryRequested: (experiment: Experiment) => ({ experiment }),
         // Definition Popover
         reportDataManagementDefinitionHovered: (type: TaxonomicFilterGroupType) => ({ type }),
         reportDataManagementDefinitionClickView: (type: TaxonomicFilterGroupType) => ({ type }),
@@ -645,7 +646,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportSurveyCreated: (
             survey: Survey,
             isDuplicate?: boolean,
-            creationSource?: 'wizard' | 'full_editor' | 'quick_create' | 'template'
+            creationSource?: 'wizard' | 'full_editor' | 'quick_create' | 'template' | 'llm_analytics'
         ) => ({ survey, isDuplicate, creationSource }),
         reportUserFeedbackButtonClicked: (source: SURVEY_CREATED_SOURCE, meta: Record<string, any>) => ({
             source,
@@ -680,6 +681,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 hasBrowsingHistory?: boolean
             }
         ) => ({ path, properties }),
+        reportOnboardingProductToggled: (productKey: string, selected: boolean, recommendationSource: string) => ({
+            productKey,
+            selected,
+            recommendationSource,
+        }),
         reportBillingCTAShown: true,
         reportBillingUsageInteraction: (properties: BillingUsageInteractionProps) => ({ properties }),
         reportBillingSpendInteraction: (properties: BillingUsageInteractionProps) => ({ properties }),
@@ -716,6 +722,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportRevenueAnalyticsMRRBreakdownModalOpened: () => ({}),
         reportRevenueAnalyticsGoalConfigured: () => ({}),
         reportRevenueAnalyticsTestAccountFilterUpdated: (filterTestAccounts: boolean) => ({ filterTestAccounts }),
+        // marketing analytics
+        reportMarketingAnalyticsOnboardingViewed: () => ({}),
+        reportMarketingAnalyticsOnboardingCompleted: (hasSources: boolean) => ({
+            hasSources,
+        }),
+        reportMarketingAnalyticsDataSourceConnected: (sourceType: string) => ({ sourceType }),
         reportWebAnalyticsHealthStatus: (props: {
             has_pageviews: boolean
             has_pageleaves: boolean
@@ -1379,6 +1391,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 ...getEventPropertiesForExperiment(experiment),
             })
         },
+        reportExperimentSessionReplaySummaryRequested: ({ experiment }) => {
+            posthog.capture('experiment session replay summary requested', {
+                ...getEventPropertiesForExperiment(experiment),
+            })
+        },
         reportPropertyGroupFilterAdded: () => {
             posthog.capture('property group filter added')
         },
@@ -1731,6 +1748,13 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 has_browsing_history: properties?.hasBrowsingHistory,
             })
         },
+        reportOnboardingProductToggled: ({ productKey, selected, recommendationSource }) => {
+            posthog.capture('onboarding product toggled', {
+                product_key: productKey,
+                selected,
+                recommendation_source: recommendationSource,
+            })
+        },
         reportSDKSelected: ({ sdk }) => {
             posthog.capture('sdk selected', {
                 sdk: sdk.key,
@@ -1827,6 +1851,17 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             posthog.capture('revenue analytics test account filter updated', {
                 filter_test_accounts: filterTestAccounts,
             })
+        },
+        reportMarketingAnalyticsOnboardingViewed: () => {
+            posthog.capture('marketing analytics onboarding viewed')
+        },
+        reportMarketingAnalyticsOnboardingCompleted: ({ hasSources }) => {
+            posthog.capture('marketing analytics onboarding completed', {
+                has_sources: hasSources,
+            })
+        },
+        reportMarketingAnalyticsDataSourceConnected: ({ sourceType }) => {
+            posthog.capture('marketing analytics data source connected', { source_type: sourceType })
         },
         reportWebAnalyticsHealthStatus: ({ props }) => {
             posthog.capture('web analytics health status', props)

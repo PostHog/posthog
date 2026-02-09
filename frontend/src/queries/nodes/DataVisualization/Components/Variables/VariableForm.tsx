@@ -1,6 +1,9 @@
-import { LemonInput, LemonSelect } from '@posthog/lemon-ui'
+import { IconCopy, IconInfo } from '@posthog/icons'
+import { LemonButton, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { Variable, VariableType } from '../../types'
 import {
@@ -12,7 +15,9 @@ import {
     NumberField,
     StringField,
     VARIABLE_TYPE_OPTIONS,
+    formatVariableReference,
     getCodeName,
+    sanitizeCodeName,
 } from './VariableFields'
 
 function renderField<T extends Variable>(
@@ -68,24 +73,60 @@ export const VariableForm = ({
     modalType,
     onTypeChange,
 }: VariableFormProps): JSX.Element => {
+    const codeNameFallback = getCodeName(variable.name)
+    const referenceCodeName = variable.code_name || codeNameFallback
+    const nameLabel = (
+        <span className="inline-flex items-center gap-1">
+            Name
+            <Tooltip title="Variable name must be alphanumeric and can only contain spaces and underscores">
+                <IconInfo className="text-xl text-secondary shrink-0" />
+            </Tooltip>
+        </span>
+    )
     return (
         <div className="gap-4 flex flex-col">
-            <LemonField.Pure
-                label="Name"
-                className="gap-1"
-                info="Variable name must be alphanumeric and can only contain spaces and underscores"
-            >
+            <LemonField.Pure label={nameLabel} className="gap-1">
                 <LemonInput
                     placeholder="Name"
                     value={variable.name}
                     onChange={(value) => {
                         const filteredValue = value.replace(/[^a-zA-Z0-9\s_]/g, '')
-                        updateVariable({ ...variable, name: filteredValue })
+                        const shouldUpdateCodeName =
+                            !variable.code_name || variable.code_name === getCodeName(variable.name)
+                        updateVariable({
+                            ...variable,
+                            name: filteredValue,
+                            code_name: shouldUpdateCodeName ? getCodeName(filteredValue) : variable.code_name,
+                        })
                     }}
                 />
                 {modalType === 'new' && variable.name.length > 0 && (
-                    <span className="text-xs">{`Use this variable by referencing {variables.${getCodeName(variable.name)}}.`}</span>
+                    <span className="text-xs">
+                        Use this variable by referencing <code>{formatVariableReference(referenceCodeName)}</code>
+                        <LemonButton
+                            className="inline-block align-middle"
+                            icon={<IconCopy />}
+                            type="tertiary"
+                            size="xsmall"
+                            onClick={() => {
+                                copyToClipboard(formatVariableReference(referenceCodeName), 'code')
+                            }}
+                            tooltip="Copy to clipboard"
+                        />
+                    </span>
                 )}
+            </LemonField.Pure>
+            <LemonField.Pure label="Code name" className="gap-1">
+                <LemonInput
+                    placeholder="code_name"
+                    value={variable.code_name}
+                    onChange={(value) => {
+                        updateVariable({
+                            ...variable,
+                            code_name: sanitizeCodeName(value),
+                        })
+                    }}
+                />
             </LemonField.Pure>
             <LemonField.Pure label="Type" className="gap-1">
                 <LemonSelect

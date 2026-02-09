@@ -127,7 +127,7 @@ export function ConversationsMenu({ isCollapsed }: { isCollapsed: boolean }): JS
         intent: 'Open all chats menu',
         interaction: 'function',
         callback: () => {
-            setOpen(!open)
+            setOpen((open) => !open)
         },
     })
 

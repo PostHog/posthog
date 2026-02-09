@@ -67,6 +67,7 @@ describe('Feature Flags', { concurrent: false }, () => {
             expect(flagData.name).toBe(params.name)
             expect(flagData.active).toBe(params.active)
             expect(flagData.url).toContain('/feature_flags/')
+            expect(flagData.updated_at).toBeTruthy()
 
             createdResources.featureFlags.push(flagData.id)
         })
@@ -255,6 +256,7 @@ describe('Feature Flags', { concurrent: false }, () => {
             expect(updatedFlag.name).toBe('Updated Name')
             expect(updatedFlag.active).toBe(false)
             expect(updatedFlag.key).toBe(createParams.key)
+            expect(updatedFlag.updated_at).toBeTruthy()
         })
 
         it('should update feature flag filters', async () => {
@@ -356,6 +358,7 @@ describe('Feature Flags', { concurrent: false }, () => {
                 expect(flag).toHaveProperty('key')
                 expect(flag).toHaveProperty('name')
                 expect(flag).toHaveProperty('active')
+                expect(flag).toHaveProperty('updated_at')
             }
         })
 
@@ -451,6 +454,7 @@ describe('Feature Flags', { concurrent: false }, () => {
             expect(definition.key).toBe(createParams.key)
             expect(definition.name).toBe(createParams.name)
             expect(definition.active).toBe(createParams.active)
+            expect(definition.updated_at).toBeTruthy()
         })
 
         it('should return error message for non-existent flag key', async () => {

@@ -4,12 +4,13 @@ import { IconChevronDown, IconCursorClick, IconTrash, IconWarning } from '@posth
 import { LemonButton, LemonInput, LemonSegmentedButton } from '@posthog/lemon-ui'
 
 import { IconDragHandle } from 'lib/lemon-ui/icons'
-import { STEP_TYPE_ICONS, getStepTitle } from 'scenes/product-tours/stepUtils'
+import { getStepIcon, getStepTitle, hasElementTarget, hasIncompleteTargeting } from 'scenes/product-tours/stepUtils'
 
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
+import { joinWithUiHost } from '~/toolbar/utils'
 import { ProductTourProgressionTriggerType } from '~/types'
 
-import { TourStep, getStepElement, hasValidSelector, productToursLogic } from './productToursLogic'
+import { TourStep, productToursLogic } from './productToursLogic'
 
 interface StepCardProps {
     step: TourStep
@@ -35,15 +36,20 @@ export function StepCard({
     isDropTarget,
 }: StepCardProps): JSX.Element {
     const { uiHost, temporaryToken } = useValues(toolbarConfigLogic)
-    const { selectingStepIndex } = useValues(productToursLogic)
-    const { removeStep, setStepTargetingMode, updateStepSelector, updateStepProgressionTrigger, setEditorState } =
-        useActions(productToursLogic)
+    const { selectingStepIndex, expandedStepRect } = useValues(productToursLogic)
+    const {
+        removeStep,
+        setStepTargetingMode,
+        updateStepSelector,
+        updateStepProgressionTrigger,
+        setEditorState,
+        clearStepTargeting,
+    } = useActions(productToursLogic)
 
-    const isElementStep = step.type === 'element'
+    const hasTarget = hasElementTarget(step)
     const isSelecting = selectingStepIndex === index
-    const element = isElementStep && isExpanded ? getStepElement(step) : null
-    const elementNotFound = isElementStep && isExpanded && hasValidSelector(step) && !element
-    const isMissingElement = !hasValidSelector(step)
+    const elementNotFound = hasTarget && isExpanded && selectingStepIndex === null && expandedStepRect === null
+    const isMissingElement = hasIncompleteTargeting(step)
 
     const handleReselectElement = (): void => {
         setEditorState({ mode: 'selecting', stepIndex: index })
@@ -53,7 +59,7 @@ export function StepCard({
         step.selector && step.selector.length > 25 ? step.selector.slice(0, 22) + '...' : step.selector
 
     const screenshotUrl = step.screenshotMediaId
-        ? `${uiHost}/uploaded_media/${step.screenshotMediaId}?token=${temporaryToken}`
+        ? joinWithUiHost(uiHost, `/uploaded_media/${step.screenshotMediaId}?token=${temporaryToken}`)
         : null
 
     return (
@@ -105,9 +111,7 @@ export function StepCard({
 
                 <div className="flex-1 min-w-0 flex flex-col gap-0.5">
                     <div className="flex items-center gap-1.5">
-                        <span className="text-muted-3000">
-                            {STEP_TYPE_ICONS[step.type] ?? <IconCursorClick className="w-3.5 h-3.5" />}
-                        </span>
+                        <span className="text-muted-3000">{getStepIcon(step.type)}</span>
                         <span className="text-[13px] font-medium overflow-hidden text-ellipsis whitespace-nowrap">
                             {getStepTitle(step, index)}
                         </span>
@@ -118,7 +122,7 @@ export function StepCard({
                             {step.useManualSelector ? 'Enter a selector' : 'Select an element'}
                         </span>
                     )}
-                    {isElementStep && step.useManualSelector && step.selector && !isExpanded && (
+                    {hasTarget && step.useManualSelector && step.selector && !isExpanded && (
                         <span
                             title={step.selector}
                             className="text-[10px] font-mono text-muted-3000 overflow-hidden text-ellipsis whitespace-nowrap"
@@ -165,7 +169,7 @@ export function StepCard({
                         </div>
                     )}
 
-                    {isElementStep && (
+                    {hasTarget ? (
                         <>
                             {elementNotFound && (
                                 <div className="flex items-center gap-2 p-2 rounded-md text-xs bg-warning-highlight">
@@ -222,17 +226,38 @@ export function StepCard({
                                 />
                             </div>
 
-                            <LemonButton
-                                size="small"
-                                type="secondary"
-                                fullWidth
-                                icon={<IconCursorClick />}
-                                onClick={handleReselectElement}
-                            >
-                                {step.selector ? 'Re-select element' : 'Select element'}
-                            </LemonButton>
+                            <div className="flex gap-2">
+                                <LemonButton
+                                    size="small"
+                                    type="secondary"
+                                    fullWidth
+                                    icon={<IconCursorClick />}
+                                    onClick={handleReselectElement}
+                                >
+                                    Change
+                                </LemonButton>
+                                {step.type === 'modal' && (
+                                    <LemonButton
+                                        size="small"
+                                        type="tertiary"
+                                        status="danger"
+                                        onClick={() => clearStepTargeting(index)}
+                                        icon={<IconTrash />}
+                                    />
+                                )}
+                            </div>
                         </>
-                    )}
+                    ) : step.type === 'modal' ? (
+                        <LemonButton
+                            size="small"
+                            type="secondary"
+                            fullWidth
+                            icon={<IconCursorClick />}
+                            onClick={handleReselectElement}
+                        >
+                            Attach to element
+                        </LemonButton>
+                    ) : null}
 
                     <LemonButton
                         size="small"

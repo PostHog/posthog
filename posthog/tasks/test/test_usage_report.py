@@ -3783,6 +3783,40 @@ class TestSendUsage(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
         )
         assert mock_client.capture.call_args[1]["timestamp"] == datetime(2021, 10, 10, 23, 1, tzinfo=tzutc())
 
+    @patch("posthog.tasks.report_utils.is_cloud", return_value=True)
+    def test_capture_event_calls_group_identify_with_group_properties(self, mock_is_cloud: MagicMock) -> None:
+        organization = Organization.objects.create()
+        mock_client = MagicMock()
+        group_props = {"org_name": "Test Org", "plan": "enterprise"}
+
+        capture_event(
+            pha_client=mock_client,
+            name="test event",
+            organization_id=str(organization.id),
+            properties={"prop1": "val1"},
+            group_properties=group_props,
+        )
+
+        mock_client.group_identify.assert_called_once_with(
+            "organization",
+            str(organization.id),
+            properties=group_props,
+        )
+
+    @patch("posthog.tasks.report_utils.is_cloud", return_value=True)
+    def test_capture_event_skips_group_identify_without_group_properties(self, mock_is_cloud: MagicMock) -> None:
+        organization = Organization.objects.create()
+        mock_client = MagicMock()
+
+        capture_event(
+            pha_client=mock_client,
+            name="test event",
+            organization_id=str(organization.id),
+            properties={"prop1": "val1"},
+        )
+
+        mock_client.group_identify.assert_not_called()
+
 
 class TestSendNoUsage(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest):
     def setUp(self) -> None:
