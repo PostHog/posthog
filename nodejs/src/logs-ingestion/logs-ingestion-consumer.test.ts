@@ -253,6 +253,7 @@ describe('LogsIngestionConsumer', () => {
             await waitForBackgroundTasks(consumer.processKafkaBatch(messages))
 
             expect(getProducedKafkaMessages()).toHaveLength(0)
+            expect(logMessageDroppedCounterSpy).toHaveBeenCalledWith({ reason: 'missing_token', team_id: 'unknown' })
         })
 
         it('should drop messages with invalid token', async () => {
@@ -307,7 +308,24 @@ describe('LogsIngestionConsumer', () => {
             await waitForBackgroundTasks(consumer.processKafkaBatch(messages))
 
             expect(getProducedKafkaMessages()).toHaveLength(0)
-            expect(logMessageDroppedCounterSpy).toHaveBeenCalledWith({ reason: 'team_not_found' })
+            expect(logMessageDroppedCounterSpy).toHaveBeenCalledWith({ reason: 'team_not_found', team_id: 'unknown' })
+        })
+
+        it('should drop messages when team lookup fails and record unknown team_id', async () => {
+            jest.spyOn(hub.teamManager, 'getTeamByToken').mockRejectedValueOnce(new Error('Database error'))
+
+            const logData = createLogMessage()
+            const messages = await createKafkaMessages([logData], {
+                token: team.api_token,
+            })
+
+            await waitForBackgroundTasks(consumer.processKafkaBatch(messages))
+
+            expect(getProducedKafkaMessages()).toHaveLength(0)
+            expect(logMessageDroppedCounterSpy).toHaveBeenCalledWith({
+                reason: 'team_lookup_error',
+                team_id: 'unknown',
+            })
         })
     })
 
@@ -452,8 +470,8 @@ describe('LogsIngestionConsumer', () => {
 
             await waitForBackgroundTasks(consumer.processKafkaBatch(messages))
 
-            // Check that DLQ counter was incremented
-            expect(logMessageDlqCounterSpy).toHaveBeenCalled()
+            // Check that DLQ counter was incremented with team_id
+            expect(logMessageDlqCounterSpy).toHaveBeenCalledWith({ reason: 'Error', team_id: team.id.toString() })
 
             // Check that a message was produced to the DLQ topic
             const dlqMessages = produceSpy.mock.calls.filter((call) => call[0].topic === 'logs_ingestion_dlq_test')
@@ -610,11 +628,14 @@ describe('LogsIngestionConsumer', () => {
             expect(logsMessages).toHaveLength(1)
             expect(bytesReceivedSpy).toHaveBeenCalledWith(3072)
             expect(bytesAllowedSpy).toHaveBeenCalledWith(1024)
-            expect(bytesDroppedSpy).toHaveBeenCalledWith(2048)
+            expect(bytesDroppedSpy).toHaveBeenCalledWith({ team_id: team.id.toString() }, 2048)
             expect(recordsReceivedSpy).toHaveBeenCalledWith(15)
             expect(recordsAllowedSpy).toHaveBeenCalledWith(5)
-            expect(recordsDroppedSpy).toHaveBeenCalledWith(10)
-            expect(logMessageDroppedCounterSpy).toHaveBeenCalledWith({ reason: 'rate_limited' }, 1)
+            expect(recordsDroppedSpy).toHaveBeenCalledWith({ team_id: team.id.toString() }, 10)
+            expect(logMessageDroppedCounterSpy).toHaveBeenCalledWith(
+                { reason: 'rate_limited', team_id: team.id.toString() },
+                1
+            )
         })
 
         it('should handle missing header values with defaults', async () => {
@@ -730,7 +751,11 @@ describe('LogsIngestionConsumer', () => {
             const parsed = await consumer['_parseKafkaBatch'](messages)
             await consumer['filterQuotaLimitedMessages'](parsed)
 
-            expect(logMessageDroppedCounterSpy).toHaveBeenCalledWith({ reason: 'quota_limited' }, 2)
+            expect(logMessageDroppedCounterSpy).toHaveBeenCalledWith(
+                { reason: 'quota_limited', team_id: team.id.toString() },
+                2
+            )
+            expect(logMessageDroppedCounterSpy).toHaveBeenCalledTimes(1)
         })
     })
 
@@ -808,7 +833,10 @@ describe('LogsIngestionConsumer', () => {
             expect(result.messages[0].token).toBe(team2.api_token)
 
             // Verify quota_limited counter was incremented for team1
-            expect(logMessageDroppedCounterSpy).toHaveBeenCalledWith({ reason: 'quota_limited' }, 1)
+            expect(logMessageDroppedCounterSpy).toHaveBeenCalledWith(
+                { reason: 'quota_limited', team_id: team.id.toString() },
+                1
+            )
         })
 
         it('should drop messages from both quota and rate limiting', async () => {
@@ -850,8 +878,14 @@ describe('LogsIngestionConsumer', () => {
             expect(result.messages[0].bytesUncompressed).toBe(500)
 
             // Verify both drop reasons were recorded
-            expect(logMessageDroppedCounterSpy).toHaveBeenCalledWith({ reason: 'quota_limited' }, 1)
-            expect(logMessageDroppedCounterSpy).toHaveBeenCalledWith({ reason: 'rate_limited' }, 1)
+            expect(logMessageDroppedCounterSpy).toHaveBeenCalledWith(
+                { reason: 'quota_limited', team_id: team.id.toString() },
+                1
+            )
+            expect(logMessageDroppedCounterSpy).toHaveBeenCalledWith(
+                { reason: 'rate_limited', team_id: team2.id.toString() },
+                1
+            )
         })
 
         it('should track usage stats correctly for mixed allowed and dropped messages', async () => {
