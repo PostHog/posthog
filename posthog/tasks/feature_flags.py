@@ -20,7 +20,7 @@ from posthog.tasks.utils import CeleryQueue, PushGatewayTask
 logger = structlog.get_logger(__name__)
 
 
-@shared_task(ignore_result=True, queue=CeleryQueue.FEATURE_FLAGS_LONG_RUNNING.value)
+@shared_task(ignore_result=True, queue=CeleryQueue.FEATURE_FLAGS.value)
 def update_team_flags_cache(team_id: int) -> None:
     try:
         team = Team.objects.get(id=team_id)

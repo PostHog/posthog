@@ -251,6 +251,7 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
         setLiveTailExpired: (liveTailExpired: boolean) => ({ liveTailExpired }),
         addLogsToSparkline: (logs: LogMessage[]) => logs,
         setSparklineBreakdownBy: (sparklineBreakdownBy: LogsSparklineBreakdownBy) => ({ sparklineBreakdownBy }),
+        setMaxExportableLogs: (maxExportableLogs: number) => ({ maxExportableLogs }),
     }),
 
     reducers({
@@ -396,6 +397,12 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
                 setSparklineBreakdownBy: (_, { sparklineBreakdownBy }) => sparklineBreakdownBy,
             },
         ],
+        maxExportableLogs: [
+            10_000 as number,
+            {
+                setMaxExportableLogs: (_, { maxExportableLogs }) => maxExportableLogs,
+            },
+        ],
     }),
 
     loaders(({ values, actions }) => ({
@@ -424,6 +431,7 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
                     actions.setLogsAbortController(null)
                     actions.setHasMoreLogsToLoad(!!response.hasMore)
                     actions.setNextCursor(response.nextCursor ?? null)
+                    actions.setMaxExportableLogs(response.maxExportableLogs)
                     return response.results
                 },
                 fetchNextLogsPage: async ({ limit }, breakpoint) => {
