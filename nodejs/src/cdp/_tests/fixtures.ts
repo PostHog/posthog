@@ -178,11 +178,7 @@ export const insertHogFunctionTemplate = async (
     const template = createHogFunctionTemplate({
         ...hogFunctionTemplate,
     })
-    // Only compile if bytecode wasn't already provided and code_language is 'hog'
-    if (
-        template.code_language === 'hog' &&
-        (!hogFunctionTemplate.bytecode || hogFunctionTemplate.bytecode.length === 0)
-    ) {
+    if (template.code_language === 'hog') {
         template.bytecode = await compileHog(template.code)
     }
 
