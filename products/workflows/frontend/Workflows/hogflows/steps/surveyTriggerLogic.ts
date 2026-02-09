@@ -1,4 +1,4 @@
-import { actions, kea, listeners, path, reducers } from 'kea'
+import { actions, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -14,8 +14,15 @@ export const surveyTriggerLogic = kea<surveyTriggerLogicType>([
     actions({
         loadMoreSurveys: true,
         appendSurveys: (surveys: Survey[]) => ({ surveys }),
+        setSearchTerm: (searchTerm: string) => ({ searchTerm }),
     }),
     reducers({
+        searchTerm: [
+            '' as string,
+            {
+                setSearchTerm: (_, { searchTerm }) => searchTerm,
+            },
+        ],
         allSurveys: [
             [] as Survey[],
             {
@@ -35,6 +42,18 @@ export const surveyTriggerLogic = kea<surveyTriggerLogicType>([
             {
                 loadMoreSurveys: () => true,
                 appendSurveys: () => false,
+            },
+        ],
+    }),
+    selectors({
+        filteredSurveys: [
+            (s) => [s.allSurveys, s.searchTerm],
+            (allSurveys: Survey[], searchTerm: string): Survey[] => {
+                if (!searchTerm) {
+                    return allSurveys
+                }
+                const lower = searchTerm.toLowerCase()
+                return allSurveys.filter((s) => s.name.toLowerCase().includes(lower))
             },
         ],
     }),

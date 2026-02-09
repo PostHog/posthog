@@ -1,7 +1,7 @@
 import { Node } from '@xyflow/react'
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect } from 'react'
 
 import {
     IconBolt,
@@ -47,7 +47,7 @@ import { publicWebhooksHostOrigin } from 'lib/utils/apiHost'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter/TestAccountFilter'
 import { urls } from 'scenes/urls'
 
-import { PropertyFilterType, SurveyEventName } from '~/types'
+import { PropertyFilterType, Survey, SurveyEventName } from '~/types'
 
 import { workflowLogic } from '../../workflowLogic'
 import { HogFlowEventFilters } from '../filters/HogFlowFilters'
@@ -341,9 +341,16 @@ function StepTriggerConfigurationSurvey({
 }): JSX.Element {
     const { setWorkflowActionConfig } = useActions(workflowLogic)
     const { actionValidationErrorsById } = useValues(workflowLogic)
-    const { allSurveys, surveysLoading, moreSurveysLoading, hasMoreSurveys, responseCounts } =
-        useValues(surveyTriggerLogic)
-    const { loadSurveys, loadMoreSurveys } = useActions(surveyTriggerLogic)
+    const {
+        allSurveys,
+        surveysLoading,
+        moreSurveysLoading,
+        hasMoreSurveys,
+        responseCounts,
+        searchTerm,
+        filteredSurveys,
+    } = useValues(surveyTriggerLogic)
+    const { loadSurveys, loadMoreSurveys, setSearchTerm } = useActions(surveyTriggerLogic)
     const validationResult = actionValidationErrorsById[action.id]
     const selectedSurveyId = getSelectedSurveyId(config)
     const completedOnly = getCompletedResponsesOnly(config)
@@ -365,21 +372,9 @@ function StepTriggerConfigurationSurvey({
         return properties
     }
 
-    // Search state for filtering surveys
-    const [searchTerm, setSearchTerm] = useState('')
-
     useEffect(() => {
         loadSurveys()
     }, [loadSurveys])
-
-    // Filter surveys based on search term
-    const filteredSurveys = useMemo(() => {
-        if (!searchTerm) {
-            return allSurveys
-        }
-        const lower = searchTerm.toLowerCase()
-        return allSurveys.filter((s) => s.name.toLowerCase().includes(lower))
-    }, [allSurveys, searchTerm])
 
     // Label for selected survey; fallback when not in list so we never show raw UUID (reset effect clears selection)
     const selectedSurveyLabel = (() => {
@@ -420,7 +415,7 @@ function StepTriggerConfigurationSurvey({
                               placeholder="Search surveys..."
                               autoFocus
                               value={searchTerm}
-                              onChange={setSearchTerm}
+                              onChange={(value) => setSearchTerm(value)}
                               fullWidth
                               onClick={(e) => e.stopPropagation()}
                               onKeyDown={(e) => {
@@ -469,7 +464,7 @@ function StepTriggerConfigurationSurvey({
                   },
               ]
             : []),
-        ...filteredSurveys.map((s) => {
+        ...filteredSurveys.map((s: Survey) => {
             const responseCount = responseCounts[s.id] ?? 0
             return {
                 label: s.name,
