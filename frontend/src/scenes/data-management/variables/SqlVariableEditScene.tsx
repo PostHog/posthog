@@ -20,6 +20,7 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { sanitizeCodeName } from '~/queries/nodes/DataVisualization/Components/Variables/VariableFields'
 import { ListVariable, VariableType } from '~/queries/nodes/DataVisualization/types'
 
 import { VARIABLE_TYPE_OPTIONS, formatVariableReference, getCodeName } from './constants'
@@ -228,7 +229,7 @@ export function SqlVariableEditScene(): JSX.Element {
                                     <LemonInput
                                         placeholder="start_date"
                                         value={value}
-                                        onChange={(newValue) => onChange(getCodeName(newValue))}
+                                        onChange={(newValue) => onChange(sanitizeCodeName(newValue))}
                                     />
                                 )}
                             </LemonField>
