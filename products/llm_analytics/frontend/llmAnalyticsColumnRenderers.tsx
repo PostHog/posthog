@@ -17,8 +17,8 @@ import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types
 import { LLMMessageDisplay } from './ConversationDisplay/ConversationMessagesDisplay'
 import { AIDataLoading } from './components/AIDataLoading'
 import { EventData, useAIData } from './hooks/useAIData'
-import { usePersonData } from './hooks/usePersonData'
 import { llmAnalyticsSharedLogic } from './llmAnalyticsSharedLogic'
+import { llmPersonsLazyLoaderLogic } from './llmPersonsLazyLoaderLogic'
 import { CompatMessage } from './types'
 import { normalizeMessages } from './utils'
 
@@ -166,14 +166,22 @@ function PersonColumnCellWithRedirect({ person }: { person: PersonData | null | 
 }
 
 function LazyPersonColumnCell({ distinctId }: { distinctId: string }): JSX.Element {
-    const { person, isLoading } = usePersonData(distinctId)
+    const { personsCache, isDistinctIdLoading } = useValues(llmPersonsLazyLoaderLogic)
+    const { ensurePersonLoaded } = useActions(llmPersonsLazyLoaderLogic)
 
-    if (isLoading) {
+    const cached = personsCache[distinctId]
+    const loading = isDistinctIdLoading(distinctId)
+
+    if (cached === undefined && !loading) {
+        ensurePersonLoaded(distinctId)
+    }
+
+    if (loading || cached === undefined) {
         return <AIDataLoading variant="inline" />
     }
 
-    const personData: PersonData | null = person
-        ? { distinct_id: person.distinct_id, properties: person.properties }
+    const personData: PersonData = cached
+        ? { distinct_id: cached.distinct_id, properties: cached.properties }
         : { distinct_id: distinctId }
 
     return <PersonColumnCell person={personData} />

@@ -3983,7 +3983,7 @@ export interface LLMTraceEvent {
 export interface LLMTracePerson {
     uuid: string
     created_at: string
-    properties: Record<string, any>
+    properties: Record<string, unknown>
     distinct_id: string
 }
 

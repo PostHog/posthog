@@ -18634,6 +18634,7 @@
                     "type": "string"
                 },
                 "properties": {
+                    "additionalProperties": {},
                     "type": "object"
                 },
                 "uuid": {

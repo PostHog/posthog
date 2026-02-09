@@ -1574,6 +1574,35 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["results"], {})
 
+    def test_batch_by_distinct_ids_cross_team_isolation(self) -> None:
+        other_org, _, _ = Organization.objects.bootstrap(None, name="Other Org")
+        other_team = Team.objects.create(organization=other_org, name="Other Team")
+
+        _create_person(
+            team=other_team,
+            distinct_ids=["other_team_user"],
+            properties={"email": "other@example.com"},
+            immediate=True,
+        )
+        _create_person(
+            team=self.team,
+            distinct_ids=["my_team_user"],
+            properties={"email": "mine@example.com"},
+            immediate=True,
+        )
+        flush_persons_and_events()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/persons/batch_by_distinct_ids/",
+            {"distinct_ids": ["my_team_user", "other_team_user"]},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        self.assertIn("my_team_user", results)
+        self.assertNotIn("other_team_user", results)
+
     def test_batch_by_distinct_ids_truncates_at_max_batch_size(self) -> None:
         distinct_ids = [f"user_{i}" for i in range(201)]
 

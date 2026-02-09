@@ -11,7 +11,7 @@ interface PersonAPIResponse {
     uuid: string
     name: string
     distinct_ids: string[]
-    properties: Record<string, any>
+    properties: Record<string, unknown>
     created_at: string
 }
 
