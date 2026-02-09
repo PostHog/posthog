@@ -104,12 +104,8 @@ test.describe('Trends insights', () => {
         })
 
         await test.step('change to Property value with sum', async () => {
-            // The dropdown may still be open from the previous step (no remount closes it),
-            // so check if we need to open it
             const propertyValueItem = page.getByRole('menuitem', { name: /property value/ })
-            if (!(await propertyValueItem.isVisible())) {
-                await insight.trends.mathSelector(0).click()
-            }
+            await insight.trends.mathSelector(0).click()
             await propertyValueItem.waitFor({ state: 'visible' })
             await propertyValueItem.getByRole('button').click()
             await page.getByRole('menuitem', { name: 'sum' }).click()
