@@ -17,6 +17,7 @@ interface ReplayCategory {
     id: string
     label: string
     icon: JSX.Element
+    iconColor?: string
     description: string
     action: 'apply_filter' | 'open_saved_filters' | 'clear_filters'
     filters?: Partial<RecordingUniversalFilters>
@@ -34,6 +35,7 @@ const REPLAY_CATEGORIES: ReplayCategory[] = [
         id: 'mobile',
         label: 'Mobile',
         icon: <IconPhone />,
+        iconColor: 'text-blue',
         description: 'Recordings from mobile devices',
         action: 'apply_filter',
         filters: {
@@ -57,9 +59,10 @@ const REPLAY_CATEGORIES: ReplayCategory[] = [
     },
     {
         id: 'high_errors',
-        label: 'High errors',
+        label: 'Frustrated users',
         icon: <IconErrorOutline />,
-        description: 'Recordings with errors or exceptions',
+        iconColor: 'text-danger',
+        description: 'Rage clicks and exceptions',
         action: 'apply_filter',
         filters: {
             filter_group: {
@@ -90,6 +93,7 @@ const REPLAY_CATEGORIES: ReplayCategory[] = [
         id: 'engaged',
         label: 'Engaged',
         icon: <IconCursorClick />,
+        iconColor: 'text-success',
         description: 'Recordings with high interaction',
         action: 'apply_filter',
         filters: {
@@ -115,6 +119,7 @@ const REPLAY_CATEGORIES: ReplayCategory[] = [
         id: 'saved_filters',
         label: 'Saved filters',
         icon: <IconSparkles />,
+        iconColor: 'text-warning',
         description: 'Open your saved filter presets',
         action: 'open_saved_filters',
     },
@@ -150,11 +155,11 @@ export function ReplayCategories({ logicKey }: SessionRecordingPlaylistLogicProp
                         role="button"
                         tabIndex={0}
                         className={clsx(
-                            'flex flex-col items-start gap-3 px-5 py-4 rounded cursor-pointer transition-all min-w-48 max-w-64',
+                            'flex flex-col items-start gap-3 px-5 py-3 rounded cursor-pointer transition-all min-w-48 max-w-64',
                             'border-2 hover:shadow-md',
                             isActive
                                 ? 'bg-primary-highlight border-primary'
-                                : 'bg-surface-secondary border-border hover:border-border-bold hover:bg-surface-light'
+                                : 'bg-white border-border hover:border-border-bold hover:bg-surface-light'
                         )}
                         onClick={() => handleCategoryClick(category)}
                         onKeyDown={(e) => {
@@ -165,7 +170,7 @@ export function ReplayCategories({ logicKey }: SessionRecordingPlaylistLogicProp
                         }}
                         data-attr={`replay-category-${category.id}`}
                     >
-                        <div className={clsx('text-3xl', isActive && 'text-primary')}>{category.icon}</div>
+                        <div className={clsx('text-3xl', category.iconColor)}>{category.icon}</div>
                         <div className="flex flex-col gap-1">
                             <div className={clsx('text-base font-semibold', isActive && 'text-primary')}>
                                 {category.label}
