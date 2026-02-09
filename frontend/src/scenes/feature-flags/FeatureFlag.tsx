@@ -978,7 +978,6 @@ function UsageTab({ featureFlag }: { featureFlag: FeatureFlagType }): JSX.Elemen
     return (
         <div data-attr="feature-flag-usage-container">
             {dashboardId ? (
-                // ✅ This is where we use your new component!
                 <ConnectedUsageDashboard dashboardId={dashboardId} hasEnrichedAnalytics={hasEnrichedAnalytics} />
             ) : (
                 <div>
@@ -1010,8 +1009,7 @@ function UsageTab({ featureFlag }: { featureFlag: FeatureFlagType }): JSX.Elemen
                         select: ['timestamp', 'event', 'person', 'properties.$feature_flag_response'],
                         orderBy: ['timestamp DESC'],
                         properties: propertyFilter,
-                        after: '-24h',
-                        limit: 100,
+                        after: '-30d',
                     },
                     full: true,
                     showOpenEditorButton: false,
