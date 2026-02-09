@@ -435,6 +435,7 @@ export type AssistantTool =
     | 'manage_memories'
     | 'create_notebook'
     | 'list_data'
+    | 'create_alert'
     | 'finalize_plan'
 
 export enum AgentMode {
