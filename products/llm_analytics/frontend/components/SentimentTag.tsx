@@ -110,14 +110,14 @@ export function SentimentDot({ event }: { event: LLMTraceEvent }): JSX.Element |
                     <span
                         className="absolute w-0.5 bg-success rounded-full"
                         // eslint-disable-next-line react/forbid-dom-props
-                        style={{ left: `${Math.round(maxPositive * 100)}%`, top: '-2px', bottom: '2px' }}
+                        style={{ left: `${Math.round(maxPositive * 100)}%`, top: '-2px', bottom: 0 }}
                     />
                 )}
                 {showMaxNegative && (
                     <span
                         className="absolute w-0.5 bg-danger rounded-full"
                         // eslint-disable-next-line react/forbid-dom-props
-                        style={{ left: `${Math.round(maxNegative * 100)}%`, top: '2px', bottom: '-2px' }}
+                        style={{ left: `${Math.round(maxNegative * 100)}%`, top: 0, bottom: '-2px' }}
                     />
                 )}
             </div>
@@ -156,14 +156,14 @@ export function UserSentimentBar({ scores }: { scores: SentimentScores }): JSX.E
                     <span
                         className="absolute w-0.5 bg-success rounded-full"
                         // eslint-disable-next-line react/forbid-dom-props
-                        style={{ left: `${Math.round(maxPositive * 100)}%`, top: '-2px', bottom: '2px' }}
+                        style={{ left: `${Math.round(maxPositive * 100)}%`, top: '-2px', bottom: 0 }}
                     />
                 )}
                 {showMaxNegative && (
                     <span
                         className="absolute w-0.5 bg-danger rounded-full"
                         // eslint-disable-next-line react/forbid-dom-props
-                        style={{ left: `${Math.round(maxNegative * 100)}%`, top: '2px', bottom: '-2px' }}
+                        style={{ left: `${Math.round(maxNegative * 100)}%`, top: 0, bottom: '-2px' }}
                     />
                 )}
             </div>
