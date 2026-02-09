@@ -26,10 +26,10 @@ export const approvalLogic = kea<approvalLogicType>([
     path(['scenes', 'approvals', 'approvalLogic']),
     props({} as ApprovalLogicProps),
     key(({ id }) => id),
-    connect({
+    connect(() => ({
         values: [teamLogic, ['currentTeamId']],
         actions: [membersLogic, ['loadAllMembers'], rolesLogic, ['loadRoles']],
-    }),
+    })),
     actions({
         loadChangeRequest: true,
         approveChangeRequest: (reason?: string) => ({ reason }),
