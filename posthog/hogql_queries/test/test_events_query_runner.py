@@ -828,3 +828,36 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # Should use default display name property (email)
         display_names = [row[1]["display_name"] for row in response.results]
         assert display_names[0] == "user@email.com"
+
+    def test_presorted_pagination_does_not_double_offset(self):
+        self._create_events(
+            data=[
+                ("p1", "2020-01-11T12:00:01Z", {"idx": 1}),
+                ("p1", "2020-01-11T12:00:02Z", {"idx": 2}),
+                ("p1", "2020-01-11T12:00:03Z", {"idx": 3}),
+                ("p1", "2020-01-11T12:00:04Z", {"idx": 4}),
+                ("p1", "2020-01-11T12:00:05Z", {"idx": 5}),
+            ]
+        )
+        flush_persons_and_events()
+
+        all_results = []
+        for offset in (0, 2, 4):
+            with freeze_time("2020-01-12"):
+                query = EventsQuery(
+                    kind="EventsQuery",
+                    select=["properties.idx", "timestamp"],
+                    after="2020-01-10",
+                    before="2020-01-13",
+                    orderBy=["timestamp ASC"],
+                    limit=2,
+                    offset=offset,
+                )
+                runner = EventsQueryRunner(query=query, team=self.team)
+                response = runner.run()
+
+            assert isinstance(response, CachedEventsQueryResponse)
+            all_results.extend(response.results)
+
+        actual_indices = [row[0] for row in all_results]
+        self.assertEqual(actual_indices, ["1", "2", "3", "4", "5"])
