@@ -54,7 +54,6 @@ import { FeatureFlagPermissions } from 'scenes/FeatureFlagPermissions'
 import { PendingChangeRequestBanner } from 'scenes/approvals/PendingChangeRequestBanner'
 import { ApprovalActionKey } from 'scenes/approvals/utils'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
-import { EmptyDashboardComponent } from 'scenes/dashboard/EmptyDashboardComponent'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { UTM_TAGS } from 'scenes/feature-flags/FeatureFlagSnippets'
 import { JSONEditorInput } from 'scenes/feature-flags/JSONEditorInput'
@@ -78,7 +77,6 @@ import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { tagsModel } from '~/models/tagsModel'
 import { Query } from '~/queries/Query/Query'
-import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { NodeKind, ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import {
     AccessControlLevel,
@@ -86,14 +84,12 @@ import {
     ActivityScope,
     AnyPropertyFilter,
     DashboardPlacement,
-    DashboardType,
     EarlyAccessFeatureStage,
     FeatureFlagEvaluationRuntime,
     FeatureFlagGroupType,
     FeatureFlagType,
     PropertyFilterType,
     PropertyOperator,
-    QueryBasedInsightModel,
 } from '~/types'
 
 import { FeatureFlagCodeExample } from './FeatureFlagCodeExample'
@@ -912,27 +908,17 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
         </>
     )
 }
-
-function UsageTab({ featureFlag }: { featureFlag: FeatureFlagType }): JSX.Element {
-    const {
-        key: featureFlagKey,
-        usage_dashboard: dashboardId,
-        has_enriched_analytics: hasEnrichedAnalytics,
-    } = featureFlag
-    const { generateUsageDashboard, enrichUsageDashboard } = useActions(featureFlagLogic)
-    const { featureFlagLoading } = useValues(featureFlagLogic)
-    let dashboard: DashboardType<QueryBasedInsightModel> | null = null
-    if (dashboardId) {
-        // FIXME: Refactor out into <ConnectedDashboard />, as React hooks under conditional branches are no good
-        // eslint-disable-next-line react-hooks/rules-of-hooks
-        const dashboardLogicValues = useValues(
-            dashboardLogic({ id: dashboardId, placement: DashboardPlacement.FeatureFlag })
-        )
-        dashboard = dashboardLogicValues.dashboard
-    }
-
-    const { closeEnrichAnalyticsNotice } = useActions(featureFlagsLogic)
+function ConnectedUsageDashboard({
+    dashboardId,
+    hasEnrichedAnalytics,
+}: {
+    dashboardId: number
+    hasEnrichedAnalytics: boolean
+}): JSX.Element | null {
+    const { dashboard } = useValues(dashboardLogic({ id: dashboardId, placement: DashboardPlacement.FeatureFlag }))
     const { enrichAnalyticsNoticeAcknowledged } = useValues(featureFlagsLogic)
+    const { closeEnrichAnalyticsNotice } = useActions(featureFlagsLogic)
+    const { enrichUsageDashboard } = useActions(featureFlagLogic)
 
     useEffect(() => {
         if (
@@ -943,6 +929,34 @@ function UsageTab({ featureFlag }: { featureFlag: FeatureFlagType }): JSX.Elemen
             enrichUsageDashboard()
         }
     }, [dashboard, hasEnrichedAnalytics, enrichUsageDashboard])
+
+    if (!dashboard) {
+        return <LemonSkeleton className="h-60" />
+    }
+
+    return (
+        <>
+            {!hasEnrichedAnalytics && !enrichAnalyticsNoticeAcknowledged && (
+                <LemonBanner type="info" className="mb-3" onClose={() => closeEnrichAnalyticsNotice()}>
+                    Get richer insights automatically by{' '}
+                    <Link to="https://posthog.com/docs/libraries/js/features#enriched-flag-analytics" target="_blank">
+                        enabling enriched analytics for flags{' '}
+                    </Link>
+                </LemonBanner>
+            )}
+            <Dashboard id={dashboardId.toString()} placement={DashboardPlacement.FeatureFlag} />
+        </>
+    )
+}
+
+function UsageTab({ featureFlag }: { featureFlag: FeatureFlagType }): JSX.Element {
+    const {
+        key: featureFlagKey,
+        usage_dashboard: dashboardId,
+        has_enriched_analytics: hasEnrichedAnalytics,
+    } = featureFlag
+    const { generateUsageDashboard } = useActions(featureFlagLogic)
+    const { featureFlagLoading } = useValues(featureFlagLogic)
 
     const propertyFilter: AnyPropertyFilter[] = [
         {
@@ -963,21 +977,9 @@ function UsageTab({ featureFlag }: { featureFlag: FeatureFlagType }): JSX.Elemen
 
     return (
         <div data-attr="feature-flag-usage-container">
-            {dashboard ? (
-                <>
-                    {!hasEnrichedAnalytics && !enrichAnalyticsNoticeAcknowledged && (
-                        <LemonBanner type="info" className="mb-3" onClose={() => closeEnrichAnalyticsNotice()}>
-                            Get richer insights automatically by{' '}
-                            <Link
-                                to="https://posthog.com/docs/libraries/js/features#enriched-flag-analytics"
-                                target="_blank"
-                            >
-                                enabling enriched analytics for flags{' '}
-                            </Link>
-                        </LemonBanner>
-                    )}
-                    <Dashboard id={dashboardId!.toString()} placement={DashboardPlacement.FeatureFlag} />
-                </>
+            {dashboardId ? (
+                // ✅ This is where we use your new component!
+                <ConnectedUsageDashboard dashboardId={dashboardId} hasEnrichedAnalytics={hasEnrichedAnalytics} />
             ) : (
                 <div>
                     <b>Dashboard</b>
@@ -986,7 +988,9 @@ function UsageTab({ featureFlag }: { featureFlag: FeatureFlagType }): JSX.Elemen
                         connected dashboard, it may have been deleted.
                     </div>
                     {featureFlagLoading ? (
-                        <EmptyDashboardComponent loading={true} canEdit={false} />
+                        <div className="space-y-4">
+                            <LemonSkeleton className="h-10 w-1/4" />
+                        </div>
                     ) : (
                         <LemonButton type="primary" onClick={() => generateUsageDashboard()}>
                             Generate Usage Dashboard
@@ -1003,13 +1007,14 @@ function UsageTab({ featureFlag }: { featureFlag: FeatureFlagType }): JSX.Elemen
                     kind: NodeKind.DataTableNode,
                     source: {
                         kind: NodeKind.EventsQuery,
-                        select: [...defaultDataTableColumns(NodeKind.EventsQuery), 'properties.$feature_flag_response'],
-                        event: '$feature_flag_called',
+                        select: ['timestamp', 'event', 'person', 'properties.$feature_flag_response'],
+                        orderBy: ['timestamp DESC'],
                         properties: propertyFilter,
-                        after: '-30d',
+                        after: '-24h',
+                        limit: 100,
                     },
-                    full: false,
-                    showDateRange: true,
+                    full: true,
+                    showOpenEditorButton: false,
                 }}
             />
         </div>
