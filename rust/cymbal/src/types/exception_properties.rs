@@ -33,7 +33,7 @@ pub struct ExceptionProperties {
         skip_serializing_if = "HashMap::is_empty",
         default
     )]
-    pub releases: HashMap<String, ReleaseInfo>,
+    pub exception_releases: HashMap<String, ReleaseInfo>,
 
     #[serde(rename = "$exception_fingerprint")]
     pub fingerprint: Option<String>,
@@ -72,34 +72,36 @@ impl ExceptionProperties {
         let types = self
             .exception_types
             .clone()
-            .unwrap_or_else(|| self.exception_list.get_unique_types());
+            .ok_or_else(|| UnhandledError::Other("Missing exception types".into()))?;
         let values = self
             .exception_messages
             .clone()
-            .unwrap_or_else(|| self.exception_list.get_unique_messages());
+            .ok_or_else(|| UnhandledError::Other("Missing exception messages".into()))?;
         let sources = self
             .exception_sources
             .clone()
-            .unwrap_or_else(|| self.exception_list.get_unique_sources());
+            .ok_or_else(|| UnhandledError::Other("Missing exception sources".into()))?;
         let functions = self
             .exception_functions
             .clone()
-            .unwrap_or_else(|| self.exception_list.get_unique_functions());
-        let releases = self.exception_list.get_release_map();
+            .ok_or_else(|| UnhandledError::Other("Missing exception functions".into()))?;
+        let releases = self.exception_releases.clone();
         let handled = self
             .exception_handled
-            .unwrap_or_else(|| self.exception_list.get_is_handled());
+            .ok_or_else(|| UnhandledError::Other("Missing exception handled status".into()))?;
+        let fingerprint = self
+            .fingerprint
+            .clone()
+            .ok_or_else(|| UnhandledError::Other("Missing fingerprint".into()))?;
+        let proposed_fingerprint = self
+            .proposed_fingerprint
+            .clone()
+            .ok_or_else(|| UnhandledError::Other("Missing proposed_fingerprint".into()))?;
 
         Ok(OutputErrProps {
             exception_list: self.exception_list.clone(),
-            fingerprint: self
-                .fingerprint
-                .clone()
-                .ok_or_else(|| UnhandledError::Other("Missing fingerprint".into()))?,
-            proposed_fingerprint: self
-                .proposed_fingerprint
-                .clone()
-                .ok_or_else(|| UnhandledError::Other("Missing proposed_fingerprint".into()))?,
+            fingerprint,
+            proposed_fingerprint,
             fingerprint_record: self.fingerprint_record.clone().unwrap_or_default(),
             issue_id,
             other: self.props.clone(),
