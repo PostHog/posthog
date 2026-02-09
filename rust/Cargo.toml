@@ -37,6 +37,7 @@ members = [
     "common/geoip",
     "common/hogvm",
     "kafka-deduplicator",
+    "personhog-merger",
     "personhog-proto",
     "personhog-replica",
     "personhog-router",
