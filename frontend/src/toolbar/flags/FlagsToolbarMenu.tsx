@@ -16,6 +16,7 @@ import { urls } from 'scenes/urls'
 import { ToolbarMenu } from '~/toolbar/bar/ToolbarMenu'
 import { flagsToolbarLogic } from '~/toolbar/flags/flagsToolbarLogic'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
+import { joinWithUiHost } from '~/toolbar/utils'
 
 export const FlagsToolbarMenu = (): JSX.Element => {
     const { searchTerm, filteredFlags, userFlagsLoading, draftPayloads, payloadErrors, countFlagsOverridden } =
@@ -86,11 +87,12 @@ export const FlagsToolbarMenu = (): JSX.Element => {
                                         <div className="flex-1 truncate">
                                             <Link
                                                 className="font-medium"
-                                                to={`${uiHost}${
+                                                to={joinWithUiHost(
+                                                    uiHost,
                                                     feature_flag.id
                                                         ? urls.featureFlag(feature_flag.id)
                                                         : urls.featureFlags()
-                                                }`}
+                                                )}
                                                 subtle
                                                 target="_blank"
                                             >

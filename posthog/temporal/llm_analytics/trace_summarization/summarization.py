@@ -6,15 +6,14 @@ from uuid import uuid4
 import structlog
 import temporalio
 
-from posthog.schema import DateRange, TraceQuery
-
-from posthog.hogql_queries.ai.trace_query_runner import TraceQueryRunner
 from posthog.models.event.util import create_event
 from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.llm_analytics.trace_summarization import constants
+from posthog.temporal.llm_analytics.trace_summarization.constants import MAX_RAW_TRACE_SIZE
 from posthog.temporal.llm_analytics.trace_summarization.models import SummarizationActivityResult
+from posthog.temporal.llm_analytics.trace_summarization.queries import fetch_trace
 
 from products.llm_analytics.backend.summarization.llm import summarize
 from products.llm_analytics.backend.summarization.llm.schema import SummarizationResponse
@@ -56,30 +55,40 @@ async def generate_and_save_summary_activity(
 
     def _fetch_trace_and_format(
         trace_id: str, team_id: int, window_start: str, window_end: str, max_length: int | None = None
-    ) -> tuple[dict, list, str, Team] | None:
+    ) -> tuple[dict, list, str, Team] | tuple[dict, list, None, Team] | None:
         """Fetch trace data and format text representation.
 
+        Uses a simple events query instead of TraceQueryRunner to avoid the
+        person table JOIN that causes ClickHouse OOM on teams with large traces.
+
         Returns tuple of (trace_dict, hierarchy, text_repr, team) or None if not found.
+        text_repr is None if the trace exceeds MAX_RAW_TRACE_SIZE.
         """
         team = Team.objects.get(id=team_id)
 
-        query = TraceQuery(
-            traceId=trace_id,
-            dateRange=DateRange(date_from=window_start, date_to=window_end),
-        )
+        llm_trace = fetch_trace(team, trace_id, window_start, window_end)
+        if llm_trace is None:
+            return None
 
-        runner = TraceQueryRunner(team=team, query=query)
-        response = runner.calculate()
+        # Estimate raw size before expensive formatting
+        raw_size = sum(len(str(e.properties)) for e in llm_trace.events)
+        if raw_size > MAX_RAW_TRACE_SIZE:
+            logger.warning(
+                "Skipping oversized trace",
+                trace_id=trace_id,
+                team_id=team_id,
+                event_count=len(llm_trace.events),
+                raw_size=raw_size,
+                max_raw_size=MAX_RAW_TRACE_SIZE,
+            )
+            trace_dict, hierarchy = llm_trace_to_formatter_format(llm_trace)
+            return trace_dict, hierarchy, None, team
 
-        if not response.results:
-            return None  # Trace not found in window
-
-        llm_trace = response.results[0]
         trace_dict, hierarchy = llm_trace_to_formatter_format(llm_trace)
 
         options: FormatterOptions = {
             "include_line_numbers": True,
-            "truncated": False,
+            "truncated": True,
             "include_markers": False,
             "collapsed": False,
             "max_length": max_length,
@@ -178,6 +187,21 @@ async def generate_and_save_summary_activity(
             )
 
         _trace, hierarchy, text_repr, team = result
+
+        # Handle oversized trace (raw data exceeded MAX_RAW_TRACE_SIZE)
+        if text_repr is None:
+            log.warning(
+                "Skipping trace - exceeds max raw size",
+                fetch_duration_s=round(fetch_duration_s, 2),
+                event_count=len(hierarchy),
+            )
+            return SummarizationActivityResult(
+                trace_id=trace_id,
+                success=False,
+                skipped=True,
+                skip_reason="trace_too_large",
+            )
+
         log.info(
             "Trace fetched and formatted",
             fetch_duration_s=round(fetch_duration_s, 2),
