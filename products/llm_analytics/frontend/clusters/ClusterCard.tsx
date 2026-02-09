@@ -131,7 +131,7 @@ export function ClusterCard({
                                 )}
                                 {metrics.errorRate !== null && (
                                     <Tooltip
-                                        title={`Error rate: ${metrics.errorCount} errors out of ${metrics.itemCount} ${itemLabel}`}
+                                        title={`Error rate: ${metrics.errorCount} of ${metrics.itemCount} ${itemLabel} had errors`}
                                     >
                                         <LemonTag type={metrics.errorRate > 0 ? 'danger' : 'muted'} size="small">
                                             Errors: {formatErrorRate(metrics.errorRate)}
