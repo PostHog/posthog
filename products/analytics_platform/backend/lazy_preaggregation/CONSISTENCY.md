@@ -246,14 +246,14 @@ SELECT: optimize_skip_unused_shards=1, load_balancing='in_order'
 
 Sentry [rejected `select_sequential_consistency`](https://blog.sentry.io/how-to-get-stronger-consistency-out-of-a-datastore/) because it _fails_ queries when a replica is behind (it's a rejection mechanism, not a routing mechanism). Instead they use `load_balancing=in_order` so both INSERT and SELECT deterministically prefer the same first replica in the config. Since `distributed_foreground_insert=1` ensures the INSERT synchronously writes to that replica, the subsequent SELECT reads from it.
 
-Adding `optimize_skip_unused_shards=1` ensures the SELECT also routes to the correct _shard_ (not just the correct replica within a shard), since our combiner queries filter by `job_id IN (...)` which matches the sharding key.
-
 **Pros**: zero ZK overhead on reads, no per-table serialization, per-query settings only
 **Cons**: not formally guaranteed — if the preferred replica goes down between INSERT and SELECT, the fallback replica may be stale (see quorum hardening below). Concentrates preaggregation read/write load on one replica per shard — with 3 replicas, other queries using `random` load balancing distribute evenly across all 3 (including replica 1), so replica 1 gets a disproportionate share of total load. Acceptable when preaggregation is a small fraction of total query volume, but worth monitoring as it grows.
 **INSERT latency**: none extra (already global)
 **SELECT latency**: none extra (may be slightly faster with shard pruning)
 
 **Optional hardening: add quorum writes.** Adding `insert_quorum='auto'` ensures the INSERT is acknowledged by a majority of replicas before returning. This covers the failover edge case: if replica 1 goes down between INSERT and SELECT, `in_order` falls back to replica 2, which has the data thanks to quorum. Importantly, since we're using `load_balancing='in_order'` instead of `select_sequential_consistency`, we do NOT need `insert_quorum_parallel=0` — parallel quorum (the default) works fine, so there's no per-table lock and no throughput limit. The cost is +20-100ms INSERT latency for the quorum wait.
+
+**Optional performance optimisation: only read from relevant shards.** Depending on the sharding key, `optimize_skip_unused_shards=1` could ensure the SELECT also routes to the correct _shard_ (not just the correct replica within a shard), since our combiner queries filter by `job_id IN (...)` which may the sharding key.
 
 ## Sharding key analysis
 
