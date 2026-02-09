@@ -52,6 +52,8 @@ class TestGetResource:
 
         assert resource["write_disposition"] == {"disposition": "merge", "strategy": "upsert"}
         assert resource["endpoint"]["params"]["since"] == "2026-01-15T10:00:00+00:00"
+        assert resource["endpoint"]["params"]["sort"] == "updated"
+        assert resource["endpoint"]["params"]["direction"] == "asc"
 
     def test_commits_incremental_with_since(self):
         last_value = datetime(2026, 1, 15, 10, 0, 0, tzinfo=UTC)
@@ -64,7 +66,8 @@ class TestGetResource:
 
         assert resource["primary_key"] == "sha"
         assert resource["endpoint"]["params"]["since"] == "2026-01-15T10:00:00+00:00"
-        assert "sort" not in resource["endpoint"]["params"]
+        assert resource["endpoint"]["params"]["sort"] == "created"
+        assert resource["endpoint"]["params"]["direction"] == "asc"
 
     @parameterized.expand(
         [
@@ -101,6 +104,8 @@ class TestGetResource:
 
         assert resource["write_disposition"] == {"disposition": "merge", "strategy": "upsert"}
         assert "since" not in resource["endpoint"]["params"]
+        assert resource["endpoint"]["params"]["sort"] == "updated"
+        assert resource["endpoint"]["params"]["direction"] == "asc"
 
 
 class TestGithubPaginator:

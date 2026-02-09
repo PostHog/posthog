@@ -46,12 +46,10 @@ def get_resource(
         if name in ("issues", "commits"):
             params["since"] = formatted_value
 
-    # Pull requests don't support 'since', so we use descending sort instead
-    # and stop pagination when we hit old records (handled in the source)
-    if name == "pull_requests" and should_use_incremental_field:
+    if should_use_incremental_field:
         sort_field = (incremental_field or config.default_incremental_field or "updated_at").replace("_at", "")
         params["sort"] = sort_field
-        params["direction"] = "desc"
+        params["direction"] = config.sort_mode
 
     return {
         "name": config.name,

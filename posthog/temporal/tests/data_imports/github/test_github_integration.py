@@ -116,9 +116,11 @@ async def test_github_issues_incremental(
 
     api_calls = mock_github_api.get_all_api_calls()
     assert len(api_calls) == 1
-    # First sync should not have a since param
+    # First sync should not have a since param but should have sort params
     first_call_params = parse_qs(urlparse(api_calls[0].url).query)
     assert "since" not in first_call_params
+    assert first_call_params.get("sort") == ["updated"]
+    assert first_call_params.get("direction") == ["asc"]
 
     # Second sync: make all data visible
     mock_github_api.reset_max_updated()
