@@ -1,10 +1,6 @@
 import os
-<<<<<<< ours
 import json
-||||||| ancestor
-=======
 import time
->>>>>>> theirs
 import uuid
 import shlex
 import base64
