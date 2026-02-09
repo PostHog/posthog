@@ -76,6 +76,7 @@
           ExternalDataSourceType.COCKROACHDB: CockroachDBSourceConfig,
           ExternalDataSourceType.CONFLUENCE: ConfluenceSourceConfig,
           ExternalDataSourceType.CONVERTKIT: ConvertKitSourceConfig,
+          ExternalDataSourceType.CONVEX: ConvexSourceConfig,
           ExternalDataSourceType.COPPER: CopperSourceConfig,
           ExternalDataSourceType.CUSTOMERIO: CustomerIOSourceConfig,
           ExternalDataSourceType.DATADOG: DatadogSourceConfig,
