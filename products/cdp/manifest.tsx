@@ -49,22 +49,22 @@ export const manifest: ProductManifest = {
         {
             path: `Data/Site app`,
             type: 'hog_function/site_app',
-            href: urls.appsNew(),
+            href: urls.snippetsNew(),
             iconColor: ['var(--color-product-data-pipeline-light)'],
             sceneKeys: ['HogFunction'],
         },
     ],
     treeItemsProducts: [
         {
-            path: 'Site Apps',
+            path: 'JS snippets',
             intents: [ProductKey.SITE_APPS],
             category: 'Tools',
             type: 'hog_function',
             iconType: 'data_pipeline',
             iconColor: ['var(--color-product-data-pipeline-light)'],
-            href: urls.apps(),
-            sceneKey: 'Apps',
-            sceneKeys: ['Apps'],
+            href: urls.snippets(),
+            sceneKey: 'Snippets',
+            sceneKeys: ['Snippets'],
         },
         {
             path: `Data pipelines`,

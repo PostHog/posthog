@@ -1,7 +1,7 @@
 {
     "products": [
         {
-            "path": "Site Apps",
+            "path": "JS snippets",
             "category": "Tools",
             "iconType": "data_pipeline",
             "type": "hog_function",

@@ -33,7 +33,7 @@ export const dataPipelinesNewSceneLogic = kea<dataPipelinesNewSceneLogicType>([
                     source: { scene: Scene.Sources, url: urls.sources },
                     transformation: { scene: Scene.Transformations, url: urls.transformations },
                     destination: { scene: Scene.Destinations, url: urls.destinations },
-                    site_app: { scene: Scene.Apps, url: urls.apps },
+                    site_app: { scene: Scene.Snippets, url: urls.snippets },
                 }
 
                 const mapping = sceneMapping[kind]

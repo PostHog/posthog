@@ -14,7 +14,7 @@ import { projectTreeLogic } from './projectTreeLogic'
 
 const missingProductTypes: { value: string; label: string; icon?: React.ReactNode; flag?: string }[] = [
     { value: 'destination', label: 'Destinations', icon: <IconPlug /> },
-    { value: 'site_app', label: 'Site apps', icon: <IconPlug /> },
+    { value: 'site_app', label: 'JS snippets', icon: <IconPlug /> },
     { value: 'source', label: 'Sources', icon: <IconPlug /> },
     { value: 'transformation', label: 'Transformations', icon: <IconPlug /> },
 ]

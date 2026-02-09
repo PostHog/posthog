@@ -955,7 +955,7 @@ export const getTreeItemsNew = (): FileSystemImport[] => [
     {
         path: `Data/Site app`,
         type: 'hog_function/site_app',
-        href: urls.appsNew(),
+        href: urls.snippetsNew(),
         iconColor: ['var(--color-product-data-pipeline-light)'],
         sceneKeys: ['HogFunction'],
     },
@@ -1289,6 +1289,17 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         sceneKeys: ['Heatmaps'],
     },
     {
+        path: 'JS snippets',
+        intents: [ProductKey.SITE_APPS],
+        category: 'Tools',
+        type: 'hog_function',
+        iconType: 'data_pipeline',
+        iconColor: ['var(--color-product-data-pipeline-light)'],
+        href: urls.snippets(),
+        sceneKey: 'Snippets',
+        sceneKeys: ['Snippets'],
+    },
+    {
         path: 'LLM analytics',
         intents: [
             ProductKey.LLM_ANALYTICS,
@@ -1458,17 +1469,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconColor: ['var(--color-product-session-replay-light)', 'var(--color-product-session-replay-dark)'],
         sceneKey: 'Replay',
         sceneKeys: ['Replay', 'ReplaySingle', 'ReplaySettings', 'ReplayPlaylist', 'ReplayFilePlayback', 'ReplayKiosk'],
-    },
-    {
-        path: 'Site Apps',
-        intents: [ProductKey.SITE_APPS],
-        category: 'Tools',
-        type: 'hog_function',
-        iconType: 'data_pipeline',
-        iconColor: ['var(--color-product-data-pipeline-light)'],
-        href: urls.apps(),
-        sceneKey: 'Apps',
-        sceneKeys: ['Apps'],
     },
     {
         path: 'Support',

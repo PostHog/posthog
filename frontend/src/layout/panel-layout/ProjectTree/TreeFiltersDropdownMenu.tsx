@@ -24,7 +24,7 @@ interface FiltersDropdownProps {
 
 const missingProductTypes: { value: string; label: string; flag?: string }[] = [
     { value: 'destination', label: 'Destinations' },
-    { value: 'site_app', label: 'Site apps' },
+    { value: 'site_app', label: 'JS snippets' },
     { value: 'source', label: 'Sources' },
     { value: 'transformation', label: 'Transformations' },
 ]
