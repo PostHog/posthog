@@ -396,6 +396,10 @@ class TeamAdmin(admin.ModelAdmin):
         team = Team.objects.get(pk=object_id)
         hypercache = RemoteConfig.get_hypercache()
         cache_key = hypercache.get_cache_key(team.api_token)
+
+        # source tells us where the result came from ("redis", "s3", or None).
+        # When data is None, source disambiguates: a cache hit returning None means
+        # the team was explicitly cached as missing, while no source means a true cache miss.
         cached_data, source = hypercache.get_from_cache_with_source(team.api_token)
 
         if cached_data is None:

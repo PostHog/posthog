@@ -372,6 +372,9 @@ class RemoteConfig(UUIDTModel):
 
     @classmethod
     def _get_config_via_cache(cls, token: str) -> dict:
+        # source tells us where the result came from ("redis", "s3", or None).
+        # When data is None, source disambiguates: a cache hit returning None means
+        # the team was explicitly cached as missing, while no source means a true cache miss.
         data, source = cls.get_hypercache().get_from_cache_with_source(token)
 
         if data is None:
