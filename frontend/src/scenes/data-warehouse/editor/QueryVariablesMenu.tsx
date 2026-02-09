@@ -37,7 +37,7 @@ const buildVariableMenuItems = (
                 <span className="flex items-center justify-between w-full gap-2 group">
                     <span className="flex flex-col gap-0.5">
                         <span>{variable.name}</span>
-                        <span className="text-xs text-muted-alt">{variable.code_name}</span>
+                        <span className="text-xxs text-muted-alt">{variable.code_name}</span>
                     </span>
                     <LemonTag type="default">{variable.type}</LemonTag>
                 </span>
@@ -103,7 +103,7 @@ const buildOtherVariableMenuItems = (
                 <span className="flex items-center justify-between w-full gap-2 group">
                     <span className="flex flex-col gap-0.5">
                         <span>{variable.name}</span>
-                        <span className="text-xs text-muted-alt">{variable.code_name}</span>
+                        <span className="text-xxs text-muted-alt">{variable.code_name}</span>
                     </span>
                     <span className="flex items-center gap-2">
                         <LemonTag>{variable.type}</LemonTag>
