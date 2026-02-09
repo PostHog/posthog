@@ -137,7 +137,6 @@ class TestClassifySentimentActivity:
     @patch("posthog.temporal.llm_analytics.sentiment.run_sentiment.classify")
     @patch("posthog.temporal.llm_analytics.sentiment.run_sentiment.database_sync_to_async")
     async def test_handles_string_properties(self, mock_db_async, mock_classify):
-        """Test that JSON string properties are parsed correctly."""
         event_data = {
             "team_id": 1,
             "uuid": "test-uuid",
@@ -178,12 +177,15 @@ class TestClassifySentimentActivity:
         call_kwargs = mock_create_event.call_args
         props = call_kwargs.kwargs.get("properties") or call_kwargs[1].get("properties")
         assert props["$ai_sentiment_label"] == "positive"
+        # Max message-level scores: positive max=0.95 (msg1), negative max=0.80 (msg2)
+        assert props["$ai_sentiment_positive_max_score"] == pytest.approx(0.95)
+        assert props["$ai_sentiment_negative_max_score"] == pytest.approx(0.80)
         # Per-message array present
         assert len(props["$ai_sentiment_messages"]) == 2
         assert props["$ai_sentiment_messages"][0]["label"] == "positive"
         assert props["$ai_sentiment_messages"][1]["label"] == "negative"
         # Uses generation event timestamp, not now()
-        assert call_kwargs.kwargs.get("timestamp") or call_kwargs[1].get("timestamp") == "2024-06-15 12:00:00.000000"
+        assert (call_kwargs.kwargs.get("timestamp") or call_kwargs[1].get("timestamp")) == "2024-06-15 12:00:00.000000"
 
     @pytest.mark.asyncio
     @patch("posthog.temporal.llm_analytics.sentiment.run_sentiment.database_sync_to_async")

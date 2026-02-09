@@ -137,6 +137,10 @@ async def classify_sentiment_activity(input: SentimentClassificationInput) -> di
     overall_label = max(overall_scores, key=overall_scores.__getitem__)
     overall_score = overall_scores[overall_label]
 
+    # Max per-message scores, only from messages where that label won
+    positive_max_score = max((r.score for r in classify_results if r.label == "positive"), default=0.0)
+    negative_max_score = max((r.score for r in classify_results if r.label == "negative"), default=0.0)
+
     # Emit $ai_sentiment event
     trace_id = properties.get("$ai_trace_id")
     session_id = properties.get("$ai_session_id")
@@ -165,6 +169,8 @@ async def classify_sentiment_activity(input: SentimentClassificationInput) -> di
             "$ai_sentiment_label": overall_label,
             "$ai_sentiment_score": overall_score,
             "$ai_sentiment_scores": overall_scores,
+            "$ai_sentiment_positive_max_score": positive_max_score,
+            "$ai_sentiment_negative_max_score": negative_max_score,
             "$ai_sentiment_model": MODEL_NAME,
             "$ai_sentiment_messages": per_message_results,
         }
