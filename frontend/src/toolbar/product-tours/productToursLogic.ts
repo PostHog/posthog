@@ -22,13 +22,7 @@ import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
 import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { ElementRect } from '~/toolbar/types'
 import { TOOLBAR_ID, elementToActionStep, getRectForElement, joinWithUiHost } from '~/toolbar/utils'
-import {
-    ProductTour,
-    ProductTourProgressionTriggerType,
-    ProductTourStep,
-    ProductTourStepType,
-    StepOrderVersion,
-} from '~/types'
+import { ProductTour, ProductTourStep, ProductTourStepType, StepOrderVersion } from '~/types'
 
 import { inferSelector } from './elementInference'
 import type { productToursLogicType } from './productToursLogicType'
@@ -169,13 +163,7 @@ export const productToursLogic = kea<productToursLogicType>([
         removeStep: (index: number) => ({ index }),
 
         // Step configuration
-        setStepTargetingMode: (index: number, useManual: boolean) => ({ index, useManual }),
-        updateStepSelector: (index: number, selector: string) => ({ index, selector }),
-        updateStepProgressionTrigger: (index: number, trigger: ProductTourProgressionTriggerType) => ({
-            index,
-            trigger,
-        }),
-        clearStepTargeting: (index: number) => ({ index }),
+        updateStep: (index: number, patch: Partial<TourStep>) => ({ index, patch }),
 
         // Tour CRUD
         selectTour: (id: string | null) => ({ id }),
@@ -557,35 +545,7 @@ export const productToursLogic = kea<productToursLogicType>([
                 actions.setEditorState({ mode: 'idle' })
             }
         },
-        setStepTargetingMode: ({ index, useManual }) => {
-            if (!values.tourForm) {
-                return
-            }
-            const steps = [...(values.tourForm.steps || [])]
-            const step = steps[index]
-            if (!step || !hasElementTarget(step)) {
-                return
-            }
-
-            steps[index] = {
-                ...step,
-                elementTargeting: useManual ? 'manual' : 'auto',
-            }
-            actions.setTourFormValue('steps', steps)
-        },
-        updateStepSelector: ({ index, selector }) => {
-            if (!values.tourForm) {
-                return
-            }
-            const steps = [...(values.tourForm.steps || [])]
-            const step = steps[index]
-            if (!step || !hasElementTarget(step)) {
-                return
-            }
-            steps[index] = { ...step, selector, element: undefined }
-            actions.setTourFormValue('steps', steps)
-        },
-        updateStepProgressionTrigger: ({ index, trigger }) => {
+        updateStep: ({ index, patch }) => {
             if (!values.tourForm) {
                 return
             }
@@ -594,7 +554,7 @@ export const productToursLogic = kea<productToursLogicType>([
             if (!step) {
                 return
             }
-            steps[index] = { ...step, progressionTrigger: trigger }
+            steps[index] = { ...step, ...patch }
             actions.setTourFormValue('steps', steps)
         },
         clearStepTargeting: ({ index }) => {
