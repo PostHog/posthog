@@ -20,25 +20,25 @@ export type ParsedExceptionData = string
 /**
  * Extracts basic metadata from a PostHog exception event
  */
-function extractExceptionMetadata(event: EventType): ExceptionMetadata {
+function extractExceptionMetadata(event: EventType | null | undefined): ExceptionMetadata {
     return {
-        uuid: event.uuid || 'Unknown',
-        commitSha: event.properties?.commit_sha || 'Unknown',
-        feature: event.properties?.feature || 'Unknown',
-        exceptionType: event.properties?.$exception_list?.[0]?.type || 'Unknown',
-        exceptionValue: event.properties?.$exception_list?.[0]?.value || 'Unknown',
+        uuid: event?.uuid || 'Unknown',
+        commitSha: event?.properties?.commit_sha || 'Unknown',
+        feature: event?.properties?.feature || 'Unknown',
+        exceptionType: event?.properties?.$exception_list?.[0]?.type || 'Unknown',
+        exceptionValue: event?.properties?.$exception_list?.[0]?.value || 'Unknown',
     }
 }
 
 /**
  * Extracts stack trace information from exception frames
  */
-function extractStackTraceInfo(event: EventType): StackTraceInfo {
+function extractStackTraceInfo(event: EventType | null | undefined): StackTraceInfo {
     let filename = 'Unknown'
     let functionName = 'Unknown'
     let lineNumber = 'Unknown'
 
-    const exceptionList = event.properties?.$exception_list
+    const exceptionList = event?.properties?.$exception_list
     if (exceptionList && Array.isArray(exceptionList) && exceptionList[0]) {
         const exception = exceptionList[0]
 
@@ -76,7 +76,7 @@ Line: ${stackTrace.lineNumber}`
 /**
  * Main function to parse a PostHog exception event into a structured format
  */
-export function parseExceptionEvent(event: EventType): ParsedExceptionData {
+export function parseExceptionEvent(event: EventType | null | undefined): ParsedExceptionData {
     const metadata = extractExceptionMetadata(event)
     const stackTrace = extractStackTraceInfo(event)
     const parsedData = formatExceptionSummary(metadata, stackTrace)
