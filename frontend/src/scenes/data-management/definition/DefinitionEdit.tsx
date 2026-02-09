@@ -158,8 +158,9 @@ export function DefinitionEdit(props: DefinitionLogicProps): JSX.Element {
                             </LemonField>
                         </div>
 
+                        {/* Allow uploading media previews only for custom events; not that useful for properties or autocapture events */}
                         <FlaggedFeature flag={FEATURE_FLAGS.EVENT_MEDIA_PREVIEWS}>
-                            {objectStorageAvailable && (
+                            {objectStorageAvailable && !isProperty && !isCoreFilter(editDefinition.name) && (
                                 <div className="ph-ignore-input">
                                     <LemonField
                                         name="media_preview"
