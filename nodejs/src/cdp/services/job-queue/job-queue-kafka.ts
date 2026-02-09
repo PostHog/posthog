@@ -69,8 +69,9 @@ export class CyclotronJobQueueKafka {
                         'client.id': `${hostname()}-seek-test`,
                         'metadata.broker.list': this.config.KAFKA_HOSTS,
                         ...getKafkaConfigFromEnv('CONSUMER'),
-                        // Unique group.id - we only use assign(), never subscribe(), so no group coordination
-                        'group.id': `cdp-seek-test-${hostname()}-${Date.now()}`,
+                        // Static group.id is safe here: we only use assign() (not subscribe()),
+                        // so no group coordination or rebalancing occurs across consumers.
+                        'group.id': 'cdp-seek-test',
                         'enable.auto.commit': false,
                         'enable.auto.offset.store': false,
                     },
