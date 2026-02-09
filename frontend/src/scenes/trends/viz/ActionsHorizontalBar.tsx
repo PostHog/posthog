@@ -97,6 +97,7 @@ export function ActionsHorizontalBar({ showPersonsModal = true, context }: Chart
             formula={formula}
             showValuesOnSeries={showValuesOnSeries}
             ignoreActionsInSeriesLabels={context?.ignoreActionsInSeriesLabels}
+            isStacked={false}
             onClick={
                 context?.onDataPointClick || (showPersonsModal && !trendsFilter?.formula && !hasDataWarehouseSeries)
                     ? (point) => {

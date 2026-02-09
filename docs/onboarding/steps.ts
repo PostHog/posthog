@@ -4,6 +4,8 @@ export interface StepDefinition {
     title: string
     badge?: 'required' | 'recommended' | 'optional'
     content: ReactNode
+    subtitle?: string
+    checkpoint?: boolean
 }
 
 export interface StepModifier {

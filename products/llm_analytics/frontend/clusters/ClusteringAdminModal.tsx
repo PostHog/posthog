@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonInput, LemonModal, LemonSelect } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonModal, LemonSegmentedButton, LemonSelect } from '@posthog/lemon-ui'
 
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -19,20 +19,54 @@ export function ClusteringAdminModal(): JSX.Element {
             description="Configure and trigger a clustering workflow with custom parameters for experimentation."
             footer={
                 <>
-                    <LemonButton type="secondary" onClick={resetParams} disabled={isRunning}>
+                    <LemonButton
+                        type="secondary"
+                        onClick={resetParams}
+                        disabled={isRunning}
+                        data-attr="clusters-admin-reset"
+                    >
                         Reset to defaults
                     </LemonButton>
                     <div className="flex-1" />
-                    <LemonButton type="secondary" onClick={closeModal} disabled={isRunning}>
+                    <LemonButton
+                        type="secondary"
+                        onClick={closeModal}
+                        disabled={isRunning}
+                        data-attr="clusters-admin-cancel"
+                    >
                         Cancel
                     </LemonButton>
-                    <LemonButton type="primary" onClick={triggerClusteringRun} loading={isRunning}>
+                    <LemonButton
+                        type="primary"
+                        onClick={triggerClusteringRun}
+                        loading={isRunning}
+                        data-attr="clusters-admin-run"
+                    >
                         Run clustering
                     </LemonButton>
                 </>
             }
         >
             <div className="space-y-6">
+                {/* Analysis Level */}
+                <div>
+                    <h4 className="font-semibold mb-3">Analysis level</h4>
+                    <LemonSegmentedButton
+                        value={params.analysis_level}
+                        onChange={(value) => setParams({ analysis_level: value })}
+                        options={[
+                            { value: 'trace', label: 'Traces' },
+                            { value: 'generation', label: 'Generations' },
+                        ]}
+                        fullWidth
+                        data-attr="clusters-admin-level"
+                    />
+                    <div className="text-xs text-muted mt-2">
+                        <strong>Traces:</strong> Cluster entire conversation traces. <strong>Generations:</strong>{' '}
+                        Cluster individual LLM generations for finer-grained analysis.
+                    </div>
+                </div>
+
                 {/* Run Label */}
                 <div>
                     <h4 className="font-semibold mb-3">Experiment tracking</h4>
@@ -44,6 +78,7 @@ export function ClusteringAdminModal(): JSX.Element {
                             onChange={(value) => setParams({ run_label: value })}
                             placeholder="e.g., pca-100-l2-test"
                             fullWidth
+                            data-attr="clusters-admin-run-label"
                         />
                         <div className="text-xs text-muted mt-1">
                             Optional label added as suffix to run ID for tracking experiments
@@ -89,6 +124,7 @@ export function ClusteringAdminModal(): JSX.Element {
                                 value={params.lookback_days}
                                 onChange={(value) => setParams({ lookback_days: Number(value) })}
                                 fullWidth
+                                data-attr="clusters-admin-lookback-days"
                             />
                             <div className="text-xs text-muted mt-1">
                                 Days of traces to analyze (default: {DEFAULT_CLUSTERING_PARAMS.lookback_days})
@@ -103,6 +139,7 @@ export function ClusteringAdminModal(): JSX.Element {
                                 value={params.max_samples}
                                 onChange={(value) => setParams({ max_samples: Number(value) })}
                                 fullWidth
+                                data-attr="clusters-admin-max-samples"
                             />
                             <div className="text-xs text-muted mt-1">
                                 Maximum traces to cluster (default: {DEFAULT_CLUSTERING_PARAMS.max_samples})
@@ -124,6 +161,7 @@ export function ClusteringAdminModal(): JSX.Element {
                                 { value: 'l2', label: 'L2 normalize' },
                             ]}
                             fullWidth
+                            data-attr="clusters-admin-normalization"
                         />
                         <div className="text-xs text-muted mt-1">
                             L2 normalization can help with embeddings of varying magnitudes
@@ -146,6 +184,7 @@ export function ClusteringAdminModal(): JSX.Element {
                                     { value: 'pca', label: 'PCA' },
                                 ]}
                                 fullWidth
+                                data-attr="clusters-admin-dim-reduction"
                             />
                             <div className="text-xs text-muted mt-1">UMAP is slower but better for clustering</div>
                         </div>
@@ -159,6 +198,7 @@ export function ClusteringAdminModal(): JSX.Element {
                                 onChange={(value) => setParams({ dimensionality_reduction_ndims: Number(value) })}
                                 fullWidth
                                 disabled={params.dimensionality_reduction_method === 'none'}
+                                data-attr="clusters-admin-target-dims"
                             />
                             <div className="text-xs text-muted mt-1">
                                 Number of dimensions (default:{' '}
@@ -181,6 +221,7 @@ export function ClusteringAdminModal(): JSX.Element {
                                 { value: 'kmeans', label: 'K-means (centroid-based)' },
                             ]}
                             fullWidth
+                            data-attr="clusters-admin-clustering-method"
                         />
                         <div className="text-xs text-muted mt-1">
                             HDBSCAN auto-determines clusters and identifies outliers. K-means uses silhouette score to
@@ -280,6 +321,7 @@ export function ClusteringAdminModal(): JSX.Element {
                                 { value: 'tsne', label: 't-SNE' },
                             ]}
                             fullWidth
+                            data-attr="clusters-admin-visualization"
                         />
                         <div className="text-xs text-muted mt-1">
                             Method for reducing cluster embeddings to 2D for the scatter plot visualization

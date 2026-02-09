@@ -1,5 +1,5 @@
 import {
-    PublicKeyCredentialRequestOptionsJSON,
+    type PublicKeyCredentialRequestOptionsJSON,
     type UserVerificationRequirement,
     startAuthentication,
 } from '@simplewebauthn/browser'

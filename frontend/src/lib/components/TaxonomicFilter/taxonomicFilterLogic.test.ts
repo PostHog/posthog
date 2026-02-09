@@ -229,9 +229,9 @@ describe('taxonomicFilterLogic', () => {
 
         beforeEach(() => {
             const maxContextOptions = [
-                { id: 'context1', name: 'Test Context 1', value: 'context1', icon: null },
-                { id: 'context2', name: 'Test Context 2', value: 'context2', icon: null },
-                { id: 'context3', name: 'Another Context', value: 'context3', icon: null },
+                { id: 'context1', name: 'Test Context 1', value: 'context1', icon: () => null },
+                { id: 'context2', name: 'Test Context 2', value: 'context2', icon: () => null },
+                { id: 'context3', name: 'Another Context', value: 'context3', icon: () => null },
             ]
 
             const logicProps: TaxonomicFilterLogicProps = {
@@ -259,9 +259,9 @@ describe('taxonomicFilterLogic', () => {
             expect(maxAIGroup?.name).toBe('On this page')
             expect(maxAIGroup?.searchPlaceholder).toBe('elements from this page')
             expect(maxAIGroup?.options).toEqual([
-                { id: 'context1', name: 'Test Context 1', value: 'context1', icon: null },
-                { id: 'context2', name: 'Test Context 2', value: 'context2', icon: null },
-                { id: 'context3', name: 'Another Context', value: 'context3', icon: null },
+                { id: 'context1', name: 'Test Context 1', value: 'context1', icon: expect.anything() },
+                { id: 'context2', name: 'Test Context 2', value: 'context2', icon: expect.anything() },
+                { id: 'context3', name: 'Another Context', value: 'context3', icon: expect.anything() },
             ])
         })
     })

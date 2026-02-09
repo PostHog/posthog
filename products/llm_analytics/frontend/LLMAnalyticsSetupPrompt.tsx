@@ -6,34 +6,38 @@ import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductI
 
 import { ProductKey } from '~/queries/schema/schema-general'
 
-import { llmAnalyticsLogic } from './llmAnalyticsLogic'
+import { llmAnalyticsSharedLogic } from './llmAnalyticsSharedLogic'
+
+type Thing = 'generation' | 'trace'
 
 export function LLMAnalyticsSetupPrompt({
     children,
     className,
+    thing = 'generation',
 }: {
     children: React.ReactNode
+    thing?: Thing
     className?: string
 }): JSX.Element {
-    const { hasSentAiEvent, hasSentAiEventLoading } = useValues(llmAnalyticsLogic)
+    const { hasSentAiEvent, hasSentAiEventLoading } = useValues(llmAnalyticsSharedLogic)
 
     return hasSentAiEventLoading ? (
         <div className="flex justify-center">
             <Spinner />
         </div>
     ) : !hasSentAiEvent ? (
-        <IngestionStatusCheck className={className} />
+        <IngestionStatusCheck className={className} thing={thing} />
     ) : (
         <>{children}</>
     )
 }
 
-function IngestionStatusCheck({ className }: { className?: string }): JSX.Element {
+function IngestionStatusCheck({ className, thing }: { className?: string; thing: Thing }): JSX.Element {
     return (
         <ProductIntroduction
             productName="LLM analytics"
-            thingName="LLM generation"
-            titleOverride="No LLM generation events have been detected!"
+            thingName={`LLM ${thing}`}
+            titleOverride={`No LLM ${thing} events have been detected!`}
             description="To use the LLM Analytics product, please instrument your LLM calls with the PostHog SDK."
             isEmpty={true}
             productKey={ProductKey.LLM_ANALYTICS}

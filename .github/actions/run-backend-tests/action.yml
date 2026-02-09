@@ -31,6 +31,14 @@ inputs:
     token:
         required: false
         description: GitHub token
+    skip-plugin-transpiler:
+        required: false
+        default: 'false'
+        description: Skip building plugin transpiler (avoids esbuild, useful for tests that don't need it)
+    snapshot-warn-unused:
+        required: false
+        default: 'false'
+        description: Use --snapshot-warn-unused instead of failing on unused snapshots (useful for compat tests that run a subset)
 
 runs:
     using: 'composite'
@@ -87,6 +95,7 @@ runs:
           uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b # v7.2.0
           with:
               enable-cache: true
+              save-cache: ${{ github.ref == 'refs/heads/master' }}
 
         - name: Determine if hogql-parser has changed compared to master
           shell: bash
@@ -117,6 +126,7 @@ runs:
         - uses: tlambert03/setup-qt-libs@19e4ef2d781d81f5f067182e228b54ec90d23b76 # v1.8
 
         - name: Install plugin_transpiler
+          if: inputs.skip-plugin-transpiler != 'true'
           shell: bash
           run: |
               pnpm --filter=@posthog/plugin-transpiler... install --frozen-lockfile
@@ -160,6 +170,10 @@ runs:
 
         - name: Cache Rust dependencies
           uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+          with:
+              shared-key: 'v2-rust-backend'
+              workspaces: rust
+              save-if: ${{ github.ref == 'refs/heads/master' }}
 
         - name: Install sqlx-cli
           shell: bash
@@ -190,6 +204,14 @@ runs:
           if: github.event.pull_request.head.repo.full_name == github.repository || inputs.person-on-events == 'true'
           shell: bash
           run: echo "PYTEST_ARGS=--snapshot-update" >> $GITHUB_ENV # We can only update snapshots within the PostHog org
+
+        - name: Add snapshot flags for subset runs (compat tests)
+          # Subset runs don't own snapshots — the main django tests do.
+          # Always update snapshots and warn on unused so compat tests
+          # never fail due to snapshot differences across CH versions.
+          if: inputs.snapshot-warn-unused == 'true'
+          shell: bash
+          run: echo "PYTEST_ARGS=--snapshot-update --snapshot-warn-unused" >> $GITHUB_ENV
 
         # Tests
         - name: Run Core tests

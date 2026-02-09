@@ -6,6 +6,7 @@ from posthog.settings import CLICKHOUSE_CLUSTER
 
 
 def does_column_exist(database, table_name, column_name):
+    # nosemgrep: clickhouse-fstring-param-audit - migration code, hardcoded table/column names
     cols = sync_execute(
         f"""
             SELECT 1
@@ -19,6 +20,7 @@ def does_column_exist(database, table_name, column_name):
 def ensure_only_new_column_exists(database, table_name, old_column_name, new_column_name):
     if does_column_exist(database, table_name, new_column_name):
         # New column already exists, so just drop the old one
+        # nosemgrep: clickhouse-fstring-param-audit - migration code, hardcoded table/column names
         sync_execute(
             f"""
                 ALTER TABLE {table_name}
@@ -28,6 +30,7 @@ def ensure_only_new_column_exists(database, table_name, old_column_name, new_col
         )
     else:
         # New column does not exist, so rename the old one to the new one
+        # nosemgrep: clickhouse-fstring-param-audit - migration code, hardcoded table/column names
         sync_execute(
             f"""
                 ALTER TABLE {table_name}

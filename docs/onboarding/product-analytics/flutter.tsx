@@ -1,8 +1,11 @@
-import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
-import { PersonProfiles } from './_snippets/person-profiles'
-import { StepDefinition } from '../steps'
+import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 
-export const getFlutterSteps = (CodeBlock: any, Markdown: any, dedent: any): StepDefinition[] => {
+import { StepDefinition } from '../steps'
+import { PersonProfiles } from './_snippets/person-profiles'
+
+export const getFlutterSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
+    const { CodeBlock, Markdown, dedent } = ctx
+
     return [
         {
             title: 'Install the package',
@@ -178,17 +181,4 @@ export const getFlutterSteps = (CodeBlock: any, Markdown: any, dedent: any): Ste
     ]
 }
 
-export const FlutterInstallation = (): JSX.Element => {
-    const { Steps, Step, CodeBlock, Markdown, dedent } = useMDXComponents()
-    const steps = getFlutterSteps(CodeBlock, Markdown, dedent)
-
-    return (
-        <Steps>
-            {steps.map((step, index) => (
-                <Step key={index} title={step.title} badge={step.badge}>
-                    {step.content}
-                </Step>
-            ))}
-        </Steps>
-    )
-}
+export const FlutterInstallation = createInstallation(getFlutterSteps)

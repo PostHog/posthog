@@ -5,12 +5,20 @@
         "kea-loaders": "^3.1.1",
         "kea-router": "^3.4.1",
         "kea-subscriptions": "^3.0.1",
-        "posthog-js": "1.334.0"
+        "posthog-js": "1.342.1",
+        "ts-pattern": "4.3"
     },
     "peerDependencies": {
         "@posthog/icons": "*",
         "@posthog/lemon-ui": "*",
         "@tiptap/core": "*",
+        "@tiptap/extension-document": "*",
+        "@tiptap/extension-image": "*",
+        "@tiptap/extension-link": "*",
+        "@tiptap/extension-underline": "*",
+        "@tiptap/extensions": "*",
+        "@tiptap/react": "*",
+        "@tiptap/starter-kit": "*",
         "@types/react": "*",
         "@types/react-dom": "*",
         "clsx": "*",

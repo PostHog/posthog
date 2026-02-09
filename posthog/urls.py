@@ -26,6 +26,7 @@ from posthog.api import (
     sharing,
     signup,
     site_app,
+    two_factor_reset,
     unsubscribe,
     uploaded_media,
     user,
@@ -38,6 +39,7 @@ from posthog.api.two_factor_qrcode import CacheAwareQRGeneratorView
 from posthog.api.utils import hostname_in_allowed_url_list
 from posthog.api.web_experiment import web_experiments
 from posthog.api.zendesk_orgcheck import ensure_zendesk_organization
+from posthog.auth import apply_auth_brand_cookie
 from posthog.constants import PERMITTED_FORUM_DOMAINS
 from posthog.demo.legacy import demo_route
 from posthog.models import User
@@ -97,7 +99,8 @@ def home(request, *args, **kwargs):
         url = "https://us.posthog.com{}".format(request.get_full_path())
         if url_has_allowed_host_and_scheme(url, "us.posthog.com", True):
             return HttpResponseRedirect(url)
-    return render_template("index.html", request)
+    response = render_template("index.html", request)
+    return apply_auth_brand_cookie(request, response)
 
 
 def authorize_and_redirect(request: HttpRequest) -> HttpResponse:
@@ -192,12 +195,17 @@ urlpatterns = [
     opt_slash_path("api/surveys", surveys),
     opt_slash_path("api/product_tours", product_tours),
     re_path(r"^external_surveys/(?P<survey_id>[^/]+)/?$", public_survey_page),
+    opt_slash_path("api/signup/precheck", signup.SignupEmailPrecheckViewset.as_view()),
     opt_slash_path("api/signup", signup.SignupViewset.as_view()),
     opt_slash_path("api/social_signup", signup.SocialSignupViewset.as_view()),
     path("api/signup/<str:invite_id>/", signup.InviteSignupViewset.as_view()),
     path(
         "api/reset/<str:user_uuid>/",
         authentication.PasswordResetCompleteViewSet.as_view({"get": "retrieve", "post": "create"}),
+    ),
+    path(
+        "api/reset_2fa/<str:user_uuid>/",
+        two_factor_reset.TwoFactorResetViewSet.as_view({"get": "retrieve", "post": "create"}),
     ),
     opt_slash_path(
         "api/public_hog_function_templates",

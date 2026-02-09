@@ -85,6 +85,37 @@ Narrow.args = {
     children: 'This is a one-time message. Acknowledge it and move on with your life.',
 }
 
+const SceneWidthTemplate: StoryFn<typeof LemonBanner> = (props: LemonBannerProps) => {
+    return (
+        <div id="target" className="w-200">
+            <LemonBanner {...props} />
+        </div>
+    )
+}
+SceneWidthTemplate.parameters = {
+    testOptions: {
+        snapshotTargetSelector: '#target',
+    },
+}
+
+export const WarningWithAction: Story = SceneWidthTemplate.bind({})
+WarningWithAction.args = {
+    type: 'warning',
+    children: (
+        <div>
+            <div className="font-semibold">Some filters are slowing down your queries</div>
+            <div className="text-sm mt-0.5">
+                The following filters are not supported by the new query engine and are causing your queries to slow
+                down: <strong>$entry_referring_domain</strong>
+            </div>
+        </div>
+    ),
+    action: {
+        children: 'Remove unsupported filters',
+        onClick: () => alert('Filters removed'),
+    },
+}
+
 export const NarrowWithButtons: Story = NarrowTemplate.bind({})
 NarrowWithButtons.args = {
     type: 'info',

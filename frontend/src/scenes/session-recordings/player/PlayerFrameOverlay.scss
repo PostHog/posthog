@@ -6,3 +6,55 @@
         }
     }
 }
+
+.SeekIndicator {
+    animation:
+        SeekIndicator__FadeIn 0.1s ease-out forwards,
+        SeekIndicator__FadeOut 0.2s ease-in 0.3s forwards;
+
+    .SeekIndicator__bubble {
+        animation: SeekIndicator__Pop 0.15s ease-out forwards;
+    }
+
+    .SeekIndicator__icon {
+        font-size: 2.5rem;
+
+        &--forward {
+            transform: scaleX(-1);
+        }
+    }
+}
+
+@keyframes SeekIndicator__FadeIn {
+    from {
+        opacity: 0;
+    }
+
+    to {
+        opacity: 1;
+    }
+}
+
+@keyframes SeekIndicator__FadeOut {
+    from {
+        opacity: 1;
+    }
+
+    to {
+        opacity: 0;
+    }
+}
+
+@keyframes SeekIndicator__Pop {
+    0% {
+        transform: scale(0.8);
+    }
+
+    50% {
+        transform: scale(1.1);
+    }
+
+    100% {
+        transform: scale(1);
+    }
+}

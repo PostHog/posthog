@@ -55,7 +55,7 @@ interface RenderKeybindProps {
 
 export function RenderKeybind({ keybind, className }: RenderKeybindProps): JSX.Element {
     return (
-        <span className={cn('flex items-center gap-1', className)}>
+        <span className={cn('inline-flex items-center gap-1', className)}>
             {keybind.map((keybindOption, index) => {
                 const isSequence = keybindOption.includes('then')
                 if (isSequence) {

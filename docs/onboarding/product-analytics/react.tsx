@@ -1,13 +1,10 @@
-import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+
 import { StepDefinition } from '../steps'
 
-export const getReactSteps = (
-    CodeBlock: any,
-    Markdown: any,
-    CalloutBox: any,
-    dedent: any,
-    snippets: any
-): StepDefinition[] => {
+export const getReactSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
+    const { CodeBlock, Markdown, CalloutBox, dedent, snippets } = ctx
+
     const JSEventCapture = snippets?.JSEventCapture
 
     return [
@@ -16,28 +13,28 @@ export const getReactSteps = (
             badge: 'required',
             content: (
                 <>
-                    <Markdown>Install the PostHog JavaScript library using your package manager:</Markdown>
+                    <Markdown>Install [`posthog-js`](https://github.com/posthog/posthog-js) and `@posthog/react` using your package manager:</Markdown>
                     <CodeBlock
                         blocks={[
                             {
                                 language: 'bash',
                                 file: 'npm',
                                 code: dedent`
-                                    npm install posthog-js
+                                    npm install posthog-js @posthog/react
                                 `,
                             },
                             {
                                 language: 'bash',
                                 file: 'yarn',
                                 code: dedent`
-                                    yarn add posthog-js
+                                    yarn add posthog-js @posthog/react
                                 `,
                             },
                             {
                                 language: 'bash',
                                 file: 'pnpm',
                                 code: dedent`
-                                    pnpm add posthog-js
+                                    pnpm add posthog-js @posthog/react
                                 `,
                             },
                         ]}
@@ -51,8 +48,8 @@ export const getReactSteps = (
             content: (
                 <>
                     <Markdown>
-                        Add your PostHog API key and host to your environment variables. For Vite-based React apps, use the
-                        `VITE_PUBLIC_` prefix:
+                        Add your PostHog API key and host to your environment variables. For Vite-based React apps, use
+                        the `VITE_PUBLIC_` prefix:
                     </Markdown>
                     <CodeBlock
                         blocks={[
@@ -88,7 +85,7 @@ export const getReactSteps = (
                                     import { createRoot } from 'react-dom/client'
                                     import './index.css'
                                     import App from './App.jsx'
-                                    import { PostHogProvider } from 'posthog-js/react'
+                                    import { PostHogProvider } from '@posthog/react'
 
                                     const options = {
                                       api_host: import.meta.env.VITE_PUBLIC_POSTHOG_HOST,
@@ -109,7 +106,8 @@ export const getReactSteps = (
                     <CalloutBox type="fyi" title="defaults option">
                         <Markdown>
                             The `defaults` option automatically configures PostHog with recommended settings for new
-                            projects. See [SDK defaults](https://posthog.com/docs/libraries/js#sdk-defaults) for details.
+                            projects. See [SDK defaults](https://posthog.com/docs/libraries/js#sdk-defaults) for
+                            details.
                         </Markdown>
                     </CalloutBox>
                 </>
@@ -130,7 +128,7 @@ export const getReactSteps = (
                                 language: 'tsx',
                                 file: 'MyComponent.tsx',
                                 code: dedent`
-                                    import { usePostHog } from 'posthog-js/react'
+                                    import { usePostHog } from '@posthog/react'
 
                                     function MyComponent() {
                                         const posthog = usePostHog()
@@ -145,9 +143,7 @@ export const getReactSteps = (
                             },
                         ]}
                     />
-                    <Markdown>
-                        You can also import `posthog` directly for non-React code or utility functions:
-                    </Markdown>
+                    <Markdown>You can also import `posthog` directly for non-React code or utility functions:</Markdown>
                     <CodeBlock
                         blocks={[
                             {
@@ -174,17 +170,4 @@ export const getReactSteps = (
     ]
 }
 
-export const ReactInstallation = (): JSX.Element => {
-    const { Steps, Step, CodeBlock, Markdown, CalloutBox, dedent, snippets } = useMDXComponents()
-    const steps = getReactSteps(CodeBlock, Markdown, CalloutBox, dedent, snippets)
-
-    return (
-        <Steps>
-            {steps.map((step, index) => (
-                <Step key={index} title={step.title} badge={step.badge}>
-                    {step.content}
-                </Step>
-            ))}
-        </Steps>
-    )
-}
+export const ReactInstallation = createInstallation(getReactSteps)

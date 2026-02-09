@@ -271,7 +271,9 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
             except Exception as e:
                 capture_exception(e)
 
-            self.table.soft_delete()
+            if not self.table.deleted:
+                self.table.soft_delete()
+
             self.table_id = None
             self.last_synced_at = None
             self.status = None

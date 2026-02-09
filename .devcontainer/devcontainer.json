@@ -44,9 +44,7 @@
         "python.linting.flake8Enabled": true,
         "python.linting.flake8Path": "/usr/local/py-utils/bin/flake8",
         "python.linting.mypyPath": "/usr/local/py-utils/bin/mypy",
-        // Configure formatting
-        "python.formatting.blackPath": "/usr/local/py-utils/bin/black",
-        "python.formatting.provider": "black",
+        // Configure formatting (using ruff via editor extension)
         // Configure testing
         "python.testing.pytestEnabled": true,
         "python.testing.pytestPath": "/usr/local/py-utils/bin/pytest"

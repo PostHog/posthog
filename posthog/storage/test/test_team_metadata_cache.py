@@ -188,6 +188,45 @@ class TestTeamMetadataCacheSignals(BaseTest):
         # Cache should NOT be cleared
         mock_clear.assert_not_called()
 
+    @patch("posthog.models.project_secret_api_key.invalidate_project_secret_api_key_cache")
+    def test_team_delete_clears_project_secret_api_key_cache(self, mock_invalidate):
+        """Test that deleting a team clears its project secret API key caches."""
+        from posthog.models.project_secret_api_key import ProjectSecretAPIKey
+
+        team = Team.objects.create(
+            organization=self.organization,
+            name="Test Team",
+        )
+
+        ProjectSecretAPIKey.objects.create(
+            team=team,
+            label="Key 1",
+            secure_value="hashed_value_1",
+        )
+        ProjectSecretAPIKey.objects.create(
+            team=team,
+            label="Key 2",
+            secure_value="hashed_value_2",
+        )
+
+        team.delete()
+
+        self.assertEqual(mock_invalidate.call_count, 2)
+        invalidated_values = {call.args[0] for call in mock_invalidate.call_args_list}
+        self.assertEqual(invalidated_values, {"hashed_value_1", "hashed_value_2"})
+
+    @patch("posthog.models.project_secret_api_key.invalidate_project_secret_api_key_cache")
+    def test_team_delete_handles_no_project_secret_api_keys(self, mock_invalidate):
+        """Test that deleting a team without project secret API keys doesn't error."""
+        team = Team.objects.create(
+            organization=self.organization,
+            name="Test Team",
+        )
+
+        team.delete()
+
+        mock_invalidate.assert_not_called()
+
 
 class TestCacheStats(BaseTest):
     """Test cache statistics functionality."""

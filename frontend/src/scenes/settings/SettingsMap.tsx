@@ -1,5 +1,4 @@
 import { LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
-import { ExceptionAutocaptureSettings } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/ExceptionAutocaptureSettings'
 import { ErrorTrackingAlerting } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/alerting/ErrorTrackingAlerting'
 import { Releases } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/releases/Releases'
 import { AutoAssignmentRules } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/rules/AutoAssignmentRules'
@@ -33,6 +32,7 @@ import { RolesAccessControls } from '~/layout/navigation-3000/sidepanel/panels/a
 import { AccessControlLevel, AccessControlResourceType, Realm } from '~/types'
 
 import { CustomerAnalyticsDashboardEvents } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/events/CustomerAnalyticsDashboardEvents'
+import { ExceptionAutocaptureSettings } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/exception_autocapture/ExceptionAutocaptureSettings'
 
 import { IntegrationsList } from '../../lib/integrations/IntegrationsList'
 import {
@@ -45,7 +45,11 @@ import { CSPReportingSettings } from './environment/CSPReportingSettings'
 import { CorrelationConfig } from './environment/CorrelationConfig'
 import { DataAttributes } from './environment/DataAttributes'
 import { DataColorThemes } from './environment/DataColorThemes'
+import { DefaultExperimentConfidenceLevel } from './environment/DefaultExperimentConfidenceLevel'
+import { DefaultExperimentStatsMethod } from './environment/DefaultExperimentStatsMethod'
+import { DiscussionMentionNotifications } from './environment/DiscussionSettings'
 import { ErrorTrackingIntegrations } from './environment/ErrorTrackingIntegrations'
+import { ExperimentRecalculationTime } from './environment/ExperimentRecalculationTime'
 import { FeatureFlagSettings } from './environment/FeatureFlagSettings'
 import { FeaturePreviewsSettings } from './environment/FeaturePreviewsSettings'
 import { GroupAnalyticsConfig } from './environment/GroupAnalyticsConfig'
@@ -55,7 +59,7 @@ import { IPAllowListInfo } from './environment/IPAllowListInfo'
 import { IPCapture } from './environment/IPCapture'
 import { GithubIntegration } from './environment/Integrations'
 import { LinearIntegration } from './environment/Integrations'
-import { LogsCaptureSettings } from './environment/LogsCaptureSettings'
+import { LogsCaptureSettings, LogsJsonParseSettings, LogsRetentionSettings } from './environment/LogsCaptureSettings'
 import MCPServerSettings from './environment/MCPServerSettings'
 import { ManagedReverseProxy } from './environment/ManagedReverseProxy'
 import { MarketingAnalyticsSettingsWrapper } from './environment/MarketingAnalyticsSettingsWrapper'
@@ -90,10 +94,10 @@ import { ApprovalPolicies } from './organization/Approvals/ApprovalPolicies'
 import { ChangeRequestsList } from './organization/Approvals/ChangeRequestsList'
 import { Invites } from './organization/Invites'
 import { Members } from './organization/Members'
+import { MembersPlatformAddonAd } from './organization/MembersPlatformAddonAd'
 import { OrganizationAI } from './organization/OrgAI'
 import { OrganizationDisplayName } from './organization/OrgDisplayName'
 import { OrganizationEmailPreferences } from './organization/OrgEmailPreferences'
-import { OrganizationExperimentStatsMethod } from './organization/OrgExperimentStatsMethod'
 import { OrgIPAnonymizationDefault } from './organization/OrgIPAnonymizationDefault'
 import { OrganizationLogo } from './organization/OrgLogo'
 import { OrganizationDangerZone } from './organization/OrganizationDangerZone'
@@ -165,7 +169,6 @@ export const SETTINGS_MAP: SettingSection[] = [
         level: 'environment',
         id: 'environment-autocapture',
         title: 'Autocapture & heatmaps',
-
         settings: [
             {
                 id: 'autocapture',
@@ -196,9 +199,65 @@ export const SETTINGS_MAP: SettingSection[] = [
     },
     {
         level: 'environment',
+        id: 'environment-csp-reporting',
+        title: 'CSP reporting',
+        flag: 'CSP_REPORTING',
+        settings: [
+            {
+                id: 'csp-reporting',
+                title: (
+                    <>
+                        CSP reporting{' '}
+                        <LemonTag type="warning" className="ml-1 uppercase">
+                            Beta
+                        </LemonTag>
+                    </>
+                ),
+                component: <CSPReportingSettings />,
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'environment-max',
+        title: 'AI',
+        settings: [
+            {
+                id: 'core-memory',
+                title: 'Memory',
+                description:
+                    "PostHog AI automatically remembers details about your company and product. This context helps our AI assistant provide relevant answers and suggestions. If there are any details you don't want PostHog AI to remember, you can edit or remove them below.",
+                component: <MaxMemorySettings />,
+                hideOn: [Realm.SelfHostedClickHouse, Realm.SelfHostedPostgres],
+            },
+            {
+                id: 'changelog',
+                title: 'Changelog',
+                description:
+                    'See the latest PostHog AI features and control whether the changelog appears in the main UI.',
+                component: <MaxChangelogSettings />,
+                hideOn: [Realm.SelfHostedClickHouse, Realm.SelfHostedPostgres],
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'mcp-server',
+        title: 'MCP server',
+        settings: [
+            {
+                id: 'mcp-server-configure',
+                title: 'Model Context Protocol (MCP) server',
+                component: <MCPServerSettings />,
+            },
+        ],
+    },
+    {
+        level: 'environment',
         id: 'environment-customer-analytics',
         title: 'Customer analytics',
         flag: 'CUSTOMER_ANALYTICS',
+        group: 'Products',
         settings: [
             {
                 id: 'group-analytics',
@@ -223,6 +282,7 @@ export const SETTINGS_MAP: SettingSection[] = [
         level: 'environment',
         id: 'environment-product-analytics',
         title: 'Product analytics',
+        group: 'Products',
         settings: [
             {
                 id: 'base-currency',
@@ -303,6 +363,7 @@ export const SETTINGS_MAP: SettingSection[] = [
         level: 'environment',
         id: 'environment-revenue-analytics',
         title: 'Revenue analytics',
+        group: 'Products',
         accessControl: {
             resourceType: AccessControlResourceType.RevenueAnalytics,
             minimumAccessLevel: AccessControlLevel.Editor,
@@ -348,6 +409,7 @@ export const SETTINGS_MAP: SettingSection[] = [
         id: 'environment-marketing-analytics',
         title: 'Marketing analytics',
         flag: 'WEB_ANALYTICS_MARKETING',
+        group: 'Products',
         settings: [
             {
                 id: 'marketing-settings',
@@ -360,6 +422,7 @@ export const SETTINGS_MAP: SettingSection[] = [
         level: 'environment',
         id: 'environment-web-analytics',
         title: 'Web analytics',
+        group: 'Products',
         settings: [
             {
                 id: 'web-analytics-authorized-urls',
@@ -411,6 +474,7 @@ export const SETTINGS_MAP: SettingSection[] = [
         level: 'environment',
         id: 'environment-replay',
         title: 'Session replay',
+        group: 'Products',
         settings: [
             {
                 id: 'replay',
@@ -461,7 +525,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                     </>
                 ),
                 component: <ReplayIntegrations />,
-                flag: 'REPLAY_LINEAR_INTEGRATION',
             },
         ],
     },
@@ -469,6 +532,7 @@ export const SETTINGS_MAP: SettingSection[] = [
         level: 'environment',
         id: 'environment-surveys',
         title: 'Surveys',
+        group: 'Products',
         settings: [
             {
                 id: 'surveys-interface',
@@ -481,6 +545,7 @@ export const SETTINGS_MAP: SettingSection[] = [
         level: 'environment',
         id: 'environment-feature-flags',
         title: 'Feature flags',
+        group: 'Products',
         settings: [
             {
                 id: 'feature-flags-interface',
@@ -491,8 +556,38 @@ export const SETTINGS_MAP: SettingSection[] = [
     },
     {
         level: 'environment',
+        id: 'environment-experiments',
+        title: 'Experiments',
+        group: 'Products',
+        settings: [
+            {
+                id: 'environment-experiment-stats-method',
+                title: 'Default statistical method',
+                description:
+                    'Choose which statistical method to use by default for new experiments in this environment. Individual experiments can override this setting.',
+                component: <DefaultExperimentStatsMethod />,
+            },
+            {
+                id: 'environment-experiment-confidence-level',
+                title: 'Default confidence level',
+                description:
+                    'Higher confidence level reduces false positives but requires more data. Can be overridden per experiment.',
+                component: <DefaultExperimentConfidenceLevel />,
+            },
+            {
+                id: 'environment-experiment-recalculation-time',
+                title: 'Daily recalculation time',
+                description:
+                    "Select the time of day when experiment metrics should be recalculated. This time is in your project's timezone.",
+                component: <ExperimentRecalculationTime />,
+            },
+        ],
+    },
+    {
+        level: 'environment',
         id: 'environment-error-tracking',
         title: 'Error tracking',
+        group: 'Products',
         settings: [
             {
                 id: 'error-tracking-exception-autocapture',
@@ -536,6 +631,7 @@ export const SETTINGS_MAP: SettingSection[] = [
         id: 'environment-logs',
         title: 'Logs',
         flag: 'LOGS_SETTINGS',
+        group: 'Products',
         settings: [
             {
                 id: 'logs',
@@ -543,48 +639,17 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <LogsCaptureSettings />,
                 flag: 'LOGS_SETTINGS',
             },
-        ],
-    },
-    {
-        level: 'environment',
-        id: 'environment-csp-reporting',
-        title: 'CSP reporting',
-        flag: 'CSP_REPORTING',
-        settings: [
             {
-                id: 'csp-reporting',
-                title: (
-                    <>
-                        CSP reporting{' '}
-                        <LemonTag type="warning" className="ml-1 uppercase">
-                            Beta
-                        </LemonTag>
-                    </>
-                ),
-                component: <CSPReportingSettings />,
-            },
-        ],
-    },
-    {
-        level: 'environment',
-        id: 'environment-max',
-        title: 'AI',
-        settings: [
-            {
-                id: 'core-memory',
-                title: 'Memory',
-                description:
-                    "PostHog AI automatically remembers details about your company and product. This context helps our AI assistant provide relevant answers and suggestions. If there are any details you don't want PostHog AI to remember, you can edit or remove them below.",
-                component: <MaxMemorySettings />,
-                hideOn: [Realm.SelfHostedClickHouse, Realm.SelfHostedPostgres],
+                id: 'logs-json-parse',
+                title: 'JSON parse logs',
+                component: <LogsJsonParseSettings />,
+                flag: 'LOGS_SETTINGS_JSON',
             },
             {
-                id: 'changelog',
-                title: 'Changelog',
-                description:
-                    'See the latest PostHog AI features and control whether the changelog appears in the main UI.',
-                component: <MaxChangelogSettings />,
-                hideOn: [Realm.SelfHostedClickHouse, Realm.SelfHostedPostgres],
+                id: 'logs-retention',
+                title: 'Retention',
+                component: <LogsRetentionSettings />,
+                flag: 'LOGS_SETTINGS_RETENTION',
             },
         ],
     },
@@ -627,6 +692,39 @@ export const SETTINGS_MAP: SettingSection[] = [
     },
     {
         level: 'environment',
+        id: 'environment-discussions',
+        title: 'Discussions',
+        settings: [
+            {
+                id: 'discussion-mention-integrations',
+                title: 'Integrations',
+                component: <DiscussionMentionNotifications />,
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'environment-approvals',
+        title: 'Approvals',
+        flag: 'APPROVALS',
+        minimumAccessLevel: OrganizationMembershipLevel.Admin,
+        settings: [
+            {
+                id: 'approval-policies',
+                title: 'Policies',
+                description: 'Configure which actions require approval before being applied',
+                component: <ApprovalPolicies />,
+            },
+            {
+                id: 'change-requests',
+                title: 'Change requests',
+                description: 'Review and approve pending change requests',
+                component: <ChangeRequestsList />,
+            },
+        ],
+    },
+    {
+        level: 'environment',
         id: 'environment-access-control',
         title: 'Access control',
         settings: [
@@ -662,27 +760,13 @@ export const SETTINGS_MAP: SettingSection[] = [
     },
     {
         level: 'environment',
-        id: 'mcp-server',
-        // hideSelfHost: true,
-        title: 'MCP Server',
-        settings: [
-            {
-                id: 'mcp-server-configure',
-                title: 'Model Context Protocol (MCP) server',
-                component: <MCPServerSettings />,
-            },
-        ],
-    },
-    {
-        level: 'environment',
         id: 'environment-danger-zone',
         title: 'Danger zone',
         settings: [
             {
                 id: 'project-move',
                 title: 'Move project',
-                flag: '!ENVIRONMENTS',
-                component: <ProjectMove />, // There isn't EnvironmentMove yet
+                component: <ProjectMove />,
             },
             {
                 id: 'environment-delete',
@@ -760,13 +844,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <OrganizationAI />,
             },
             {
-                id: 'organization-experiment-stats-method',
-                title: 'Default experiment statistical method',
-                description:
-                    'Choose which statistical method to use by default for new experiments in this organization. Individual experiments can override this setting.',
-                component: <OrganizationExperimentStatsMethod />,
-            },
-            {
                 id: 'organization-ip-anonymization-default',
                 title: 'IP data capture default',
                 description:
@@ -787,11 +864,17 @@ export const SETTINGS_MAP: SettingSection[] = [
             },
         ],
     },
+
     {
         level: 'organization',
         id: 'organization-members',
         title: 'Members',
         settings: [
+            {
+                id: 'banner',
+                title: null,
+                component: <MembersPlatformAddonAd />,
+            },
             {
                 id: 'invites',
                 title: 'Pending invites',
@@ -848,33 +931,12 @@ export const SETTINGS_MAP: SettingSection[] = [
     {
         level: 'organization',
         id: 'organization-security',
-        title: 'Security settings',
+        title: 'Security',
         settings: [
             {
                 id: 'organization-security',
-                title: 'Security settings',
+                title: 'Security',
                 component: <OrganizationSecuritySettings />,
-            },
-        ],
-    },
-    {
-        level: 'organization',
-        id: 'organization-approvals',
-        title: 'Approvals',
-        flag: 'APPROVALS',
-        minimumAccessLevel: OrganizationMembershipLevel.Admin,
-        settings: [
-            {
-                id: 'approval-policies',
-                title: 'Policies',
-                description: 'Configure which actions require approval before being applied',
-                component: <ApprovalPolicies />,
-            },
-            {
-                id: 'change-requests',
-                title: 'Change requests',
-                description: 'Review and approve pending change requests',
-                component: <ChangeRequestsList />,
             },
         ],
     },

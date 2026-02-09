@@ -1,3 +1,19 @@
+//! Checkpoint manager for coordinating periodic checkpoint operations.
+//!
+//! This module handles scheduling and execution of checkpoint export workers, which
+//! persist deduplication store state to S3 for recovery.
+//!
+//! # Export Suppression During Rebalancing
+//!
+//! When a Kafka rebalance occurs, checkpoint imports (downloads from S3) need S3
+//! bandwidth to quickly restore partition state. To prevent exports from competing
+//! for this bandwidth, workers obtain a rebalance-scoped cancellation token from
+//! `RebalanceTracker::get_export_token()`.
+//!
+//! This token is cancelled when any rebalance starts (0->1 transition) and recreated
+//! when all rebalances complete (1->0 transition). Workers check this token before
+//! expensive I/O and pass it to the exporter for cancellation during S3 uploads.
+
 use std::collections::HashSet;
 use std::path::Path;
 use std::sync::{
@@ -8,6 +24,7 @@ use std::time::Duration;
 
 use crate::checkpoint::{
     CheckpointConfig, CheckpointExporter, CheckpointMetadata, CheckpointWorker,
+    UploadCancelledError,
 };
 use crate::kafka::offset_tracker::OffsetTracker;
 use crate::kafka::types::Partition;
@@ -185,7 +202,7 @@ impl CheckpointManager {
                             let partition_tag = partition.to_string();
 
                             // Skip checkpoint attempts during rebalancing - favor reassignment over checkpointing
-                            if store_manager.is_rebalancing() {
+                            if store_manager.rebalance_tracker().is_rebalancing() {
                                 let tags = [("result", "skipped"), ("cause", "rebalancing_loop")];
                                 metrics::counter!(CHECKPOINT_WORKER_STATUS_COUNTER, &tags).increment(1);
                                 info!("Checkpoint manager: rebalancing in progress, skipping remaining partitions");
@@ -231,7 +248,10 @@ impl CheckpointManager {
                             let worker_store_manager = store_manager.clone();
                             let worker_exporter = exporter.as_ref().map(|e| e.clone());
                             let worker_offset_tracker = offset_tracker.clone();
-                            let worker_cancel_token = cancel_submit_loop_token.child_token();
+                            // Shutdown token - child of main loop token, cancelled on graceful shutdown
+                            let worker_shutdown_token = cancel_submit_loop_token.child_token();
+                            // Rebalance token - cancelled when any rebalance starts, to free S3 bandwidth for imports
+                            let worker_rebalance_token = store_manager.rebalance_tracker().get_export_token();
                             let attempt_timestamp = Utc::now();
                             let worker_local_base_dir = Path::new(&submit_loop_config.local_checkpoint_dir);
                             let worker_full_upload_interval = submit_loop_config.checkpoint_full_upload_interval;
@@ -253,10 +273,22 @@ impl CheckpointManager {
                             // for now, we don't bother to track the handles of spawned workers
                             // because each worker represents one best-effort checkpoint attempt
                             let _result = tokio::spawn(async move {
-                                // best effort to bail if the checkpoint manager shut
-                                // down before the worker thread started executing...
-                                if tokio::time::timeout(Duration::from_millis(1), worker_cancel_token.cancelled()).await.is_ok() {
-                                    info!(partition = partition_tag, "Checkpoint worker thread: inner submit loop shutting down, skipping worker execution");
+                                // Best-effort bail if shutdown requested before worker started
+                                if tokio::time::timeout(Duration::from_millis(1), worker_shutdown_token.cancelled()).await.is_ok() {
+                                    info!(partition = partition_tag, "Checkpoint worker thread: shutdown requested, skipping worker execution");
+                                    {
+                                        let mut is_checkpointing_guard = worker_is_checkpointing.lock().await;
+                                        is_checkpointing_guard.remove(&partition);
+                                    }
+                                    return Ok(None);
+                                }
+
+                                // Best-effort bail if rebalance started before worker started
+                                // (frees S3 bandwidth for checkpoint imports)
+                                if worker_rebalance_token.is_cancelled() {
+                                    let tags = [("result", "skipped"), ("cause", "rebalance_before_start")];
+                                    metrics::counter!(CHECKPOINT_WORKER_STATUS_COUNTER, &tags).increment(1);
+                                    info!(partition = partition_tag, "Checkpoint worker thread: rebalance token cancelled, skipping worker execution");
                                     {
                                         let mut is_checkpointing_guard = worker_is_checkpointing.lock().await;
                                         is_checkpointing_guard.remove(&partition);
@@ -306,11 +338,11 @@ impl CheckpointManager {
                                         "Checkpoint worker thread: performing incremental checkpoint");
                                 }
 
-                                // Re-verify conditions before expensive I/O (may have changed during scheduling)
-                                if worker_store_manager.is_rebalancing() {
-                                    let tags = [("result", "skipped"), ("cause", "rebalancing_worker")];
+                                // Re-verify rebalance token before expensive I/O (may have been cancelled during scheduling)
+                                if worker_rebalance_token.is_cancelled() {
+                                    let tags = [("result", "skipped"), ("cause", "rebalance_before_export")];
                                     metrics::counter!(CHECKPOINT_WORKER_STATUS_COUNTER, &tags).increment(1);
-                                    warn!(partition = partition_tag, "Checkpoint worker: rebalancing started, skipping checkpoint");
+                                    warn!(partition = partition_tag, "Checkpoint worker: rebalance token cancelled, skipping checkpoint");
                                     {
                                         let mut is_checkpointing_guard = worker_is_checkpointing.lock().await;
                                         is_checkpointing_guard.remove(&partition);
@@ -329,8 +361,15 @@ impl CheckpointManager {
                                     return Ok(None);
                                 }
 
-                                // Execute checkpoint operation with previous metadata for deduplication
-                                let result = worker.checkpoint_partition(&target_store, incremental_or_full).await;
+                                // Execute checkpoint operation with previous metadata for deduplication.
+                                // Pass the rebalance token for cancellation during S3 upload - this frees
+                                // bandwidth for imports when a rebalance occurs.
+                                let result = worker.checkpoint_partition_cancellable(
+                                    &target_store,
+                                    incremental_or_full,
+                                    Some(&worker_rebalance_token),
+                                    Some("rebalance"),
+                                ).await;
 
                                 // handle releasing locks and reporting outcome
                                 let status = match &result {
@@ -341,8 +380,13 @@ impl CheckpointManager {
                                     },
                                     Ok(None) => "skipped",
                                     Err(e) => {
-                                        error!(partition = partition_tag, "Checkpoint worker thread: attempt failed: {}", e);
-                                        "error"
+                                        // Cancellation is NOT an error - s3_uploader already logged the detail
+                                        if e.downcast_ref::<UploadCancelledError>().is_some() {
+                                            "cancelled"
+                                        } else {
+                                            error!(partition = partition_tag, "Checkpoint worker thread: attempt failed: {}", e);
+                                            "error"
+                                        }
                                     },
                                 };
                                 info!(worker_task_id, partition = partition_tag, result = status,
@@ -363,7 +407,7 @@ impl CheckpointManager {
                 } // end tokio::select! block
             } // end 'outer loop
 
-            info!("Checkpoint manager: submit loop shutting down");
+            info!("Checkpoint manager: exiting submit loop");
             checkpoint_health_reporter.store(false, Ordering::SeqCst);
         });
         self.checkpoint_task = Some(checkpoint_task_handle);
@@ -414,7 +458,9 @@ impl CheckpointManager {
         self.exporter.is_some()
     }
 
-    /// Trigger an immediate flush of all stores (currenty used only in tests)
+    /// Trigger an immediate flush of all stores (currently used only in tests).
+    /// Uses the cancellable checkpoint method with the manager's cancel token
+    /// for consistency with the main checkpoint loop.
     pub async fn flush_all(&self) -> Result<()> {
         info!("Triggering manual flush of all stores");
 
@@ -440,7 +486,15 @@ impl CheckpointManager {
                 self.offset_tracker.clone(),
             );
 
-            worker.checkpoint_partition(&store, None).await?;
+            // Use cancellable variant with the manager's cancel token (shutdown)
+            worker
+                .checkpoint_partition_cancellable(
+                    &store,
+                    None,
+                    Some(&self.cancel_token),
+                    Some("shutdown"),
+                )
+                .await?;
         }
 
         Ok(())
@@ -490,6 +544,7 @@ mod tests {
     use crate::store::{
         DeduplicationStore, DeduplicationStoreConfig, TimestampKey, TimestampMetadata,
     };
+    use crate::test_utils::create_test_tracker;
     use async_trait::async_trait;
     use common_types::RawEvent;
     use std::{collections::HashMap, path::PathBuf, time::Duration};
@@ -509,7 +564,11 @@ mod tests {
 
     #[async_trait]
     impl CheckpointUploader for FilesystemUploader {
-        async fn upload_checkpoint_with_plan(&self, plan: &CheckpointPlan) -> Result<Vec<String>> {
+        async fn upload_checkpoint_with_plan_cancellable(
+            &self,
+            plan: &CheckpointPlan,
+            _cancel_token: Option<&tokio_util::sync::CancellationToken>,
+        ) -> Result<Vec<String>> {
             // simulate remote upload path with local temp dir
             let dest_dir = self
                 .export_base_dir
@@ -548,7 +607,7 @@ mod tests {
             path: TempDir::new().unwrap().path().to_path_buf(),
             max_capacity: 1_000_000,
         };
-        Arc::new(StoreManager::new(config))
+        Arc::new(StoreManager::new(config, create_test_tracker()))
     }
 
     fn create_test_store(topic: &str, partition: i32) -> DeduplicationStore {
@@ -734,7 +793,8 @@ mod tests {
         let tmp_checkpoint_dir = TempDir::new().unwrap();
         let tmp_export_dir = TempDir::new().unwrap();
 
-        let uploader = Box::new(FilesystemUploader::new(tmp_export_dir.path().to_path_buf()));
+        let uploader: Box<dyn CheckpointUploader> =
+            Box::new(FilesystemUploader::new(tmp_export_dir.path().to_path_buf()));
         let config = CheckpointConfig {
             checkpoint_interval: Duration::from_millis(100),
             local_checkpoint_dir: tmp_checkpoint_dir.path().to_string_lossy().to_string(),
@@ -859,7 +919,8 @@ mod tests {
         let tmp_export_dir = TempDir::new().unwrap();
 
         // configure moderate checkpoints with reasonable intervals and filesystem exporter
-        let uploader = Box::new(FilesystemUploader::new(tmp_export_dir.path().to_path_buf()));
+        let uploader: Box<dyn CheckpointUploader> =
+            Box::new(FilesystemUploader::new(tmp_export_dir.path().to_path_buf()));
         let config = CheckpointConfig {
             checkpoint_interval: Duration::from_millis(50), // Submit frequent checkpoints during test run
             max_concurrent_checkpoints: 2,
@@ -940,8 +1001,8 @@ mod tests {
             ..Default::default()
         };
 
-        // Set rebalancing BEFORE starting checkpoint manager
-        store_manager.set_rebalancing(true);
+        // Start rebalancing BEFORE starting checkpoint manager
+        store_manager.rebalance_tracker().start_rebalancing();
 
         let mut manager = CheckpointManager::new(config.clone(), store_manager.clone(), None);
         manager.start();
@@ -1035,18 +1096,166 @@ mod tests {
         // Wait for the first checkpoint cycle to potentially start
         tokio::time::sleep(Duration::from_millis(50)).await;
 
-        // Set rebalancing mid-flight
-        store_manager.set_rebalancing(true);
+        // Start rebalancing mid-flight
+        store_manager.rebalance_tracker().start_rebalancing();
 
         // Let the manager process - workers should skip due to rebalancing
         tokio::time::sleep(Duration::from_millis(200)).await;
 
-        // Clear rebalancing to allow clean shutdown
-        store_manager.set_rebalancing(false);
+        // Finish rebalancing to allow clean shutdown
+        store_manager.rebalance_tracker().finish_rebalancing();
 
         manager.stop().await;
 
         // The manager should have handled this gracefully without panicking
         // We just verify it completes without error
+    }
+
+    // ============================================
+    // EXPORT SUPPRESSION TOKEN TESTS
+    // ============================================
+
+    #[tokio::test]
+    async fn test_rebalance_token_cancelled_stops_in_flight_workers() {
+        // This test verifies that when a rebalance starts, workers using the
+        // rebalance token from get_export_token() will see it cancelled.
+        let store_manager = create_test_store_manager();
+        let tracker = store_manager.rebalance_tracker();
+
+        // Get a token before rebalance
+        let worker_token = tracker.get_export_token();
+        assert!(
+            !worker_token.is_cancelled(),
+            "Token should not be cancelled initially"
+        );
+
+        // Simulate rebalance starting
+        tracker.start_rebalancing();
+
+        // Token should now be cancelled
+        assert!(
+            worker_token.is_cancelled(),
+            "Token should be cancelled when rebalance starts"
+        );
+
+        tracker.finish_rebalancing();
+    }
+
+    #[tokio::test]
+    async fn test_fresh_token_after_rebalance_complete() {
+        // This test verifies that after a rebalance completes, new export tokens
+        // obtained from get_export_token() are NOT cancelled.
+        let store_manager = create_test_store_manager();
+        let tracker = store_manager.rebalance_tracker();
+
+        // Start and complete a rebalance
+        tracker.start_rebalancing();
+        tracker.finish_rebalancing();
+
+        // New token should be fresh (not cancelled)
+        let new_token = tracker.get_export_token();
+        assert!(
+            !new_token.is_cancelled(),
+            "New token should not be cancelled after rebalance completes"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_worker_tokens_survive_shutdown_but_not_rebalance() {
+        // Verify that the shutdown token and rebalance token behave differently
+        let store_manager = create_test_store_manager();
+        let store = create_test_store("token_test", 0);
+
+        // Add an event
+        let event = create_test_event();
+        let key = TimestampKey::from(&event);
+        let metadata = TimestampMetadata::new(&event);
+        store.put_timestamp_record(&key, &metadata).unwrap();
+
+        let partition = Partition::new("token_test".to_string(), 0);
+        store_manager.stores().insert(partition, store);
+
+        let tmp_checkpoint_dir = TempDir::new().unwrap();
+        let config = CheckpointConfig {
+            checkpoint_interval: Duration::from_millis(500), // Long interval to control timing
+            local_checkpoint_dir: tmp_checkpoint_dir.path().to_string_lossy().to_string(),
+            ..Default::default()
+        };
+
+        let mut manager = CheckpointManager::new(config.clone(), store_manager.clone(), None);
+        manager.start();
+
+        // The manager should be running
+        assert!(manager.checkpoint_task.is_some());
+
+        // Get a rebalance token - it should NOT be cancelled yet
+        let rebalance_token = store_manager.rebalance_tracker().get_export_token();
+        assert!(!rebalance_token.is_cancelled());
+
+        // Start a rebalance - rebalance token should be cancelled
+        store_manager.rebalance_tracker().start_rebalancing();
+        assert!(
+            rebalance_token.is_cancelled(),
+            "Rebalance token should be cancelled when rebalance starts"
+        );
+
+        // But shutdown token should NOT be cancelled yet (manager still running)
+        assert!(
+            !manager.cancel_token.is_cancelled(),
+            "Shutdown token should not be cancelled while manager is running"
+        );
+
+        // Finish rebalancing
+        store_manager.rebalance_tracker().finish_rebalancing();
+
+        // Now stop the manager - shutdown token should be cancelled
+        manager.stop().await;
+        assert!(
+            manager.cancel_token.is_cancelled(),
+            "Shutdown token should be cancelled after manager stops"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_overlapping_rebalances_keep_exports_suppressed() {
+        // Verify that during overlapping rebalances, exports stay suppressed
+        let store_manager = create_test_store_manager();
+        let tracker = store_manager.rebalance_tracker();
+
+        // Get initial token
+        let token1 = tracker.get_export_token();
+        assert!(!token1.is_cancelled());
+
+        // Start first rebalance - token should be cancelled
+        tracker.start_rebalancing();
+        assert!(token1.is_cancelled());
+
+        // Get another token during rebalance - should already be cancelled
+        let token2 = tracker.get_export_token();
+        assert!(
+            token2.is_cancelled(),
+            "Tokens during rebalance should be pre-cancelled"
+        );
+
+        // Start second overlapping rebalance
+        tracker.start_rebalancing();
+        let token3 = tracker.get_export_token();
+        assert!(token3.is_cancelled());
+
+        // First rebalance finishes - tokens should STILL be cancelled (count > 0)
+        tracker.finish_rebalancing();
+        let token4 = tracker.get_export_token();
+        assert!(
+            token4.is_cancelled(),
+            "Tokens should stay cancelled while any rebalance is in progress"
+        );
+
+        // Second rebalance finishes - NOW tokens should be fresh
+        tracker.finish_rebalancing();
+        let token5 = tracker.get_export_token();
+        assert!(
+            !token5.is_cancelled(),
+            "Tokens should be fresh after all rebalances complete"
+        );
     }
 }

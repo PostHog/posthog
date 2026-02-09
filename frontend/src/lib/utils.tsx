@@ -263,7 +263,9 @@ export const genericOperatorMap: Record<string, string> = {
     regex: '∼ matches regex',
     not_regex: "≁ doesn't match regex",
     gt: '> greater than',
+    gte: '≥ greater than or equal',
     lt: '< less than',
+    lte: '≤ less than or equal',
     is_set: '✓ is set',
     is_not_set: '✕ is not set',
 }
@@ -303,7 +305,9 @@ export const numericOperatorMap: Record<string, string> = {
     regex: '∼ matches regex',
     not_regex: "≁ doesn't match regex",
     gt: '> greater than',
+    gte: '≥ greater than or equal',
     lt: '< less than',
+    lte: '≤ less than or equal',
     is_set: '✓ is set',
     is_not_set: '✕ is not set',
 }
@@ -1281,9 +1285,13 @@ export function dateFilterToText(
     dateTo = (dateTo || undefined) as string | undefined
 
     if (isDate.test(dateFrom || '') && isDate.test(dateTo || '')) {
-        return isDateFormatted
-            ? formatDateRange(dayjs(dateFrom, 'YYYY-MM-DD'), dayjs(dateTo, 'YYYY-MM-DD'))
-            : `${dateFrom} - ${dateTo}`
+        if (isDateFormatted) {
+            return formatDateRange(dayjs(dateFrom, 'YYYY-MM-DD'), dayjs(dateTo, 'YYYY-MM-DD'))
+        }
+        if (dateFrom?.includes('T') || dateTo?.includes('T')) {
+            return formatDateTimeRange(dayjs(dateFrom, 'YYYY-MM-DD HH:mm'), dayjs(dateTo, 'YYYY-MM-DD HH:mm'))
+        }
+        return `${dateFrom} - ${dateTo}`
     }
 
     // From date to today

@@ -263,6 +263,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         setLoadingTime: (seconds: number) => ({ seconds }),
         resetLoadingTimer: true,
         setQueryLogQueryId: (queryId: string) => ({ queryId }),
+        loadFilteredCount: true,
     }),
     loaders(({ actions, cache, values, props }) => ({
         response: [
@@ -655,6 +656,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 loadData: () => null,
             },
         ],
+        shouldCalculateCount: [false, { loadTotalCount: () => true, loadFilteredCount: () => true }],
     })),
     lazyLoaders(({ values }) => ({
         totalCount: [
@@ -680,7 +682,8 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         filteredCount: [
             null as number | null,
             {
-                loadFilteredCount: async () => {
+                loadFilteredCount: async (_, breakpoint) => {
+                    await breakpoint(300)
                     const query = values.filteredCountQuery
                     if (!query) {
                         return null
@@ -688,7 +691,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
 
                     try {
                         const response = await performQuery(query)
-                        // Extract count from first row, first column
+                        breakpoint()
                         return response?.results?.[0]?.[0] || 0
                     } catch (error) {
                         posthog.captureException(error, { action: 'load filtered count in dataNodeLogic' })
@@ -873,11 +876,13 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         backToSourceQuery: [
             (s) => [s.query],
             (query): InsightVizNode | null => {
-                if (isActorsQuery(query) && isInsightActorsQuery(query.source) && !!query.source.source) {
-                    const insightQuery = query.source.source
+                const insightSource =
+                    (isActorsQuery(query) && isInsightActorsQuery(query.source) ? query.source.source : null) ??
+                    (isEventsQuery(query) && isInsightActorsQuery(query.source) ? query.source.source : null)
+                if (insightSource) {
                     const insightVizNode: InsightVizNode = {
                         kind: NodeKind.InsightVizNode,
-                        source: insightQuery,
+                        source: insightSource,
                         full: true,
                     }
                     return insightVizNode
@@ -1170,7 +1175,9 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             }
         },
         filteredCountQuery: () => {
-            actions.loadFilteredCount()
+            if (values.shouldCalculateCount) {
+                actions.loadFilteredCount()
+            }
         },
     })),
     afterMount(({ actions, props, cache }) => {

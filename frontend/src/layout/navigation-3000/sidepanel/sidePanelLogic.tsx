@@ -1,13 +1,11 @@
 import { connect, kea, path, selectors } from 'kea'
 import { combineUrl, router, urlToAction } from 'kea-router'
 
-import { dayjs } from 'lib/dayjs'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import { sidePanelNotificationsLogic } from '~/layout/navigation-3000/sidepanel/panels/activity/sidePanelNotificationsLogic'
 import { AvailableFeature, SidePanelTab } from '~/types'
 
@@ -34,7 +32,6 @@ const TABS_REQUIRING_A_TEAM = [
     SidePanelTab.Notebooks,
 
     SidePanelTab.Activity,
-    SidePanelTab.Activation,
     SidePanelTab.Discussion,
     SidePanelTab.AccessControl,
     SidePanelTab.Exports,
@@ -50,8 +47,6 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
         values: [
             preflightLogic,
             ['isCloudOrDev'],
-            activationLogic,
-            ['shouldShowActivationTab'],
             sidePanelStateLogic,
             ['selectedTab', 'sidePanelOpen'],
             // We need to mount this to ensure that marking as read works when the panel closes
@@ -89,15 +84,6 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
 
                 if (isCloudOrDev) {
                     tabs.push(SidePanelTab.Status)
-                }
-
-                // Quick start is shown in the sidebar for the first 90 days of a team's existence
-                if (currentTeam?.created_at) {
-                    const teamCreatedAt = dayjs(currentTeam.created_at)
-
-                    if (dayjs().diff(teamCreatedAt, 'day') < 90) {
-                        tabs.push(SidePanelTab.Activation)
-                    }
                 }
 
                 tabs.push(SidePanelTab.Notebooks)
@@ -140,7 +126,6 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                 s.needsAttention,
                 s.hasIssues,
                 s.hasAvailableFeature,
-                s.shouldShowActivationTab,
             ],
             (
                 enabledTabs,
@@ -151,8 +136,7 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                 incidentioStatus,
                 needsAttention,
                 hasIssues,
-                hasAvailableFeature,
-                shouldShowActivationTab
+                hasAvailableFeature
             ): SidePanelTab[] => {
                 return enabledTabs.filter((tab) => {
                     if (tab === selectedTab && sidePanelOpen) {
@@ -180,10 +164,6 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
 
                     if (tab === SidePanelTab.Health && hasIssues) {
                         return true
-                    }
-
-                    if (tab === SidePanelTab.Activation && !shouldShowActivationTab) {
-                        return false
                     }
 
                     // Hide certain tabs unless they are selected

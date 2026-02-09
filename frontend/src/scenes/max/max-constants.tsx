@@ -7,6 +7,7 @@ import {
     IconDocument,
     IconGlobe,
     IconMemory,
+    IconNotebook,
     IconSearch,
     IconShuffle,
 } from '@posthog/icons'
@@ -21,7 +22,6 @@ import { AgentMode, AssistantTool } from '~/queries/schema/schema-assistant-mess
 import { RecordingUniversalFilters } from '~/types'
 
 import { EnhancedToolCall } from './Thread'
-import { isAgentMode } from './maxTypes'
 
 export interface DisplayFormatterContext {
     registeredToolMap: Record<string, ToolRegistration>
@@ -110,7 +110,8 @@ export interface ModeDefinition {
     description: string
     icon: JSX.Element
     /** Scenes that should trigger this agent mode */
-    scenes: Set<Scene>
+    scenes?: Set<Scene>
+    beta?: boolean
 }
 
 /** Default tools available in all modes */
@@ -143,7 +144,7 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             if (toolCall.status === 'completed') {
                 return `Task (${title})`
             }
-            return `Running a task (${title})...`
+            return title ? `Running a task (${title})...` : 'Running a task...'
         },
     },
     create_form: {
@@ -157,12 +158,6 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             return 'Creating a form...'
         },
     },
-    create_dashboard: {
-        name: 'Create dashboards',
-        description: 'Create dashboards with insights based on your requirements',
-        icon: iconForType('dashboard'),
-        modes: [AgentMode.ProductAnalytics],
-    },
     search: {
         name: 'Search PostHog data',
         description:
@@ -172,7 +167,12 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             toolCall: EnhancedToolCall,
             context: DisplayFormatterContext
         ) {
-            if (this.subtools && 'kind' in toolCall.args && typeof toolCall.args.kind === 'string') {
+            if (
+                this.subtools &&
+                'kind' in toolCall.args &&
+                typeof toolCall.args.kind === 'string' &&
+                toolCall.args.kind in this.subtools
+            ) {
                 const { displayFormatter } = this.subtools[toolCall.args.kind]
                 if (displayFormatter) {
                     return displayFormatter(toolCall, context)
@@ -520,7 +520,7 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
     create_hog_function_filters: {
         name: 'Set up function filters',
         description: 'Set up function filters for quick pipeline configuration',
-        product: Scene.DataPipelines,
+        product: Scene.Transformations,
         icon: iconForType('data_warehouse'),
         displayFormatter: (toolCall) => {
             if (toolCall.status === 'completed') {
@@ -532,7 +532,7 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
     create_hog_transformation_function: {
         name: 'Write and tweak Hog code',
         description: 'Write and tweak Hog code of transformations',
-        product: Scene.DataPipelines,
+        product: Scene.Transformations,
         icon: iconForType('data_warehouse'),
         displayFormatter: (toolCall) => {
             if (toolCall.status === 'completed') {
@@ -544,7 +544,7 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
     create_hog_function_inputs: {
         name: 'Manage function variables',
         description: 'Manage function variables in Hog functions',
-        product: Scene.DataPipelines,
+        product: Scene.Transformations,
         icon: iconForType('data_warehouse'),
         displayFormatter: (toolCall) => {
             if (toolCall.status === 'completed') {
@@ -597,6 +597,7 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
         product: Scene.Experiment,
         flag: 'experiment-ai-summary',
         icon: iconForType('experiment'),
+        modes: [AgentMode.Flags],
         displayFormatter: (toolCall) => {
             if (toolCall.status === 'completed') {
                 return 'Summarized experiment results'
@@ -609,6 +610,7 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
         description: 'Create surveys in seconds',
         product: Scene.Surveys,
         icon: iconForType('survey'),
+        modes: [AgentMode.Survey],
         displayFormatter: (toolCall) => {
             if (toolCall.status === 'completed') {
                 return 'Created surveys'
@@ -616,11 +618,25 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             return 'Creating surveys...'
         },
     },
+    edit_survey: {
+        name: 'Edit survey',
+        description: 'Edit survey',
+        product: Scene.Surveys,
+        icon: iconForType('survey'),
+        modes: [AgentMode.Survey],
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Edited survey'
+            }
+            return 'Editing survey...'
+        },
+    },
     analyze_survey_responses: {
         name: 'Analyze survey responses',
         description: 'Analyze survey responses to extract themes and actionable insights',
         product: Scene.Surveys,
         icon: iconForType('survey'),
+        modes: [AgentMode.Survey],
         displayFormatter: (toolCall) => {
             if (toolCall.status === 'completed') {
                 return 'Analyzed survey responses'
@@ -674,18 +690,6 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             return 'Filtering web analytics...'
         },
     },
-    edit_current_dashboard: {
-        name: 'Add an insight to the dashboard',
-        description: "Add an insight to the dashboard you're viewing",
-        product: Scene.Dashboard,
-        icon: iconForType('dashboard'),
-        displayFormatter: (toolCall) => {
-            if (toolCall.status === 'completed') {
-                return 'Added an insight to the dashboard'
-            }
-            return 'Adding an insight to the dashboard...'
-        },
-    },
     upsert_dashboard: {
         name: 'Create and edit dashboards',
         description: 'Create and edit dashboards with insights based on your requirements',
@@ -710,6 +714,7 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
         description: 'Create a feature flag in seconds',
         product: Scene.FeatureFlags,
         icon: iconForType('feature_flag'),
+        modes: [AgentMode.Flags],
         displayFormatter: (toolCall) => {
             if (toolCall.status === 'completed') {
                 return 'Created feature flag'
@@ -722,6 +727,7 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
         description: 'Create an experiment in seconds',
         product: Scene.Experiments,
         icon: iconForType('experiment'),
+        modes: [AgentMode.Flags],
         displayFormatter: (toolCall) => {
             if (toolCall.status === 'completed') {
                 return 'Created experiment'
@@ -826,7 +832,26 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             'Switch agent mode to another specialized mode like product analytics, SQL, or session replay analysis',
         icon: <IconShuffle />,
         displayFormatter: (toolCall) => {
-            const modeName = isAgentMode(toolCall.args.new_mode) ? MODE_DEFINITIONS[toolCall.args.new_mode].name : null
+            if (toolCall.args.new_mode === AgentMode.Execution) {
+                if (toolCall.status === 'completed') {
+                    return 'Plan is complete, switching to execution mode'
+                }
+                return 'Finalizing plan...'
+            } else if (toolCall.args.new_mode === AgentMode.Plan) {
+                if (toolCall.status === 'completed') {
+                    return 'Switched to plan mode'
+                }
+                return 'Switching to plan mode...'
+            } else if (toolCall.args.new_mode === AgentMode.Research) {
+                if (toolCall.status === 'completed') {
+                    return 'Switched to research mode'
+                }
+                return 'Switching to research mode...'
+            }
+            // Use optional chaining since Plan and Research modes are not in MODE_DEFINITIONS
+            const newMode = toolCall.args.new_mode as string
+            const modeName =
+                newMode in MODE_DEFINITIONS ? MODE_DEFINITIONS[newMode as keyof typeof MODE_DEFINITIONS].name : null
             const modeText = (modeName ? ` to the ${modeName} mode` : 'mode').toLowerCase()
 
             if (toolCall.status === 'completed') {
@@ -898,9 +923,23 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             return 'Creating a document...'
         },
     },
+    finalize_plan: {
+        name: 'Finalize plan',
+        description: 'Finalize plan',
+        icon: iconForType('notebook'),
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Finalized plan'
+            }
+            return 'Finalizing plan...'
+        },
+    },
 }
 
-export const MODE_DEFINITIONS: Record<AgentMode, ModeDefinition> = {
+export const MODE_DEFINITIONS: Record<
+    Exclude<AgentMode, AgentMode.Plan | AgentMode.Execution | AgentMode.Research>,
+    ModeDefinition
+> = {
     [AgentMode.ProductAnalytics]: {
         name: 'Product analytics',
         description: 'Creates insights and dashboards to analyze your product data.',
@@ -931,20 +970,49 @@ export const MODE_DEFINITIONS: Record<AgentMode, ModeDefinition> = {
         icon: iconForType('error_tracking'),
         scenes: new Set([Scene.ErrorTracking]),
     },
+    [AgentMode.Survey]: {
+        name: 'Surveys',
+        description: 'Creates and analyzes surveys to collect user feedback.',
+        icon: iconForType('survey'),
+        scenes: new Set([Scene.Surveys, Scene.Survey]),
+    },
+    [AgentMode.Flags]: {
+        name: 'Flags',
+        description: 'Creates and manages feature flags and experiments.',
+        icon: iconForType('feature_flag'),
+        scenes: new Set([
+            Scene.FeatureFlags,
+            Scene.FeatureFlag,
+            Scene.EarlyAccessFeature,
+            Scene.EarlyAccessFeatures,
+            Scene.Experiment,
+            Scene.Experiments,
+            Scene.ExperimentsSharedMetric,
+            Scene.ExperimentsSharedMetrics,
+        ]),
+    },
 }
 
-export const SPECIAL_MODES = {
+export const SPECIAL_MODES: Record<string, ModeDefinition> = {
     auto: {
         name: 'Auto',
         description:
             'Automatically selects the best mode based on your request. The tools that are available in all modes are listed below.',
         icon: <IconShuffle />,
     },
-    deep_research: {
+    plan: {
+        name: 'Plan',
+        description:
+            "Creates a plan to guide the agent's actions and achieve your goals. The tools that are available in all modes are listed below.",
+        icon: <IconNotebook />,
+        beta: true,
+    },
+    research: {
         name: 'Research',
         description:
             'Answers complex questions using advanced reasoning models and more resources, taking more time to provide deeper insights.',
         icon: <IconBrain />,
+        beta: true,
     },
 }
 

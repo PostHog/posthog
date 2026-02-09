@@ -1,20 +1,15 @@
-import { getNuxtSteps as getNuxtStepsPA } from '../product-analytics/nuxt'
-import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
-import { StepDefinition, StepModifier } from '../steps'
+import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 
-export const getNuxtSteps = (
-    CodeBlock: any,
-    Markdown: any,
-    CalloutBox: any,
-    dedent: any,
-    snippets: any,
-    options?: StepModifier
-): StepDefinition[] => {
+import { getNuxtSteps as getNuxtStepsPA } from '../product-analytics/nuxt'
+import { StepDefinition } from '../steps'
+
+export const getNuxtSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
+    const { CodeBlock, Markdown, dedent, snippets } = ctx
     const BooleanFlag = snippets?.BooleanFlagSnippet
     const MultivariateFlag = snippets?.MultivariateFlagSnippet
 
     // Get installation steps from product-analytics
-    const installationSteps = getNuxtStepsPA(CodeBlock, Markdown, CalloutBox, dedent, snippets)
+    const installationSteps = getNuxtStepsPA(ctx)
 
     // Add flag implementation steps
     const flagSteps: StepDefinition[] = [
@@ -75,21 +70,7 @@ export const getNuxtSteps = (
         },
     ]
 
-    const allSteps = [...installationSteps, ...flagSteps]
-    return options?.modifySteps ? options.modifySteps(allSteps) : allSteps
+    return [...installationSteps, ...flagSteps]
 }
 
-export const NuxtInstallation = ({ modifySteps }: StepModifier = {}): JSX.Element => {
-    const { Steps, Step, CodeBlock, Markdown, CalloutBox, dedent, snippets } = useMDXComponents()
-    const steps = getNuxtSteps(CodeBlock, Markdown, CalloutBox, dedent, snippets, { modifySteps })
-
-    return (
-        <Steps>
-            {steps.map((step, index) => (
-                <Step key={index} title={step.title} badge={step.badge}>
-                    {step.content}
-                </Step>
-            ))}
-        </Steps>
-    )
-}
+export const NuxtInstallation = createInstallation(getNuxtSteps)

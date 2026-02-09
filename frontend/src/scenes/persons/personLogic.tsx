@@ -1,4 +1,4 @@
-import { actions, kea, key, path, props, selectors } from 'kea'
+import { actions, connect, kea, key, path, props, selectors } from 'kea'
 import { lazyLoaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
@@ -7,8 +7,11 @@ import { Scene } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
 
 import { hogqlQuery } from '~/queries/query'
+import { NodeKind } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
 import { Breadcrumb, PersonType } from '~/types'
+
+import { revenueAnalyticsLogic } from 'products/revenue_analytics/frontend/revenueAnalyticsLogic'
 
 import { getHogqlQueryStringForPersonId } from './person-utils'
 import type { personLogicType } from './personLogicType'
@@ -28,6 +31,9 @@ export const personLogic = kea<personLogicType>([
     props({} as PersonLogicProps),
     key((props) => props.distinctId ?? props.id ?? 'undefined'),
     path((key) => ['scenes', 'persons', 'personLogic', key]),
+    connect(() => ({
+        values: [revenueAnalyticsLogic, ['isRevenueAnalyticsEnabled']],
+    })),
     actions({
         loadPerson: true,
         loadInfo: true,
@@ -48,7 +54,7 @@ export const personLogic = kea<personLogicType>([
             },
         ],
     })),
-    lazyLoaders(({ props }) => ({
+    lazyLoaders(({ props, values }) => ({
         person: [
             null as PersonType | null,
             {
@@ -121,6 +127,41 @@ export const personLogic = kea<personLogicType>([
                             eventCount: 0,
                             lastSeen: null,
                         }
+                    }
+                },
+            },
+        ],
+        revenueData: [
+            null as { mrr: number | null; lifetimeValue: number | null } | null,
+            {
+                loadRevenueData: async () => {
+                    if (!values.isRevenueAnalyticsEnabled) {
+                        return null
+                    }
+
+                    try {
+                        const result = await api.query({
+                            kind: NodeKind.HogQLQuery,
+                            query: `
+                    SELECT mrr, revenue
+                    FROM persons_revenue_analytics
+                    WHERE person_id = {personId}
+                    `,
+                            values: { personId: props.id },
+                        })
+
+                        const row = (result as any).results?.[0]
+                        if (!row) {
+                            return null
+                        }
+
+                        return {
+                            mrr: row[0] ?? null,
+                            lifetimeValue: row[1] ?? null,
+                        }
+                    } catch (error) {
+                        posthog.captureException(error, { tag: 'person_revenue_analytics_data_query_failed' })
+                        return null
                     }
                 },
             },

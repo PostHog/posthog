@@ -151,13 +151,7 @@ pub async fn do_stack_processing(
             .expect("no events have been dropped since indexed-property gathering")
             .team_id;
 
-        let mut conn = context
-            .posthog_pool
-            .acquire()
-            .await
-            .map_err(|e| (index, Arc::new(e.into())))?;
-
-        let proposed = resolve_fingerprint(&mut conn, &context.team_manager, team_id, &props)
+        let proposed = resolve_fingerprint(&context, team_id, &props)
             .await
             .map_err(|e| (index, Arc::new(e)))?;
 
@@ -267,7 +261,7 @@ mod test {
         pipeline::exception::stack_processing::remap_exception_type_and_module,
         symbol_store::{
             chunk_id::ChunkIdFetcher, hermesmap::HermesMapProvider, proguard::ProguardProvider,
-            saving::SymbolSetRecord, sourcemap::SourcemapProvider, Catalog, S3Client,
+            saving::SymbolSetRecord, sourcemap::SourcemapProvider, Catalog, MockS3Client,
         },
     };
 
@@ -294,7 +288,7 @@ mod test {
 
         record.save(&db).await.unwrap();
 
-        let mut client = S3Client::default();
+        let mut client = MockS3Client::default();
 
         client
             .expect_get()

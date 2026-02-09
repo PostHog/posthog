@@ -5,6 +5,7 @@ from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, run_clickhouse_statement_in_parallel
 from unittest.mock import MagicMock, patch
 
+from django.conf import settings
 from django.utils import timezone
 
 from posthog.api.authentication import password_reset_token_generator
@@ -24,6 +25,7 @@ from posthog.tasks.email import (
     send_async_migration_errored_email,
     send_batch_export_run_failure,
     send_canary_email,
+    send_discussions_mentioned,
     send_email_verification,
     send_fatal_plugin_error,
     send_hog_functions_daily_digest,
@@ -32,6 +34,7 @@ from posthog.tasks.email import (
     send_member_join,
     send_new_ticket_notification,
     send_password_reset,
+    send_saved_query_materialization_failure,
     should_send_pipeline_error_notification,
 )
 from posthog.tasks.test.utils_email_tests import mock_email_messages
@@ -1121,3 +1124,214 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
 
         # No email should be sent since recipient doesn't have access
         assert len(mocked_email_messages) == 0
+
+    def test_send_discussions_mentioned_with_slug_generates_correct_href(self, MockEmailMessage: MagicMock) -> None:
+        from posthog.models import Comment
+
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        # Create a mentioned user
+        mentioned_user = User.objects.create_and_join(
+            organization=self.organization, email="mentioned@posthog.com", password=None
+        )
+
+        # Create a replay comment
+        comment = Comment.objects.create(
+            team=self.team,
+            content="Test comment",
+            scope="Replay",
+            item_id="test-replay-id",
+            created_by=self.user,
+        )
+
+        # Call task with explicit slug
+        send_discussions_mentioned(
+            comment_id=str(comment.id),
+            mentioned_user_ids=[mentioned_user.id],
+            slug="/replay/test-replay-id",
+        )
+
+        assert len(mocked_email_messages) == 1
+        assert mocked_email_messages[0].send.call_count == 1
+
+        # Verify the href in template context uses the provided slug
+        actual_href = mocked_email_messages[0].properties["href"]
+        expected_href = f"{settings.SITE_URL}/replay/test-replay-id#panel=discussion"
+        assert actual_href == expected_href, f"Expected {expected_href}, got {actual_href}"
+
+    def test_send_discussions_mentioned_replay_without_slug_generates_href_from_item_id(
+        self, MockEmailMessage: MagicMock
+    ) -> None:
+        from posthog.models import Comment
+
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        mentioned_user = User.objects.create_and_join(
+            organization=self.organization, email="mentioned2@posthog.com", password=None
+        )
+
+        # Create a replay comment
+        comment = Comment.objects.create(
+            team=self.team,
+            content="Test comment",
+            scope="Replay",
+            item_id="replay-uuid-123",
+            created_by=self.user,
+        )
+
+        # Call task without slug (empty string)
+        send_discussions_mentioned(
+            comment_id=str(comment.id),
+            mentioned_user_ids=[mentioned_user.id],
+            slug="",
+        )
+
+        assert len(mocked_email_messages) == 1
+        assert mocked_email_messages[0].send.call_count == 1
+
+        # Verify the href is auto-generated from scope and item_id
+        assert (
+            mocked_email_messages[0].properties["href"]
+            == f"{settings.SITE_URL}/replay/replay-uuid-123#panel=discussion"
+        )
+
+    def test_send_discussions_mentioned_notebook_without_slug_generates_href_from_item_id(
+        self, MockEmailMessage: MagicMock
+    ) -> None:
+        from posthog.models import Comment
+
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        mentioned_user = User.objects.create_and_join(
+            organization=self.organization, email="mentioned3@posthog.com", password=None
+        )
+
+        # Create a notebook comment
+        comment = Comment.objects.create(
+            team=self.team,
+            content="Notebook test comment",
+            scope="Notebook",
+            item_id="notebook-short-id",
+            created_by=self.user,
+        )
+
+        # Call task without slug
+        send_discussions_mentioned(
+            comment_id=str(comment.id),
+            mentioned_user_ids=[mentioned_user.id],
+            slug="",
+        )
+
+        assert len(mocked_email_messages) == 1
+        assert mocked_email_messages[0].send.call_count == 1
+
+        # Verify the href is auto-generated for notebook
+        assert (
+            mocked_email_messages[0].properties["href"]
+            == f"{settings.SITE_URL}/notebooks/notebook-short-id#panel=discussion"
+        )
+
+    def test_send_discussions_mentioned_unknown_scope_without_slug_falls_back_to_base_url(
+        self, MockEmailMessage: MagicMock
+    ) -> None:
+        from posthog.models import Comment
+
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        mentioned_user = User.objects.create_and_join(
+            organization=self.organization, email="mentioned4@posthog.com", password=None
+        )
+
+        # Create a comment with unknown scope
+        comment = Comment.objects.create(
+            team=self.team,
+            content="Unknown scope comment",
+            scope="UnknownScope",
+            item_id="some-item-id",
+            created_by=self.user,
+        )
+
+        # Call task without slug
+        send_discussions_mentioned(
+            comment_id=str(comment.id),
+            mentioned_user_ids=[mentioned_user.id],
+            slug="",
+        )
+
+        assert len(mocked_email_messages) == 1
+        assert mocked_email_messages[0].send.call_count == 1
+
+        # Verify the href falls back to base URL with discussion panel
+        assert mocked_email_messages[0].properties["href"] == f"{settings.SITE_URL}#panel=discussion"
+
+    def test_send_saved_query_materialization_failure(self, MockEmailMessage: MagicMock) -> None:
+        from products.data_warehouse.backend.models import DataWarehouseSavedQuery
+
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        self.user.partial_notification_settings = {"materialized_view_sync_failed": True}
+        self.user.save()
+
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="test_materialized_view",
+            query={"query": "SELECT 1"},
+            status=DataWarehouseSavedQuery.Status.FAILED,
+        )
+
+        send_saved_query_materialization_failure(str(saved_query.id))
+
+        assert len(mocked_email_messages) == 1
+        assert mocked_email_messages[0].send.call_count == 1
+        assert mocked_email_messages[0].html_body
+        assert "test_materialized_view" in mocked_email_messages[0].html_body
+
+    def test_send_saved_query_materialization_failure_not_sent_by_default(self, MockEmailMessage: MagicMock) -> None:
+        from products.data_warehouse.backend.models import DataWarehouseSavedQuery
+
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="test_materialized_view",
+            query={"query": "SELECT 1"},
+            status=DataWarehouseSavedQuery.Status.FAILED,
+        )
+
+        send_saved_query_materialization_failure(str(saved_query.id))
+
+        assert len(mocked_email_messages) == 0
+
+    def test_send_saved_query_materialization_failure_respects_notification_settings(
+        self, MockEmailMessage: MagicMock
+    ) -> None:
+        from products.data_warehouse.backend.models import DataWarehouseSavedQuery
+
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="test_materialized_view",
+            query={"query": "SELECT 1"},
+            status=DataWarehouseSavedQuery.Status.FAILED,
+        )
+
+        user2 = self._create_user("test2@posthog.com")
+        user2.partial_notification_settings = {"materialized_view_sync_failed": True}
+        user2.save()
+
+        send_saved_query_materialization_failure(str(saved_query.id))
+
+        # Should only be sent to user2 who has explicitly opted in
+        assert mocked_email_messages[0].to == [
+            {"recipient": "test2@posthog.com", "raw_email": "test2@posthog.com", "distinct_id": str(user2.distinct_id)}
+        ]
+
+        # Opt in self.user too
+        self.user.partial_notification_settings = {"materialized_view_sync_failed": True}
+        self.user.save()
+
+        send_saved_query_materialization_failure(str(saved_query.id))
+
+        # Should be sent to both users
+        assert len(mocked_email_messages[1].to) == 2

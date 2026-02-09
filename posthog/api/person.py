@@ -10,6 +10,7 @@ from django.conf import settings
 from django.db.models import Prefetch
 from django.shortcuts import get_object_or_404
 
+import structlog
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiExample, OpenApiParameter
 from loginas.utils import is_impersonated_session
@@ -72,6 +73,8 @@ from posthog.tasks.split_person import split_person
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.delete_recordings.types import RecordingsWithPersonInput
 from posthog.utils import convert_property_value, format_query_params_absolute_url, is_anonymous_id
+
+logger = structlog.get_logger(__name__)
 
 DEFAULT_PAGE_LIMIT = 100
 # Sync with .../lib/constants.tsx and .../ingestion/webhook-formatter.ts
@@ -648,6 +651,13 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         # HTTP error - if applicable, thrown after retires are exhausted
         except HTTPError as he:
+            logger.warning(
+                "delete_person_property.capture_http_error",
+                team_id=self.team_id,
+                person_uuid=str(person.uuid),
+                property_key=request.data.get("$unset"),
+                status_code=he.response.status_code,
+            )
             return response.Response(
                 {
                     "success": False,
@@ -658,10 +668,16 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         # catches event payload errors (CaptureInternalError) and misc. (timeout etc.)
         except Exception:
+            logger.exception(
+                "delete_person_property.capture_error",
+                team_id=self.team_id,
+                person_uuid=str(person.uuid),
+                property_key=request.data.get("$unset"),
+            )
             return response.Response(
                 {
                     "success": False,
-                    "detail": f"Unable to delete property",
+                    "detail": "Unable to delete property",
                 },
                 status=400,
             )

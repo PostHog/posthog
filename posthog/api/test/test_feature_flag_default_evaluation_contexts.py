@@ -1,6 +1,3 @@
-from datetime import datetime as dt
-from typing import cast
-
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -9,21 +6,11 @@ from rest_framework import status
 from posthog.models import FeatureFlag, Tag
 from posthog.models.feature_flag import TeamDefaultEvaluationTag
 
-from ee.models.license import License, LicenseManager
-
 
 class TestFeatureFlagDefaultEnvironments(APIBaseTest):
     def setUp(self):
         super().setUp()
         self.feature_flag_url = "/api/projects/@current/feature_flags/"
-
-        # Create a license to enable tagging feature
-        future_year = dt.now().year + 50
-        super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            key="test_license_key",
-            plan="enterprise",
-            valid_until=dt(future_year, 1, 19, 3, 14, 7),
-        )
 
         # Mock FLAG_EVALUATION_TAGS feature flag to be enabled by default
         self.feature_flag_patcher = patch("posthoganalytics.feature_enabled")

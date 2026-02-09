@@ -1,109 +1,87 @@
-import { router } from 'kea-router'
-import { useState } from 'react'
-
-import { IconPencil, IconSearch } from '@posthog/icons'
-import { LemonModal } from '@posthog/lemon-ui'
+import { IconCursorClick, IconPencil } from '@posthog/icons'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
-import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
-import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { Link } from 'lib/lemon-ui/Link'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 export function NewActionButton({ onSelectOption }: { onSelectOption?: () => void }): JSX.Element {
-    const [visible, setVisible] = useState(false)
-    const [appUrlsVisible, setAppUrlsVisible] = useState(false)
-
     return (
-        <>
-            <AccessControlAction
-                resourceType={AccessControlResourceType.Action}
-                minAccessLevel={AccessControlLevel.Editor}
+        <AccessControlAction resourceType={AccessControlResourceType.Action} minAccessLevel={AccessControlLevel.Editor}>
+            <AppShortcut
+                name="NewAction"
+                keybind={[keyBinds.new]}
+                intent="New action"
+                interaction="click"
+                scope={Scene.Actions}
             >
-                <AppShortcut
-                    name="NewAction"
-                    keybind={[keyBinds.new]}
-                    intent="New action"
-                    interaction="click"
-                    scope={Scene.Actions}
+                <LemonButton
+                    type="primary"
+                    size="small"
+                    to={urls.createAction()}
+                    onClick={onSelectOption}
+                    data-attr="create-action"
+                    tooltip="New action"
+                    sideAction={{
+                        dropdown: {
+                            placement: 'bottom-end',
+                            className: 'w-80',
+                            overlay: (
+                                <div className="space-y-1 p-1">
+                                    <LemonButton
+                                        fullWidth
+                                        icon={<IconPencil />}
+                                        to={urls.createAction()}
+                                        onClick={onSelectOption}
+                                        data-attr="new-action-pageview"
+                                    >
+                                        <div className="flex flex-col items-start">
+                                            <span>From event or pageview</span>
+                                            <span className="text-xs text-secondary font-normal">
+                                                Match events by name, URL patterns, or custom properties.{' '}
+                                                <Link
+                                                    to="https://posthog.com/docs/data/actions"
+                                                    target="_blank"
+                                                    onClick={(e) => e.stopPropagation()}
+                                                >
+                                                    Learn more
+                                                </Link>
+                                            </span>
+                                        </div>
+                                    </LemonButton>
+                                    <LemonButton
+                                        fullWidth
+                                        icon={<IconCursorClick />}
+                                        to={urls.toolbarLaunch()}
+                                        data-attr="new-action-inspect"
+                                    >
+                                        <div className="flex flex-col items-start">
+                                            <span>Inspect element on site</span>
+                                            <span className="text-xs text-secondary font-normal">
+                                                Use the toolbar to visually select elements on your site.{' '}
+                                                <Link
+                                                    to="https://posthog.com/docs/toolbar/create-toolbar-actions"
+                                                    target="_blank"
+                                                    onClick={(e) => e.stopPropagation()}
+                                                >
+                                                    Learn more
+                                                </Link>
+                                            </span>
+                                        </div>
+                                    </LemonButton>
+                                </div>
+                            ),
+                        },
+                    }}
                 >
-                    <LemonButton
-                        size="small"
-                        type="primary"
-                        onClick={() => setVisible(true)}
-                        data-attr="create-action"
-                        tooltip="New action"
-                    >
-                        New action
-                    </LemonButton>
-                </AppShortcut>
-            </AccessControlAction>
-            <LemonModal
-                isOpen={visible}
-                onClose={() => {
-                    setVisible(false)
-                    setAppUrlsVisible(false)
-                }}
-                title="Create new action"
-                footer={
-                    <>
-                        {appUrlsVisible && (
-                            <LemonButton key="back-button" type="secondary" onClick={() => setAppUrlsVisible(false)}>
-                                Back
-                            </LemonButton>
-                        )}
-                        <LemonButton
-                            key="cancel-button"
-                            type="secondary"
-                            onClick={() => {
-                                setVisible(false)
-                                setAppUrlsVisible(false)
-                            }}
-                        >
-                            Cancel
-                        </LemonButton>
-                    </>
-                }
-            >
-                {!appUrlsVisible ? (
-                    <div className="deprecated-space-y-2">
-                        <LemonButton
-                            type="secondary"
-                            icon={<IconSearch />}
-                            onClick={() => setAppUrlsVisible(true)}
-                            size="large"
-                            fullWidth
-                            center
-                            data-attr="new-action-inspect"
-                        >
-                            Inspect element on your site
-                        </LemonButton>
-                        <LemonButton
-                            type="secondary"
-                            icon={<IconPencil />}
-                            onClick={() => {
-                                onSelectOption?.()
-                                router.actions.push(urls.createAction())
-                            }}
-                            size="large"
-                            fullWidth
-                            center
-                            data-attr="new-action-pageview"
-                        >
-                            From event or pageview
-                        </LemonButton>
-                    </div>
-                ) : (
-                    <div className="max-w-160">
-                        <AuthorizedUrlList type={AuthorizedUrlListType.TOOLBAR_URLS} />
-                    </div>
-                )}
-            </LemonModal>
-        </>
+                    New action
+                </LemonButton>
+            </AppShortcut>
+        </AccessControlAction>
     )
 }

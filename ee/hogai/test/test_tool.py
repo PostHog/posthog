@@ -295,7 +295,7 @@ class TestMaxToolAccessControl(BaseTest):
 
         with patch.object(tool.user_access_control, "check_access_level_for_resource", return_value=True):
             # Should not raise
-            tool._check_access_control()
+            tool._check_resource_access()
 
     def test_check_access_control_raises_when_user_lacks_access(self):
         """_check_access_control should raise MaxToolAccessDeniedError when user lacks access."""
@@ -303,7 +303,7 @@ class TestMaxToolAccessControl(BaseTest):
 
         with patch.object(tool.user_access_control, "check_access_level_for_resource", return_value=False):
             with self.assertRaises(MaxToolAccessDeniedError) as ctx:
-                tool._check_access_control()
+                tool._check_resource_access()
 
             self.assertEqual(ctx.exception.resource, "feature_flag")
             self.assertEqual(ctx.exception.required_level, "editor")
@@ -314,7 +314,7 @@ class TestMaxToolAccessControl(BaseTest):
 
         # Should not call check_access_level_for_resource at all
         with patch.object(tool.user_access_control, "check_access_level_for_resource") as mock:
-            tool._check_access_control()
+            tool._check_resource_access()
             mock.assert_not_called()
 
 
@@ -341,6 +341,8 @@ class TestToolAccessControlDeclarations(BaseTest):
         # Tools with dynamic/conditional access checks inside _arun_impl
         "read_data",
         "list_data",  # Lists entities with pagination, no protected resources modified
+        "create_notebook",  # No protected resources modified
+        "finalize_plan",
         # TODO: Add access control to these tools
         "task",
         "create_task",

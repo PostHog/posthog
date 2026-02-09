@@ -701,7 +701,7 @@ describe('CDP API', () => {
                     JSON.stringify({
                         teamId: batchHogFlow.team_id,
                         hogFlowId: batchHogFlow.id,
-                        batchJobId: 'job-123',
+                        parentRunId: 'job-123',
                         filters: {
                             properties: (batchHogFlow as any).trigger.filters.properties,
                             filter_test_accounts: true,
@@ -728,7 +728,7 @@ describe('CDP API', () => {
                     JSON.stringify({
                         teamId: batchHogFlow.team_id,
                         hogFlowId: batchHogFlow.id,
-                        batchJobId: 'job-456',
+                        parentRunId: 'job-456',
                         filters: {
                             properties: (batchHogFlow as any).trigger.filters.properties,
                             filter_test_accounts: false,

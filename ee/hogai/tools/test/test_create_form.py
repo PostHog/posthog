@@ -1,9 +1,10 @@
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
-from langgraph.errors import NodeInterrupt
+from langgraph.errors import GraphInterrupt
 from parameterized import parameterized
 
-from posthog.schema import MultiQuestionFormQuestion
+from posthog.schema import MultiQuestionForm, MultiQuestionFormQuestion
 
 from ee.hogai.tool_errors import MaxToolRetryableError
 from ee.hogai.tools.create_form import CreateFormTool
@@ -27,24 +28,29 @@ class TestCreateFormTool(BaseTest):
         return [
             MultiQuestionFormQuestion(
                 id=f"q{i}",
+                title=f"Question {i}?",
                 question=f"Question {i}?",
                 options=[{"value": "Option A"}, {"value": "Option B"}],
             )
             for i in range(count)
         ]
 
-    async def test_raises_node_interrupt_with_none(self):
+    async def test_calls_interrupt_with_form(self):
         tool = self._create_tool()
         questions = self._create_questions(2)
 
-        with self.assertRaises(NodeInterrupt) as context:
-            await tool._arun_impl(questions=questions)
+        with patch("ee.hogai.tools.create_form.interrupt") as mock_interrupt:
+            mock_interrupt.side_effect = GraphInterrupt()
 
-        # NodeInterrupt wraps the value in an Interrupt object inside a list
-        interrupt_list = context.exception.args[0]
-        self.assertEqual(len(interrupt_list), 1)
-        interrupt_value = interrupt_list[0].value
-        self.assertIsNone(interrupt_value)
+            with self.assertRaises(GraphInterrupt):
+                await tool._arun_impl(questions=questions)
+
+            # Verify interrupt was called with the correct form structure
+            mock_interrupt.assert_called_once()
+            call_args = mock_interrupt.call_args
+            form = call_args.kwargs["value"]
+            self.assertIsInstance(form, MultiQuestionForm)
+            self.assertEqual(len(form.questions), 2)
 
     async def test_raises_retryable_error_when_more_than_4_questions(self):
         tool = self._create_tool()
@@ -75,5 +81,11 @@ class TestCreateFormTool(BaseTest):
         tool = self._create_tool()
         questions = self._create_questions(question_count)
 
-        with self.assertRaises(NodeInterrupt):
-            await tool._arun_impl(questions=questions)
+        with patch("ee.hogai.tools.create_form.interrupt") as mock_interrupt:
+            mock_interrupt.side_effect = GraphInterrupt()
+
+            with self.assertRaises(GraphInterrupt):
+                await tool._arun_impl(questions=questions)
+
+            # Verify interrupt was called (validation passed)
+            mock_interrupt.assert_called_once()

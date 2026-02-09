@@ -1,20 +1,15 @@
-import { getSvelteSteps as getSvelteStepsPA } from '../product-analytics/svelte'
-import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
-import { StepDefinition, StepModifier } from '../steps'
+import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 
-export const getSvelteSteps = (
-    CodeBlock: any,
-    Markdown: any,
-    CalloutBox: any,
-    dedent: any,
-    snippets: any,
-    options?: StepModifier
-): StepDefinition[] => {
+import { getSvelteSteps as getSvelteStepsPA } from '../product-analytics/svelte'
+import { StepDefinition } from '../steps'
+
+export const getSvelteSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
+    const { CodeBlock, Markdown, dedent, snippets } = ctx
     const BooleanFlag = snippets?.BooleanFlagSnippet
     const MultivariateFlag = snippets?.MultivariateFlagSnippet
 
     // Get installation steps from product-analytics
-    const installationSteps = getSvelteStepsPA(CodeBlock, Markdown, CalloutBox, dedent, snippets)
+    const installationSteps = getSvelteStepsPA(ctx)
 
     // Add flag implementation steps
     const flagSteps: StepDefinition[] = [
@@ -73,21 +68,7 @@ export const getSvelteSteps = (
         },
     ]
 
-    const allSteps = [...installationSteps, ...flagSteps]
-    return options?.modifySteps ? options.modifySteps(allSteps) : allSteps
+    return [...installationSteps, ...flagSteps]
 }
 
-export const SvelteInstallation = ({ modifySteps }: StepModifier = {}): JSX.Element => {
-    const { Steps, Step, CodeBlock, Markdown, CalloutBox, dedent, snippets } = useMDXComponents()
-    const steps = getSvelteSteps(CodeBlock, Markdown, CalloutBox, dedent, snippets, { modifySteps })
-
-    return (
-        <Steps>
-            {steps.map((step, index) => (
-                <Step key={index} title={step.title} badge={step.badge}>
-                    {step.content}
-                </Step>
-            ))}
-        </Steps>
-    )
-}
+export const SvelteInstallation = createInstallation(getSvelteSteps)

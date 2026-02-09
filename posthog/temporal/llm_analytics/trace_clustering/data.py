@@ -18,10 +18,11 @@ from posthog.clickhouse.query_tagging import Product, tags_context
 from posthog.models.team import Team
 from posthog.temporal.llm_analytics.trace_clustering import constants
 from posthog.temporal.llm_analytics.trace_clustering.models import (
-    TraceBatchRunIds,
-    TraceEmbeddings,
-    TraceId,
-    TraceSummaries,
+    AnalysisLevel,
+    ItemBatchRunIds,
+    ItemEmbeddings,
+    ItemId,
+    ItemSummaries,
 )
 
 logger = structlog.get_logger(__name__)
@@ -36,7 +37,7 @@ def fetch_eligible_trace_ids(
     window_end: datetime,
     trace_filters: list[dict],
     max_samples: int,
-) -> list[TraceId]:
+) -> list[ItemId]:
     """Query trace IDs that have at least one AI event matching the given property filters.
 
     Queries across all AI event types ($ai_span, $ai_generation, $ai_embedding, etc.)
@@ -101,31 +102,52 @@ def fetch_eligible_trace_ids(
     return [row[0] for row in rows if row[0]]
 
 
-def fetch_trace_embeddings_for_clustering(
+def fetch_item_embeddings_for_clustering(
     team: Team,
     window_start: datetime,
     window_end: datetime,
     max_samples: int,
+    analysis_level: AnalysisLevel = "trace",
     trace_filters: list[dict] | None = None,
-) -> tuple[list[TraceId], TraceEmbeddings, TraceBatchRunIds]:
-    """Query trace IDs and embeddings from document_embeddings table using HogQL.
+) -> tuple[list[ItemId], ItemEmbeddings, ItemBatchRunIds]:
+    """Query item IDs and embeddings from document_embeddings table using HogQL.
 
     If trace_filters are provided, first queries for eligible trace IDs from AI events
-    matching the filter criteria, then fetches embeddings only for those traces.
+    matching the filter criteria, then fetches embeddings only for those items.
 
     Args:
         team: Team object to query embeddings for
         window_start: Start of time window
         window_end: End of time window
-        max_samples: Maximum number of traces to sample
+        max_samples: Maximum number of items to sample
+        analysis_level: "trace" or "generation" - determines which document_type to query
         trace_filters: Optional property filters to scope which traces are included
 
     Returns:
-        Tuple of (list of trace IDs, dict mapping trace_id -> embedding vector,
-                  dict mapping trace_id -> batch_run_id for linking to summaries)
+        Tuple of (list of item IDs, dict mapping item_id -> embedding vector,
+                  dict mapping item_id -> batch_run_id for linking to summaries)
     """
+    # Select document_type based on analysis_level
+    document_type_new = (
+        constants.LLMA_GENERATION_DOCUMENT_TYPE
+        if analysis_level == "generation"
+        else constants.LLMA_TRACE_DOCUMENT_TYPE
+    )
+
+    # TODO: trace_filters for generation-level clustering requires mapping trace_ids to
+    # generation_ids via $ai_generation_summary events. For now, skip filters and log warning.
+    if trace_filters and analysis_level == "generation":
+        logger.warning(
+            "trace_filters are not yet supported for generation-level clustering - filters will be ignored. "
+            "Generation embeddings use generation_id as document_id, but trace_filters return trace_ids. "
+            "Support requires querying $ai_generation_summary events to map trace_ids to generation_ids.",
+            team_id=team.id,
+            trace_filters=trace_filters,
+        )
+        trace_filters = None  # Skip filters for generation-level
+
     # If filters provided, first get eligible trace IDs
-    eligible_trace_ids: list[TraceId] | None = None
+    eligible_trace_ids: list[ItemId] | None = None
     if trace_filters:
         eligible_trace_ids = fetch_eligible_trace_ids(
             team=team,
@@ -185,7 +207,7 @@ def fetch_trace_embeddings_for_clustering(
         "start_dt": ast.Constant(value=window_start),
         "end_dt": ast.Constant(value=window_end),
         "product": ast.Constant(value=constants.LLMA_TRACE_PRODUCT),
-        "document_type_new": ast.Constant(value=constants.LLMA_TRACE_DOCUMENT_TYPE),
+        "document_type_new": ast.Constant(value=document_type_new),
         "document_type_legacy": ast.Constant(value=constants.LLMA_TRACE_DOCUMENT_TYPE_LEGACY),
         "rendering_legacy": ast.Constant(value=constants.LLMA_TRACE_RENDERING_LEGACY),
         "max_samples": ast.Constant(value=max_samples),
@@ -195,7 +217,7 @@ def fetch_trace_embeddings_for_clustering(
 
     with tags_context(product=Product.LLM_ANALYTICS):
         result = execute_hogql_query(
-            query_type="TraceEmbeddingsForClustering",
+            query_type="ItemEmbeddingsForClustering",
             query=query,
             placeholders=placeholders,
             team=team,
@@ -204,14 +226,14 @@ def fetch_trace_embeddings_for_clustering(
     rows = result.results or []
 
     logger.debug(
-        "fetch_trace_embeddings_for_clustering_result",
+        "fetch_item_embeddings_for_clustering_result",
         num_rows=len(rows),
     )
 
-    # Build all maps in single loop to ensure trace_ids, embeddings_map, and batch_run_ids are aligned
-    trace_ids: list[TraceId] = []
-    embeddings_map: TraceEmbeddings = {}
-    batch_run_ids_map: TraceBatchRunIds = {}
+    # Build all maps in single loop to ensure item_ids, embeddings_map, and batch_run_ids are aligned
+    item_ids: list[ItemId] = []
+    embeddings_map: ItemEmbeddings = {}
+    batch_run_ids_map: ItemBatchRunIds = {}
 
     # Legacy rendering values that are NOT batch_run_ids
     legacy_rendering_values = {
@@ -220,98 +242,107 @@ def fetch_trace_embeddings_for_clustering(
     }
 
     for row in rows:
-        trace_id = row[0]
-        trace_ids.append(trace_id)
-        embeddings_map[trace_id] = row[1]
+        item_id = row[0]
+        item_ids.append(item_id)
+        embeddings_map[item_id] = row[1]
 
         # Only store as batch_run_id if it's not a legacy rendering constant
         # Legacy embeddings have rendering like "llma_trace_detailed"
         # New embeddings have rendering = batch_run_id (e.g., "1_2025-12-13T...")
         rendering_value = row[2]
         if rendering_value and rendering_value not in legacy_rendering_values:
-            batch_run_ids_map[trace_id] = rendering_value
+            batch_run_ids_map[item_id] = rendering_value
 
-    return trace_ids, embeddings_map, batch_run_ids_map
+    return item_ids, embeddings_map, batch_run_ids_map
 
 
-def fetch_trace_summaries(
+def fetch_item_summaries(
     team: Team,
-    trace_ids: list[TraceId],
-    batch_run_ids: TraceBatchRunIds,
+    item_ids: list[ItemId],
+    batch_run_ids: ItemBatchRunIds,
     window_start: datetime,
     window_end: datetime,
-) -> TraceSummaries:
-    """Fetch trace summaries from $ai_trace_summary events using HogQL.
+    analysis_level: AnalysisLevel = "trace",
+) -> ItemSummaries:
+    """Fetch item summaries from $ai_trace_summary or $ai_generation_summary events using HogQL.
 
     Filters summaries to only return those matching the batch_run_id from the embeddings,
     ensuring we get the summary from the same summarization run as the embedding.
 
     Args:
         team: Team object (for HogQL team-scoped queries)
-        trace_ids: List of trace IDs to fetch summaries for
-        batch_run_ids: Mapping of trace_id -> batch_run_id from the embeddings query
+        item_ids: List of item IDs to fetch summaries for (trace_ids or generation_ids)
+        batch_run_ids: Mapping of item_id -> batch_run_id from the embeddings query
         window_start: Start of time window
         window_end: End of time window
+        analysis_level: "trace" or "generation" - determines which event type to query
 
     Returns:
-        Dictionary mapping trace_id -> {title, flow_diagram, bullets, interesting_notes, trace_timestamp}
+        Dictionary mapping item_id -> TraceSummary (includes trace_id for navigation)
     """
-    if not trace_ids:
+    # Select event name and ID property based on analysis_level
+    event_name = "$ai_generation_summary" if analysis_level == "generation" else "$ai_trace_summary"
+    id_property = "$ai_generation_id" if analysis_level == "generation" else "$ai_trace_id"
+    if not item_ids:
         return {}
 
-    # Use a high limit to handle duplicate summary events per trace (some traces have up to 4 summaries)
+    # Use a high limit to handle duplicate summary events per item (some have up to 4 summaries)
     # We'll filter by batch_run_id in Python after fetching
-    max_rows = len(trace_ids) * 5  # Allow for duplicates
+    max_rows = len(item_ids) * 5  # Allow for duplicates
 
+    # Use ast.Field placeholder for the ID property so HogQL can resolve materialized columns.
+    # JSONExtractString would bypass materialized column optimization.
     query = parse_select(
         """
         SELECT
-            coalesce(properties.$ai_trace_id, JSONExtractString(properties, '$ai_trace_id')) as trace_id,
+            {id_prop} as item_id,
             properties.$ai_summary_title as title,
             properties.$ai_summary_flow_diagram as flow_diagram,
             properties.$ai_summary_bullets as bullets,
             properties.$ai_summary_interesting_notes as interesting_notes,
             properties.trace_timestamp as trace_timestamp,
-            properties.$ai_batch_run_id as batch_run_id
+            properties.$ai_batch_run_id as batch_run_id,
+            properties.$ai_trace_id as trace_id
         FROM events
         WHERE event = {event_name}
             AND timestamp >= {start_dt}
             AND timestamp < {end_dt}
-            AND coalesce(properties.$ai_trace_id, JSONExtractString(properties, '$ai_trace_id')) IN {trace_ids}
+            AND {id_prop} IN {item_ids}
         LIMIT {max_rows}
         """
     )
 
-    # Build trace_ids tuple for IN clause
-    trace_ids_tuple = ast.Tuple(exprs=[ast.Constant(value=tid) for tid in trace_ids])
+    # Build item_ids tuple for IN clause
+    item_ids_tuple = ast.Tuple(exprs=[ast.Constant(value=iid) for iid in item_ids])
 
     with tags_context(product=Product.LLM_ANALYTICS):
         result = execute_hogql_query(
-            query_type="TraceSummariesForClustering",
+            query_type="ItemSummariesForClustering",
             query=query,
             placeholders={
-                "event_name": ast.Constant(value="$ai_trace_summary"),
+                "event_name": ast.Constant(value=event_name),
+                "id_prop": ast.Field(chain=["properties", id_property]),
                 "start_dt": ast.Constant(value=window_start),
                 "end_dt": ast.Constant(value=window_end),
-                "trace_ids": trace_ids_tuple,
+                "item_ids": item_ids_tuple,
                 "max_rows": ast.Constant(value=max_rows),
             },
             team=team,
         )
 
     rows = result.results or []
-    trace_summaries: TraceSummaries = {}
+    summaries: ItemSummaries = {}
     skipped_wrong_batch = 0
 
     for row in rows:
-        trace_id = row[0]
+        item_id = row[0]
         summary_batch_run_id = row[6]  # $ai_batch_run_id from summary event
 
         # Backwards compatibility: only filter if BOTH embedding and summary have batch_run_ids
         # - Old embeddings (rendering="llma_trace_detailed") won't have batch_run_id → accept any summary
         # - Old summaries won't have $ai_batch_run_id → accept them (can't verify match)
         # - New embeddings + new summaries → only accept if batch_run_ids match
-        expected_batch_run_id = batch_run_ids.get(trace_id)
+        expected_batch_run_id = batch_run_ids.get(item_id)
         if expected_batch_run_id and summary_batch_run_id and expected_batch_run_id != summary_batch_run_id:
             skipped_wrong_batch += 1
             continue
@@ -320,19 +351,27 @@ def fetch_trace_summaries(
         trace_ts = row[5]
         trace_ts_str = trace_ts.isoformat() if trace_ts else ""
 
-        trace_summaries[trace_id] = {
+        # For trace-level, trace_id is the same as item_id (fallback ok)
+        # For generation-level, trace_id must come from $ai_trace_id property (no fallback)
+        if analysis_level == "generation":
+            trace_id = row[7]
+        else:
+            trace_id = row[7] if row[7] else item_id
+
+        summaries[item_id] = {
             "title": row[1],
             "flow_diagram": row[2],
             "bullets": row[3],
             "interesting_notes": row[4],
             "trace_timestamp": trace_ts_str,
+            "trace_id": trace_id,
         }
 
     logger.debug(
-        "fetch_trace_summaries_result",
+        "fetch_item_summaries_result",
         total_rows=len(rows),
-        unique_trace_ids=len(trace_summaries),
+        unique_item_ids=len(summaries),
         skipped_wrong_batch=skipped_wrong_batch,
     )
 
-    return trace_summaries
+    return summaries

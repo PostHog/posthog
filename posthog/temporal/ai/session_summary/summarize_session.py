@@ -16,15 +16,18 @@ from dateutil import parser as dateutil_parser
 from redis import Redis
 from temporalio.client import WorkflowExecutionStatus, WorkflowHandle
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
-from temporalio.exceptions import ApplicationError
+from temporalio.exceptions import ApplicationError, WorkflowAlreadyStartedError
+
+from posthog.schema import ReplayInactivityPeriod
 
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.redis import get_client
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai.session_summary.activities import (
-    SESSION_VIDEO_CHUNK_DURATION_S,
+    CaptureTimingInputs,
     analyze_video_segment_activity,
+    capture_timing_activity,
     consolidate_video_segments_activity,
     embed_and_store_segments_activity,
     export_session_video_activity,
@@ -56,7 +59,6 @@ from ee.hogai.session_summaries.constants import (
     DEFAULT_VIDEO_UNDERSTANDING_MODEL,
     SESSION_SUMMARIES_STREAMING_MODEL,
     SESSION_SUMMARIES_SYNC_MODEL,
-    SESSION_VIDEO_RENDERING_DELAY,
 )
 from ee.hogai.session_summaries.llm.consume import (
     get_exception_event_ids_from_summary,
@@ -78,6 +80,8 @@ logger = structlog.get_logger(__name__)
 
 # How often to poll for new chunks from the LLM stream
 SESSION_SUMMARIES_STREAM_INTERVAL = 0.1  # 100ms
+# How large the chunks should be when analyzing videos
+SESSION_VIDEO_CHUNK_DURATION_S = 60
 
 
 @temporalio.activity.defn
@@ -124,7 +128,11 @@ async def fetch_session_data_activity(inputs: SingleSessionSummaryInputs) -> Non
         # If we weren't able to collect the required data - retry
         temporalio.activity.logger.exception(
             f"Not able to fetch data from the DB for session {inputs.session_id} (by user {inputs.user_id}): {summary_data.error_msg}",
-            extra={"session_id": inputs.session_id, "user_id": inputs.user_id, "signals_type": "session-summaries"},
+            extra={
+                "session_id": inputs.session_id,
+                "user_id": inputs.user_id,
+                "signals_type": "session-summaries",
+            },
         )
         raise ExceptionToRetry(summary_data.error_msg)
     input_data = prepare_single_session_summary_input(
@@ -158,7 +166,12 @@ def _store_final_summary_in_db_from_activity(
     if not user:
         msg = f"User with id {inputs.user_id} not found, when trying to add session summary for session {inputs.session_id}"
         temporalio.activity.logger.error(
-            msg, extra={"user_id": inputs.user_id, "session_id": inputs.session_id, "signals_type": "session-summaries"}
+            msg,
+            extra={
+                "user_id": inputs.user_id,
+                "session_id": inputs.session_id,
+                "signals_type": "session-summaries",
+            },
         )
         raise ValueError(msg)
     # Disable thread-sensitive as the summary could be pretty heavy and it's a write
@@ -211,7 +224,11 @@ async def get_llm_single_session_summary_activity(
         # No reason to retry activity, as the input data is not in Redis
         msg = f"No LLM input found for session {inputs.session_id} when summarizing"
         temporalio.activity.logger.error(
-            msg, extra={"session_id": inputs.session_id, "signals_type": "session-summaries"}
+            msg,
+            extra={
+                "session_id": inputs.session_id,
+                "signals_type": "session-summaries",
+            },
         )
         raise ApplicationError(msg, non_retryable=True)
     llm_input = cast(
@@ -248,7 +265,9 @@ async def get_llm_single_session_summary_activity(
 
 
 @temporalio.activity.defn
-async def stream_llm_single_session_summary_activity(inputs: SingleSessionSummaryInputs) -> str:
+async def stream_llm_single_session_summary_activity(
+    inputs: SingleSessionSummaryInputs,
+) -> str:
     """Summarize a single session and stream the summary state as it becomes available"""
     # Check if summary is already in the DB, so no need to summarize again
     # Disabling thread-sensitive as summaries can be heavy to load from DB
@@ -264,7 +283,11 @@ async def stream_llm_single_session_summary_activity(inputs: SingleSessionSummar
     if not inputs.redis_key_base:
         msg = f"Redis key base was not provided when summarizing session {inputs.session_id}: {inputs}"
         temporalio.activity.logger.error(
-            msg, extra={"session_id": inputs.session_id, "signals_type": "session-summaries"}
+            msg,
+            extra={
+                "session_id": inputs.session_id,
+                "signals_type": "session-summaries",
+            },
         )
         raise ApplicationError(msg, non_retryable=True)
     # Creating client on each activity as we can't pass it in as an argument, and need it for both getting and storing data
@@ -277,7 +300,11 @@ async def stream_llm_single_session_summary_activity(inputs: SingleSessionSummar
     if not redis_input_key or not redis_output_key:
         msg = f"Redis input ({redis_input_key}) or output ({redis_output_key}) keys not provided when summarizing session {inputs.session_id}: {inputs}"
         temporalio.activity.logger.error(
-            msg, extra={"session_id": inputs.session_id, "signals_type": "session-summaries"}
+            msg,
+            extra={
+                "session_id": inputs.session_id,
+                "signals_type": "session-summaries",
+            },
         )
         raise ApplicationError(msg, non_retryable=True)
     llm_input_raw = await get_data_class_from_redis(
@@ -290,7 +317,11 @@ async def stream_llm_single_session_summary_activity(inputs: SingleSessionSummar
         # No reason to retry activity, as the input data is not in Redis
         msg = f"No LLM input found for session {inputs.session_id} when summarizing (stream)"
         temporalio.activity.logger.error(
-            msg, extra={"session_id": inputs.session_id, "signals_type": "session-summaries"}
+            msg,
+            extra={
+                "session_id": inputs.session_id,
+                "signals_type": "session-summaries",
+            },
         )
         raise ApplicationError(msg, non_retryable=True)
     llm_input = cast(SingleSessionSummaryLlmInputs, llm_input_raw)
@@ -380,15 +411,151 @@ class SummarizeSingleSessionWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.run
     async def run(self, inputs: SingleSessionSummaryInputs) -> None:
-        # Get summary data from the DB (caches in Redis for both LLM and video-based flows)
+        start_time = temporalio.workflow.now()
         await temporalio.workflow.execute_activity(
             fetch_session_data_activity,
             inputs,
             start_to_close_timeout=timedelta(minutes=3),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
-        # Generate session summary
         await ensure_llm_single_session_summary(inputs)
+        duration_seconds = (temporalio.workflow.now() - start_time).total_seconds()
+        await temporalio.workflow.execute_activity(
+            capture_timing_activity,
+            CaptureTimingInputs(
+                distinct_id=inputs.user_distinct_id_to_log,
+                team_id=inputs.team_id,
+                session_id=inputs.session_id,
+                timing_type="single_session_flow",
+                duration_seconds=duration_seconds,
+                success=True,
+                extra_properties={
+                    "video_validation_enabled": inputs.video_validation_enabled,
+                },
+            ),
+            start_to_close_timeout=timedelta(seconds=30),
+            retry_policy=RetryPolicy(maximum_attempts=2),
+        )
+
+
+def _validate_period(
+    period: ReplayInactivityPeriod, video_duration: float, index: int, inactivity_periods_count: int
+) -> tuple[float, float, float, float] | None:
+    # Filter to only active periods (skip gaps and idle time)
+    if not period.active:
+        return None
+    # If the period wasn't able to get the start recording timestamp - it's either too short or buggy to process, skipping
+    if period.recording_ts_from_s is None:
+        return None
+    # If the period has no ts_to_s - it's probably the last period, so set it to the video duration
+    if period.ts_to_s is None:
+        # Raise exception if it's not the last period
+        if index != inactivity_periods_count - 1:
+            msg = f"Inactivity period has no ts_to_s, while not being the last period ({index}/{inactivity_periods_count - 1}): {period.model_dump_json()}"
+            logger.error(msg, signals_type="session-summaries")
+            raise ValueError(msg)
+        period.recording_ts_to_s = video_duration
+        # Calculate the ts_to_s accordingly
+        period.ts_to_s = period.ts_from_s + (period.recording_ts_to_s - period.recording_ts_from_s)
+    # If the recording end period is still empty - there's a problem in calculations
+    if period.recording_ts_to_s is None:
+        msg = f"Inactivity period has no recording_ts_to_s: {period.model_dump_json()}"
+        logger.error(msg, signals_type="session-summaries")
+        raise ValueError(msg)
+    # Validate the period data
+    session_period_start = period.ts_from_s
+    session_period_end = period.ts_to_s
+    recording_period_start = period.recording_ts_from_s
+    recording_period_end = period.recording_ts_to_s
+    if round(recording_period_end, 2) <= round(recording_period_start, 2):
+        msg = f"Invalid recording period time range: recording_ts_from_s={recording_period_start}, recording_ts_to_s={recording_period_end}"
+        logger.error(msg, signals_type="session-summaries")
+        raise ValueError(msg)
+    if round(session_period_end, 2) <= round(session_period_start, 2):
+        msg = f"Invalid session period time range: ts_from_s={session_period_start}, ts_to_s={session_period_end}"
+        logger.error(msg, signals_type="session-summaries")
+        raise ValueError(msg)
+    if round(recording_period_end, 2) > round(video_duration, 2):
+        # Could happen, log for visibility, but don't raise
+        logger.warning(
+            "Recording timestamp exceeds video duration: "
+            f"recording_ts_to_s={recording_period_end}, video_duration={video_duration}",
+            signals_type="session-summaries",
+        )
+    if round(recording_period_end - recording_period_start, 2) != round(session_period_end - session_period_start, 2):
+        # Could happen, log for visibility, but don't raise
+        logger.warning(
+            "Recording/session periods duration mismatch: "
+            f"recording_duration={recording_period_end - recording_period_start}, "
+            f"session_duration={session_period_end - session_period_start}",
+            signals_type="session-summaries",
+        )
+    return session_period_start, session_period_end, recording_period_start, recording_period_end
+
+
+def calculate_video_segment_specs(
+    video_duration: float,
+    chunk_duration: float,
+    inactivity_periods: list[ReplayInactivityPeriod] | None = None,
+) -> list[VideoSegmentSpec]:
+    # Assume that inactivity data should be successfully collected for any session, so no need to split into random chunks
+    if not inactivity_periods:
+        msg = "Inactivity periods are required to calculate video segment specs"
+        logger.error(msg, signals_type="session-summaries")
+        raise ValueError(msg)
+    # If inactivity data is present - only analyze "active" periods (when user was interacting)
+    segments: list[VideoSegmentSpec] = []
+    segment_index = 0
+    # TODO: Add more logic to avoid splitting right after jumping to the new page
+    for i, period in enumerate(inactivity_periods):
+        validation = _validate_period(period, video_duration, i, len(inactivity_periods))
+        if validation is None:
+            continue
+        session_period_start, session_period_end, recording_period_start, recording_period_end = validation
+        # Start either after the rendering delay, or at the previous chunk end
+        if recording_period_end - recording_period_start <= chunk_duration:
+            # If the period smaller than the expected chunk duration - process as is
+            segments.append(
+                VideoSegmentSpec(
+                    segment_index=segment_index,
+                    start_time=session_period_start,
+                    end_time=session_period_end,
+                    recording_start_time=recording_period_start,
+                    recording_end_time=recording_period_end,
+                )
+            )
+            segment_index += 1
+            continue
+        # If the period is larger than chunk_duration, split it into chunks small enough for efficient LLM processing
+        current_recording_period_start = recording_period_start
+        # Iterate while not reaching the end of the period
+        while current_recording_period_start < recording_period_end:
+            current_recording_period_end = current_recording_period_start + chunk_duration
+            remaining_after_chunk = recording_period_end - current_recording_period_end
+            # If the remaining portion after this chunk would be smaller than a new chunk, extend the current chunk
+            if remaining_after_chunk > 0 and remaining_after_chunk < chunk_duration:
+                current_recording_period_end = recording_period_end
+            # Continue creating new chunks if there are plenty of activity left in the period
+            else:
+                current_recording_period_end = min(current_recording_period_end, recording_period_end)
+            # Calculate session timestamps based on the recording timestamps
+            current_session_period_start = session_period_start + (
+                current_recording_period_start - recording_period_start
+            )
+            current_session_period_end = session_period_start + (current_recording_period_end - recording_period_start)
+            # Define a new segment to process
+            segments.append(
+                VideoSegmentSpec(
+                    segment_index=segment_index,
+                    start_time=current_session_period_start,
+                    end_time=current_session_period_end,
+                    recording_start_time=current_recording_period_start,
+                    recording_end_time=current_recording_period_end,
+                )
+            )
+            segment_index += 1
+            current_recording_period_start = current_recording_period_end
+    return segments
 
 
 async def ensure_llm_single_session_summary(inputs: SingleSessionSummaryInputs):
@@ -445,26 +612,14 @@ async def ensure_llm_single_session_summary(inputs: SingleSessionSummaryInputs):
     )
     uploaded_video = upload_result["uploaded_video"]
     team_name = upload_result["team_name"]
+    inactivity_periods = upload_result["inactivity_periods"]
 
-    # Calculate segment specs based on video duration
-    # (We ignore the first couple of seconds, as they often include malformed frames)
-    analysis_duration = uploaded_video.duration - SESSION_VIDEO_RENDERING_DELAY
-    num_segments = (
-        int(analysis_duration / SESSION_VIDEO_CHUNK_DURATION_S) or 1
-    )  # Number of segments is floored, but can't be 0
-    segment_specs = [
-        VideoSegmentSpec(
-            segment_index=i,
-            start_time=SESSION_VIDEO_RENDERING_DELAY + i * SESSION_VIDEO_CHUNK_DURATION_S,
-            end_time=SESSION_VIDEO_RENDERING_DELAY
-            + (
-                min((i + 1) * SESSION_VIDEO_CHUNK_DURATION_S, analysis_duration)
-                if i < num_segments - 1
-                else analysis_duration  # Final segment always reaches the end - a 28s chunk is preferable to a 2s one!
-            ),
-        )
-        for i in range(num_segments)
-    ]
+    # Calculate segment specs based on video duration and activity periods
+    segment_specs = calculate_video_segment_specs(
+        video_duration=uploaded_video.duration,
+        chunk_duration=SESSION_VIDEO_CHUNK_DURATION_S,
+        inactivity_periods=inactivity_periods,
+    )
 
     # Activity 3: Analyze all segments in parallel (max 100 concurrent to limit blast radius)
     semaphore = asyncio.Semaphore(100)
@@ -570,7 +725,9 @@ def _clean_up_redis(redis_client: Redis, redis_input_key: str, redis_output_key:
         )
 
 
-async def _check_handle_data(handle: WorkflowHandle) -> tuple[WorkflowExecutionStatus | None, str | None]:
+async def _check_handle_data(
+    handle: WorkflowHandle,
+) -> tuple[WorkflowExecutionStatus | None, str | None]:
     """Return workflow status and result if completed."""
     desc = await handle.describe()
     final_result = None
@@ -598,10 +755,14 @@ def _prepare_execution(
     redis_key_base = f"session-summary:single:{user.id}-{team.id}:{shared_id}"
     redis_client = get_client()
     redis_input_key = generate_state_key(
-        key_base=redis_key_base, label=StateActivitiesEnum.SESSION_DB_DATA, state_id=session_id
+        key_base=redis_key_base,
+        label=StateActivitiesEnum.SESSION_DB_DATA,
+        state_id=session_id,
     )
     redis_output_key = generate_state_key(
-        key_base=redis_key_base, label=StateActivitiesEnum.SESSION_SUMMARY, state_id=session_id
+        key_base=redis_key_base,
+        label=StateActivitiesEnum.SESSION_SUMMARY,
+        state_id=session_id,
     )
     if not redis_input_key or not redis_output_key:
         msg = f"Redis input ({redis_input_key}) or output ({redis_output_key}) keys not provided when summarizing session {session_id}: {session_id}"
@@ -628,7 +789,7 @@ async def execute_summarize_session(
     session_id: str,
     user: User,
     team: Team,
-    model_to_use: str = SESSION_SUMMARIES_SYNC_MODEL,
+    model_to_use: str | None = None,
     extra_summary_context: ExtraSummaryContext | None = None,
     local_reads_prod: bool = False,
     video_validation_enabled: bool | Literal["full"] | None = None,
@@ -637,6 +798,10 @@ async def execute_summarize_session(
     Start the direct summarization workflow (no streaming) and return the summary.
     Intended to use as a part of other tools or workflows to get more context on summary, so implemented async.
     """
+    if model_to_use is None:
+        model_to_use = (
+            SESSION_SUMMARIES_SYNC_MODEL if video_validation_enabled != "full" else DEFAULT_VIDEO_UNDERSTANDING_MODEL
+        )
     _, _, _, session_input, workflow_id = _prepare_execution(
         session_id=session_id,
         user=user,
@@ -648,7 +813,13 @@ async def execute_summarize_session(
         video_validation_enabled=video_validation_enabled,
     )
     # Wait for the workflow to complete
-    await _execute_single_session_summary_workflow(inputs=session_input, workflow_id=workflow_id)
+    try:
+        await _execute_single_session_summary_workflow(inputs=session_input, workflow_id=workflow_id)
+    except WorkflowAlreadyStartedError:
+        # Workflow is already running, wait for it to complete
+        client = await async_connect()
+        handle = client.get_workflow_handle(workflow_id)
+        await handle.result()
     # Get the summary from the DB
     summary_row = await database_sync_to_async(SingleSessionSummary.objects.get_summary, thread_sensitive=False)(
         team_id=team.id,
@@ -728,7 +899,11 @@ def execute_summarize_session_stream(
                 redis_data = json.loads(redis_data_str)
             except Exception as e:
                 msg = f"Failed to parse Redis output data ({redis_data_raw}) for key {redis_output_key} when generating single session summary: {e}"
-                logger.exception(msg, redis_output_key=redis_output_key, signals_type="session-summaries")
+                logger.exception(
+                    msg,
+                    redis_output_key=redis_output_key,
+                    signals_type="session-summaries",
+                )
                 raise ValueError(msg)
             last_summary_state = redis_data.get("last_summary_state")
             if not last_summary_state:

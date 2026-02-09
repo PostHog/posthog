@@ -96,6 +96,8 @@ pub enum Library {
     PosthogReactNative,
     /// posthog-flutter SDK
     PosthogFlutter,
+    /// posthog-server SDK (deprecated: users are migrating to posthog-java)
+    PosthogServer,
     /// Unknown or unrecognized SDK
     Other,
 }
@@ -120,6 +122,7 @@ impl Library {
             Library::PosthogIos => "posthog-ios",
             Library::PosthogReactNative => "posthog-react-native",
             Library::PosthogFlutter => "posthog-flutter",
+            Library::PosthogServer => "posthog-server",
             Library::Other => "other",
         }
     }
@@ -141,6 +144,7 @@ impl Library {
         Library::PosthogIos,
         Library::PosthogReactNative,
         Library::PosthogFlutter,
+        Library::PosthogServer,
     ];
 }
 
@@ -236,6 +240,8 @@ mod tests {
     #[case("posthog-java/1.2.0", Library::PosthogJava)]
     #[case("posthog-dotnet/1.0.0", Library::PosthogDotnet)]
     #[case("posthog-elixir/0.2.0", Library::PosthogElixir)]
+    #[case("posthog-server/1.0.0", Library::PosthogServer)]
+    #[case("posthog-server/3.2.1 (Android SDK)", Library::PosthogServer)]
     // Client-side SDKs
     #[case("posthog-js/1.88.0", Library::PosthogJs)]
     #[case("posthog-android/3.0.0", Library::PosthogAndroid)]
@@ -322,6 +328,7 @@ mod tests {
     #[case(Library::PosthogIos, "posthog-ios")]
     #[case(Library::PosthogReactNative, "posthog-react-native")]
     #[case(Library::PosthogFlutter, "posthog-flutter")]
+    #[case(Library::PosthogServer, "posthog-server")]
     #[case(Library::Other, "other")]
     fn test_library_display(#[case] library: Library, #[case] expected: &str) {
         assert_eq!(library.to_string(), expected);
@@ -341,6 +348,7 @@ mod tests {
     #[case(Library::PosthogIos, "\"posthog-ios\"")]
     #[case(Library::PosthogReactNative, "\"posthog-react-native\"")]
     #[case(Library::PosthogFlutter, "\"posthog-flutter\"")]
+    #[case(Library::PosthogServer, "\"posthog-server\"")]
     #[case(Library::Other, "\"other\"")]
     fn test_library_serialization(#[case] library: Library, #[case] expected_json: &str) {
         assert_eq!(serde_json::to_string(&library).unwrap(), expected_json);

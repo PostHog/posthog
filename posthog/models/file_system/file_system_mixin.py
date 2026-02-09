@@ -60,11 +60,15 @@ class FileSystemSyncMixin(Model):
         @receiver(post_delete, sender=cls, weak=False)
         def _file_system_post_delete(sender, instance: "FileSystemSyncMixin", **kwargs):
             from posthog.models.file_system.file_system import delete_file
+            from posthog.models.team import Team
 
             fs_data = instance.get_file_system_representation()
             try:
                 team = instance.team  # type: ignore
                 delete_file(team=team, file_type=fs_data.type, ref=fs_data.ref)
+            except Team.DoesNotExist:
+                # Team was already deleted
+                pass
             except Exception as e:
                 # Don't raise exceptions in signals
                 capture_exception(e, additional_properties=dataclasses.asdict(fs_data))

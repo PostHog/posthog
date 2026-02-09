@@ -2,28 +2,35 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { IconRefresh } from '@posthog/icons'
-import { LemonBadge, LemonButton, LemonCheckbox, LemonSelect, LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { IconChevronDown, IconRefresh } from '@posthog/icons'
+import { LemonBadge, LemonButton, LemonCheckbox, LemonDropdown, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { MemberSelect } from 'lib/components/MemberSelect'
 import { TZLabel } from 'lib/components/TZLabel'
-import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { ProductKey } from '~/queries/schema/schema-general'
 
+import {
+    AssigneeDisplay,
+    AssigneeIconDisplay,
+    AssigneeLabelDisplay,
+    AssigneeResolver,
+    AssigneeSelect,
+} from '../../components/Assignee'
 import { ChannelsTag } from '../../components/Channels/ChannelsTag'
 import { ScenesTabs } from '../../components/ScenesTabs'
-import { type Ticket, type TicketPriority, type TicketStatus, priorityOptions, statusOptions } from '../../types'
+import { type Ticket, priorityMultiselectOptions, statusMultiselectOptions } from '../../types'
 import { supportTicketsSceneLogic } from './supportTicketsSceneLogic'
 
 export const scene: SceneExport = {
     component: SupportTicketsScene,
     logic: supportTicketsSceneLogic,
+    productKey: ProductKey.CONVERSATIONS,
 }
 
 export function SupportTicketsScene(): JSX.Element {
@@ -50,24 +57,97 @@ export function SupportTicketsScene(): JSX.Element {
                         dateTo={dateTo}
                         onChange={(dateFrom, dateTo) => setDateRange(dateFrom, dateTo)}
                     />
-                    <LemonSelect
-                        value={statusFilter}
-                        onChange={(value) => value && setStatusFilter(value as TicketStatus | 'all')}
-                        options={statusOptions}
-                        size="small"
-                        placeholder="Status"
-                    />
-                    <LemonSelect
-                        value={priorityFilter}
-                        onChange={(value) => value && setPriorityFilter(value as TicketPriority | 'all')}
-                        options={[{ value: 'all', label: 'All priorities' }, ...priorityOptions]}
-                        size="small"
-                        placeholder="Priority"
-                    />
-                    <MemberSelect
-                        value={typeof assigneeFilter === 'number' ? assigneeFilter : null}
-                        onChange={(user) => setAssigneeFilter(user?.id ?? 'all')}
-                    />
+                    <LemonDropdown
+                        closeOnClickInside={false}
+                        overlay={
+                            <div className="space-y-px p-1">
+                                {statusMultiselectOptions.map((option) => (
+                                    <LemonButton
+                                        key={option.key}
+                                        type="tertiary"
+                                        size="small"
+                                        fullWidth
+                                        icon={
+                                            <LemonCheckbox
+                                                checked={statusFilter.includes(option.key)}
+                                                className="pointer-events-none"
+                                            />
+                                        }
+                                        onClick={() => {
+                                            const newFilter = statusFilter.includes(option.key)
+                                                ? statusFilter.filter((s) => s !== option.key)
+                                                : [...statusFilter, option.key]
+                                            setStatusFilter(newFilter)
+                                        }}
+                                    >
+                                        {option.label}
+                                    </LemonButton>
+                                ))}
+                            </div>
+                        }
+                    >
+                        <LemonButton type="secondary" size="small" sideIcon={<IconChevronDown />}>
+                            {statusFilter.length === 0
+                                ? 'All statuses'
+                                : statusFilter.length === 1
+                                  ? statusMultiselectOptions.find((o) => o.key === statusFilter[0])?.label
+                                  : `${statusFilter.length} statuses`}
+                        </LemonButton>
+                    </LemonDropdown>
+                    <LemonDropdown
+                        closeOnClickInside={false}
+                        overlay={
+                            <div className="space-y-px p-1">
+                                {priorityMultiselectOptions.map((option) => (
+                                    <LemonButton
+                                        key={option.key}
+                                        type="tertiary"
+                                        size="small"
+                                        fullWidth
+                                        icon={
+                                            <LemonCheckbox
+                                                checked={priorityFilter.includes(option.key)}
+                                                className="pointer-events-none"
+                                            />
+                                        }
+                                        onClick={() => {
+                                            const newFilter = priorityFilter.includes(option.key)
+                                                ? priorityFilter.filter((p) => p !== option.key)
+                                                : [...priorityFilter, option.key]
+                                            setPriorityFilter(newFilter)
+                                        }}
+                                    >
+                                        {option.label}
+                                    </LemonButton>
+                                ))}
+                            </div>
+                        }
+                    >
+                        <LemonButton type="secondary" size="small" sideIcon={<IconChevronDown />}>
+                            {priorityFilter.length === 0
+                                ? 'All priorities'
+                                : priorityFilter.length === 1
+                                  ? priorityMultiselectOptions.find((o) => o.key === priorityFilter[0])?.label
+                                  : `${priorityFilter.length} priorities`}
+                        </LemonButton>
+                    </LemonDropdown>
+                    <AssigneeSelect
+                        assignee={assigneeFilter === 'all' || assigneeFilter === 'unassigned' ? null : assigneeFilter}
+                        onChange={(assignee) => setAssigneeFilter(assignee ?? 'all')}
+                    >
+                        {(resolvedAssignee, isOpen) => (
+                            <LemonButton size="small" type="secondary" active={isOpen} sideIcon={<IconChevronDown />}>
+                                <span className="flex items-center gap-1">
+                                    <AssigneeIconDisplay assignee={resolvedAssignee} size="small" />
+                                    <AssigneeLabelDisplay
+                                        assignee={resolvedAssignee}
+                                        size="small"
+                                        placeholder="All assignees"
+                                    />
+                                </span>
+                            </LemonButton>
+                        )}
+                    </AssigneeSelect>
                     <LemonCheckbox
                         checked={assigneeFilter === 'unassigned'}
                         onChange={(checked) => setAssigneeFilter(checked ? 'unassigned' : 'all')}
@@ -113,7 +193,26 @@ export function SupportTicketsScene(): JSX.Element {
                         key: 'customer',
                         render: (_, ticket) => (
                             <div className="flex items-center gap-2">
-                                <PersonDisplay person={{ distinct_id: ticket.distinct_id }} withIcon />
+                                <PersonDisplay
+                                    person={
+                                        ticket.person
+                                            ? {
+                                                  id: ticket.person.id,
+                                                  distinct_id: ticket.distinct_id,
+                                                  distinct_ids: ticket.person.distinct_ids,
+                                                  // Merge anonymous_traits as fallback for missing person properties
+                                                  properties: {
+                                                      ...ticket.anonymous_traits,
+                                                      ...ticket.person.properties,
+                                                  },
+                                              }
+                                            : {
+                                                  distinct_id: ticket.distinct_id,
+                                                  properties: ticket.anonymous_traits || {},
+                                              }
+                                    }
+                                    withIcon
+                                />
                             </div>
                         ),
                     },
@@ -180,14 +279,11 @@ export function SupportTicketsScene(): JSX.Element {
                     {
                         title: 'Assignee',
                         key: 'assignee',
-                        render: (_, ticket) =>
-                            ticket.assigned_to_user ? (
-                                <div className="flex flex-row items-center flex-nowrap">
-                                    <ProfilePicture user={ticket.assigned_to_user} size="md" showName />
-                                </div>
-                            ) : (
-                                <span className="text-muted-alt text-xs">Unassigned</span>
-                            ),
+                        render: (_, ticket) => (
+                            <AssigneeResolver assignee={ticket.assignee ?? null}>
+                                {({ assignee }) => <AssigneeDisplay assignee={assignee} size="small" />}
+                            </AssigneeResolver>
+                        ),
                     },
                     {
                         title: 'Channel',

@@ -15,7 +15,7 @@ import { cn } from 'lib/utils/css-classes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { ExperimentStatsMethod, ProgressStatus } from '~/types'
+import { ExperimentProgressStatus, ExperimentStatsMethod } from '~/types'
 
 import { StatsMethodModal } from '../ExperimentView/StatsMethodModal'
 import { StatusTag } from '../ExperimentView/components'
@@ -131,7 +131,7 @@ export function LegacyExperimentInfo(): JSX.Element | null {
                         <div className="flex flex-col">
                             <Label intent="menu">Feature flag</Label>
                             <div className="flex gap-1 items-center">
-                                {status === ProgressStatus.Running && !experiment.feature_flag.active && (
+                                {status === ExperimentProgressStatus.Running && !experiment.feature_flag.active && (
                                     <Tooltip
                                         placement="bottom"
                                         title="Your experiment is running, but the linked flag is disabled. No data is being collected."

@@ -15,7 +15,6 @@
  */
 export type SurveyTypeApi = (typeof SurveyTypeApi)[keyof typeof SurveyTypeApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const SurveyTypeApi = {
     popover: 'popover',
     widget: 'widget',
@@ -30,7 +29,6 @@ export const SurveyTypeApi = {
  */
 export type EvaluationRuntimeEnumApi = (typeof EvaluationRuntimeEnumApi)[keyof typeof EvaluationRuntimeEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const EvaluationRuntimeEnumApi = {
     server: 'server',
     client: 'client',
@@ -39,14 +37,12 @@ export const EvaluationRuntimeEnumApi = {
 
 export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const BlankEnumApi = {
     '': '',
 } as const
 
 export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const NullEnumApi = {} as const
 
 /**
@@ -55,7 +51,6 @@ export const NullEnumApi = {} as const
  */
 export type BucketingIdentifierEnumApi = (typeof BucketingIdentifierEnumApi)[keyof typeof BucketingIdentifierEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const BucketingIdentifierEnumApi = {
     distinct_id: 'distinct_id',
     device_id: 'device_id',
@@ -87,12 +82,12 @@ export interface MinimalFeatureFlagApi {
 * `server` - Server
 * `client` - Client
 * `all` - All */
-    evaluation_runtime?: EvaluationRuntimeEnumApi | BlankEnumApi | NullEnumApi
+    evaluation_runtime?: EvaluationRuntimeEnumApi | BlankEnumApi | NullEnumApi | null
     /** Identifier used for bucketing users into rollout and variants
 
 * `distinct_id` - User ID (default)
 * `device_id` - Device ID */
-    bucketing_identifier?: BucketingIdentifierEnumApi | BlankEnumApi | NullEnumApi
+    bucketing_identifier?: BucketingIdentifierEnumApi | BlankEnumApi | NullEnumApi | null
     readonly evaluation_tags: readonly string[]
 }
 
@@ -108,7 +103,6 @@ export interface MinimalFeatureFlagApi {
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const RoleAtOrganizationEnumApi = {
     engineering: 'engineering',
     data: 'data',
@@ -143,7 +137,7 @@ export interface UserBasicApi {
     is_email_verified?: boolean | null
     /** @nullable */
     readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi
+    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
 }
 
 /**
@@ -154,7 +148,6 @@ export interface UserBasicApi {
 export type ResponseSamplingIntervalTypeEnumApi =
     (typeof ResponseSamplingIntervalTypeEnumApi)[keyof typeof ResponseSamplingIntervalTypeEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const ResponseSamplingIntervalTypeEnumApi = {
     day: 'day',
     week: 'week',
@@ -265,9 +258,9 @@ export interface SurveyApi {
         }
         ```
          */
-    questions?: unknown
+    questions?: unknown | null
     readonly conditions: string
-    appearance?: unknown
+    appearance?: unknown | null
     readonly created_at: string
     readonly created_by: UserBasicApi
     /** @nullable */
@@ -306,7 +299,7 @@ export interface SurveyApi {
     current_iteration_start_date?: string | null
     /** @nullable */
     response_sampling_start_date?: string | null
-    response_sampling_interval_type?: ResponseSamplingIntervalTypeEnumApi | BlankEnumApi | NullEnumApi
+    response_sampling_interval_type?: ResponseSamplingIntervalTypeEnumApi | BlankEnumApi | NullEnumApi | null
     /**
      * @minimum 0
      * @maximum 2147483647
@@ -319,7 +312,7 @@ export interface SurveyApi {
      * @nullable
      */
     response_sampling_limit?: number | null
-    response_sampling_daily_limits?: unknown
+    response_sampling_daily_limits?: unknown | null
     /** @nullable */
     enable_partial_responses?: boolean | null
     /** @nullable */
@@ -356,7 +349,7 @@ export interface SurveySerializerCreateUpdateOnlyApi {
     targeting_flag_id?: number
     readonly targeting_flag: MinimalFeatureFlagApi
     readonly internal_targeting_flag: MinimalFeatureFlagApi
-    targeting_flag_filters?: unknown
+    targeting_flag_filters?: unknown | null
     /** @nullable */
     remove_targeting_flag?: boolean | null
     /** 
@@ -445,9 +438,9 @@ export interface SurveySerializerCreateUpdateOnlyApi {
         }
         ```
          */
-    questions?: unknown
-    conditions?: unknown
-    appearance?: unknown
+    questions?: unknown | null
+    conditions?: unknown | null
+    appearance?: unknown | null
     readonly created_at: string
     readonly created_by: UserBasicApi
     /** @nullable */
@@ -485,7 +478,7 @@ export interface SurveySerializerCreateUpdateOnlyApi {
     current_iteration_start_date?: string | null
     /** @nullable */
     response_sampling_start_date?: string | null
-    response_sampling_interval_type?: ResponseSamplingIntervalTypeEnumApi | BlankEnumApi | NullEnumApi
+    response_sampling_interval_type?: ResponseSamplingIntervalTypeEnumApi | BlankEnumApi | NullEnumApi | null
     /**
      * @minimum 0
      * @maximum 2147483647
@@ -498,7 +491,7 @@ export interface SurveySerializerCreateUpdateOnlyApi {
      * @nullable
      */
     response_sampling_limit?: number | null
-    response_sampling_daily_limits?: unknown
+    response_sampling_daily_limits?: unknown | null
     /** @nullable */
     enable_partial_responses?: boolean | null
     /** @nullable */
@@ -522,7 +515,7 @@ export interface PatchedSurveySerializerCreateUpdateOnlyApi {
     targeting_flag_id?: number
     readonly targeting_flag?: MinimalFeatureFlagApi
     readonly internal_targeting_flag?: MinimalFeatureFlagApi
-    targeting_flag_filters?: unknown
+    targeting_flag_filters?: unknown | null
     /** @nullable */
     remove_targeting_flag?: boolean | null
     /** 
@@ -611,9 +604,9 @@ export interface PatchedSurveySerializerCreateUpdateOnlyApi {
         }
         ```
          */
-    questions?: unknown
-    conditions?: unknown
-    appearance?: unknown
+    questions?: unknown | null
+    conditions?: unknown | null
+    appearance?: unknown | null
     readonly created_at?: string
     readonly created_by?: UserBasicApi
     /** @nullable */
@@ -651,7 +644,7 @@ export interface PatchedSurveySerializerCreateUpdateOnlyApi {
     current_iteration_start_date?: string | null
     /** @nullable */
     response_sampling_start_date?: string | null
-    response_sampling_interval_type?: ResponseSamplingIntervalTypeEnumApi | BlankEnumApi | NullEnumApi
+    response_sampling_interval_type?: ResponseSamplingIntervalTypeEnumApi | BlankEnumApi | NullEnumApi | null
     /**
      * @minimum 0
      * @maximum 2147483647
@@ -664,7 +657,7 @@ export interface PatchedSurveySerializerCreateUpdateOnlyApi {
      * @nullable
      */
     response_sampling_limit?: number | null
-    response_sampling_daily_limits?: unknown
+    response_sampling_daily_limits?: unknown | null
     /** @nullable */
     enable_partial_responses?: boolean | null
     /** @nullable */

@@ -20,7 +20,7 @@ from posthog.tasks.utils import CeleryQueue, PushGatewayTask
 logger = structlog.get_logger(__name__)
 
 
-@shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)
+@shared_task(ignore_result=True, queue=CeleryQueue.FEATURE_FLAGS.value)
 def update_team_flags_cache(team_id: int) -> None:
     try:
         team = Team.objects.get(id=team_id)
@@ -31,7 +31,7 @@ def update_team_flags_cache(team_id: int) -> None:
     update_flag_caches(team)
 
 
-@shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)
+@shared_task(ignore_result=True, queue=CeleryQueue.FEATURE_FLAGS.value)
 def update_team_service_flags_cache(team_id: int) -> None:
     """
     Update the service flags cache for a specific team.
@@ -52,7 +52,7 @@ def update_team_service_flags_cache(team_id: int) -> None:
     ).inc()
 
 
-@shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)
+@shared_task(ignore_result=True, queue=CeleryQueue.FEATURE_FLAGS.value)
 def sync_all_flags_cache() -> None:
     # Meant to ensure we have all flags cache in sync in case something failed
 
@@ -61,7 +61,7 @@ def sync_all_flags_cache() -> None:
         update_team_flags_cache.delay(team_id)
 
 
-@shared_task(bind=True, base=PushGatewayTask, ignore_result=True, queue=CeleryQueue.DEFAULT.value)
+@shared_task(bind=True, base=PushGatewayTask, ignore_result=True, queue=CeleryQueue.FEATURE_FLAGS_LONG_RUNNING.value)
 def refresh_expiring_flags_cache_entries(self: PushGatewayTask) -> None:
     """
     Periodic task to refresh flags caches before they expire.

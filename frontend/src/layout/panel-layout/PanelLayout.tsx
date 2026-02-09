@@ -4,6 +4,8 @@ import { useActions, useMountedLogic, useValues } from 'kea'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { cn } from 'lib/utils/css-classes'
 
+import { supportTicketCounterLogic } from 'products/conversations/frontend/supportTicketCounterLogic'
+
 import { navigation3000Logic } from '../navigation-3000/navigationLogic'
 import { AiFirstNavBar } from './AiFirstNavBar'
 import { PanelLayoutNavBar } from './PanelLayoutNavBar'
@@ -74,6 +76,7 @@ export function PanelLayout({ className }: { className?: string }): JSX.Element 
     const { mobileLayout: isMobileLayout } = useValues(navigation3000Logic)
     const { showLayoutPanel, clearActivePanelIdentifier, showLayoutNavBar } = useActions(panelLayoutLogic)
     useMountedLogic(projectTreeLogic({ key: PROJECT_TREE_KEY }))
+    useMountedLogic(supportTicketCounterLogic) // Start polling for unread tickets on app load
     const isAIFirst = useFeatureFlag('AI_FIRST')
 
     return (

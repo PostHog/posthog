@@ -326,4 +326,69 @@ describe('experimentLogic', () => {
             )
         })
     })
+    describe('pause and resume experiment', () => {
+        beforeEach(() => {
+            jest.spyOn(api, 'update')
+            jest.spyOn(api, 'get')
+            api.update.mockClear()
+            api.get.mockClear()
+
+            const experimentWithFlag = {
+                ...experiment,
+                feature_flag: { id: 123, key: 'test-flag', active: true },
+            } as Experiment
+            logic.actions.setExperiment(experimentWithFlag)
+        })
+
+        it('should pause experiment by disabling feature flag', async () => {
+            api.update.mockResolvedValue({ id: 123, key: 'test-flag', active: false })
+
+            await expectLogic(logic, () => {
+                logic.actions.pauseExperiment()
+            })
+                .toDispatchActions(['pauseExperiment'])
+                .toFinishAllListeners()
+
+            expect(api.update).toHaveBeenCalledWith(
+                expect.stringContaining('/feature_flags/123'),
+                expect.objectContaining({ active: false })
+            )
+        })
+
+        it('should resume experiment by enabling feature flag', async () => {
+            const experimentWithInactiveFlag = {
+                ...experiment,
+                feature_flag: { id: 123, key: 'test-flag', active: false },
+            } as Experiment
+            logic.actions.setExperiment(experimentWithInactiveFlag)
+
+            api.update.mockResolvedValue({ id: 123, key: 'test-flag', active: true })
+
+            await expectLogic(logic, () => {
+                logic.actions.resumeExperiment()
+            })
+                .toDispatchActions(['resumeExperiment'])
+                .toFinishAllListeners()
+
+            expect(api.update).toHaveBeenCalledWith(
+                expect.stringContaining('/feature_flags/123'),
+                expect.objectContaining({ active: true })
+            )
+        })
+
+        it('should reload experiment after pause/resume', async () => {
+            api.update.mockResolvedValue({ id: 123, key: 'test-flag', active: false })
+
+            // The experiment will be reloaded via loadExperiment action
+            // which uses the GET endpoint already set up in useMocks
+            await expectLogic(logic, () => {
+                logic.actions.pauseExperiment()
+            })
+                .toDispatchActions(['pauseExperiment', 'loadExperiment'])
+                .toFinishAllListeners()
+
+            // Verify that loadExperiment was called which will fetch the experiment again
+            expect(logic.values.experiment).not.toBeNull()
+        })
+    })
 })

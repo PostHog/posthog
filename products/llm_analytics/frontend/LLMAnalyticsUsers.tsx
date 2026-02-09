@@ -7,11 +7,13 @@ import { isHogQLQuery } from '~/queries/utils'
 
 import { useSortableColumns } from './hooks/useSortableColumns'
 import { llmAnalyticsColumnRenderers } from './llmAnalyticsColumnRenderers'
-import { llmAnalyticsLogic } from './llmAnalyticsLogic'
+import { llmAnalyticsSharedLogic } from './llmAnalyticsSharedLogic'
+import { llmAnalyticsUsersLogic } from './tabs/llmAnalyticsUsersLogic'
 
 export function LLMAnalyticsUsers(): JSX.Element {
-    const { setDates, setShouldFilterTestAccounts, setPropertyFilters, setUsersSort } = useActions(llmAnalyticsLogic)
-    const { usersQuery, usersSort } = useValues(llmAnalyticsLogic)
+    const { setDates, setShouldFilterTestAccounts, setPropertyFilters } = useActions(llmAnalyticsSharedLogic)
+    const { setUsersSort } = useActions(llmAnalyticsUsersLogic)
+    const { usersQuery, usersSort } = useValues(llmAnalyticsUsersLogic)
 
     const { renderSortableColumnTitle } = useSortableColumns(usersSort, setUsersSort)
 
@@ -34,7 +36,7 @@ export function LLMAnalyticsUsers(): JSX.Element {
             }}
             context={{
                 columns: {
-                    user: llmAnalyticsColumnRenderers.user,
+                    __llm_person: llmAnalyticsColumnRenderers.__llm_person,
                     first_seen: {
                         renderTitle: () => renderSortableColumnTitle('first_seen', 'First Seen'),
                     },
