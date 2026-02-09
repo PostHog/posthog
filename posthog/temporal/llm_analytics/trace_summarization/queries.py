@@ -98,6 +98,7 @@ def fetch_trace(team: Team, trace_id: str, window_start: str, window_end: str) -
     return LLMTrace(
         id=trace_id,
         createdAt=first_timestamp or events[0].createdAt,
+        distinctId="",
         traceName=trace_name,
         inputState=input_state,
         outputState=output_state,
