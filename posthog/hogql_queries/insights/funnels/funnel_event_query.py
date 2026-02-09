@@ -29,13 +29,11 @@ from posthog.clickhouse.materialized_columns import ColumnName
 from posthog.hogql_queries.insights.funnels.funnel_aggregation_operations import FirstTimeForUserAggregationQuery
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
 from posthog.hogql_queries.insights.funnels.utils import (
-    SourceTableKind,
     alias_columns_in_select,
-    entity_source_mismatch,
-    entity_source_or_table_mismatch,
+    data_warehouse_config_key,
+    entity_config_mismatch,
     get_breakdown_expr,
     is_data_warehouse_entity,
-    is_data_warehouse_source,
 )
 from posthog.hogql_queries.insights.utils.data_warehouse_schema_mixin import DataWarehouseSchemaMixin
 from posthog.hogql_queries.insights.utils.properties import Properties
@@ -47,9 +45,19 @@ from posthog.types import EntityNode, ExclusionEntityNode
 
 @dataclass
 class TableConfigWithSteps:
+    """
+    Represents a specific configuration of a table and the funnel steps that use it.
+
+    A single physical table can appear multiple times in a funnel with different
+    configurations (for example different id, distinct_id, or timestamp fields).
+    The `table_config_index` is used to disambiguate those configurations.
+    """
+
     table_name: str
-    table_config_index: int  # To differentiate multiple configurations of the same table
-    steps: list[tuple[int, EntityNode]]  # List of steps with associated index in the funnel series
+    table_config_index: int
+    """To differentiate multiple configurations of the same table."""
+    steps_with_index: list[tuple[int, EntityNode]]
+    """List of steps for this table and configuration, with its associated index in the funnel series."""
 
 
 class FunnelEventQuery(DataWarehouseSchemaMixin):
@@ -92,47 +100,44 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
         return result
 
     def to_query(self, skip_entity_filter=False, skip_step_filter=False) -> ast.SelectQuery:
-        table_configurations_to_steps: dict[str, TableConfigWithSteps] = {}
-        seen_data_warehouse_table_configurations: dict[tuple[str, str, str], int] = {}
+        table_configs_to_steps: dict[str, TableConfigWithSteps] = {}
+        seen_config_keys: dict[tuple[str, str, str], int] = {}
 
+        # collect the steps by their source table and configuration, so we can build one query per source table/configuration
         for step_index, node in enumerate(self.context.query.series):
             if is_data_warehouse_entity(node):
                 # we may have multiple steps using the same data warehouse table but with different configurations
-                config_key = (
-                    node.id_field,
-                    node.distinct_id_field,
-                    node.timestamp_field,
-                )
+                config_key = data_warehouse_config_key(node)
 
-                if config_key not in seen_data_warehouse_table_configurations:
-                    seen_data_warehouse_table_configurations[config_key] = len(seen_data_warehouse_table_configurations)
+                if config_key not in seen_config_keys:
+                    seen_config_keys[config_key] = len(seen_config_keys)
 
-                config_index = seen_data_warehouse_table_configurations[config_key]
-                table_key = f"{node.table_name}_{config_index}"
+                config_index = seen_config_keys[config_key]
+                key = f"{node.table_name}_{config_index}"
 
-                if table_key not in table_configurations_to_steps:
-                    table_configurations_to_steps[table_key] = TableConfigWithSteps(
+                if key not in table_configs_to_steps:
+                    table_configs_to_steps[key] = TableConfigWithSteps(
                         table_name=node.table_name,
                         table_config_index=config_index,
-                        steps=[],
+                        steps_with_index=[],
                     )
-                table_configurations_to_steps[table_key].steps.append((step_index, node))
+                table_configs_to_steps[key].steps_with_index.append((step_index, node))
             else:
-                table_key = "events"
+                key = "events"
 
-                if table_key not in table_configurations_to_steps:
-                    table_configurations_to_steps[table_key] = TableConfigWithSteps(
+                if key not in table_configs_to_steps:
+                    table_configs_to_steps[key] = TableConfigWithSteps(
                         table_name="events",
                         table_config_index=0,
-                        steps=[],
+                        steps_with_index=[],
                     )
 
-                table_configurations_to_steps[table_key].steps.append((step_index, node))
+                table_configs_to_steps[key].steps_with_index.append((step_index, node))
 
         def _build_events_table_query(
-            table_name: str, steps: Sequence[tuple[int, EventsNode | ActionsNode]]
+            steps_with_index: Sequence[tuple[int, EventsNode | ActionsNode]],
         ) -> ast.SelectQuery:
-            all_step_cols = self._get_funnel_cols(SourceTableKind.EVENTS, table_name)
+            all_step_cols = self._get_funnel_cols()
 
             select: list[ast.Expr] = [
                 ast.Alias(alias="timestamp", expr=ast.Field(chain=[self.EVENT_TABLE_ALIAS, "timestamp"])),
@@ -155,7 +160,7 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
             where = ast.And(exprs=[expr for expr in where_exprs if expr is not None])
 
             if not skip_step_filter:
-                steps_conditions = self._get_steps_conditions(SourceTableKind.EVENTS, steps)
+                steps_conditions = self._get_steps_conditions(steps_with_index)
                 where = ast.And(exprs=[where, steps_conditions])
 
             stmt = ast.SelectQuery(
@@ -166,24 +171,24 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
             return stmt
 
         def _build_data_warehouse_table_query(
-            table_name: str, table_config_index: int, steps: Sequence[tuple[int, DataWarehouseNode]]
+            table_config_index: int, steps_with_index: Sequence[tuple[int, DataWarehouseNode]]
         ) -> ast.SelectQuery:
-            node = steps[0][1]
+            table_entity = steps_with_index[0][1]
 
-            all_step_cols = self._get_funnel_cols(SourceTableKind.DATA_WAREHOUSE, table_name, table_config_index, node)
+            all_step_cols = self._get_funnel_cols(table_entity, table_config_index)
 
-            field = self.get_warehouse_field(node.table_name, node.timestamp_field)
+            field = self.get_warehouse_field(table_entity.table_name, table_entity.timestamp_field)
 
             timestamp_expr: ast.Expr
             if isinstance(field, DateTimeDatabaseField) or isinstance(field, DateDatabaseField):
-                timestamp_expr = ast.Field(chain=[self.EVENT_TABLE_ALIAS, node.timestamp_field])
+                timestamp_expr = ast.Field(chain=[self.EVENT_TABLE_ALIAS, table_entity.timestamp_field])
             elif isinstance(field, StringDatabaseField):
                 timestamp_expr = ast.Call(
-                    name="toDateTime", args=[ast.Field(chain=[self.EVENT_TABLE_ALIAS, node.timestamp_field])]
+                    name="toDateTime", args=[ast.Field(chain=[self.EVENT_TABLE_ALIAS, table_entity.timestamp_field])]
                 )
             else:
                 raise ValidationError(
-                    detail=f"Unsupported timestamp field type for {node.table_name}.{node.timestamp_field}"
+                    detail=f"Unsupported timestamp field type for {table_entity.table_name}.{table_entity.timestamp_field}"
                 )
 
             select: list[ast.Expr] = [
@@ -191,11 +196,11 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
                     alias="timestamp",
                     expr=timestamp_expr,
                 ),
-                ast.Alias(alias="aggregation_target", expr=parse_expr(node.distinct_id_field)),
+                ast.Alias(alias="aggregation_target", expr=parse_expr(table_entity.distinct_id_field)),
                 *all_step_cols,
             ]
 
-            select_from = ast.JoinExpr(table=ast.Field(chain=[table_name]), alias=self.EVENT_TABLE_ALIAS)
+            select_from = ast.JoinExpr(table=ast.Field(chain=[table_entity.table_name]), alias=self.EVENT_TABLE_ALIAS)
 
             date_range = self._date_range()
             where_exprs: list[ast.Expr] = [
@@ -213,7 +218,7 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
             where = ast.And(exprs=[expr for expr in where_exprs if expr is not None])
 
             if not skip_step_filter:
-                steps_conditions = self._get_steps_conditions(SourceTableKind.DATA_WAREHOUSE, steps)
+                steps_conditions = self._get_steps_conditions(steps_with_index)
                 where = ast.And(exprs=[where, steps_conditions])
 
             return ast.SelectQuery(
@@ -224,17 +229,13 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
 
         queries: list[ast.SelectQuery] = []
 
-        for table_name, table_config_with_steps in table_configurations_to_steps.items():
-            if table_name == "events":
-                event_steps = cast(Sequence[tuple[int, EventsNode | ActionsNode]], table_config_with_steps.steps)
-                queries.append(_build_events_table_query(table_name, event_steps))
+        for key, config in table_configs_to_steps.items():
+            if key == "events":
+                steps_with_index = cast(Sequence[tuple[int, EventsNode | ActionsNode]], config.steps_with_index)
+                queries.append(_build_events_table_query(steps_with_index))
             else:
-                dwh_steps = cast(Sequence[tuple[int, DataWarehouseNode]], table_config_with_steps.steps)
-                queries.append(
-                    _build_data_warehouse_table_query(
-                        table_config_with_steps.table_name, table_config_with_steps.table_config_index, dwh_steps
-                    )
-                )
+                steps_with_index = cast(Sequence[tuple[int, DataWarehouseNode]], config.steps_with_index)
+                queries.append(_build_data_warehouse_table_query(config.table_config_index, steps_with_index))
 
         if len(queries) == 1:
             return queries[0]
@@ -253,104 +254,102 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
 
     def _get_funnel_cols(
         self,
-        source_kind: SourceTableKind,
-        table_name: str,
-        table_config_index: int | None = None,
-        node: Optional[DataWarehouseNode] = None,
+        table_entity: Optional[DataWarehouseNode] = None,
+        table_config_index: Optional[int] = None,
     ) -> list[ast.Expr]:
         cols: list[ast.Expr] = []
 
         # extra fields
-        cols.extend(self._get_extra_fields(source_kind, node, table_config_index))
+        cols.extend(self._get_extra_fields(table_entity, table_config_index))
 
         # step cols
         for index, entity in enumerate(self.context.query.series):
-            step_col = self._get_step_col(source_kind, table_name, entity, index)
+            step_col = self._get_step_col(step_entity=entity, table_entity=table_entity, step_index=index)
             cols.append(step_col)
 
         # exclusion cols
         if self.context.funnelsFilter.exclusions:
             for index, exclusions in enumerate(self.exclusions_by_index):
-                exclusion_col_expr = self._get_exclusions_col(source_kind, table_name, exclusions, index)
+                exclusion_col_expr = self._get_exclusions_col(
+                    exclusions=exclusions, table_entity=table_entity, step_index=index
+                )
                 cols.append(exclusion_col_expr)
 
         # breakdown (attribution) col
-        cols.extend(self._get_breakdown_select_prop(source_kind))
+        cols.extend(self._get_breakdown_select_prop(table_entity))
 
         return cols
 
     def _get_step_col(
         self,
-        source_kind: SourceTableKind,
-        table_name: str,
-        entity: EntityNode,
-        index: int,
+        step_entity: EntityNode,
+        table_entity: DataWarehouseNode | None,
+        step_index: int,
     ) -> ast.Expr:
-        if entity_source_or_table_mismatch(entity, source_kind, table_name):
-            return parse_expr(f"0 as step_{index}")
+        # when the entity for which we're building the step column, is on a different table/config
+        if entity_config_mismatch(step_entity, table_entity):
+            return parse_expr(f"0 as step_{step_index}")
 
-        condition = self._build_step_query(source_kind, table_name, entity, index)
-        return parse_expr(f"if({{condition}}, 1, 0) as step_{index}", placeholders={"condition": condition})
+        condition = self._build_step_query(step_entity, table_entity)
+        return parse_expr(f"if({{condition}}, 1, 0) as step_{step_index}", placeholders={"condition": condition})
 
     def _get_exclusions_col(
         self,
-        source_kind: SourceTableKind,
-        table_name: str,
         exclusions: list[ExclusionEntityNode],
-        index: int,
+        table_entity: DataWarehouseNode | None,
+        step_index: int,
     ) -> ast.Expr:
-        if is_data_warehouse_source(source_kind) or len(exclusions) == 0:
-            return parse_expr(f"0 as exclusion_{index}")
-        conditions = [self._build_step_query(source_kind, table_name, exclusion, index) for exclusion in exclusions]
+        # exclusions aren't implemented for data warehouse, yet
+        if isinstance(table_entity, DataWarehouseNode) or len(exclusions) == 0:
+            return parse_expr(f"0 as exclusion_{step_index}")
+
+        conditions = [
+            self._build_step_query(step_entity=exclusion, table_entity=table_entity) for exclusion in exclusions
+        ]
         return parse_expr(
-            f"if({{condition}}, 1, 0) as exclusion_{index}", placeholders={"condition": ast.Or(exprs=conditions)}
+            f"if({{condition}}, 1, 0) as exclusion_{step_index}", placeholders={"condition": ast.Or(exprs=conditions)}
         )
 
     def _build_step_query(
         self,
-        source_kind: SourceTableKind,
-        table_name: str,
-        entity: EntityNode | ExclusionEntityNode,
-        index: int,
+        step_entity: EntityNode | ExclusionEntityNode,
+        table_entity: DataWarehouseNode | None,
     ) -> ast.Expr:
         filters: list[ast.Expr] = []
 
-        if isinstance(entity, ActionsNode) or isinstance(entity, FunnelExclusionActionsNode):
+        if isinstance(step_entity, ActionsNode) or isinstance(step_entity, FunnelExclusionActionsNode):
             # action
             try:
-                action = Action.objects.get(pk=int(entity.id), team__project_id=self.context.team.project_id)
+                action = Action.objects.get(pk=int(step_entity.id), team__project_id=self.context.team.project_id)
             except Action.DoesNotExist:
-                raise ValidationError(f"Action ID {entity.id} does not exist!")
+                raise ValidationError(f"Action ID {step_entity.id} does not exist!")
             event_expr = action_to_expr(action)
-        elif isinstance(entity, DataWarehouseNode):
-            if is_data_warehouse_source(source_kind) and table_name == entity.table_name:
-                event_expr = ast.Constant(value=1)
-            else:
-                event_expr = ast.Constant(value=0)
-        elif entity.event is None:
+        elif isinstance(step_entity, DataWarehouseNode):
+            event_expr = ast.Constant(value=1)
+        elif step_entity.event is None:
             # all events
-            if is_data_warehouse_source(source_kind):
+            if isinstance(table_entity, DataWarehouseNode):
                 event_expr = ast.Constant(value=0)
             event_expr = ast.Constant(value=1)
         else:
             # event
-            event_expr = parse_expr("event = {event}", {"event": ast.Constant(value=entity.event)})
+            event_expr = parse_expr("event = {event}", {"event": ast.Constant(value=step_entity.event)})
 
         filters.append(event_expr)
 
         filter_expr: ast.Expr | None = None
-        if entity.properties is not None and entity.properties != []:
+        if step_entity.properties is not None and step_entity.properties != []:
             # add property filters
-            filter_expr = property_to_expr(entity.properties, self.context.team)
+            filter_expr = property_to_expr(step_entity.properties, self.context.team)
             filters.append(filter_expr)
 
-        if entity.math == FunnelMathType.FIRST_TIME_FOR_USER:
+        if step_entity.math == FunnelMathType.FIRST_TIME_FOR_USER:
             subquery = FirstTimeForUserAggregationQuery(self.context, filter_expr, event_expr).to_query()
             first_time_filter = ast.CompareOperation(
                 left=ast.Field(chain=["e", "uuid"]), right=subquery, op=ast.CompareOperationOp.GlobalIn
             )
             return ast.And(exprs=[*filters, first_time_filter])
-        elif entity.math == FunnelMathType.FIRST_TIME_FOR_USER_WITH_FILTERS:
+        elif step_entity.math == FunnelMathType.FIRST_TIME_FOR_USER_WITH_FILTERS:
             subquery = FirstTimeForUserAggregationQuery(
                 self.context, ast.Constant(value=1), ast.And(exprs=filters)
             ).to_query()
@@ -362,14 +361,13 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
             return ast.And(exprs=filters)
         return filters[0]
 
-    def _get_steps_conditions(self, source_kind: SourceTableKind, steps: Sequence[tuple[int, EntityNode]]) -> ast.Expr:
+    def _get_steps_conditions(self, steps_with_index: Sequence[tuple[int, EntityNode]]) -> ast.Expr:
         step_conditions: list[ast.Expr] = []
 
-        for index, step in steps:
-            if not entity_source_mismatch(step, source_kind):
-                step_conditions.append(parse_expr(f"step_{index} = 1"))
-                if self.exclusions_by_index[index]:
-                    step_conditions.append(parse_expr(f"exclusion_{index} = 1"))
+        for step_index, _entity in steps_with_index:
+            step_conditions.append(parse_expr(f"step_{step_index} = 1"))
+            if self.exclusions_by_index[step_index]:
+                step_conditions.append(parse_expr(f"exclusion_{step_index} = 1"))
 
         return ast.Or(exprs=step_conditions)
 
@@ -412,7 +410,10 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
         breakdown, breakdownType = self.context.breakdown, self.context.breakdownType
         return breakdown is not None and not isinstance(breakdown, str) and breakdownType != "cohort"
 
-    def _get_breakdown_select_prop(self, source_kind: SourceTableKind) -> list[ast.Expr]:
+    def _get_breakdown_select_prop(
+        self,
+        table_entity: Optional[DataWarehouseNode] = None,
+    ) -> list[ast.Expr]:
         default_breakdown_selector = "[]" if self._query_has_array_breakdown() else "NULL"
 
         breakdown, breakdownType, breakdownAttributionType, funnelsFilter = (
@@ -427,9 +428,7 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
 
         # breakdown prop
         prop_basic: ast.Expr
-        if (source_kind == SourceTableKind.EVENTS and breakdownType != "data_warehouse") or (
-            source_kind == SourceTableKind.DATA_WAREHOUSE and breakdownType == "data_warehouse"
-        ):
+        if isinstance(table_entity, DataWarehouseNode) == (breakdownType == "data_warehouse"):
             prop_basic = ast.Alias(alias="prop_basic", expr=self._get_breakdown_expr())
         else:
             prop_basic = parse_expr(f"{default_breakdown_selector} as prop_basic")
@@ -460,17 +459,15 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
 
     def _get_extra_fields(
         self,
-        source_kind: SourceTableKind,
-        node: Optional[DataWarehouseNode] = None,
+        table_entity: Optional[DataWarehouseNode] = None,
         table_config_index: int | None = None,
     ) -> list[ast.Expr]:
         def _expr_for(field: str) -> ast.Expr:
-            if is_data_warehouse_source(source_kind):
-                assert isinstance(node, DataWarehouseNode)
+            if isinstance(table_entity, DataWarehouseNode):
                 if field == "uuid":
-                    resolved_field = self.get_warehouse_field(node.table_name, node.id_field)
+                    resolved_field = self.get_warehouse_field(table_entity.table_name, table_entity.id_field)
                     if isinstance(resolved_field, UUIDDatabaseField):
-                        return ast.Field(chain=[self.EVENT_TABLE_ALIAS, node.id_field])
+                        return ast.Field(chain=[self.EVENT_TABLE_ALIAS, table_entity.id_field])
                     else:
                         # Handle non-UUID fields:
                         # 1. Throw if we're encountering a null value.
@@ -485,14 +482,14 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
                                 )
                             ), 2)""",
                             placeholders={
-                                "id_field": ast.Field(chain=[self.EVENT_TABLE_ALIAS, node.id_field]),
+                                "id_field": ast.Field(chain=[self.EVENT_TABLE_ALIAS, table_entity.id_field]),
                                 "table_prefix": ast.Constant(
-                                    value=f"{node.table_name}_{table_config_index}_"
+                                    value=f"{table_entity.table_name}_{table_config_index}_"
                                     if table_config_index is not None
-                                    else f"{node.table_name}_"
+                                    else f"{table_entity.table_name}_"
                                 ),
                                 "exception_message": ast.Constant(
-                                    value=f"Encountered a null value in {node.table_name}.{node.id_field}, but a non-null value is required. Please ensure this column contains no null values, or add a filter to exclude rows with null values."
+                                    value=f"Encountered a null value in {table_entity.table_name}.{table_entity.id_field}, but a non-null value is required. Please ensure this column contains no null values, or add a filter to exclude rows with null values."
                                 ),
                             },
                         )

@@ -124,6 +124,27 @@ def entity_source_or_table_mismatch(entity: EntityNode, source_kind: SourceTable
     return False
 
 
+def data_warehouse_config_key(node: DataWarehouseNode) -> tuple[str | None, str | None, str | None]:
+    return (
+        node.id_field,
+        node.distinct_id_field,
+        node.timestamp_field,
+    )
+
+
+def entity_config_mismatch(step_entity: EntityNode, table_entity: EntityNode) -> bool:
+    step_is_dw = isinstance(step_entity, DataWarehouseNode)
+    table_is_dw = isinstance(table_entity, DataWarehouseNode)
+
+    if step_is_dw != table_is_dw:
+        return True
+
+    if not step_is_dw:
+        return False
+
+    return data_warehouse_config_key(step_entity) != data_warehouse_config_key(table_entity)
+
+
 def alias_columns_in_select(columns: list[ast.Expr], table_alias: str) -> list[ast.Expr]:
     """
     Returns a list of `column_or_alias_name AS table_alias.column_or_alias_name`, from a given list of `columns`.

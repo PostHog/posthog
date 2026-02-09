@@ -313,3 +313,37 @@ class TestFunnelDataWarehouse(ClickhouseTestMixin, BaseTest):
         assert results[0]["count"] == 5
         assert results[1]["count"] == 3
         assert results[2]["count"] == 2
+
+    @snapshot_clickhouse_queries
+    def test_funnels_same_data_warehouse_table_different_timestamp_fields(self):
+        _, opportunity_table_name = self.setup_salesforce_data_warehouse()
+
+        funnels_query = FunnelsQuery(
+            kind="FunnelsQuery",
+            dateRange=DateRange(date_from="2024-05-01"),
+            series=[
+                DataWarehouseNode(
+                    id=opportunity_table_name,
+                    table_name=opportunity_table_name,
+                    id_field="id",
+                    distinct_id_field="id",
+                    timestamp_field="created_date",
+                ),
+                DataWarehouseNode(
+                    id=opportunity_table_name,
+                    table_name=opportunity_table_name,
+                    id_field="id",
+                    distinct_id_field="id",
+                    timestamp_field="close_date",
+                ),
+                # funnelsFilter=FunnelsFilter(funnelWindowInterval=30),
+            ],
+        )
+
+        with freeze_time("2024-06-30"):
+            runner = FunnelsQueryRunner(query=funnels_query, team=self.team, just_summarize=True)
+            response = runner.calculate()
+
+        results = response.results
+        assert results[0]["count"] == 5
+        assert results[1]["count"] == 3
