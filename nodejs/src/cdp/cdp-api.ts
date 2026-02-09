@@ -159,9 +159,8 @@ export class CdpApi {
         router.get('/api/hog_function_templates', this.getHogFunctionTemplates)
         router.post('/api/messaging/generate_preferences_token', asyncHandler(this.generatePreferencesToken()))
         router.get('/api/messaging/validate_preferences_token/:token', asyncHandler(this.validatePreferencesToken()))
-        const publicBodySizeLimit = (req: express.Request, res: express.Response, next: express.NextFunction): void => {
-            const contentLength = parseInt(req.headers['content-length'] || '0', 10)
-            if (contentLength > 512_000) {
+        const publicBodySizeLimit = (req: ModifiedRequest, res: express.Response, next: express.NextFunction): void => {
+            if (req.rawBody && req.rawBody.length > 512_000) {
                 res.status(413).json({ error: 'Request entity too large' })
                 return
             }

@@ -610,8 +610,7 @@ describe('CDP API', () => {
                 .post(`/api/projects/${hogFunction.team_id}/hog_functions/${hogFunction.id}/invocations`)
                 .send({ globals, mock_async_functions: true, configuration: { large_field: largePayload } })
 
-            expect(res.status).not.toEqual(413)
-            expect(res.status).not.toEqual(500)
+            expect(res.status).toEqual(200)
         })
 
         it('accepts large payloads on hog flow invocations endpoint', async () => {
@@ -619,6 +618,7 @@ describe('CDP API', () => {
                 .post(`/api/projects/${hogFunction.team_id}/hog_flows/new/invocations`)
                 .send({ globals, mock_async_functions: true, configuration: { large_field: largePayload } })
 
+            // 400 from missing flow config, not 413/500 from body size
             expect(res.status).not.toEqual(413)
             expect(res.status).not.toEqual(500)
         })
