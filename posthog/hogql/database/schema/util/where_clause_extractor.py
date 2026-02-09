@@ -556,15 +556,15 @@ class JoinedTableReferenceFinder(TraversingVisitor):
         Returns True (don't push down) for:
         - LazyJoinType: field references a lazy-joined table
         - SelectQueryAliasType: field references a subquery
-        - FieldAliasType: field is an alias from SELECT clause
-        - VirtualTableType: field goes through a virtual table (e.g., person_properties via poe)
-        - TableAliasType: field references an aliased table (e.g., `e` instead of `events`)
-          This is important because unwrapping aliases can cause issues with how the printer
-          handles certain fields (like timestamps).
 
-        Returns False (ok to push down) only for:
-        - FieldType with TableType pointing directly to events table
-        - PropertyType wrapping such a FieldType
+        Unwraps (ok to push down if underlying type is pushable):
+        - FieldAliasType: unwrap and check the aliased type
+        - VirtualTableType: unwrap and check the underlying table type
+        - TableAliasType: unwrap and check the underlying table type
+        - PropertyType: unwrap and check the inner field type
+        - FieldType: unwrap and check the table type
+
+        Returns False (ok to push down) when all types resolve to TableType.
         """
         visited = set()  # Prevent infinite loops
         to_check = [type_node]
@@ -580,15 +580,15 @@ class JoinedTableReferenceFinder(TraversingVisitor):
                 return True
             if isinstance(current, ast.SelectQueryAliasType):
                 return True
+
+            # Unwrap alias/wrapper types and continue checking
             if isinstance(current, ast.FieldAliasType):
-                return True
+                to_check.append(current.type)
+                continue
             if isinstance(current, ast.VirtualTableType):
-                # Virtual table fields (like person_properties via poe) have special handling
-                # that may not work correctly inside a pushdown subquery
-                return True
+                to_check.append(current.table_type)
+                continue
             if isinstance(current, ast.TableAliasType):
-                # Unwrap table aliases - the field should be pushable as long as
-                # the underlying table is the events table (not a joined table)
                 to_check.append(current.table_type)
                 continue
 

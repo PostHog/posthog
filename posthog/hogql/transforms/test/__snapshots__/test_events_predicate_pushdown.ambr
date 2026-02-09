@@ -1,4 +1,20 @@
 # serializer version: 1
+# name: TestEventsPredicatePushdownTransform.test_bare_timestamp_with_select_alias_pushes_down
+  '''
+  
+  SELECT events.event AS event, toTimeZone(toTimeZone(events.timestamp, %(hogql_val_9)s), %(hogql_val_10)s) AS timestamp, events__session.`$session_duration` AS `$session_duration` 
+  FROM (
+  SELECT events.`$session_id` AS `$session_id`, events.event AS event, toTimeZone(events.timestamp, %(hogql_val_0)s) AS timestamp 
+  FROM events 
+  WHERE and(equals(events.team_id, 420), greaterOrEquals(toTimeZone(events.timestamp, %(hogql_val_1)s), %(hogql_val_2)s), lessOrEquals(toTimeZone(events.timestamp, %(hogql_val_3)s), today()))) AS events LEFT JOIN (
+  SELECT dateDiff(%(hogql_val_4)s, min(toTimeZone(raw_sessions.min_timestamp, %(hogql_val_5)s)), max(toTimeZone(raw_sessions.max_timestamp, %(hogql_val_6)s))) AS `$session_duration`, raw_sessions.session_id_v7 AS session_id_v7 
+  FROM raw_sessions 
+  WHERE and(equals(raw_sessions.team_id, 420), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(%(hogql_val_7)s, toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(today(), toIntervalDay(3)))) 
+  GROUP BY raw_sessions.session_id_v7, raw_sessions.session_id_v7) AS events__session ON equals(toUInt128(accurateCastOrNull(events.`$session_id`, %(hogql_val_8)s)), events__session.session_id_v7) 
+  WHERE and(greaterOrEquals(timestamp, %(hogql_val_11)s), lessOrEquals(timestamp, today())) 
+  LIMIT 50000
+  '''
+# ---
 # name: TestEventsPredicatePushdownTransform.test_events_with_alias_and_session_join
   '''
   

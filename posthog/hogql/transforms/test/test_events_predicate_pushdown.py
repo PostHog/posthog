@@ -158,6 +158,16 @@ class TestEventsPredicatePushdownTransform(BaseTest):
         )
         assert printed == self.snapshot
 
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_bare_timestamp_with_select_alias_pushes_down(self):
+        """Bare timestamp in WHERE that shadows a SELECT alias is still pushed down."""
+        printed = self._print_select(
+            "SELECT event, toTimeZone(timestamp, 'UTC') as timestamp, session.$session_duration "
+            "FROM events "
+            "WHERE timestamp >= '2024-01-01' AND timestamp <= today()"
+        )
+        assert printed == self.snapshot
+
 
 class TestEventsPredicatePushdownTransformUnit:
     """Unit tests for helper methods that don't require database/context."""
