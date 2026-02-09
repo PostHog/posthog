@@ -28,24 +28,23 @@ export class MemoryKeyStore implements KeyStore {
     getKey(sessionId: string, teamId: number): Promise<SessionKey> {
         const deletedAt = this.deletedKeys.get(`${teamId}:${sessionId}`)
         if (deletedAt) {
-            return {
+            return Promise.resolve({
                 plaintextKey: Buffer.alloc(0),
                 encryptedKey: Buffer.alloc(0),
                 sessionState: 'deleted',
                 deletedAt,
-            }
+            })
         }
 
         const sessionKey = this.keystore.get(`${teamId}:${sessionId}`)
         if (!sessionKey) {
-            // Return cleartext for non-existent keys
-            return {
+            return Promise.resolve({
                 plaintextKey: Buffer.alloc(0),
                 encryptedKey: Buffer.alloc(0),
                 sessionState: 'cleartext',
-            }
+            })
         }
-        return sessionKey
+        return Promise.resolve(sessionKey)
     }
 
     deleteKey(sessionId: string, teamId: number): Promise<boolean> {
