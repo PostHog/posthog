@@ -147,6 +147,17 @@ class TestEventsPredicatePushdownTransform(BaseTest):
         )
         assert printed == self.snapshot
 
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_explicit_join_sessions_pushes_timestamp_down(self):
+        """Explicit JOIN sessions pushes events.timestamp predicate into the subquery."""
+        printed = self._print_select(
+            "SELECT sessions.session_id, uniq(uuid) as uniq_uuid "
+            "FROM events JOIN sessions ON events.$session_id = sessions.session_id "
+            "WHERE events.timestamp > '2021-01-01' "
+            "GROUP BY sessions.session_id"
+        )
+        assert printed == self.snapshot
+
 
 class TestEventsPredicatePushdownTransformUnit:
     """Unit tests for helper methods that don't require database/context."""
