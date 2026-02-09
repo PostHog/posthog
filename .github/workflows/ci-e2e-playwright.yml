@@ -355,6 +355,7 @@ jobs:
                   sqlx database create -D "$PERSONS_DATABASE_URL"
                   sqlx migrate run -D "$PERSONS_DATABASE_URL" --source rust/persons_migrations/
 
+                  export CLICKHOUSE_LOGS_ENABLE_STORAGE_POLICY=false
                   python manage.py migrate_clickhouse 2>&1
                   python manage.py setup_dev
 
