@@ -10,14 +10,16 @@ const createTestInput = (dropThreshold: number | null, eventAgeSeconds: number):
     const eventUuid = v4()
 
     return {
-        event: {
-            uuid: eventUuid,
-            event: '$pageview',
-            distinct_id: 'user-1',
-        },
-        team: {
-            id: 1,
-            drop_events_older_than_seconds: dropThreshold,
+        eventWithTeam: {
+            event: {
+                uuid: eventUuid,
+                event: '$pageview',
+                distinct_id: 'user-1',
+            },
+            team: {
+                id: 1,
+                drop_events_older_than_seconds: dropThreshold,
+            },
         },
         headers: {
             timestamp: eventTimestamp.toMillis().toString(),
@@ -54,7 +56,7 @@ describe('createDropOldEventsStep', () => {
         expect(result.warnings[0]).toMatchObject({
             type: 'event_dropped_too_old',
             details: {
-                eventUuid: input.event.uuid,
+                eventUuid: input.eventWithTeam.event.uuid,
                 event: '$pageview',
                 distinctId: 'user-1',
                 dropThresholdSeconds: 3600,
@@ -66,14 +68,16 @@ describe('createDropOldEventsStep', () => {
 
     it('passes through when timestamp header is missing', async () => {
         const input = {
-            event: {
-                uuid: v4(),
-                event: '$pageview',
-                distinct_id: 'user-1',
-            },
-            team: {
-                id: 1,
-                drop_events_older_than_seconds: 3600,
+            eventWithTeam: {
+                event: {
+                    uuid: v4(),
+                    event: '$pageview',
+                    distinct_id: 'user-1',
+                },
+                team: {
+                    id: 1,
+                    drop_events_older_than_seconds: 3600,
+                },
             },
             headers: {
                 now: new Date(),
@@ -90,14 +94,16 @@ describe('createDropOldEventsStep', () => {
         const eventTimestamp = now.minus({ hours: 2 }) // 2h old
 
         const input = {
-            event: {
-                uuid: v4(),
-                event: '$pageview',
-                distinct_id: 'user-1',
-            },
-            team: {
-                id: 1,
-                drop_events_older_than_seconds: 3600, // 1h threshold
+            eventWithTeam: {
+                event: {
+                    uuid: v4(),
+                    event: '$pageview',
+                    distinct_id: 'user-1',
+                },
+                team: {
+                    id: 1,
+                    drop_events_older_than_seconds: 3600, // 1h threshold
+                },
             },
             headers: {
                 timestamp: eventTimestamp.toMillis().toString(),
@@ -117,16 +123,18 @@ describe('createDropOldEventsStep', () => {
         const normalizedTimestamp = now.minus({ hours: 2 })
 
         const input = {
-            event: {
-                uuid: v4(),
-                event: '$pageview',
-                distinct_id: 'user-1',
-                // Event body timestamp is irrelevant - we use header
-                timestamp: now.minus({ minutes: 1 }).toISO()!,
-            },
-            team: {
-                id: 1,
-                drop_events_older_than_seconds: 3600, // 1h threshold
+            eventWithTeam: {
+                event: {
+                    uuid: v4(),
+                    event: '$pageview',
+                    distinct_id: 'user-1',
+                    // Event body timestamp is irrelevant - we use header
+                    timestamp: now.minus({ minutes: 1 }).toISO()!,
+                },
+                team: {
+                    id: 1,
+                    drop_events_older_than_seconds: 3600, // 1h threshold
+                },
             },
             headers: {
                 // Capture service already normalized this with clock skew correction
@@ -147,14 +155,16 @@ describe('createDropOldEventsStep', () => {
             { headers: null, description: 'headers is null' },
         ])('passes through when $description', async ({ headers }) => {
             const input = {
-                event: {
-                    uuid: v4(),
-                    event: '$pageview',
-                    distinct_id: 'user-1',
-                },
-                team: {
-                    id: 1,
-                    drop_events_older_than_seconds: 3600,
+                eventWithTeam: {
+                    event: {
+                        uuid: v4(),
+                        event: '$pageview',
+                        distinct_id: 'user-1',
+                    },
+                    team: {
+                        id: 1,
+                        drop_events_older_than_seconds: 3600,
+                    },
                 },
                 headers,
             } as unknown as DropOldEventsInput
@@ -172,14 +182,16 @@ describe('createDropOldEventsStep', () => {
             { timestamp: '-Infinity', description: 'timestamp parses to -Infinity' },
         ])('passes through when $description', async ({ timestamp }) => {
             const input = {
-                event: {
-                    uuid: v4(),
-                    event: '$pageview',
-                    distinct_id: 'user-1',
-                },
-                team: {
-                    id: 1,
-                    drop_events_older_than_seconds: 3600,
+                eventWithTeam: {
+                    event: {
+                        uuid: v4(),
+                        event: '$pageview',
+                        distinct_id: 'user-1',
+                    },
+                    team: {
+                        id: 1,
+                        drop_events_older_than_seconds: 3600,
+                    },
                 },
                 headers: {
                     timestamp,
@@ -202,14 +214,16 @@ describe('createDropOldEventsStep', () => {
             const eventTimestamp = currentTime.minus({ hours: 2 })
 
             const input = {
-                event: {
-                    uuid: v4(),
-                    event: '$pageview',
-                    distinct_id: 'user-1',
-                },
-                team: {
-                    id: 1,
-                    drop_events_older_than_seconds: 3600,
+                eventWithTeam: {
+                    event: {
+                        uuid: v4(),
+                        event: '$pageview',
+                        distinct_id: 'user-1',
+                    },
+                    team: {
+                        id: 1,
+                        drop_events_older_than_seconds: 3600,
+                    },
                 },
                 headers: {
                     timestamp: eventTimestamp.toMillis().toString(),

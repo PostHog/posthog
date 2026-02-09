@@ -10,7 +10,6 @@ import { EventPipelineRunnerOptions } from '../../worker/ingestion/event-pipelin
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
 import { GroupStoreForBatch } from '../../worker/ingestion/groups/group-store-for-batch.interface'
 import { PersonsStore } from '../../worker/ingestion/persons/persons-store'
-import { createDropOldEventsStep } from '../event-processing/drop-old-events-step'
 import { BatchPipelineBuilder } from '../pipelines/builders/batch-pipeline-builders'
 import { OkResultWithContext } from '../pipelines/filter-ok-batch-pipeline'
 import { PipelineConfig } from '../pipelines/result-handling-pipeline'
@@ -141,8 +140,6 @@ export function createJoinedIngestionPipeline<
                 b
                     .teamAware((b) =>
                         b
-                            // Post-team preprocessing: drop old events
-                            .concurrently((b) => b.pipe(createDropOldEventsStep()))
                             // Group by token:distinctId and process each group concurrently
                             // Events within each group are processed sequentially
                             .groupBy(getTokenAndDistinctId)

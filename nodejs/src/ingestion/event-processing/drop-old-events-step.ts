@@ -1,13 +1,12 @@
 import { DateTime } from 'luxon'
 
-import { EventHeaders, PipelineEvent, Team } from '../../types'
+import { EventHeaders, IncomingEventWithTeam } from '../../types'
 import { PipelineWarning } from '../pipelines/pipeline.interface'
 import { PipelineResult, drop, ok } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
 
 export interface DropOldEventsInput {
-    event: PipelineEvent
-    team: Team
+    eventWithTeam: IncomingEventWithTeam
     headers: Pick<EventHeaders, 'timestamp' | 'now'>
 }
 
@@ -23,7 +22,8 @@ export interface DropOldEventsInput {
  */
 export function createDropOldEventsStep<T extends DropOldEventsInput>(): ProcessingStep<T, T> {
     return function dropOldEventsStep(input: T): Promise<PipelineResult<T>> {
-        const { event, team, headers } = input
+        const { eventWithTeam, headers } = input
+        const { event, team } = eventWithTeam
 
         // If no drop threshold is set (null) or set to 0, don't drop any events
         // Zero threshold is ignored to protect from misconfiguration bugs
