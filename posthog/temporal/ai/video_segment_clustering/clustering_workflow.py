@@ -83,216 +83,201 @@ class VideoSegmentClusteringWorkflow(PostHogWorkflow):
                     backoff_coefficient=2.0,
                 ),
             )
-
-        try:
-            if prime_info is not None:
-                # Start session summarization as child workflows
-                sessions_summarized = 0
-                sessions_failed = 0
-                if prime_info.user_id is None:
-                    raise ApplicationError(
-                        f"No user with access to team {inputs.team_id} found for running summarization",
-                        non_retryable=True,
-                    )
-                if prime_info.session_ids_to_summarize:
-                    summarize_handles: dict[str, temporalio.workflow.ChildWorkflowHandle] = {}
-                    for session_id in prime_info.session_ids_to_summarize:
-                        redis_key_base = f"session-summary:single:{prime_info.user_id}-{inputs.team_id}:{session_id}"
-                        handle = await temporalio.workflow.start_child_workflow(
-                            "summarize-session",
-                            SingleSessionSummaryInputs(
-                                session_id=session_id,
-                                user_id=prime_info.user_id,
-                                user_distinct_id_to_log=prime_info.user_distinct_id,
-                                team_id=inputs.team_id,
-                                redis_key_base=redis_key_base,
-                                model_to_use=DEFAULT_VIDEO_UNDERSTANDING_MODEL,
-                                video_validation_enabled="full",
-                            ),
-                            id=f"session-summary:single:direct:{inputs.team_id}:{session_id}:{prime_info.user_id}:{session_id}:{workflow.uuid4()}",
-                            execution_timeout=timedelta(minutes=30),
-                            retry_policy=RetryPolicy(
-                                maximum_attempts=1,  # No retries - if video export times out, just skip
-                            ),
-                            parent_close_policy=temporalio.workflow.ParentClosePolicy.REQUEST_CANCEL,
-                        )
-                        summarize_handles[session_id] = handle
-
-                    # Wait for all summarization child workflows to complete, skipping failures
-                    for session_id, handle in summarize_handles.items():
-                        try:
-                            await handle
-                            sessions_summarized += 1
-                        except Exception as e:
-                            sessions_failed += 1
-                            workflow.logger.warning(f"Session summarization skipped for {session_id}: {e}")
-
-                workflow.logger.info(f"Priming complete: {sessions_summarized} summarized, {sessions_failed} failed")
-
-            # Activity 2: Fetch segments within lookback window
-            fetch_result = await workflow.execute_activity(
-                fetch_segments_activity,
-                args=[
-                    FetchSegmentsActivityInputs(
-                        team_id=inputs.team_id,
-                        lookback_hours=inputs.lookback_hours,
-                    )
-                ],
-                start_to_close_timeout=timedelta(seconds=120),
-                retry_policy=RetryPolicy(
-                    maximum_attempts=3,
-                    initial_interval=timedelta(seconds=1),
-                    maximum_interval=timedelta(seconds=10),
-                    backoff_coefficient=2.0,
-                ),
-            )
-
-            segments = fetch_result.segments
-
-            if len(segments) < inputs.min_segments:
-                workflow.logger.info(
-                    f"Skipping clustering: only {len(segments)} segments, need at least {inputs.min_segments}"
+        if prime_info is not None:
+            # Start session summarization as child workflows
+            sessions_summarized = 0
+            sessions_failed = 0
+            if prime_info.user_id is None:
+                raise ApplicationError(
+                    f"No user with access to team {inputs.team_id} found for running summarization",
+                    non_retryable=True,
                 )
-                return WorkflowResult(
-                    team_id=inputs.team_id,
-                    segments_processed=None,
-                    clusters_found=0,
-                    reports_created=0,
-                    reports_updated=0,
-                    artefacts_created=0,
-                    success=True,
-                    error=None,
-                )
-
-            document_ids = [s.document_id for s in segments]
-
-            # Activity 3: Cluster segments (includes noise handling)
-            clustering_result = await workflow.execute_activity(
-                cluster_segments_activity,
-                args=[
-                    ClusterSegmentsActivityInputs(
-                        team_id=inputs.team_id,
-                        document_ids=document_ids,
-                    )
-                ],
-                start_to_close_timeout=timedelta(seconds=180),
-                retry_policy=RetryPolicy(
-                    maximum_attempts=3,
-                    initial_interval=timedelta(seconds=1),
-                    maximum_interval=timedelta(seconds=10),
-                    backoff_coefficient=2.0,
-                ),
-            )
-
-            all_clusters = clustering_result.clusters
-
-            if not all_clusters:
-                workflow.logger.info("No clusters found")
-                return WorkflowResult(
-                    team_id=inputs.team_id,
-                    segments_processed=len(segments),
-                    clusters_found=0,
-                    reports_created=0,
-                    reports_updated=0,
-                    artefacts_created=0,
-                    success=True,
-                    error=None,
-                )
-
-            # Activity 4: Match clusters to existing SignalReports
-            matching_result = await workflow.execute_activity(
-                match_clusters_activity,
-                args=[
-                    MatchClustersActivityInputs(
-                        team_id=inputs.team_id,
-                        clusters=all_clusters,
-                    )
-                ],
-                start_to_close_timeout=timedelta(seconds=60),
-                retry_policy=RetryPolicy(
-                    maximum_attempts=3,
-                    initial_interval=timedelta(seconds=1),
-                    maximum_interval=timedelta(seconds=10),
-                    backoff_coefficient=2.0,
-                ),
-            )
-
-            # Activity 5: Generate labels for NEW clusters only
-            labeling_result = None
-            if matching_result.new_clusters:
-                clusters_for_labeling = [
-                    ClusterForLabeling(cluster_id=c.cluster_id, segment_ids=c.segment_ids)
-                    for c in matching_result.new_clusters
-                ]
-
-                labeling_result = await workflow.execute_activity(
-                    label_clusters_activity,
-                    args=[
-                        LabelClustersActivityInputs(
+            if prime_info.session_ids_to_summarize:
+                summarize_handles: dict[str, temporalio.workflow.ChildWorkflowHandle] = {}
+                for session_id in prime_info.session_ids_to_summarize:
+                    redis_key_base = f"session-summary:single:{prime_info.user_id}-{inputs.team_id}:{session_id}"
+                    handle = await temporalio.workflow.start_child_workflow(
+                        "summarize-session",
+                        SingleSessionSummaryInputs(
+                            session_id=session_id,
+                            user_id=prime_info.user_id,
+                            user_distinct_id_to_log=prime_info.user_distinct_id,
                             team_id=inputs.team_id,
-                            clusters=clusters_for_labeling,
-                            segments=segments,
-                        )
-                    ],
-                    start_to_close_timeout=timedelta(seconds=300),
-                    retry_policy=RetryPolicy(
-                        maximum_attempts=2,
-                        initial_interval=timedelta(seconds=5),
-                        maximum_interval=timedelta(seconds=30),
-                        backoff_coefficient=2.0,
-                    ),
-                )
-
-            # Filter out non-actionable clusters
-            actionable_new_clusters = []
-            if labeling_result:
-                for cluster in matching_result.new_clusters:
-                    label = labeling_result.labels.get(cluster.cluster_id)
-                    if label and label.actionable:
-                        actionable_new_clusters.append(cluster)
-
-            # Activity 6: Persist reports and artefacts
-            persist_result = await workflow.execute_activity(
-                persist_reports_activity,
-                args=[
-                    PersistReportsActivityInputs(
-                        team_id=inputs.team_id,
-                        new_clusters=actionable_new_clusters,
-                        matched_clusters=matching_result.matched_clusters,
-                        labels=labeling_result.labels if labeling_result else {},
-                        segments=segments,
-                        segment_to_cluster=clustering_result.segment_to_cluster,
+                            redis_key_base=redis_key_base,
+                            model_to_use=DEFAULT_VIDEO_UNDERSTANDING_MODEL,
+                            video_validation_enabled="full",
+                        ),
+                        id=f"session-summary:single:direct:{inputs.team_id}:{session_id}:{prime_info.user_id}:{session_id}:{workflow.uuid4()}",
+                        execution_timeout=timedelta(minutes=30),
+                        retry_policy=RetryPolicy(
+                            maximum_attempts=1,  # No retries - if video export times out, just skip
+                        ),
+                        parent_close_policy=temporalio.workflow.ParentClosePolicy.REQUEST_CANCEL,
                     )
-                ],
-                start_to_close_timeout=timedelta(seconds=300),
-                retry_policy=RetryPolicy(
-                    maximum_attempts=3,
-                    initial_interval=timedelta(seconds=1),
-                    maximum_interval=timedelta(seconds=10),
-                    backoff_coefficient=2.0,
-                ),
-            )
+                    summarize_handles[session_id] = handle
 
+                # Wait for all summarization child workflows to complete, skipping failures
+                for session_id, handle in summarize_handles.items():
+                    try:
+                        await handle
+                        sessions_summarized += 1
+                    except Exception as e:
+                        sessions_failed += 1
+                        workflow.logger.warning(f"Session summarization skipped for {session_id}: {e}")
+
+            workflow.logger.info(f"Priming complete: {sessions_summarized} summarized, {sessions_failed} failed")
+
+        # Activity 2: Fetch segments within lookback window
+        fetch_result = await workflow.execute_activity(
+            fetch_segments_activity,
+            args=[
+                FetchSegmentsActivityInputs(
+                    team_id=inputs.team_id,
+                    lookback_hours=inputs.lookback_hours,
+                )
+            ],
+            start_to_close_timeout=timedelta(seconds=120),
+            retry_policy=RetryPolicy(
+                maximum_attempts=3,
+                initial_interval=timedelta(seconds=1),
+                maximum_interval=timedelta(seconds=10),
+                backoff_coefficient=2.0,
+            ),
+        )
+
+        segments = fetch_result.segments
+
+        if len(segments) < inputs.min_segments:
+            workflow.logger.info(
+                f"Skipping clustering: only {len(segments)} segments, need at least {inputs.min_segments}"
+            )
             return WorkflowResult(
                 team_id=inputs.team_id,
-                segments_processed=len(segments),
-                clusters_found=len(all_clusters),
-                reports_created=persist_result.reports_created,
-                reports_updated=persist_result.reports_updated,
-                artefacts_created=persist_result.artefacts_created,
-                success=True,
-                error=None,
-            )
-
-        except Exception as e:
-            workflow.logger.error(f"Workflow failed for team {inputs.team_id}: {e}")
-            return WorkflowResult(
-                team_id=inputs.team_id,
-                segments_processed=0,
+                segments_processed=None,
                 clusters_found=0,
                 reports_created=0,
                 reports_updated=0,
                 artefacts_created=0,
-                success=False,
-                error=str(e),
+                success=True,
+                error=None,
             )
+
+        document_ids = [s.document_id for s in segments]
+
+        # Activity 3: Cluster segments (includes noise handling)
+        clustering_result = await workflow.execute_activity(
+            cluster_segments_activity,
+            args=[
+                ClusterSegmentsActivityInputs(
+                    team_id=inputs.team_id,
+                    document_ids=document_ids,
+                )
+            ],
+            start_to_close_timeout=timedelta(seconds=180),
+            retry_policy=RetryPolicy(
+                maximum_attempts=3,
+                initial_interval=timedelta(seconds=1),
+                maximum_interval=timedelta(seconds=10),
+                backoff_coefficient=2.0,
+            ),
+        )
+
+        all_clusters = clustering_result.clusters
+
+        if not all_clusters:
+            workflow.logger.info("No clusters found")
+            return WorkflowResult(
+                team_id=inputs.team_id,
+                segments_processed=len(segments),
+                clusters_found=0,
+                reports_created=0,
+                reports_updated=0,
+                artefacts_created=0,
+                success=True,
+                error=None,
+            )
+
+        # Activity 4: Match clusters to existing SignalReports
+        matching_result = await workflow.execute_activity(
+            match_clusters_activity,
+            args=[
+                MatchClustersActivityInputs(
+                    team_id=inputs.team_id,
+                    clusters=all_clusters,
+                )
+            ],
+            start_to_close_timeout=timedelta(seconds=60),
+            retry_policy=RetryPolicy(
+                maximum_attempts=3,
+                initial_interval=timedelta(seconds=1),
+                maximum_interval=timedelta(seconds=10),
+                backoff_coefficient=2.0,
+            ),
+        )
+
+        # Activity 5: Generate labels for NEW clusters only
+        labeling_result = None
+        if matching_result.new_clusters:
+            clusters_for_labeling = [
+                ClusterForLabeling(cluster_id=c.cluster_id, segment_ids=c.segment_ids)
+                for c in matching_result.new_clusters
+            ]
+
+            labeling_result = await workflow.execute_activity(
+                label_clusters_activity,
+                args=[
+                    LabelClustersActivityInputs(
+                        team_id=inputs.team_id,
+                        clusters=clusters_for_labeling,
+                        segments=segments,
+                    )
+                ],
+                start_to_close_timeout=timedelta(seconds=300),
+                retry_policy=RetryPolicy(
+                    maximum_attempts=2,
+                    initial_interval=timedelta(seconds=5),
+                    maximum_interval=timedelta(seconds=30),
+                    backoff_coefficient=2.0,
+                ),
+            )
+
+        # Filter out non-actionable clusters
+        actionable_new_clusters = []
+        if labeling_result:
+            for cluster in matching_result.new_clusters:
+                label = labeling_result.labels.get(cluster.cluster_id)
+                if label and label.actionable:
+                    actionable_new_clusters.append(cluster)
+
+        # Activity 6: Persist reports and artefacts
+        persist_result = await workflow.execute_activity(
+            persist_reports_activity,
+            args=[
+                PersistReportsActivityInputs(
+                    team_id=inputs.team_id,
+                    new_clusters=actionable_new_clusters,
+                    matched_clusters=matching_result.matched_clusters,
+                    labels=labeling_result.labels if labeling_result else {},
+                    segments=segments,
+                    segment_to_cluster=clustering_result.segment_to_cluster,
+                )
+            ],
+            start_to_close_timeout=timedelta(seconds=300),
+            retry_policy=RetryPolicy(
+                maximum_attempts=3,
+                initial_interval=timedelta(seconds=1),
+                maximum_interval=timedelta(seconds=10),
+                backoff_coefficient=2.0,
+            ),
+        )
+
+        return WorkflowResult(
+            team_id=inputs.team_id,
+            segments_processed=len(segments),
+            clusters_found=len(all_clusters),
+            reports_created=persist_result.reports_created,
+            reports_updated=persist_result.reports_updated,
+            artefacts_created=persist_result.artefacts_created,
+            success=True,
+            error=None,
+        )
