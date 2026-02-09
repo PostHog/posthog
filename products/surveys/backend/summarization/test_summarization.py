@@ -8,6 +8,7 @@ from rest_framework import exceptions
 from .formatting import format_as_markdown
 from .llm.gemini import SummarizationResult, summarize_with_gemini
 from .llm.schema import SurveySummaryResponse, SurveyTheme
+from .quality import filter_placeholder_responses, is_likely_placeholder_response
 
 
 class TestSurveyThemeSchema:
@@ -122,3 +123,29 @@ class TestSummarizeWithGemini:
         assert isinstance(result.summary, SurveySummaryResponse)
         assert result.trace_id is not None
         assert len(result.trace_id) == 36  # UUID format
+
+
+class TestResponseQuality:
+    @pytest.mark.parametrize(
+        "response,expected",
+        [
+            ("asdf", True),
+            ("asdfasdf", True),
+            ("qwerty", True),
+            ("test", True),
+            ("hjdashdjksahd", True),
+            ("aaaaaa", True),
+            ("11111", True),
+            ("this is useful feedback", False),
+            ("No", False),
+            ("👍", False),
+            ("it crashes when I click save", False),
+        ],
+    )
+    def test_is_likely_placeholder_response(self, response: str, expected: bool):
+        assert is_likely_placeholder_response(response) is expected
+
+    def test_filter_placeholder_responses(self):
+        kept, excluded = filter_placeholder_responses(["asdfasdf", "this is great", "hjdashdjksahd"])
+        assert kept == ["this is great"]
+        assert excluded == ["asdfasdf", "hjdashdjksahd"]

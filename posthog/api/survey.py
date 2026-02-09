@@ -63,6 +63,7 @@ from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.utils_cors import cors_response
 
 from products.surveys.backend.summarization import fetch_responses, format_as_markdown, summarize_responses
+from products.surveys.backend.summarization.quality import filter_placeholder_responses
 
 from ee.surveys.summaries.headline_summary import generate_survey_headline
 
@@ -1583,33 +1584,53 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
                 }
             )
 
-        # Generate summary using Gemini
-        try:
-            result = summarize_responses(
-                question_text,
-                responses,
-                distinct_id=str(user.distinct_id),
-                survey_id=str(survey_id),
-                question_id=question_id,
-                team_id=self.team.pk,
-            )
-            content = format_as_markdown(result.summary)
-            trace_id = result.trace_id
-        except exceptions.ValidationError:
-            raise
-        except exceptions.APIException:
-            raise
-        except Exception as e:
-            logger.exception(
-                "Failed to generate survey summary",
-                survey_id=survey_id,
-                question_id=question_id,
-                error_type=type(e).__name__,
-                error=str(e),
-            )
-            raise exceptions.APIException("Failed to generate summary. Please try again.")
+        # Avoid wasting LLM tokens on obvious placeholder/test responses.
+        # Keep `response_count` as the total fetched count so the UI's refresh logic doesn't thrash.
+        responses_for_summary, excluded_placeholder_responses = filter_placeholder_responses(responses)
+        excluded_placeholder_count = len(excluded_placeholder_responses)
 
-        generated_at = datetime.now(UTC).isoformat()
+        if not responses_for_summary:
+            generated_at = datetime.now(UTC).isoformat()
+            content = (
+                "No meaningful responses to analyze.\n\n"
+                "All fetched responses look like placeholder/test data (e.g. random keystrokes)."
+            )
+            trace_id = None
+        else:
+            # Generate summary using Gemini
+            try:
+                result = summarize_responses(
+                    question_text,
+                    responses_for_summary,
+                    distinct_id=str(user.distinct_id),
+                    survey_id=str(survey_id),
+                    question_id=question_id,
+                    team_id=self.team.pk,
+                )
+                content = format_as_markdown(result.summary)
+                trace_id = result.trace_id
+            except exceptions.ValidationError:
+                raise
+            except exceptions.APIException:
+                raise
+            except Exception as e:
+                logger.exception(
+                    "Failed to generate survey summary",
+                    survey_id=survey_id,
+                    question_id=question_id,
+                    error_type=type(e).__name__,
+                    error=str(e),
+                )
+                raise exceptions.APIException("Failed to generate summary. Please try again.")
+
+            generated_at = datetime.now(UTC).isoformat()
+
+        if excluded_placeholder_count > 0:
+            analyzed_count = len(responses_for_summary)
+            content = (
+                f"> Note: Excluded {excluded_placeholder_count} of {response_count} responses as likely placeholder/test input. "
+                f"Summary is based on {analyzed_count} responses.\n\n{content}"
+            )
 
         # Prepare response data
         response_data = {
