@@ -263,7 +263,9 @@ export const genericOperatorMap: Record<string, string> = {
     regex: '∼ matches regex',
     not_regex: "≁ doesn't match regex",
     gt: '> greater than',
+    gte: '≥ greater than or equal',
     lt: '< less than',
+    lte: '≤ less than or equal',
     is_set: '✓ is set',
     is_not_set: '✕ is not set',
 }
@@ -303,7 +305,9 @@ export const numericOperatorMap: Record<string, string> = {
     regex: '∼ matches regex',
     not_regex: "≁ doesn't match regex",
     gt: '> greater than',
+    gte: '≥ greater than or equal',
     lt: '< less than',
+    lte: '≤ less than or equal',
     is_set: '✓ is set',
     is_not_set: '✕ is not set',
 }
