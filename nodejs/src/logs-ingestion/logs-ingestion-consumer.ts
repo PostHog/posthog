@@ -440,10 +440,17 @@ export class LogsIngestionConsumer {
                         return
                     }
 
-                    let team = await this.hub.teamManager.getTeamByToken(token)
-                    if (isDevEnv() && token === 'phc_local') {
-                        // phc_local is a special token used in dev to refer to team 1
-                        team = await this.hub.teamManager.getTeam(1)
+                    let team
+                    try {
+                        team = await this.hub.teamManager.getTeamByToken(token)
+                        if (isDevEnv() && token === 'phc_local') {
+                            // phc_local is a special token used in dev to refer to team 1
+                            team = await this.hub.teamManager.getTeam(1)
+                        }
+                    } catch (e) {
+                        logger.error('team_lookup_error', { error: e })
+                        logMessageDroppedCounter.inc({ reason: 'team_lookup_error', team_id: 'unknown' })
+                        return
                     }
 
                     if (!team) {
