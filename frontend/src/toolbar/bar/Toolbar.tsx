@@ -219,6 +219,8 @@ function MoreMenu(): JSX.Element {
         }, false)
     }, [posthog])
 
+    const showScreenshotForEvent = useToolbarFeatureFlag('event-media-previews')
+
     // KLUDGE: if there is no theme, assume light mode, which shouldn't be, but seems to be, necessary
     const currentlyLightMode = !theme || theme === 'light'
 
@@ -268,12 +270,14 @@ function MoreMenu(): JSX.Element {
                             label: `Switch to ${currentlyLightMode ? 'dark' : 'light'} mode`,
                             onClick: () => toggleTheme(),
                         },
-                        {
-                            icon: <IconCamera />,
-                            label: 'Screenshot for event',
-                            onClick: handleScreenshotClick,
-                            disabled: isTakingScreenshot,
-                        },
+                        showScreenshotForEvent
+                            ? {
+                                  icon: <IconCamera />,
+                                  label: 'Screenshot for event',
+                                  onClick: handleScreenshotClick,
+                                  disabled: isTakingScreenshot,
+                              }
+                            : undefined,
                         ...piiMaskingMenuItem(
                             piiMaskingEnabled,
                             piiMaskingColor,
