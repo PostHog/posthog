@@ -114,6 +114,39 @@ class TestEventsPredicatePushdownTransform(BaseTest):
 
         assert printed == self.snapshot
 
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_poe_properties_with_session_join(self):
+        """VirtualTable field poe.properties is included in subquery as person_properties."""
+        printed = self._print_select(
+            "SELECT event, poe.properties FROM events WHERE timestamp >= '2024-01-01' AND session.$session_duration > 0"
+        )
+        assert printed == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_poe_id_with_session_join(self):
+        """VirtualTable field poe.id is included in subquery as person_id."""
+        printed = self._print_select(
+            "SELECT poe.id, session.$session_duration FROM events WHERE timestamp >= '2024-01-01'"
+        )
+        assert printed == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_poe_created_at_with_session_join(self):
+        """VirtualTable field poe.created_at is included in subquery as person_created_at."""
+        printed = self._print_select(
+            "SELECT event, poe.created_at FROM events WHERE timestamp >= '2024-01-01' AND session.$session_duration > 0"
+        )
+        assert printed == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_multiple_poe_fields_with_session_join(self):
+        """Multiple VirtualTable fields are all included in the subquery."""
+        printed = self._print_select(
+            "SELECT event, poe.id, poe.properties, poe.created_at FROM events "
+            "WHERE timestamp >= '2024-01-01' AND session.$session_duration > 0"
+        )
+        assert printed == self.snapshot
+
 
 class TestEventsPredicatePushdownTransformUnit:
     """Unit tests for helper methods that don't require database/context."""
@@ -415,6 +448,67 @@ class TestEventsFieldCollector(BaseTest):
         # $session_id is a direct column on events table
         assert "$session_id" in collector.database_columns
         assert collector.has_non_direct_fields is False
+
+    def test_poe_properties_collected_as_person_properties(self):
+        """poe.properties (VirtualTable) resolves to database column person_properties."""
+        node, events_table_type = self._resolve_query("SELECT poe.properties FROM events")
+
+        collector = EventsFieldCollector(events_table_type, self.context)
+        collector.visit(node)
+
+        assert "person_properties" in collector.database_columns
+        assert collector.has_non_direct_fields is False
+
+    def test_poe_id_collected_as_person_id(self):
+        """poe.id (VirtualTable) resolves to database column person_id."""
+        node, events_table_type = self._resolve_query("SELECT poe.id FROM events")
+
+        collector = EventsFieldCollector(events_table_type, self.context)
+        collector.visit(node)
+
+        assert "person_id" in collector.database_columns
+        assert collector.has_non_direct_fields is False
+
+    def test_poe_created_at_collected_as_person_created_at(self):
+        """poe.created_at (VirtualTable) resolves to database column person_created_at."""
+        node, events_table_type = self._resolve_query("SELECT poe.created_at FROM events")
+
+        collector = EventsFieldCollector(events_table_type, self.context)
+        collector.visit(node)
+
+        assert "person_created_at" in collector.database_columns
+        assert collector.has_non_direct_fields is False
+
+    def test_poe_field_type_has_virtual_table_type(self):
+        """Collected poe field has VirtualTableType as its table_type."""
+        node, events_table_type = self._resolve_query("SELECT poe.properties FROM events")
+
+        collector = EventsFieldCollector(events_table_type, self.context)
+        collector.visit(node)
+
+        field_type = collector.collected_fields["person_properties"]
+        assert isinstance(field_type.table_type, ast.VirtualTableType)
+
+    def test_poe_mixed_with_direct_columns(self):
+        """VirtualTable fields and direct columns are both collected."""
+        node, events_table_type = self._resolve_query("SELECT event, poe.id, timestamp FROM events")
+
+        collector = EventsFieldCollector(events_table_type, self.context)
+        collector.visit(node)
+
+        assert "event" in collector.database_columns
+        assert "person_id" in collector.database_columns
+        assert "timestamp" in collector.database_columns
+        assert collector.has_non_direct_fields is False
+
+    def test_poe_revenue_analytics_lazy_join_triggers_non_direct(self):
+        """poe.revenue_analytics is a LazyJoin inside VirtualTable — triggers non-direct flag."""
+        node, events_table_type = self._resolve_query("SELECT poe.revenue_analytics.revenue FROM events")
+
+        collector = EventsFieldCollector(events_table_type, self.context)
+        collector.visit(node)
+
+        assert collector.has_non_direct_fields is True
 
 
 class TestSavedQueryWithLazyJoins(BaseTest):

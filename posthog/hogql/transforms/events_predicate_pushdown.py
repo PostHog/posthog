@@ -189,6 +189,8 @@ class EventsFieldCollector(TraversingVisitor):
             return self._type_references_lazy_join(table_type.table_type)
         if isinstance(table_type, ast.LazyTableType):
             return True
+        if isinstance(table_type, ast.VirtualTableType):
+            return self._type_references_lazy_join(table_type.table_type)
         return False
 
     def _get_database_column_name(self, field_type: ast.FieldType) -> str | None:
@@ -213,6 +215,10 @@ class EventsFieldCollector(TraversingVisitor):
 
         # Get the underlying TableType from both sides
         unwrapped: ast.Type = table_type
+        if isinstance(unwrapped, ast.TableAliasType):
+            unwrapped = unwrapped.table_type
+        if isinstance(unwrapped, ast.VirtualTableType):
+            unwrapped = unwrapped.table_type
         if isinstance(unwrapped, ast.TableAliasType):
             unwrapped = unwrapped.table_type
 
@@ -444,8 +450,8 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
         inner_table_type: ast.TableType | None = None
         for field_type in collected_fields.values():
             table_type = field_type.table_type
-            # Unwrap TableAliasType to get the underlying TableType
-            while isinstance(table_type, ast.TableAliasType):
+            # Unwrap TableAliasType and VirtualTableType to get the underlying TableType
+            while isinstance(table_type, (ast.TableAliasType, ast.VirtualTableType)):
                 table_type = table_type.table_type
             if isinstance(table_type, ast.TableType):
                 inner_table_type = table_type
@@ -461,10 +467,20 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
         columns_in_scope: dict[str, ast.Type] = {}
 
         for col_name in sorted(collected_fields.keys()):
-            # Create a FieldType that references the inner table directly (not aliased)
-            field_type = ast.FieldType(name=col_name, table_type=inner_table_type)
+            original_field_type = collected_fields[col_name]
 
-            # Create the typed Field node wrapped in an Alias to preserve the column name
+            if isinstance(original_field_type.table_type, ast.VirtualTableType):
+                # Recreate the VirtualTableType wrapping the inner table
+                virtual_table_type = ast.VirtualTableType(
+                    table_type=inner_table_type,
+                    field=original_field_type.table_type.field,
+                    virtual_table=original_field_type.table_type.virtual_table,
+                )
+                # Use the original HogQL field name (e.g., "properties"), not the db column name
+                field_type = ast.FieldType(name=original_field_type.name, table_type=virtual_table_type)
+            else:
+                field_type = ast.FieldType(name=col_name, table_type=inner_table_type)
+
             field_node = ast.Field(chain=[col_name], type=field_type)
             alias_node = ast.Alias(alias=col_name, expr=field_node, type=field_type)
             select_fields.append(alias_node)

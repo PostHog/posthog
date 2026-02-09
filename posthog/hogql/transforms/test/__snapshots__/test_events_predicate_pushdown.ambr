@@ -53,6 +53,22 @@
   LIMIT 50000
   '''
 # ---
+# name: TestEventsPredicatePushdownTransform.test_multiple_poe_fields_with_session_join
+  '''
+  
+  SELECT events.event AS event, events.person_id AS id, events.person_properties AS properties, toTimeZone(events.person_created_at, %(hogql_val_9)s) AS created_at 
+  FROM (
+  SELECT events.`$session_id` AS `$session_id`, events.event AS event, toTimeZone(events.person_created_at, %(hogql_val_0)s) AS person_created_at, events.person_id AS person_id, events.person_properties AS person_properties, toTimeZone(events.timestamp, %(hogql_val_1)s) AS timestamp 
+  FROM events 
+  WHERE and(equals(events.team_id, 420), greaterOrEquals(toTimeZone(events.timestamp, %(hogql_val_2)s), %(hogql_val_3)s))) AS events LEFT JOIN (
+  SELECT dateDiff(%(hogql_val_4)s, min(toTimeZone(raw_sessions.min_timestamp, %(hogql_val_5)s)), max(toTimeZone(raw_sessions.max_timestamp, %(hogql_val_6)s))) AS `$session_duration`, raw_sessions.session_id_v7 AS session_id_v7 
+  FROM raw_sessions 
+  WHERE and(equals(raw_sessions.team_id, 420), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(%(hogql_val_7)s, toIntervalDay(3)))) 
+  GROUP BY raw_sessions.session_id_v7, raw_sessions.session_id_v7) AS events__session ON equals(toUInt128(accurateCastOrNull(events.`$session_id`, %(hogql_val_8)s)), events__session.session_id_v7) 
+  WHERE and(greaterOrEquals(toTimeZone(events.timestamp, %(hogql_val_10)s), %(hogql_val_11)s), ifNull(greater(events__session.`$session_duration`, 0), 0)) 
+  LIMIT 50000
+  '''
+# ---
 # name: TestEventsPredicatePushdownTransform.test_multiple_pushable_predicates
   '''
   
@@ -66,6 +82,54 @@
   WHERE and(equals(raw_sessions.team_id, 420), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(%(hogql_val_7)s, toIntervalDay(3)))) 
   GROUP BY raw_sessions.session_id_v7, raw_sessions.session_id_v7) AS events__session ON equals(toUInt128(accurateCastOrNull(events.`$session_id`, %(hogql_val_8)s)), events__session.session_id_v7) 
   WHERE and(greaterOrEquals(toTimeZone(events.timestamp, %(hogql_val_9)s), %(hogql_val_10)s), equals(events.event, %(hogql_val_11)s)) 
+  LIMIT 50000
+  '''
+# ---
+# name: TestEventsPredicatePushdownTransform.test_poe_created_at_with_session_join
+  '''
+  
+  SELECT events.event AS event, toTimeZone(events.person_created_at, %(hogql_val_9)s) AS created_at 
+  FROM (
+  SELECT events.`$session_id` AS `$session_id`, events.event AS event, toTimeZone(events.person_created_at, %(hogql_val_0)s) AS person_created_at, toTimeZone(events.timestamp, %(hogql_val_1)s) AS timestamp 
+  FROM events 
+  WHERE and(equals(events.team_id, 420), greaterOrEquals(toTimeZone(events.timestamp, %(hogql_val_2)s), %(hogql_val_3)s))) AS events LEFT JOIN (
+  SELECT dateDiff(%(hogql_val_4)s, min(toTimeZone(raw_sessions.min_timestamp, %(hogql_val_5)s)), max(toTimeZone(raw_sessions.max_timestamp, %(hogql_val_6)s))) AS `$session_duration`, raw_sessions.session_id_v7 AS session_id_v7 
+  FROM raw_sessions 
+  WHERE and(equals(raw_sessions.team_id, 420), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(%(hogql_val_7)s, toIntervalDay(3)))) 
+  GROUP BY raw_sessions.session_id_v7, raw_sessions.session_id_v7) AS events__session ON equals(toUInt128(accurateCastOrNull(events.`$session_id`, %(hogql_val_8)s)), events__session.session_id_v7) 
+  WHERE and(greaterOrEquals(toTimeZone(events.timestamp, %(hogql_val_10)s), %(hogql_val_11)s), ifNull(greater(events__session.`$session_duration`, 0), 0)) 
+  LIMIT 50000
+  '''
+# ---
+# name: TestEventsPredicatePushdownTransform.test_poe_id_with_session_join
+  '''
+  
+  SELECT events.person_id AS id, events__session.`$session_duration` AS `$session_duration` 
+  FROM (
+  SELECT events.`$session_id` AS `$session_id`, events.person_id AS person_id, toTimeZone(events.timestamp, %(hogql_val_0)s) AS timestamp 
+  FROM events 
+  WHERE and(equals(events.team_id, 420), greaterOrEquals(toTimeZone(events.timestamp, %(hogql_val_1)s), %(hogql_val_2)s))) AS events LEFT JOIN (
+  SELECT dateDiff(%(hogql_val_3)s, min(toTimeZone(raw_sessions.min_timestamp, %(hogql_val_4)s)), max(toTimeZone(raw_sessions.max_timestamp, %(hogql_val_5)s))) AS `$session_duration`, raw_sessions.session_id_v7 AS session_id_v7 
+  FROM raw_sessions 
+  WHERE and(equals(raw_sessions.team_id, 420), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(%(hogql_val_6)s, toIntervalDay(3)))) 
+  GROUP BY raw_sessions.session_id_v7, raw_sessions.session_id_v7) AS events__session ON equals(toUInt128(accurateCastOrNull(events.`$session_id`, %(hogql_val_7)s)), events__session.session_id_v7) 
+  WHERE greaterOrEquals(toTimeZone(events.timestamp, %(hogql_val_8)s), %(hogql_val_9)s) 
+  LIMIT 50000
+  '''
+# ---
+# name: TestEventsPredicatePushdownTransform.test_poe_properties_with_session_join
+  '''
+  
+  SELECT events.event AS event, events.person_properties AS properties 
+  FROM (
+  SELECT events.`$session_id` AS `$session_id`, events.event AS event, events.person_properties AS person_properties, toTimeZone(events.timestamp, %(hogql_val_0)s) AS timestamp 
+  FROM events 
+  WHERE and(equals(events.team_id, 420), greaterOrEquals(toTimeZone(events.timestamp, %(hogql_val_1)s), %(hogql_val_2)s))) AS events LEFT JOIN (
+  SELECT dateDiff(%(hogql_val_3)s, min(toTimeZone(raw_sessions.min_timestamp, %(hogql_val_4)s)), max(toTimeZone(raw_sessions.max_timestamp, %(hogql_val_5)s))) AS `$session_duration`, raw_sessions.session_id_v7 AS session_id_v7 
+  FROM raw_sessions 
+  WHERE and(equals(raw_sessions.team_id, 420), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(%(hogql_val_6)s, toIntervalDay(3)))) 
+  GROUP BY raw_sessions.session_id_v7, raw_sessions.session_id_v7) AS events__session ON equals(toUInt128(accurateCastOrNull(events.`$session_id`, %(hogql_val_7)s)), events__session.session_id_v7) 
+  WHERE and(greaterOrEquals(toTimeZone(events.timestamp, %(hogql_val_8)s), %(hogql_val_9)s), ifNull(greater(events__session.`$session_duration`, 0), 0)) 
   LIMIT 50000
   '''
 # ---
