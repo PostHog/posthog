@@ -281,9 +281,8 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
     containing the pushed-down predicates:
     FROM events -> FROM (SELECT <needed_columns> FROM events WHERE <predicates>) AS events
 
-    IMPORTANT: Only applies to TOP-LEVEL queries, not nested subqueries.
-    Nested subqueries (created by lazy table resolution) have complex type
-    relationships that can break if modified.
+    Applies at every nesting level (bottom-up) so user-written subqueries
+    that SELECT FROM events with joins also benefit from pushdown.
     """
 
     def __init__(self, context: HogQLContext, dialect: HogQLDialect = "clickhouse"):
