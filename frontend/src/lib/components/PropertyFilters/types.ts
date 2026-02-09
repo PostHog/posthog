@@ -2,6 +2,7 @@ import { OperatorValueSelectProps } from 'lib/components/PropertyFilters/compone
 import {
     AllowedProperties,
     ExcludedProperties,
+    TaxonomicDefinitionTypes,
     TaxonomicFilterGroup,
     TaxonomicFilterGroupType,
     TaxonomicFilterProps,
@@ -27,7 +28,11 @@ export interface PropertyGroupFilterLogicProps extends PropertyFilterBaseProps {
 }
 export interface TaxonomicPropertyFilterLogicProps extends PropertyFilterBaseProps {
     taxonomicGroupTypes: TaxonomicFilterGroupType[]
-    taxonomicOnChange?: (group: TaxonomicFilterGroup, value: TaxonomicFilterValue, item: any) => void
+    taxonomicOnChange?: (
+        group: TaxonomicFilterGroup,
+        value: TaxonomicFilterValue,
+        item: TaxonomicDefinitionTypes
+    ) => void
     filters: AnyPropertyFilter[]
     setFilter: (index: number, property: AnyPropertyFilter) => void
     filterIndex: number
