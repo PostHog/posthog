@@ -29,6 +29,7 @@ import {
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { PropertyFilterIcon } from 'lib/components/PropertyFilters/components/PropertyFilterIcon'
+import { supportLogic } from 'lib/components/Support/supportLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import UniversalFilters from 'lib/components/UniversalFilters/UniversalFilters'
 import { universalFiltersLogic } from 'lib/components/UniversalFilters/universalFiltersLogic'
@@ -485,6 +486,8 @@ const ReplayFiltersTab = ({
 
     const [isPopoverVisible, setIsPopoverVisible] = useState(false)
 
+    const { openSupportForm } = useActions(supportLogic)
+
     useMountedLogic(cohortsModel)
     useMountedLogic(actionsModel)
     useMountedLogic(groupsModel)
@@ -750,6 +753,12 @@ const ReplayFiltersTab = ({
                         status="danger"
                         size="small"
                         data-attr="replay-filters-feedback-button"
+                        onClick={() =>
+                            openSupportForm({
+                                kind: 'feedback',
+                                target_area: 'session_replay',
+                            })
+                        }
                     >
                         Unexpected filter results?
                     </LemonButton>
