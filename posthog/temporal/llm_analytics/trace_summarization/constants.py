@@ -87,12 +87,8 @@ SUMMARIZE_SCHEDULE_TO_CLOSE_TIMEOUT = timedelta(
 )  # 45 min total per summary (3 full attempts * 900s + backoff)
 
 # Workflow-level timeouts (in minutes)
-WORKFLOW_EXECUTION_TIMEOUT_MINUTES = (
-    180  # Max time for single team workflow (5 batches * 45 min worst case, usually ~75 min)
-)
-COORDINATOR_EXECUTION_TIMEOUT_MINUTES = (
-    240  # 4 hours - 211 teams with 3 concurrent, most finish instantly but a few hit child timeout
-)
+WORKFLOW_EXECUTION_TIMEOUT_MINUTES = 30  # Max time for single team workflow — must be well under coordinator timeout
+COORDINATOR_EXECUTION_TIMEOUT_MINUTES = 55  # Must finish before next hourly trigger to avoid silent skips
 
 # Retry policies
 SAMPLE_RETRY_POLICY = RetryPolicy(
