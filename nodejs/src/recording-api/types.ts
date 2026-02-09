@@ -1,3 +1,21 @@
+import { Hub } from '../types'
+
+export type RecordingApiHub = Pick<
+    Hub,
+    | 'postgres'
+    | 'REDIS_URL'
+    | 'REDIS_POOL_MIN_SIZE'
+    | 'REDIS_POOL_MAX_SIZE'
+    | 'SESSION_RECORDING_V2_S3_REGION'
+    | 'SESSION_RECORDING_V2_S3_ENDPOINT'
+    | 'SESSION_RECORDING_V2_S3_ACCESS_KEY_ID'
+    | 'SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY'
+    | 'SESSION_RECORDING_V2_S3_BUCKET'
+    | 'SESSION_RECORDING_V2_S3_PREFIX'
+    | 'SESSION_RECORDING_KMS_ENDPOINT'
+    | 'SESSION_RECORDING_DYNAMODB_ENDPOINT'
+>
+
 export type SessionState = 'ciphertext' | 'cleartext' | 'deleted'
 
 export interface SessionKey {

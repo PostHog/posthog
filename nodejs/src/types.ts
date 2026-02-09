@@ -318,6 +318,11 @@ export type LogsIngestionConsumerConfig = {
     LOGS_LIMITER_TEAM_REFILL_RATE_KB_PER_SECOND: string
 }
 
+export type SessionRecordingApiConfig = {
+    SESSION_RECORDING_KMS_ENDPOINT: string | undefined
+    SESSION_RECORDING_DYNAMODB_ENDPOINT: string | undefined
+}
+
 export type SessionRecordingConfig = {
     // local directory might be a volume mount or a directory on disk (e.g. in local dev)
     SESSION_RECORDING_LOCAL_DIRECTORY: string
@@ -354,8 +359,6 @@ export type SessionRecordingConfig = {
     SESSION_RECORDING_V2_S3_ACCESS_KEY_ID: string
     SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY: string
     SESSION_RECORDING_V2_S3_TIMEOUT_MS: number
-    SESSION_RECORDING_KMS_ENDPOINT: string | undefined
-    SESSION_RECORDING_DYNAMODB_ENDPOINT: string | undefined
     SESSION_RECORDING_V2_REPLAY_EVENTS_KAFKA_TOPIC: string
     SESSION_RECORDING_V2_CONSOLE_LOG_ENTRIES_KAFKA_TOPIC: string
     SESSION_RECORDING_V2_CONSOLE_LOG_STORE_SYNC_BATCH_LIMIT: number
@@ -376,7 +379,8 @@ export interface PluginsServerConfig
     extends CdpConfig,
         IngestionConsumerConfig,
         LogsIngestionConsumerConfig,
-        SessionRecordingConfig {
+        SessionRecordingConfig,
+        SessionRecordingApiConfig {
     CONTINUOUS_PROFILING_ENABLED: boolean
     PYROSCOPE_SERVER_ADDRESS: string
     PYROSCOPE_APPLICATION_NAME: string

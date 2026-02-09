@@ -7,7 +7,6 @@ import {
     HealthCheckResult,
     HealthCheckResultError,
     HealthCheckResultOk,
-    Hub,
     PluginServerService,
     RedisPool,
 } from '../types'
@@ -17,7 +16,7 @@ import { getKeyStore } from './keystore'
 import { MemoryCachedKeyStore, RedisCachedKeyStore } from './keystore-cache'
 import { getBlockDecryptor } from './recording-decryptor'
 import { RecordingParamsSchema, createGetBlockQuerySchema } from './schemas'
-import { BaseKeyStore, BaseRecordingDecryptor, SessionKeyDeletedError } from './types'
+import { BaseKeyStore, BaseRecordingDecryptor, RecordingApiHub, SessionKeyDeletedError } from './types'
 
 export class RecordingApi {
     private s3Client: S3Client | null = null
@@ -29,7 +28,7 @@ export class RecordingApi {
     private keystoreRedisPool: RedisPool | null = null
     private retentionRedisPool: RedisPool | null = null
 
-    constructor(private hub: Hub) {}
+    constructor(private hub: RecordingApiHub) {}
 
     public get service(): PluginServerService {
         return {
