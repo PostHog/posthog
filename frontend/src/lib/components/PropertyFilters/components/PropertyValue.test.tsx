@@ -50,7 +50,7 @@ describe('PropertyValue', () => {
 
         // Focus the input to open the dropdown
         const input = screen.getByRole('textbox')
-        await userEvent.click(input)
+        userEvent.click(input)
 
         // Wait for options to load and appear
         await waitFor(() => {
@@ -60,7 +60,7 @@ describe('PropertyValue', () => {
         const callCountAfterLoad = loadPropertyValuesSpy.mock.calls.length
 
         // Select a value from the dropdown
-        await userEvent.click(screen.getByText('Chrome'))
+        userEvent.click(screen.getByText('Chrome'))
 
         // loadPropertyValues should not have been called again
         expect(loadPropertyValuesSpy.mock.calls.length).toBe(callCountAfterLoad)
