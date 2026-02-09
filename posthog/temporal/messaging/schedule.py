@@ -29,9 +29,9 @@ DEFAULT_COORDINATOR_PARALLELISM = 6
 DEFAULT_WORKFLOWS_PER_BATCH = 2
 DEFAULT_BATCH_DELAY_MINUTES = 5
 
-# Removed hardcoded team ID - now configurable via REALTIME_COHORT_DEFAULT_TEAM_ID env var
-# The idea is to first test the workflow for the PostHog team (default: 2)
-# and then test if it scales for other teams
+# Configuration is controlled via:
+# - REALTIME_COHORT_CALCULATION_TEAMS: comma-separated team IDs that should process all cohorts
+# - REALTIME_COHORT_CALCULATION_GLOBAL_PERCENTAGE: percentage (0.0-1.0) for teams not in the teams list
 
 # No execution timeout for coordinator - let children have their own timeouts
 COORDINATOR_EXECUTION_TIMEOUT_SECONDS: int | None = None
@@ -55,7 +55,7 @@ async def create_realtime_cohort_calculation_schedule(client: Client):
                     parallelism=DEFAULT_COORDINATOR_PARALLELISM,
                     workflows_per_batch=DEFAULT_WORKFLOWS_PER_BATCH,
                     batch_delay_minutes=DEFAULT_BATCH_DELAY_MINUTES,
-                    # team_percentages will be auto-populated from REALTIME_COHORT_CALCULATION_PERCENTAGES_PER_TEAM
+                    # Configuration will be auto-populated from REALTIME_COHORT_CALCULATION_TEAMS and REALTIME_COHORT_CALCULATION_GLOBAL_PERCENTAGE
                 )
             ),
             id=REALTIME_COHORT_CALCULATION_SCHEDULE_ID,
