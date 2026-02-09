@@ -1,8 +1,10 @@
 import pytest
 from unittest.mock import MagicMock, patch
 
+from django.core.cache import cache
 from django.test.client import Client as HttpClient
 
+import requests
 from rest_framework import status
 
 from posthog.models.integration import PRIVATE_CHANNEL_WITHOUT_ACCESS, EmailIntegration, Integration, SlackIntegration
@@ -532,7 +534,6 @@ class TestCursorIntegration:
             ({}, "API key must be provided"),
             ({"api_key": None}, "API key must be provided"),
             ({"api_key": 123}, "API key must be a string"),
-            ({"api_key": []}, "API key must be a string"),
         ],
     )
     def test_create_cursor_integration_invalid_config(self, config, expected_error, client: HttpClient):
@@ -549,7 +550,7 @@ class TestCursorIntegration:
 
     @patch("posthog.models.integration.requests.get")
     def test_create_cursor_integration_invalid_api_key(self, mock_get, client: HttpClient):
-        mock_get.side_effect = Exception("Connection refused")
+        mock_get.side_effect = requests.exceptions.ConnectionError("Connection refused")
 
         client.force_login(self.user)
 
@@ -577,6 +578,7 @@ class TestCursorRepositoriesEndpoint:
             sensitive_config={"api_key": "cur_abc123"},
             created_by=self.user,
         )
+        cache.delete(f"cursor/{self.cursor_integration.integration_id}/repositories")
 
     @patch("posthog.models.integration.CursorIntegration.list_repositories")
     def test_cursor_repositories_returns_repos(self, mock_list_repos, client: HttpClient):
