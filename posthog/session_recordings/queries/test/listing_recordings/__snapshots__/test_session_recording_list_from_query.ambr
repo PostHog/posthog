@@ -5646,7 +5646,7 @@
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 99999), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-29 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')))
   GROUP BY s.session_id
-  HAVING and(ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0), ifNull(equals(argMinMerge(s.snapshot_library), 'posthog-ios'), 0))
+  HAVING and(ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0), ifNull(equals(max(s.is_deleted), 0), 0), ifNull(equals(argMinMerge(s.snapshot_library), 'posthog-ios'), 0))
   ORDER BY start_time DESC,
            s.session_id DESC
   LIMIT 51 SETTINGS readonly=2,
@@ -5687,7 +5687,7 @@
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 99999), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-29 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')))
   GROUP BY s.session_id
-  HAVING and(ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0), ifNull(equals(argMinMerge(s.snapshot_library), 'posthog-react-native'), 0))
+  HAVING and(ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0), ifNull(equals(max(s.is_deleted), 0), 0), ifNull(equals(argMinMerge(s.snapshot_library), 'posthog-react-native'), 0))
   ORDER BY start_time DESC,
            s.session_id DESC
   LIMIT 51 SETTINGS readonly=2,
@@ -13201,7 +13201,7 @@
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 99999), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-29 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')))
   GROUP BY s.session_id
-  HAVING and(ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0), ifNull(equals(argMinMerge(s.snapshot_library), 'posthog-ios'), 0))
+  HAVING and(ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0), ifNull(equals(max(s.is_deleted), 0), 0), ifNull(equals(argMinMerge(s.snapshot_library), 'posthog-ios'), 0))
   ORDER BY start_time DESC,
            s.session_id DESC
   LIMIT 51 SETTINGS readonly=2,
@@ -13242,7 +13242,7 @@
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 99999), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-29 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')))
   GROUP BY s.session_id
-  HAVING and(ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0), ifNull(equals(argMinMerge(s.snapshot_library), 'posthog-react-native'), 0))
+  HAVING and(ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0), ifNull(equals(max(s.is_deleted), 0), 0), ifNull(equals(argMinMerge(s.snapshot_library), 'posthog-react-native'), 0))
   ORDER BY start_time DESC,
            s.session_id DESC
   LIMIT 51 SETTINGS readonly=2,
