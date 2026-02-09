@@ -54,6 +54,29 @@ export interface QuickFiltersSectionLogicProps {
     logicKey?: string
 }
 
+const applyQuickFilter = (
+    state: Record<string, SelectedQuickFilter>,
+    { filterId, propertyName, option }: { filterId: string; propertyName: string; option: QuickFilterOption }
+): Record<string, SelectedQuickFilter> => ({
+    ...state,
+    [filterId]: {
+        filterId,
+        propertyName,
+        optionId: option.id,
+        value: option.value,
+        operator: option.operator,
+    },
+})
+
+const removeQuickFilter = (
+    state: Record<string, SelectedQuickFilter>,
+    { filterId }: { filterId: string }
+): Record<string, SelectedQuickFilter> => {
+    const newState = { ...state }
+    delete newState[filterId]
+    return newState
+}
+
 export const quickFiltersSectionLogic = kea<quickFiltersSectionLogicType>([
     path(['lib', 'components', 'QuickFilters', 'quickFiltersSectionLogic']),
     props({} as QuickFiltersSectionLogicProps),
@@ -80,38 +103,21 @@ export const quickFiltersSectionLogic = kea<quickFiltersSectionLogicType>([
             option,
         }),
         clearQuickFilter: (filterId: string) => ({ filterId }),
+        /** Internal action for URL restoration (clears state without firing committed signal, see: actionToUrl) */
+        restoreClearQuickFilter: (filterId: string) => ({ filterId }),
         restoreFiltersFromUrl: () => ({}),
+        quickFiltersChanged: true,
+        quickFiltersCommitted: true,
     }),
 
     reducers({
         selectedQuickFilters: [
             {} as Record<string, SelectedQuickFilter>,
             {
-                setQuickFilterValue: (state, { filterId, propertyName, option }) => ({
-                    ...state,
-                    [filterId]: {
-                        filterId,
-                        propertyName,
-                        optionId: option.id,
-                        value: option.value,
-                        operator: option.operator,
-                    },
-                }),
-                restoreQuickFilterValue: (state, { filterId, propertyName, option }) => ({
-                    ...state,
-                    [filterId]: {
-                        filterId,
-                        propertyName,
-                        optionId: option.id,
-                        value: option.value,
-                        operator: option.operator,
-                    },
-                }),
-                clearQuickFilter: (state, { filterId }) => {
-                    const newState = { ...state }
-                    delete newState[filterId]
-                    return newState
-                },
+                setQuickFilterValue: applyQuickFilter,
+                restoreQuickFilterValue: applyQuickFilter,
+                clearQuickFilter: removeQuickFilter,
+                restoreClearQuickFilter: removeQuickFilter,
             },
         ],
     }),
@@ -119,6 +125,9 @@ export const quickFiltersSectionLogic = kea<quickFiltersSectionLogicType>([
     listeners(({ actions, values, props }) => ({
         deleteFilter: ({ id }) => {
             actions.clearQuickFilter(id)
+        },
+        clearQuickFilter: () => {
+            actions.quickFiltersChanged()
         },
         filterUpdated: ({ filter }) => {
             const currentSelection = values.selectedQuickFilters[filter.id]
@@ -142,6 +151,10 @@ export const quickFiltersSectionLogic = kea<quickFiltersSectionLogicType>([
                 value: option.value,
                 context: props.context,
             })
+            actions.quickFiltersChanged()
+        },
+        quickFiltersChanged: () => {
+            actions.quickFiltersCommitted()
         },
         loadQuickFiltersSuccess: () => {
             // When quick filters load successfully, restore selections from URL
@@ -151,6 +164,7 @@ export const quickFiltersSectionLogic = kea<quickFiltersSectionLogicType>([
             const { currentLocation } = router.values
             const quickFiltersParam = currentLocation.searchParams[QUICK_FILTERS_URL_PARAM]
             const urlSelections = quickFiltersParam ? deserializeQuickFilters(quickFiltersParam) : {}
+            let didChange = false
 
             // Add/update selections that are in URL but not (or different) in state
             Object.entries(urlSelections).forEach(([filterId, optionId]) => {
@@ -167,15 +181,21 @@ export const quickFiltersSectionLogic = kea<quickFiltersSectionLogicType>([
                 const currentSelection = values.selectedQuickFilters[filterId]
                 if (!currentSelection || currentSelection.optionId !== optionId) {
                     actions.restoreQuickFilterValue(filterId, filter.property_name, option)
+                    didChange = true
                 }
             })
 
             // Clear selections that are in state but not in URL
             Object.keys(values.selectedQuickFilters).forEach((filterId) => {
                 if (!urlSelections[filterId]) {
-                    actions.clearQuickFilter(filterId)
+                    actions.restoreClearQuickFilter(filterId)
+                    didChange = true
                 }
             })
+
+            if (didChange) {
+                actions.quickFiltersCommitted()
+            }
         },
     })),
 
@@ -202,6 +222,7 @@ export const quickFiltersSectionLogic = kea<quickFiltersSectionLogicType>([
         return {
             setQuickFilterValue: syncFiltersToUrl,
             restoreQuickFilterValue: replaceFiltersInUrl,
+            restoreClearQuickFilter: replaceFiltersInUrl,
             clearQuickFilter: syncFiltersToUrl,
         }
     }),

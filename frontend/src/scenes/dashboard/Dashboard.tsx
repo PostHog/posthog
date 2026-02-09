@@ -1,6 +1,5 @@
 import './Dashboard.scss'
 
-import clsx from 'clsx'
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 
 import { IconThumbsDown, IconThumbsUp } from '@posthog/icons'
@@ -12,19 +11,17 @@ import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { cn } from 'lib/utils/css-classes'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
-import { DashboardEditBar } from 'scenes/dashboard/DashboardEditBar'
+import { DashboardFilterBar } from 'scenes/dashboard/DashboardFilters'
 import { DashboardItems } from 'scenes/dashboard/DashboardItems'
 import { DashboardLogicProps, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
-import { DashboardReloadAction, LastRefreshText } from 'scenes/dashboard/DashboardReloadAction'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { InsightErrorState } from 'scenes/insights/EmptyStates'
 import { SceneExport } from 'scenes/sceneTypes'
-import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneStickyBar } from '~/layout/scenes/components/SceneStickyBar'
 import { ProductKey } from '~/queries/schema/schema-general'
-import { DashboardMode, DashboardPlacement, DashboardType, DataColorThemeModel, QueryBasedInsightModel } from '~/types'
+import { DashboardPlacement, DashboardType, DataColorThemeModel, QueryBasedInsightModel } from '~/types'
 
 import { teamLogic } from '../teamLogic'
 import { AddInsightToDashboardModal } from './addInsightToDashboardModal/AddInsightToDashboardModal'
@@ -70,7 +67,6 @@ function DashboardScene(): JSX.Element {
         dashboardMode,
         dashboardFailedToLoad,
         accessDeniedToDashboard,
-        hasVariables,
         refreshAnalysisResult,
         analysisRating,
         showApplyFiltersBanner,
@@ -190,43 +186,7 @@ function DashboardScene(): JSX.Element {
                     )}
 
                     <SceneStickyBar showBorderBottom={false}>
-                        <div className="flex flex-col md:flex-row gap-2 justify-between">
-                            {![
-                                DashboardPlacement.Public,
-                                DashboardPlacement.Export,
-                                DashboardPlacement.FeatureFlag,
-                                DashboardPlacement.Group,
-                                DashboardPlacement.Builtin,
-                            ].includes(placement) &&
-                                dashboard && <DashboardEditBar />}
-                            {[DashboardPlacement.FeatureFlag, DashboardPlacement.Group].includes(placement) &&
-                                dashboard?.id && (
-                                    <LemonButton type="secondary" size="small" to={urls.dashboard(dashboard.id)}>
-                                        {placement === DashboardPlacement.Group
-                                            ? 'Edit dashboard template'
-                                            : 'Edit dashboard'}
-                                    </LemonButton>
-                                )}
-                            {![DashboardPlacement.Export, DashboardPlacement.Builtin].includes(placement) && (
-                                <div
-                                    className={clsx('flex shrink-0 deprecated-space-x-4 dashoard-items-actions', {
-                                        'mt-7': hasVariables,
-                                    })}
-                                >
-                                    <div
-                                        className={`left-item ${
-                                            placement === DashboardPlacement.Public ? 'text-right' : ''
-                                        }`}
-                                    >
-                                        {[DashboardPlacement.Public].includes(placement) ? (
-                                            <LastRefreshText />
-                                        ) : !(dashboardMode === DashboardMode.Edit) ? (
-                                            <DashboardReloadAction />
-                                        ) : null}
-                                    </div>
-                                </div>
-                            )}
-                        </div>
+                        <DashboardFilterBar />
                     </SceneStickyBar>
 
                     <DashboardItems />
