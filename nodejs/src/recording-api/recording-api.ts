@@ -38,7 +38,13 @@ export class RecordingApi {
         }
     }
 
-    async start(): Promise<void> {
+    async start(recordingService?: RecordingService): Promise<void> {
+        if (recordingService) {
+            this.recordingService = recordingService
+            logger.info('[RecordingApi] Started with injected RecordingService')
+            return
+        }
+
         // Load S3 settings
         const s3Region = this.hub.SESSION_RECORDING_V2_S3_REGION ?? 'us-east-1'
         const s3Endpoint = this.hub.SESSION_RECORDING_V2_S3_ENDPOINT ?? undefined

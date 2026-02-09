@@ -122,10 +122,20 @@ describe('RecordingService', () => {
             expect(result).toEqual({ ok: false, error: 'deleted', deletedAt: undefined })
         })
 
-        it('propagates unexpected errors', async () => {
+        it('propagates unexpected S3 errors', async () => {
             mockS3Send.mockRejectedValue(new Error('S3 network error'))
 
             await expect(service.getBlock(validParams)).rejects.toThrow('S3 network error')
+        })
+
+        it('propagates unexpected decryption errors', async () => {
+            const mockBody = {
+                transformToByteArray: jest.fn().mockResolvedValue(new Uint8Array([1, 2, 3])),
+            }
+            mockS3Send.mockResolvedValue({ Body: mockBody })
+            mockDecryptor.decryptBlock.mockRejectedValue(new Error('crypto: bad nonce'))
+
+            await expect(service.getBlock(validParams)).rejects.toThrow('crypto: bad nonce')
         })
 
         it('calls S3 with correct parameters', async () => {

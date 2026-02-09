@@ -1,14 +1,17 @@
 /**
- * Integration tests for the Recording API encryption/decryption
+ * Integration tests for the Recording API
  *
  * Tests the full round-trip of:
  * 1. Encrypting block data
  * 2. Decrypting block data
  * 3. Handling deleted sessions (crypto shredding)
+ * 4. HTTP endpoints via supertest
+ * 5. S3 + decryption pipeline via localstack
+ * 6. Cache invalidation on delete
  *
  * Includes tests with:
  * - MemoryKeyStore (always run)
- * - DynamoDB/KMS via Localstack (run when LOCALSTACK_ENABLED=1)
+ * - DynamoDB/KMS/S3 via Localstack (run when LOCALSTACK_ENABLED=1)
  *
  * To run localstack tests:
  *   docker-compose up localstack
@@ -28,13 +31,27 @@ import {
     DescribeKeyCommand,
     KMSClient,
 } from '@aws-sdk/client-kms'
+import {
+    CreateBucketCommand,
+    DeleteBucketCommand,
+    DeleteObjectCommand,
+    ListObjectsV2Command,
+    PutObjectCommand,
+    S3Client,
+} from '@aws-sdk/client-s3'
+import { Server } from 'http'
 import sodium from 'libsodium-wrappers'
 import snappy from 'snappy'
+import supertest from 'supertest'
+import express from 'ultimate-express'
 
 import { parseJSON } from '../utils/json-parse'
+import { MemoryCachedKeyStore } from './cache'
 import { SodiumRecordingDecryptor, SodiumRecordingEncryptor } from './crypto'
 import { DynamoDBKeyStore, MemoryKeyStore } from './keystore'
-import { KeyStore, SessionKey, SessionKeyDeletedError } from './types'
+import { RecordingApi } from './recording-api'
+import { RecordingService } from './recording-service'
+import { KeyStore, RecordingApiHub, SessionKey, SessionKeyDeletedError } from './types'
 
 // Localstack configuration
 const LOCALSTACK_ENDPOINT = 'http://localhost:4566'
@@ -350,9 +367,7 @@ describe('Recording API encryption integration', () => {
         })
     }
 
-    // ============================================================
     // Tests with MemoryKeyStore (always run)
-    // ============================================================
     describe('with MemoryKeyStore', () => {
         let keyStore: MemoryKeyStore
         let encryptor: SodiumRecordingEncryptor
@@ -397,9 +412,7 @@ describe('Recording API encryption integration', () => {
         })
     })
 
-    // ============================================================
     // Tests with DynamoDB/KMS via Localstack (run when LOCALSTACK_ENABLED=1)
-    // ============================================================
     const describeLocalstack = shouldRunLocalstackTests ? describe : describe.skip
 
     describeLocalstack('with Localstack (DynamoDB + KMS)', () => {
@@ -641,6 +654,328 @@ describe('Recording API encryption integration', () => {
                 const key2 = await keyStore.getKey(sessionId, team2)
                 expect(key2.sessionState).toBe('ciphertext')
             })
+        })
+
+        describe('S3 + decryption pipeline', () => {
+            let s3Client: S3Client
+            let recordingService: RecordingService
+            const S3_BUCKET = 'test-recording-bucket'
+            const S3_PREFIX = 'session_recordings'
+
+            beforeAll(async () => {
+                s3Client = new S3Client({
+                    endpoint: LOCALSTACK_ENDPOINT,
+                    region: 'us-east-1',
+                    credentials: { accessKeyId: 'test', secretAccessKey: 'test' },
+                    forcePathStyle: true,
+                })
+
+                try {
+                    await s3Client.send(new CreateBucketCommand({ Bucket: S3_BUCKET }))
+                } catch {
+                    // Bucket may already exist
+                }
+            }, 30000)
+
+            afterAll(async () => {
+                try {
+                    const objects = await s3Client.send(new ListObjectsV2Command({ Bucket: S3_BUCKET }))
+                    for (const obj of objects.Contents ?? []) {
+                        await s3Client.send(new DeleteObjectCommand({ Bucket: S3_BUCKET, Key: obj.Key }))
+                    }
+                    await s3Client.send(new DeleteBucketCommand({ Bucket: S3_BUCKET }))
+                } catch {
+                    // Ignore cleanup errors
+                }
+                s3Client.destroy()
+            })
+
+            beforeEach(() => {
+                recordingService = new RecordingService(s3Client, S3_BUCKET, S3_PREFIX, keyStore, decryptor)
+            })
+
+            it('should upload encrypted block to S3 and fetch it back decrypted', async () => {
+                const sessionId = `s3-roundtrip-${Date.now()}`
+                const teamId = 1
+                const originalEvents = [
+                    { type: 2, data: { source: 1, html: '<div>test</div>' } },
+                    { type: 3, data: { source: 2, mutations: [{ id: 1 }] } },
+                ]
+
+                const sessionKey = await keyStore.generateKey(sessionId, teamId)
+                const blockData = await createBlockData(originalEvents)
+                const encrypted = encryptor.encryptBlockWithKey(sessionId, teamId, blockData, sessionKey)
+
+                const s3Key = `${S3_PREFIX}/30d/1700000000-abcdef0123456789`
+                await s3Client.send(new PutObjectCommand({ Bucket: S3_BUCKET, Key: s3Key, Body: encrypted }))
+
+                const result = await recordingService.getBlock({
+                    sessionId,
+                    teamId,
+                    key: s3Key,
+                    startByte: 0,
+                    endByte: encrypted.length - 1,
+                })
+
+                expect(result.ok).toBe(true)
+                if (result.ok) {
+                    expect(result.data.equals(blockData)).toBe(true)
+                    const events = await parseBlockData(result.data)
+                    expect(events).toHaveLength(2)
+                    expect(events[0][1]).toEqual(originalEvents[0])
+                }
+            })
+
+            it('should return deleted result when key has been deleted', async () => {
+                const sessionId = `s3-deleted-${Date.now()}`
+                const teamId = 1
+
+                const sessionKey = await keyStore.generateKey(sessionId, teamId)
+                const blockData = await createBlockData([{ type: 2, data: { content: 'secret' } }])
+                const encrypted = encryptor.encryptBlockWithKey(sessionId, teamId, blockData, sessionKey)
+
+                const s3Key = `${S3_PREFIX}/30d/1700000001-abcdef0123456789`
+                await s3Client.send(new PutObjectCommand({ Bucket: S3_BUCKET, Key: s3Key, Body: encrypted }))
+
+                await keyStore.deleteKey(sessionId, teamId)
+
+                const result = await recordingService.getBlock({
+                    sessionId,
+                    teamId,
+                    key: s3Key,
+                    startByte: 0,
+                    endByte: encrypted.length - 1,
+                })
+
+                expect(result).toEqual(
+                    expect.objectContaining({ ok: false, error: 'deleted', deletedAt: expect.any(Number) })
+                )
+            })
+        })
+    })
+
+    // HTTP integration tests (always run, uses MemoryKeyStore)
+    describe('HTTP endpoints', () => {
+        let keyStore: MemoryKeyStore
+        let encryptor: SodiumRecordingEncryptor
+        let decryptor: SodiumRecordingDecryptor
+        let app: express.Application
+        let server: Server
+        let mockS3Send: jest.Mock
+
+        beforeEach(async () => {
+            keyStore = new MemoryKeyStore()
+            await keyStore.start()
+
+            decryptor = new SodiumRecordingDecryptor(keyStore)
+            await decryptor.start()
+
+            encryptor = new SodiumRecordingEncryptor(keyStore)
+            await encryptor.start()
+
+            mockS3Send = jest.fn()
+            const mockS3Client = { send: mockS3Send, destroy: jest.fn() } as unknown as S3Client
+
+            const recordingService = new RecordingService(
+                mockS3Client,
+                'test-bucket',
+                'session_recordings',
+                keyStore,
+                decryptor
+            )
+
+            const recordingApi = new RecordingApi({} as RecordingApiHub)
+            await recordingApi.start(recordingService)
+
+            app = express()
+            app.use('/', recordingApi.router())
+            server = app.listen(0, () => {})
+        })
+
+        afterEach(() => {
+            server.close()
+        })
+
+        describe('GET /block', () => {
+            it('should return decrypted data with correct headers', async () => {
+                const sessionId = 'http-session-1'
+                const teamId = 1
+                const originalEvents = [{ type: 2, data: { content: 'hello' } }]
+
+                const sessionKey = await keyStore.generateKey(sessionId, teamId)
+                const blockData = await createBlockData(originalEvents)
+                const encrypted = encryptor.encryptBlockWithKey(sessionId, teamId, blockData, sessionKey)
+
+                mockS3Send.mockResolvedValue({
+                    Body: { transformToByteArray: () => Promise.resolve(encrypted) },
+                })
+
+                const res = await supertest(app)
+                    .get(`/api/projects/${teamId}/recordings/${sessionId}/block`)
+                    .query({
+                        key: 'session_recordings/30d/1764634738680-3cca0f5d3c7cc7ee',
+                        start: '0',
+                        end: String(encrypted.length - 1),
+                    })
+
+                expect(res.status).toBe(200)
+                expect(res.headers['content-type']).toContain('application/octet-stream')
+                expect(res.headers['cache-control']).toBe('public, max-age=2592000, immutable')
+                expect(Buffer.from(res.body).equals(blockData)).toBe(true)
+            })
+
+            it('should return 410 for deleted session', async () => {
+                const sessionId = 'http-deleted-session'
+                const teamId = 1
+
+                const sessionKey = await keyStore.generateKey(sessionId, teamId)
+                const blockData = await createBlockData([{ type: 2, data: { content: 'secret' } }])
+                const encrypted = encryptor.encryptBlockWithKey(sessionId, teamId, blockData, sessionKey)
+
+                await keyStore.deleteKey(sessionId, teamId)
+
+                mockS3Send.mockResolvedValue({
+                    Body: { transformToByteArray: () => Promise.resolve(encrypted) },
+                })
+
+                const res = await supertest(app)
+                    .get(`/api/projects/${teamId}/recordings/${sessionId}/block`)
+                    .query({
+                        key: 'session_recordings/30d/1764634738680-3cca0f5d3c7cc7ee',
+                        start: '0',
+                        end: String(encrypted.length - 1),
+                    })
+
+                expect(res.status).toBe(410)
+                expect(res.body.error).toBe('Recording has been deleted')
+                expect(res.body.deleted_at).toBeDefined()
+            })
+
+            it('should return 404 when S3 returns no body', async () => {
+                mockS3Send.mockResolvedValue({ Body: null })
+
+                const res = await supertest(app).get('/api/projects/1/recordings/session-1/block').query({
+                    key: 'session_recordings/30d/1764634738680-3cca0f5d3c7cc7ee',
+                    start: '0',
+                    end: '100',
+                })
+
+                expect(res.status).toBe(404)
+                expect(res.body.error).toBe('Block not found')
+            })
+        })
+
+        describe('DELETE /recording', () => {
+            it('should delete a recording and return success', async () => {
+                const sessionId = 'http-delete-session'
+                const teamId = 1
+                await keyStore.generateKey(sessionId, teamId)
+
+                const res = await supertest(app).delete(`/api/projects/${teamId}/recordings/${sessionId}`)
+
+                expect(res.status).toBe(200)
+                expect(res.body).toEqual({ team_id: teamId, session_id: sessionId, status: 'deleted' })
+            })
+
+            it('should return 404 for non-existent key', async () => {
+                const res = await supertest(app).delete('/api/projects/1/recordings/non-existent')
+
+                expect(res.status).toBe(404)
+                expect(res.body.error).toBe('Recording key not found')
+            })
+
+            it('should return 410 for already deleted key', async () => {
+                const sessionId = 'http-already-deleted'
+                const teamId = 1
+                await keyStore.generateKey(sessionId, teamId)
+                await keyStore.deleteKey(sessionId, teamId)
+
+                const res = await supertest(app).delete(`/api/projects/${teamId}/recordings/${sessionId}`)
+
+                expect(res.status).toBe(410)
+                expect(res.body.error).toBe('Recording has already been deleted')
+                expect(res.body.deleted_at).toBeDefined()
+            })
+        })
+    })
+
+    // Cache invalidation tests (always run)
+    describe('cache invalidation on delete', () => {
+        it('should not serve stale cached key after deletion', async () => {
+            const memoryKeyStore = new MemoryKeyStore()
+            await memoryKeyStore.start()
+            const cachedKeyStore = new MemoryCachedKeyStore(memoryKeyStore)
+
+            const sessionId = `cache-invalidation-${Date.now()}`
+            const teamId = 1
+
+            await cachedKeyStore.generateKey(sessionId, teamId)
+
+            // Populate cache
+            const cachedKey = await cachedKeyStore.getKey(sessionId, teamId)
+            expect(cachedKey.sessionState).toBe('ciphertext')
+
+            // Delete through cache layer
+            await cachedKeyStore.deleteKey(sessionId, teamId)
+
+            // Next read must return deleted, not stale cached ciphertext
+            const afterDelete = await cachedKeyStore.getKey(sessionId, teamId)
+            expect(afterDelete.sessionState).toBe('deleted')
+            expect(afterDelete.deletedAt).toBeDefined()
+        })
+
+        it('should throw SessionKeyDeletedError when decrypting after cached key deletion', async () => {
+            const memoryKeyStore = new MemoryKeyStore()
+            await memoryKeyStore.start()
+            const cachedKeyStore = new MemoryCachedKeyStore(memoryKeyStore)
+
+            const decryptor = new SodiumRecordingDecryptor(cachedKeyStore)
+            await decryptor.start()
+
+            const encryptor = new SodiumRecordingEncryptor(cachedKeyStore)
+            await encryptor.start()
+
+            const sessionId = `cache-decrypt-${Date.now()}`
+            const teamId = 1
+
+            const sessionKey = await cachedKeyStore.generateKey(sessionId, teamId)
+            const blockData = await createBlockData([{ type: 2, data: { content: 'cached' } }])
+            const encrypted = encryptor.encryptBlockWithKey(sessionId, teamId, blockData, sessionKey)
+
+            // Populate cache via decrypt
+            const decrypted = await decryptor.decryptBlock(sessionId, teamId, encrypted)
+            expect(decrypted.equals(blockData)).toBe(true)
+
+            // Delete through cache
+            await cachedKeyStore.deleteKey(sessionId, teamId)
+
+            // Decrypt must fail with SessionKeyDeletedError
+            await expect(decryptor.decryptBlock(sessionId, teamId, encrypted)).rejects.toThrow(SessionKeyDeletedError)
+        })
+
+        it('should invalidate through nested cache layers', async () => {
+            const memoryKeyStore = new MemoryKeyStore()
+            await memoryKeyStore.start()
+
+            // Simulate two-layer cache: outer memory cache wrapping inner memory cache
+            const innerCache = new MemoryCachedKeyStore(memoryKeyStore)
+            const outerCache = new MemoryCachedKeyStore(innerCache)
+
+            const sessionId = `nested-cache-${Date.now()}`
+            const teamId = 1
+
+            await outerCache.generateKey(sessionId, teamId)
+
+            // Populate both cache layers
+            const key = await outerCache.getKey(sessionId, teamId)
+            expect(key.sessionState).toBe('ciphertext')
+
+            // Delete through outer cache
+            await outerCache.deleteKey(sessionId, teamId)
+
+            // All layers must return deleted
+            const afterDelete = await outerCache.getKey(sessionId, teamId)
+            expect(afterDelete.sessionState).toBe('deleted')
         })
     })
 })

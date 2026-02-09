@@ -1,6 +1,6 @@
 import sodium from 'libsodium-wrappers'
 
-import { KeyStore, SessionKey } from '../types'
+import { KeyStore, SessionKey, SessionKeyDeletedError } from '../types'
 
 /**
  * In-memory key store for testing purposes.
@@ -48,6 +48,10 @@ export class MemoryKeyStore implements KeyStore {
     }
 
     deleteKey(sessionId: string, teamId: number): Promise<boolean> {
+        const deletedAt = this.deletedKeys.get(`${teamId}:${sessionId}`)
+        if (deletedAt) {
+            return Promise.reject(new SessionKeyDeletedError(sessionId, teamId, deletedAt))
+        }
         if (this.keystore.has(`${teamId}:${sessionId}`)) {
             this.keystore.delete(`${teamId}:${sessionId}`)
             // Store timestamp in seconds (Unix timestamp)
