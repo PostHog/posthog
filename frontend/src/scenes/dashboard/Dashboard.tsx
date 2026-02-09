@@ -86,12 +86,12 @@ function DashboardScene(): JSX.Element {
         return () => abortAnyRunningQuery()
     })
 
-    if (!dashboard && !itemsLoading && !dashboardFailedToLoad) {
-        return <NotFound object="dashboard" />
-    }
-
     if (accessDeniedToDashboard) {
         return <AccessDenied object="dashboard" />
+    }
+
+    if (!dashboard && !itemsLoading && !dashboardFailedToLoad) {
+        return <NotFound object="dashboard" />
     }
 
     return (

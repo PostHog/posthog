@@ -477,6 +477,48 @@ describe('dashboardLogic', () => {
         })
     })
 
+    describe('when dashboard tile streaming fails', () => {
+        it('sets access denied on 403 without marking dashboard as failed-to-load', async () => {
+            logic = dashboardLogic({ id: 5 })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.tileStreamingFailure({ status: 403, message: '403 permission_denied' })
+            }).toMatchValues({
+                accessDeniedToDashboard: true,
+                dashboardFailedToLoad: false,
+                error404: false,
+            })
+        })
+
+        it('marks dashboard as failed-to-load on non-403/404 errors', async () => {
+            logic = dashboardLogic({ id: 5 })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.tileStreamingFailure({ status: 500, message: '500 💣' })
+            }).toMatchValues({
+                dashboardFailedToLoad: true,
+            })
+        })
+
+        it('marks dashboard as not found on 404 errors', async () => {
+            logic = dashboardLogic({ id: 5 })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.tileStreamingFailure({ status: 404, message: '404' })
+            }).toMatchValues({
+                error404: true,
+                dashboardFailedToLoad: false,
+                accessDeniedToDashboard: false,
+            })
+        })
+    })
+
     describe('when props id is set to a number', () => {
         beforeEach(async () => {
             logic = dashboardLogic({ id: 5 })

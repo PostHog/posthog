@@ -1390,15 +1390,23 @@ export const dashboardLogic = kea<dashboardLogicType>([
             })
         },
         tileStreamingFailure: ({ error }) => {
-            if (error?.message?.includes('404') || error?.status === 404) {
+            const status = error?.status
+            const message = error?.message
+            const is404 = status === 404 || message?.includes('404')
+            const is403 = status === 403 || message?.includes('403')
+
+            if (is404) {
                 actions.dashboardNotFound()
-            } else if (error?.message?.includes('403') || error?.status === 403) {
+                return
+            } else if (is403) {
                 actions.setAccessDeniedToDashboard()
-            } else {
-                // Show error toast for other errors (500s, network issues, etc.)
-                const errorMessage = error?.message || 'Dashboard streaming failed'
-                lemonToast.error(`Failed to load dashboard: ${errorMessage}`)
+                return
             }
+            // Show error toast for other errors (500s, network issues, etc.)
+            const errorMessage = error?.message || 'Dashboard streaming failed'
+            lemonToast.error(`Failed to load dashboard: ${errorMessage}`)
+            // Make streaming failures behave like regular load failures (UI + metrics).
+            actions.loadDashboardFailure(error)
         },
 
         [insightsModel.actionTypes.duplicateInsightSuccess]: () => {
