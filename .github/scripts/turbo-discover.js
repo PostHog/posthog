@@ -74,6 +74,27 @@ function getProductDuration(product, durations) {
     return total
 }
 
+function packSmallProducts(products, durations) {
+    const buckets = []
+    let current = []
+    let currentDuration = 0
+
+    for (const product of products) {
+        const duration = getProductDuration(product, durations)
+        if (current.length > 0 && currentDuration + duration > TARGET_SHARD_SECONDS) {
+            buckets.push(current)
+            current = []
+            currentDuration = 0
+        }
+        current.push(product)
+        currentDuration += duration
+    }
+    if (current.length > 0) {
+        buckets.push(current)
+    }
+    return buckets
+}
+
 function buildMatrix(products, durations) {
     const matrix = []
     const small = []
@@ -99,10 +120,10 @@ function buildMatrix(products, durations) {
         }
     }
 
-    if (small.length > 0) {
+    for (const bucket of packSmallProducts(small, durations)) {
         matrix.push({
-            group: small.join(', '),
-            filters: small.map((p) => `--filter=@posthog/products-${p}`).join(' '),
+            group: bucket.join(', '),
+            filters: bucket.map((p) => `--filter=@posthog/products-${p}`).join(' '),
             pytest_args: '',
         })
     }
