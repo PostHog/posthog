@@ -4249,6 +4249,6 @@ class TestPostgresPrinter(BaseTest):
         query = "WITH RECURSIVE nums AS (SELECT 1 AS n UNION ALL SELECT n + 1 FROM nums WHERE n < 5) SELECT n FROM nums"
         self.assertEqual(
             self._select(query),
-            "WITH RECURSIVE nums AS (SELECT 1 AS n UNION ALL SELECT (n + 1) FROM nums WHERE (n < 5)) "
+            "WITH RECURSIVE nums AS (SELECT 1 AS n UNION ALL SELECT (nums.n + 1) FROM nums WHERE (nums.n < 5)) "
             "SELECT nums.n FROM nums LIMIT 50000",
         )
