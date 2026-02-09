@@ -2,18 +2,5 @@
     "enabledPlugins": {
         "pyright-lsp@claude-plugins-official": true,
         "typescript-lsp@claude-plugins-official": true
-    },
-    "hooks": {
-        "PostToolUse": [
-            {
-                "matcher": "Edit|Write",
-                "hooks": [
-                    {
-                        "type": "command",
-                        "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/format-on-save.sh"
-                    }
-                ]
-            }
-        ]
     }
 }
