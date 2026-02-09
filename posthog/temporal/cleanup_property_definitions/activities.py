@@ -14,7 +14,6 @@ from posthog.temporal.cleanup_property_definitions.types import (
     PreviewPropertyDefinitionsInput,
 )
 from posthog.temporal.common.clickhouse import get_client
-from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_write_only_logger
 
 LOGGER = get_write_only_logger()
@@ -51,8 +50,7 @@ async def delete_property_definitions_from_postgres(
         deleted_count, _ = PropertyDefinition.objects.filter(pk__in=batch_ids).delete()
         return deleted_count
 
-    async with Heartbeater():
-        deleted_count = await delete_batch()
+    deleted_count = await delete_batch()
 
     logger.info(f"Deleted {deleted_count} property definitions from PostgreSQL")
     return deleted_count

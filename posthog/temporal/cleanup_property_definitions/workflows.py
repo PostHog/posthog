@@ -79,7 +79,6 @@ class CleanupPropertyDefinitionsWorkflow(PostHogWorkflow):
                     batch_size=batch_size,
                 ),
                 start_to_close_timeout=timedelta(minutes=5),
-                heartbeat_timeout=timedelta(seconds=30),
                 retry_policy=common.RetryPolicy(
                     maximum_attempts=3,
                     initial_interval=timedelta(seconds=30),
