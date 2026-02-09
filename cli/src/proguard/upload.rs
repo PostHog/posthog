@@ -71,7 +71,7 @@ pub fn upload(args: &Args) -> Result<()> {
 
     let to_upload: SymbolSetUpload = file.try_into()?;
 
-    api::symbol_sets::upload_with_retry(&[to_upload], *batch_size, *skip_release_on_fail)?;
+    api::symbol_sets::upload_with_retry(vec![to_upload], *batch_size, *skip_release_on_fail)?;
 
     Ok(())
 }

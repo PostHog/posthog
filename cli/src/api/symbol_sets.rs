@@ -61,30 +61,27 @@ struct BulkUploadFinishRequest {
 /// If `skip_release_on_fail` is true and the server returns a release_id_mismatch error,
 /// the upload will be retried without release IDs.
 pub fn upload_with_retry(
-    input_sets: &[SymbolSetUpload],
+    input_sets: Vec<SymbolSetUpload>,
     batch_size: usize,
     skip_release_on_fail: bool,
 ) -> Result<()> {
-    match upload_inner(input_sets, batch_size) {
+    let res = upload_inner(&input_sets, batch_size);
+    match res {
         Ok(()) => Ok(()),
         Err(UploadError::ReleaseIdMismatch) if skip_release_on_fail => {
             warn!("Release ID mismatch detected. Retrying upload without release IDs...");
             let sets_without_release: Vec<_> = input_sets
-                .iter()
+                .into_iter()
                 .map(|s| SymbolSetUpload {
                     chunk_id: s.chunk_id.clone(),
                     release_id: None,
-                    data: s.data.clone(),
+                    data: s.data,
                 })
                 .collect();
             upload_inner(&sets_without_release, batch_size).map_err(|e| e.into())
         }
         Err(e) => Err(e.into()),
     }
-}
-
-pub fn upload(input_sets: &[SymbolSetUpload], batch_size: usize) -> Result<()> {
-    upload_inner(input_sets, batch_size).map_err(|e| e.into())
 }
 
 fn upload_inner(input_sets: &[SymbolSetUpload], batch_size: usize) -> Result<(), UploadError> {

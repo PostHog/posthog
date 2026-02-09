@@ -64,7 +64,7 @@ pub fn upload(args: &Args) -> Result<()> {
 
     info!("Found {} maps to upload", uploads.len());
 
-    symbol_sets::upload_with_retry(&uploads, *batch_size, release.skip_release_on_fail)?;
+    symbol_sets::upload_with_retry(uploads, *batch_size, release.skip_release_on_fail)?;
 
     Ok(())
 }
