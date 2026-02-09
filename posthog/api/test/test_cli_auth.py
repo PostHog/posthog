@@ -140,6 +140,7 @@ class TestCLIAuthAuthorizeEndpoint(APIBaseTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertIn("CSRF", response.json()["detail"])
 
     def test_authorization_rejects_invalid_user_code(self):
         """Test that authorization fails with invalid user code"""
