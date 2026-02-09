@@ -18,9 +18,10 @@ import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { HogFunctionTemplateType } from '~/types'
+import { HogFunctionTemplateType, SurveyEventName } from '~/types'
 
 import { getRegisteredTriggerTypes } from './hogflows/registry/triggers/triggerTypeRegistry'
+import { isSurveyTrigger, surveyTriggerLogic } from './hogflows/steps/surveyTriggerLogic'
 import { HogFlowActionSchema, isFunctionAction, isTriggerFunction } from './hogflows/steps/types'
 import { type HogFlow, type HogFlowAction, HogFlowActionValidationResult, type HogFlowEdge } from './hogflows/types'
 import type { workflowLogicType } from './workflowLogicType'
@@ -91,15 +92,6 @@ function getTemplatingError(value: string, templating?: 'liquid' | 'hog'): strin
             return `Liquid template error: ${e.message}`
         }
     }
-}
-
-function hasSurveyTrigger(workflow: HogFlow): boolean {
-    const trigger = workflow.actions.find((a) => a.type === 'trigger')
-    if (!trigger || trigger.config.type !== 'event') {
-        return false
-    }
-    const events = trigger.config.filters?.events ?? []
-    return events.length === 1 && events[0]?.id === SurveyEventName.SENT
 }
 
 function ensureSurveysLoaded(): void {
@@ -447,7 +439,7 @@ export const workflowLogic = kea<workflowLogicType>([
         },
         loadWorkflowSuccess: async ({ originalWorkflow }) => {
             actions.resetWorkflow(originalWorkflow)
-            if (hasSurveyTrigger(originalWorkflow)) {
+            if (isSurveyTrigger(originalWorkflow)) {
                 ensureSurveysLoaded()
             }
         },
