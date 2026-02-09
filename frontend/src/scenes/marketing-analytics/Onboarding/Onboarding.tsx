@@ -36,7 +36,7 @@ export function Onboarding({ completeOnboarding }: OnboardingProps): JSX.Element
         if (hasSources && currentStep === 'welcome') {
             setStep('add-source')
         }
-    }, [hasSources, currentStep])
+    }, [hasSources, currentStep, setStep])
 
     useOnMountEffect(() => {
         reportMarketingAnalyticsOnboardingViewed()
