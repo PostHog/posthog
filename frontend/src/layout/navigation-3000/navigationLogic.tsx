@@ -616,7 +616,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                         },
                         {
                             identifier: Scene.Snippets,
-                            label: 'Apps',
+                            label: 'JS snippets',
                             icon: <IconPlug />,
                             to: urls.snippets(),
                             tooltipDocLink: 'https://posthog.com/docs/cdp/apps',
