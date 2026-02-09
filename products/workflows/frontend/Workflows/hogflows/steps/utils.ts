@@ -1,6 +1,10 @@
 import { useEffect, useState } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 
+import { SurveyEventName } from 'lib/posthog-typed'
+
+import { HogFlowAction } from '../types'
+
 export function updateOptionalName<T>(obj: T & { name?: string }, name: string | undefined): T & { name?: string } {
     const updated = { ...obj }
     if (name) {
@@ -92,4 +96,27 @@ export function useDebouncedNameInput<T extends { name?: string }>(
         localName,
         handleNameChange,
     }
+}
+
+export function isSurveyTriggerConfig(config: Extract<HogFlowAction, { type: 'trigger' }>['config']): boolean {
+    if (config.type !== 'event') {
+        return false
+    }
+    const events = config.filters?.events ?? []
+    return events.length === 1 && events[0]?.id === SurveyEventName.SENT
+}
+
+export function getSelectedSurveyId(config: HogFlowAction['config']): string | null | 'any' {
+    if (!('type' in config) || config.type !== 'event') {
+        return null
+    }
+    const surveyIdProp = config.filters?.properties?.find((p: any) => p.key === '$survey_id')
+    if (!surveyIdProp) {
+        return null // No selection made
+    }
+    // If operator is 'is_set', it means "Any survey" was selected
+    if (surveyIdProp.operator === 'is_set') {
+        return 'any'
+    }
+    return surveyIdProp.value ?? null
 }

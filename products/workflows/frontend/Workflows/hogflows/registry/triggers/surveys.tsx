@@ -17,6 +17,7 @@ import { registerTriggerType } from 'products/workflows/frontend/Workflows/hogfl
 import { workflowLogic } from 'products/workflows/frontend/Workflows/workflowLogic'
 
 import { surveyTriggerLogic } from '../../steps/surveyTriggerLogic'
+import { getSelectedSurveyId, isSurveyTriggerConfig } from '../../steps/utils'
 
 type EventTriggerConfig = {
     type: 'event'
@@ -28,24 +29,16 @@ type EventTriggerConfig = {
     }
 }
 
-function getEventId(config: EventTriggerConfig): string | null {
-    const [firstEvent] = config.filters?.events ?? []
-    return typeof firstEvent?.id === 'string' ? firstEvent.id : null
-}
-
-function getSelectedSurveyId(config: EventTriggerConfig): string | null {
-    const surveyIdProp = config.filters?.properties?.find((p: any) => p.key === '$survey_id')
-    return surveyIdProp?.value ?? null
-}
-
 function getCompletedResponsesOnly(config: EventTriggerConfig): boolean {
     const completedProp = config.filters?.properties?.find((p: any) => p.key === '$survey_completed')
     return completedProp?.value === true
 }
 
-function buildProperties(surveyId: string | null, completedResponsesOnly: boolean): any[] {
+function buildProperties(surveyId: string | null | 'any', completedResponsesOnly: boolean): any[] {
     const properties: any[] = []
-    if (surveyId) {
+    if (surveyId === 'any') {
+        properties.push({ key: '$survey_id', operator: 'is_set', type: 'event' })
+    } else if (surveyId) {
         properties.push({ key: '$survey_id', value: surveyId, operator: 'exact', type: 'event' })
     }
     if (completedResponsesOnly) {
@@ -125,7 +118,7 @@ function StepTriggerConfigurationSurvey({ node }: { node: any }): JSX.Element {
         },
         {
             label: 'Any survey',
-            value: null as string | null,
+            value: 'any' as string | null,
             labelInMenu: (
                 <div className="flex flex-col py-1">
                     <span className="font-medium">Any survey</span>
@@ -250,7 +243,7 @@ function StepTriggerConfigurationSurvey({ node }: { node: any }): JSX.Element {
             </LemonField.Pure>
 
             {(() => {
-                if (selectedSurveyId === null && !surveysLoading && allSurveys.length === 0) {
+                if (selectedSurveyId === 'any' && !surveysLoading && allSurveys.length === 0) {
                     return (
                         <LemonBanner type="warning" className="w-full">
                             <p>
@@ -297,7 +290,7 @@ registerTriggerType({
     label: 'Survey response',
     icon: <IconMessage />,
     description: 'Trigger when a user submits a survey response',
-    matchConfig: (config) => config.type === 'event' && getEventId(config) === SurveyEventName.SENT,
+    matchConfig: (config) => isSurveyTriggerConfig(config),
     buildConfig: () => ({
         type: 'event',
         filters: {
