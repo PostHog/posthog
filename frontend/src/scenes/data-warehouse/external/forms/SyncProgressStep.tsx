@@ -96,6 +96,7 @@ export const SyncProgressStep = (): JSX.Element => {
                 loading={dataWarehouseSourcesLoading}
                 disableTableWhileLoading={false}
                 columns={columns}
+                maxHeight="calc(100vh - 23rem)"
             />
         </SceneSection>
     )

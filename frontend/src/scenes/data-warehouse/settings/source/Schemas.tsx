@@ -148,6 +148,7 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
                 dataSource={schemas}
                 loading={initialLoad}
                 disableTableWhileLoading={false}
+                maxHeight="calc(100vh - 16rem)"
                 columns={[
                     {
                         title: 'Schema Name',

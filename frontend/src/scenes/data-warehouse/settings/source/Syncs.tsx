@@ -75,6 +75,7 @@ export const Syncs = ({ id }: SyncsProps): JSX.Element => {
                 dataSource={filteredJobs}
                 loading={jobsLoading}
                 disableTableWhileLoading={false}
+                maxHeight="calc(100vh - 16rem)"
                 columns={[
                     {
                         title: 'Schema',
