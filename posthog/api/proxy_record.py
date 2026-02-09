@@ -68,9 +68,18 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
 
+    MAX_PROXY_RECORDS_PER_ORG = 5
+
     def create(self, request, *args, **kwargs):
         domain = request.data.get("domain")
         queryset = self.organization.proxy_records.order_by("-created_at")
+
+        if queryset.count() >= self.MAX_PROXY_RECORDS_PER_ORG:
+            return Response(
+                {"detail": f"Maximum of {self.MAX_PROXY_RECORDS_PER_ORG} proxy records per organization."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         record = queryset.create(
             organization_id=self.organization.id,
             created_by=request.user,
