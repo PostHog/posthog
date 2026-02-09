@@ -93,7 +93,7 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                 />
 
                 <Menu.Portal>
-                    <Menu.Backdrop className="z-[var(--z-force-modal-above-popovers)]" />
+                    <Menu.Backdrop className="fixed inset-0 z-[var(--z-force-modal-above-popovers)]" />
 
                     <Menu.Positioner className="z-[var(--z-popover)]" sideOffset={4}>
                         <Menu.Popup className="primitive-menu-content max-h-[calc(var(--available-height)-4px)] min-w-[250px] w-full">

@@ -176,10 +176,7 @@ export function SidePanelOfframpModal(): JSX.Element {
                                     <LemonButton
                                         type={step.action.type || 'secondary'}
                                         size="small"
-                                        className={cn(
-                                            'self-center @md:self-center mt-2',
-                                            step.image && 'self-center @md:self-start'
-                                        )}
+                                        className={cn('self-center @md:self-center mt-2', step.image && 'self-start')}
                                         onClick={step.action.onClick}
                                     >
                                         {step.action.label}
