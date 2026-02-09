@@ -76,17 +76,14 @@ export function StepCard({
                           : 'none',
                 backgroundColor: isExpanded ? 'var(--secondary-3000)' : 'var(--color-bg-light)',
             }}
-            draggable
-            onDragStart={onDragStart}
             onDragOver={onDragOver}
-            onDragEnd={onDragEnd}
         >
             <button
                 type="button"
                 onClick={onToggleExpand}
                 className="w-full flex items-center gap-2 p-2.5 text-left bg-transparent border-none cursor-pointer"
             >
-                <span className="text-muted-3000 cursor-grab">
+                <span className="text-muted-3000 cursor-grab" draggable onDragStart={onDragStart} onDragEnd={onDragEnd}>
                     <IconDragHandle className="w-3 h-3" />
                 </span>
 
