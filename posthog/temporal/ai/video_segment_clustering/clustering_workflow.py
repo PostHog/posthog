@@ -8,6 +8,7 @@ from temporalio import workflow
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError
 
+from posthog.temporal.ai.video_segment_clustering.models import GetSessionsToPrimeResult
 from posthog.temporal.common.base import PostHogWorkflow
 
 with workflow.unsafe.imports_passed_through():
@@ -57,9 +58,7 @@ class VideoSegmentClusteringWorkflow(PostHogWorkflow):
     @workflow.run
     async def run(self, inputs: ClusteringWorkflowInputs) -> WorkflowResult:
         """Execute the video segment clustering workflow for a single team."""
-        # Step 1: Prime the document_embeddings table (optional).
-        # This is outside the try/except so that failure here fails the whole workflow
-        # (allowing Temporal retries), unlike later steps which are best-effort.
+        # Step 1: Prime the document_embeddings table with analysis of latest sessions
         prime_info = None
         if inputs.skip_priming:
             workflow.logger.info(f"Skipping priming (team {inputs.team_id})")
@@ -83,49 +82,8 @@ class VideoSegmentClusteringWorkflow(PostHogWorkflow):
                     backoff_coefficient=2.0,
                 ),
             )
-        if prime_info is not None:
-            # Start session summarization as child workflows
-            sessions_summarized = 0
-            sessions_failed = 0
-            if prime_info.user_id is None:
-                raise ApplicationError(
-                    f"No user with access to team {inputs.team_id} found for running summarization",
-                    non_retryable=True,
-                )
-            if prime_info.session_ids_to_summarize:
-                summarize_handles: dict[str, temporalio.workflow.ChildWorkflowHandle] = {}
-                for session_id in prime_info.session_ids_to_summarize:
-                    redis_key_base = f"session-summary:single:{prime_info.user_id}-{inputs.team_id}:{session_id}"
-                    handle = await temporalio.workflow.start_child_workflow(
-                        "summarize-session",
-                        SingleSessionSummaryInputs(
-                            session_id=session_id,
-                            user_id=prime_info.user_id,
-                            user_distinct_id_to_log=prime_info.user_distinct_id,
-                            team_id=inputs.team_id,
-                            redis_key_base=redis_key_base,
-                            model_to_use=DEFAULT_VIDEO_UNDERSTANDING_MODEL,
-                            video_validation_enabled="full",
-                        ),
-                        id=f"session-summary:single:direct:{inputs.team_id}:{session_id}:{prime_info.user_id}:{workflow.uuid4()}",
-                        execution_timeout=timedelta(minutes=30),
-                        retry_policy=RetryPolicy(
-                            maximum_attempts=1,  # No retries - if video export times out, just skip
-                        ),
-                        parent_close_policy=temporalio.workflow.ParentClosePolicy.REQUEST_CANCEL,
-                    )
-                    summarize_handles[session_id] = handle
-
-                # Wait for all summarization child workflows to complete, skipping failures
-                for session_id, handle in summarize_handles.items():
-                    try:
-                        await handle
-                        sessions_summarized += 1
-                    except Exception as e:
-                        sessions_failed += 1
-                        workflow.logger.warning(f"Session summarization skipped for {session_id}: {e}")
-
-            workflow.logger.info(f"Priming complete: {sessions_summarized} summarized, {sessions_failed} failed")
+            # Then, run the child workflows to summarize those sessions
+            await self.run_priming_child_workflows(team_id=inputs.team_id, prime_info=prime_info)
 
         # Activity 2: Fetch segments within lookback window
         fetch_result = await workflow.execute_activity(
@@ -281,3 +239,43 @@ class VideoSegmentClusteringWorkflow(PostHogWorkflow):
             success=True,
             error=None,
         )
+
+    async def run_priming_child_workflows(self, *, team_id: int, prime_info: GetSessionsToPrimeResult) -> None:
+        sessions_summarized = 0
+        sessions_failed = 0
+        if prime_info.user_id is None:
+            raise ApplicationError(f"No user with access to team {team_id} found for running summarization")
+        if prime_info.session_ids_to_summarize:
+            summarize_handles: dict[str, temporalio.workflow.ChildWorkflowHandle] = {}
+            for session_id in prime_info.session_ids_to_summarize:
+                redis_key_base = f"session-summary:single:{prime_info.user_id}-{team_id}:{session_id}"
+                handle = await temporalio.workflow.start_child_workflow(
+                    "summarize-session",
+                    SingleSessionSummaryInputs(
+                        session_id=session_id,
+                        user_id=prime_info.user_id,
+                        user_distinct_id_to_log=prime_info.user_distinct_id,
+                        team_id=team_id,
+                        redis_key_base=redis_key_base,
+                        model_to_use=DEFAULT_VIDEO_UNDERSTANDING_MODEL,
+                        video_validation_enabled="full",
+                    ),
+                    id=f"session-summary:single:direct:{team_id}:{session_id}:{prime_info.user_id}:{workflow.uuid4()}",
+                    execution_timeout=timedelta(minutes=30),
+                    retry_policy=RetryPolicy(
+                        maximum_attempts=1,  # No retries - if summarization, just skip this session
+                    ),
+                    parent_close_policy=temporalio.workflow.ParentClosePolicy.REQUEST_CANCEL,
+                )
+                summarize_handles[session_id] = handle
+
+            # Wait for all summarization child workflows to complete, skipping failures
+            for session_id, handle in summarize_handles.items():
+                try:
+                    await handle
+                    sessions_summarized += 1
+                except Exception as e:
+                    sessions_failed += 1
+                    workflow.logger.warning(f"Session summarization skipped for {session_id}: {e}")
+
+        workflow.logger.debug(f"Priming complete: {sessions_summarized} summarized, {sessions_failed} failed")
