@@ -20055,6 +20055,103 @@
                             "const": "campaigns",
                             "type": "string"
                         },
+                        "conversionActionTypes": {
+                            "additionalProperties": false,
+                            "properties": {
+                                "fallback": {
+                                    "items": [
+                                        {
+                                            "const": "purchase",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "offsite_conversion.fb_pixel_purchase",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "app_custom_event.fb_mobile_purchase",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "lead",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "offsite_conversion.fb_pixel_lead",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "onsite_conversion.lead_grouped",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "complete_registration",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "offsite_conversion.fb_pixel_complete_registration",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "app_custom_event.fb_mobile_complete_registration",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "offsite_complete_registration_add_meta_leads",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "app_install",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "mobile_app_install",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "subscribe",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "offsite_conversion.fb_pixel_subscribe",
+                                            "type": "string"
+                                        }
+                                    ],
+                                    "maxItems": 14,
+                                    "minItems": 14,
+                                    "type": "array"
+                                },
+                                "omni": {
+                                    "items": [
+                                        {
+                                            "const": "omni_purchase",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "omni_lead",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "omni_complete_registration",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "omni_app_install",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "omni_subscribe",
+                                            "type": "string"
+                                        }
+                                    ],
+                                    "maxItems": 5,
+                                    "minItems": 5,
+                                    "type": "array"
+                                }
+                            },
+                            "required": ["omni", "fallback"],
+                            "type": "object"
+                        },
                         "defaultSources": {
                             "items": [
                                 {
@@ -20146,7 +20243,8 @@
                         "tableKeywords",
                         "tableExclusions",
                         "defaultSources",
-                        "primarySource"
+                        "primarySource",
+                        "conversionActionTypes"
                     ],
                     "type": "object"
                 },
@@ -21341,6 +21439,29 @@
                     "$ref": "#/definitions/MaxRecordingEventFilter"
                 }
             ]
+        },
+        "MetaAdsConversionFallbackActionTypes": {
+            "enum": [
+                "purchase",
+                "offsite_conversion.fb_pixel_purchase",
+                "app_custom_event.fb_mobile_purchase",
+                "lead",
+                "offsite_conversion.fb_pixel_lead",
+                "onsite_conversion.lead_grouped",
+                "complete_registration",
+                "offsite_conversion.fb_pixel_complete_registration",
+                "app_custom_event.fb_mobile_complete_registration",
+                "offsite_complete_registration_add_meta_leads",
+                "app_install",
+                "mobile_app_install",
+                "subscribe",
+                "offsite_conversion.fb_pixel_subscribe"
+            ],
+            "type": "string"
+        },
+        "MetaAdsConversionOmniActionTypes": {
+            "enum": ["omni_purchase", "omni_lead", "omni_complete_registration", "omni_app_install", "omni_subscribe"],
+            "type": "string"
         },
         "MetaAdsDefaultSources": {
             "enum": [
