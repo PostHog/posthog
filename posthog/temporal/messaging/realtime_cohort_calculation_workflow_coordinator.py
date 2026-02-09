@@ -93,14 +93,15 @@ async def get_realtime_cohort_calculation_count_activity(
         total_count = 0
 
         # First, process teams that should include all cohorts
-        for team_id in inputs.team_ids:
-            team_cohorts_count = Cohort.objects.filter(
-                deleted=False, cohort_type=CohortType.REALTIME, team_id=team_id
-            ).count()
-            total_count += team_cohorts_count
+        if inputs.team_ids:
+            for team_id in inputs.team_ids:
+                team_cohorts_count = Cohort.objects.filter(
+                    deleted=False, cohort_type=CohortType.REALTIME, team_id=team_id
+                ).count()
+                total_count += team_cohorts_count
 
         # Handle global percentage for all other teams
-        if inputs.global_percentage > 0.0:
+        if inputs.global_percentage is not None and inputs.global_percentage > 0.0:
             # Get cohorts from teams not in the force list
             if inputs.team_ids:
                 other_teams_cohorts_count = (
@@ -168,6 +169,10 @@ class RealtimeCohortCalculationCoordinatorWorkflow(PostHogWorkflow):
 
             if limit <= 0:
                 break
+
+            # Ensure team_ids and global_percentage are set (they should be after __post_init__)
+            assert inputs.team_ids is not None, "team_ids should be set after __post_init__"
+            assert inputs.global_percentage is not None, "global_percentage should be set after __post_init__"
 
             workflow_configs.append(
                 WorkflowConfig(
