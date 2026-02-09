@@ -28,7 +28,3 @@ RETRY_BACKOFF_COEFFICIENT = 2.0
 ACTIVITY_START_TO_CLOSE_TIMEOUT = timedelta(minutes=2)
 ACTIVITY_SCHEDULE_TO_CLOSE_TIMEOUT = timedelta(minutes=5)
 ACTIVITY_HEARTBEAT_TIMEOUT = timedelta(seconds=30)
-
-# Workflow execution timeout — caps the entire workflow so stuck ones don't
-# linger forever. Generous enough to cover retries but bounded.
-WORKFLOW_EXECUTION_TIMEOUT = timedelta(minutes=10)
