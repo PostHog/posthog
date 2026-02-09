@@ -1,10 +1,12 @@
 from datetime import UTC, date, datetime
+from typing import Any
 
 from unittest import mock
 
 import requests
 from parameterized import parameterized
 
+from posthog.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
 from posthog.temporal.data_imports.sources.github.github import (
     GithubPaginator,
     _flatten_commit,
@@ -14,6 +16,22 @@ from posthog.temporal.data_imports.sources.github.github import (
     get_resource,
     validate_credentials,
 )
+
+
+def _endpoint_params(resource: EndpointResource) -> dict[str, Any]:
+    endpoint = resource.get("endpoint")
+    assert isinstance(endpoint, dict)
+    params = endpoint.get("params")
+    assert isinstance(params, dict)
+    return params
+
+
+def _endpoint_path(resource: EndpointResource) -> str:
+    endpoint = resource.get("endpoint")
+    assert isinstance(endpoint, dict)
+    path = endpoint.get("path")
+    assert isinstance(path, str)
+    return path
 
 
 class TestFormatIncrementalValue:
@@ -32,14 +50,15 @@ class TestFormatIncrementalValue:
 class TestGetResource:
     def test_issues_full_refresh(self):
         resource = get_resource("issues", "owner/repo", should_use_incremental_field=False)
+        params = _endpoint_params(resource)
 
         assert resource["name"] == "issues"
         assert resource["primary_key"] == "id"
         assert resource["write_disposition"] == "replace"
-        assert resource["endpoint"]["path"] == "/repos/owner/repo/issues"
-        assert resource["endpoint"]["params"]["state"] == "all"
-        assert resource["endpoint"]["params"]["per_page"] == 100
-        assert "since" not in resource["endpoint"]["params"]
+        assert _endpoint_path(resource) == "/repos/owner/repo/issues"
+        assert params["state"] == "all"
+        assert params["per_page"] == 100
+        assert "since" not in params
 
     def test_issues_incremental_with_since(self):
         last_value = datetime(2026, 1, 15, 10, 0, 0, tzinfo=UTC)
@@ -49,11 +68,12 @@ class TestGetResource:
             should_use_incremental_field=True,
             db_incremental_field_last_value=last_value,
         )
+        params = _endpoint_params(resource)
 
         assert resource["write_disposition"] == {"disposition": "merge", "strategy": "upsert"}
-        assert resource["endpoint"]["params"]["since"] == "2026-01-15T10:00:00+00:00"
-        assert resource["endpoint"]["params"]["sort"] == "updated"
-        assert resource["endpoint"]["params"]["direction"] == "asc"
+        assert params["since"] == "2026-01-15T10:00:00+00:00"
+        assert params["sort"] == "updated"
+        assert params["direction"] == "asc"
 
     def test_commits_incremental_with_since(self):
         last_value = datetime(2026, 1, 15, 10, 0, 0, tzinfo=UTC)
@@ -63,11 +83,12 @@ class TestGetResource:
             should_use_incremental_field=True,
             db_incremental_field_last_value=last_value,
         )
+        params = _endpoint_params(resource)
 
         assert resource["primary_key"] == "sha"
-        assert resource["endpoint"]["params"]["since"] == "2026-01-15T10:00:00+00:00"
-        assert resource["endpoint"]["params"]["sort"] == "created"
-        assert resource["endpoint"]["params"]["direction"] == "asc"
+        assert params["since"] == "2026-01-15T10:00:00+00:00"
+        assert params["sort"] == "created"
+        assert params["direction"] == "asc"
 
     @parameterized.expand(
         [
@@ -83,16 +104,18 @@ class TestGetResource:
             should_use_incremental_field=True,
             incremental_field=incremental_field,
         )
+        params = _endpoint_params(resource)
 
-        assert resource["endpoint"]["params"]["sort"] == expected_sort
-        assert resource["endpoint"]["params"]["direction"] == "desc"
-        assert "since" not in resource["endpoint"]["params"]
+        assert params["sort"] == expected_sort
+        assert params["direction"] == "desc"
+        assert "since" not in params
 
     def test_pull_requests_full_refresh_no_sort(self):
         resource = get_resource("pull_requests", "owner/repo", should_use_incremental_field=False)
+        params = _endpoint_params(resource)
 
-        assert "sort" not in resource["endpoint"]["params"]
-        assert "direction" not in resource["endpoint"]["params"]
+        assert "sort" not in params
+        assert "direction" not in params
 
     def test_issues_incremental_no_since_without_last_value(self):
         resource = get_resource(
@@ -101,11 +124,12 @@ class TestGetResource:
             should_use_incremental_field=True,
             db_incremental_field_last_value=None,
         )
+        params = _endpoint_params(resource)
 
         assert resource["write_disposition"] == {"disposition": "merge", "strategy": "upsert"}
-        assert "since" not in resource["endpoint"]["params"]
-        assert resource["endpoint"]["params"]["sort"] == "updated"
-        assert resource["endpoint"]["params"]["direction"] == "asc"
+        assert "since" not in params
+        assert params["sort"] == "updated"
+        assert params["direction"] == "asc"
 
 
 class TestGithubPaginator:
@@ -360,6 +384,7 @@ class TestValidateCredentials:
             valid, error = validate_credentials("token", "owner/repo")
 
         assert valid is False
+        assert error is not None
         assert "Connection refused" in error
 
     def test_sends_correct_headers(self):
@@ -369,5 +394,7 @@ class TestValidateCredentials:
 
         mock_get.assert_called_once()
         call_kwargs = mock_get.call_args
-        assert call_kwargs.kwargs["headers"]["Authorization"] == "Bearer my-token"
-        assert call_kwargs.kwargs["headers"]["X-GitHub-Api-Version"] == "2022-11-28"
+        assert call_kwargs is not None
+        headers = call_kwargs.kwargs["headers"]
+        assert headers["Authorization"] == "Bearer my-token"
+        assert headers["X-GitHub-Api-Version"] == "2022-11-28"
