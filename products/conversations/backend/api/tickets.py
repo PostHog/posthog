@@ -15,7 +15,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import OrganizationMembership
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.person.person import READ_DB_FOR_PERSONS, Person, PersonDistinctId
-from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission
+from posthog.permissions import APIScopePermission
 from posthog.utils import relative_date_parse
 
 from products.conversations.backend.api.serializers import TicketAssignmentSerializer
@@ -102,19 +102,8 @@ class TicketViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "ticket"
     queryset = Ticket.objects.all()
     serializer_class = TicketSerializer
-    permission_classes = [IsAuthenticated, APIScopePermission, PostHogFeatureFlagPermission]
+    permission_classes = [IsAuthenticated, APIScopePermission]
     pagination_class = TicketPagination
-    posthog_feature_flag = {
-        "product-support": [
-            "list",
-            "retrieve",
-            "create",
-            "update",
-            "partial_update",
-            "destroy",
-            "unread_count",
-        ]
-    }
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         """Filter tickets by team."""
