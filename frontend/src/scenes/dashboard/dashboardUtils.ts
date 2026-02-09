@@ -35,7 +35,6 @@ export const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 
 export const SEARCH_PARAM_QUERY_VARIABLES_KEY = 'query_variables'
 export const SEARCH_PARAM_FILTERS_KEY = 'query_filters'
-
 /**
  * Once a dashboard has more tiles than this,
  * we don't automatically preview dashboard date/filter/breakdown changes.
