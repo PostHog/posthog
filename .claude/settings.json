@@ -9,7 +9,7 @@
                 "hooks": [
                     {
                         "type": "command",
-                        "command": "if [ \"$CLAUDE_CODE_REMOTE\" = 'true' ]; then cd \"$CLAUDE_PROJECT_DIR\" && pnpm install --frozen-lockfile 2>/dev/null; fi"
+                        "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/setup-cloud.sh"
                     }
                 ]
             }
