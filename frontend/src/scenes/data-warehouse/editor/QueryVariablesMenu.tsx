@@ -129,7 +129,7 @@ export function QueryVariablesMenu({ disabledReason }: QueryVariablesMenuProps):
 
     if (!variablesLoading) {
         variableSections.push({
-            title: 'Search',
+            title: '',
             items: [searchItem],
         })
         if (variablesUsedItems.length) {
