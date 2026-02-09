@@ -38,7 +38,7 @@ from ee.api.scim.utils import mask_email
 from ee.api.vercel.types import VercelClaims, VercelSystemClaims, VercelUser, VercelUserClaims
 from ee.api.vercel.utils import get_vercel_jwks
 
-saml_logger = structlog.get_logger("posthog.auth.saml")
+logger = structlog.get_logger(__name__)
 
 
 def _saml_log_context(email: str, organization_domain: OrganizationDomain | None = None) -> dict[str, Any]:
@@ -91,13 +91,13 @@ class MultitenantSAMLAuth(SAMLAuth):
     def auth_complete(self, *args, **kwargs):
         try:
             result = super().auth_complete(*args, **kwargs)
-            saml_logger.info("saml_auth_complete")
+            logger.info("saml_auth_complete")
             return result
         except Exception as e:
             import json
 
             posthoganalytics.tag("request_data", json.dumps(self.strategy.request_data()))
-            saml_logger.warning("saml_auth_complete_failed", error=str(e))
+            logger.warning("saml_auth_complete_failed", error=str(e))
             raise
 
     def get_idp(self, organization_domain_or_id: Union["OrganizationDomain", str]):
@@ -108,11 +108,11 @@ class MultitenantSAMLAuth(SAMLAuth):
                 else OrganizationDomain.objects.verified_domains().get(id=organization_domain_or_id)
             )
         except (OrganizationDomain.DoesNotExist, DjangoValidationError):
-            saml_logger.warning("saml_idp_lookup_failed", idp_id=str(organization_domain_or_id))
+            logger.warning("saml_idp_lookup_failed", idp_id=str(organization_domain_or_id))
             raise AuthFailed(self, "Authentication request is invalid. Invalid RelayState.")
 
         if not organization_domain.organization.is_feature_available(AvailableFeature.SAML):
-            saml_logger.warning(
+            logger.warning(
                 "saml_license_missing",
                 domain=organization_domain.domain,
                 organization_id=str(organization_domain.organization_id),
@@ -144,10 +144,10 @@ class MultitenantSAMLAuth(SAMLAuth):
         instance = OrganizationDomain.objects.get_verified_for_email_address(email=email)
 
         if not instance or not instance.has_saml:
-            saml_logger.warning("saml_not_configured", **_saml_log_context(email))
+            logger.warning("saml_not_configured", **_saml_log_context(email))
             raise AuthFailed(self, "SAML not configured for this user.")
 
-        saml_logger.info(
+        logger.info(
             "saml_auth_redirect",
             domain=instance.domain,
             organization_id=str(instance.organization_id),
@@ -238,7 +238,7 @@ class MultitenantSAMLAuth(SAMLAuth):
         """
         idp_name = response.get("idp_name")
         if not idp_name:
-            saml_logger.warning(
+            logger.warning(
                 "saml_email_domain_validation_failed",
                 reason="missing_idp_name",
                 **_saml_log_context(email),
@@ -248,7 +248,7 @@ class MultitenantSAMLAuth(SAMLAuth):
         try:
             organization_domain = OrganizationDomain.objects.verified_domains().get(id=idp_name)
         except (OrganizationDomain.DoesNotExist, DjangoValidationError):
-            saml_logger.warning(
+            logger.warning(
                 "saml_email_domain_validation_failed",
                 reason="invalid_idp",
                 idp_id=str(idp_name),
@@ -257,7 +257,7 @@ class MultitenantSAMLAuth(SAMLAuth):
             raise AuthFailed(self, "Authentication request is invalid. Invalid IdP identifier.")
 
         if email.split("@")[-1].lower() != organization_domain.domain.lower():
-            saml_logger.warning(
+            logger.warning(
                 "saml_email_domain_mismatch",
                 configured_domain=organization_domain.domain,
                 organization_id=str(organization_domain.organization_id),
@@ -577,7 +577,7 @@ def social_auth_allowed(backend, details, response, *args, **kwargs) -> None:
     if sso_enforcement is None or sso_enforcement == backend.name:
         return
 
-    saml_logger.warning(
+    logger.warning(
         "sso_enforcement_blocked_login",
         attempted_backend=backend.name,
         enforced_backend=sso_enforcement,

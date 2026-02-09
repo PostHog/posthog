@@ -99,6 +99,8 @@ LOGGING = {
         "posthog.tasks.hypercache_verification": {"level": "INFO", "handlers": ["console"], "propagate": False},
         "posthog.storage.hypercache_verifier": {"level": "INFO", "handlers": ["console"], "propagate": False},
         "posthog.auth.mfa": {"level": "INFO", "handlers": ["console"], "propagate": False},
+        "ee.api.authentication": {"level": "INFO", "handlers": ["console"], "propagate": False},
+        "ee.api.scim": {"level": "INFO", "handlers": ["console"], "propagate": False},
         "boto3": {"level": "WARN"},  # boto3 logs are noisy
         "botocore": {"level": "WARN"},  # botocore logs are noisy
     },

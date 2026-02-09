@@ -2,6 +2,7 @@ from typing import Union
 
 from django.db import transaction
 
+import structlog
 from django_scim import constants
 from django_scim.adapters import SCIMGroup
 from scim2_filter_parser.attr_paths import AttrPath
@@ -10,6 +11,8 @@ from posthog.models import OrganizationMembership, User
 from posthog.models.organization_domain import OrganizationDomain
 
 from ee.models.rbac.role import Role, RoleMembership
+
+logger = structlog.get_logger(__name__)
 
 
 class PostHogSCIMGroup(SCIMGroup):
@@ -100,24 +103,52 @@ class PostHogSCIMGroup(SCIMGroup):
                 defaults={"created_by": None},
             )
 
-            # Handle member updates if provided
             if "members" in data:
-                cls._update_members(role, data["members"], organization_domain)
+                cls._replace_all_members(role, data["members"], organization_domain)
 
         return cls(role, organization_domain)
 
     @classmethod
-    def _update_members(cls, role: Role, members_data: list[dict], organization_domain: OrganizationDomain) -> None:
+    def _add_members(cls, role: Role, members_data: list[dict], organization_domain: OrganizationDomain) -> None:
         """
-        Update role membership based on SCIM members list.
+        Additively upsert members into a role without removing existing members.
         """
-        # Get list of user IDs from SCIM data
+        for member_data in members_data:
+            user_id = member_data.get("value")
+            if not user_id:
+                continue
+
+            try:
+                user = User.objects.get(id=user_id)
+                org_membership, _ = OrganizationMembership.objects.get_or_create(
+                    user=user,
+                    organization=organization_domain.organization,
+                    defaults={"level": OrganizationMembership.Level.MEMBER},
+                )
+                RoleMembership.objects.get_or_create(
+                    role=role, user=user, defaults={"organization_member": org_membership}
+                )
+            except User.DoesNotExist:
+                logger.warning(
+                    "scim_group_member_not_found",
+                    user_id=user_id,
+                    role_id=str(role.id),
+                    organization_id=str(organization_domain.organization.id),
+                )
+
+    @classmethod
+    def _replace_all_members(
+        cls, role: Role, members_data: list[dict], organization_domain: OrganizationDomain
+    ) -> None:
+        """
+        Full sync: set role membership to exactly the provided list.
+        Only used by PUT and POST which have full-replacement semantics.
+        """
         member_user_ids = {member.get("value") for member in members_data}
 
-        # Get current role members
         current_memberships = RoleMembership.objects.filter(role=role).select_related("user", "organization_member")
-
         current_user_ids = {str(rm.user.id) for rm in current_memberships}
+
         to_add = member_user_ids - current_user_ids
         to_remove = current_user_ids - member_user_ids
 
@@ -133,9 +164,13 @@ class PostHogSCIMGroup(SCIMGroup):
                         role=role, user=user, defaults={"organization_member": org_membership}
                     )
             except User.DoesNotExist:
-                continue
+                logger.warning(
+                    "scim_group_member_not_found",
+                    user_id=user_id,
+                    role_id=str(role.id),
+                    organization_id=str(organization_domain.organization.id),
+                )
 
-        # Remove members no longer in the group
         RoleMembership.objects.filter(role=role, user__id__in=to_remove).delete()
 
     def put(self, data: dict) -> None:
@@ -153,7 +188,7 @@ class PostHogSCIMGroup(SCIMGroup):
             self.obj.save()
 
             members_data = data.get("members", [])
-            self._update_members(self.obj, members_data, self._organization_domain)
+            self._replace_all_members(self.obj, members_data, self._organization_domain)
 
     def delete(self) -> None:
         """
@@ -165,7 +200,8 @@ class PostHogSCIMGroup(SCIMGroup):
         """
         Handle SCIM PATCH replace operations (called by django-scim2 handle_operations).
 
-        Replace group name or members.
+        Replace group name. For members, upsert without removing existing ones
+        because IdPs like Entra can send Replace with partial member lists.
         """
         first_path = path.first_path
         attr_name = first_path.attr_name
@@ -180,7 +216,7 @@ class PostHogSCIMGroup(SCIMGroup):
                     raise ValueError("Complex filtered paths for members are not supported")
                 else:
                     members_data = value if isinstance(value, list) else [value]
-                    self._update_members(self.obj, members_data, self._organization_domain)
+                    self._add_members(self.obj, members_data, self._organization_domain)
 
     def handle_add(self, path: AttrPath, value: Union[str, list, dict], operation: dict) -> None:
         """
@@ -193,13 +229,12 @@ class PostHogSCIMGroup(SCIMGroup):
 
         with transaction.atomic():
             if attr_name == "displayName":
-                # Add operation for displayName acts like replace
                 self.obj.name = value
                 self.obj.save()
 
             elif attr_name == "members":
+                members_to_add: list[dict] = []
                 if path.is_complex:
-                    # Handle filtered path: members[value eq "<user-id>"]
                     user_id = path.params_by_attr_paths.get(("members", "value", None))
                     if user_id:
                         members_to_add = [{"value": user_id}]
@@ -210,23 +245,7 @@ class PostHogSCIMGroup(SCIMGroup):
                 elif isinstance(value, str):
                     members_to_add = [{"value": value}]
 
-                for member_data in members_to_add:
-                    user_id = member_data.get("value")
-
-                    try:
-                        user = User.objects.get(id=user_id)
-                        # Upsert organization membership
-                        org_membership, _ = OrganizationMembership.objects.get_or_create(
-                            user=user,
-                            organization=self._organization_domain.organization,
-                            defaults={"level": OrganizationMembership.Level.MEMBER},
-                        )
-
-                        RoleMembership.objects.get_or_create(
-                            role=self.obj, user=user, defaults={"organization_member": org_membership}
-                        )
-                    except User.DoesNotExist:
-                        continue
+                self._add_members(self.obj, members_to_add, self._organization_domain)
 
     def handle_remove(self, path: AttrPath, value: Union[str, list, dict], operation: dict) -> None:
         """

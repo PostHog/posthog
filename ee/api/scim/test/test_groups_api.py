@@ -279,6 +279,112 @@ class TestSCIMGroupsAPI(APILicensedTest):
         assert response.status_code == status.HTTP_200_OK
         assert RoleMembership.objects.filter(role=role, user=user).exists()
 
+    def test_patch_replace_members_preserves_existing_members(self):
+        user1 = User.objects.create_user(
+            email="existing1@example.com", password=None, first_name="Existing1", is_email_verified=True
+        )
+        user2 = User.objects.create_user(
+            email="existing2@example.com", password=None, first_name="Existing2", is_email_verified=True
+        )
+        user3 = User.objects.create_user(
+            email="newmember@example.com", password=None, first_name="New", is_email_verified=True
+        )
+        for u in (user1, user2, user3):
+            OrganizationMembership.objects.create(
+                user=u, organization=self.organization, level=OrganizationMembership.Level.MEMBER
+            )
+
+        role = Role.objects.create(name="TestRole", organization=self.organization)
+        for u in (user1, user2):
+            RoleMembership.objects.create(
+                role=role,
+                user=u,
+                organization_member=OrganizationMembership.objects.get(user=u, organization=self.organization),
+            )
+
+        patch_data = {
+            "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+            "Operations": [{"op": "replace", "path": "members", "value": [{"value": str(user3.id)}]}],
+        }
+
+        response = self.client.patch(
+            f"/scim/v2/{self.domain.id}/Groups/{role.id}", data=patch_data, content_type="application/scim+json"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert RoleMembership.objects.filter(role=role, user=user1).exists()
+        assert RoleMembership.objects.filter(role=role, user=user2).exists()
+        assert RoleMembership.objects.filter(role=role, user=user3).exists()
+
+    def test_patch_replace_without_path_preserves_existing_members(self):
+        user1 = User.objects.create_user(
+            email="existing@example.com", password=None, first_name="Existing", is_email_verified=True
+        )
+        user2 = User.objects.create_user(
+            email="replace@example.com", password=None, first_name="Replace", is_email_verified=True
+        )
+        for u in (user1, user2):
+            OrganizationMembership.objects.create(
+                user=u, organization=self.organization, level=OrganizationMembership.Level.MEMBER
+            )
+
+        role = Role.objects.create(name="OldName", organization=self.organization)
+        RoleMembership.objects.create(
+            role=role,
+            user=user1,
+            organization_member=OrganizationMembership.objects.get(user=user1, organization=self.organization),
+        )
+
+        patch_data = {
+            "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+            "Operations": [
+                {"op": "replace", "value": {"displayName": "NewName", "members": [{"value": str(user2.id)}]}}
+            ],
+        }
+
+        response = self.client.patch(
+            f"/scim/v2/{self.domain.id}/Groups/{role.id}", data=patch_data, content_type="application/scim+json"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        role.refresh_from_db()
+        assert role.name == "NewName"
+        assert RoleMembership.objects.filter(role=role, user=user1).exists()
+        assert RoleMembership.objects.filter(role=role, user=user2).exists()
+
+    def test_put_replaces_all_members(self):
+        user1 = User.objects.create_user(
+            email="putexisting@example.com", password=None, first_name="Existing", is_email_verified=True
+        )
+        user2 = User.objects.create_user(
+            email="putnew@example.com", password=None, first_name="New", is_email_verified=True
+        )
+        for u in (user1, user2):
+            OrganizationMembership.objects.create(
+                user=u, organization=self.organization, level=OrganizationMembership.Level.MEMBER
+            )
+
+        role = Role.objects.create(name="TestRole", organization=self.organization)
+        RoleMembership.objects.create(
+            role=role,
+            user=user1,
+            organization_member=OrganizationMembership.objects.get(user=user1, organization=self.organization),
+        )
+
+        put_data = {
+            "schemas": ["urn:ietf:params:scim:schemas:core:2.0:Group"],
+            "displayName": "TestRole",
+            "members": [{"value": str(user2.id)}],
+        }
+
+        response = self.client.put(
+            f"/scim/v2/{self.domain.id}/Groups/{role.id}", data=put_data, content_type="application/scim+json"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert not RoleMembership.objects.filter(role=role, user=user1).exists()
+        assert RoleMembership.objects.filter(role=role, user=user2).exists()
+
     def test_patch_replace_group_member_with_filtered_path_not_supported(self):
         # Swapping members within a group with a filtered path is not supported
         # Most IdPs send remove and add operations separately in this case
