@@ -5,8 +5,7 @@ import { restrictToParentElement, restrictToVerticalAxis } from '@dnd-kit/modifi
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
-import isEqual from 'lodash.isequal'
-import React, { useEffect, useRef } from 'react'
+import React, { useEffect } from 'react'
 
 import { IconPlusSmall } from '@posthog/icons'
 
@@ -159,12 +158,8 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
     const { addFilter, setLocalFilters, showModal } = useActions(logic)
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const prevFiltersRef = useRef(filters)
     useEffect(() => {
-        if (!isEqual(prevFiltersRef.current, filters)) {
-            prevFiltersRef.current = filters
-            setLocalFilters(filters)
-        }
+        setLocalFilters(filters)
     }, [filters]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     function onSortEnd({ oldIndex, newIndex }: { oldIndex: number; newIndex: number }): void {

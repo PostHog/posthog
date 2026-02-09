@@ -194,8 +194,6 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
             {
                 setFilters: (_, { filters }) => filters,
                 setLocalFilters: (currentFilters, { filters }) => {
-                    // Short-circuit for the round-trip case: the parent echoes back
-                    // the same filters we already applied via setFilters
                     if (isEqual(toFilters(currentFilters), filters)) {
                         return currentFilters
                     }

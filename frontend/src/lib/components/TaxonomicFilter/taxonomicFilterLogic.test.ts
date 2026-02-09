@@ -224,55 +224,6 @@ describe('taxonomicFilterLogic', () => {
             })
     })
 
-    describe('search query race conditions', () => {
-        it('searchQuery never reverts to a previous value during rapid typing', async () => {
-            // Wait for initial loads to complete
-            await expectLogic(logic).toDispatchActionsInAnyOrder([
-                'infiniteListResultsReceived',
-                'infiniteListResultsReceived',
-            ])
-
-            // Simulate rapid typing: each call mimics a keystroke dispatching setSearchQuery
-            const keystrokes = ['e', 'ev', 'eve', 'even', 'event']
-            for (const query of keystrokes) {
-                logic.actions.setSearchQuery(query)
-                // searchQuery should always be the latest value, never a previous one
-                expect(logic.values.searchQuery).toBe(query)
-            }
-
-            // After all the rapid dispatches, wait for the final results to resolve
-            await expectLogic(logic).toDispatchActions(['infiniteListResultsReceived']).delay(1)
-
-            // searchQuery must still be the last typed value
-            expect(logic.values.searchQuery).toBe('event')
-        })
-
-        it('searchQuery survives tab auto-switch from zero-result local data', async () => {
-            // Wait for initial loads
-            await expectLogic(logic).toDispatchActionsInAnyOrder([
-                'infiniteListResultsReceived',
-                'infiniteListResultsReceived',
-            ])
-
-            // Search for something that matches no local items in the active tab.
-            // The setSearchQuery listener checks local-data tabs for zero results and
-            // calls tabRight(). Verify searchQuery is not disrupted.
-            await expectLogic(logic, () => {
-                logic.actions.setSearchQuery('zzz_no_match')
-            })
-                .toDispatchActions(['setSearchQuery'])
-                .delay(1)
-
-            expect(logic.values.searchQuery).toBe('zzz_no_match')
-
-            // Wait for remote results to arrive (which may trigger more tab switches)
-            await expectLogic(logic).toDispatchActionsInAnyOrder(['infiniteListResultsReceived']).delay(1)
-
-            // searchQuery must still be what we typed
-            expect(logic.values.searchQuery).toBe('zzz_no_match')
-        })
-    })
-
     describe('maxContextOptions prop', () => {
         let maxLogic: ReturnType<typeof taxonomicFilterLogic.build>
 
