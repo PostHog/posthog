@@ -99,6 +99,7 @@ from . import (
     flag_value,
     hog,
     hog_function,
+    hog_function_group,
     hog_function_template,
     ingestion_warnings,
     insight_variable,
@@ -916,6 +917,13 @@ register_grandfathered_environment_nested_viewset(
     r"hog_functions",
     hog_function.HogFunctionViewSet,
     "environment_hog_functions",
+    ["team_id"],
+)
+
+register_grandfathered_environment_nested_viewset(
+    r"hog_function_groups",
+    hog_function_group.HogFunctionGroupViewSet,
+    "environment_hog_function_groups",
     ["team_id"],
 )
 

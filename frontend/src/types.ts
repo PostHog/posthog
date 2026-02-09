@@ -5979,6 +5979,7 @@ export type HogFunctionType = {
     template?: HogFunctionTemplateType
     status?: HogFunctionStatus
     batch_export_id?: string | null
+    group?: { id: string; name: string } | null
 }
 
 export type HogFunctionTemplateStatus = 'stable' | 'alpha' | 'beta' | 'deprecated' | 'coming_soon' | 'hidden'
