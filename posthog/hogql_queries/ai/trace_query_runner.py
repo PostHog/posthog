@@ -159,7 +159,7 @@ class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
                 ) AS trace_name
             FROM events
             WHERE event IN (
-                '$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace'
+                '$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace', '$ai_sentiment'
             )
               AND {filter_conditions}
             GROUP BY properties.$ai_trace_id
@@ -172,7 +172,7 @@ class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
         return {
             **super().get_cache_payload(),
             # When the response schema changes, increment this version to invalidate the cache.
-            "schema_version": 2,
+            "schema_version": 3,
         }
 
     @cached_property

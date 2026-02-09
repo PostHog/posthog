@@ -62,12 +62,14 @@ import { EvalsTabContent } from './components/EvalsTabContent'
 import { EventContentDisplayAsync, EventContentGeneration } from './components/EventContentWithAsyncData'
 import { FeedbackTag } from './components/FeedbackTag'
 import { MetricTag } from './components/MetricTag'
+import { SentimentDot } from './components/SentimentTag'
 import { SaveToDatasetButton } from './datasets/SaveToDatasetButton'
 import { FeedbackViewDisplay } from './feedback-view/FeedbackViewDisplay'
 import { useAIData } from './hooks/useAIData'
 import { llmAnalyticsPlaygroundLogic } from './llmAnalyticsPlaygroundLogic'
 import { EnrichedTraceTreeNode, llmAnalyticsTraceDataLogic } from './llmAnalyticsTraceDataLogic'
 import { DisplayOption, TraceViewMode, llmAnalyticsTraceLogic } from './llmAnalyticsTraceLogic'
+import { SENTIMENT_COLOR } from './sentimentUtils'
 import { SummaryViewDisplay } from './summary-view/SummaryViewDisplay'
 import { TextViewDisplay } from './text-view/TextViewDisplay'
 import { exportTraceToClipboard } from './traceExportUtils'
@@ -379,7 +381,33 @@ function TraceMetadata({
             {feedbackEvents.map((feedback) => (
                 <FeedbackTag key={feedback.id} properties={feedback.properties} />
             ))}
+            {featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT] && <TraceSentimentChip />}
         </header>
+    )
+}
+
+function TraceSentimentChip(): JSX.Element | null {
+    const { traceSentimentSummary } = useValues(llmAnalyticsTraceDataLogic)
+    if (!traceSentimentSummary) {
+        return null
+    }
+
+    const { label, avgScore, avgPositive, avgNeutral, avgNegative, count } = traceSentimentSummary
+    const widthPercent = Math.round(avgScore * 100)
+    const barColor = SENTIMENT_COLOR[label]
+    const prefix = count > 1 ? `Avg of ${count} generations — ` : ''
+    const tooltipText = `Sentiment — ${prefix}Positive: ${Math.round(avgPositive * 100)}% / Neutral: ${Math.round(avgNeutral * 100)}% / Negative: ${Math.round(avgNegative * 100)}%`
+
+    return (
+        <Chip title={tooltipText}>
+            <span className="w-10 h-1.5 bg-border-light rounded-full overflow-hidden inline-block">
+                <span
+                    className={`block h-full rounded-full ${barColor}`}
+                    // eslint-disable-next-line react/forbid-dom-props
+                    style={{ width: `${widthPercent}%` }}
+                />
+            </span>
+        </Chip>
     )
 }
 
@@ -533,7 +561,9 @@ const TreeNode = React.memo(function TraceNode({
     const usage = node.displayUsage
     const item = node.event
 
+    const { featureFlags } = useValues(featureFlagLogic)
     const { eventTypeExpanded } = useValues(llmAnalyticsTraceLogic)
+    const { sentimentByEventId } = useValues(llmAnalyticsTraceDataLogic)
     const eventType = getEventType(item)
     const isCollapsedDueToFilter = !eventTypeExpanded(eventType)
     const isBillable =
@@ -541,6 +571,12 @@ const TreeNode = React.memo(function TraceNode({
         isLLMEvent(item) &&
         (item as LLMTraceEvent).event === '$ai_generation' &&
         !!(item as LLMTraceEvent).properties?.$ai_billable
+    const sentimentEventId = isLLMEvent(item)
+        ? ((item as LLMTraceEvent).properties.$ai_generation_id ??
+          (item as LLMTraceEvent).properties.$ai_span_id ??
+          item.id)
+        : null
+    const sentimentEvent = sentimentEventId ? sentimentByEventId.get(sentimentEventId) : undefined
 
     const children = [
         isLLMEvent(item) && item.properties.$ai_is_error && (
@@ -584,6 +620,9 @@ const TreeNode = React.memo(function TraceNode({
                         <span title="Billable" aria-label="Billable" className="text-base">
                             💰
                         </span>
+                    )}
+                    {featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT] && sentimentEvent && (
+                        <SentimentDot event={sentimentEvent} />
                     )}
                     {!isCollapsedDueToFilter && (
                         <Tooltip title={formatLLMEventTitle(item)}>
@@ -760,6 +799,8 @@ const EventContent = React.memo(
         const { featureFlags } = useValues(featureFlagLogic)
         const { displayOption, lineNumber, initialTab, viewMode } = useValues(llmAnalyticsTraceLogic)
         const { handleTextViewFallback, copyLinePermalink, setViewMode } = useActions(llmAnalyticsTraceLogic)
+
+        const { sentimentByEventId } = useValues(llmAnalyticsTraceDataLogic)
 
         const node = event && isLLMEvent(event) ? findNodeForEvent(tree, event.id) : null
         const aggregation = node?.aggregation || null
@@ -991,6 +1032,15 @@ const EventContent = React.memo(
                                                                 httpStatus={event.properties.$ai_http_status}
                                                                 raisedError={event.properties.$ai_is_error}
                                                                 searchQuery={searchQuery}
+                                                                messageSentiments={
+                                                                    featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT]
+                                                                        ? sentimentByEventId.get(
+                                                                              event.properties.$ai_generation_id ??
+                                                                                  event.properties.$ai_span_id ??
+                                                                                  event.id
+                                                                          )?.properties.$ai_sentiment_messages
+                                                                        : undefined
+                                                                }
                                                             />
                                                         ) : event.event === '$ai_embedding' ? (
                                                             <EventContentDisplayAsync

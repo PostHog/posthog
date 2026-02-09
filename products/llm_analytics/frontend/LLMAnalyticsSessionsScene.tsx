@@ -4,9 +4,11 @@ import { IconChevronDown, IconChevronRight } from '@posthog/icons'
 import { LemonTag } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
@@ -14,6 +16,7 @@ import { DataTableRow } from '~/queries/nodes/DataTable/dataTableLogic'
 import { isHogQLQuery } from '~/queries/utils'
 
 import { LLMAnalyticsTraceEvents } from './components/LLMAnalyticsTraceEvents'
+import { UserSentimentBar } from './components/SentimentTag'
 import { useSortableColumns } from './hooks/useSortableColumns'
 import { llmAnalyticsSharedLogic } from './llmAnalyticsSharedLogic'
 import { llmAnalyticsSessionsViewLogic } from './tabs/llmAnalyticsSessionsViewLogic'
@@ -22,6 +25,7 @@ import { formatLLMCost, getTraceTimestamp } from './utils'
 export function LLMAnalyticsSessionsScene(): JSX.Element {
     const { setDates, setShouldFilterTestAccounts, setPropertyFilters } = useActions(llmAnalyticsSharedLogic)
     const { dateFilter } = useValues(llmAnalyticsSharedLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const { setSessionsSort, toggleSessionExpanded, toggleTraceExpanded, toggleGenerationExpanded } =
         useActions(llmAnalyticsSessionsViewLogic)
@@ -88,6 +92,23 @@ export function LLMAnalyticsSessionsScene(): JSX.Element {
                             )
                         },
                     },
+                    ...(featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT]
+                        ? {
+                              sentiment: {
+                                  renderTitle: () => (
+                                      <Tooltip title="Average sentiment across this session's traces">
+                                          Sentiment
+                                      </Tooltip>
+                                  ),
+                                  render: function RenderSentiment({ value }: { value: unknown }) {
+                                      if (!Array.isArray(value) || value.length < 4) {
+                                          return <>–</>
+                                      }
+                                      return <UserSentimentBar scores={value as [number, number, number, number]} />
+                                  },
+                              },
+                          }
+                        : {}),
                     traces: {
                         renderTitle: () => (
                             <Tooltip title="Number of traces in this session">
