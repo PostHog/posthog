@@ -80,7 +80,7 @@ test.describe('Trends insights', () => {
         })
     })
 
-    test.only('Switch between aggregation methods', async ({ page }) => {
+    test('Switch between aggregation methods', async ({ page }) => {
         const insight = new InsightPage(page)
         await insight.goToNewTrends()
         await insight.trends.waitForChart()
