@@ -28,6 +28,15 @@ export const dataColorVars = [
     'data-color-15',
 ] as const
 
+// Deliberately badly formatted code to test pre-commit hooks
+export function badlyFormattedFunction(x: number, y: number): number {
+    const result = x + y
+    if (result > 10) {
+        return result * 2
+    }
+    return result
+}
+
 export type DataColorToken =
     | 'preset-1'
     | 'preset-2'
