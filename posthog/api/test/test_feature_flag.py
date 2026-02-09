@@ -268,15 +268,20 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
-    def test_cant_create_flag_with_in_operator_for_non_cohort_properties(self):
+    @parameterized.expand(
+        [
+            ("in",),
+            ("not_in",),
+        ]
+    )
+    def test_cant_create_flag_with_in_operator_for_person_properties(self, operator: str) -> None:
         count = FeatureFlag.objects.count()
 
-        # Test 'in' operator with person property (should fail)
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags",
             {
                 "name": "Beta feature",
-                "key": "beta-x",
+                "key": f"beta-person-{operator}",
                 "filters": {
                     "groups": [
                         {
@@ -286,7 +291,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                                     "key": "email",
                                     "type": "person",
                                     "value": ["user1@example.com", "user2@example.com"],
-                                    "operator": "in",
+                                    "operator": operator,
                                 }
                             ],
                         }
@@ -300,56 +305,26 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             {
                 "type": "validation_error",
                 "code": "invalid_operator",
-                "detail": "The 'in' operator is only valid for cohort properties, not 'person' properties.",
+                "detail": f"The '{operator}' operator is only valid for cohort properties, not 'person' properties.",
                 "attr": "filters",
             },
         )
-
-        # Test 'not_in' operator with person property (should fail)
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/feature_flags",
-            {
-                "name": "Beta feature",
-                "key": "beta-y",
-                "filters": {
-                    "groups": [
-                        {
-                            "rollout_percentage": 65,
-                            "properties": [
-                                {
-                                    "key": "country",
-                                    "type": "person",
-                                    "value": ["US", "UK"],
-                                    "operator": "not_in",
-                                }
-                            ],
-                        }
-                    ]
-                },
-            },
-        )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response.json(),
-            {
-                "type": "validation_error",
-                "code": "invalid_operator",
-                "detail": "The 'not_in' operator is only valid for cohort properties, not 'person' properties.",
-                "attr": "filters",
-            },
-        )
-
         self.assertEqual(FeatureFlag.objects.count(), count)
 
-    def test_can_create_flag_with_in_operator_for_cohort_properties(self):
+    @parameterized.expand(
+        [
+            ("in",),
+            ("not_in",),
+        ]
+    )
+    def test_can_create_flag_with_in_operator_for_cohort_properties(self, operator: str) -> None:
         cohort = Cohort.objects.create(team=self.team, name="test cohort", created_by=self.user)
 
-        # Test 'in' operator with cohort property (should succeed)
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags",
             {
-                "name": "Cohort feature",
-                "key": "cohort-feature",
+                "name": f"Cohort feature {operator}",
+                "key": f"cohort-feature-{operator}",
                 "filters": {
                     "groups": [
                         {
@@ -359,7 +334,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                                     "key": "id",
                                     "type": "cohort",
                                     "value": cohort.pk,
-                                    "operator": "in",
+                                    "operator": operator,
                                 }
                             ],
                         }
@@ -368,33 +343,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             },
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(response.json()["key"], "cohort-feature")
-
-        # Test 'not_in' operator with cohort property (should succeed)
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/feature_flags",
-            {
-                "name": "Cohort feature not in",
-                "key": "cohort-feature-not-in",
-                "filters": {
-                    "groups": [
-                        {
-                            "rollout_percentage": 100,
-                            "properties": [
-                                {
-                                    "key": "id",
-                                    "type": "cohort",
-                                    "value": cohort.pk,
-                                    "operator": "not_in",
-                                }
-                            ],
-                        }
-                    ]
-                },
-            },
-        )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(response.json()["key"], "cohort-feature-not-in")
+        self.assertEqual(response.json()["key"], f"cohort-feature-{operator}")
 
     def test_cant_update_flag_with_duplicate_key(self):
         existing_flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="red_button")
