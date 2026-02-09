@@ -152,19 +152,24 @@ const DisabledBanner = ({ rule }: { rule: ErrorTrackingRule }): JSX.Element => {
         'disabled_data' in rule && rule.disabled_data ? (rule.disabled_data as Record<string, any>).message : null
 
     return (
-        <LemonBanner
-            className="mx-2 mt-2"
-            type="error"
-            action={{
-                onClick: () => openSidePanel(SidePanelTab.Support, 'bug:error_tracking'),
-                children: 'Contact support',
-            }}
-        >
-            <div>
-                This rule has been disabled due to an error while trying to evaluate it - "{message}". Editing the rule
-                will re enable it. If you need help, reach out to support.
-            </div>
-        </LemonBanner>
+        <>
+            <LemonBanner
+                className="mx-2 mt-2"
+                type="warning"
+                action={{
+                    onClick: () => openSidePanel(SidePanelTab.Support, 'bug:error_tracking'),
+                    children: 'Contact support',
+                }}
+            >
+                This rule has been disabled due to an error. Editing the rule will re-enable it. If you need help, reach
+                out to support.
+            </LemonBanner>
+            {message && (
+                <LemonBanner className="mx-2 mt-1" type="error">
+                    Error during evaluation: {message}
+                </LemonBanner>
+            )}
+        </>
     )
 }
 
