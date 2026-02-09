@@ -184,7 +184,11 @@ const RecordingTemplateCard = (props: RecordingTemplateCardProps): JSX.Element =
     )
 }
 
-const SessionRecordingTemplates = (): JSX.Element => {
+interface SessionRecordingTemplatesProps {
+    hideTemplates?: boolean
+}
+
+const SessionRecordingTemplates = ({ hideTemplates }: SessionRecordingTemplatesProps = {}): JSX.Element => {
     return (
         <div>
             <p>To get the most out of session replay, you just need to know where to start. </p>
@@ -195,23 +199,31 @@ const SessionRecordingTemplates = (): JSX.Element => {
                 </div>
                 <ReplayActiveHoursHeatMap />
             </div>
-            <h2 className="mt-4">Filter templates</h2>
-            <p>
-                Use our templates to find a focus area, then watch the filtered replays to see where users struggle,
-                what could be made more clear, and other ways to improve.
-            </p>
-            {allCategories.map((category) => (
-                <div key={`replay-template-category-${category}`} className="mb-6">
-                    <h2>{category}</h2>
-                    <div className="flex flex-wrap gap-2">
-                        {replayTemplates
-                            .filter((template) => template.categories.includes(category))
-                            .map((template) => (
-                                <RecordingTemplateCard key={template.key} template={template} category={category} />
-                            ))}
-                    </div>
-                </div>
-            ))}
+            {!hideTemplates && (
+                <>
+                    <h2 className="mt-4">Filter templates</h2>
+                    <p>
+                        Use our templates to find a focus area, then watch the filtered replays to see where users
+                        struggle, what could be made more clear, and other ways to improve.
+                    </p>
+                    {allCategories.map((category) => (
+                        <div key={`replay-template-category-${category}`} className="mb-6">
+                            <h2>{category}</h2>
+                            <div className="flex flex-wrap gap-2">
+                                {replayTemplates
+                                    .filter((template) => template.categories.includes(category))
+                                    .map((template) => (
+                                        <RecordingTemplateCard
+                                            key={template.key}
+                                            template={template}
+                                            category={category}
+                                        />
+                                    ))}
+                            </div>
+                        </div>
+                    ))}
+                </>
+            )}
         </div>
     )
 }

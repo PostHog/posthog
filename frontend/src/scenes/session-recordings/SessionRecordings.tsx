@@ -44,9 +44,11 @@ import SessionRecordingTemplates from './templates/SessionRecordingTemplates'
 function Header(): JSX.Element {
     const { tab } = useValues(sessionReplaySceneLogic)
     const { currentTeam } = useValues(teamLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const recordingsDisabled = currentTeam && !currentTeam?.session_recording_opt_in
     const { reportRecordingPlaylistCreated } = useActions(sessionRecordingEventUsageLogic)
     const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
+    const isRedesignEnabled = featureFlags[FEATURE_FLAGS.REPLAY_UI_REDESIGN_2026] === 'test' || true
     const newPlaylistHandler = useAsyncHandler(async () => {
         await createPlaylist({ _create_in_folder: 'Unfiled/Replay playlists', type: 'collection' }, true)
         reportRecordingPlaylistCreated('new')
@@ -57,7 +59,18 @@ function Header(): JSX.Element {
             {tab === ReplayTabs.Home && !recordingsDisabled && (
                 <>
                     <LiveRecordingsCount />
-                    {!isRemovingSidePanelFlag && (
+                    {isRedesignEnabled && (
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            icon={<IconGear />}
+                            to={urls.replay(ReplayTabs.Settings)}
+                            data-attr="replay-settings-button"
+                        >
+                            Settings
+                        </LemonButton>
+                    )}
+                    {!isRedesignEnabled && !isRemovingSidePanelFlag && (
                         <LemonMenu
                             items={[
                                 {
@@ -74,26 +87,28 @@ function Header(): JSX.Element {
                             <LemonButton icon={<IconEllipsis />} size="small" />
                         </LemonMenu>
                     )}
-                    <ScenePanel>
-                        <ScenePanelActionsSection>
-                            <Link
-                                to={urls.replaySettings()}
-                                buttonProps={{
-                                    menuItem: true,
-                                }}
-                            >
-                                <IconDocument /> Playback from PostHog JSON file
-                            </Link>
-                            <Link
-                                to={urls.replayKiosk()}
-                                buttonProps={{
-                                    menuItem: true,
-                                }}
-                            >
-                                <IconHeadset /> Kiosk mode
-                            </Link>
-                        </ScenePanelActionsSection>
-                    </ScenePanel>
+                    {!isRedesignEnabled && (
+                        <ScenePanel>
+                            <ScenePanelActionsSection>
+                                <Link
+                                    to={urls.replaySettings()}
+                                    buttonProps={{
+                                        menuItem: true,
+                                    }}
+                                >
+                                    <IconDocument /> Playback from PostHog JSON file
+                                </Link>
+                                <Link
+                                    to={urls.replayKiosk()}
+                                    buttonProps={{
+                                        menuItem: true,
+                                    }}
+                                >
+                                    <IconHeadset /> Kiosk mode
+                                </Link>
+                            </ScenePanelActionsSection>
+                        </ScenePanel>
+                    )}
                 </>
             )}
 
@@ -254,8 +269,14 @@ const ReplayPageTabs: ReplayTab[] = [
     },
 ]
 
-export function SessionRecordingsPageTabs(): JSX.Element {
+export function SessionRecordingsPageTabs(): JSX.Element | null {
     const { tab, shouldShowNewBadge } = useValues(sessionReplaySceneLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const isRedesignEnabled = featureFlags[FEATURE_FLAGS.REPLAY_UI_REDESIGN_2026] === 'test' || true
+
+    if (isRedesignEnabled) {
+        return null
+    }
 
     return (
         <LemonTabs
