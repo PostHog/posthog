@@ -365,7 +365,7 @@ export const workflowLogic = kea<workflowLogicType>([
                             // custom validation here that we can't easily express in the schema
                             if (action.config.type === 'event') {
                                 const events = action.config.filters?.events ?? []
-                                const isSurveyTrigger = events.some((e: any) => e.id === 'survey sent')
+                                const isSurveyTrigger = events.some((e: any) => e.id === SurveyEventName.SENT)
 
                                 if (isSurveyTrigger) {
                                     // Survey trigger requires a survey selection (specific or "any")
@@ -435,8 +435,8 @@ export const workflowLogic = kea<workflowLogicType>([
     }),
     listeners(({ actions, values }) => ({
         [surveyTriggerLogic.actionTypes.loadSurveysSuccess]: ({ surveys }: { surveys: { id: string }[] }) => {
-            const trigger = values.workflow.actions.find((a) => a.type === 'trigger')
-            if (!trigger || trigger.config.type !== 'event') {
+            const trigger = values.triggerAction
+            if (!trigger || !('type' in trigger.config) || trigger.config.type !== 'event') {
                 return
             }
             const events = trigger.config.filters?.events ?? []
@@ -472,7 +472,7 @@ export const workflowLogic = kea<workflowLogicType>([
         saveWorkflowSuccess: async ({ originalWorkflow }) => {
             const tasksToMarkAsCompleted: SetupTaskId[] = []
             lemonToast.success('Workflow saved')
-            if (props.id === 'new' && originalWorkflow.id) {
+            if (values.logicProps.id === 'new' && originalWorkflow.id) {
                 router.actions.replace(
                     urls.workflow(
                         originalWorkflow.id,
