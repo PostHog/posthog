@@ -2,7 +2,15 @@ import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconBrackets, IconChevronRight, IconExternal, IconGear } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonMenu, LemonMenuItems, LemonTag } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonInput,
+    LemonMenu,
+    LemonMenuItem,
+    LemonMenuItems,
+    LemonMenuSection,
+    LemonTag,
+} from '@posthog/lemon-ui'
 
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { urls } from 'scenes/urls'
@@ -60,13 +68,13 @@ const buildVariableMenuItems = (
     openExistingVariableModal: (variable: Variable) => void,
     closeMenu: () => void,
     options?: { showSettingsButton?: boolean; insertOnClick?: boolean }
-): LemonMenuItems => {
-    return variables.map((variable) => {
+): LemonMenuItem[] => {
+    return variables.map((variable): LemonMenuItem => {
         const variableAsHogQL = `{variables.${variable.code_name}}`
         const showSettingsButton = options?.showSettingsButton ?? false
         const insertOnClick = options?.insertOnClick ?? false
 
-        const menuItem = {
+        const menuItem: LemonMenuItem = {
             key: variable.id,
             custom: true,
             label: buildVariableMenuLabel(variable, showSettingsButton, openExistingVariableModal, closeMenu),
@@ -124,8 +132,8 @@ const buildVariableMenuItems = (
                         closeMenu()
                     },
                 },
-            ],
-        }
+            ].filter((a) => a),
+        } as LemonMenuItem
     })
 }
 
@@ -172,7 +180,7 @@ export function QueryVariablesMenu({ disabledReason }: QueryVariablesMenuProps):
         { showSettingsButton: true, insertOnClick: true }
     )
 
-    const searchItem = {
+    const searchItem: LemonMenuItem = {
         custom: true,
         label: () => (
             <div className="pb-1">
@@ -190,7 +198,7 @@ export function QueryVariablesMenu({ disabledReason }: QueryVariablesMenuProps):
         ),
     }
 
-    const variableSections: LemonMenuItems = []
+    const variableSections: LemonMenuSection[] = []
 
     if (!variablesLoading) {
         variableSections.push({
@@ -217,14 +225,14 @@ export function QueryVariablesMenu({ disabledReason }: QueryVariablesMenuProps):
         }
     }
 
-    const manageVariablesMenuItem = {
+    const manageVariablesMenuItem: LemonMenuItem = {
         label: 'Manage SQL variables',
         to: urls.variables(),
         targetBlank: true,
         sideIcon: <IconExternal />,
     }
 
-    const newVariableMenuItem = {
+    const newVariableMenuItem: LemonMenuItem = {
         label: 'New variable',
         items: [
             {
