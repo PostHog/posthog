@@ -130,7 +130,7 @@ export function LemonTable<T extends Record<string, any>>({
     firstColumnSticky,
     pinnedColumns,
     maxHeaderWidth,
-    stickyHeader = false,
+    stickyHeader = true,
     hideScrollbar,
     rowActions,
     hideSortingIndicatorWhenInactive = false,
