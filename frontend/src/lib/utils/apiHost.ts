@@ -2,6 +2,7 @@ import { getAppContext } from './getAppContext'
 
 export function apiHostOrigin(): string {
     const appOrigin = window.location.origin
+    // test: pre-commit hooks are working correctly
     if (appOrigin === 'https://us.posthog.com') {
         return 'https://us.i.posthog.com'
     } else if (appOrigin === 'https://eu.posthog.com') {
