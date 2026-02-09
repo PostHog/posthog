@@ -50,8 +50,16 @@ from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.experiment import Experiment
 
+from products.analytics_platform.backend.lazy_preaggregation.lazy_preaggregation_executor import (
+    PreaggregationResult,
+    PreaggregationTable,
+    ensure_preaggregated,
+)
+
 logger = structlog.get_logger(__name__)
 
+# Default TTL for experiment exposure preaggregation (6 hours)
+DEFAULT_EXPOSURE_TTL_SECONDS = 6 * 60 * 60
 
 MAX_EXECUTION_TIME = 600
 MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY = 37 * 1024 * 1024 * 1024  # 37 GB
@@ -78,7 +86,7 @@ class ExperimentQueryRunner(QueryRunner):
             raise ValidationError("experiment_id is required")
 
         try:
-            self.experiment = Experiment.objects.get(id=self.query.experiment_id)
+            self.experiment = Experiment.objects.get(id=self.query.experiment_id, team=self.team)
         except Experiment.DoesNotExist:
             raise ValidationError(f"Experiment with id {self.query.experiment_id} not found")
         self.feature_flag = self.experiment.feature_flag
@@ -139,6 +147,34 @@ class ExperimentQueryRunner(QueryRunner):
             raise ValidationError("Maximum of 3 breakdowns are supported for experiment metrics")
 
         return breakdowns
+
+    def _ensure_exposures_preaggregated(self, builder: ExperimentQueryBuilder) -> PreaggregationResult:
+        """
+        Ensures preaggregated exposure data exists for this experiment.
+
+        Gets the exposure query from the builder and passes it to the preaggregation
+        system, which will compute and store the exposure data if not already cached.
+
+        Returns:
+            PreaggregationResult with job_ids that can be used to query the data
+        """
+        query_string, placeholders = builder.get_exposure_query_for_preaggregation()
+
+        if not self.experiment.start_date:
+            raise ValidationError("Experiment must have a start date for preaggregation")
+
+        date_from = self.experiment.start_date
+        date_to = self.override_end_date or self.experiment.end_date or datetime.now(UTC)
+
+        return ensure_preaggregated(
+            team=self.team,
+            insert_query=query_string,
+            time_range_start=date_from,
+            time_range_end=date_to,
+            ttl_seconds=DEFAULT_EXPOSURE_TTL_SECONDS,
+            table=PreaggregationTable.EXPERIMENT_EXPOSURES_PREAGGREGATED,
+            placeholders=placeholders,
+        )
 
     def _get_experiment_query(self) -> ast.SelectQuery:
         """

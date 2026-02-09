@@ -4,7 +4,6 @@ import { router } from 'kea-router'
 import api from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -22,7 +21,6 @@ import type { Experiment, FeatureFlagFilters, MultivariateFlagVariant } from '~/
 import { NEW_EXPERIMENT } from '../constants'
 import { FORM_MODES, experimentLogic } from '../experimentLogic'
 import { experimentSceneLogic } from '../experimentSceneLogic'
-import { generateFeatureFlagKey } from './VariantsPanelCreateFeatureFlag'
 import type { createExperimentLogicType } from './createExperimentLogicType'
 import { validateExperimentSubmission } from './experimentSubmissionValidation'
 import { variantsPanelLogic } from './variantsPanelLogic'
@@ -141,12 +139,7 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
         })
 
         return {
-            values: [
-                featureFlagLogic,
-                ['featureFlags'],
-                variantsPanelLogicInstance,
-                ['featureFlagKeyDirty', 'featureFlagKeyValidation', 'featureFlagKeyValidationLoading'],
-            ],
+            values: [variantsPanelLogicInstance, ['featureFlagKeyValidation', 'featureFlagKeyValidationLoading']],
             actions: [
                 eventUsageLogic,
                 ['reportExperimentCreated', 'reportExperimentUpdated'],
@@ -154,8 +147,6 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
                 ['updateFlag'],
                 teamLogic,
                 ['addProductIntent'],
-                variantsPanelLogicInstance,
-                ['validateFeatureFlagKey'],
             ],
         }
     }),
@@ -337,22 +328,7 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
             clearDraftStorage(props.tabId)
         },
         setExperiment: () => {},
-        setExperimentValue: ({ name, value }) => {
-            // Only auto-generate flag key when creating a new flag, not when editing or linking an existing flag
-
-            // Disable auto-generation for the new experiment form layout (showNewExperimentFormLayout)
-            const EXPERIMENTS_LEAN_CREATION_FORM = 'experiments-lean-creation-form' // Reference for future cleanup
-            if (values.featureFlags[EXPERIMENTS_LEAN_CREATION_FORM] === 'test') {
-                return
-            }
-            if (name === 'name' && !values.featureFlagKeyDirty && values.isCreateMode && values.mode === 'create') {
-                const key = generateFeatureFlagKey(value)
-                actions.setFeatureFlagConfig({
-                    feature_flag_key: key,
-                })
-                actions.validateFeatureFlagKey(key)
-            }
-        },
+        setExperimentValue: () => {},
         validateField: ({ field }) => {
             if (field === 'name') {
                 const name = values.experiment.name

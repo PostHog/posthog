@@ -1,7 +1,10 @@
+import { DashboardPage } from '../../page-models/dashboardPage'
 import { expect, test } from '../../utils/playwright-test-base'
 
 test.describe('insight variables', () => {
     test('show correctly on dashboards', async ({ page }) => {
+        const dashboard = new DashboardPage(page)
+
         // Go to "Insight variables" dashboard.
         await page.goToMenuItem('dashboards')
         await page.getByText('Insight variables').click()
@@ -10,20 +13,16 @@ test.describe('insight variables', () => {
         await page.goto(page.url() + '?query_variables=%7B"variable_4"%3A40%7D%20')
         await expect(page.locator('.InsightCard').first()).toBeVisible()
 
-        const cardForDefaultVariable = page.locator('.InsightCard').nth(0)
-        await cardForDefaultVariable.scrollIntoViewIfNeeded()
+        const cardForDefaultVariable = await dashboard.findCardByTitle('Variable default')
         await expect(cardForDefaultVariable.locator('.BoldNumber')).toHaveText('10')
 
-        const cardForDashboardOverride = page.locator('.InsightCard').nth(1)
-        await cardForDashboardOverride.scrollIntoViewIfNeeded()
+        const cardForDashboardOverride = await dashboard.findCardByTitle('Dashboard override')
         await expect(cardForDashboardOverride.locator('.BoldNumber')).toHaveText('20')
 
-        const cardForInsightOverride = page.locator('.InsightCard').nth(2)
-        await cardForInsightOverride.scrollIntoViewIfNeeded()
+        const cardForInsightOverride = await dashboard.findCardByTitle('Insight override')
         await expect(cardForInsightOverride.locator('.BoldNumber')).toHaveText('30')
 
-        const cardForURLOverride = page.locator('.InsightCard').nth(3)
-        await cardForURLOverride.scrollIntoViewIfNeeded()
+        const cardForURLOverride = await dashboard.findCardByTitle('Temporary override')
         await expect(cardForURLOverride.locator('.BoldNumber')).toHaveText('40')
     })
 })

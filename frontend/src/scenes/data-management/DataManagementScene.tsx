@@ -170,7 +170,7 @@ const tabs: Record<DataManagementTab, TabConfig> = {
     },
     [DataManagementTab.IngestionWarnings]: {
         url: urls.ingestionWarnings(),
-        label: 'Ingestion warnings',
+        label: 'Event ingestion warnings',
         content: <IngestionWarningsView />,
         tooltipDocLink: 'https://posthog.com/docs/data/ingestion-warnings',
     },

@@ -182,7 +182,7 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
                             // Hide UI payload answers that are not renderable to prevent rendering an empty message component
                             if (
                                 isAssistantToolCallMessage(message) &&
-                                (message.ui_payload === undefined ||
+                                (!message.ui_payload ||
                                     !isRenderableUIPayloadTool(Object.keys(message.ui_payload)[0], message.ui_payload))
                             ) {
                                 return null
@@ -783,10 +783,8 @@ function PlanningAnswer({ toolCall, isLastPlanningMessage = true }: PlanningAnsw
                 onClick={!hasMultipleSteps ? undefined : () => setIsExpanded(!isExpanded)}
                 aria-label={!hasMultipleSteps ? undefined : isExpanded ? 'Collapse plan' : 'Expand plan'}
             >
-                <div className="relative flex-shrink-0 flex items-start justify-center size-6 h-full">
-                    <div className="p-1 flex items-center justify-center">
-                        <IconNotebook />
-                    </div>
+                <div className="flex items-center justify-center size-5">
+                    <IconNotebook />
                 </div>
                 <div className="flex items-center gap-1.5 flex-1 min-w-0">
                     <span>Planning</span>
@@ -803,7 +801,7 @@ function PlanningAnswer({ toolCall, isLastPlanningMessage = true }: PlanningAnsw
                 </div>
             </div>
             {isExpanded && (
-                <div className="mt-1.5 space-y-1.5 border-l-2 border-border-secondary pl-3.5 ml-3">
+                <div className="mt-1.5 space-y-1.5 border-l-2 border-border-secondary pl-3.5 ml-2">
                     {steps.map((step, index) => {
                         const isCompleted = step.status === 'completed'
                         const isInProgress = step.status === 'in_progress'

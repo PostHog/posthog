@@ -67,6 +67,7 @@ describe('Feature Flags', { concurrent: false }, () => {
             expect(flagData.name).toBe(params.name)
             expect(flagData.active).toBe(params.active)
             expect(flagData.url).toContain('/feature_flags/')
+            expect(flagData.updated_at).toBeTruthy()
 
             createdResources.featureFlags.push(flagData.id)
         })
@@ -131,6 +132,87 @@ describe('Feature Flags', { concurrent: false }, () => {
 
             createdResources.featureFlags.push(flagData.id)
         })
+
+        it('should create a multivariate feature flag', async () => {
+            const params = {
+                name: 'Multivariate Test Flag',
+                key: generateUniqueKey('multivariate-flag'),
+                description: 'Flag with multiple variants for A/B testing',
+                active: true,
+                filters: {
+                    groups: [
+                        {
+                            properties: [],
+                            rollout_percentage: 100,
+                        },
+                    ],
+                    multivariate: {
+                        variants: [
+                            { key: 'control', rollout_percentage: 50 },
+                            { key: 'test', rollout_percentage: 50 },
+                        ],
+                    },
+                },
+            }
+
+            const result = await createTool.handler(context, params)
+            const flagData = parseToolResponse(result)
+
+            expect(flagData.id).toBeTruthy()
+            expect(flagData.key).toBe(params.key)
+            expect(flagData.name).toBe(params.name)
+            expect(flagData.filters.multivariate).toBeTruthy()
+            expect(flagData.filters.multivariate.variants).toHaveLength(2)
+            expect(flagData.filters.multivariate.variants[0].key).toBe('control')
+            expect(flagData.filters.multivariate.variants[1].key).toBe('test')
+
+            createdResources.featureFlags.push(flagData.id)
+        })
+
+        it('should create a multivariate flag with variant-specific targeting', async () => {
+            const params = {
+                name: 'Targeted Multivariate Flag',
+                key: generateUniqueKey('targeted-multivariate'),
+                description: 'Multivariate flag with group-specific variant targeting',
+                active: true,
+                filters: {
+                    groups: [
+                        {
+                            properties: [
+                                {
+                                    key: 'email',
+                                    type: 'person',
+                                    value: '@posthog.com',
+                                    operator: 'icontains',
+                                },
+                            ],
+                            rollout_percentage: 100,
+                            variant: 'test',
+                        },
+                        {
+                            properties: [],
+                            rollout_percentage: 100,
+                        },
+                    ],
+                    multivariate: {
+                        variants: [
+                            { key: 'control', name: 'Control Group', rollout_percentage: 50 },
+                            { key: 'test', name: 'Test Group', rollout_percentage: 50 },
+                        ],
+                    },
+                },
+            }
+
+            const result = await createTool.handler(context, params)
+            const flagData = parseToolResponse(result)
+
+            expect(flagData.id).toBeTruthy()
+            expect(flagData.key).toBe(params.key)
+            expect(flagData.filters.multivariate.variants).toHaveLength(2)
+            expect(flagData.filters.groups[0].variant).toBe('test')
+
+            createdResources.featureFlags.push(flagData.id)
+        })
     })
 
     describe('update-feature-flag tool', () => {
@@ -174,6 +256,7 @@ describe('Feature Flags', { concurrent: false }, () => {
             expect(updatedFlag.name).toBe('Updated Name')
             expect(updatedFlag.active).toBe(false)
             expect(updatedFlag.key).toBe(createParams.key)
+            expect(updatedFlag.updated_at).toBeTruthy()
         })
 
         it('should update feature flag filters', async () => {
@@ -275,6 +358,7 @@ describe('Feature Flags', { concurrent: false }, () => {
                 expect(flag).toHaveProperty('key')
                 expect(flag).toHaveProperty('name')
                 expect(flag).toHaveProperty('active')
+                expect(flag).toHaveProperty('updated_at')
             }
         })
 
@@ -370,6 +454,7 @@ describe('Feature Flags', { concurrent: false }, () => {
             expect(definition.key).toBe(createParams.key)
             expect(definition.name).toBe(createParams.name)
             expect(definition.active).toBe(createParams.active)
+            expect(definition.updated_at).toBeTruthy()
         })
 
         it('should return error message for non-existent flag key', async () => {
