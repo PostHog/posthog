@@ -224,7 +224,7 @@ def _is_issue_not_pr(item: dict[str, Any]) -> bool:
     GitHub's Issues API returns both issues and PRs. PRs can be identified
     by the presence of the 'pull_request' key in the response.
     """
-    return "pull_request" not in item
+    return "pull_request" not in item or item["pull_request"] is None
 
 
 def _get_item_mapper(endpoint: str):
