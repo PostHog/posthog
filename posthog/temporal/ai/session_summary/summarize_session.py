@@ -780,7 +780,7 @@ def _prepare_execution(
         video_validation_enabled=video_validation_enabled,
     )
     workflow_id = (
-        f"session-summary:single:{'stream' if stream else 'direct'}:{session_id}:{user.id}:{shared_id}:{uuid.uuid4()}"
+        f"session-summary:single:{'stream' if stream else 'direct'}:{team.id}:{session_id}:{shared_id}:{uuid.uuid4()}"
     )
     return redis_client, redis_input_key, redis_output_key, session_input, workflow_id
 

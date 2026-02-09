@@ -333,6 +333,40 @@ describe('lib/utils', () => {
                 )
             })
         })
+
+        describe('week formatting respects weekStartDay', () => {
+            // 2012-03-02 is a Friday
+            beforeEach(() => {
+                tk.freeze(new Date(1330688329321))
+            })
+            afterEach(() => {
+                tk.reset()
+            })
+
+            it('This week with Sunday start (default)', () => {
+                expect(
+                    dateFilterToText('wStart', undefined, 'default', dateMapping, true, undefined, undefined, 0)
+                ).toEqual('February 26 - March 2, 2012')
+            })
+
+            it('This week with Monday start', () => {
+                expect(
+                    dateFilterToText('wStart', undefined, 'default', dateMapping, true, undefined, undefined, 1)
+                ).toEqual('February 27 - March 2, 2012')
+            })
+
+            it('Last week with Sunday start (default)', () => {
+                expect(
+                    dateFilterToText('-1wStart', '-1wEnd', 'default', dateMapping, true, undefined, undefined, 0)
+                ).toEqual('February 19 - February 25, 2012')
+            })
+
+            it('Last week with Monday start', () => {
+                expect(
+                    dateFilterToText('-1wStart', '-1wEnd', 'default', dateMapping, true, undefined, undefined, 1)
+                ).toEqual('February 20 - February 26, 2012')
+            })
+        })
     })
 
     describe('dateStringToDayJs', () => {
@@ -425,6 +459,10 @@ describe('lib/utils', () => {
 
         it('should return days for month to date', () => {
             expect(getDefaultInterval('mStart', null)).toEqual('day')
+        })
+
+        it('should return days for week to date', () => {
+            expect(getDefaultInterval('wStart', null)).toEqual('day')
         })
 
         it('should return month for year to date', () => {

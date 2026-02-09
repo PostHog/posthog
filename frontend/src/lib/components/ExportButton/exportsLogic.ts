@@ -249,6 +249,7 @@ export const exportsLogic = kea<exportsLogicType>([
                             if (apiError?.data?.attr === 'export_limit_exceeded') {
                                 actions.setHasReachedExportFullVideoLimit(true)
                                 lemonToast.error(apiError?.data?.detail || 'You reached your export limit.', {
+                                    autoClose: false,
                                     button: {
                                         label: 'I want more',
                                         className: 'replay-export-limit-reached-button',

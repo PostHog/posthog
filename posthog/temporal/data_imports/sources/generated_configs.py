@@ -214,7 +214,14 @@ class RedditAdsSourceConfig(config.Config):
 
 @config.config
 class RedshiftSourceConfig(config.Config):
-    pass
+    host: str
+    database: str
+    user: str
+    password: str
+    schema: str
+    port: int = config.value(converter=int)
+    connection_string: str | None = None
+    ssh_tunnel: SSHTunnelConfig | None = None
 
 
 @config.config

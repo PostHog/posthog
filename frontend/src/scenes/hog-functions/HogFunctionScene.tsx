@@ -91,13 +91,41 @@ export const hogFunctionSceneLogic = kea<hogFunctionSceneLogicType>([
                 return value ? String(value) : undefined
             },
         ],
+        surveyId: [
+            (s) => [s.configuration],
+            (configuration: HogFunctionType | null): string | undefined => {
+                for (const event of configuration?.filters?.events ?? []) {
+                    const surveyIdProp = event.properties?.find((p) => p.key === '$survey_id')
+                    if (surveyIdProp?.value) {
+                        return String(surveyIdProp.value)
+                    }
+                }
+                return undefined
+            },
+        ],
+        isSurveyNotification: [
+            (s) => [s.configuration],
+            (configuration: HogFunctionType | null): boolean => {
+                return (configuration?.filters?.events ?? []).some((e) => e.id === 'survey sent')
+            },
+        ],
         breadcrumbs: [
-            (s) => [s.type, s.loading, s.configuration, s.alertId, (_, props) => props.id ?? null],
+            (s) => [
+                s.type,
+                s.loading,
+                s.configuration,
+                s.alertId,
+                s.surveyId,
+                s.isSurveyNotification,
+                (_, props) => props.id ?? null,
+            ],
             (
                 type: HogFunctionTypeType,
                 loading: boolean,
                 configuration: HogFunctionType | null,
                 alertId: string | undefined,
+                surveyId: string | undefined,
+                isSurveyNotification: boolean,
                 id: string | null
             ): Breadcrumb[] => {
                 if (loading) {
@@ -132,6 +160,25 @@ export const hogFunctionSceneLogic = kea<hogFunctionSceneLogicType>([
                         },
                         finalCrumb,
                     ]
+                }
+
+                if (isSurveyNotification) {
+                    const crumbs: Breadcrumb[] = [
+                        {
+                            key: Scene.Surveys,
+                            name: 'surveys',
+                            path: urls.surveys(),
+                        },
+                    ]
+                    if (surveyId) {
+                        crumbs.push({
+                            key: Scene.Survey,
+                            name: 'survey',
+                            path: urls.survey(surveyId),
+                        })
+                    }
+                    crumbs.push(finalCrumb)
+                    return crumbs
                 }
 
                 if (type === 'site_app') {
