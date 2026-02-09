@@ -21,7 +21,7 @@ import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
 import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
 import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { ElementRect } from '~/toolbar/types'
-import { TOOLBAR_ID, elementToActionStep, getRectForElement } from '~/toolbar/utils'
+import { TOOLBAR_ID, elementToActionStep, getRectForElement, joinWithUiHost } from '~/toolbar/utils'
 import {
     ProductTour,
     ProductTourProgressionTriggerType,
@@ -392,7 +392,7 @@ export const productToursLogic = kea<productToursLogicType>([
                 const { uiHost, pendingEditInPostHog, launchedFromMainApp } = values
 
                 if (pendingEditInPostHog) {
-                    const editUrl = `${uiHost}${urls.productTour(savedTour.id, 'edit=true&tab=steps')}`
+                    const editUrl = joinWithUiHost(uiHost, urls.productTour(savedTour.id, 'edit=true&tab=steps'))
                     if (launchedFromMainApp) {
                         window.location.href = editUrl
                     } else {
@@ -402,7 +402,7 @@ export const productToursLogic = kea<productToursLogicType>([
                     lemonToast.success(isUpdate ? 'Tour updated' : 'Tour created', {
                         button: {
                             label: 'Open in PostHog',
-                            action: () => window.open(`${uiHost}${urls.productTour(savedTour.id)}`, '_blank'),
+                            action: () => window.open(joinWithUiHost(uiHost, urls.productTour(savedTour.id)), '_blank'),
                         },
                     })
                 }
