@@ -27,6 +27,7 @@ import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogi
 import { OutputPane } from './OutputPane'
 import { QueryHistoryModal } from './QueryHistoryModal'
 import { QueryPane } from './QueryPane'
+import { QueryVariablesMenu } from './QueryVariablesMenu'
 import { FixErrorButton } from './components/FixErrorButton'
 import { draftsLogic } from './draftsLogic'
 import { multitabEditorLogic } from './multitabEditorLogic'
@@ -248,6 +249,9 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
                 )}
                 <FixErrorButton type="tertiary" size="xsmall" source="action-bar" />
                 <div className="ml-auto flex items-center gap-1">
+                    <QueryVariablesMenu
+                        disabledReason={editingView ? 'Variables are not allowed in views.' : undefined}
+                    />
                     {vimModeFeatureEnabled && (
                         <LemonSwitch
                             checked={editorVimModeEnabled}
