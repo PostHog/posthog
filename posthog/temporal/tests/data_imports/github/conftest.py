@@ -39,6 +39,14 @@ class MockGithubAPI:
     def reset_max_updated(self) -> None:
         self.max_updated = None
 
+    @staticmethod
+    def _get_item_date(item: dict[str, Any]) -> str | None:
+        """Extract the relevant date from an item, handling nested commit structure."""
+        date_str = item.get("updated_at") or item.get("created_at")
+        if not date_str and "commit" in item:
+            date_str = item.get("commit", {}).get("author", {}).get("date")
+        return date_str
+
     def get_resources(self, request: Any, context: Any) -> list[dict[str, Any]]:
         path = urlparse(request.url).path
         resource = path.split("/")[-1]
@@ -54,7 +62,7 @@ class MockGithubAPI:
             data = [
                 item
                 for item in data
-                if dateutil_parser.parse(item.get("updated_at", item.get("created_at", ""))) <= max_dt
+                if (date_str := self._get_item_date(item)) and dateutil_parser.parse(date_str) <= max_dt
             ]
 
         query = parse_qs(urlparse(request.url).query)
@@ -64,14 +72,18 @@ class MockGithubAPI:
             data = [
                 item
                 for item in data
-                if dateutil_parser.parse(item.get("updated_at", item.get("created_at", ""))) > since_dt
+                if (date_str := self._get_item_date(item)) and dateutil_parser.parse(date_str) > since_dt
             ]
 
         sort_field = query.get("sort", [None])[0]
         direction = query.get("direction", ["asc"])[0]
         if sort_field:
             sort_key = f"{sort_field}_at" if not sort_field.endswith("_at") else sort_field
-            data = sorted(data, key=lambda x: x.get(sort_key, ""), reverse=(direction == "desc"))
+            data = sorted(
+                data,
+                key=lambda x: x.get(sort_key) or self._get_item_date(x) or "",
+                reverse=(direction == "desc"),
+            )
 
         per_page = int(query.get("per_page", ["100"])[0])
         page = int(query.get("page", ["1"])[0])
