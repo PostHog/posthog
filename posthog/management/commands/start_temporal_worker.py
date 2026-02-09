@@ -404,15 +404,6 @@ class Command(BaseCommand):
 
         structlog.reset_defaults()
 
-        # Disable code variable capture for Temporal workers. The SDK walks
-        # every local variable in every stack frame through 15 regex patterns
-        # to mask sensitive data. When a frame holds a large object (e.g. a
-        # PyArrow table with 20k+ rows), this becomes millions of regex ops
-        # that hold the GIL for minutes, freezing the entire worker.
-        import posthoganalytics
-
-        posthoganalytics.capture_exception_code_variables = False
-
         # enable faulthandler to print stack traces on segfaults
         faulthandler.enable()
 
