@@ -471,7 +471,7 @@ const createTraversedLazyTableNode = (
     isSearch: boolean,
     columnPath: string,
     tableLookup: TableLookup | undefined,
-    options?: FieldTraversalOptions
+    options: FieldTraversalOptions
 ): TreeDataItem => {
     const lazyNodeId = `${isSearch ? 'search-' : ''}lazy-traverser-${tableName}-${columnPath}`
     const isExpanded = options?.expandedLazyNodeIds?.has(lazyNodeId)
@@ -612,7 +612,6 @@ const createFieldNode = (
                 isSearch,
                 columnPath,
                 tableLookup,
-                expandedLazyNodeIds,
                 nextOptions
             )
         }
