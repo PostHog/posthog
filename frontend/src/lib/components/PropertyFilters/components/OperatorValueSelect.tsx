@@ -79,10 +79,102 @@ function getRegexValidationError(operator: PropertyOperator, value: any): string
     return null
 }
 
+const semverNumericPartRegex = /^[+-]?\d+$/
+
+function isSemverNumericPart(part: string): boolean {
+    const trimmed = part.trim()
+    if (!trimmed) {
+        return false
+    }
+    return semverNumericPartRegex.test(trimmed)
+}
+
+function parseSemverParts(value: string, allowVPrefix: boolean): { major: string; minor: string; patch: string } | null {
+    const trimmed = value.trim()
+    const normalized = allowVPrefix ? trimmed.replace(/^v/i, '') : trimmed
+    const baseVersion = normalized.split('-', 1)[0]
+    const parts = baseVersion.split('.')
+    if (parts.length < 1 || !parts[0]) {
+        return null
+    }
+    const major = parts[0]
+    const minor = parts[1] ?? '0'
+    const patch = parts[2] ?? '0'
+    if (!isSemverNumericPart(major) || !isSemverNumericPart(minor) || !isSemverNumericPart(patch)) {
+        return null
+    }
+    return { major, minor, patch }
+}
+
+function isValidSemverWildcard(value: string): boolean {
+    const trimmed = value.trim()
+    const withoutWildcard = trimmed.replace(/[.*]+$/, '')
+    if (!withoutWildcard) {
+        return false
+    }
+    const baseVersion = withoutWildcard.split('-', 1)[0]
+    const parts = baseVersion.split('.')
+    if (!parts[0]) {
+        return false
+    }
+    if (!isSemverNumericPart(parts[0])) {
+        return false
+    }
+    if (parts.length > 1 && !isSemverNumericPart(parts[1])) {
+        return false
+    }
+    if (parts.length > 2 && !isSemverNumericPart(parts[2])) {
+        return false
+    }
+    return true
+}
+
+function getSemverValidationError(operator: PropertyOperator, value: any): string | null {
+    if (!isOperatorSemver(operator)) {
+        return null
+    }
+
+    if (value === null || value === undefined || value === '') {
+        return null
+    }
+
+    const values = Array.isArray(value) ? value : [value]
+    const stringValues = values.map((entry) => String(entry))
+
+    if (operator === PropertyOperator.SemverWildcard) {
+        const invalid = stringValues.find((entry) => !isValidSemverWildcard(entry))
+        return invalid ? 'Wildcard operator requires a valid semver string (e.g., 1.2.*)' : null
+    }
+
+    if (operator === PropertyOperator.SemverTilde) {
+        const invalid = stringValues.find((entry) => {
+            const baseVersion = entry.trim().split('-', 1)[0]
+            const parts = baseVersion.split('.')
+            if (parts.length < 2) {
+                return true
+            }
+            return parseSemverParts(entry, false) === null
+        })
+        return invalid ? 'Tilde operator requires a valid semver string (e.g., 1.2.3)' : null
+    }
+
+    if (operator === PropertyOperator.SemverCaret) {
+        const invalid = stringValues.find((entry) => parseSemverParts(entry, false) === null)
+        return invalid ? 'Caret operator requires a valid semver string (e.g., 1.2.3)' : null
+    }
+
+    const invalid = stringValues.find((entry) => parseSemverParts(entry, true) === null)
+    return invalid ? 'Semver operators require a valid semver string (e.g., 1.2.3)' : null
+}
+
 function getValidationError(operator: PropertyOperator, value: any, property?: string): string | null {
     const regexErrorMessage = getRegexValidationError(operator, value)
     if (regexErrorMessage != null) {
         return regexErrorMessage
+    }
+    const semverErrorMessage = getSemverValidationError(operator, value)
+    if (semverErrorMessage != null) {
+        return semverErrorMessage
     }
     if (isOperatorRange(operator) && isNaN(value)) {
         let message = `Range operators only work with numeric values`
