@@ -142,8 +142,8 @@ def find_dependent_flags_batch(flags_to_check: list[FeatureFlag]) -> dict[int, l
     # We need to find any flag that depends on ANY of these flags
     or_conditions = " OR ".join(["prop->>'key' = %s" for _ in flag_ids])
 
-    # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
     dependent_flags = list(
+        # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
         FeatureFlag.objects.filter(team=team, deleted=False, active=True)
         .exclude(id__in=flag_ids)
         .extra(
