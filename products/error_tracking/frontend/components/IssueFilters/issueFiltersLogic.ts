@@ -54,21 +54,18 @@ export const issueFiltersLogic = kea<issueFiltersLogicType>([
     reducers({
         dateRange: [
             DEFAULT_DATE_RANGE as DateRange,
-            { persist: true },
             {
                 setDateRange: (_, { dateRange }) => dateRange,
             },
         ],
         filterGroup: [
             DEFAULT_FILTER_GROUP as UniversalFiltersGroup,
-            { persist: true },
             {
                 setFilterGroup: (_, { filterGroup }) => filterGroup,
             },
         ],
         filterTestAccounts: [
             DEFAULT_TEST_ACCOUNT as boolean,
-            { persist: true },
             {
                 setFilterTestAccounts: (_, { filterTestAccounts }) => filterTestAccounts,
             },
