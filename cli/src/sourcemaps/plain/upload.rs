@@ -13,11 +13,6 @@ use crate::{
     utils::files::{delete_files, FileSelection},
 };
 
-pub struct UploadOptions {
-    pub batch_size: usize,
-    pub skip_release_on_fail: bool,
-}
-
 #[derive(clap::Args, Clone)]
 pub struct Args {
     #[clap(flatten)]
