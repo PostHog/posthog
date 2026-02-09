@@ -106,7 +106,7 @@ export const getGoogleSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                 `,
                             },
                             {
-                                language: 'ts',
+                                language: 'typescript',
                                 file: 'Node',
                                 code: dedent`
                                     import { GoogleGenAI } from '@posthog/ai'
@@ -170,7 +170,7 @@ export const getGoogleSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                 `,
                             },
                             {
-                                language: 'ts',
+                                language: 'typescript',
                                 file: 'Node',
                                 code: dedent`
                                     import { PostHog } from 'posthog-node'
@@ -236,7 +236,7 @@ export const getGoogleSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                 `,
                             },
                             {
-                                language: 'ts',
+                                language: 'typescript',
                                 file: 'Node',
                                 code: dedent`
                                     const response = await client.models.generateContent({
