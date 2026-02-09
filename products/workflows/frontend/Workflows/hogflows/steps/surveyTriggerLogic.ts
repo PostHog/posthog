@@ -1,6 +1,8 @@
 import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 
 import { Survey } from '~/types'
@@ -13,6 +15,7 @@ export const surveyTriggerLogic = kea<surveyTriggerLogicType>([
     path(['products', 'workflows', 'frontend', 'Workflows', 'hogflows', 'steps', 'surveyTriggerLogic']),
     actions({
         loadMoreSurveys: true,
+        loadMoreSurveysFailure: true,
         appendSurveys: (surveys: Survey[]) => ({ surveys }),
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
     }),
@@ -41,6 +44,7 @@ export const surveyTriggerLogic = kea<surveyTriggerLogicType>([
             false,
             {
                 loadMoreSurveys: () => true,
+                loadMoreSurveysFailure: () => false,
                 appendSurveys: () => false,
             },
         ],
@@ -85,15 +89,26 @@ export const surveyTriggerLogic = kea<surveyTriggerLogicType>([
     }),
     listeners(({ values, actions }) => ({
         loadMoreSurveys: async () => {
-            const response = await api.surveys.list({
-                limit: SURVEYS_PAGE_SIZE,
-                offset: values.allSurveys.length,
-            })
-            const filtered = response.results.filter((s) => !s.archived)
-            actions.appendSurveys(filtered)
+            try {
+                const response = await api.surveys.list({
+                    limit: SURVEYS_PAGE_SIZE,
+                    offset: values.allSurveys.length,
+                })
+                const filtered = response.results.filter((s) => !s.archived)
+                actions.appendSurveys(filtered)
+            } catch (e) {
+                lemonToast.error('Failed to load more surveys: ' + (e as Error).message)
+                actions.loadMoreSurveysFailure()
+            }
         },
         loadSurveysSuccess: () => {
             actions.loadResponseCounts()
+        },
+        loadSurveysFailure: ({ error }) => {
+            lemonToast.error('Failed to load surveys: ' + error)
+        },
+        loadResponseCountsFailure: ({ error }) => {
+            lemonToast.error('Failed to load response counts: ' + error)
         },
         appendSurveys: () => {
             actions.loadResponseCounts()
