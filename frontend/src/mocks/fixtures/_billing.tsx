@@ -3282,15 +3282,7 @@ export const billingJson: BillingType = {
                                     limit: null,
                                     note: null,
                                 },
-                                {
-                                    key: 'managed_reverse_proxy',
-                                    name: 'Managed reverse proxy',
-                                    description:
-                                        'Send events through your own domain to capture more usage data without having to self-host PostHog.',
-                                    images: null,
-                                    icon_key: null,
-                                    type: null,
-                                },
+
                             ],
                             tiers: [],
                             current_plan: false,
@@ -3425,15 +3417,7 @@ export const billingJson: BillingType = {
                             icon_key: null,
                             type: null,
                         },
-                        {
-                            key: 'managed_reverse_proxy',
-                            name: 'Managed reverse proxy',
-                            description:
-                                'Send events through your own domain to capture more usage data without having to self-host PostHog.',
-                            images: null,
-                            icon_key: null,
-                            type: null,
-                        },
+
                     ],
                     usage_key: undefined,
                     usage_limit: null,
