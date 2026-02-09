@@ -96,10 +96,7 @@ def create_organization_with_team(data: PlaywrightWorkspaceSetupData) -> Playwri
     )
     api_key._value = api_key_value  # type: ignore
 
-    # Mark all onboarding tasks as completed if requested (prevents Quick Start popover in tests).
-    # We use "completed" rather than "skipped" because globalSetupLogic.markTaskAsCompleted
-    # only bails out for tasks already marked "completed" — "skipped" tasks get overridden
-    # with an optimistic "completed" status which reopens the Quick Start popover.
+    # Skip all onboarding tasks if requested (prevents Quick Start popover in tests)
     if data.skip_onboarding:
         team.onboarding_tasks = {
             "ingest_first_event": "completed",
