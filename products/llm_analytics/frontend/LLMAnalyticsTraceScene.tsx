@@ -407,8 +407,8 @@ function TraceSentimentChip(): JSX.Element | null {
     const widthPercent = Math.round(avgScore * 100)
     const barColor = SENTIMENT_COLOR[label]
 
-    const showMaxPositive = Math.abs(maxPositive - avgPositive) > 0.05
-    const showMaxNegative = Math.abs(maxNegative - avgNegative) > 0.05
+    const showMaxPositive = maxPositive > 0 && Math.abs(maxPositive - avgPositive) > 0.05
+    const showMaxNegative = maxNegative > 0 && Math.abs(maxNegative - avgNegative) > 0.05
 
     const capitalize = (s: string): string => s[0].toUpperCase() + s.slice(1)
     const tooltipText = `${capitalize(label)}: ${Math.round(avgScore * 100)}% (max positive: ${Math.round(maxPositive * 100)}%, max negative: ${Math.round(maxNegative * 100)}%)`

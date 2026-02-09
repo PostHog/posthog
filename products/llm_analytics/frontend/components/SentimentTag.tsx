@@ -93,8 +93,8 @@ export function SentimentDot({ event }: { event: LLMTraceEvent }): JSX.Element |
 
     const maxPositive: number | undefined = event.properties.$ai_sentiment_positive_max_score
     const maxNegative: number | undefined = event.properties.$ai_sentiment_negative_max_score
-    const showMaxPositive = maxPositive !== undefined && Math.abs(maxPositive - positive) > 0.05
-    const showMaxNegative = maxNegative !== undefined && Math.abs(maxNegative - negative) > 0.05
+    const showMaxPositive = maxPositive !== undefined && maxPositive > 0 && Math.abs(maxPositive - positive) > 0.05
+    const showMaxNegative = maxNegative !== undefined && maxNegative > 0 && Math.abs(maxNegative - negative) > 0.05
 
     return (
         <Tooltip title={buildSentimentTooltip(derivedLabel, maxScore, maxPositive, maxNegative)}>
@@ -139,8 +139,8 @@ export function UserSentimentBar({ scores }: { scores: SentimentScores }): JSX.E
     const barColor = SENTIMENT_COLOR[label]
     const widthPercent = Math.round(maxScore * 100)
 
-    const showMaxPositive = maxPositive !== undefined && Math.abs(maxPositive - positive) > 0.05
-    const showMaxNegative = maxNegative !== undefined && Math.abs(maxNegative - negative) > 0.05
+    const showMaxPositive = maxPositive !== undefined && maxPositive > 0 && Math.abs(maxPositive - positive) > 0.05
+    const showMaxNegative = maxNegative !== undefined && maxNegative > 0 && Math.abs(maxNegative - negative) > 0.05
 
     return (
         <Tooltip title={buildSentimentTooltip(label, maxScore, maxPositive, maxNegative)}>
