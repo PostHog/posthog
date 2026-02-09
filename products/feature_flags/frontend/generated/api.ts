@@ -405,20 +405,18 @@ export const getFeatureFlagsBulkDeleteCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/feature_flags/bulk_delete/`
 }
 
-
 export const featureFlagsBulkDeleteCreate = async (
     projectId: string,
     featureFlagApi: NonReadonly<FeatureFlagApi>,
     options?: RequestInit
-): Promise<BulkDeleteResult> => {
-    return apiMutator<BulkDeleteResult>(getFeatureFlagsBulkDeleteCreateUrl(projectId), {
+): Promise<Record<string, unknown>> => {
+    return apiMutator<Record<string, unknown>>(getFeatureFlagsBulkDeleteCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(featureFlagApi),
     })
 }
-
 
 /**
  * Get feature flag keys by IDs.
