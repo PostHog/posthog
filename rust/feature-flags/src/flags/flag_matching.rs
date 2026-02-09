@@ -50,6 +50,21 @@ pub struct FlagEvaluationOverrides {
     pub request_hash_key_override: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy)]
+enum EvaluationType {
+    Sequential,
+    Parallel,
+}
+
+impl std::fmt::Display for EvaluationType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            EvaluationType::Sequential => write!(f, "sequential"),
+            EvaluationType::Parallel => write!(f, "parallel"),
+        }
+    }
+}
+
 #[derive(Debug)]
 struct SuperConditionEvaluation {
     should_evaluate: bool,
@@ -890,8 +905,11 @@ impl FeatureFlagMatcher {
         hash_key_overrides: &Option<HashMap<String, String>>,
         request_hash_key_override: &Option<String>,
     ) -> Vec<(String, Result<FeatureFlagMatch, FlagError>)> {
-        let parallel = flags_to_evaluate.len() >= self.parallel_eval_threshold;
-        let eval_type = if parallel { "parallel" } else { "sequential" };
+        let eval_type = if flags_to_evaluate.len() >= self.parallel_eval_threshold {
+            EvaluationType::Parallel
+        } else {
+            EvaluationType::Sequential
+        };
 
         let labels = [("evaluation_type".to_string(), eval_type.to_string())];
         histogram(FLAG_BATCH_SIZE, &labels, flags_to_evaluate.len() as f64);
@@ -908,10 +926,9 @@ impl FeatureFlagMatcher {
             )
         };
 
-        if parallel {
-            flags_to_evaluate.par_iter().map(eval).collect()
-        } else {
-            flags_to_evaluate.iter().map(eval).collect()
+        match eval_type {
+            EvaluationType::Parallel => flags_to_evaluate.par_iter().map(eval).collect(),
+            EvaluationType::Sequential => flags_to_evaluate.iter().map(eval).collect(),
         }
     }
 
