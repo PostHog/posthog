@@ -1,8 +1,18 @@
+import classNames from 'classnames'
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconChevronDown, IconCursorClick, IconEye, IconPlus, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonMenu, LemonModal, LemonSegmentedButton } from '@posthog/lemon-ui'
+import { IconChevronDown, IconCursorClick, IconEye, IconImage, IconPlus, IconTrash } from '@posthog/icons'
+import {
+    LemonButton,
+    LemonInput,
+    LemonMenu,
+    LemonModal,
+    LemonSegmentedButton,
+    LemonSlider,
+    LemonSwitch,
+    Tooltip,
+} from '@posthog/lemon-ui'
 
 import { PositionSelector } from 'scenes/surveys/survey-appearance/SurveyAppearancePositionSelector'
 
@@ -16,7 +26,6 @@ import {
 } from '~/types'
 
 import { ProductTourPreview } from '../components/ProductTourPreview'
-import { ProductToursToolbarButton } from '../components/ProductToursToolbarButton'
 import { productTourLogic } from '../productTourLogic'
 import { isAnnouncement, isBannerAnnouncement } from '../productToursLogic'
 import { createDefaultStep, getStepIcon, getStepLabel, getStepTitle, hasElementTarget } from '../stepUtils'
@@ -47,7 +56,9 @@ export const TOUR_STEP_MAX_WIDTH = 700
 
 export function ProductTourStepsEditor({ tourId }: ProductTourStepsEditorProps): JSX.Element {
     const { productTour, productTourForm, selectedStepIndex } = useValues(productTourLogic({ id: tourId }))
-    const { setProductTourFormValue, setSelectedStepIndex } = useActions(productTourLogic({ id: tourId }))
+    const { setProductTourFormValue, setSelectedStepIndex, submitAndOpenToolbar } = useActions(
+        productTourLogic({ id: tourId })
+    )
 
     const steps = productTourForm.content?.steps ?? []
     const appearance = productTourForm.content?.appearance
@@ -58,6 +69,9 @@ export function ProductTourStepsEditor({ tourId }: ProductTourStepsEditorProps):
     const [showScreenshotModal, setShowScreenshotModal] = useState(false)
 
     const selectedStep = steps[selectedStepIndex]
+
+    const hasTarget = hasElementTarget(selectedStep)
+    const shouldShowElementSettings = selectedStep.elementTargeting !== undefined
 
     const updateSteps = (newSteps: ProductTourStep[]): void => {
         setProductTourFormValue('content', {
@@ -109,10 +123,7 @@ export function ProductTourStepsEditor({ tourId }: ProductTourStepsEditorProps):
                 <div className="max-w-[400px] p-12 text-center">
                     <IconCursorClick className="text-4xl text-muted mb-4" />
                     <h3 className="m-0 mb-2 text-xl font-semibold">No steps yet</h3>
-                    <p className="m-0 text-muted">
-                        Use the toolbar on your site to add steps to this tour, then come back here to edit their
-                        content.
-                    </p>
+                    <p className="m-0 text-muted">Click + to add your first step!</p>
                 </div>
             </div>
         )
@@ -293,101 +304,163 @@ export function ProductTourStepsEditor({ tourId }: ProductTourStepsEditorProps):
                             ) : (
                                 <div className="flex flex-col gap-4">
                                     {/* Element-specific controls */}
-                                    {hasElementTarget(selectedStep) && (
+                                    {shouldShowElementSettings && (
                                         <div className="flex flex-col gap-3">
                                             <label className="text-sm font-medium">Target element</label>
-                                            <div className="flex items-start gap-4">
-                                                <div className="flex flex-col gap-3">
-                                                    <div className="flex items-center gap-6">
-                                                        <div className="flex flex-col gap-1">
-                                                            <label className="text-[0.6875rem] font-medium text-muted uppercase tracking-wide">
-                                                                Mode
-                                                            </label>
-                                                            <LemonSegmentedButton
-                                                                size="small"
-                                                                value={
-                                                                    selectedStep.useManualSelector ? 'manual' : 'auto'
-                                                                }
-                                                                onChange={(value) =>
-                                                                    updateStep(selectedStepIndex, {
-                                                                        useManualSelector: value === 'manual',
-                                                                    })
-                                                                }
-                                                                options={[
-                                                                    { value: 'auto', label: 'Auto' },
-                                                                    { value: 'manual', label: 'CSS selector' },
-                                                                ]}
-                                                            />
-                                                        </div>
-
-                                                        <div className="flex flex-col gap-1">
-                                                            <label className="text-[0.6875rem] font-medium text-muted uppercase tracking-wide">
-                                                                Advance on
-                                                            </label>
-                                                            <LemonSegmentedButton
-                                                                size="small"
-                                                                value={selectedStep.progressionTrigger || 'button'}
-                                                                onChange={(value) =>
-                                                                    updateStep(selectedStepIndex, {
-                                                                        progressionTrigger:
-                                                                            value as ProductTourProgressionTriggerType,
-                                                                    })
-                                                                }
-                                                                options={[
-                                                                    { value: 'button', label: 'Next button' },
-                                                                    { value: 'click', label: 'Element click' },
-                                                                ]}
-                                                            />
-                                                        </div>
-                                                    </div>
-
-                                                    {selectedStep.useManualSelector && (
-                                                        <LemonInput
-                                                            value={selectedStep.selector || ''}
-                                                            onChange={(value) =>
-                                                                updateStep(selectedStepIndex, {
-                                                                    selector: value,
-                                                                })
-                                                            }
-                                                            placeholder="#my-element, .my-class"
-                                                            size="small"
-                                                            className="font-mono max-w-md"
-                                                        />
-                                                    )}
+                                            <div className="flex items-center gap-6">
+                                                <div className="flex flex-col gap-1">
+                                                    <label className="text-[0.6875rem] font-medium text-muted uppercase tracking-wide">
+                                                        Mode
+                                                    </label>
+                                                    <LemonSegmentedButton
+                                                        size="small"
+                                                        value={selectedStep.elementTargeting ?? 'auto'}
+                                                        onChange={(value) =>
+                                                            updateStep(selectedStepIndex, {
+                                                                elementTargeting: value,
+                                                            })
+                                                        }
+                                                        options={[
+                                                            { value: 'auto', label: 'Auto' },
+                                                            { value: 'manual', label: 'CSS selector' },
+                                                        ]}
+                                                    />
                                                 </div>
 
-                                                {/* Element preview (auto mode only) */}
-                                                {!selectedStep.useManualSelector && (
-                                                    <div className="flex items-center gap-3 ml-auto">
-                                                        {selectedStep.screenshotMediaId &&
-                                                            selectedStep.inferenceData && (
-                                                                <button
-                                                                    type="button"
-                                                                    className="block w-20 aspect-[4/3] overflow-hidden cursor-pointer bg-fill-tertiary border rounded transition-all hover:border-primary hover:ring-1 hover:ring-primary"
-                                                                    onClick={() => setShowScreenshotModal(true)}
+                                                <div className="flex flex-col gap-1">
+                                                    <label className="text-[0.6875rem] font-medium text-muted uppercase tracking-wide">
+                                                        Advance on
+                                                    </label>
+                                                    <LemonSegmentedButton
+                                                        size="small"
+                                                        value={selectedStep.progressionTrigger || 'button'}
+                                                        onChange={(value) =>
+                                                            updateStep(selectedStepIndex, {
+                                                                progressionTrigger:
+                                                                    value as ProductTourProgressionTriggerType,
+                                                            })
+                                                        }
+                                                        options={[
+                                                            { value: 'button', label: 'Next button' },
+                                                            { value: 'click', label: 'Element click' },
+                                                        ]}
+                                                    />
+                                                </div>
+                                            </div>
+
+                                            {selectedStep.elementTargeting === 'manual' ? (
+                                                <LemonInput
+                                                    value={selectedStep.selector || ''}
+                                                    onChange={(value) =>
+                                                        updateStep(selectedStepIndex, {
+                                                            selector: value,
+                                                        })
+                                                    }
+                                                    placeholder="#my-element, .my-class"
+                                                    size="small"
+                                                    className="font-mono max-w-md"
+                                                    autoFocus={!hasTarget}
+                                                />
+                                            ) : (
+                                                <div className="flex items-start gap-4">
+                                                    <div className="flex flex-col gap-4 flex-1">
+                                                        {selectedStep.inferenceData ? (
+                                                            <div className="flex gap-4">
+                                                                <div className="min-w-[180px]">
+                                                                    <Tooltip title="How strictly we should identify the target element">
+                                                                        <label className="text-[0.6875rem] font-medium text-muted uppercase tracking-wide block mb-1">
+                                                                            Precision
+                                                                        </label>
+                                                                    </Tooltip>
+                                                                    <LemonSlider
+                                                                        min={0}
+                                                                        max={1}
+                                                                        step={0.1}
+                                                                        value={
+                                                                            selectedStep.inferenceData?.precision ?? 1
+                                                                        }
+                                                                        onChange={(value) =>
+                                                                            selectedStep.inferenceData &&
+                                                                            updateStep(selectedStepIndex, {
+                                                                                inferenceData: {
+                                                                                    ...selectedStep.inferenceData,
+                                                                                    precision: value,
+                                                                                },
+                                                                            })
+                                                                        }
+                                                                    />
+                                                                    <div className="flex justify-between text-[0.625rem] text-muted">
+                                                                        <span>Loose</span>
+                                                                        <span>Strict</span>
+                                                                    </div>
+                                                                </div>
+                                                                {selectedStep.inferenceData?.text && (
+                                                                    <LemonSwitch
+                                                                        checked={
+                                                                            selectedStep.inferenceData?.excludeText ??
+                                                                            false
+                                                                        }
+                                                                        onChange={(value) =>
+                                                                            selectedStep.inferenceData &&
+                                                                            updateStep(selectedStepIndex, {
+                                                                                inferenceData: {
+                                                                                    ...selectedStep.inferenceData,
+                                                                                    excludeText: value,
+                                                                                },
+                                                                            })
+                                                                        }
+                                                                        label="Dynamic text"
+                                                                        tooltip="Whether this element's text is dynamic and may change"
+                                                                    />
+                                                                )}
+                                                            </div>
+                                                        ) : (
+                                                            <div className="flex items-center gap-3 p-3 border border-dashed rounded text-muted text-sm">
+                                                                <span>No element selected.</span>
+                                                                <LemonButton
+                                                                    size="small"
+                                                                    type="secondary"
+                                                                    icon={<IconCursorClick />}
+                                                                    onClick={() => submitAndOpenToolbar('edit')}
                                                                 >
+                                                                    Select element
+                                                                </LemonButton>
+                                                            </div>
+                                                        )}
+                                                    </div>
+
+                                                    {selectedStep.inferenceData && (
+                                                        <div className="flex flex-col items-center gap-3 ml-auto">
+                                                            <button
+                                                                type="button"
+                                                                className="block w-30 aspect-[4/3] overflow-hidden cursor-pointer bg-fill-tertiary border rounded transition-all hover:border-primary hover:ring-1 hover:ring-primary"
+                                                                onClick={() => setShowScreenshotModal(true)}
+                                                            >
+                                                                {selectedStep.screenshotMediaId ? (
                                                                     <StepScreenshotThumbnail
                                                                         mediaId={selectedStep.screenshotMediaId}
                                                                         className="w-full h-full object-cover"
                                                                     />
-                                                                </button>
-                                                            )}
-                                                        <ProductToursToolbarButton
-                                                            tourId={tourId}
-                                                            mode="edit"
-                                                            label={
-                                                                <div className="flex gap-1">
-                                                                    <IconCursorClick />
-                                                                    {selectedStep.inferenceData
-                                                                        ? 'Change'
-                                                                        : 'Select element'}
-                                                                </div>
-                                                            }
-                                                            saveFirst
-                                                        />
-                                                    </div>
-                                                )}
-                                            </div>
+                                                                ) : (
+                                                                    <div className="flex flex-col items-center justify-center w-full h-full">
+                                                                        <IconImage />
+                                                                        No image
+                                                                    </div>
+                                                                )}
+                                                            </button>
+                                                            <LemonButton
+                                                                size="small"
+                                                                type="secondary"
+                                                                icon={<IconCursorClick />}
+                                                                onClick={() => submitAndOpenToolbar('edit')}
+                                                            >
+                                                                Change
+                                                            </LemonButton>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            )}
+
                                             <LemonButton
                                                 size="small"
                                                 type="tertiary"
@@ -401,6 +474,7 @@ export function ProductTourStepsEditor({ tourId }: ProductTourStepsEditorProps):
                                                         inferenceData: undefined,
                                                         screenshotMediaId: undefined,
                                                         useManualSelector: undefined,
+                                                        elementTargeting: undefined,
                                                     })
                                                 }
                                             >
@@ -411,7 +485,11 @@ export function ProductTourStepsEditor({ tourId }: ProductTourStepsEditorProps):
 
                                     {/* Buttons and position */}
                                     <div
-                                        className={`${!hasElementTarget(selectedStep) ? 'flex gap-10' : ''} ${hasElementTarget(selectedStep) ? 'pt-4 border-t border-border' : ''}`}
+                                        className={classNames(
+                                            shouldShowElementSettings
+                                                ? 'flex flex-col gap-4 pt-4 border-t border-border'
+                                                : 'flex gap-10'
+                                        )}
                                     >
                                         <div className="flex-1 min-w-0">
                                             <StepButtonsEditor
@@ -420,10 +498,10 @@ export function ProductTourStepsEditor({ tourId }: ProductTourStepsEditorProps):
                                                 isTourContext={!isAnnouncementMode}
                                                 stepIndex={selectedStepIndex}
                                                 totalSteps={steps.length}
-                                                layout={!hasElementTarget(selectedStep) ? 'stacked' : 'horizontal'}
+                                                layout={!shouldShowElementSettings ? 'stacked' : 'horizontal'}
                                             />
                                         </div>
-                                        {!hasElementTarget(selectedStep) && (
+                                        {!shouldShowElementSettings && (
                                             <div className="shrink-0 flex flex-col gap-3">
                                                 <div>
                                                     <label className="text-sm font-medium block mb-2">Position</label>
@@ -438,17 +516,18 @@ export function ProductTourStepsEditor({ tourId }: ProductTourStepsEditorProps):
                                                         }
                                                     />
                                                 </div>
-                                                <ProductToursToolbarButton
-                                                    tourId={tourId}
-                                                    mode="edit"
-                                                    label={
-                                                        <div className="flex gap-1">
-                                                            <IconCursorClick />
-                                                            Attach to element
-                                                        </div>
+                                                <LemonButton
+                                                    type="secondary"
+                                                    size="small"
+                                                    icon={<IconCursorClick />}
+                                                    onClick={() =>
+                                                        updateStep(selectedStepIndex, {
+                                                            elementTargeting: 'auto',
+                                                        })
                                                     }
-                                                    saveFirst
-                                                />
+                                                >
+                                                    Attach to element
+                                                </LemonButton>
                                             </div>
                                         )}
                                     </div>
@@ -506,18 +585,26 @@ export function ProductTourStepsEditor({ tourId }: ProductTourStepsEditorProps):
                 </div>
             </LemonModal>
 
-            {selectedStep?.screenshotMediaId && (
+            {shouldShowElementSettings && (
                 <LemonModal
                     isOpen={showScreenshotModal}
                     onClose={() => setShowScreenshotModal(false)}
                     title="Element screenshot"
                     width="auto"
                 >
-                    <img
-                        src={`/uploaded_media/${selectedStep.screenshotMediaId}`}
-                        alt="Element screenshot"
-                        className="max-w-full max-h-[70vh]"
-                    />
+                    <div className="flex flex-col items-center justify-center gap-4">
+                        {selectedStep.screenshotMediaId ? (
+                            <img
+                                src={`/uploaded_media/${selectedStep.screenshotMediaId}`}
+                                alt="Element screenshot"
+                                className="max-w-full max-h-[70vh]"
+                            />
+                        ) : (
+                            <>
+                                <IconImage /> No image for this element
+                            </>
+                        )}
+                    </div>
                 </LemonModal>
             )}
         </div>
