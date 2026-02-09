@@ -66,22 +66,29 @@ class CleanupPropertyDefinitionsWorkflow(PostHogWorkflow):
             )
             return result
 
-        # Delete from PostgreSQL
-        postgres_deleted = await workflow.execute_activity(
-            delete_property_definitions_from_postgres,
-            DeletePostgresPropertyDefinitionsInput(
-                team_id=input.team_id,
-                pattern=input.pattern,
-                property_type=property_type_int,
-            ),
-            start_to_close_timeout=timedelta(minutes=5),
-            schedule_to_close_timeout=timedelta(hours=1),
-            retry_policy=common.RetryPolicy(
-                maximum_attempts=3,
-                initial_interval=timedelta(seconds=30),
-            ),
-        )
-        result["postgres_deleted"] = postgres_deleted
+        # Delete from PostgreSQL in batches to avoid long-held locks
+        batch_size = 5000
+        total_postgres_deleted = 0
+        while True:
+            batch_deleted = await workflow.execute_activity(
+                delete_property_definitions_from_postgres,
+                DeletePostgresPropertyDefinitionsInput(
+                    team_id=input.team_id,
+                    pattern=input.pattern,
+                    property_type=property_type_int,
+                    batch_size=batch_size,
+                ),
+                start_to_close_timeout=timedelta(minutes=5),
+                heartbeat_timeout=timedelta(seconds=30),
+                retry_policy=common.RetryPolicy(
+                    maximum_attempts=3,
+                    initial_interval=timedelta(seconds=30),
+                ),
+            )
+            total_postgres_deleted += batch_deleted
+            if batch_deleted < batch_size:
+                break
+        result["postgres_deleted"] = total_postgres_deleted
 
         # Delete from ClickHouse
         await workflow.execute_activity(
@@ -100,7 +107,7 @@ class CleanupPropertyDefinitionsWorkflow(PostHogWorkflow):
         )
 
         workflow.logger.info(
-            f"Cleanup complete: deleted {postgres_deleted} definitions from PostgreSQL "
+            f"Cleanup complete: deleted {total_postgres_deleted} definitions from PostgreSQL "
             f"and matching definitions from ClickHouse"
         )
 

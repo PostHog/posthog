@@ -211,6 +211,41 @@ class TestDeletePropertyDefinitionsFromPostgres:
 
         await cleanup()
 
+    @pytest.mark.asyncio
+    async def test_deletes_in_batches(self):
+        prop_names = [f"{self.prefix}_batch_prop_{i}" for i in range(5)]
+        self.created_property_names.extend(prop_names)
+
+        @sync_to_async
+        def create_properties():
+            for name in prop_names:
+                create_property_definition(self.team, name, self.property_type)
+
+        await create_properties()
+
+        result = await self.activity_environment.run(
+            delete_property_definitions_from_postgres,
+            DeletePostgresPropertyDefinitionsInput(
+                team_id=self.team.id,
+                pattern=f"^{self.prefix}_batch_.*",
+                property_type=self.property_type,
+                batch_size=2,
+            ),
+        )
+
+        assert result == 2
+
+        @sync_to_async
+        def count_remaining():
+            return PropertyDefinition.objects.filter(
+                team=self.team,
+                name__startswith=f"{self.prefix}_batch_",
+                type=self.property_type,
+            ).count()
+
+        remaining = await count_remaining()
+        assert remaining == 3
+
 
 @parameterized_class(
     ("property_type", "property_type_int"),

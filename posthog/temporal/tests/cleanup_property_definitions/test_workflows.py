@@ -171,6 +171,56 @@ async def test_cleanup_property_definitions_workflow_no_matches():
     assert result["postgres_deleted"] == 0
 
 
+@pytest.mark.asyncio
+async def test_cleanup_property_definitions_workflow_multiple_batches():
+    TEST_TEAM_ID = 12345
+    TEST_PATTERN = "^temp_.*"
+    TEST_PROPERTY_TYPE = "person"
+    BATCH_SIZE = 5000
+    postgres_call_count = 0
+
+    @activity.defn(name="delete-property-definitions-from-postgres")
+    async def delete_postgres_mocked(input: DeletePostgresPropertyDefinitionsInput) -> int:
+        nonlocal postgres_call_count
+        postgres_call_count += 1
+        assert input.batch_size == BATCH_SIZE
+        # First two calls return a full batch, third returns a partial batch
+        if postgres_call_count <= 2:
+            return BATCH_SIZE
+        return 3000
+
+    @activity.defn(name="delete-property-definitions-from-clickhouse")
+    async def delete_clickhouse_mocked(input: DeleteClickHousePropertyDefinitionsInput) -> None:
+        pass
+
+    task_queue_name = str(uuid.uuid4())
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue=task_queue_name,
+            workflows=[CleanupPropertyDefinitionsWorkflow],
+            activities=[
+                delete_postgres_mocked,
+                delete_clickhouse_mocked,
+            ],
+            workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
+        ):
+            result = await env.client.execute_workflow(
+                CleanupPropertyDefinitionsWorkflow.run,
+                CleanupPropertyDefinitionsInput(
+                    team_id=TEST_TEAM_ID,
+                    pattern=TEST_PATTERN,
+                    property_type=TEST_PROPERTY_TYPE,
+                    dry_run=False,
+                ),
+                id=str(uuid.uuid4()),
+                task_queue=task_queue_name,
+            )
+
+    assert postgres_call_count == 3
+    assert result["postgres_deleted"] == BATCH_SIZE + BATCH_SIZE + 3000
+
+
 def test_cleanup_property_definitions_workflow_parse_inputs():
     result = CleanupPropertyDefinitionsWorkflow.parse_inputs(
         ['{"team_id": 12345, "pattern": "^temp_.*", "property_type": "person", "dry_run": true}']

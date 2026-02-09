@@ -69,6 +69,7 @@ class DeletePostgresPropertyDefinitionsInput:
     team_id: int
     pattern: str
     property_type: int
+    batch_size: int = 5000
 
 
 @dataclass

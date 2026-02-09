@@ -14,6 +14,7 @@ from posthog.temporal.cleanup_property_definitions.types import (
     PreviewPropertyDefinitionsInput,
 )
 from posthog.temporal.common.clickhouse import get_client
+from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_write_only_logger
 
 LOGGER = get_write_only_logger()
@@ -23,25 +24,36 @@ LOGGER = get_write_only_logger()
 async def delete_property_definitions_from_postgres(
     input: DeletePostgresPropertyDefinitionsInput,
 ) -> int:
-    """Delete property definitions matching the pattern from PostgreSQL."""
+    """Delete up to batch_size property definitions matching the pattern from PostgreSQL.
+
+    Returns the number of rows deleted. The workflow calls this in a loop
+    until fewer than batch_size rows are deleted (meaning all rows are gone).
+    """
     bind_contextvars(team_id=input.team_id, pattern=input.pattern, property_type=input.property_type)
     logger = LOGGER.bind()
-    logger.info("Deleting property definitions from PostgreSQL")
+    logger.info("Deleting property definitions from PostgreSQL", batch_size=input.batch_size)
 
     @database_sync_to_async
-    def delete_definitions() -> int:
-        # Validate team exists
+    def delete_batch() -> int:
         if not Team.objects.filter(id=input.team_id).exists():
             raise CleanupPropertyDefinitionsError(f"Team {input.team_id} not found")
 
-        deleted_count, _ = PropertyDefinition.objects.filter(
-            team_id=input.team_id,
-            type=input.property_type,
-            name__regex=input.pattern,
-        ).delete()
+        batch_ids = list(
+            PropertyDefinition.objects.filter(
+                team_id=input.team_id,
+                type=input.property_type,
+                name__regex=input.pattern,
+            ).values_list("id", flat=True)[: input.batch_size]
+        )
+        if not batch_ids:
+            return 0
+
+        deleted_count, _ = PropertyDefinition.objects.filter(pk__in=batch_ids).delete()
         return deleted_count
 
-    deleted_count = await delete_definitions()
+    async with Heartbeater():
+        deleted_count = await delete_batch()
+
     logger.info(f"Deleted {deleted_count} property definitions from PostgreSQL")
     return deleted_count
 
