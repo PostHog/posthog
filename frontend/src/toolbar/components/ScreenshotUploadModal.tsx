@@ -6,6 +6,7 @@ import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 
+import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { createObjectMediaPreview, uploadScreenshotImage } from '~/toolbar/utils/screenshotUpload'
 import { EventDefinition } from '~/types'
 
@@ -110,6 +111,7 @@ export const ScreenshotUploadModal = ({
 
             await createObjectMediaPreview(uploadResult.id, exactMatch.id)
 
+            toolbarPosthogJS.capture('media preview uploaded', { source: 'toolbar' })
             lemonToast.success('Screenshot uploaded successfully')
             handleClose()
             onSuccess?.()

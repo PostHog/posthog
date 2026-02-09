@@ -19,6 +19,7 @@ import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { definitionEditLogic } from 'scenes/data-management/definition/definitionEditLogic'
 import { DefinitionLogicProps, definitionLogic } from 'scenes/data-management/definition/definitionLogic'
@@ -47,6 +48,7 @@ export function DefinitionEdit(props: DefinitionLogicProps): JSX.Element {
     const { saveDefinition } = useActions(logic)
     const { tags, tagsLoading } = useValues(tagsModel)
     const { objectStorageAvailable } = useValues(preflightLogic)
+    const { reportMediaPreviewUploaded } = useActions(eventUsageLogic)
 
     const allowVerification = !isCoreFilter(editDefinition.name) && 'verified' in editDefinition
 
@@ -58,6 +60,7 @@ export function DefinitionEdit(props: DefinitionLogicProps): JSX.Element {
     const { setFilesToUpload, filesToUpload, uploading } = useUploadFiles({
         onUpload: (_url, _fileName, uploadedMediaId) => {
             createMediaPreview(uploadedMediaId)
+            reportMediaPreviewUploaded('definition_edit')
         },
         onError: (detail) => {
             lemonToast.error(`Error uploading image: ${detail}`)
