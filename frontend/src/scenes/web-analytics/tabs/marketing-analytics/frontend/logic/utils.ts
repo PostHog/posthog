@@ -319,7 +319,12 @@ const sourceTileConfigs: Record<NativeMarketingSource, SourceTileConfig> = {
                 MARKETING_INTEGRATION_CONFIGS.MetaAds.conversionActionTypes
 
             const buildArraySumExpr = (field: string, actionTypes: readonly string[]): string => {
-                const actionTypesStr = actionTypes.map((t) => `'${t.replace(/'/g, "\\'")}'`).join(', ')
+                const actionTypesStr = actionTypes
+                    .map((t) => {
+                        const escaped = t.replace(/\\/g, '\\\\').replace(/'/g, "\\'")
+                        return `'${escaped}'`
+                    })
+                    .join(', ')
                 return `arraySum(x -> JSONExtractFloat(x, 'value'), arrayFilter(x -> JSONExtractString(x, 'action_type') IN (${actionTypesStr}), JSONExtractArrayRaw(coalesce(${field}, '[]'))))`
             }
 
