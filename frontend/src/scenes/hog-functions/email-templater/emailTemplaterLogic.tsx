@@ -58,6 +58,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
         closeWithConfirmation: true,
         setTemplatingEngine: (templating: 'hog' | 'liquid') => ({ templating }),
         saveAsTemplate: (name: string, description: string) => ({ name, description }),
+        setActiveContentTab: (tab: 'visual' | 'plaintext') => ({ tab }),
     }),
     reducers({
         emailEditorRef: [
@@ -97,6 +98,13 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                 setTemplatingEngine: (_, { templating }) => {
                     return templating
                 },
+            },
+        ],
+        activeContentTab: [
+            'visual' as 'visual' | 'plaintext',
+            {
+                setActiveContentTab: (_, { tab }) => tab,
+                applyTemplate: () => 'visual' as const,
             },
         ],
     }),
@@ -172,10 +180,23 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                 if (!formValues) {
                     return
                 }
+
+                if (values.activeContentTab === 'plaintext') {
+                    const finalValues: EmailTemplate = {
+                        ...formValues,
+                        html: '',
+                        design: null,
+                    }
+                    props.onChange(finalValues)
+                    actions.setIsModalOpen(false)
+                    return
+                }
+
                 const editor = values.emailEditorRef?.editor
                 if (!editor || !values.isEmailEditorReady) {
                     return
                 }
+
                 const [htmlData, textData]: [{ html: string; design: JSONTemplate }, { text: string }] =
                     await Promise.all([
                         new Promise<any>((res) => editor.exportHtml(res)),
@@ -229,6 +250,13 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             } as EmailTemplate)
         },
 
+        setIsModalOpen: ({ isModalOpen }) => {
+            if (isModalOpen && props.value) {
+                const hasHtml = !!props.value.html
+                actions.setActiveContentTab(hasHtml ? 'visual' : 'plaintext')
+            }
+        },
+
         applyTemplate: ({ template }) => {
             const emailTemplateContent = template.content.email
             actions.setEmailTemplateValues(emailTemplateContent)
@@ -261,34 +289,46 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
         },
 
         saveAsTemplate: async ({ name, description }) => {
-            const editor = values.emailEditorRef?.editor
-            if (!editor || !values.isEmailEditorReady) {
-                lemonToast.error('Editor not ready')
-                return
-            }
+            const currentValues = values.emailTemplate
 
             try {
-                const [htmlData, textData]: [{ html: string; design: JSONTemplate }, { text: string }] =
-                    await Promise.all([
-                        new Promise<any>((res) => editor.exportHtml(res)),
-                        new Promise<any>((res) => editor.exportPlainText(res)),
-                    ])
+                let emailContent: EmailTemplate
 
-                const currentValues = values.emailTemplate
+                if (values.activeContentTab === 'plaintext') {
+                    emailContent = {
+                        ...currentValues,
+                        html: '',
+                        design: null,
+                    }
+                } else {
+                    const editor = values.emailEditorRef?.editor
+                    if (!editor || !values.isEmailEditorReady) {
+                        lemonToast.error('Editor not ready')
+                        return
+                    }
+
+                    const [htmlData, textData]: [{ html: string; design: JSONTemplate }, { text: string }] =
+                        await Promise.all([
+                            new Promise<any>((res) => editor.exportHtml(res)),
+                            new Promise<any>((res) => editor.exportPlainText(res)),
+                        ])
+
+                    emailContent = {
+                        ...currentValues,
+                        html: ['native_email', 'native_email_template'].includes(props.type)
+                            ? htmlData.html
+                            : escapeHTMLStringCurlies(htmlData.html),
+                        text: textData.text,
+                        design: htmlData.design,
+                    }
+                }
 
                 const templateData: Partial<MessageTemplate> = {
                     name,
                     description,
                     content: {
                         templating: values.templatingEngine,
-                        email: {
-                            ...currentValues,
-                            html: ['native_email', 'native_email_template'].includes(props.type)
-                                ? htmlData.html
-                                : escapeHTMLStringCurlies(htmlData.html),
-                            text: textData.text,
-                            design: htmlData.design,
-                        },
+                        email: emailContent,
                     },
                 }
 

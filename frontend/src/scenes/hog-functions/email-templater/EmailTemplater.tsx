@@ -7,7 +7,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import EmailEditor from 'react-email-editor'
 
 import { IconChevronDown, IconChevronLeft, IconChevronRight, IconExternal } from '@posthog/icons'
-import { LemonButton, LemonLabel, LemonModal, LemonSelect } from '@posthog/lemon-ui'
+import { LemonButton, LemonLabel, LemonModal, LemonSelect, LemonTabs } from '@posthog/lemon-ui'
 
 import { CyclotronJobTemplateSuggestionsButton } from 'lib/components/CyclotronJob/CyclotronJobTemplateSuggestions'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
@@ -15,6 +15,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 import { CodeEditorInline } from 'lib/monaco/CodeEditorInline'
+import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import { urls } from 'scenes/urls'
 
 import { MessageTemplateCard } from 'products/workflows/frontend/TemplateLibrary/MessageTemplateCard'
@@ -69,9 +70,49 @@ const EMAIL_TYPE_SUPPORTED_FIELDS: Record<EmailTemplaterType, EmailMetaField[]> 
     native_email_template: [EMAIL_META_FIELDS.SUBJECT, EMAIL_META_FIELDS.PREHEADER],
 }
 
+function PlainTextEditor(): JSX.Element {
+    const { logicProps, templatingEngine } = useValues(emailTemplaterLogic)
+    const { setTemplatingEngine } = useActions(emailTemplaterLogic)
+
+    return (
+        <LemonField name="text" className="flex flex-col flex-1">
+            {({ value, onChange }) => (
+                <div className="flex flex-col flex-1 relative group">
+                    <span className="absolute top-1 right-2 z-20 p-px opacity-0 transition-opacity group-hover:opacity-100">
+                        <CyclotronJobTemplateSuggestionsButton
+                            templating={templatingEngine}
+                            setTemplatingEngine={setTemplatingEngine}
+                            value={value}
+                            onOptionSelect={(option) => {
+                                onChange(`${value || ''}${option.example}`)
+                            }}
+                        />
+                    </span>
+                    <CodeEditorResizeable
+                        className="flex-1"
+                        language={templatingEngine === 'hog' ? 'hogTemplate' : 'liquid'}
+                        value={value}
+                        onChange={onChange}
+                        globals={logicProps.variables}
+                        options={{
+                            wordWrap: 'on',
+                            lineNumbers: 'off',
+                            minimap: { enabled: false },
+                        }}
+                        minHeight="100%"
+                        maxHeight="100%"
+                        allowManualResize={false}
+                    />
+                </div>
+            )}
+        </LemonField>
+    )
+}
+
 function DestinationEmailTemplaterForm({ mode }: { mode: EmailEditorMode }): JSX.Element {
-    const { logicProps, mergeTags } = useValues(emailTemplaterLogic)
-    const { setEmailEditorRef, onEmailEditorReady, setIsModalOpen } = useActions(emailTemplaterLogic)
+    const { logicProps, mergeTags, activeContentTab } = useValues(emailTemplaterLogic)
+    const { setEmailEditorRef, onEmailEditorReady, setIsModalOpen, setActiveContentTab } =
+        useActions(emailTemplaterLogic)
 
     return (
         <>
@@ -111,20 +152,42 @@ function DestinationEmailTemplaterForm({ mode }: { mode: EmailEditorMode }): JSX
                 ))}
 
                 {mode === 'full' ? (
-                    <EmailEditor
-                        ref={(r) => setEmailEditorRef(r)}
-                        onReady={() => onEmailEditorReady()}
-                        minHeight={20}
-                        options={{
-                            mergeTags,
-                            displayMode: 'email',
-                            features: {
-                                preview: true,
-                                imageEditor: true,
-                                stockImages: false,
-                            },
-                        }}
-                    />
+                    <>
+                        <LemonTabs
+                            activeKey={activeContentTab}
+                            onChange={(key) => setActiveContentTab(key as 'visual' | 'plaintext')}
+                            tabs={[
+                                { key: 'visual', label: 'Visual' },
+                                { key: 'plaintext', label: 'Plain text' },
+                            ]}
+                            className="px-2 shrink-0 border-b"
+                        />
+                        <div className="relative flex flex-col flex-1">
+                            <div
+                                className={clsx(
+                                    activeContentTab === 'visual'
+                                        ? 'flex flex-col flex-1'
+                                        : 'absolute inset-0 -z-10 opacity-0 pointer-events-none'
+                                )}
+                            >
+                                <EmailEditor
+                                    ref={(r) => setEmailEditorRef(r)}
+                                    onReady={() => onEmailEditorReady()}
+                                    minHeight={20}
+                                    options={{
+                                        mergeTags,
+                                        displayMode: 'email',
+                                        features: {
+                                            preview: true,
+                                            imageEditor: true,
+                                            stockImages: false,
+                                        },
+                                    }}
+                                />
+                            </div>
+                            {activeContentTab === 'plaintext' && <PlainTextEditor />}
+                        </div>
+                    </>
                 ) : (
                     <LemonField name="html" className="flex relative flex-col">
                         {({ value }) => (
@@ -364,8 +427,12 @@ function NativeEmailTemplaterForm({
     mode: EmailEditorMode
     onSaveAsTemplate?: () => void
 }): JSX.Element {
-    const { unlayerEditorProjectId, logicProps, templates, mergeTags } = useValues(emailTemplaterLogic)
-    const { setEmailEditorRef, onEmailEditorReady, setIsModalOpen, applyTemplate } = useActions(emailTemplaterLogic)
+    const { unlayerEditorProjectId, logicProps, templates, mergeTags, activeContentTab } =
+        useValues(emailTemplaterLogic)
+    const { setEmailEditorRef, onEmailEditorReady, setIsModalOpen, applyTemplate, setActiveContentTab } =
+        useActions(emailTemplaterLogic)
+
+    const [previewTemplate, setPreviewTemplate] = useState<(typeof templates)[0] | null>(null)
 
     return (
         <>
@@ -426,41 +493,74 @@ function NativeEmailTemplaterForm({
                                 onSaveAsTemplate={onSaveAsTemplate}
                             />
                         )}
-
-                        <EmailEditor
-                            ref={(r) => setEmailEditorRef(r)}
-                            onReady={() => onEmailEditorReady()}
-                            minHeight={20}
-                            options={{
-                                mergeTags,
-                                displayMode: 'email',
-                                features: {
-                                    preview: true,
-                                    imageEditor: true,
-                                    stockImages: false,
-                                },
-                                projectId: unlayerEditorProjectId,
-                                customJS: [unsubscribeLinkToolCustomJs],
-                                fonts: unlayerEditorProjectId
-                                    ? {
-                                          showDefaultFonts: true,
-                                          customFonts: [
-                                              {
-                                                  label: 'Ubuntu',
-                                                  value: "'Ubuntu',sans-serif",
-                                                  url: 'https://fonts.googleapis.com/css2?family=Ubuntu:ital,wght@0,300;0,400;0,500;0,700;1,300;1,400;1,500;1,700&display=swap',
-                                                  weights: [
-                                                      { label: 'Light', value: 300 },
-                                                      { label: 'Regular', value: 400 },
-                                                      { label: 'Medium', value: 500 },
-                                                      { label: 'Bold', value: 700 },
-                                                  ],
-                                              },
-                                          ],
-                                      }
-                                    : undefined,
-                            }}
+                        <LemonTabs
+                            activeKey={activeContentTab}
+                            onChange={(key) => setActiveContentTab(key as 'visual' | 'plaintext')}
+                            tabs={[
+                                { key: 'visual', label: 'Visual' },
+                                { key: 'plaintext', label: 'Plain text' },
+                            ]}
+                            className="px-2 shrink-0 border-b"
                         />
+                        <div className="relative flex flex-col flex-1">
+                            <div
+                                className={clsx(
+                                    activeContentTab === 'visual'
+                                        ? 'flex flex-col flex-1'
+                                        : 'absolute inset-0 -z-10 opacity-0 pointer-events-none'
+                                )}
+                            >
+                                <EmailEditor
+                                    ref={(r) => setEmailEditorRef(r)}
+                                    onReady={() => onEmailEditorReady()}
+                                    minHeight={20}
+                                    options={{
+                                        mergeTags,
+                                        displayMode: 'email',
+                                        features: {
+                                            preview: true,
+                                            imageEditor: true,
+                                            stockImages: false,
+                                        },
+                                        projectId: unlayerEditorProjectId,
+                                        customJS: [unsubscribeLinkToolCustomJs],
+                                        fonts: unlayerEditorProjectId
+                                            ? {
+                                                  showDefaultFonts: true,
+                                                  customFonts: [
+                                                      {
+                                                          label: 'Ubuntu',
+                                                          value: "'Ubuntu',sans-serif",
+                                                          url: 'https://fonts.googleapis.com/css2?family=Ubuntu:ital,wght@0,300;0,400;0,500;0,700;1,300;1,400;1,500;1,700&display=swap',
+                                                          weights: [
+                                                              { label: 'Light', value: 300 },
+                                                              { label: 'Regular', value: 400 },
+                                                              { label: 'Medium', value: 500 },
+                                                              { label: 'Bold', value: 700 },
+                                                          ],
+                                                      },
+                                                  ],
+                                              }
+                                            : undefined,
+                                    }}
+                                />
+                            </div>
+                            {activeContentTab === 'plaintext' && <PlainTextEditor />}
+                        </div>
+                        <LemonModal
+                            isOpen={!!previewTemplate}
+                            onClose={() => setPreviewTemplate(null)}
+                            title={`Preview: ${previewTemplate?.name}`}
+                            width="90vw"
+                        >
+                            <div className="h-[80vh] overflow-auto">
+                                <iframe
+                                    srcDoc={previewTemplate?.content.email.html}
+                                    sandbox=""
+                                    className="w-full h-full border-0"
+                                />
+                            </div>
+                        </LemonModal>
                     </>
                 ) : (
                     <LemonField name="html" className="flex relative flex-col">
