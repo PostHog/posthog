@@ -133,7 +133,7 @@ async def take_event_screenshot(input: TakeEventScreenshotInput) -> TakeEventScr
     asset = await ExportedAsset.objects.acreate(
         team_id=input.event_type.team_id,
         export_format=ExportedAsset.ExportFormat.PNG,
-        created_by_id=1,
+        created_by_id=None,
     )
 
     asset.export_context = {
