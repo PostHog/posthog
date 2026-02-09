@@ -76,13 +76,13 @@ class GithubPaginator(BasePaginator):
     def __init__(
         self,
         incremental_field: str | None = None,
-        incremental_cutoff: Any = None,
+        db_incremental_field_last_value: Any = None,
         sort_mode: str = "asc",
     ) -> None:
         super().__init__()
         self._next_url: str | None = None
         self._incremental_field = incremental_field
-        self._incremental_cutoff = incremental_cutoff
+        self._db_incremental_field_last_value = db_incremental_field_last_value
         self._sort_mode = sort_mode
 
     def update_state(self, response: Response, data: list[Any] | None = None) -> None:
@@ -108,7 +108,7 @@ class GithubPaginator(BasePaginator):
             self._has_next_page
             and self._sort_mode == "desc"
             and self._incremental_field
-            and self._incremental_cutoff
+            and self._db_incremental_field_last_value
             and data
         ):
             # Check if we've hit any item older than our cutoff
@@ -119,21 +119,20 @@ class GithubPaginator(BasePaginator):
                 self._next_url = None
 
     def _is_older_than_cutoff(self, value: Any) -> bool:
-        """Check if a value is older than (less than or equal to) the cutoff."""
-        if value is None or self._incremental_cutoff is None:
+        if value is None or self._db_incremental_field_last_value is None:
             return False
 
         # Handle datetime strings
-        if isinstance(value, str) and isinstance(self._incremental_cutoff, datetime):
+        if isinstance(value, str) and isinstance(self._db_incremental_field_last_value, datetime):
             try:
                 parsed_value = datetime.fromisoformat(value.replace("Z", "+00:00"))
-                return parsed_value <= self._incremental_cutoff
+                return parsed_value <= self._db_incremental_field_last_value
             except (ValueError, TypeError):
                 return False
 
         # Handle datetime objects
-        if isinstance(value, datetime) and isinstance(self._incremental_cutoff, datetime):
-            return value <= self._incremental_cutoff
+        if isinstance(value, datetime) and isinstance(self._db_incremental_field_last_value, datetime):
+            return value <= self._db_incremental_field_last_value
 
         return False
 
@@ -268,13 +267,11 @@ def github_source(
     if endpoint == "stargazers":
         headers["Accept"] = "application/vnd.github.star+json"
 
-    # For endpoints with descending sort (like pull_requests), pass the cutoff to the paginator
-    # so it can stop pagination when it hits old records
     paginator_incremental_field = None
-    paginator_cutoff = None
+    paginator_db_incremental_field_last_value = None
     if endpoint_config.sort_mode == "desc" and should_use_incremental_field:
         paginator_incremental_field = incremental_field or endpoint_config.default_incremental_field
-        paginator_cutoff = db_incremental_field_last_value
+        paginator_db_incremental_field_last_value = db_incremental_field_last_value
 
     config: RESTAPIConfig = {
         "client": {
@@ -286,7 +283,7 @@ def github_source(
             "headers": headers,
             "paginator": GithubPaginator(
                 incremental_field=paginator_incremental_field,
-                incremental_cutoff=paginator_cutoff,
+                db_incremental_field_last_value=paginator_db_incremental_field_last_value,
                 sort_mode=endpoint_config.sort_mode,
             ),
         },
