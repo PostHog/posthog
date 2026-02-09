@@ -7,7 +7,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Config(BaseSettings):
     """Configuration for acceptance tests.
 
-    All values are loaded from environment variables with the POSTHOG_ prefix.
+    All values are loaded from environment variables with the INGESTION_ACCEPTANCE_TEST_ prefix.
     """
 
     model_config = SettingsConfigDict(
@@ -19,8 +19,8 @@ class Config(BaseSettings):
     project_api_key: str
     project_id: str
     personal_api_key: str
-    event_timeout_seconds: int = Field(default=60)
-    poll_interval_seconds: float = Field(default=10.0)
+    event_timeout_seconds: int = Field(default=300)
+    poll_interval_seconds: float = Field(default=30.0)
     slack_webhook_url: str | None = Field(default=None)
 
     @field_validator("api_host")

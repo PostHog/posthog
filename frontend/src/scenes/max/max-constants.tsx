@@ -158,12 +158,6 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             return 'Creating a form...'
         },
     },
-    create_dashboard: {
-        name: 'Create dashboards',
-        description: 'Create dashboards with insights based on your requirements',
-        icon: iconForType('dashboard'),
-        modes: [AgentMode.ProductAnalytics],
-    },
     search: {
         name: 'Search PostHog data',
         description:
@@ -603,11 +597,26 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
         product: Scene.Experiment,
         flag: 'experiment-ai-summary',
         icon: iconForType('experiment'),
+        modes: [AgentMode.Flags],
         displayFormatter: (toolCall) => {
             if (toolCall.status === 'completed') {
                 return 'Summarized experiment results'
             }
             return 'Summarizing experiment results...'
+        },
+    },
+    experiment_session_replays_summary: {
+        name: 'Summarize experiment session replays',
+        description:
+            'Summarize experiment session replays to analyze user behavior patterns across experiment variants using session recordings',
+        product: Scene.Experiment,
+        icon: iconForType('session_replay'),
+        modes: [AgentMode.Flags],
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Analyzed session replay patterns'
+            }
+            return 'Analyzing session replays...'
         },
     },
     create_survey: {
@@ -695,18 +704,6 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             return 'Filtering web analytics...'
         },
     },
-    edit_current_dashboard: {
-        name: 'Add an insight to the dashboard',
-        description: "Add an insight to the dashboard you're viewing",
-        product: Scene.Dashboard,
-        icon: iconForType('dashboard'),
-        displayFormatter: (toolCall) => {
-            if (toolCall.status === 'completed') {
-                return 'Added an insight to the dashboard'
-            }
-            return 'Adding an insight to the dashboard...'
-        },
-    },
     upsert_dashboard: {
         name: 'Create and edit dashboards',
         description: 'Create and edit dashboards with insights based on your requirements',
@@ -731,6 +728,7 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
         description: 'Create a feature flag in seconds',
         product: Scene.FeatureFlags,
         icon: iconForType('feature_flag'),
+        modes: [AgentMode.Flags],
         displayFormatter: (toolCall) => {
             if (toolCall.status === 'completed') {
                 return 'Created feature flag'
@@ -743,6 +741,7 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
         description: 'Create an experiment in seconds',
         product: Scene.Experiments,
         icon: iconForType('experiment'),
+        modes: [AgentMode.Flags],
         displayFormatter: (toolCall) => {
             if (toolCall.status === 'completed') {
                 return 'Created experiment'
@@ -991,6 +990,21 @@ export const MODE_DEFINITIONS: Record<
         icon: iconForType('survey'),
         scenes: new Set([Scene.Surveys, Scene.Survey]),
     },
+    [AgentMode.Flags]: {
+        name: 'Flags',
+        description: 'Creates and manages feature flags and experiments.',
+        icon: iconForType('feature_flag'),
+        scenes: new Set([
+            Scene.FeatureFlags,
+            Scene.FeatureFlag,
+            Scene.EarlyAccessFeature,
+            Scene.EarlyAccessFeatures,
+            Scene.Experiment,
+            Scene.Experiments,
+            Scene.ExperimentsSharedMetric,
+            Scene.ExperimentsSharedMetrics,
+        ]),
+    },
 }
 
 export const SPECIAL_MODES: Record<string, ModeDefinition> = {
@@ -1007,7 +1021,7 @@ export const SPECIAL_MODES: Record<string, ModeDefinition> = {
         icon: <IconNotebook />,
         beta: true,
     },
-    deep_research: {
+    research: {
         name: 'Research',
         description:
             'Answers complex questions using advanced reasoning models and more resources, taking more time to provide deeper insights.',

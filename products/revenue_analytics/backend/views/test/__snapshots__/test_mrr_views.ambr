@@ -101,7 +101,8 @@
      GROUP BY source_label,
               customer_id,
               subscription_id
-     ORDER BY customer_id ASC, subscription_id ASC) AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
+     ORDER BY customer_id ASC,
+              subscription_id ASC) AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -184,7 +185,8 @@
      GROUP BY source_label,
               customer_id,
               subscription_id
-     ORDER BY customer_id ASC, subscription_id ASC) AS `stripe.posthog_test.mrr_revenue_view`
+     ORDER BY customer_id ASC,
+              subscription_id ASC) AS `stripe.posthog_test.mrr_revenue_view`
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -319,7 +321,8 @@
      GROUP BY source_label,
               customer_id,
               subscription_id
-     ORDER BY customer_id ASC, subscription_id ASC) AS `stripe.posthog_test.mrr_revenue_view`
+     ORDER BY customer_id ASC,
+              subscription_id ASC) AS `stripe.posthog_test.mrr_revenue_view`
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -438,7 +441,8 @@
      GROUP BY source_label,
               customer_id,
               subscription_id
-     ORDER BY customer_id ASC, subscription_id ASC) AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
+     ORDER BY customer_id ASC,
+              subscription_id ASC) AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,

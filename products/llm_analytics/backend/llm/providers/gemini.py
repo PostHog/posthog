@@ -15,7 +15,12 @@ from google.genai.types import GenerateContentConfig, HttpOptions
 from posthoganalytics.ai.gemini import genai as posthog_genai
 from pydantic import BaseModel
 
-from products.llm_analytics.backend.llm.errors import AuthenticationError
+from products.llm_analytics.backend.llm.errors import (
+    AuthenticationError,
+    QuotaExceededError,
+    RateLimitError,
+    StructuredOutputParseError,
+)
 from products.llm_analytics.backend.llm.types import (
     AnalyticsContext,
     CompletionRequest,
@@ -109,7 +114,7 @@ class GeminiAdapter:
                     parsed = request.response_format.model_validate_json(content)
                 except Exception as e:
                     logger.warning(f"Failed to parse structured output from Gemini: {e}")
-                    raise ValueError(f"Failed to parse structured output: {e}") from e
+                    raise StructuredOutputParseError(f"Failed to parse structured output: {e}") from e
 
             return CompletionResponse(
                 content=content,
@@ -117,9 +122,15 @@ class GeminiAdapter:
                 usage=usage,
                 parsed=parsed,
             )
-        except Exception as e:
-            if "authentication" in str(e).lower() or "api key" in str(e).lower():
+        except APIError as e:
+            error_message = str(e).lower()
+            status_code = getattr(e, "code", None) or getattr(e, "status_code", None)
+            if status_code == 401 or "authentication" in error_message or "api key" in error_message:
                 raise AuthenticationError(str(e))
+            if status_code == 429 or "rate limit" in error_message or "resource exhausted" in error_message:
+                if "quota" in error_message or "billing" in error_message:
+                    raise QuotaExceededError(str(e))
+                raise RateLimitError(str(e))
             raise
 
     def stream(
