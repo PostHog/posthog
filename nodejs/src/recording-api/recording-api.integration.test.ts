@@ -166,7 +166,7 @@ describe('Recording API encryption integration', () => {
             await expect(decryptor.decryptBlock(sessionId, teamId, encrypted)).rejects.toThrow(SessionKeyDeletedError)
         })
 
-        it('should include deletion timestamp in error', async () => {
+        it('should include deletion timestamp in result', async () => {
             const sessionId = 'deleted-with-timestamp'
             const teamId = 42
 
@@ -178,16 +178,11 @@ describe('Recording API encryption integration', () => {
             await keyStore.deleteKey(sessionId, teamId)
             const afterDelete = Date.now()
 
-            // Try to get key
-            try {
-                await keyStore.getKey(sessionId, teamId)
-                fail('Expected SessionKeyDeletedError')
-            } catch (error) {
-                expect(error).toBeInstanceOf(SessionKeyDeletedError)
-                const deletedError = error as SessionKeyDeletedError
-                expect(deletedError.deletedAt).toBeGreaterThanOrEqual(beforeDelete)
-                expect(deletedError.deletedAt).toBeLessThanOrEqual(afterDelete)
-            }
+            // Get key should return deleted state with timestamp
+            const result = await keyStore.getKey(sessionId, teamId)
+            expect(result.sessionState).toBe('deleted')
+            expect(result.deletedAt).toBeGreaterThanOrEqual(beforeDelete)
+            expect(result.deletedAt).toBeLessThanOrEqual(afterDelete)
         })
 
         it('should throw SessionKeyDeletedError when trying to encrypt deleted session', async () => {

@@ -155,6 +155,39 @@ describe('MemoryCachedKeyStore', () => {
 
             await expect(cachedKeyStore.deleteKey('session-123', 1)).rejects.toThrow('Delete failed')
         })
+
+        it('should only clear cache for the specified team', async () => {
+            const team1Key: SessionKey = {
+                plaintextKey: Buffer.from([1, 1, 1]),
+                encryptedKey: Buffer.from([1, 1, 1]),
+                sessionState: 'ciphertext',
+            }
+            const team2Key: SessionKey = {
+                plaintextKey: Buffer.from([2, 2, 2]),
+                encryptedKey: Buffer.from([2, 2, 2]),
+                sessionState: 'ciphertext',
+            }
+
+            mockDelegate.getKey.mockResolvedValueOnce(team1Key).mockResolvedValueOnce(team2Key)
+
+            // Populate cache for both teams
+            await cachedKeyStore.getKey('session-123', 1)
+            await cachedKeyStore.getKey('session-123', 2)
+            mockDelegate.getKey.mockClear()
+
+            // Delete only team 1's key
+            await cachedKeyStore.deleteKey('session-123', 1)
+
+            // Team 2's key should still be cached
+            const result2 = await cachedKeyStore.getKey('session-123', 2)
+            expect(mockDelegate.getKey).not.toHaveBeenCalled()
+            expect(result2.plaintextKey).toEqual(Buffer.from([2, 2, 2]))
+
+            // Team 1's key should require a delegate call
+            mockDelegate.getKey.mockResolvedValueOnce(team1Key)
+            await cachedKeyStore.getKey('session-123', 1)
+            expect(mockDelegate.getKey).toHaveBeenCalledWith('session-123', 1)
+        })
     })
 
     describe('custom options', () => {
@@ -164,10 +197,24 @@ describe('MemoryCachedKeyStore', () => {
             expect(customCachedKeyStore).toBeInstanceOf(MemoryCachedKeyStore)
         })
 
-        it('should accept custom ttlMs option', () => {
-            const customCachedKeyStore = new MemoryCachedKeyStore(mockDelegate, { ttlMs: 1000 })
+        it('should expire cached items after ttlMs', async () => {
+            const ttlMs = 50 // Short TTL for testing
+            const customCachedKeyStore = new MemoryCachedKeyStore(mockDelegate, { ttlMs })
 
-            expect(customCachedKeyStore).toBeInstanceOf(MemoryCachedKeyStore)
+            // First call populates cache
+            await customCachedKeyStore.getKey('session-123', 1)
+            mockDelegate.getKey.mockClear()
+
+            // Immediate second call should use cache
+            await customCachedKeyStore.getKey('session-123', 1)
+            expect(mockDelegate.getKey).not.toHaveBeenCalled()
+
+            // Wait for TTL to expire
+            await new Promise((resolve) => setTimeout(resolve, ttlMs + 10))
+
+            // After TTL - should call delegate
+            await customCachedKeyStore.getKey('session-123', 1)
+            expect(mockDelegate.getKey).toHaveBeenCalledWith('session-123', 1)
         })
     })
 

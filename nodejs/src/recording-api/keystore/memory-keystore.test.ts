@@ -1,4 +1,3 @@
-import { SessionKeyDeletedError } from '../types'
 import { MemoryKeyStore } from './memory-keystore'
 
 describe('MemoryKeyStore', () => {
@@ -76,29 +75,27 @@ describe('MemoryKeyStore', () => {
             expect(first.plaintextKey.equals(second.plaintextKey)).toBe(true)
         })
 
-        it('should throw SessionKeyDeletedError if key was deleted', async () => {
+        it('should return deleted state if key was deleted', async () => {
             await keyStore.generateKey('session-123', 1)
             await keyStore.deleteKey('session-123', 1)
 
-            await expect(keyStore.getKey('session-123', 1)).rejects.toThrow(SessionKeyDeletedError)
+            const result = await keyStore.getKey('session-123', 1)
+            expect(result.sessionState).toBe('deleted')
+            expect(result.plaintextKey.length).toBe(0)
+            expect(result.encryptedKey.length).toBe(0)
         })
 
-        it('should include deletedAt timestamp in SessionKeyDeletedError', async () => {
+        it('should include deletedAt timestamp in deleted state', async () => {
             await keyStore.generateKey('session-123', 1)
 
             const beforeDelete = Date.now()
             await keyStore.deleteKey('session-123', 1)
             const afterDelete = Date.now()
 
-            try {
-                await keyStore.getKey('session-123', 1)
-                fail('Expected SessionKeyDeletedError')
-            } catch (error) {
-                expect(error).toBeInstanceOf(SessionKeyDeletedError)
-                const deletedError = error as SessionKeyDeletedError
-                expect(deletedError.deletedAt).toBeGreaterThanOrEqual(beforeDelete)
-                expect(deletedError.deletedAt).toBeLessThanOrEqual(afterDelete)
-            }
+            const result = await keyStore.getKey('session-123', 1)
+            expect(result.sessionState).toBe('deleted')
+            expect(result.deletedAt).toBeGreaterThanOrEqual(beforeDelete)
+            expect(result.deletedAt).toBeLessThanOrEqual(afterDelete)
         })
     })
 
@@ -116,11 +113,12 @@ describe('MemoryKeyStore', () => {
             expect(result).toBe(false)
         })
 
-        it('should prevent subsequent getKey calls', async () => {
+        it('should return deleted state on subsequent getKey calls', async () => {
             await keyStore.generateKey('session-123', 1)
             await keyStore.deleteKey('session-123', 1)
 
-            await expect(keyStore.getKey('session-123', 1)).rejects.toThrow(SessionKeyDeletedError)
+            const result = await keyStore.getKey('session-123', 1)
+            expect(result.sessionState).toBe('deleted')
         })
 
         it('should not affect other sessions', async () => {
@@ -133,8 +131,9 @@ describe('MemoryKeyStore', () => {
             const result = await keyStore.getKey('session-2', 1)
             expect(result.sessionState).toBe('ciphertext')
 
-            // session-1 should throw
-            await expect(keyStore.getKey('session-1', 1)).rejects.toThrow(SessionKeyDeletedError)
+            // session-1 should return deleted state
+            const deleted = await keyStore.getKey('session-1', 1)
+            expect(deleted.sessionState).toBe('deleted')
         })
 
         it('should not affect same session id in different teams', async () => {
@@ -147,8 +146,9 @@ describe('MemoryKeyStore', () => {
             const result = await keyStore.getKey('session-1', 2)
             expect(result.sessionState).toBe('ciphertext')
 
-            // Team 1 should throw
-            await expect(keyStore.getKey('session-1', 1)).rejects.toThrow(SessionKeyDeletedError)
+            // Team 1 should return deleted state
+            const deleted = await keyStore.getKey('session-1', 1)
+            expect(deleted.sessionState).toBe('deleted')
         })
     })
 

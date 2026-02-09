@@ -177,6 +177,15 @@ describe('RedisCachedKeyStore', () => {
             await expect(cachedKeyStore.deleteKey('session-123', 1)).rejects.toThrow('Delete failed')
             expect(mockRedisClient.del).toHaveBeenCalledWith('@posthog/replay/recording-key:1:session-123')
         })
+
+        it('should only clear cache for the specified team', async () => {
+            await cachedKeyStore.deleteKey('session-123', 1)
+
+            // Should only delete team 1's cache key
+            expect(mockRedisClient.del).toHaveBeenCalledWith('@posthog/replay/recording-key:1:session-123')
+            expect(mockRedisClient.del).not.toHaveBeenCalledWith('@posthog/replay/recording-key:2:session-123')
+            expect(mockRedisClient.del).toHaveBeenCalledTimes(1)
+        })
     })
 
     describe('stop', () => {
