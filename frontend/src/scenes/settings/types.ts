@@ -179,12 +179,13 @@ export type SettingId =
     | 'allow-impersonation'
     | 'approval-policies'
     | 'change-requests'
+    | 'banner'
 
 type FeatureFlagKey = keyof typeof FEATURE_FLAGS
 
 export type Setting = {
     id: SettingId
-    title: JSX.Element | string
+    title: JSX.Element | string | null
     description?: JSX.Element | string
     component: JSX.Element
     searchTerm?: string

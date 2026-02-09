@@ -85,6 +85,17 @@ export const logsExplainLogWithAICreate = async (
     })
 }
 
+export const getLogsExportCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/logs/export/`
+}
+
+export const logsExportCreate = async (projectId: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getLogsExportCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getLogsHasLogsRetrieveUrl = (projectId: string) => {
     return `/api/environments/${projectId}/logs/has_logs/`
 }
@@ -210,6 +221,17 @@ export const logsAttributesRetrieve2 = async (projectId: string, options?: Reque
     return apiMutator<void>(getLogsAttributesRetrieve2Url(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getLogsExportCreate2Url = (projectId: string) => {
+    return `/api/projects/${projectId}/logs/export/`
+}
+
+export const logsExportCreate2 = async (projectId: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getLogsExportCreate2Url(projectId), {
+        ...options,
+        method: 'POST',
     })
 }
 

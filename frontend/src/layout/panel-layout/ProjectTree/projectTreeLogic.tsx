@@ -103,6 +103,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 'deleteItem',
                 'moveItem',
                 'linkItem',
+                'pruneClosedFolders',
             ],
         ],
     })),
@@ -742,10 +743,12 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
     }),
     listeners(({ actions, values, key }) => ({
         setActivePanelIdentifier: () => {
-            // clear search term when changing panel
             if (values.searchTerm !== '') {
                 actions.clearSearch()
             }
+        },
+        clearSearch: () => {
+            actions.pruneClosedFolders(values.expandedFolders)
         },
         loadFolderSuccess: ({ folder }) => {
             if (folder === '') {
@@ -1003,7 +1006,12 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 }
             } else {
                 if (values.expandedFolders.find((f) => f === folderId)) {
-                    actions.setExpandedFolders(values.expandedFolders.filter((f) => f !== folderId))
+                    const childPrefix = folderId.endsWith('://') ? folderId : folderId + '/'
+                    const newExpandedFolders = values.expandedFolders.filter(
+                        (f) => f !== folderId && !f.startsWith(childPrefix)
+                    )
+                    actions.setExpandedFolders(newExpandedFolders)
+                    actions.pruneClosedFolders(newExpandedFolders)
                 } else {
                     actions.setExpandedFolders([...values.expandedFolders, folderId])
                     actions.loadFolderIfNotLoaded(folderId)

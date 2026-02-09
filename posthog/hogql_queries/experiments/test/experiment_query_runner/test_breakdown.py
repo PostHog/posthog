@@ -26,7 +26,7 @@ from posthog.schema import (
     StepOrderValue,
 )
 
-from posthog.hogql_queries.experiments.experiment_query_builder import BREAKDOWN_NULL_STRING_LABEL
+from posthog.hogql_queries.experiments.breakdown_injector import BREAKDOWN_NULL_STRING_LABEL
 from posthog.hogql_queries.experiments.experiment_query_runner import ExperimentQueryRunner
 from posthog.hogql_queries.experiments.test.experiment_query_runner.base import ExperimentQueryRunnerBaseTest
 
@@ -2121,3 +2121,126 @@ class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
             self.assertIsNotNone(breakdown_result.baseline)
             self.assertIsNotNone(breakdown_result.variants)
             self.assertGreater(len(breakdown_result.variants), 0)
+
+    @freeze_time("2020-01-01T12:00:00Z")
+    def test_retention_metric_breakdown_with_missing_control_variant(self):
+        """
+        Regression test: Retention metrics with breakdowns should handle cases where
+        some breakdown groups have no data for certain variants (including control).
+
+        This reproduces the "ValueError: No control variant found" bug that occurs
+        when a breakdown group (e.g., specific browser type) has data for test variants
+        but not for the control variant.
+        """
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": True}
+        experiment.save()
+
+        metric = ExperimentRetentionMetric(
+            start_event=EventsNode(event="signup"),
+            completion_event=EventsNode(event="login"),
+            retention_window_start=1,
+            retention_window_end=7,
+            retention_window_unit=FunnelConversionWindowTimeUnit.DAY,
+            start_handling=StartHandling.FIRST_SEEN,
+            breakdownFilter=BreakdownFilter(breakdowns=[Breakdown(property="$browser")]),
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        feature_flag_property = f"$feature/{feature_flag.key}"
+
+        # Create control users with Chrome only
+        for i in range(2):
+            _create_person(distinct_ids=[f"user_control_{i}"], team_id=self.team.pk)
+            _create_event(
+                team=self.team,
+                event="$feature_flag_called",
+                distinct_id=f"user_control_{i}",
+                timestamp="2020-01-02T12:00:00Z",
+                properties={
+                    feature_flag_property: "control",
+                    "$feature_flag_response": "control",
+                    "$feature_flag": feature_flag.key,
+                    "$browser": "Chrome",
+                },
+            )
+            _create_event(
+                team=self.team,
+                event="signup",
+                distinct_id=f"user_control_{i}",
+                timestamp="2020-01-02T12:01:00Z",
+                properties={feature_flag_property: "control"},
+            )
+            _create_event(
+                team=self.team,
+                event="login",
+                distinct_id=f"user_control_{i}",
+                timestamp="2020-01-05T12:00:00Z",
+                properties={feature_flag_property: "control"},
+            )
+
+        # Create test users with both Chrome AND Safari
+        for browser in ["Chrome", "Safari"]:
+            for i in range(2):
+                _create_person(distinct_ids=[f"user_test_{browser}_{i}"], team_id=self.team.pk)
+                _create_event(
+                    team=self.team,
+                    event="$feature_flag_called",
+                    distinct_id=f"user_test_{browser}_{i}",
+                    timestamp="2020-01-02T12:00:00Z",
+                    properties={
+                        feature_flag_property: "test",
+                        "$feature_flag_response": "test",
+                        "$feature_flag": feature_flag.key,
+                        "$browser": browser,
+                    },
+                )
+                _create_event(
+                    team=self.team,
+                    event="signup",
+                    distinct_id=f"user_test_{browser}_{i}",
+                    timestamp="2020-01-02T12:01:00Z",
+                    properties={feature_flag_property: "test"},
+                )
+                _create_event(
+                    team=self.team,
+                    event="login",
+                    distinct_id=f"user_test_{browser}_{i}",
+                    timestamp="2020-01-05T12:00:00Z",
+                    properties={feature_flag_property: "test"},
+                )
+
+        flush_persons_and_events()
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+
+        # This should NOT raise "ValueError: No control variant found"
+        # Safari breakdown has no control variant data, but should be handled gracefully
+        result = query_runner._calculate()
+
+        # Verify we got breakdown results for both browsers
+        self.assertIsNotNone(result.breakdown_results)
+        assert result.breakdown_results is not None
+        self.assertEqual(len(result.breakdown_results), 2)  # Chrome and Safari
+
+        # Chrome breakdown should have real control data
+        chrome_breakdown = next((br for br in result.breakdown_results if br.breakdown_value == ["Chrome"]), None)
+        self.assertIsNotNone(chrome_breakdown)
+        assert chrome_breakdown is not None
+        self.assertIsNotNone(chrome_breakdown.baseline)
+        self.assertGreater(chrome_breakdown.baseline.number_of_samples, 0)
+
+        # Safari breakdown should have zero-filled control data
+        safari_breakdown = next((br for br in result.breakdown_results if br.breakdown_value == ["Safari"]), None)
+        self.assertIsNotNone(safari_breakdown)
+        assert safari_breakdown is not None
+        self.assertIsNotNone(safari_breakdown.baseline)
+        self.assertEqual(safari_breakdown.baseline.number_of_samples, 0)  # No control users with Safari

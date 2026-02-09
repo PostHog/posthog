@@ -574,10 +574,12 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             .all()
         )
 
-        # Soft-delete source + schemas atomically first so DB state is consistent
-        # even if the external cleanup below fails
+        # Soft-delete source, schemas, and tables atomically first so DB state
+        # is consistent even if the external cleanup below fails
         with transaction.atomic():
             for schema in schemas:
+                if schema.table:
+                    schema.table.soft_delete()
                 schema.soft_delete()
             instance.soft_delete()
 

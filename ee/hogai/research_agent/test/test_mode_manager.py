@@ -66,12 +66,12 @@ class TestResearchAgentModeManager(BaseTest):
 
         self.assertIn("Invalid supermode", str(context.exception))
 
-    def test_init_defaults_agent_mode_to_sql_in_plan_supermode(self):
-        """Default mode is SQL in PLAN supermode (which is the default supermode)"""
+    def test_init_defaults_agent_mode_to_product_analytics_in_plan_supermode(self):
+        """Default mode is PRODUCT_ANALYTICS in PLAN supermode (which is the default supermode)"""
         state = AssistantState(messages=[HumanMessage(content="Test")], agent_mode=None)
         mode_manager = _create_mode_manager(self.team, self.user, state=state)
 
-        self.assertEqual(mode_manager._mode, AgentMode.SQL)
+        self.assertEqual(mode_manager._mode, AgentMode.PRODUCT_ANALYTICS)
 
     def test_init_preserves_explicit_agent_mode(self):
         state = AssistantState(messages=[HumanMessage(content="Test")], agent_mode=AgentMode.SQL)
@@ -86,7 +86,7 @@ class TestResearchAgentModeManager(BaseTest):
 
         plan_registry = mode_manager.supermode_registries[AgentMode.PLAN]
         self.assertIn(AgentMode.RESEARCH, plan_registry)
-        self.assertNotIn(AgentMode.PRODUCT_ANALYTICS, plan_registry)  # Not in PLAN mode
+        self.assertIn(AgentMode.PRODUCT_ANALYTICS, plan_registry)  # Now in PLAN mode
         self.assertIn(AgentMode.SQL, plan_registry)
         self.assertIn(AgentMode.SESSION_REPLAY, plan_registry)
 
