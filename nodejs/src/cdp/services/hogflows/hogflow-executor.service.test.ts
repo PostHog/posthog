@@ -12,7 +12,7 @@ import { fetch } from '~/utils/request'
 import { logger } from '../../../utils/logger'
 import { Hub } from '../../../types'
 import { createHub } from '../../../utils/db/hub'
-import { HOG_FILTERS_EXAMPLES } from '../../_tests/examples'
+import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES } from '../../_tests/examples'
 import { createExampleHogFlowInvocation } from '../../_tests/fixtures-hogflows'
 import { HogExecutorService } from '../hog-executor.service'
 import { HogFunctionTemplateManagerService } from '../managers/hog-function-template-manager.service'
@@ -1317,10 +1317,12 @@ describe('Hogflow Executor', () => {
 
     describe('output_variable spread', () => {
         it('spreads object result into prefixed variables', async () => {
+            // Use pre-compiled bytecode from HOG_EXAMPLES to ensure correct bytecode
             await insertHogFunctionTemplate(hub.postgres, {
                 id: 'template-test-return-object',
                 name: 'Test Return Object',
-                code: `return {'status': 'pending', 'priority': 'high', 'ticket_number': 42}`,
+                code: HOG_EXAMPLES.simple_return_object.hog,
+                bytecode: HOG_EXAMPLES.simple_return_object.bytecode,
                 inputs_schema: [],
             })
 
@@ -1377,7 +1379,8 @@ describe('Hogflow Executor', () => {
             await insertHogFunctionTemplate(hub.postgres, {
                 id: 'template-test-return-object-no-spread',
                 name: 'Test Return Object No Spread',
-                code: `return {'status': 'pending', 'priority': 'high'}`,
+                code: HOG_EXAMPLES.simple_return_object_small.hog,
+                bytecode: HOG_EXAMPLES.simple_return_object_small.bytecode,
                 inputs_schema: [],
             })
 
@@ -1432,7 +1435,8 @@ describe('Hogflow Executor', () => {
             await insertHogFunctionTemplate(hub.postgres, {
                 id: 'template-test-return-array',
                 name: 'Test Return Array',
-                code: `return ['a', 'b', 'c']`,
+                code: HOG_EXAMPLES.simple_return_array.hog,
+                bytecode: HOG_EXAMPLES.simple_return_array.bytecode,
                 inputs_schema: [],
             })
 
@@ -1487,7 +1491,8 @@ describe('Hogflow Executor', () => {
             await insertHogFunctionTemplate(hub.postgres, {
                 id: 'template-test-return-nested',
                 name: 'Test Return Nested',
-                code: `return {'body': {'ticket': {'status': 'open', 'id': 'abc'}}}`,
+                code: HOG_EXAMPLES.simple_return_deeply_nested.hog,
+                bytecode: HOG_EXAMPLES.simple_return_deeply_nested.bytecode,
                 inputs_schema: [],
             })
 
