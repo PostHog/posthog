@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 import api from 'lib/api'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -8,6 +8,8 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 
 import { createObjectMediaPreview, uploadScreenshotImage } from '~/toolbar/utils/screenshotUpload'
 import { EventDefinition } from '~/types'
+
+const SEARCH_DEBOUNCE_MS = 300
 
 export interface ScreenshotUploadModalProps {
     isOpen: boolean
@@ -28,24 +30,44 @@ export const ScreenshotUploadModal = ({
     const [eventDefinitions, setEventDefinitions] = useState<EventDefinition[]>([])
     const [isLoadingEvents, setIsLoadingEvents] = useState(false)
     const [showSuggestions, setShowSuggestions] = useState(false)
+    const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-    useEffect(() => {
-        if (isOpen) {
+    const searchEventDefinitions = useCallback((query: string) => {
+        if (debounceTimerRef.current) {
+            clearTimeout(debounceTimerRef.current)
+        }
+
+        if (!query.trim()) {
+            setEventDefinitions([])
+            setShowSuggestions(false)
+            return
+        }
+
+        debounceTimerRef.current = setTimeout(() => {
             setIsLoadingEvents(true)
-            api.get('api/projects/@current/event_definitions/?limit=100')
+            api.get(`api/projects/@current/event_definitions/?search=${encodeURIComponent(query)}&limit=20`)
                 .then((response) => {
                     if (response.results) {
                         setEventDefinitions(response.results)
                     }
                 })
                 .catch((error) => {
-                    console.error('Failed to load event definitions:', error)
+                    console.error('Failed to search event definitions:', error)
                 })
                 .finally(() => {
                     setIsLoadingEvents(false)
                 })
+        }, SEARCH_DEBOUNCE_MS)
+    }, [])
+
+    // Clean up debounce timer on unmount
+    useEffect(() => {
+        return () => {
+            if (debounceTimerRef.current) {
+                clearTimeout(debounceTimerRef.current)
+            }
         }
-    }, [isOpen])
+    }, [])
 
     useEffect(() => {
         if (screenshot && isOpen && !previewUrl) {
@@ -60,13 +82,10 @@ export const ScreenshotUploadModal = ({
             setPreviewUrl(null)
         }
         setEventName('')
+        setEventDefinitions([])
         setIsUploading(false)
         setIsOpen(false)
     }
-
-    const filteredEventDefinitions = eventDefinitions
-        .filter((ed) => ed.name.toLowerCase().includes(eventName.toLowerCase()))
-        .slice(0, 10)
 
     const handleSubmit = async (): Promise<void> => {
         if (!screenshot || !eventName.trim()) {
@@ -103,6 +122,7 @@ export const ScreenshotUploadModal = ({
     const handleEventNameChange = (value: string): void => {
         setEventName(value)
         setShowSuggestions(value.length > 0)
+        searchEventDefinitions(value)
     }
 
     const handleSelectEvent = (name: string): void => {
@@ -145,9 +165,9 @@ export const ScreenshotUploadModal = ({
                         disabled={isUploading || isLoadingEvents}
                         autoFocus
                     />
-                    {showSuggestions && filteredEventDefinitions.length > 0 && (
+                    {showSuggestions && eventDefinitions.length > 0 && (
                         <div className="absolute z-10 w-full mt-1 bg-bg-light border border-border rounded shadow-md max-h-60 overflow-y-auto">
-                            {filteredEventDefinitions.map((ed) => (
+                            {eventDefinitions.map((ed) => (
                                 <div
                                     key={ed.id}
                                     className="px-3 py-2 hover:bg-bg-3000 cursor-pointer"
