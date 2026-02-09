@@ -86,6 +86,7 @@ class CTE(Expr):
     expr: Expr
     # Whether the CTE is an inlined column "WITH 1 AS a" or a subquery "WITH a AS (SELECT 1)"
     cte_type: Literal["column", "subquery"]
+    recursive: bool = field(default=False)
 
 
 @dataclass(kw_only=True)

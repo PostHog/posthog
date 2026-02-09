@@ -152,6 +152,22 @@ class Resolver(CloningVisitor):
     def visit_cte(self, node: ast.CTE):
         self.cte_counter += 1
 
+        # For recursive CTEs, the body references the CTE itself (e.g., FROM nums inside nums).
+        # We resolve the anchor query first to get its type, register a placeholder CTE,
+        # then resolve the full expression so the recursive reference can be found.
+        if node.recursive and isinstance(node.expr, ast.SelectSetQuery):
+            anchor = clone_expr(node.expr.initial_select_query)
+            anchor = self.visit(anchor)
+
+            placeholder = ast.CTE(
+                name=node.name,
+                expr=anchor,
+                cte_type=node.cte_type,
+                recursive=True,
+                type=ast.CTETableType(name=node.name, select_query_type=anchor.type),
+            )
+            self.ctes[node.name] = placeholder
+
         # Visit the CTE expression (SELECT query) without creating a new CTE scope
         # This allows the CTE to reference previously defined CTEs in the same WITH clause
         # We clone the expr to avoid modifying the input node
@@ -167,6 +183,7 @@ class Resolver(CloningVisitor):
             name=node.name,
             expr=cte_expr,
             cte_type=node.cte_type,
+            recursive=node.recursive,
         )
 
         self.cte_counter -= 1

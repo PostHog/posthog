@@ -699,7 +699,20 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
     return json;
   }
 
-  VISIT(WithClause) { return visit(ctx->withExprList()); }
+  VISIT(WithClause) {
+    Json json = visitAsJSON(ctx->withExprList());
+
+    // If RECURSIVE keyword is present, add recursive: true to each CTE
+    if (ctx->RECURSIVE()) {
+      for (auto& [name, cte] : json.getObjectMut()) {
+        if (cte.isObject()) {
+          cte.getObjectMut()["recursive"] = true;
+        }
+      }
+    }
+
+    return json;
+  }
 
   VISIT_UNSUPPORTED(TopClause)
 
