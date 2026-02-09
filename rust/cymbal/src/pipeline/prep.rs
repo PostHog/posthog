@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
 use chrono::{DateTime, Duration, Utc};
 use common_types::{
@@ -64,7 +64,7 @@ pub fn prepare_events(
                 // the raw json object to a RawEvent indicates some pipeline error, and we should fail and
                 // take lag until it's fixed (so we return an UnhandledError here)
                 let raw_event: RawEvent =
-                    serde_json::from_value(raw_event).map_err(|e| (i, e.into()))?;
+                    serde_json::from_value(raw_event).map_err(|e| (i, Arc::new(e.into())))?;
 
                 // Bit of a mouthful, but basically, if the event has a timestamp, try to parse it,
                 // and store an event error if we can't. If the event has no timestamp, use the instant

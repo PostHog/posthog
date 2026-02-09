@@ -1,12 +1,17 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
+import { IconX } from '@posthog/icons'
 import { LemonSkeleton } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { NotebookNodeProps, NotebookNodeType } from 'scenes/notebooks/types'
 import { personLogic } from 'scenes/persons/personLogic'
 
 import { PersonType } from '~/types'
+
+import { customerProfileLogic } from 'products/customer_analytics/frontend/customerProfileLogic'
 
 import { createPostHogWidgetNode } from '../NodeWrapper'
 import { notebookNodeLogic } from '../notebookNodeLogic'
@@ -47,10 +52,25 @@ const Feed = ({ person }: FeedProps): JSX.Element => {
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodePersonFeedAttributes>): JSX.Element | null => {
     const { id, distinctId } = attributes
-    const { expanded } = useValues(notebookNodeLogic)
+    const { expanded, notebookLogic } = useValues(notebookNodeLogic)
+    const mountedPersonFeedLogic = notebookNodePersonFeedLogic({ personId: id })
+    useAttachedLogic(mountedPersonFeedLogic, notebookLogic)
+    const { setMenuItems } = useActions(notebookNodeLogic)
+    const { removeNode } = useActions(customerProfileLogic)
 
     const logic = personLogic({ id, distinctId })
     const { person, personLoading } = useValues(logic)
+
+    useOnMountEffect(() => {
+        setMenuItems([
+            {
+                label: 'Remove',
+                onClick: () => removeNode(NotebookNodeType.PersonFeed),
+                sideIcon: <IconX />,
+                status: 'danger',
+            },
+        ])
+    })
 
     if (!expanded) {
         return null

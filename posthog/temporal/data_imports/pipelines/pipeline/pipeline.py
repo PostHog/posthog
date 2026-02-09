@@ -10,15 +10,20 @@ from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.shutdown import ShutdownMonitor
+from posthog.temporal.data_imports.pipelines.common.extract import (
+    cdp_producer_clear_chunks,
+    write_chunk_for_cdp_producer,
+)
 from posthog.temporal.data_imports.pipelines.common.load import (
     get_incremental_field_value,
     supports_partial_data_loading,
     update_job_row_count,
 )
 from posthog.temporal.data_imports.pipelines.pipeline.batcher import Batcher
+from posthog.temporal.data_imports.pipelines.pipeline.cdp_producer import CDPProducer
 from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import DeltaTableHelper
 from posthog.temporal.data_imports.pipelines.pipeline.hogql_schema import HogQLSchema
-from posthog.temporal.data_imports.pipelines.pipeline.typings import ResumableData, SourceResponse
+from posthog.temporal.data_imports.pipelines.pipeline.typings import PipelineResult, ResumableData, SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     BillingLimitsWillBeReachedException,
     DuplicatePrimaryKeysException,
@@ -53,6 +58,7 @@ class PipelineNonDLT(Generic[ResumableData]):
     _delta_table_helper: DeltaTableHelper
     _resumable_source_manager: ResumableSourceManager[ResumableData] | None
     _internal_schema = HogQLSchema()
+    _cdp_producer: CDPProducer
     _batcher: Batcher
     _load_id: int
 
@@ -82,13 +88,16 @@ class PipelineNonDLT(Generic[ResumableData]):
         self._resumable_source_manager = resumable_source_manager
         self._batcher = Batcher(self._logger)
         self._internal_schema = HogQLSchema()
+        self._cdp_producer = CDPProducer(
+            team_id=self._job.team_id, schema_id=self._schema.id, job_id=job_id, logger=self._logger
+        )
         self._shutdown_monitor = shutdown_monitor
         self._last_incremental_field_value: Any = None
         self._earliest_incremental_field_value: Any = process_incremental_value(
             schema.incremental_field_earliest_value, schema.incremental_field_type
         )
 
-    def run(self):
+    def run(self) -> PipelineResult:
         pa_memory_pool = pa.default_memory_pool()
 
         should_resume = self._resumable_source_manager is not None and self._resumable_source_manager.can_resume()
@@ -97,6 +106,7 @@ class PipelineNonDLT(Generic[ResumableData]):
             self._logger.info("Resumable source detected - attempting to resume previous import")
 
         try:
+            cdp_producer_clear_chunks(self._cdp_producer)
             # Reset the rows_synced count - this may not be 0 if the job restarted due to a heartbeat timeout
             if (
                 self._job.rows_synced is not None
@@ -117,8 +127,10 @@ class PipelineNonDLT(Generic[ResumableData]):
             if self._resource.rows_to_sync:
                 increment_rows(self._job.team_id, self._schema.id, self._resource.rows_to_sync)
 
-                # Check billing limits against incoming rows
-                if will_hit_billing_limit(team_id=self._job.team_id, source=self._schema.source, logger=self._logger):
+                # Check billing limits against incoming rows (skip for non-billable jobs)
+                if self._job.billable and will_hit_billing_limit(
+                    team_id=self._job.team_id, source=self._schema.source, logger=self._logger
+                ):
                     raise BillingLimitsWillBeReachedException(
                         f"Your account will hit your Data Warehouse billing limits syncing {self._resource.name} with {self._resource.rows_to_sync} rows"
                     )
@@ -192,6 +204,8 @@ class PipelineNonDLT(Generic[ResumableData]):
                 )
 
             self._post_run_operations(row_count=row_count)
+
+            return {"should_trigger_cdp_producer": self._cdp_producer.should_produce_table}
         finally:
             # Help reduce the memory footprint of each job
             self._logger.debug("Cleaning up delta table helper")
@@ -239,6 +253,8 @@ class PipelineNonDLT(Generic[ResumableData]):
         )
 
         self._internal_schema.add_pyarrow_table(pa_table)
+
+        write_chunk_for_cdp_producer(self._cdp_producer, index, pa_table)
 
         # Update the incremental_field_last_value.
         # If the resource returns data sorted in ascending timestamp order, we can update the

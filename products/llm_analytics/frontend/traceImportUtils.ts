@@ -6,6 +6,7 @@ import { formatLLMUsage } from './utils'
 
 export interface EventMetrics {
     latency?: number
+    time_to_first_token?: number
     tokens?: {
         input: number
         output: number

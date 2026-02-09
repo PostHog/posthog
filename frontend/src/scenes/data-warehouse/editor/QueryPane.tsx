@@ -1,8 +1,8 @@
 import { useActions, useValues } from 'kea'
-import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 
 import { IconCheck, IconX } from '@posthog/icons'
 
+import { AutoSizer } from 'lib/components/AutoSizer'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { CodeEditor, CodeEditorProps } from 'lib/monaco/CodeEditor'
@@ -21,6 +21,7 @@ interface QueryPaneProps {
     sourceQuery: HogQLQuery
     originalValue?: string
     onRun?: () => void
+    editorVimModeEnabled?: boolean
 }
 
 export function QueryPane(props: QueryPaneProps): JSX.Element {
@@ -43,37 +44,40 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
                 }}
                 ref={queryPaneResizerProps.containerRef}
             >
-                <div className="relative flex flex-col w-full">
-                    <div className="flex-1" data-attr="hogql-query-editor">
-                        <AutoSizer>
-                            {({ height, width }) => (
-                                <CodeEditor
-                                    language="hogQL"
-                                    value={props.queryInput}
-                                    sourceQuery={props.sourceQuery}
-                                    height={height}
-                                    width={width}
-                                    originalValue={props.originalValue}
-                                    {...props.codeEditorProps}
-                                    options={{
-                                        minimap: {
-                                            enabled: false,
-                                        },
-                                        wordWrap: 'on',
-                                        // Overscroll needed when Accept/Reject buttons are shown, so that they don't obscure the query
-                                        scrollBeyondLastLine: !!props.originalValue,
-                                        automaticLayout: true,
-                                        fixedOverflowWidgets: true,
-                                        suggest: {
-                                            showInlineDetails: true,
-                                        },
-                                        quickSuggestionsDelay: 300,
-                                    }}
-                                />
-                            )}
-                        </AutoSizer>
+                <div className="relative flex flex-col w-full min-h-0">
+                    <div className="flex-1 min-h-0" data-attr="hogql-query-editor">
+                        <AutoSizer
+                            renderProp={({ height, width }) =>
+                                height && width ? (
+                                    <CodeEditor
+                                        language="hogQL"
+                                        value={props.queryInput}
+                                        sourceQuery={props.sourceQuery}
+                                        height={height}
+                                        width={width}
+                                        originalValue={props.originalValue}
+                                        enableVimMode={props.editorVimModeEnabled}
+                                        {...props.codeEditorProps}
+                                        autoFocus={true}
+                                        options={{
+                                            minimap: {
+                                                enabled: false,
+                                            },
+                                            wordWrap: 'on',
+                                            scrollBeyondLastLine: !!props.originalValue,
+                                            automaticLayout: true,
+                                            fixedOverflowWidgets: true,
+                                            suggest: {
+                                                showInlineDetails: true,
+                                            },
+                                            quickSuggestionsDelay: 300,
+                                        }}
+                                    />
+                                ) : null
+                            }
+                        />
                     </div>
-                    <div className="absolute bottom-6 right-4">
+                    <div className={`absolute right-4 ${props.editorVimModeEnabled ? 'bottom-12' : 'bottom-6'}`}>
                         <MaxTool
                             identifier="execute_sql"
                             context={{

@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 
 import { LemonLabel, LemonSkeleton, SpinnerOverlay } from '@posthog/lemon-ui'
 
-import { humanFriendlyNumber } from 'lib/utils'
+import { formatPercentageDiff, humanFriendlyNumber } from 'lib/utils'
 
 import { LineGraph } from '~/queries/nodes/DataVisualization/Components/Charts/LineGraph'
 import { ChartDisplayType } from '~/types'
@@ -47,7 +47,7 @@ export function AppMetricSummary({
         )
     }, [previousPeriodTimeSeries])
 
-    const diff = (total - totalPreviousPeriod) / totalPreviousPeriod
+    const diffForDisplay = formatPercentageDiff(total, totalPreviousPeriod)
 
     // Hide component if hideIfZero is true and there's no data
     if (hideIfZero && !loading && total === 0 && totalPreviousPeriod === 0) {
@@ -65,11 +65,7 @@ export function AppMetricSummary({
                 )}
             </div>
             <div className="flex flex-row justify-end items-center gap-2 text-xs text-muted">
-                {loading ? (
-                    <LemonSkeleton className="w-10 h-4" />
-                ) : (
-                    <>{diff > 0 ? ` (+${(diff * 100).toFixed(1)}%)` : ` (-${(-diff * 100).toFixed(1)}%)`}</>
-                )}
+                {loading ? <LemonSkeleton className="w-10 h-4" /> : <>{diffForDisplay}</>}
             </div>
 
             <div className="flex-1 mt-2">

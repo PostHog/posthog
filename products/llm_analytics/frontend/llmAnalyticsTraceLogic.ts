@@ -4,19 +4,27 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
+import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { urls } from 'scenes/urls'
 
-import { ActivationTask, activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
-import { AnyResponseType, DataTableNode, NodeKind, TraceQuery } from '~/queries/schema/schema-general'
-import { ActivityScope, Breadcrumb, InsightLogicProps } from '~/types'
+import {
+    AnyResponseType,
+    DataTableNode,
+    NodeKind,
+    TraceNeighborsQuery,
+    TraceNeighborsQueryResponse,
+    TraceQuery,
+} from '~/queries/schema/schema-general'
+import { ActivityScope, AnyPropertyFilter, Breadcrumb, InsightLogicProps } from '~/types'
 
+import { llmAnalyticsSharedLogic } from './llmAnalyticsSharedLogic'
 import type { llmAnalyticsTraceLogicType } from './llmAnalyticsTraceLogicType'
 
 const teamId = window.POSTHOG_APP_CONTEXT?.current_team?.id
@@ -34,6 +42,7 @@ export enum TraceViewMode {
     Summary = 'summary',
     Evals = 'evals',
     Clusters = 'clusters',
+    Feedback = 'feedback',
 }
 
 export interface LLMAnalyticsTraceDataNodeLogicParams {
@@ -67,7 +76,12 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
     path(['scenes', 'llm-analytics', 'llmAnalyticsTraceLogic']),
 
     connect(() => ({
-        values: [featureFlagLogic, ['featureFlags']],
+        values: [
+            featureFlagLogic,
+            ['featureFlags'],
+            llmAnalyticsSharedLogic,
+            ['dateFilter', 'propertyFilters', 'shouldFilterTestAccounts', 'shouldFilterSupportTraces'],
+        ],
     })),
 
     actions({
@@ -92,6 +106,7 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
         toggleEventTypeExpanded: (eventType: string) => ({ eventType }),
         loadCommentCount: true,
         setViewMode: (viewMode: TraceViewMode) => ({ viewMode }),
+        loadNeighbors: (traceId: string, timestamp: string) => ({ traceId, timestamp }),
     }),
 
     reducers({
@@ -115,6 +130,9 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
                     }
                     if (tab === 'clusters') {
                         return TraceViewMode.Clusters
+                    }
+                    if (tab === 'feedback') {
+                        return TraceViewMode.Feedback
                     }
                     return TraceViewMode.Conversation
                 },
@@ -233,6 +251,51 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
                 },
             },
         ],
+        neighbors: [
+            null as TraceNeighborsQueryResponse | null,
+            {
+                loadNeighbors: async ({ traceId, timestamp }, breakpoint) => {
+                    // Check if feature flag is enabled
+                    if (!values.featureFlags?.[FEATURE_FLAGS.LLM_ANALYTICS_TRACE_NAVIGATION]) {
+                        return null
+                    }
+
+                    if (!traceId || !timestamp) {
+                        return null
+                    }
+
+                    await breakpoint(100)
+
+                    // Only pass dateRange if it's an explicit date (not a relative default like "-1h" or "dStart")
+                    // Relative dates start with "-" or "d" and are defaults, not user-selected filters
+                    const hasExplicitDateRange =
+                        values.dateFilter?.dateFrom &&
+                        !values.dateFilter.dateFrom.startsWith('-') &&
+                        !values.dateFilter.dateFrom.startsWith('d')
+
+                    const query: TraceNeighborsQuery = {
+                        kind: NodeKind.TraceNeighborsQuery,
+                        traceId,
+                        timestamp,
+                        dateRange: hasExplicitDateRange
+                            ? {
+                                  date_from: values.dateFilter.dateFrom,
+                                  date_to: values.dateFilter.dateTo,
+                              }
+                            : undefined,
+                        filterTestAccounts: values.shouldFilterTestAccounts,
+                        filterSupportTraces: values.shouldFilterSupportTraces,
+                        properties: values.propertyFilters as AnyPropertyFilter[],
+                    }
+
+                    const response = await api.query(query)
+
+                    breakpoint()
+
+                    return response as TraceNeighborsQueryResponse
+                },
+            },
+        ],
     })),
 
     selectors({
@@ -294,6 +357,10 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
                     return eventTypeExpandedMap[eventType] ?? true
                 },
         ],
+        newerTraceId: [(s) => [s.neighbors], (neighbors) => neighbors?.newerTraceId ?? null],
+        newerTimestamp: [(s) => [s.neighbors], (neighbors) => neighbors?.newerTimestamp ?? null],
+        olderTraceId: [(s) => [s.neighbors], (neighbors) => neighbors?.olderTraceId ?? null],
+        olderTimestamp: [(s) => [s.neighbors], (neighbors) => neighbors?.olderTimestamp ?? null],
         [SIDE_PANEL_CONTEXT_KEY]: [
             (s) => [s.traceId, s.featureFlags],
             (traceId, featureFlags): SidePanelSceneContext => {
@@ -374,8 +441,9 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
                 actions.loadCommentCount()
 
                 // Mark both tasks as completed - viewing a trace implies AI events were sent
-                activationLogic.findMounted()?.actions.markTaskAsCompleted(ActivationTask.IngestFirstLLMEvent)
-                activationLogic.findMounted()?.actions.markTaskAsCompleted(ActivationTask.ViewFirstTrace)
+                globalSetupLogic
+                    .findMounted()
+                    ?.actions.markTaskAsCompleted([SetupTaskId.IngestFirstLlmEvent, SetupTaskId.ViewFirstTrace])
             }
         },
     })),

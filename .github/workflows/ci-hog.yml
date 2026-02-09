@@ -23,6 +23,9 @@ jobs:
         runs-on: ubuntu-24.04
         timeout-minutes: 5
         name: Determine need to run Hog checks
+        permissions:
+            contents: read
+            pull-requests: read
         # Set job outputs to values from filter step
         outputs:
             hog: ${{ steps.filter.outputs.hog || 'true' }}
@@ -69,6 +72,7 @@ jobs:
               uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b # v7.2.0
               with:
                   enable-cache: true
+                  save-cache: ${{ github.ref == 'refs/heads/master' }}
                   version: 0.9.9
 
             - name: Install SAML (python3-saml) dependencies
@@ -83,6 +87,9 @@ jobs:
 
             - name: Install pnpm
               uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.2.0
+
+            - name: Fix node-gyp permissions
+              run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
 
             - name: Set up Node.js
               uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
@@ -116,6 +123,8 @@ jobs:
               run: |
                   python -m common.hogvm.stl.compile
                   git diff --exit-code
+              env:
+                  TEST: 1
 
             - name: Run HogVM Python tests
               run: |
@@ -133,6 +142,8 @@ jobs:
                   bin/turbo --filter=@posthog/hogvm build
                   cd common/hogvm
                   ./test.sh && git diff --exit-code
+              env:
+                  TEST: 1
 
     check-package-version:
         name: Check HogVM TypeScript package version and detect an update
@@ -177,6 +188,7 @@ jobs:
               uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b # v7.2.0
               with:
                   enable-cache: true
+                  save-cache: ${{ github.ref == 'refs/heads/master' }}
                   version: 0.9.9
             - name: Install SAML (python3-saml) dependencies
               if: steps.setup-uv-hogql-python.outputs.cache-hit != 'true'
@@ -188,6 +200,8 @@ jobs:
                   UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
             - name: Install pnpm
               uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.2.0
+            - name: Fix node-gyp permissions
+              run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
             - name: Set up Node 24
               uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
               with:

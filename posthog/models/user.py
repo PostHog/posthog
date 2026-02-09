@@ -29,6 +29,11 @@ class Notifications(TypedDict, total=False):
     discussions_mentioned: bool
     project_weekly_digest_disabled: dict[str, Any]  # Maps project ID to disabled status, str is the team_id as a string
     all_weekly_digest_disabled: bool
+    data_pipeline_error_threshold: (
+        float  # Failure rate threshold (0.0 to 1.0) - only notify if failure rate exceeds this
+    )
+    project_api_key_exposed: bool
+    materialized_view_sync_failed: bool
 
 
 NOTIFICATION_DEFAULTS: Notifications = {
@@ -37,9 +42,12 @@ NOTIFICATION_DEFAULTS: Notifications = {
     "discussions_mentioned": True,  # Mentions in comments enabled by default
     "project_weekly_digest_disabled": {},  # Empty dict by default - no projects disabled
     "all_weekly_digest_disabled": False,  # Weekly digests enabled by default
+    "data_pipeline_error_threshold": 0.0,  # Default: notify on any failure (0% threshold)
+    "project_api_key_exposed": True,  # Project API key exposure alerts enabled by default
+    "materialized_view_sync_failed": False,  # Materialized view failure disabled by default
 }
 
-# We don't ned the following attributes in most cases, so we defer them by default
+# We don't need the following attributes in most cases, so we defer them by default
 DEFERED_ATTRS = ["requested_password_reset_at"]
 
 ROLE_CHOICES = (
@@ -176,6 +184,7 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):
     distinct_id = models.CharField(max_length=200, null=True, blank=True, unique=True)
     is_email_verified = models.BooleanField(null=True, blank=True)
     requested_password_reset_at = models.DateTimeField(null=True, blank=True)
+    requested_2fa_reset_at = models.DateTimeField(null=True, blank=True)
     has_seen_product_intro_for = models.JSONField(null=True, blank=True)
     strapi_id = models.PositiveSmallIntegerField(null=True, blank=True)
     is_active = models.BooleanField(
@@ -196,6 +205,12 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):
     allow_sidebar_suggestions = models.BooleanField(default=True, null=True, blank=True)
     shortcut_position = models.CharField(
         max_length=20, null=True, blank=True, choices=ShortcutPosition.choices, default=ShortcutPosition.ABOVE
+    )
+    passkeys_enabled_for_2fa = models.BooleanField(
+        default=False,
+        null=True,
+        blank=True,
+        help_text="Whether passkeys are enabled for 2FA authentication. Users can disable this to use only TOTP for 2FA while keeping passkeys for login.",
     )
 
     # DEPRECATED

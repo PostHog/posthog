@@ -149,7 +149,9 @@ export function getNiceTickValues(maxAbsValue: number, tickRangeFactor: number =
 }
 
 export function formatPValue(pValue: number | null | undefined): string {
-    if (!pValue) {
+    // Use explicit null check instead of falsy check
+    // This prevents treating 0 or very small numbers as invalid
+    if (pValue == null) {
         return '—'
     }
 

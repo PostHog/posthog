@@ -465,3 +465,23 @@ where `$start_timestamp` >= now() - toIntervalDay(7)
 """
         )
         assert self.generalize_sql(actual) == self.snapshot
+
+    def test_select_query_alias_type_does_not_crash(self):
+        # Regression test: queries with aliased subqueries should not crash when
+        # the where clause extractor encounters a SelectQueryAliasType (which
+        # doesn't have a .table attribute)
+        actual = self.print_query(
+            """
+SELECT
+    subquery.session_id
+FROM (
+    SELECT
+        session_id,
+        $start_timestamp
+    FROM sessions
+    WHERE $start_timestamp >= '2024-01-01'
+) AS subquery
+WHERE subquery.session_id = '0199a58b-fdf2-785c-b6e3-6ba32b2380cf'
+"""
+        )
+        assert self.generalize_sql(actual) == self.snapshot

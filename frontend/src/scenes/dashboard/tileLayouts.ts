@@ -6,6 +6,110 @@ import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import { isFunnelsQuery, isPathsQuery, isRetentionQuery, isTrendsQuery } from '~/queries/utils'
 import { ChartDisplayType, DashboardLayoutSize, DashboardTile, QueryBasedInsightModel } from '~/types'
 
+export interface TileLayout {
+    x: number
+    y: number
+    w: number
+    h: number
+}
+
+export interface DuplicateLayoutResult {
+    duplicateLayouts: { sm?: TileLayout; xs?: TileLayout }
+    tilesToUpdate: Array<{ id: number; layouts: { sm?: TileLayout; xs?: TileLayout } }>
+}
+
+export function calculateDuplicateLayout(
+    currentLayouts: Partial<Record<DashboardLayoutSize, Layout[]>> | null,
+    tileId: number
+): DuplicateLayoutResult {
+    const result: DuplicateLayoutResult = { duplicateLayouts: {}, tilesToUpdate: [] }
+
+    const originalSmLayout = currentLayouts?.sm?.find((l) => String(l.i) === String(tileId))
+    const originalXsLayout = currentLayouts?.xs?.find((l) => String(l.i) === String(tileId))
+
+    if (!originalSmLayout) {
+        return result
+    }
+
+    const { x, y, w, h } = originalSmLayout
+    const columnCount = BREAKPOINT_COLUMN_COUNTS.sm
+
+    // for the xs layout, we can always place the tile just below the original
+    const xsLayoutForDuplicate = originalXsLayout
+        ? {
+              x: originalXsLayout.x,
+              y: originalXsLayout.y + originalXsLayout.h,
+              w: originalXsLayout.w,
+              h: originalXsLayout.h,
+          }
+        : undefined
+
+    // place the tile on the right if there's space
+    if (canPlaceToRight(currentLayouts?.sm || [], tileId, x, y, w, h, columnCount)) {
+        result.duplicateLayouts = {
+            sm: { x: x + w, y, w, h },
+            xs: xsLayoutForDuplicate,
+        }
+        return result
+    }
+
+    // otherwise, place it below
+    const insertY = y + h
+    result.duplicateLayouts = {
+        sm: { x, y: insertY, w, h },
+        xs: xsLayoutForDuplicate,
+    }
+
+    // shift down any tiles that would overlap with the new placement
+    for (const smLayout of currentLayouts?.sm || []) {
+        // ignore the duplicated tile and tiles above the insertion point
+        if (String(smLayout.i) === String(tileId) || smLayout.y < insertY) {
+            continue
+        }
+
+        const xsLayout = currentLayouts?.xs?.find((l) => l.i === smLayout.i)
+        const xsInsertY = originalXsLayout ? originalXsLayout.y + originalXsLayout.h : undefined
+        result.tilesToUpdate.push({
+            id: parseInt(smLayout.i),
+            layouts: {
+                sm: { x: smLayout.x, y: smLayout.y + h, w: smLayout.w, h: smLayout.h },
+                xs:
+                    xsLayout && xsInsertY !== undefined && xsLayout.y >= xsInsertY
+                        ? { x: xsLayout.x, y: xsLayout.y + originalXsLayout!.h, w: xsLayout.w, h: xsLayout.h }
+                        : xsLayout
+                          ? { x: xsLayout.x, y: xsLayout.y, w: xsLayout.w, h: xsLayout.h }
+                          : undefined,
+            },
+        })
+    }
+
+    return result
+}
+
+function canPlaceToRight(
+    layouts: Layout[],
+    excludeTileId: number,
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    columnCount: number
+): boolean {
+    const rightX = x + w
+    if (rightX + w > columnCount) {
+        return false
+    }
+
+    return !layouts.some((l) => {
+        if (String(l.i) === String(excludeTileId)) {
+            return false
+        }
+        const overlapsX = l.x < rightX + w && l.x + l.w > rightX
+        const overlapsY = l.y < y + h && l.y + l.h > y
+        return overlapsX && overlapsY
+    })
+}
+
 export const sortTilesByLayout = (
     tiles: Array<DashboardTile<QueryBasedInsightModel>>,
     col: DashboardLayoutSize

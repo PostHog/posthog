@@ -1,9 +1,12 @@
 import { BindLogic, useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import React, { useEffect, useState } from 'react'
 
 import {
     IconAIText,
     IconChat,
+    IconChevronLeft,
+    IconChevronRight,
     IconComment,
     IconCopy,
     IconDownload,
@@ -30,6 +33,7 @@ import { JSONViewer } from 'lib/components/JSONViewer'
 import { NotFound } from 'lib/components/NotFound'
 import ViewRecordingButton, { RecordingPlayerType } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
 import { IconWithCount } from 'lib/lemon-ui/icons/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -41,8 +45,9 @@ import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 import { SidePanelTab } from '~/types'
 
@@ -57,6 +62,7 @@ import { MetricTag } from './components/MetricTag'
 import { NoTopLevelTraceEmptyState } from './components/NoTopLevelTraceEmptyState'
 import { EventTypeTag, TraceSidebarBase } from './components/TraceSidebarBase'
 import { SaveToDatasetButton } from './datasets/SaveToDatasetButton'
+import { FeedbackViewDisplay } from './feedback-view/FeedbackViewDisplay'
 import { useAIData } from './hooks/useAIData'
 import { llmAnalyticsPlaygroundLogic } from './llmAnalyticsPlaygroundLogic'
 import { EnrichedTraceTreeNode, llmAnalyticsTraceDataLogic } from './llmAnalyticsTraceDataLogic'
@@ -76,6 +82,59 @@ import {
     isTraceLevel,
     removeMilliseconds,
 } from './utils'
+
+function TraceNavigation(): JSX.Element {
+    const { viewMode, newerTraceId, newerTimestamp, olderTraceId, olderTimestamp, neighborsLoading } =
+        useValues(llmAnalyticsTraceLogic)
+
+    // Navigate to newer (more recent) or older traces
+    const goToNewer = (): void => {
+        if (newerTraceId) {
+            router.actions.push(
+                urls.llmAnalyticsTrace(newerTraceId, { timestamp: newerTimestamp ?? undefined, tab: viewMode })
+            )
+        }
+    }
+
+    const goToOlder = (): void => {
+        if (olderTraceId) {
+            router.actions.push(
+                urls.llmAnalyticsTrace(olderTraceId, { timestamp: olderTimestamp ?? undefined, tab: viewMode })
+            )
+        }
+    }
+
+    useKeyboardHotkeys(
+        {
+            p: { action: goToNewer, disabled: !newerTraceId || neighborsLoading },
+            n: { action: goToOlder, disabled: !olderTraceId || neighborsLoading },
+        },
+        [olderTraceId, newerTraceId, olderTimestamp, newerTimestamp, neighborsLoading, viewMode]
+    )
+
+    return (
+        <div className="flex items-center gap-1">
+            <LemonButton
+                icon={<IconChevronLeft />}
+                size="xsmall"
+                type="secondary"
+                disabled={!newerTraceId || neighborsLoading}
+                onClick={goToNewer}
+                tooltip="Newer trace"
+                sideIcon={<KeyboardShortcut p />}
+            />
+            <LemonButton
+                icon={<IconChevronRight />}
+                size="xsmall"
+                type="secondary"
+                disabled={!olderTraceId || neighborsLoading}
+                onClick={goToOlder}
+                tooltip="Older trace"
+                sideIcon={<KeyboardShortcut n />}
+            />
+        </div>
+    )
+}
 
 export const scene: SceneExport = {
     component: LLMAnalyticsTraceScene,
@@ -120,37 +179,53 @@ function TraceSceneWrapper(): JSX.Element {
                 <NotFound object="trace" />
             ) : (
                 <div className="relative flex flex-col gap-3">
-                    <SceneBreadcrumbBackButton />
-                    <div className="flex items-start justify-between">
-                        <TraceMetadata
-                            trace={trace}
-                            metricEvents={metricEvents as LLMTraceEvent[]}
-                            feedbackEvents={feedbackEvents as LLMTraceEvent[]}
-                            billedTotalUsd={billedTotalUsd}
-                            billedCredits={billedCredits}
-                            markupUsd={markupUsd}
-                            showBillingInfo={showBillingInfo}
+                    <div className="flex flex-col gap-1">
+                        <SceneTitleSection
+                            name={trace.id}
+                            resourceType={{ type: 'llm_analytics' }}
+                            forceBackTo={{
+                                name: 'Traces',
+                                path: urls.llmAnalyticsTraces(),
+                                key: 'traces',
+                            }}
+                            actions={
+                                featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TRACE_NAVIGATION] ? (
+                                    <TraceNavigation />
+                                ) : undefined
+                            }
+                            noBorder
                         />
-                        <div className="flex flex-wrap justify-end items-center gap-x-2 gap-y-1">
-                            <DisplayOptionsSelect />
-                            {(featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_DISCUSSIONS] ||
-                                featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]) && (
-                                <LemonButton
-                                    type="secondary"
-                                    size="xsmall"
-                                    icon={
-                                        <IconWithCount count={commentCount} showZero={false}>
-                                            <IconComment />
-                                        </IconWithCount>
-                                    }
-                                    onClick={() => openSidePanel(SidePanelTab.Discussion)}
-                                    tooltip="Add comments on this trace"
-                                    data-attr="open-trace-discussion"
-                                >
-                                    Discussion
-                                </LemonButton>
-                            )}
-                            <ShareTraceButton trace={trace} tree={enrichedTree} />
+                        <div className="flex items-start justify-between">
+                            <TraceMetadata
+                                trace={trace}
+                                metricEvents={metricEvents as LLMTraceEvent[]}
+                                feedbackEvents={feedbackEvents as LLMTraceEvent[]}
+                                billedTotalUsd={billedTotalUsd}
+                                billedCredits={billedCredits}
+                                markupUsd={markupUsd}
+                                showBillingInfo={showBillingInfo}
+                            />
+                            <div className="flex flex-wrap justify-end items-center gap-x-2 gap-y-1">
+                                <DisplayOptionsSelect />
+                                {(featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_DISCUSSIONS] ||
+                                    featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]) && (
+                                    <LemonButton
+                                        type="secondary"
+                                        size="xsmall"
+                                        icon={
+                                            <IconWithCount count={commentCount} showZero={false}>
+                                                <IconComment />
+                                            </IconWithCount>
+                                        }
+                                        onClick={() => openSidePanel(SidePanelTab.Discussion)}
+                                        tooltip="Add comments on this trace"
+                                        data-attr="open-trace-discussion"
+                                    >
+                                        Discussion
+                                    </LemonButton>
+                                )}
+                                <ShareTraceButton trace={trace} tree={enrichedTree} />
+                            </div>
                         </div>
                     </div>
                     <div className="flex flex-1 min-h-0 gap-3 flex-col md:flex-row">
@@ -245,11 +320,9 @@ function TraceMetadata({
 
     return (
         <header className="flex gap-1.5 flex-wrap">
-            {'person' in trace && (
-                <Chip title="Person">
-                    <PersonDisplay withIcon="sm" person={trace.person} />
-                </Chip>
-            )}
+            <Chip title="Person">
+                <PersonDisplay withIcon="sm" person={trace.person ?? { distinct_id: trace.distinctId }} />
+            </Chip>
             {trace.aiSessionId && (
                 <Chip
                     title={
@@ -433,6 +506,9 @@ const EventContent = React.memo(
 
         const isGenerationEvent = event && isLLMEvent(event) && event.event === '$ai_generation'
 
+        const promptName = event && isLLMEvent(event) ? event.properties['$ai_prompt_name'] : null
+        const showPromptButton = !!promptName
+
         const showPlaygroundButton = isGenerationEvent
 
         const showSaveToDatasetButton = featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_DATASETS]
@@ -444,6 +520,8 @@ const EventContent = React.memo(
             featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
 
         const showClustersTab = !!event && isTraceLevel(event) && featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_CLUSTERS_TAB]
+
+        const showFeedbackTab = !!event && isTraceLevel(event)
 
         // Check if we're viewing a trace with actual content vs. a pseudo-trace (grouping of generations w/o input/output state)
         const isTopLevelTraceWithoutContent = !event || (!isLLMEvent(event) && !event.inputState && !event.outputState)
@@ -502,6 +580,8 @@ const EventContent = React.memo(
                                     model={event.properties.$ai_model}
                                     latency={event.properties.$ai_latency}
                                     timestamp={event.createdAt}
+                                    timeToFirstToken={event.properties.$ai_time_to_first_token}
+                                    isStreaming={event.properties.$ai_stream === true}
                                 />
                             ) : (
                                 <MetadataHeader
@@ -533,8 +613,23 @@ const EventContent = React.memo(
                                     )}
                                 </div>
                             )}
-                            {(showPlaygroundButton || hasSessionRecording || showSaveToDatasetButton) && (
+                            {(showPromptButton ||
+                                showPlaygroundButton ||
+                                hasSessionRecording ||
+                                showSaveToDatasetButton) && (
                                 <div className="flex flex-row items-center gap-2">
+                                    {showPromptButton && (
+                                        <LemonButton
+                                            type="secondary"
+                                            size="xsmall"
+                                            icon={<IconAIText />}
+                                            to={urls.llmAnalyticsPrompt(promptName)}
+                                            tooltip="View the prompt used for this generation"
+                                            data-attr="view-prompt-trace"
+                                        >
+                                            View prompt
+                                        </LemonButton>
+                                    )}
                                     {showPlaygroundButton && (
                                         <LemonButton
                                             type="secondary"
@@ -671,7 +766,7 @@ const EventContent = React.memo(
                                                   <>
                                                       Summary{' '}
                                                       <LemonTag className="ml-1" type="completion">
-                                                          Alpha
+                                                          Beta
                                                       </LemonTag>
                                                   </>
                                               ),
@@ -698,7 +793,7 @@ const EventContent = React.memo(
                                                       generationEventId={event.id}
                                                       timestamp={event.createdAt}
                                                       event={event.event}
-                                                      distinctId={trace.person.distinct_id}
+                                                      distinctId={trace.person?.distinct_id ?? trace.distinctId}
                                                   />
                                               ),
                                           },
@@ -717,6 +812,22 @@ const EventContent = React.memo(
                                                   </>
                                               ),
                                               content: <ClustersTabContent />,
+                                          },
+                                      ]
+                                    : []),
+                                ...(showFeedbackTab
+                                    ? [
+                                          {
+                                              key: TraceViewMode.Feedback,
+                                              label: (
+                                                  <>
+                                                      Feedback{' '}
+                                                      <LemonTag className="ml-1" type="completion">
+                                                          Beta
+                                                      </LemonTag>
+                                                  </>
+                                              ),
+                                              content: <FeedbackViewDisplay />,
                                           },
                                       ]
                                     : []),

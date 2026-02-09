@@ -196,12 +196,17 @@ class AgentExecutable(BaseAgentLoopRootExecutable):
         else:
             new_messages = cast(list[AssistantMessageUnion], generated_messages)
 
+        # NOTE: We intentionally do NOT extract the mode from switch_mode tool calls here.
+        # The mode should only change AFTER the tools node validates and executes the tool.
+        # If we set agent_mode prematurely, the tools node will use the wrong mode_registry
+        # to validate the switch_mode call (e.g., trying to validate "plan" against the
+        # plan mode registry which doesn't have "plan" as a valid mode).
         return PartialAssistantState(
             messages=new_messages,
             root_tool_calls_count=tool_call_count,
             root_conversation_start_id=window_id,
             start_id=start_id,
-            agent_mode=self._get_updated_agent_mode(generated_messages[-1], state.agent_mode_or_default),
+            agent_mode=state.agent_mode_or_default,
         )
 
     def router(self, state: AssistantState):
@@ -313,12 +318,6 @@ class AgentExecutable(BaseAgentLoopRootExecutable):
         """Process the output message."""
         return normalize_ai_message(message)
 
-    def _get_updated_agent_mode(self, generated_message: AssistantMessage, current_mode: AgentMode) -> AgentMode | None:
-        for tool_call in generated_message.tool_calls or []:
-            if tool_call.name == AssistantTool.SWITCH_MODE and (new_mode := tool_call.args.get("new_mode")):
-                return new_mode
-        return current_mode
-
 
 class AgentToolsExecutable(BaseAgentLoopExecutable):
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
@@ -388,6 +387,19 @@ class AgentToolsExecutable(BaseAgentLoopExecutable):
             if not isinstance(result, LangchainToolMessage):
                 raise ValueError(
                     f"Tool '{tool_call.name}' returned {type(result).__name__}, expected LangchainToolMessage"
+                )
+
+            # Track successful tool execution
+            user_distinct_id = self._get_user_distinct_id(config)
+            if user_distinct_id:
+                posthoganalytics.capture(
+                    distinct_id=user_distinct_id,
+                    event="ai tool executed",
+                    properties={
+                        **self._get_debug_props(config),
+                        "tool_name": tool_call.name,
+                    },
+                    groups=groups(None, self._team),
                 )
         except MaxToolError as e:
             logger.exception(
@@ -473,8 +485,27 @@ class AgentToolsExecutable(BaseAgentLoopExecutable):
             tool_call_id=tool_call.id,
         )
 
+        # Extract agent_mode from switch_mode tool result
+        # The switch_mode tool returns (content, new_mode) where new_mode is stored in artifact
+        agent_mode: AgentMode | None = None
+        if tool_call.name == AssistantTool.SWITCH_MODE and result.artifact:
+            agent_mode = result.artifact
+            user_distinct_id = self._get_user_distinct_id(config)
+            if user_distinct_id:
+                posthoganalytics.capture(
+                    distinct_id=user_distinct_id,
+                    event="ai mode executed",
+                    properties={
+                        **self._get_debug_props(config),
+                        "mode": agent_mode,
+                        "previous_mode": state.agent_mode_or_default,
+                    },
+                    groups=groups(None, self._team),
+                )
+
         return PartialAssistantState(
             messages=[tool_message],
+            agent_mode=agent_mode,
         )
 
     def router(self, state: AssistantState) -> Literal["root", "end"]:

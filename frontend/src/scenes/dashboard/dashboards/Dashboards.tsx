@@ -19,6 +19,7 @@ import { sceneConfigurations } from 'scenes/scenes'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { dashboardsModel } from '~/models/dashboardsModel'
+import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { DashboardTemplateChooser } from '../DashboardTemplateChooser'
@@ -26,7 +27,7 @@ import { DashboardTemplateChooser } from '../DashboardTemplateChooser'
 export const scene: SceneExport = {
     component: Dashboards,
     logic: dashboardsLogic,
-    settingSectionId: 'environment-product-analytics',
+    productKey: ProductKey.PRODUCT_ANALYTICS,
 }
 
 export function Dashboards(): JSX.Element {

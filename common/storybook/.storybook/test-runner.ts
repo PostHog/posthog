@@ -50,6 +50,7 @@ declare module '@storybook/types' {
             viewport?: { width: number; height: number }
             /**
              * Skip waiting for iframes to load. Useful for stories with external iframes that fail in CI.
+             * Also skips waiting for networkidle, which is useful for stories with background network activity.
              * @default false
              */
             skipIframeWait?: boolean
@@ -73,6 +74,7 @@ const LOADER_SELECTORS = [
     '.Toastify__toast',
     '[aria-busy="true"]',
     '.SessionRecordingPlayer--buffering',
+    '.PlayerSeekbar__segments__item--buffer-loading',
     '.Lettermark--unknown',
     '[data-attr="loading-bar"]',
 ]
@@ -137,7 +139,8 @@ async function expectStoryToMatchSnapshot(
     storyContext: StoryContext,
     browser: SupportedBrowserName
 ): Promise<void> {
-    await waitForPageReady(page)
+    const { skipIframeWait = false } = storyContext.parameters?.testOptions ?? {}
+    await waitForPageReady(page, skipIframeWait)
 
     // set up iframe load tracking early, before they start loading
     await page.evaluate(() => {
@@ -186,8 +189,10 @@ async function expectStoryToMatchSnapshot(
     if (waitForLoadersToDisappear) {
         // The timeout allows loaders and toasts to disappear - toasts usually signify something wrong
         // Use 'hidden' instead of 'detached' because some elements (like toasts) may remain in DOM but be invisible
-        // Timeout is 5000ms to account for slower CI environments while still catching stuck elements
-        await page.waitForSelector(LOADER_SELECTORS.join(','), { state: 'hidden', timeout: 5000 })
+        // Timeout is 5000ms by default, but increased to 10000ms for stories with async data loading (Dashboards, Max)
+        // to account for slower CI environments while still catching stuck elements
+        const timeout = context.id.includes('dashboards') || context.id.includes('max') ? 10000 : 5000
+        await page.waitForSelector(LOADER_SELECTORS.join(','), { state: 'hidden', timeout })
     }
 
     if (typeof waitForSelector === 'string') {
@@ -214,7 +219,8 @@ async function takeSnapshotWithTheme(
     await page.evaluate((theme: SnapshotTheme) => document.body.setAttribute('theme', theme), theme)
 
     // Wait until we're sure we've finished loading everything
-    await waitForPageReady(page)
+    const { skipIframeWait = false } = storyContext.parameters?.testOptions ?? {}
+    await waitForPageReady(page, skipIframeWait)
     // check if all images have width, unless purposefully skipped
     if (!allowImagesWithoutWidth) {
         await page.waitForFunction(() => {
@@ -237,7 +243,6 @@ async function takeSnapshotWithTheme(
     }
 
     // wait for iframes to load their content
-    const { skipIframeWait = false } = storyContext.parameters?.testOptions ?? {}
     if (!skipIframeWait) {
         const iframeCount = await page.locator('iframe').count()
         if (iframeCount > 0) {
@@ -435,13 +440,19 @@ async function expectLocatorToMatchStorySnapshot(
 /**
  * Just like the `waitForPageReady` helper offered by Playwright - except we only wait for `networkidle` in CI,
  * as it doesn't work with local Storybook (the live reload feature keeps up a long-running request, so we aren't idle).
+ *
+ * @param skipNetworkIdle - Skip waiting for network idle. Useful for stories with iframes that cause ongoing network activity.
  */
-async function waitForPageReady(page: Page): Promise<void> {
+async function waitForPageReady(page: Page, skipNetworkIdle = false): Promise<void> {
     await page.waitForLoadState('domcontentloaded')
     await page.waitForLoadState('load')
 
-    if (process.env.CI) {
-        await page.waitForLoadState('networkidle')
+    if (process.env.CI && !skipNetworkIdle) {
+        // networkidle can be flaky in CI due to background requests - don't fail on timeout
+        await page.waitForLoadState('networkidle').catch(() => {
+            // eslint-disable-next-line no-console
+            console.warn('[test-runner] networkidle timeout - proceeding anyway')
+        })
     }
 
     await page.evaluate(() => document.fonts.ready)

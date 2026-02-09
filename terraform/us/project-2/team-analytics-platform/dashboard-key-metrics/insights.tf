@@ -9,6 +9,187 @@
 #   https://registry.terraform.io/providers/PostHog/posthog/latest/docs/resources/insight
 # =============================================================================
 
+locals {
+  export_insight_regions = {
+    us = {
+      table_name    = "postgres.posthog_exportedasset"
+      dashboard_ids = [posthog_dashboard.team_analytics_platform_key_metrics.id, 633001, 567706]
+    }
+    eu = {
+      table_name    = "eu_posthog_exportedasset"
+      dashboard_ids = [posthog_dashboard.team_analytics_platform_key_metrics.id]
+    }
+  }
+
+  # Base query with placeholder - replace() substitutes the table name per region
+  export_insight_base_query = jsonencode({
+    "kind": "InsightVizNode",
+    "source": {
+      "kind": "TrendsQuery",
+      "series": [
+        {
+          "id": "{{TABLE_NAME}}",
+          "kind": "DataWarehouseNode",
+          "math": "total",
+          "name": "{{TABLE_NAME}}",
+          "id_field": "id",
+          "table_name": "{{TABLE_NAME}}",
+          "custom_name": "Starts",
+          "timestamp_field": "created_at",
+          "distinct_id_field": "created_by_id"
+        },
+        {
+          "id": "{{TABLE_NAME}}",
+          "kind": "DataWarehouseNode",
+          "math": "total",
+          "name": "{{TABLE_NAME}}",
+          "id_field": "id",
+          "properties": [
+            {
+              "key": "export_context is not null or content_location is not null",
+              "type": "hogql",
+              "value": null
+            }
+          ],
+          "table_name": "{{TABLE_NAME}}",
+          "custom_name": "Success",
+          "timestamp_field": "created_at",
+          "distinct_id_field": "created_by_id"
+        },
+        {
+          "id": "{{TABLE_NAME}}",
+          "kind": "DataWarehouseNode",
+          "math": "total",
+          "name": "{{TABLE_NAME}}",
+          "id_field": "id",
+          "properties": [
+            {
+              "key": "exception is not null",
+              "type": "hogql",
+              "value": null
+            }
+          ],
+          "table_name": "{{TABLE_NAME}}",
+          "custom_name": "Caught Exceptions",
+          "timestamp_field": "created_at",
+          "distinct_id_field": "created_by_id"
+        },
+        {
+          "id": "{{TABLE_NAME}}",
+          "kind": "DataWarehouseNode",
+          "math": "total",
+          "name": "{{TABLE_NAME}}",
+          "id_field": "id",
+          "properties": [
+            {
+              "key": "failure_type = 'user'",
+              "type": "hogql",
+              "value": null
+            }
+          ],
+          "table_name": "{{TABLE_NAME}}",
+          "custom_name": "User failures",
+          "timestamp_field": "created_at",
+          "distinct_id_field": "created_by_id"
+        },
+        {
+          "id": "{{TABLE_NAME}}",
+          "kind": "DataWarehouseNode",
+          "math": "total",
+          "name": "{{TABLE_NAME}}",
+          "id_field": "id",
+          "properties": [
+            {
+              "key": "failure_type = 'system'",
+              "type": "hogql",
+              "value": null
+            }
+          ],
+          "table_name": "{{TABLE_NAME}}",
+          "custom_name": "System failures",
+          "timestamp_field": "created_at",
+          "distinct_id_field": "created_by_id"
+        },
+        {
+          "id": "{{TABLE_NAME}}",
+          "kind": "DataWarehouseNode",
+          "math": "total",
+          "name": "{{TABLE_NAME}}",
+          "id_field": "id",
+          "properties": [
+            {
+              "key": "failure_type = 'timeout_generation'",
+              "type": "hogql",
+              "value": null
+            }
+          ],
+          "table_name": "{{TABLE_NAME}}",
+          "custom_name": "Timeout failures",
+          "timestamp_field": "created_at",
+          "distinct_id_field": "created_by_id"
+        },
+        {
+          "id": "{{TABLE_NAME}}",
+          "kind": "DataWarehouseNode",
+          "math": "total",
+          "name": "{{TABLE_NAME}}",
+          "id_field": "id",
+          "properties": [
+            {
+              "key": "failure_type = 'unknown'",
+              "type": "hogql",
+              "value": null
+            }
+          ],
+          "table_name": "{{TABLE_NAME}}",
+          "custom_name": "Unknown failures",
+          "timestamp_field": "created_at",
+          "distinct_id_field": "created_by_id"
+        },
+        {
+          "id": "{{TABLE_NAME}}",
+          "kind": "DataWarehouseNode",
+          "math": "total",
+          "name": "{{TABLE_NAME}}",
+          "id_field": "id",
+          "properties": [
+            {
+              "key": "exception is null and export_context is null and content_location is null and timestamp < now() - interval 10 minute",
+              "type": "hogql",
+              "value": null
+            }
+          ],
+          "table_name": "{{TABLE_NAME}}",
+          "custom_name": "Uncaught Exceptions",
+          "timestamp_field": "created_at",
+          "distinct_id_field": "created_by_id"
+        }
+      ],
+      "version": 2,
+      "properties": [],
+      "trendsFilter": {
+        "display": "ActionsLineGraph",
+        "formulaNodes": [
+          { "formula": "B/A", "custom_name": "Success" },
+          { "formula": "C/A", "custom_name": "Caught" },
+          { "formula": "H/A", "custom_name": "Uncaught" },
+          { "formula": "D/A", "custom_name": "User Errors" },
+          { "formula": "E/A", "custom_name": "System Errors" },
+          { "formula": "F/A", "custom_name": "Timeout Errors" },
+          { "formula": "G/A", "custom_name": "Unknown Errors" }
+        ],
+        "decimalPlaces": 4,
+        "yAxisScaleType": "log10",
+        "showMultipleYAxes": false,
+        "showValuesOnSeries": true,
+        "aggregationAxisFormat": "percentage_scaled",
+        "showAlertThresholdLines": true
+      },
+      "breakdownFilter": null
+    }
+  })
+}
+
 # Terraform configuration for PostHog insight
 # Compatible with posthog provider v1.0
 # Source insight ID: 5089102
@@ -190,228 +371,13 @@ resource "posthog_insight" "created_subscriptions" {
   dashboard_ids = [posthog_dashboard.team_analytics_platform_key_metrics.id]
 }
 
-# Terraform configuration for PostHog insight
-# Compatible with posthog provider v1.0
-# Source insight ID: 3582517
-# Short ID: pgGH5Tf3
-import {
-  to = posthog_insight.export_successes_and_failures_us
-  id = "3582517"
-}
+resource "posthog_insight" "export_successes_and_failures" {
+  for_each = local.export_insight_regions
 
-resource "posthog_insight" "export_successes_and_failures_us" {
-  name = "Export Successes and Failures (US)"
-  query_json = jsonencode({
-    "kind": "InsightVizNode",
-    "source": {
-      "kind": "TrendsQuery",
-      "series": [
-        {
-          "id": "postgres.posthog_exportedasset",
-          "kind": "DataWarehouseNode",
-          "math": "total",
-          "name": "postgres.posthog_exportedasset",
-          "id_field": "id",
-          "table_name": "postgres.posthog_exportedasset",
-          "custom_name": "Starts",
-          "timestamp_field": "created_at",
-          "distinct_id_field": "created_by_id"
-        },
-        {
-          "id": "postgres.posthog_exportedasset",
-          "kind": "DataWarehouseNode",
-          "math": "total",
-          "name": "postgres.posthog_exportedasset",
-          "id_field": "id",
-          "properties": [
-            {
-              "key": "export_context is not null or content_location is not null",
-              "type": "hogql",
-              "value": null
-            }
-          ],
-          "table_name": "postgres.posthog_exportedasset",
-          "custom_name": "Success",
-          "timestamp_field": "created_at",
-          "distinct_id_field": "created_by_id"
-        },
-        {
-          "id": "postgres.posthog_exportedasset",
-          "kind": "DataWarehouseNode",
-          "math": "total",
-          "name": "postgres.posthog_exportedasset",
-          "id_field": "id",
-          "properties": [
-            {
-              "key": "exception is not null",
-              "type": "hogql",
-              "value": null
-            }
-          ],
-          "table_name": "postgres.posthog_exportedasset",
-          "custom_name": "Caught Exceptions",
-          "timestamp_field": "created_at",
-          "distinct_id_field": "created_by_id"
-        },
-        {
-          "id": "postgres.posthog_exportedasset",
-          "kind": "DataWarehouseNode",
-          "math": "total",
-          "name": "postgres.posthog_exportedasset",
-          "id_field": "id",
-          "properties": [
-            {
-              "key": "exception is null and export_context is null and content_location is null and timestamp < now() - interval 10 minute",
-              "type": "hogql",
-              "value": null
-            }
-          ],
-          "table_name": "postgres.posthog_exportedasset",
-          "custom_name": "Uncaught Exceptions",
-          "timestamp_field": "created_at",
-          "distinct_id_field": "created_by_id"
-        }
-      ],
-      "version": 2,
-      "properties": [],
-      "trendsFilter": {
-        "formulaNodes": [
-          {
-            "formula": "B/A",
-            "custom_name": "Success"
-          },
-          {
-            "formula": "C/A",
-            "custom_name": "Caught"
-          },
-          {
-            "formula": "D/A",
-            "custom_name": "Uncaught"
-          }
-        ],
-        "yAxisScaleType": "log10",
-        "showMultipleYAxes": false,
-        "showValuesOnSeries": true,
-        "aggregationAxisFormat": "percentage_scaled",
-        "showAlertThresholdLines": true
-      },
-      "breakdownFilter": null
-    }
-  })
-  tags = ["managed-by:terraform"]
-  dashboard_ids = [posthog_dashboard.team_analytics_platform_key_metrics.id, 633001, 567706]
-}
-
-# Terraform configuration for PostHog insight
-# Compatible with posthog provider v1.0
-# Source insight ID: 5421410
-# Short ID: o5s3JBdC
-import {
-  to = posthog_insight.export_successes_and_failures_eu
-  id = "5421410"
-}
-
-resource "posthog_insight" "export_successes_and_failures_eu" {
-  name = "Export Successes and Failures (EU)"
-  query_json = jsonencode({
-    "kind": "InsightVizNode",
-    "source": {
-      "kind": "TrendsQuery",
-      "series": [
-        {
-          "id": "eu_posthog_exportedasset",
-          "kind": "DataWarehouseNode",
-          "math": "total",
-          "name": "eu_posthog_exportedasset",
-          "id_field": "id",
-          "table_name": "eu_posthog_exportedasset",
-          "custom_name": "Starts",
-          "timestamp_field": "created_at",
-          "distinct_id_field": "created_by_id"
-        },
-        {
-          "id": "eu_posthog_exportedasset",
-          "kind": "DataWarehouseNode",
-          "math": "total",
-          "name": "eu_posthog_exportedasset",
-          "id_field": "id",
-          "properties": [
-            {
-              "key": "export_context is not null or content_location is not null",
-              "type": "hogql",
-              "value": null
-            }
-          ],
-          "table_name": "eu_posthog_exportedasset",
-          "custom_name": "Success",
-          "timestamp_field": "created_at",
-          "distinct_id_field": "created_by_id"
-        },
-        {
-          "id": "eu_posthog_exportedasset",
-          "kind": "DataWarehouseNode",
-          "math": "total",
-          "name": "eu_posthog_exportedasset",
-          "id_field": "id",
-          "properties": [
-            {
-              "key": "exception is not null",
-              "type": "hogql",
-              "value": null
-            }
-          ],
-          "table_name": "eu_posthog_exportedasset",
-          "custom_name": "Caught Exceptions",
-          "timestamp_field": "created_at",
-          "distinct_id_field": "created_by_id"
-        },
-        {
-          "id": "eu_posthog_exportedasset",
-          "kind": "DataWarehouseNode",
-          "math": "total",
-          "name": "eu_posthog_exportedasset",
-          "id_field": "id",
-          "properties": [
-            {
-              "key": "exception is null and export_context is null and content_location is null and timestamp < now() - interval 10 minute",
-              "type": "hogql",
-              "value": null
-            }
-          ],
-          "table_name": "eu_posthog_exportedasset",
-          "custom_name": "Uncaught Exceptions",
-          "timestamp_field": "created_at",
-          "distinct_id_field": "created_by_id"
-        }
-      ],
-      "version": 2,
-      "properties": [],
-      "trendsFilter": {
-        "formulaNodes": [
-          {
-            "formula": "B/A",
-            "custom_name": "Success"
-          },
-          {
-            "formula": "C/A",
-            "custom_name": "Caught"
-          },
-          {
-            "formula": "D/A",
-            "custom_name": "Uncaught"
-          }
-        ],
-        "yAxisScaleType": "log10",
-        "showMultipleYAxes": false,
-        "showValuesOnSeries": true,
-        "aggregationAxisFormat": "percentage_scaled",
-        "showAlertThresholdLines": true
-      },
-      "breakdownFilter": null
-    }
-  })
-  tags = ["managed-by:terraform"]
-  dashboard_ids = [posthog_dashboard.team_analytics_platform_key_metrics.id]
+  name          = "Export Successes and Failures (${upper(each.key)})"
+  query_json    = replace(local.export_insight_base_query, "{{TABLE_NAME}}", each.value.table_name)
+  tags          = ["managed-by:terraform"]
+  dashboard_ids = each.value.dashboard_ids
 }
 
 # Terraform configuration for PostHog insight

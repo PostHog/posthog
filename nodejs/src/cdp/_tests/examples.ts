@@ -553,6 +553,46 @@ export const HOG_INPUTS_EXAMPLES: Record<string, Pick<HogFunctionType, 'inputs' 
 export const HOG_FILTERS_EXAMPLES: Record<string, Pick<HogFunctionType, 'filters'>> = {
     no_filters: { filters: { events: [], actions: [], bytecode: ['_h', 29] } },
     broken_filters: { filters: { events: [], actions: [], bytecode: ['_H', 1, 29, 35, 35, 35] } },
+    // Test account filter: filters out users with @posthog.com in their email
+    // This simulates filter_test_accounts: true with test_account_filters = [{key: "email", value: "@posthog.com", operator: "not_icontains", type: "person"}]
+    test_account_filter: {
+        filters: {
+            events: [{ id: '$pageview', name: '$pageview', type: 'events', order: 0 }],
+            actions: [],
+            filter_test_accounts: true,
+            // Bytecode: (event == "$pageview") AND (NOT (person.properties.email ILIKE "%@posthog.com%"))
+            bytecode: [
+                '_H',
+                1,
+                // First check: person.properties.email NOT ICONTAINS "@posthog.com"
+                32,
+                '%@posthog.com%', // pattern
+                32,
+                'email',
+                32,
+                'properties',
+                32,
+                'person',
+                1,
+                3, // person.properties.email
+                2,
+                'toString',
+                1, // toString(person.properties.email)
+                20, // NOT LIKE
+                // Second check: event == "$pageview"
+                32,
+                '$pageview',
+                32,
+                'event',
+                1,
+                1, // event
+                11, // ==
+                // AND the two conditions
+                3,
+                2,
+            ],
+        },
+    },
     pageview_or_autocapture_filter: {
         filters: {
             events: [

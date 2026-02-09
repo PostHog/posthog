@@ -9,11 +9,13 @@ describe('logsIngestionLogic', () => {
     let logic: ReturnType<typeof logsIngestionLogic.build>
 
     beforeEach(() => {
+        localStorage.clear()
         initKeaTests()
     })
 
     afterEach(() => {
         logic?.unmount()
+        localStorage.clear()
     })
 
     describe('loadTeamHasLogs', () => {
@@ -114,6 +116,74 @@ describe('logsIngestionLogic', () => {
                 teamHasLogs: true,
                 teamHasLogsCheckFailed: false,
             })
+        })
+    })
+
+    describe('caching', () => {
+        it('skips API call when cachedTeamHasLogs is true', async () => {
+            const mockFn = jest.fn(() => [200, { hasLogs: true }])
+            useMocks({
+                get: { '/api/environments/:team_id/logs/has_logs/': mockFn },
+            })
+
+            logic = logsIngestionLogic()
+            logic.mount()
+
+            await expectLogic(logic).toDispatchActions(['loadTeamHasLogs', 'loadTeamHasLogsSuccess'])
+            expect(mockFn).toHaveBeenCalledTimes(1)
+
+            logic.unmount()
+
+            // Mount again - should skip API call due to cache
+            logic = logsIngestionLogic()
+            logic.mount()
+
+            await expectLogic(logic).toNotHaveDispatchedActions(['loadTeamHasLogs'])
+            expect(mockFn).toHaveBeenCalledTimes(1)
+            expect(logic.values.hasLogs).toBe(true)
+        })
+
+        it('makes API call when cachedTeamHasLogs is null', async () => {
+            const mockFn = jest.fn(() => [200, { hasLogs: false }])
+            useMocks({
+                get: { '/api/environments/:team_id/logs/has_logs/': mockFn },
+            })
+
+            logic = logsIngestionLogic()
+            logic.mount()
+
+            await expectLogic(logic).toDispatchActions(['loadTeamHasLogs', 'loadTeamHasLogsSuccess'])
+            expect(mockFn).toHaveBeenCalledTimes(1)
+
+            logic.unmount()
+
+            // Mount again - should make API call since false is not cached
+            logic = logsIngestionLogic()
+            logic.mount()
+
+            await expectLogic(logic).toDispatchActions(['loadTeamHasLogs', 'loadTeamHasLogsSuccess'])
+            expect(mockFn).toHaveBeenCalledTimes(2)
+        })
+
+        it('hasLogs selector falls back to cachedTeamHasLogs when teamHasLogs is undefined', async () => {
+            useMocks({
+                get: { '/api/environments/:team_id/logs/has_logs/': () => [200, { hasLogs: true }] },
+            })
+
+            logic = logsIngestionLogic()
+            logic.mount()
+
+            await expectLogic(logic).toDispatchActions(['loadTeamHasLogsSuccess'])
+            expect(logic.values.cachedTeamHasLogs).toBe(true)
+
+            logic.unmount()
+
+            // Remount - teamHasLogs starts undefined, hasLogs should use cached
+            logic = logsIngestionLogic()
+            logic.mount()
+
+            expect(logic.values.teamHasLogs).toBeFalsy()
+            expect(logic.values.hasLogs).toBe(true)
         })
     })
 })

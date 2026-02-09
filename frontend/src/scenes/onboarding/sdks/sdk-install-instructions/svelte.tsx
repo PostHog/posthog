@@ -1,12 +1,11 @@
 import { useValues } from 'kea'
 
-import { LemonDivider, Link } from '@posthog/lemon-ui'
+import { Link } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { apiHostOrigin } from 'lib/utils/apiHost'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { SDK_DEFAULTS_DATE } from '~/loadPostHogJS'
@@ -50,18 +49,9 @@ export const load = async () => {
 }
 
 export function SDKInstallSvelteJSInstructions({ hideWizard }: { hideWizard?: boolean }): JSX.Element {
-    const { isCloudOrDev } = useValues(preflightLogic)
-    const showSetupWizard = !hideWizard && isCloudOrDev
     return (
         <>
-            {showSetupWizard && (
-                <>
-                    <h2>Automated Installation</h2>
-                    <SetupWizardBanner integrationName="Svelte" />
-                    <LemonDivider label="OR" />
-                    <h2>Manual Installation</h2>
-                </>
-            )}
+            <SetupWizardBanner integrationName="Svelte" hide={hideWizard} />
             <h3>Install posthog-js using your package manager</h3>
             <JSInstallSnippet />
 

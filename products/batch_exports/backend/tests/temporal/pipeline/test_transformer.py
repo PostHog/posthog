@@ -149,7 +149,7 @@ async def test_csv_stream_transformer_writes_record_batches():
         assert row == expected_row
 
 
-class TestField(Field):
+class FakeField(Field):
     def __init__(self, name: str, data_type: pa.DataType):
         self.name = name
         self.alias = name
@@ -169,7 +169,7 @@ class TestField(Field):
     def to_destination_field(cls) -> typing.Any:
         raise NotImplementedError()
 
-    def with_new_arrow_type(self, new_type: pa.DataType) -> "TestField":
+    def with_new_arrow_type(self, new_type: pa.DataType) -> "FakeField":
         raise NotImplementedError()
 
 
@@ -191,7 +191,7 @@ async def test_transformer_pipeline_pipes_multiple_transformers():
     class TestTable(Table):
         pass
 
-    t = TestTable(name="test", fields=[TestField("number", pa.string())])
+    t = TestTable(name="test", fields=[FakeField("number", pa.string())])
     pipeline = PipelineTransformer(
         (
             SchemaTransformer(
@@ -316,7 +316,7 @@ async def test_schema_transformer(
     class TestTable(Table):
         pass
 
-    t = TestTable(name="test", fields=[TestField(record_batch[0]._name, target_type), TestField("extra", pa.string())])  # type: ignore[attr-defined]
+    t = TestTable(name="test", fields=[FakeField(record_batch[0]._name, target_type), FakeField("extra", pa.string())])  # type: ignore[attr-defined]
     transformer = SchemaTransformer(t, compatible_types)
 
     transformed_record_batches = [record_batch async for record_batch in transformer.iter(record_batch_iter())]

@@ -37,6 +37,7 @@ export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element
     const metrics = metricsWithResults.map(({ metric }: { metric: ExperimentMetric }) => metric)
     const results = metricsWithResults.map(({ result }: { result: CachedNewExperimentQueryResponse }) => result)
     const errors = metricsWithResults.map(({ error }: { error: any }) => error)
+    const metricIndexes = metricsWithResults.map(({ metricIndex }: { metricIndex: number }) => metricIndex)
 
     const showResultDetails = metrics.length === 1 && results[0] && hasMinimumExposureForResults && !isSecondary
     const hasSomeResults =
@@ -45,7 +46,7 @@ export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element
         ) && hasMinimumExposureForResults
 
     return (
-        <div className="mb-4 -mt-2">
+        <div className="mb-4 -mt-2" data-attr="experiment-creation-goal-metric">
             {experiment?.id && (
                 <>
                     <MetricsReorderModal isSecondary={false} />
@@ -104,6 +105,7 @@ export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element
                         metrics={metrics}
                         results={results}
                         errors={errors}
+                        metricIndexes={metricIndexes}
                         isSecondary={!!isSecondary}
                         getInsightType={getInsightType}
                         showDetailsModal={!showResultDetails}

@@ -31,6 +31,8 @@ class HogFlowBatchJob(RootTeamMixin, UUIDTModel):
     team = models.ForeignKey("posthog.Team", on_delete=models.DO_NOTHING)
     hog_flow = models.ForeignKey("posthog.HogFlow", on_delete=models.DO_NOTHING)
     variables = models.JSONField(default=dict)
+    scheduled_at = models.DateTimeField(null=True, blank=True)
+    filters = models.JSONField(default=dict)
     status = models.CharField(max_length=20, choices=State.choices, default=State.QUEUED)
 
     created_at = models.DateTimeField(auto_now_add=True)

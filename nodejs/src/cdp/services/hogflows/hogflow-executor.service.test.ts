@@ -161,6 +161,7 @@ describe('Hogflow Executor', () => {
                     properties: {
                         name: 'John Doe',
                     },
+                    timestamp: '2026-01-30T20:20:20.200Z',
                 },
             })
 
@@ -211,7 +212,8 @@ describe('Hogflow Executor', () => {
                 logs: [
                     {
                         level: 'debug',
-                        message: 'Starting workflow execution at trigger for [Person:person_id|John Doe]',
+                        message:
+                            'Starting workflow execution at trigger for [Person:person_id|John Doe] on [Event:uuid|test|2026-01-30T20:20:20.200Z]',
                         timestamp: expect.any(DateTime),
                     },
                     {
@@ -289,6 +291,7 @@ describe('Hogflow Executor', () => {
                     properties: {
                         name: 'John Doe',
                     },
+                    timestamp: '2026-01-30T20:20:20.200Z',
                 },
             })
 
@@ -299,7 +302,7 @@ describe('Hogflow Executor', () => {
             expect(result.invocation.queueScheduledAt).toEqual(expect.any(DateTime))
             expect(result.logs.map((log) => log.message)).toMatchInlineSnapshot(`
                 [
-                  "Starting workflow execution at trigger for [Person:person_id|John Doe]",
+                  "Starting workflow execution at trigger for [Person:person_id|John Doe] on [Event:uuid|test|2026-01-30T20:20:20.200Z]",
                   "Executing action [Action:function_id_1]",
                   "[Action:function_id_1] Hello, Mr John Doe!",
                   "[Action:function_id_1] Fetch 1, 200",
@@ -313,7 +316,7 @@ describe('Hogflow Executor', () => {
             expect(result2.invocation.state.currentAction!.hogFunctionState).toEqual(expect.any(Object))
             expect(result2.logs.map((log) => log.message)).toMatchInlineSnapshot(`
                 [
-                  "Resuming workflow execution at [Action:function_id_1]",
+                  "Resuming workflow execution at [Action:function_id_1] on [Event:uuid|test|2026-01-30T20:20:20.200Z]",
                   "Executing action [Action:function_id_1]",
                   "[Action:function_id_1] Fetch 2, 200",
                   "Workflow will pause until 2025-01-01T00:00:00.000Z",
@@ -325,7 +328,7 @@ describe('Hogflow Executor', () => {
             expect(result3.finished).toEqual(true)
             expect(cleanLogs(result3.logs.map((log) => log.message))).toMatchInlineSnapshot(`
                 [
-                  "Resuming workflow execution at [Action:function_id_1]",
+                  "Resuming workflow execution at [Action:function_id_1] on [Event:uuid|test|2026-01-30T20:20:20.200Z]",
                   "Executing action [Action:function_id_1]",
                   "[Action:function_id_1] Fetch 3, 200",
                   "[Action:function_id_1] All fetches done!",
@@ -398,6 +401,7 @@ describe('Hogflow Executor', () => {
                         properties: {
                             name: 'Debug User',
                         },
+                        timestamp: '2026-01-30T20:20:20.200Z',
                     },
                 })
 
@@ -422,7 +426,7 @@ describe('Hogflow Executor', () => {
                 expect(result2.finished).toBe(true)
                 expect(result2.invocation.state.currentAction?.id).toBe('exit')
                 expect(result2.logs.map((log) => log.message)).toEqual([
-                    'Resuming workflow execution at [Action:function_id_1]',
+                    'Resuming workflow execution at [Action:function_id_1] on [Event:uuid|test|2026-01-30T20:20:20.200Z]',
                     'Executing action [Action:function_id_1]',
                     '[Action:function_id_1] Hello, Mr Debug User!',
                     '[Action:function_id_1] Fetch 1, 200',
@@ -1140,6 +1144,118 @@ describe('Hogflow Executor', () => {
                     properties: { user: 'User2', value: 'value2' },
                 })
             })
+        })
+    })
+
+    describe('filter_test_accounts', () => {
+        let hogFlow: HogFlow
+
+        beforeEach(async () => {
+            hogFlow = new FixtureHogFlowBuilder()
+                .withWorkflow({
+                    actions: {
+                        trigger: {
+                            type: 'trigger',
+                            config: {
+                                type: 'event',
+                                // Use the test account filter which filters out @posthog.com emails
+                                filters: HOG_FILTERS_EXAMPLES.test_account_filter.filters ?? {},
+                            },
+                        },
+
+                        function_id_1: {
+                            type: 'function',
+                            config: {
+                                template_id: 'template-test-hogflow-executor',
+                                inputs: {
+                                    name: {
+                                        value: `Mr {event?.properties?.name}`,
+                                        bytecode: await compileHog(`return f'Mr {event?.properties?.name}'`),
+                                    },
+                                },
+                            },
+                        },
+
+                        exit: {
+                            type: 'exit',
+                            config: {},
+                        },
+                    },
+                    edges: [
+                        {
+                            from: 'trigger',
+                            to: 'function_id_1',
+                            type: 'continue',
+                        },
+                        {
+                            from: 'function_id_1',
+                            to: 'exit',
+                            type: 'continue',
+                        },
+                    ],
+                })
+                .build()
+        })
+
+        it('should filter out internal users with @posthog.com email', async () => {
+            // Create globals with internal user email
+            const globals = createHogExecutionGlobals({
+                event: {
+                    uuid: 'uuid',
+                    event: '$pageview',
+                    distinct_id: 'distinct_id',
+                    elements_chain: '',
+                    timestamp: new Date().toISOString(),
+                    url: 'http://localhost:8000/events/1',
+                    properties: {
+                        name: 'Internal User',
+                    },
+                },
+                person: {
+                    id: 'person_internal',
+                    name: 'Internal User',
+                    url: '',
+                    properties: {
+                        email: 'internal@posthog.com',
+                    },
+                },
+            })
+
+            const result = await executor.buildHogFlowInvocations([hogFlow], globals)
+
+            // Should not match because email contains @posthog.com
+            expect(result.invocations).toHaveLength(0)
+        })
+
+        it('should allow external users without @posthog.com email', async () => {
+            // Create globals with external user email
+            const globals = createHogExecutionGlobals({
+                event: {
+                    uuid: 'uuid',
+                    event: '$pageview',
+                    distinct_id: 'distinct_id',
+                    elements_chain: '',
+                    timestamp: new Date().toISOString(),
+                    url: 'http://localhost:8000/events/1',
+                    properties: {
+                        name: 'External User',
+                    },
+                },
+                person: {
+                    id: 'person_external',
+                    name: 'External User',
+                    url: '',
+                    properties: {
+                        email: 'external@customer.com',
+                    },
+                },
+            })
+
+            const result = await executor.buildHogFlowInvocations([hogFlow], globals)
+
+            // Should match because email doesn't contain @posthog.com
+            expect(result.invocations).toHaveLength(1)
+            expect(result.invocations[0].hogFlow.id).toBe(hogFlow.id)
         })
     })
 

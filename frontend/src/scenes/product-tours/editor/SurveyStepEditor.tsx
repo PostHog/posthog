@@ -4,33 +4,15 @@ import { LemonInput } from 'lib/lemon-ui/LemonInput'
 
 import { ProductTourSurveyQuestion, ProductTourSurveyQuestionType } from '~/types'
 
-export const DEFAULT_RATING_QUESTION = 'How helpful was this tour?'
-export const DEFAULT_OPEN_QUESTION = 'Any feedback on this tour?'
+import { DEFAULT_OPEN_QUESTION, DEFAULT_RATING_QUESTION, getDefaultSurveyContent } from '../stepUtils'
 
 export interface SurveyStepEditorProps {
     survey: ProductTourSurveyQuestion | undefined
     onChange: (survey: ProductTourSurveyQuestion) => void
 }
 
-function getDefaultSurvey(type: ProductTourSurveyQuestionType): ProductTourSurveyQuestion {
-    if (type === 'rating') {
-        return {
-            type: 'rating',
-            questionText: DEFAULT_RATING_QUESTION,
-            display: 'emoji',
-            scale: 5,
-            lowerBoundLabel: 'Not at all',
-            upperBoundLabel: 'Very much',
-        }
-    }
-    return {
-        type: 'open',
-        questionText: DEFAULT_OPEN_QUESTION,
-    }
-}
-
 export function SurveyStepEditor({ survey, onChange }: SurveyStepEditorProps): JSX.Element {
-    const currentSurvey = survey ?? getDefaultSurvey('open')
+    const currentSurvey = survey ?? getDefaultSurveyContent('open')
 
     const updateSurvey = (updates: Partial<ProductTourSurveyQuestion>): void => {
         onChange({ ...currentSurvey, ...updates })

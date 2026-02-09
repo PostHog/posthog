@@ -1,21 +1,35 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useEffect, useRef } from 'react'
 
-import { IconPlusSmall } from '@posthog/icons'
+import {
+    IconBrackets,
+    IconCalculator,
+    IconCalendar,
+    IconCheck,
+    IconClock,
+    IconCode,
+    IconCode2,
+    IconDatabase,
+    IconPlusSmall,
+} from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
 
-import { LemonTree, LemonTreeRef } from 'lib/lemon-ui/LemonTree/LemonTree'
+import { LemonTree, LemonTreeRef, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { TreeNodeDisplayIcon } from 'lib/lemon-ui/LemonTree/LemonTreeUtils'
+import { IconTextSize } from 'lib/lemon-ui/icons'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { DropdownMenuGroup, DropdownMenuItem, DropdownMenuSeparator } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
+import { multitabEditorLogic } from 'scenes/data-warehouse/editor/multitabEditorLogic'
+import { buildQueryForColumnClick } from 'scenes/data-warehouse/editor/sql-utils'
 import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 
 import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/SearchHighlight'
+import { DatabaseSerializedFieldType } from '~/queries/schema/schema-general'
 
 import { dataWarehouseViewsLogic } from '../../saved_queries/dataWarehouseViewsLogic'
 import { draftsLogic } from '../draftsLogic'
@@ -47,8 +61,125 @@ export const QueryDatabase = (): JSX.Element => {
     } = useActions(queryDatabaseLogic)
     const { deleteDataWarehouseSavedQuery, runDataWarehouseSavedQuery } = useActions(dataWarehouseViewsLogic)
     const { deleteJoin } = useActions(dataWarehouseSettingsLogic)
-
     const { deleteDraft } = useActions(draftsLogic)
+    const { setQueryInput } = useActions(multitabEditorLogic)
+    const { selectedQueryColumns } = useValues(multitabEditorLogic)
+    const builtTabLogic = useMountedLogic(multitabEditorLogic)
+    const formatTraversalChain = (chain?: (string | number)[]): string | null => {
+        if (!chain || chain.length === 0) {
+            return null
+        }
+
+        return chain.map((segment) => String(segment)).join('.')
+    }
+    const getFieldTypeIconClassName = (fieldType: DatabaseSerializedFieldType): string => {
+        switch (fieldType) {
+            case 'string':
+                return 'text-sky-500'
+            case 'integer':
+            case 'float':
+            case 'decimal':
+                return 'text-emerald-500'
+            case 'boolean':
+                return 'text-purple-500'
+            case 'datetime':
+                return 'text-amber-500'
+            case 'date':
+                return 'text-orange-500'
+            case 'array':
+            case 'json':
+                return 'text-teal-500'
+            case 'expression':
+            case 'field_traverser':
+                return 'text-slate-500'
+            case 'view':
+            case 'materialized_view':
+            case 'lazy_table':
+            case 'virtual_table':
+                return 'text-blue-500'
+            default:
+                return 'text-tertiary'
+        }
+    }
+
+    const getFieldTypeIcon = (fieldType?: DatabaseSerializedFieldType): JSX.Element | null => {
+        if (!fieldType) {
+            return null
+        }
+
+        switch (fieldType) {
+            case 'string':
+                return <IconTextSize className={getFieldTypeIconClassName(fieldType)} />
+            case 'integer':
+            case 'float':
+            case 'decimal':
+                return <IconCalculator className={getFieldTypeIconClassName(fieldType)} />
+            case 'boolean':
+                return <IconCheck className={getFieldTypeIconClassName(fieldType)} />
+            case 'datetime':
+                return <IconClock className={getFieldTypeIconClassName(fieldType)} />
+            case 'date':
+                return <IconCalendar className={getFieldTypeIconClassName(fieldType)} />
+            case 'array':
+            case 'json':
+                return <IconBrackets className={getFieldTypeIconClassName(fieldType)} />
+            case 'expression':
+                return <IconCode className={getFieldTypeIconClassName(fieldType)} />
+            case 'field_traverser':
+                return <IconCode2 className={getFieldTypeIconClassName(fieldType)} />
+            case 'view':
+            case 'materialized_view':
+            case 'lazy_table':
+            case 'virtual_table':
+                return <IconDatabase className={getFieldTypeIconClassName(fieldType)} />
+            default:
+                return <IconCode2 className={getFieldTypeIconClassName(fieldType)} />
+        }
+    }
+
+    const getTableKindLabel = (item: TreeDataItem): string | null => {
+        if (!item.record) {
+            return null
+        }
+
+        switch (item.record.traversedFieldType ?? item.record.type) {
+            case 'lazy-table':
+                return 'join'
+            case 'virtual-table':
+                return 'virtual table'
+            case 'materialized_view':
+                return 'materialized view'
+            case 'managed-view':
+                return 'managed view'
+            case 'endpoint':
+                return 'endpoint'
+            case 'view':
+            case 'view-table':
+                return item.record.view?.is_materialized ? 'materialized view' : 'view'
+            case 'table': {
+                const tableType = item.record.table?.type
+                switch (tableType) {
+                    case 'materialized_view':
+                        return 'mat view'
+                    case 'batch_export':
+                        return 'batch export'
+                    case 'data_warehouse':
+                        // Return "" to not clutter the interface
+                        return ''
+                    case 'posthog':
+                        // Return "" to not clutter the interface
+                        return ''
+                    case 'system':
+                        // Return "" to not clutter the interface
+                        return ''
+                    default:
+                        return null
+                }
+            }
+            default:
+                return null
+        }
+    }
 
     const treeRef = useRef<LemonTreeRef>(null)
     useEffect(() => {
@@ -79,12 +210,15 @@ export const QueryDatabase = (): JSX.Element => {
             onItemClick={(item) => {
                 // Handle draft clicks - focus existing tab or create new one
                 if (item && item.record?.type === 'draft') {
-                    router.actions.push(urls.sqlEditor(undefined, undefined, undefined, item.record.draft.id))
+                    router.actions.push(urls.sqlEditor({ draftId: item.record.draft.id }))
                 }
 
                 // Copy column name when clicking on a column
                 if (item && item.record?.type === 'column') {
-                    void copyToClipboard(item.record.columnName, item.record.columnName)
+                    const currentQueryInput = builtTabLogic.values.queryInput
+                    setQueryInput(
+                        buildQueryForColumnClick(currentQueryInput, item.record.table, item.record.columnName)
+                    )
                 }
 
                 if (item && item.record?.type === 'unsaved-query') {
@@ -95,36 +229,103 @@ export const QueryDatabase = (): JSX.Element => {
                 // Check if item has search matches for highlighting
                 const matches = item.record?.searchMatches
                 const hasMatches = matches && matches.length > 0
+                const isColumn = item.record?.type === 'column'
+                const columnType = isColumn ? item.record?.field?.type : null
+                const columnKey = isColumn && item.record ? `${item.record.table}.${item.record.columnName}` : null
+                const tableKindLabel = !isColumn && item.children?.length ? getTableKindLabel(item) : null
 
                 return (
                     <span className="truncate">
-                        {hasMatches && searchTerm ? (
-                            <SearchHighlightMultiple string={item.name} substring={searchTerm} className="text-xs" />
-                        ) : (
-                            <div className="flex flex-row gap-1 justify-between">
-                                <span
-                                    className={cn(
-                                        [
-                                            'managed-views',
-                                            'views',
-                                            'sources',
-                                            'drafts',
-                                            'unsaved-folder',
-                                            'endpoints',
-                                        ].includes(item.record?.type) && 'font-semibold',
-                                        item.record?.type === 'column' && 'font-mono text-xs',
-                                        'truncate'
-                                    )}
-                                >
-                                    {item.name}
-                                </span>
-                                {renderTableCount(item.record?.row_count)}
+                        <div className="flex flex-row gap-1 justify-between">
+                            <div className="shrink-0 flex min-w-0 items-center gap-2">
+                                {hasMatches && searchTerm ? (
+                                    <SearchHighlightMultiple
+                                        string={item.name}
+                                        substring={searchTerm}
+                                        className={cn(isColumn && 'font-mono text-xs')}
+                                    />
+                                ) : (
+                                    <span
+                                        className={cn(
+                                            [
+                                                'managed-views',
+                                                'views',
+                                                'sources',
+                                                'drafts',
+                                                'unsaved-folder',
+                                                'endpoints',
+                                            ].includes(item.record?.type) && 'font-semibold',
+                                            isColumn && 'font-mono text-xs',
+                                            columnKey &&
+                                                selectedQueryColumns[columnKey] &&
+                                                'underline underline-offset-2',
+                                            'truncate shrink-0'
+                                        )}
+                                    >
+                                        {item.name}
+                                    </span>
+                                )}
+                                {isColumn && columnType ? (
+                                    <span className="shrink rounded px-1.5 py-0.5 text-xs text-muted-alt">
+                                        {columnType === 'field_traverser' && item?.record?.field.chain
+                                            ? formatTraversalChain(item.record.field.chain)
+                                            : columnType}
+                                    </span>
+                                ) : tableKindLabel ? (
+                                    <span className="shrink rounded px-1.5 py-0.5 text-xs text-muted-alt">
+                                        {tableKindLabel}
+                                    </span>
+                                ) : null}
                             </div>
-                        )}
+                            {renderTableCount(item.record?.row_count)}
+                        </div>
                     </span>
                 )
             }}
             itemSideAction={(item) => {
+                const joinMenu =
+                    item.record?.field && item.record?.table
+                        ? (() => {
+                              const joinKey = `${item.record.table}.${item.record.field.name}`
+                              const join = joinsByFieldName[joinKey]
+
+                              if (
+                                  !join ||
+                                  !isJoined(item.record.field) ||
+                                  join.source_table_name !== item.record.table
+                              ) {
+                                  return null
+                              }
+
+                              return (
+                                  <DropdownMenuGroup>
+                                      <DropdownMenuItem
+                                          asChild
+                                          onClick={(e) => {
+                                              e.stopPropagation()
+                                              toggleEditJoinModal(join)
+                                          }}
+                                      >
+                                          <ButtonPrimitive menuItem>Edit</ButtonPrimitive>
+                                      </DropdownMenuItem>
+                                      <DropdownMenuItem
+                                          asChild
+                                          onClick={(e) => {
+                                              e.stopPropagation()
+                                              deleteJoin(join)
+                                          }}
+                                      >
+                                          <ButtonPrimitive menuItem>Delete join</ButtonPrimitive>
+                                      </DropdownMenuItem>
+                                  </DropdownMenuGroup>
+                              )
+                          })()
+                        : null
+
+                if (joinMenu) {
+                    return joinMenu
+                }
+
                 // Show menu for drafts
                 if (item.record?.type === 'draft') {
                     const draft = item.record.draft
@@ -162,7 +363,7 @@ export const QueryDatabase = (): JSX.Element => {
                                 asChild
                                 onClick={(e) => {
                                     e.stopPropagation()
-                                    sceneLogic.actions.newTab(urls.sqlEditor(`SELECT * FROM ${item.name}`))
+                                    sceneLogic.actions.newTab(urls.sqlEditor({ query: `SELECT * FROM ${item.name}` }))
                                 }}
                             >
                                 <ButtonPrimitive menuItem>Query</ButtonPrimitive>
@@ -208,7 +409,7 @@ export const QueryDatabase = (): JSX.Element => {
                                         asChild
                                         onClick={(e) => {
                                             e.stopPropagation()
-                                            sceneLogic.actions.newTab(urls.sqlEditor(undefined, item.record?.view.id))
+                                            sceneLogic.actions.newTab(urls.sqlEditor({ view_id: item.record?.view.id }))
                                         }}
                                     >
                                         <ButtonPrimitive
@@ -304,47 +505,6 @@ export const QueryDatabase = (): JSX.Element => {
                     )
                 }
 
-                if (item.record?.type === 'column') {
-                    if (
-                        isJoined(item.record.field) &&
-                        joinsByFieldName[`${item.record.table}.${item.record.columnName}`] &&
-                        joinsByFieldName[`${item.record.table}.${item.record.columnName}`].source_table_name ===
-                            item.record.table
-                    ) {
-                        return (
-                            <DropdownMenuGroup>
-                                <DropdownMenuItem
-                                    asChild
-                                    onClick={(e) => {
-                                        e.stopPropagation()
-                                        if (item.record?.columnName) {
-                                            toggleEditJoinModal(
-                                                joinsByFieldName[`${item.record.table}.${item.record.columnName}`]
-                                            )
-                                        }
-                                    }}
-                                >
-                                    <ButtonPrimitive menuItem>Edit</ButtonPrimitive>
-                                </DropdownMenuItem>
-                                <DropdownMenuItem
-                                    asChild
-                                    onClick={(e) => {
-                                        e.stopPropagation()
-                                        if (item.record?.columnName) {
-                                            const join =
-                                                joinsByFieldName[`${item.record.table}.${item.record.columnName}`]
-
-                                            deleteJoin(join)
-                                        }
-                                    }}
-                                >
-                                    <ButtonPrimitive menuItem>Delete join</ButtonPrimitive>
-                                </DropdownMenuItem>
-                            </DropdownMenuGroup>
-                        )
-                    }
-                }
-
                 if (item.record?.type === 'unsaved-query') {
                     return (
                         <DropdownMenuGroup>
@@ -392,14 +552,11 @@ export const QueryDatabase = (): JSX.Element => {
                                 onClick={(e) => {
                                     e.stopPropagation()
                                     sceneLogic.actions.newTab(
-                                        urls.sqlEditor(
-                                            item.record?.endpoint?.query.query,
-                                            undefined,
-                                            undefined,
-                                            undefined,
-                                            OutputTab.Endpoint,
-                                            item.record?.endpoint?.name
-                                        )
+                                        urls.sqlEditor({
+                                            query: item.record?.endpoint?.query.query,
+                                            outputTab: OutputTab.Endpoint,
+                                            endpointName: item.record?.endpoint?.name,
+                                        })
                                     )
                                 }}
                             >
@@ -442,9 +599,7 @@ export const QueryDatabase = (): JSX.Element => {
                             className="z-2"
                             onClick={(e) => {
                                 e.stopPropagation()
-                                sceneLogic.actions.newTab(
-                                    urls.sqlEditor(undefined, undefined, undefined, undefined, OutputTab.Endpoint)
-                                )
+                                sceneLogic.actions.newTab(urls.sqlEditor({ outputTab: OutputTab.Endpoint }))
                             }}
                             data-attr="sql-editor-add-endpoint"
                         >
@@ -457,13 +612,26 @@ export const QueryDatabase = (): JSX.Element => {
                 // Show tooltip with full name for items that could be truncated
                 const tooltipTypes = ['table', 'view', 'managed-view', 'endpoint', 'draft', 'column', 'unsaved-query']
                 if (tooltipTypes.includes(item.record?.type)) {
+                    if (item.record?.type === 'column' && item.record?.field?.type === 'field_traverser') {
+                        const traversalChain = formatTraversalChain(item.record.field.chain)
+                        if (traversalChain) {
+                            return `${item.name} → ${traversalChain}`
+                        }
+                    }
+                    return item.name
+                }
+                if (item.record?.type === 'field-traverser') {
+                    const traversalChain = formatTraversalChain(item.record?.field?.chain)
+                    if (traversalChain) {
+                        return `${item.name} → ${traversalChain}`
+                    }
                     return item.name
                 }
                 return undefined
             }}
             renderItemIcon={(item) => {
                 if (item.record?.type === 'column') {
-                    return <></>
+                    return getFieldTypeIcon(item.record.field?.type)
                 }
                 return (
                     <TreeNodeDisplayIcon

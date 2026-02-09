@@ -20,7 +20,7 @@ from posthog.tasks.utils import CeleryQueue, PushGatewayTask
 logger = structlog.get_logger(__name__)
 
 
-@shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)
+@shared_task(ignore_result=True, queue=CeleryQueue.FEATURE_FLAGS.value)
 def update_team_flags_cache(team_id: int) -> None:
     try:
         team = Team.objects.get(id=team_id)
@@ -31,7 +31,7 @@ def update_team_flags_cache(team_id: int) -> None:
     update_flag_caches(team)
 
 
-@shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)
+@shared_task(ignore_result=True, queue=CeleryQueue.FEATURE_FLAGS.value)
 def update_team_service_flags_cache(team_id: int) -> None:
     """
     Update the service flags cache for a specific team.
@@ -52,7 +52,7 @@ def update_team_service_flags_cache(team_id: int) -> None:
     ).inc()
 
 
-@shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)
+@shared_task(ignore_result=True, queue=CeleryQueue.FEATURE_FLAGS.value)
 def sync_all_flags_cache() -> None:
     # Meant to ensure we have all flags cache in sync in case something failed
 
@@ -61,8 +61,8 @@ def sync_all_flags_cache() -> None:
         update_team_flags_cache.delay(team_id)
 
 
-@shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)
-def refresh_expiring_flags_cache_entries() -> None:
+@shared_task(bind=True, base=PushGatewayTask, ignore_result=True, queue=CeleryQueue.FEATURE_FLAGS_LONG_RUNNING.value)
+def refresh_expiring_flags_cache_entries(self: PushGatewayTask) -> None:
     """
     Periodic task to refresh flags caches before they expire.
 
@@ -79,6 +79,18 @@ def refresh_expiring_flags_cache_entries() -> None:
         logger.info("Flags Redis URL not set, skipping flags cache refresh")
         return
 
+    # Create metrics gauges for this task run
+    successful_gauge = Gauge(
+        "posthog_flags_cache_refresh_successful_count",
+        "Number of flags caches successfully refreshed",
+        registry=self.metrics_registry,
+    )
+    failed_gauge = Gauge(
+        "posthog_flags_cache_refresh_failed_count",
+        "Number of flags caches that failed to refresh",
+        registry=self.metrics_registry,
+    )
+
     start_time = time.time()
     logger.info(
         "Starting flags cache sync",
@@ -86,39 +98,33 @@ def refresh_expiring_flags_cache_entries() -> None:
         limit=settings.FLAGS_CACHE_REFRESH_LIMIT,
     )
 
-    try:
-        successful, failed = refresh_expiring_flags_caches(
-            ttl_threshold_hours=settings.FLAGS_CACHE_REFRESH_TTL_THRESHOLD_HOURS,
-            limit=settings.FLAGS_CACHE_REFRESH_LIMIT,
-        )
+    successful, failed = refresh_expiring_flags_caches(
+        ttl_threshold_hours=settings.FLAGS_CACHE_REFRESH_TTL_THRESHOLD_HOURS,
+        limit=settings.FLAGS_CACHE_REFRESH_LIMIT,
+    )
 
-        # Note: Teams processed metrics are pushed to Pushgateway by
-        # cache_expiry_manager.refresh_expiring_caches() via push_hypercache_teams_processed_metrics()
+    # Record metrics
+    successful_gauge.set(successful)
+    failed_gauge.set(failed)
 
-        # Scan after refresh for metrics (pushes to Pushgateway via get_cache_stats)
-        stats_after = get_cache_stats()
+    # Note: Teams processed metrics are pushed to Pushgateway by
+    # cache_expiry_manager.refresh_expiring_caches() via push_hypercache_teams_processed_metrics()
 
-        duration = time.time() - start_time
+    # Scan after refresh for metrics (pushes to Pushgateway via get_cache_stats)
+    stats_after = get_cache_stats()
 
-        logger.info(
-            "Completed flags cache refresh",
-            successful_refreshes=successful,
-            failed_refreshes=failed,
-            total_cached=stats_after.get("total_cached", 0),
-            total_teams=stats_after.get("total_teams", 0),
-            cache_coverage=stats_after.get("cache_coverage", "unknown"),
-            ttl_distribution=stats_after.get("ttl_distribution", {}),
-            duration_seconds=duration,
-        )
+    duration = time.time() - start_time
 
-    except Exception as e:
-        duration = time.time() - start_time
-        logger.exception(
-            "Failed to complete flags cache batch refresh",
-            error=str(e),
-            duration_seconds=duration,
-        )
-        raise
+    logger.info(
+        "Completed flags cache refresh",
+        successful_refreshes=successful,
+        failed_refreshes=failed,
+        total_cached=stats_after.get("total_cached", 0),
+        total_teams=stats_after.get("total_teams", 0),
+        cache_coverage=stats_after.get("cache_coverage", "unknown"),
+        ttl_distribution=stats_after.get("ttl_distribution", {}),
+        duration_seconds=duration,
+    )
 
 
 @shared_task(bind=True, base=PushGatewayTask, ignore_result=True, queue=CeleryQueue.FEATURE_FLAGS_LONG_RUNNING.value)

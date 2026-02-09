@@ -1,4 +1,4 @@
-import { actions, afterMount, defaults, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, defaults, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
@@ -7,7 +7,9 @@ import api, { CountedPaginatedResponse } from '~/lib/api'
 import { lemonToast } from '~/lib/lemon-ui/LemonToast/LemonToast'
 import { PaginationManual } from '~/lib/lemon-ui/PaginationControl'
 import { objectsEqual } from '~/lib/utils'
+import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { sceneLogic } from '~/scenes/sceneLogic'
+import { teamLogic } from '~/scenes/teamLogic'
 import { urls } from '~/scenes/urls'
 import { Breadcrumb, Dataset, DatasetItem } from '~/types'
 
@@ -55,6 +57,10 @@ export const llmAnalyticsDatasetLogic = kea<llmAnalyticsDatasetLogicType>([
     props({ datasetId: 'new' } as DatasetLogicProps),
 
     key(({ datasetId }) => `dataset-${datasetId}`),
+
+    connect(() => ({
+        actions: [teamLogic, ['addProductIntent']],
+    })),
 
     actions({
         setDataset: (dataset: Dataset | DatasetFormValues) => ({ dataset }),
@@ -194,8 +200,14 @@ export const llmAnalyticsDatasetLogic = kea<llmAnalyticsDatasetLogicType>([
                             description: formValues.description,
                             metadata: coerceJsonToObject(formValues.metadata),
                         })
+
                         lemonToast.success('Dataset created successfully')
                         router.actions.replace(urls.llmAnalyticsDataset(savedDataset.id))
+
+                        void actions.addProductIntent({
+                            product_type: ProductKey.LLM_DATASETS,
+                            intent_context: ProductIntentContext.LLM_DATASET_CREATED,
+                        })
                     } else {
                         savedDataset = await api.datasets.update(props.datasetId, {
                             ...formValues,
@@ -252,21 +264,15 @@ export const llmAnalyticsDatasetLogic = kea<llmAnalyticsDatasetLogicType>([
             (s) => [s.dataset],
             (dataset): Breadcrumb[] => [
                 {
-                    name: 'LLM Analytics',
-                    path: urls.llmAnalyticsDashboard(),
-                    key: 'LLMAnalytics',
-                    iconType: 'llm_analytics',
-                },
-                {
                     name: 'Datasets',
                     path: urls.llmAnalyticsDatasets(),
                     key: 'LLMAnalyticsDatasets',
-                    iconType: 'llm_analytics',
+                    iconType: 'llm_datasets',
                 },
                 {
                     name: dataset && 'name' in dataset ? dataset.name : 'New Dataset',
                     key: 'LLMAnalyticsDataset',
-                    iconType: 'llm_analytics',
+                    iconType: 'llm_datasets',
                 },
             ],
         ],

@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 import { capitalizeFirstLetter } from 'kea-forms'
 import { useMemo, useState } from 'react'
 
+import { IconInfo } from '@posthog/icons'
 import {
     LemonButton,
     LemonInputSelect,
@@ -13,12 +14,18 @@ import {
     Link,
     ProfileBubbles,
     ProfilePicture,
+    Tooltip,
 } from '@posthog/lemon-ui'
 
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { UserSelectItem } from 'lib/components/UserSelectItem'
 import { fullName } from 'lib/utils'
-import { getMaximumAccessLevel, getMinimumAccessLevel, pluralizeResource } from 'lib/utils/accessControlUtils'
+import {
+    getAccessControlTooltip,
+    getMaximumAccessLevel,
+    getMinimumAccessLevel,
+    pluralizeResource,
+} from 'lib/utils/accessControlUtils'
 
 import { APIScopeObject, AccessControlLevel, AvailableFeature } from '~/types'
 
@@ -617,22 +624,32 @@ function ResourceAccessControlModal(props: {
                             Clear all
                         </Link>
                     </div>
-                    {resources.map((resource) => (
-                        <div key={resource} className="flex gap-2 items-center justify-between">
-                            <div className="font-medium">{capitalizeFirstLetter(pluralizeResource(resource))}</div>
-                            <div className="min-w-[8rem]">
-                                <LemonSelect
-                                    placeholder="No override"
-                                    value={resourceLevels[resource]}
-                                    onChange={(newValue) =>
-                                        updateResourceLevel(resource, newValue as AccessControlLevel | null)
-                                    }
-                                    options={getLevelOptions(resource)}
-                                    disabled={!canEditRoleBasedAccessControls}
-                                />
+                    {resources.map((resource) => {
+                        const tooltipText = getAccessControlTooltip(resource)
+                        return (
+                            <div key={resource} className="flex gap-2 items-center justify-between">
+                                <div className="font-medium flex items-center gap-1.5">
+                                    {capitalizeFirstLetter(pluralizeResource(resource))}
+                                    {tooltipText && (
+                                        <Tooltip title={tooltipText}>
+                                            <IconInfo className="text-sm text-muted" />
+                                        </Tooltip>
+                                    )}
+                                </div>
+                                <div className="min-w-[8rem]">
+                                    <LemonSelect
+                                        placeholder="No override"
+                                        value={resourceLevels[resource]}
+                                        onChange={(newValue) =>
+                                            updateResourceLevel(resource, newValue as AccessControlLevel | null)
+                                        }
+                                        options={getLevelOptions(resource)}
+                                        disabled={!canEditRoleBasedAccessControls}
+                                    />
+                                </div>
                             </div>
-                        </div>
-                    ))}
+                        )
+                    })}
                 </div>
             </div>
         </LemonModal>
@@ -745,22 +762,32 @@ function DefaultResourceAccessControlModal(props: {
                         Clear all
                     </Link>
                 </div>
-                {resources.map((resource) => (
-                    <div key={resource} className="flex gap-2 items-center justify-between">
-                        <div className="font-medium">{capitalizeFirstLetter(pluralizeResource(resource))}</div>
-                        <div className="min-w-[8rem]">
-                            <LemonSelect
-                                placeholder="No override"
-                                value={resourceLevels[resource]}
-                                onChange={(newValue) =>
-                                    updateResourceLevel(resource, newValue as AccessControlLevel | null)
-                                }
-                                options={getLevelOptions(resource)}
-                                disabled={!canEditRoleBasedAccessControls}
-                            />
+                {resources.map((resource) => {
+                    const tooltipText = getAccessControlTooltip(resource)
+                    return (
+                        <div key={resource} className="flex gap-2 items-center justify-between">
+                            <div className="font-medium flex items-center gap-1.5">
+                                {capitalizeFirstLetter(pluralizeResource(resource))}
+                                {tooltipText && (
+                                    <Tooltip title={tooltipText}>
+                                        <IconInfo className="text-sm text-muted" />
+                                    </Tooltip>
+                                )}
+                            </div>
+                            <div className="min-w-[8rem]">
+                                <LemonSelect
+                                    placeholder="No override"
+                                    value={resourceLevels[resource]}
+                                    onChange={(newValue) =>
+                                        updateResourceLevel(resource, newValue as AccessControlLevel | null)
+                                    }
+                                    options={getLevelOptions(resource)}
+                                    disabled={!canEditRoleBasedAccessControls}
+                                />
+                            </div>
                         </div>
-                    </div>
-                ))}
+                    )
+                })}
             </div>
         </LemonModal>
     )

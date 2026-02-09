@@ -4,7 +4,7 @@ use common_kafka::{
     kafka_producer::{create_kafka_producer, KafkaContext},
     transaction::TransactionalProducer,
 };
-use common_redis::RedisClient;
+use common_redis::{Client as RedisClientTrait, RedisClient};
 use health::{HealthHandle, HealthRegistry};
 use limiters::redis::{QuotaResource, RedisLimiter, ServiceName, QUOTA_LIMITER_CACHE_KEY};
 use rdkafka::producer::FutureProducer;
@@ -26,7 +26,7 @@ use crate::{
         proguard::ProguardProvider,
         saving::Saving,
         sourcemap::SourcemapProvider,
-        Catalog, S3Client,
+        BlobClient, Catalog, S3Client,
     },
     teams::TeamManager,
 };
@@ -51,14 +51,79 @@ pub struct AppContext {
 
     pub team_manager: TeamManager,
     pub billing_limiter: RedisLimiter,
-    pub issue_buckets_redis_client: Arc<RedisClient>,
+    pub issue_buckets_redis_client: Arc<dyn RedisClientTrait + Send + Sync>,
 
     pub filtered_teams: Vec<i32>,
     pub filter_mode: FilterMode,
 }
 
 impl AppContext {
-    pub async fn new(config: &Config) -> Result<Self, UnhandledError> {
+    pub async fn from_config(config: &Config) -> Result<Self, UnhandledError> {
+        let options = PgPoolOptions::new().max_connections(config.max_pg_connections);
+        let persons_options = options.clone();
+        let posthog_pool = options.connect(&config.database_url).await?;
+        let persons_pool = persons_options.connect(&config.persons_url).await?;
+
+        let s3_client = aws_sdk_s3::Client::from_conf(get_aws_config(config).await);
+        let s3_client = S3Client::new(s3_client);
+        let s3_client = Arc::new(s3_client);
+
+        let redis_client = RedisClient::with_config(
+            config.redis_url.clone(),
+            common_redis::CompressionConfig::disabled(),
+            common_redis::RedisValueFormat::default(),
+            if config.redis_response_timeout_ms == 0 {
+                None
+            } else {
+                Some(Duration::from_millis(config.redis_response_timeout_ms))
+            },
+            if config.redis_connection_timeout_ms == 0 {
+                None
+            } else {
+                Some(Duration::from_millis(config.redis_connection_timeout_ms))
+            },
+        )
+        .await?;
+        let redis_client: Arc<dyn RedisClientTrait + Send + Sync> = Arc::new(redis_client);
+
+        let issue_buckets_redis_client = RedisClient::with_config(
+            config.issue_buckets_redis_url.clone(),
+            common_redis::CompressionConfig::disabled(),
+            common_redis::RedisValueFormat::default(),
+            if config.redis_response_timeout_ms == 0 {
+                None
+            } else {
+                Some(Duration::from_millis(config.redis_response_timeout_ms))
+            },
+            if config.redis_connection_timeout_ms == 0 {
+                None
+            } else {
+                Some(Duration::from_millis(config.redis_connection_timeout_ms))
+            },
+        )
+        .await?;
+        let issue_buckets_redis_client: Arc<dyn RedisClientTrait + Send + Sync> =
+            Arc::new(issue_buckets_redis_client);
+
+        AppContext::new(
+            config,
+            s3_client,
+            posthog_pool,
+            persons_pool,
+            redis_client,
+            issue_buckets_redis_client,
+        )
+        .await
+    }
+
+    pub async fn new(
+        config: &Config,
+        s3_client: Arc<dyn BlobClient>,
+        posthog_pool: PgPool,
+        persons_pool: PgPool,
+        redis_client: Arc<dyn RedisClientTrait + Send + Sync>,
+        issue_buckets_redis_client: Arc<dyn RedisClientTrait + Send + Sync>,
+    ) -> Result<Self, UnhandledError> {
         init_global_state(config);
         let health_registry = HealthRegistry::new("liveness");
         let worker_liveness = health_registry
@@ -83,15 +148,6 @@ impl AppContext {
             .await;
         let immediate_producer =
             create_kafka_producer(&config.kafka, kafka_immediate_liveness).await?;
-
-        let options = PgPoolOptions::new().max_connections(config.max_pg_connections);
-        let persons_options = options.clone();
-        let posthog_pool = options.connect(&config.database_url).await?;
-        let persons_pool = persons_options.connect(&config.persons_url).await?;
-
-        let s3_client = aws_sdk_s3::Client::from_conf(get_aws_config(config).await);
-        let s3_client = S3Client::new(s3_client);
-        let s3_client = Arc::new(s3_client);
 
         s3_client.ping_bucket(&config.object_storage_bucket).await?;
 
@@ -148,42 +204,6 @@ impl AppContext {
         let team_manager = TeamManager::new(config);
 
         let geoip_client = GeoIpClient::new(config.maxmind_db_path.clone())?;
-
-        let redis_client = RedisClient::with_config(
-            config.redis_url.clone(),
-            common_redis::CompressionConfig::disabled(),
-            common_redis::RedisValueFormat::default(),
-            if config.redis_response_timeout_ms == 0 {
-                None
-            } else {
-                Some(Duration::from_millis(config.redis_response_timeout_ms))
-            },
-            if config.redis_connection_timeout_ms == 0 {
-                None
-            } else {
-                Some(Duration::from_millis(config.redis_connection_timeout_ms))
-            },
-        )
-        .await?;
-        let redis_client = Arc::new(redis_client);
-
-        let issue_buckets_redis_client = RedisClient::with_config(
-            config.issue_buckets_redis_url.clone(),
-            common_redis::CompressionConfig::disabled(),
-            common_redis::RedisValueFormat::default(),
-            if config.redis_response_timeout_ms == 0 {
-                None
-            } else {
-                Some(Duration::from_millis(config.redis_response_timeout_ms))
-            },
-            if config.redis_connection_timeout_ms == 0 {
-                None
-            } else {
-                Some(Duration::from_millis(config.redis_connection_timeout_ms))
-            },
-        )
-        .await?;
-        let issue_buckets_redis_client = Arc::new(issue_buckets_redis_client);
 
         // TODO - we expect here rather returning an UnhandledError because the limiter returns an Anyhow::Result,
         // which we don't want to put into the UnhandledError enum since it basically means "any error"

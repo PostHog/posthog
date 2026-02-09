@@ -78,6 +78,11 @@
         bottom: calc(var(--lemon-badge-position-offset) * -1);
     }
 
+    &.LemonBadge--xsmall {
+        --lemon-badge-size: 0.875rem;
+        --lemon-badge-font-size: 0.425rem;
+    }
+
     &.LemonBadge--small {
         --lemon-badge-size: 1.125rem;
         --lemon-badge-font-size: 0.625rem;

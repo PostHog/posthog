@@ -277,6 +277,7 @@ export const ButtonPrimitive = forwardRef<HTMLButtonElement, ButtonPrimitiveProp
         autoHeight,
         inert,
         forceVariant = false,
+        truncate,
         ...rest
     } = props
     // If inside a ButtonGroup, use the context values, otherwise use props
@@ -300,6 +301,7 @@ export const ButtonPrimitive = forwardRef<HTMLButtonElement, ButtonPrimitiveProp
                     isSideActionRight,
                     autoHeight,
                     inert,
+                    truncate,
                     className,
                 })
             ),

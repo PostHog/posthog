@@ -34,7 +34,7 @@ const DEFAULT_FILTERS: FeatureFlagModalFilters = {
 export const selectExistingFeatureFlagModalLogic = kea<selectExistingFeatureFlagModalLogicType>([
     path(['scenes', 'experiments', 'create', 'selectExistingFeatureFlagModalLogic']),
 
-    connect({
+    connect(() => ({
         actions: [
             eventUsageLogic,
             ['reportExperimentFeatureFlagModalOpened'],
@@ -42,13 +42,14 @@ export const selectExistingFeatureFlagModalLogic = kea<selectExistingFeatureFlag
             ['loadCurrentTeamSuccess', 'updateCurrentTeamSuccess'],
         ],
         values: [teamLogic, ['currentTeam']],
-    }),
+    })),
 
     actions({
         openSelectExistingFeatureFlagModal: true,
         closeSelectExistingFeatureFlagModal: true,
         setFilters: (filters: Partial<FeatureFlagModalFilters>, replace?: boolean) => ({ filters, replace }),
         resetFilters: true,
+        loadFeatureFlagsForAutocomplete: true,
     }),
 
     reducers({
@@ -83,6 +84,9 @@ export const selectExistingFeatureFlagModalLogic = kea<selectExistingFeatureFlag
         },
         openSelectExistingFeatureFlagModal: () => {
             actions.reportExperimentFeatureFlagModalOpened()
+            actions.loadFeatureFlags()
+        },
+        loadFeatureFlagsForAutocomplete: () => {
             actions.loadFeatureFlags()
         },
         loadCurrentTeamSuccess: () => {
@@ -123,7 +127,7 @@ export const selectExistingFeatureFlagModalLogic = kea<selectExistingFeatureFlag
                 }
 
                 // Add evaluation tags filter if required by team
-                if (currentTeam?.require_evaluation_environment_tags) {
+                if (currentTeam?.require_evaluation_contexts) {
                     params.has_evaluation_tags = true
                 }
 
@@ -162,7 +166,7 @@ export const selectExistingFeatureFlagModalLogic = kea<selectExistingFeatureFlag
         ],
         isEvaluationTagsRequired: [
             (s) => [s.currentTeam],
-            (currentTeam) => currentTeam?.require_evaluation_environment_tags || false,
+            (currentTeam) => currentTeam?.require_evaluation_contexts || false,
         ],
     }),
 ])

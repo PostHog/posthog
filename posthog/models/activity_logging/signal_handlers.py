@@ -14,6 +14,7 @@ from loginas.utils import is_impersonated_session
 
 from posthog.constants import AUTH_BACKEND_DISPLAY_NAMES
 from posthog.exceptions_capture import capture_exception
+from posthog.helpers.impersonation import get_original_user_from_session
 from posthog.models.activity_logging.activity_log import (
     ActivityContextBase,
     ActivityScope,
@@ -23,6 +24,7 @@ from posthog.models.activity_logging.activity_log import (
     changes_between,
     log_activity,
 )
+from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.user import User
 from posthog.utils import get_ip_address, get_short_user_agent
@@ -44,20 +46,6 @@ class UserLogoutContext(ActivityContextBase):
     user_agent: str
 
 
-def _get_original_user_from_session(request):
-    """Extract the original admin user from the impersonation session."""
-    try:
-        signer = TimestampSigner()
-        original_session = request.session.get(la_settings.USER_SESSION_FLAG)
-        original_user_pk = signer.unsign(
-            original_session, max_age=timedelta(days=la_settings.USER_SESSION_DAYS_TIMESTAMP)
-        )
-        User = get_user_model()
-        return User.objects.get(pk=original_user_pk)
-    except Exception:
-        return None
-
-
 def _get_logout_user_context(user, request):
     """Determine the correct user context and attribution for logout activity logging."""
     was_impersonated = is_impersonated_session(request)
@@ -65,7 +53,7 @@ def _get_logout_user_context(user, request):
     item_id = str(user.id)
 
     if was_impersonated and hasattr(request, "session") and request.session:
-        admin_user = _get_original_user_from_session(request)
+        admin_user = get_original_user_from_session(request)
         if admin_user:
             log_user = admin_user
             item_id = str(user.id)
@@ -261,3 +249,48 @@ def log_user_change_activity(
             error=e,
         )
         capture_exception(e)
+
+
+@dataclasses.dataclass(frozen=True)
+class OrganizationDomainContext(ActivityContextBase):
+    organization_id: str
+    organization_name: str
+    domain: str
+
+
+@mutable_receiver(model_activity_signal, sender=OrganizationDomain)
+def handle_organization_domain_change(
+    sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
+):
+    domain_instance = after_update or before_update
+
+    if not domain_instance:
+        return
+
+    context = OrganizationDomainContext(
+        organization_id=str(domain_instance.organization_id),
+        organization_name=domain_instance.organization.name,
+        domain=domain_instance.domain,
+    )
+
+    if activity == "created":
+        detail_name = f"Domain {domain_instance.domain} added to {domain_instance.organization.name}"
+    elif activity == "deleted":
+        detail_name = f"Domain {domain_instance.domain} removed from {domain_instance.organization.name}"
+    else:
+        detail_name = f"Domain {domain_instance.domain} updated in {domain_instance.organization.name}"
+
+    log_activity(
+        organization_id=domain_instance.organization_id,
+        team_id=None,
+        user=user,
+        was_impersonated=was_impersonated,
+        item_id=domain_instance.id,
+        scope=scope,
+        activity=activity,
+        detail=Detail(
+            changes=changes_between(scope, previous=before_update, current=after_update),
+            name=detail_name,
+            context=context,
+        ),
+    )

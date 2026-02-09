@@ -21,11 +21,11 @@ export function parseBullets(bullets: string): BulletItem[] {
 
 export function BulletList({ items }: { items: BulletItem[] }): JSX.Element {
     return (
-        <ul className="p-2 bg-surface-secondary rounded text-sm space-y-1 list-disc list-inside">
+        <div className="p-2 bg-surface-secondary rounded text-sm space-y-1">
             {items.map((item, index) => (
-                <li key={index}>{item.text}</li>
+                <div key={index}>- {item.text}</div>
             ))}
-        </ul>
+        </div>
     )
 }
 
@@ -35,11 +35,11 @@ export function ClusterDescription({ description }: { description: string }): JS
 
     if (isBulletList) {
         return (
-            <ul className="text-secondary text-sm list-disc list-inside space-y-0.5 m-0">
+            <div className="text-secondary text-sm space-y-0.5 m-0">
                 {lines.map((line, index) => (
-                    <li key={index}>{line.trim().slice(2)}</li>
+                    <div key={index}>{line.trim()}</div>
                 ))}
-            </ul>
+            </div>
         )
     }
     return <p className="text-secondary m-0">{description}</p>

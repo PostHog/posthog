@@ -1,7 +1,8 @@
+import clsx from 'clsx'
 import { useState } from 'react'
 
 import { IconX } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonSwitch } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { LemonCalendar } from 'lib/lemon-ui/LemonCalendar/LemonCalendar'
@@ -16,6 +17,10 @@ export interface FixedRangeWithTimePickerProps {
     onClose: () => void
     /** Use 24-hour format instead of 12-hour with AM/PM */
     use24HourFormat?: boolean
+    /** Whether to show the "Include time?" toggle */
+    showTimeToggle?: boolean
+    /** Callback when time toggle is changed */
+    onToggleTime?: (includeTime: boolean) => void
 }
 
 export function FixedRangeWithTimePicker({
@@ -24,6 +29,8 @@ export function FixedRangeWithTimePicker({
     setDate,
     onClose,
     use24HourFormat = false,
+    showTimeToggle,
+    onToggleTime,
 }: FixedRangeWithTimePickerProps): JSX.Element {
     const [selectingStart, setSelectingStart] = useState(true)
     const [localFrom, setLocalFrom] = useState<dayjs.Dayjs | null>(rangeDateFrom)
@@ -91,10 +98,43 @@ export function FixedRangeWithTimePicker({
                         }
                     }}
                     leftmostMonth={(selectingStart ? localFrom : localTo)?.startOf('month')}
-                    getLemonButtonProps={({ date, props }) => {
-                        const currentValue = selectingStart ? localFrom : localTo
-                        if (date.isSame(currentValue, 'd')) {
-                            return { ...props, status: 'default', type: 'primary' }
+                    getLemonButtonProps={({ date, props, dayIndex }) => {
+                        if ((localFrom && date.isSame(localFrom, 'd')) || (localTo && date.isSame(localTo, 'd'))) {
+                            const isStart = localFrom && date.isSame(localFrom, 'd')
+                            const isEnd = localTo && date.isSame(localTo, 'd')
+                            return {
+                                ...props,
+                                className:
+                                    isStart && isEnd
+                                        ? props.className
+                                        : clsx(
+                                              props.className,
+                                              {
+                                                  'rounded-r-none': isStart && dayIndex < 6,
+                                                  'rounded-l-none': isEnd && dayIndex > 0,
+                                              },
+                                              'LemonCalendar__range--boundary'
+                                          ),
+                                type: 'primary',
+                            }
+                        } else if (
+                            localFrom &&
+                            localTo &&
+                            date.isAfter(localFrom, 'd') &&
+                            date.isBefore(localTo, 'd')
+                        ) {
+                            return {
+                                ...props,
+                                className: clsx(
+                                    props.className,
+                                    dayIndex === 0
+                                        ? 'rounded-r-none'
+                                        : dayIndex === 6
+                                          ? 'rounded-l-none'
+                                          : 'rounded-none'
+                                ),
+                                active: true,
+                            }
                         }
                         return props
                     }}
@@ -155,13 +195,24 @@ export function FixedRangeWithTimePicker({
                     use24HourFormat={use24HourFormat}
                 />
             </div>
-            <div className="flex justify-end gap-2 border-t p-2 pt-4" data-attr="lemon-calendar-range-with-time-footer">
-                <LemonButton type="secondary" onClick={onClose}>
-                    Cancel
-                </LemonButton>
-                <LemonButton type="primary" disabled={!localFrom || !localTo} onClick={handleApply}>
-                    Apply
-                </LemonButton>
+            <div
+                className={clsx(
+                    'flex gap-2 items-center border-t p-2 pt-4',
+                    showTimeToggle ? 'justify-between' : 'justify-end'
+                )}
+                data-attr="lemon-calendar-range-with-time-footer"
+            >
+                {showTimeToggle && (
+                    <LemonSwitch label="Include time?" checked={true} onChange={() => onToggleTime?.(false)} bordered />
+                )}
+                <div className="flex gap-2">
+                    <LemonButton type="secondary" onClick={onClose}>
+                        Cancel
+                    </LemonButton>
+                    <LemonButton type="primary" disabled={!localFrom || !localTo} onClick={handleApply}>
+                        Apply
+                    </LemonButton>
+                </div>
             </div>
         </div>
     )

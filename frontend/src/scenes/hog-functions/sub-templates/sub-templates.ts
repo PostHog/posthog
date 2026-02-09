@@ -49,6 +49,12 @@ export const HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES: Record<
         context_id: 'activity-log',
         filters: { events: [{ id: '$activity_log_entry_created', type: 'events' }] },
     },
+    'discussion-mention': {
+        sub_template_id: 'discussion-mention',
+        type: 'internal_destination',
+        context_id: 'discussion-mention',
+        filters: { events: [{ id: '$discussion_mention_created', type: 'events' }] },
+    },
     'error-tracking-issue-created': {
         sub_template_id: 'error-tracking-issue-created',
         type: 'internal_destination',
@@ -264,6 +270,71 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             },
         },
     ],
+    'discussion-mention': [
+        {
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['discussion-mention'],
+            template_id: 'template-webhook',
+            name: 'HTTP Webhook on discussion mention',
+            description: 'Send a webhook when someone mentions you in a discussion',
+        },
+        {
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['discussion-mention'],
+            template_id: 'template-discord',
+            name: 'Post to Discord on discussion mention',
+            description: 'Posts a message to Discord when someone mentions you in a discussion',
+            inputs: {
+                content: {
+                    value: '**{event.properties.commenter_user_name}** mentioned you in {event.properties.scope} {event.properties.item_id}',
+                },
+            },
+        },
+        {
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['discussion-mention'],
+            template_id: 'template-microsoft-teams',
+            name: 'Post to Microsoft Teams on discussion mention',
+            description: 'Posts a message to Microsoft Teams when someone mentions you in a discussion',
+            inputs: {
+                text: {
+                    value: '**{event.properties.commenter_user_name}** mentioned you in {event.properties.scope} {event.properties.item_id}',
+                },
+            },
+        },
+        {
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['discussion-mention'],
+            template_id: 'template-slack',
+            name: 'Post to Slack on discussion mention',
+            description: 'Posts a notification to a Slack channel when someone is mentioned in a discussion',
+            inputs: {
+                icon_emoji: {
+                    value: ':speech_balloon:',
+                },
+                blocks: {
+                    value: [
+                        {
+                            text: {
+                                text: '*{event.properties.commenter_user_name}* mentioned *{event.properties.mentioned_user_name}* in a discussion',
+                                type: 'mrkdwn',
+                            },
+                            type: 'section',
+                        },
+                        {
+                            type: 'actions',
+                            elements: [
+                                {
+                                    url: '{event.properties.item_url}',
+                                    text: { text: 'View Discussion', type: 'plain_text' },
+                                    type: 'button',
+                                },
+                            ],
+                        },
+                    ],
+                },
+                text: {
+                    value: '{event.properties.commenter_user_name} mentioned {event.properties.mentioned_user_name} in a discussion',
+                },
+            },
+        },
+    ],
     'error-tracking-issue-created': [
         {
             ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['error-tracking-issue-created'],
@@ -464,7 +535,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             inputs: {
                 content: {
                     value: `**📈 Issue spiking**
-                    
+
 \`\`\`
 {event.properties.name}: {substring(event.properties.description, 1, 1000)}
 \`\`\`
@@ -598,6 +669,8 @@ export const eventToHogFunctionContextId = (event: string | undefined): HogFunct
             return 'insight-alerts'
         case '$activity_log_entry_created':
             return 'activity-log'
+        case '$discussion_mention_created':
+            return 'discussion-mention'
         default:
             return 'standard'
     }

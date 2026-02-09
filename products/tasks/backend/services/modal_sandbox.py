@@ -1,8 +1,10 @@
 import os
 import uuid
+import shlex
 import logging
+from collections.abc import Iterable
 from functools import lru_cache
-from typing import cast
+from typing import Any, cast
 
 from django.conf import settings
 
@@ -22,37 +24,41 @@ from products.tasks.backend.temporal.exceptions import (
     SnapshotCreationError,
 )
 
-from .sandbox import ExecutionResult, SandboxConfig, SandboxStatus, SandboxTemplate
+from .sandbox import ExecutionResult, ExecutionStream, SandboxConfig, SandboxStatus, SandboxTemplate
 
 logger = logging.getLogger(__name__)
 
 WORKING_DIR = "/tmp/workspace"
 DEFAULT_TASK_TIMEOUT_SECONDS = 20 * 60  # 20 minutes
 DEFAULT_MODAL_APP_NAME = "posthog-sandbox-default"
-SANDBOX_IMAGE = "ghcr.io/posthog/posthog-sandbox-base"
+NOTEBOOK_MODAL_APP_NAME = "posthog-sandbox-notebook"
+SANDBOX_BASE_IMAGE = "ghcr.io/posthog/posthog-sandbox-base"
+SANDBOX_NOTEBOOK_IMAGE = "ghcr.io/posthog/posthog-sandbox-notebook"
+SANDBOX_IMAGE = SANDBOX_BASE_IMAGE
 
 
-@lru_cache(maxsize=1)
-def _get_sandbox_image_reference() -> str:
+@lru_cache(maxsize=2)
+def _get_sandbox_image_reference(image: str = SANDBOX_IMAGE) -> str:
     """Modal caches sandbox images indefinitely. This function resolves the digest of the master tag
     so Modal fetches the correct version. Queries GHCR once per deployment.
     """
+    image_repo = image.replace("ghcr.io/", "")
     try:
         token_resp = requests.get(
-            "https://ghcr.io/token?service=ghcr.io&scope=repository:posthog/posthog-sandbox-base:pull",
+            f"https://ghcr.io/token?service=ghcr.io&scope=repository:{image_repo}:pull",
             timeout=10,
         )
         if token_resp.status_code != 200:
             logger.warning(f"Failed to get GHCR token: status={token_resp.status_code}")
-            return f"{SANDBOX_IMAGE}:master"
+            return f"{image}:master"
 
         token = token_resp.json().get("token")
         if not token:
             logger.warning("GHCR token response missing token field")
-            return f"{SANDBOX_IMAGE}:master"
+            return f"{image}:master"
 
         manifest_resp = requests.get(
-            "https://ghcr.io/v2/posthog/posthog-sandbox-base/manifests/master",
+            f"https://ghcr.io/v2/{image_repo}/manifests/master",
             headers={
                 "Accept": "application/vnd.oci.image.index.v1+json",
                 "Authorization": f"Bearer {token}",
@@ -62,13 +68,13 @@ def _get_sandbox_image_reference() -> str:
         if manifest_resp.status_code == 200:
             digest = manifest_resp.headers.get("Docker-Content-Digest")
             if digest:
-                logger.info(f"Resolved sandbox image digest: {digest}")
-                return f"{SANDBOX_IMAGE}@{digest}"
+                logger.info(f"Resolved sandbox image digest for {image_repo}: {digest}")
+                return f"{image}@{digest}"
         logger.warning(f"Failed to get sandbox image digest: status={manifest_resp.status_code}")
     except Exception as e:
         logger.warning(f"Failed to fetch sandbox image digest: {e}")
 
-    return f"{SANDBOX_IMAGE}:master"
+    return f"{image}:master"
 
 
 def _get_template_image(template: SandboxTemplate) -> modal.Image:
@@ -83,7 +89,20 @@ def _get_template_image(template: SandboxTemplate) -> modal.Image:
 
             return modal.Image.from_dockerfile(dockerfile_path, force_build=True)
         else:
-            return modal.Image.from_registry(_get_sandbox_image_reference())
+            return modal.Image.from_registry(_get_sandbox_image_reference(SANDBOX_BASE_IMAGE))
+
+    if template == SandboxTemplate.NOTEBOOK_BASE:
+        if settings.DEBUG:
+            dockerfile_path = os.path.join(
+                settings.BASE_DIR, "products/tasks/backend/sandbox/images/Dockerfile.sandbox-notebook"
+            )
+
+            if not os.path.exists(dockerfile_path):
+                raise FileNotFoundError(f"Dockerfile not found at {dockerfile_path}")
+
+            return modal.Image.from_dockerfile(dockerfile_path, force_build=True)
+        else:
+            return modal.Image.from_registry(_get_sandbox_image_reference(SANDBOX_NOTEBOOK_IMAGE))
 
     raise ValueError(f"Unknown template: {template}")
 
@@ -103,17 +122,22 @@ class ModalSandbox:
         self.id = sandbox.object_id
         self.config = config
         self._sandbox = sandbox
-        self._app = ModalSandbox._get_default_app()
+        self._app = ModalSandbox._get_app_for_template(config.template)
 
     @staticmethod
     def _get_default_app() -> modal.App:
         return modal.App.lookup(DEFAULT_MODAL_APP_NAME, create_if_missing=True)
 
     @staticmethod
+    def _get_app_for_template(template: SandboxTemplate) -> modal.App:
+        if template == SandboxTemplate.NOTEBOOK_BASE:
+            return modal.App.lookup(NOTEBOOK_MODAL_APP_NAME, create_if_missing=True)
+        return ModalSandbox._get_default_app()
+
+    @staticmethod
     def create(config: SandboxConfig) -> "ModalSandbox":
         try:
-            app = ModalSandbox._get_default_app()
-
+            app = ModalSandbox._get_app_for_template(config.template)
             image = _get_template_image(config.template)
 
             if config.snapshot_id:
@@ -139,7 +163,7 @@ class ModalSandbox:
                 "image": image,
                 "timeout": config.ttl_seconds,
                 "cpu": float(config.cpu_cores),
-                "memory": config.memory_gb * 1024,
+                "memory": int(config.memory_gb * 1024),
                 "verbose": True,
             }
 
@@ -226,6 +250,100 @@ class ModalSandbox:
             raise SandboxExecutionError(
                 f"Failed to execute command",
                 {"sandbox_id": self.id, "command": command, "error": str(e)},
+                cause=e,
+            )
+
+    def execute_stream(
+        self,
+        command: str,
+        timeout_seconds: int | None = None,
+    ) -> ExecutionStream:
+        if not self.is_running():
+            raise SandboxExecutionError(
+                f"Sandbox not in running state.",
+                {"sandbox_id": self.id},
+                cause=RuntimeError(f"Sandbox {self.id} is not running"),
+            )
+
+        if timeout_seconds is None:
+            timeout_seconds = self.config.default_execution_timeout_seconds
+
+        try:
+            process = self._sandbox.exec("bash", "-c", command, timeout=timeout_seconds)
+        except TimeoutError as e:
+            capture_exception(e)
+            raise SandboxTimeoutError(
+                f"Execution timed out after {timeout_seconds} seconds",
+                {"sandbox_id": self.id, "timeout_seconds": timeout_seconds},
+                cause=e,
+            )
+        except Exception as e:
+            capture_exception(e)
+            logger.exception(f"Failed to execute command: {e}")
+            raise SandboxExecutionError(
+                f"Failed to execute command",
+                {"sandbox_id": self.id, "command": command, "error": str(e)},
+                cause=e,
+            )
+
+        class _ModalExecutionStream:
+            def __init__(self, process: Any):
+                self._process = process
+                self._stdout_buffer: list[str] = []
+                self._stdout_iterated = False
+
+            def iter_stdout(self) -> Iterable[str]:
+                self._stdout_iterated = True
+                for line in self._process.stdout:
+                    output = line.decode("utf-8") if isinstance(line, bytes) else line
+                    self._stdout_buffer.append(output)
+                    yield output
+
+            def wait(self) -> ExecutionResult:
+                self._process.wait()
+                if not self._stdout_iterated:
+                    stdout = self._process.stdout.read()
+                    stdout_text = stdout.decode("utf-8") if isinstance(stdout, bytes) else stdout
+                else:
+                    stdout_text = "".join(self._stdout_buffer)
+
+                stderr = self._process.stderr.read()
+                stderr_text = stderr.decode("utf-8") if isinstance(stderr, bytes) else stderr
+                return ExecutionResult(
+                    stdout=stdout_text,
+                    stderr=stderr_text,
+                    exit_code=self._process.returncode,
+                    error=None,
+                )
+
+        return _ModalExecutionStream(process)
+
+    def write_file(self, path: str, payload: bytes) -> ExecutionResult:
+        if not self.is_running():
+            raise SandboxExecutionError(
+                "Sandbox not in running state.",
+                {"sandbox_id": self.id},
+                cause=RuntimeError(f"Sandbox {self.id} is not running"),
+            )
+
+        temp_path = f"{path}.tmp-{uuid.uuid4().hex}"
+        try:
+            with self._sandbox.open(temp_path, "wb") as file_handle:
+                file_handle.write(payload)
+            mv_command = f"mv {shlex.quote(temp_path)} {shlex.quote(path)}"
+            result = self.execute(mv_command, timeout_seconds=self.config.default_execution_timeout_seconds)
+            if result.exit_code != 0:
+                logger.warning(
+                    "sandbox_write_failed",
+                    extra={"stdout": result.stdout, "stderr": result.stderr, "sandbox_id": self.id},
+                )
+            return result
+        except Exception as e:
+            capture_exception(e)
+            logger.exception(f"Failed to write file to sandbox: {e}")
+            raise SandboxExecutionError(
+                "Failed to write file",
+                {"sandbox_id": self.id, "path": path, "error": str(e)},
                 cause=e,
             )
 

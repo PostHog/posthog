@@ -59,6 +59,10 @@ class ObjectStorageClient(metaclass=abc.ABCMeta):
         pass
 
     @abc.abstractmethod
+    def write_from_file(self, bucket: str, key: str, file_path: str) -> None:
+        pass
+
+    @abc.abstractmethod
     def copy_objects(self, bucket: str, source_prefix: str, target_prefix: str) -> int | None:
         """
         Copy objects from one prefix to another. Returns the number of objects copied.
@@ -98,6 +102,9 @@ class UnavailableStorage(ObjectStorageClient):
         pass
 
     def write(self, bucket: str, key: str, content: Union[str, bytes], extras: dict | None) -> None:
+        pass
+
+    def write_from_file(self, bucket: str, key: str, file_path: str) -> None:
         pass
 
     def copy_objects(self, bucket: str, source_prefix: str, target_prefix: str) -> int | None:
@@ -235,6 +242,21 @@ class ObjectStorage(ObjectStorageClient):
             capture_exception(e)
             raise ObjectStorageError("write failed") from e
 
+    def write_from_file(self, bucket: str, key: str, file_path: str) -> None:
+        """Upload a file to S3 by streaming from disk."""
+        try:
+            self.aws_client.upload_file(Filename=file_path, Bucket=bucket, Key=key)
+        except Exception as e:
+            logger.exception(
+                "object_storage.write_from_file_failed",
+                bucket=bucket,
+                file_name=key,
+                file_path=file_path,
+                error=e,
+            )
+            capture_exception(e)
+            raise ObjectStorageError("write_from_file failed") from e
+
     def copy_objects(self, bucket: str, source_prefix: str, target_prefix: str) -> int | None:
         try:
             source_objects = self.list_objects(bucket, source_prefix) or []
@@ -298,6 +320,14 @@ def write(file_name: str, content: Union[str, bytes], extras: dict | None = None
         key=file_name,
         content=content,
         extras=extras,
+    )
+
+
+def write_from_file(file_name: str, file_path: str, bucket: str | None = None) -> None:
+    return object_storage_client().write_from_file(
+        bucket=bucket or settings.OBJECT_STORAGE_BUCKET,
+        key=file_name,
+        file_path=file_path,
     )
 
 

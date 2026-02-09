@@ -2,6 +2,7 @@ import { DateTime } from 'luxon'
 
 import { HogFlow } from '~/schema/hogflow'
 import { createTeam, getFirstTeam, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
+import { PostgresUse } from '~/utils/db/postgres'
 import { UUIDT } from '~/utils/utils'
 import { PostgresPersonRepository } from '~/worker/ingestion/persons/repositories/postgres-person-repository'
 
@@ -248,24 +249,65 @@ describe('CdpCyclotronWorkerHogFlow', () => {
             ])
         })
 
-        it('should clear the cache each time', async () => {
-            const personManagerSpy = jest.spyOn(processor['personsManager'] as any, 'fetchPersons')
-            await processor.processInvocations(invocations)
-            expect(personManagerSpy).toHaveBeenCalledTimes(1)
-            expect(personManagerSpy.mock.calls[0][0]).toEqual([
-                `${team.id}:distinct_A_1`,
-                `${team.id}:distinct_A_2`,
-                `${team2.id}:distinct_A_1`,
-                `${team2.id}:missing_person`,
-            ])
-            await processor.processInvocations(invocations)
-            expect(personManagerSpy).toHaveBeenCalledTimes(2)
-            expect(personManagerSpy.mock.calls[1][0]).toEqual([
-                `${team.id}:distinct_A_1`,
-                `${team.id}:distinct_A_2`,
-                `${team2.id}:distinct_A_1`,
-                `${team2.id}:missing_person`,
-            ])
+        it('should skip invocations when workflow is disabled after being queued', async () => {
+            // Scenario: workflow is active, invocations are queued, then workflow is disabled
+            // Remaining invocations should be skipped
+
+            const hogFlow = hogFlows[0]
+
+            await createPerson(team.id, 'dd3d6f80-60ad-45c3-bd61-e2300f2ba7e4', 'distinct_person_1', {
+                name: 'Person 1',
+            })
+            await createPerson(team.id, 'dd3d6f80-60ad-45c3-bd61-e2300f2ba7e5', 'distinct_person_2', {
+                name: 'Person 2',
+            })
+
+            const invocation1 = createSerializedHogFlowInvocation(hogFlow, {
+                event: {
+                    distinct_id: 'distinct_person_1',
+                    properties: { foo: 'bar1' },
+                } as any,
+            })
+
+            const invocation2 = createSerializedHogFlowInvocation(hogFlow, {
+                event: {
+                    distinct_id: 'distinct_person_2',
+                    properties: { foo: 'bar2' },
+                } as any,
+            })
+
+            // First batch: process invocation1 while workflow is active
+            const results1 = (await processor.processInvocations([
+                invocation1,
+            ])) as CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>[]
+
+            expect(results1).toHaveLength(1)
+            expect(results1[0].invocation.filterGlobals?.properties?.foo).toBe('bar1')
+
+            // Now disable the workflow (simulate user archiving it)
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `UPDATE posthog_hogflow SET status = 'archived' WHERE id = $1`,
+                [hogFlow.id],
+                'disableHogFlow'
+            )
+
+            // Mark the hogflow for refresh so it fetches fresh data
+            ;(processor['hogFlowManager'] as any)['lazyLoader'].markForRefresh(hogFlow.id)
+
+            // Mock cancelInvocations to track what gets skipped
+            const cancelInvocationsSpy = jest.spyOn(processor['cyclotronJobQueue'], 'cancelInvocations')
+
+            // Second batch: invocation2 should be skipped because workflow is now disabled
+            const results2 = (await processor.processInvocations([
+                invocation2,
+            ])) as CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>[]
+
+            // No results because the workflow is disabled
+            expect(results2).toHaveLength(0)
+
+            // The invocation should have been canceled (not failed)
+            expect(cancelInvocationsSpy).toHaveBeenCalledWith([invocation2])
         })
     })
 })

@@ -115,6 +115,7 @@ exports[`EventPipelineRunner runEventPipeline() runs steps 1`] = `
           "maxOptimisticUpdateRetries": 5,
           "optimisticUpdateRetryInterval": 50,
           "updateAllProperties": false,
+          "useBatchUpdates": true,
         },
         "personCheckCache": {},
         "personRepository": {

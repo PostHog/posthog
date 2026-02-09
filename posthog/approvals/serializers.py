@@ -156,8 +156,16 @@ class ApprovalSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "created_by", "created_at"]
 
 
+class BypassRolesField(serializers.ListField):
+    child = serializers.UUIDField()
+
+    def to_representation(self, value):
+        return [str(role.id) for role in value.all()]
+
+
 class ApprovalPolicySerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
+    bypass_roles = BypassRolesField(required=False, default=list)
 
     class Meta:
         model = ApprovalPolicy
@@ -167,6 +175,7 @@ class ApprovalPolicySerializer(serializers.ModelSerializer):
             "conditions",
             "approver_config",
             "allow_self_approve",
+            "bypass_org_membership_levels",
             "bypass_roles",
             "expires_after",
             "enabled",
@@ -175,3 +184,50 @@ class ApprovalPolicySerializer(serializers.ModelSerializer):
             "updated_at",
         ]
         read_only_fields = ["id", "created_by", "created_at", "updated_at"]
+
+    def validate_bypass_roles(self, value):
+        if not value:
+            return value
+
+        try:
+            from ee.models.rbac.role import Role
+        except ImportError:
+            raise serializers.ValidationError("RBAC roles are not available")
+
+        if self.instance:
+            # Update: get organization from existing policy
+            organization_id = self.instance.organization_id
+        else:
+            # Create: get organization from view
+            organization_id = self.context["view"].organization.id
+
+        roles = Role.objects.filter(id__in=value)
+
+        # Check all submitted IDs exist
+        found_ids = {str(r.id) for r in roles}
+        submitted_ids = {str(v) for v in value}
+        missing_ids = submitted_ids - found_ids
+        if missing_ids:
+            raise serializers.ValidationError(f"Roles do not exist: {', '.join(missing_ids)}")
+
+        # Check all roles belong to the correct organization
+        invalid_roles = [r for r in roles if r.organization_id != organization_id]
+        if invalid_roles:
+            invalid_names = [r.name for r in invalid_roles]
+            raise serializers.ValidationError(f"Roles must belong to the same organization: {', '.join(invalid_names)}")
+
+        return value
+
+    def create(self, validated_data):
+        bypass_role_ids = validated_data.pop("bypass_roles", [])
+        instance = super().create(validated_data)
+        if bypass_role_ids:
+            instance.set_bypass_roles([str(rid) for rid in bypass_role_ids])
+        return instance
+
+    def update(self, instance, validated_data):
+        bypass_role_ids = validated_data.pop("bypass_roles", None)
+        instance = super().update(instance, validated_data)
+        if bypass_role_ids is not None:
+            instance.set_bypass_roles([str(rid) for rid in bypass_role_ids])
+        return instance

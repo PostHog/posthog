@@ -855,6 +855,9 @@ def resolve_log_source(workflow_type: str, workflow_id: str) -> tuple[str | None
         # This works because the WorkflowID is made up like f"{saved_query_id}-{data_interval_end}"
         log_source_id = workflow_id.rsplit("-", maxsplit=3)[0]
         log_source = "data_modeling_run"
+    elif workflow_type == "dwh-cdp-producer-job":
+        log_source_id = workflow_id.replace("dwh-cdp-producer-job-", "")
+        log_source = "dwh_cdp_producer_job"
     elif workflow_type in BATCH_EXPORT_WORKFLOW_TYPES:
         # This works because the WorkflowID is made up like f"{batch_export_id}-{data_interval_end}"
         # Since 'data_interval_end' is an iso formatted datetime string, it has two '-' to separate the

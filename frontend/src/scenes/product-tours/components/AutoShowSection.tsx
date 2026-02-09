@@ -8,6 +8,7 @@ import {
     LemonCollapse,
     LemonInput,
     LemonInputSelect,
+    LemonSegmentedButton,
     LemonSelect,
     Tooltip,
 } from '@posthog/lemon-ui'
@@ -28,18 +29,17 @@ import {
     ActionType,
     AnyPropertyFilter,
     ProductTourDisplayConditions,
+    ProductTourDisplayFrequency,
     PropertyDefinitionType,
     PropertyType,
     SurveyEventsWithProperties,
     SurveyMatchType,
 } from '~/types'
 
-type TourTriggerType = 'immediate' | 'event' | 'action'
+import { productTourLogic } from '../productTourLogic'
+import { getDefaultDisplayFrequency, getDisplayFrequencyOptions, isAnnouncement } from '../productToursLogic'
 
-interface AutoShowSectionProps {
-    conditions: ProductTourDisplayConditions
-    onChange: (conditions: ProductTourDisplayConditions) => void
-}
+type TourTriggerType = 'immediate' | 'event' | 'action'
 
 /**
  * this should probably be re-used from surveys!!
@@ -52,7 +52,18 @@ interface AutoShowSectionProps {
  * xoxo,
  * @adboio
  */
-function EventTriggerContent({ conditions, onChange }: AutoShowSectionProps): JSX.Element {
+function EventTriggerContent({ id }: { id: string }): JSX.Element {
+    const { productTourForm } = useValues(productTourLogic({ id }))
+    const { setProductTourFormValue } = useActions(productTourLogic({ id }))
+
+    const conditions = productTourForm.content?.conditions || {}
+
+    const onChange = (newConditions: ProductTourDisplayConditions): void => {
+        setProductTourFormValue('content', {
+            ...productTourForm.content,
+            conditions: newConditions,
+        })
+    }
     const { propertyDefinitionsByType } = useValues(propertyDefinitionsModel)
 
     const excludedObjectProperties = useMemo(() => {
@@ -177,7 +188,19 @@ function EventTriggerContent({ conditions, onChange }: AutoShowSectionProps): JS
     )
 }
 
-export function AutoShowSection({ conditions, onChange }: AutoShowSectionProps): JSX.Element {
+export function AutoShowSection({ id }: { id: string }): JSX.Element | null {
+    const { productTourForm, productTour, entityKeyword } = useValues(productTourLogic({ id }))
+    const { setProductTourFormValue } = useActions(productTourLogic({ id }))
+
+    const conditions = productTourForm.content?.conditions || {}
+
+    const onChange = (newConditions: ProductTourDisplayConditions): void => {
+        setProductTourFormValue('content', {
+            ...productTourForm.content,
+            conditions: newConditions,
+        })
+    }
+
     // Load recent URLs from property definitions
     const { options } = useValues(propertyDefinitionsModel)
     const { loadPropertyValues } = useActions(propertyDefinitionsModel)
@@ -234,10 +257,16 @@ export function AutoShowSection({ conditions, onChange }: AutoShowSectionProps):
         { value: 'action' as const, label: 'When user performs an action' },
     ]
 
+    if (!productTour) {
+        return null
+    }
+
+    const displayFrequency = productTourForm.content?.displayFrequency
+
     return (
         <div className="space-y-4">
             <div>
-                <h5 className="font-semibold mb-2">URL targeting</h5>
+                <h5 className="font-semibold mb-2">Where to show</h5>
                 <div className="flex gap-2 items-center">
                     <span className="text-sm whitespace-nowrap">URL</span>
                     <LemonSelect
@@ -300,7 +329,7 @@ export function AutoShowSection({ conditions, onChange }: AutoShowSectionProps):
             <div>
                 <h5 className="font-semibold mb-2">
                     When to show&nbsp;
-                    <Tooltip title="Choose when to show the tour to matching users.">
+                    <Tooltip title={`Choose when to show the ${entityKeyword} to matching users.`}>
                         <IconInfo />
                     </Tooltip>
                 </h5>
@@ -311,7 +340,7 @@ export function AutoShowSection({ conditions, onChange }: AutoShowSectionProps):
                     className="w-full"
                 />
 
-                {triggerType === 'event' && <EventTriggerContent conditions={conditions} onChange={onChange} />}
+                {triggerType === 'event' && <EventTriggerContent id={id} />}
 
                 {triggerType === 'action' && (
                     <div className="mt-3">
@@ -363,8 +392,29 @@ export function AutoShowSection({ conditions, onChange }: AutoShowSectionProps):
                         }}
                         className="w-12"
                     />
-                    <span className="text-sm">seconds before showing the tour after the conditions are met</span>
+                    <span className="text-sm">seconds before showing the {entityKeyword}</span>
                 </div>
+            </div>
+
+            <div>
+                <h5 className="font-semibold mb-2">How often to show</h5>
+                {isAnnouncement(productTour) ? (
+                    <LemonSegmentedButton
+                        value={displayFrequency ?? getDefaultDisplayFrequency(productTour).value}
+                        onChange={(value) =>
+                            setProductTourFormValue('content', {
+                                ...productTourForm.content,
+                                displayFrequency: value as ProductTourDisplayFrequency,
+                            })
+                        }
+                        options={getDisplayFrequencyOptions(productTour)}
+                        fullWidth
+                    />
+                ) : (
+                    <p>
+                        <IconInfo /> Product tours display once per user, until they interact
+                    </p>
+                )}
             </div>
         </div>
     )

@@ -10,7 +10,6 @@ from django.utils import timezone
 
 from rest_framework import status
 
-from posthog.constants import AvailableFeature
 from posthog.models import ActivityLog, EventProperty, Tag
 from posthog.models.property_definition import PropertyDefinition
 
@@ -220,30 +219,6 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         self.assertEqual(response_data["is_numerical"], False)
         self.assertEqual(response_data["updated_by"]["first_name"], self.user.first_name)
 
-    def test_update_property_description_without_license(self):
-        property = EnterprisePropertyDefinition.objects.create(team=self.team, name="enterprise property")
-        response = self.client.patch(
-            f"/api/projects/@current/property_definitions/{str(property.id)}/",
-            data={"description": "test"},
-        )
-        self.assertEqual(response.status_code, status.HTTP_402_PAYMENT_REQUIRED)
-        self.assertIn(
-            "Self-hosted licenses are no longer available for purchase.",
-            response.json()["detail"],
-        )
-
-    def test_update_property_tags_without_license(self):
-        property = EnterprisePropertyDefinition.objects.create(team=self.team, name="enterprise property")
-        response = self.client.patch(
-            f"/api/projects/@current/property_definitions/{str(property.id)}/",
-            data={"tags": ["test"]},
-        )
-        self.assertEqual(response.status_code, status.HTTP_402_PAYMENT_REQUIRED)
-        self.assertIn(
-            "Self-hosted licenses are no longer available for purchase.",
-            response.json()["detail"],
-        )
-
     def test_can_update_property_type_without_license(self):
         property = EnterprisePropertyDefinition.objects.create(team=self.team, name="enterprise property")
         response = self.client.patch(
@@ -270,33 +245,6 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
         self.assertEqual(response_data["property_type"], "DateTime")
-
-    def test_cannot_update_more_than_property_type_without_license(self):
-        property = EnterprisePropertyDefinition.objects.create(team=self.team, name="enterprise property")
-        response = self.client.patch(
-            f"/api/projects/@current/property_definitions/{str(property.id)}/",
-            data={"property_type": "DateTime", "tags": ["test"]},
-        )
-        self.assertEqual(response.status_code, status.HTTP_402_PAYMENT_REQUIRED)
-        self.assertIn(
-            "Self-hosted licenses are no longer available for purchase.",
-            response.json()["detail"],
-        )
-
-    def test_with_expired_license(self):
-        super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            plan="enterprise", valid_until=datetime.datetime(2010, 1, 19, 3, 14, 7)
-        )
-        property = EnterprisePropertyDefinition.objects.create(team=self.team, name="description test")
-        response = self.client.patch(
-            f"/api/projects/@current/property_definitions/{str(property.id)}/",
-            data={"description": "test"},
-        )
-        self.assertEqual(response.status_code, status.HTTP_402_PAYMENT_REQUIRED)
-        self.assertIn(
-            "Self-hosted licenses are no longer available for purchase.",
-            response.json()["detail"],
-        )
 
     def test_filter_property_definitions(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
@@ -597,23 +545,6 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         EnterprisePropertyDefinition.objects.create(
             team=self.team, name="hidden_property2", property_type="String", hidden=True
         )
-
-        # Test without enterprise taxonomy - hidden properties should still be shown even with exclude_hidden=true
-        self.organization.available_features = []
-        self.organization.save()
-
-        response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?exclude_hidden=true")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        property_names = {p["name"] for p in response.json()["results"]}
-        self.assertIn("visible_property", property_names)
-        self.assertIn("hidden_property1", property_names)
-        self.assertIn("hidden_property2", property_names)
-
-        # Test with enterprise taxonomy enabled - hidden properties should be excluded when exclude_hidden=true
-        self.team.organization.available_product_features = [
-            {"key": AvailableFeature.INGESTION_TAXONOMY, "name": "ingestion-taxonomy"}
-        ]
-        self.team.organization.save()
 
         response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?exclude_hidden=true")
         self.assertEqual(response.status_code, status.HTTP_200_OK)

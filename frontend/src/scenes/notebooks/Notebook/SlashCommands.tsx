@@ -275,10 +275,53 @@ order by count() desc
             ),
     },
     {
+        title: 'SQL (DuckDB)',
+        search: 'duck sql',
+        icon: <IconHogQL color="currentColor" />,
+        command: (chain, pos) =>
+            chain.insertContentAt(pos, {
+                type: NotebookNodeType.DuckSQL,
+                attrs: {
+                    code: '',
+                    returnVariable: 'duck_df',
+                    __init: {
+                        showSettings: true,
+                    },
+                },
+            }),
+        featureFlag: FEATURE_FLAGS.NOTEBOOK_PYTHON,
+    },
+    {
+        title: 'SQL (HogQL)',
+        search: 'hogql sql',
+        icon: <IconHogQL color="currentColor" />,
+        command: (chain, pos) =>
+            chain.insertContentAt(pos, {
+                type: NotebookNodeType.HogQLSQL,
+                attrs: {
+                    code: '',
+                    returnVariable: 'hogql_df',
+                    __init: {
+                        showSettings: true,
+                    },
+                },
+            }),
+        featureFlag: FEATURE_FLAGS.NOTEBOOK_PYTHON,
+    },
+    {
         title: 'Python',
         search: 'python',
         icon: <IconPython color="currentColor" />,
-        command: (chain, pos) => chain.insertContentAt(pos, { type: NotebookNodeType.Python, attrs: { code: '' } }),
+        command: (chain, pos) =>
+            chain.insertContentAt(pos, {
+                type: NotebookNodeType.Python,
+                attrs: {
+                    code: '',
+                    __init: {
+                        showSettings: true,
+                    },
+                },
+            }),
         featureFlag: FEATURE_FLAGS.NOTEBOOK_PYTHON,
     },
     {
@@ -321,6 +364,7 @@ order by count() desc
                     columns: defaultDataTableColumns(NodeKind.ActorsQuery),
                     source: {
                         kind: NodeKind.ActorsQuery,
+                        select: defaultDataTableColumns(NodeKind.ActorsQuery),
                         properties: [],
                     },
                 })

@@ -1,0 +1,128 @@
+# Dockerfile for the notebook sandbox image (Python notebooks).
+
+FROM ubuntu:24.04
+
+# Set environment variables to prevent interactive prompts
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=UTC
+
+# Install system packages (expanded for notebook environments)
+RUN apt-get update && \
+    apt-get install -y \
+    # Core tools
+    curl \
+    wget \
+    git \
+    vim \
+    nano \
+    tree \
+    htop \
+    unzip \
+    zip \
+    jq \
+    # Build tools
+    build-essential \
+    pkg-config \
+    # Languages and runtimes
+    python3 \
+    python3-pip \
+    python3-venv \
+    python3-dev \
+    # Databases
+    sqlite3 \
+    postgresql-client \
+    mysql-client \
+    redis-tools \
+    # System libraries often needed by Python packages
+    libssl-dev \
+    libffi-dev \
+    libbz2-dev \
+    libreadline-dev \
+    libsqlite3-dev \
+    libncursesw5-dev \
+    xz-utils \
+    tk-dev \
+    libxml2-dev \
+    libxmlsec1-dev \
+    # Other useful tools
+    ca-certificates \
+    gnupg \
+    sudo \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Node.js 24.x
+RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash - && \
+    apt-get install -y nodejs && \
+    rm -rf /var/lib/apt/lists/*
+
+# Install additional language package managers
+RUN npm install -g yarn pnpm typescript ts-node nodemon
+
+# Install GitHub CLI
+RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg && \
+    chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg && \
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null && \
+    apt-get update && \
+    apt-get install -y gh && \
+    rm -rf /var/lib/apt/lists/*
+
+###
+# Agent SDK
+###
+
+# Set up /scripts as a Node.js project and install @posthog/agent
+RUN mkdir -p /scripts && \
+    cd /scripts && \
+    npm init -y && \
+    npm install @posthog/agent@1.27.0
+
+# Download agent runner script from GitHub
+RUN cd /scripts && \
+    curl -fsSL https://raw.githubusercontent.com/PostHog/posthog/master/products/tasks/scripts/runAgent.mjs \
+    -o runAgent.mjs && \
+    chmod +x runAgent.mjs
+
+# Configure git for commits - TODO: Use user's email and name
+RUN git config --global user.email "array@posthog.com" && \
+    git config --global user.name "Array"
+
+# This is required for the Claude Code SDK to allow --dangerously-skip-permissions as the root user
+ENV IS_SANDBOX=1
+
+ENV PYTHONPATH="/tmp/workspace"
+
+WORKDIR /tmp/workspace
+
+# Install common notebook Python dependencies
+RUN python3 -m venv /opt/notebook-venv && \
+    /opt/notebook-venv/bin/pip install --no-cache-dir --upgrade pip && \
+    /opt/notebook-venv/bin/pip install --no-cache-dir \
+    ipython \
+    jupyter \
+    jupyterlab \
+    notebook \
+    ipywidgets \
+    numpy \
+    pandas \
+    scipy \
+    scikit-learn \
+    matplotlib \
+    seaborn \
+    plotly \
+    pyarrow \
+    duckdb \
+    polars \
+    sqlalchemy \
+    requests \
+    lxml \
+    beautifulsoup4 && \
+    /opt/notebook-venv/bin/python -m ipykernel install --sys-prefix
+
+ENV VIRTUAL_ENV=/opt/notebook-venv
+ENV PATH="/opt/notebook-venv/bin:$PATH"
+
+RUN python3 --version && \
+    node --version && \
+    npm --version
+
+CMD ["/bin/bash"]

@@ -99,6 +99,15 @@ class ArtifactHandler(ABC, Generic[T_Stored, T_Enriched]):
         """
         return self.content_class.model_validate(data)
 
+    @abstractmethod
+    def get_metadata(self, content: T_Stored) -> dict[str, Any]:
+        """
+        Extract display metadata from artifact content.
+
+        Returns dict with type-specific fields for display (e.g., name, description, title).
+        """
+        ...
+
 
 # Single registry mapping content class -> handler instance
 HANDLER_REGISTRY: dict[type, ArtifactHandler] = {}

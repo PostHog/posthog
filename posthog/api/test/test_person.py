@@ -1484,6 +1484,146 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
         mocked_ch_call.assert_not_called()
 
+    def test_batch_by_distinct_ids_happy_path(self) -> None:
+        _create_person(
+            team=self.team,
+            distinct_ids=["user_1"],
+            properties={"email": "user1@example.com"},
+            immediate=True,
+        )
+        _create_person(
+            team=self.team,
+            distinct_ids=["user_2"],
+            properties={"email": "user2@example.com"},
+            immediate=True,
+        )
+        flush_persons_and_events()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/persons/batch_by_distinct_ids/",
+            {"distinct_ids": ["user_1", "user_2"]},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        self.assertIn("user_1", results)
+        self.assertIn("user_2", results)
+        self.assertEqual(results["user_1"]["properties"]["email"], "user1@example.com")
+        self.assertEqual(results["user_2"]["properties"]["email"], "user2@example.com")
+
+    def test_batch_by_distinct_ids_missing_ids(self) -> None:
+        _create_person(
+            team=self.team,
+            distinct_ids=["existing_user"],
+            properties={"email": "exists@example.com"},
+            immediate=True,
+        )
+        flush_persons_and_events()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/persons/batch_by_distinct_ids/",
+            {"distinct_ids": ["existing_user", "nonexistent_1", "nonexistent_2"]},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        self.assertIn("existing_user", results)
+        self.assertNotIn("nonexistent_1", results)
+        self.assertNotIn("nonexistent_2", results)
+
+    def test_batch_by_distinct_ids_same_person_multiple_ids(self) -> None:
+        _create_person(
+            team=self.team,
+            distinct_ids=["id_a", "id_b"],
+            properties={"email": "multi@example.com"},
+            immediate=True,
+        )
+        flush_persons_and_events()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/persons/batch_by_distinct_ids/",
+            {"distinct_ids": ["id_a", "id_b"]},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        self.assertIn("id_a", results)
+        self.assertIn("id_b", results)
+        self.assertEqual(results["id_a"]["uuid"], results["id_b"]["uuid"])
+
+    def test_batch_by_distinct_ids_empty_list(self) -> None:
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/persons/batch_by_distinct_ids/",
+            {"distinct_ids": []},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["results"], {})
+
+    def test_batch_by_distinct_ids_invalid_input(self) -> None:
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/persons/batch_by_distinct_ids/",
+            {"distinct_ids": "not_a_list"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["results"], {})
+
+    def test_batch_by_distinct_ids_cross_team_isolation(self) -> None:
+        other_org, _, _ = Organization.objects.bootstrap(None, name="Other Org")
+        other_team = Team.objects.create(organization=other_org, name="Other Team")
+
+        _create_person(
+            team=other_team,
+            distinct_ids=["other_team_user"],
+            properties={"email": "other@example.com"},
+            immediate=True,
+        )
+        _create_person(
+            team=self.team,
+            distinct_ids=["my_team_user"],
+            properties={"email": "mine@example.com"},
+            immediate=True,
+        )
+        flush_persons_and_events()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/persons/batch_by_distinct_ids/",
+            {"distinct_ids": ["my_team_user", "other_team_user"]},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        self.assertIn("my_team_user", results)
+        self.assertNotIn("other_team_user", results)
+
+    def test_batch_by_distinct_ids_truncates_at_max_batch_size(self) -> None:
+        distinct_ids = [f"user_{i}" for i in range(201)]
+
+        _create_person(
+            team=self.team,
+            distinct_ids=[distinct_ids[200]],
+            properties={"email": "last@example.com"},
+            immediate=True,
+        )
+        flush_persons_and_events()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/persons/batch_by_distinct_ids/",
+            {"distinct_ids": distinct_ids},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        self.assertNotIn(distinct_ids[200], results)
+
 
 class TestPersonFromClickhouse(TestPerson):
     @override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=False)

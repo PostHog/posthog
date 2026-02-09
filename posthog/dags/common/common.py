@@ -10,6 +10,7 @@ from posthog.clickhouse.query_tagging import DagsterTags
 
 class JobOwners(str, Enum):
     TEAM_ANALYTICS_PLATFORM = "team-analytics-platform"
+    TEAM_BILLING = "team-billing"
     TEAM_CLICKHOUSE = "team-clickhouse"
     TEAM_DATA_STACK = "team-data-stack"
     TEAM_ERROR_TRACKING = "team-error-tracking"

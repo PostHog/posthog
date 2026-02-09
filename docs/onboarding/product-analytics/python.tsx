@@ -1,19 +1,10 @@
-import { ReactNode } from 'react'
-import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 
-export interface StepDefinition {
-    title: string
-    badge?: 'required' | 'recommended' | 'optional'
-    content: ReactNode
-}
+import { StepDefinition } from '../steps'
 
-export const getPythonSteps = (
-    CodeBlock: any,
-    Markdown: any,
-    CalloutBox: any,
-    dedent: any,
-    snippets: any
-): StepDefinition[] => {
+export const getPythonSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
+    const { CodeBlock, Markdown, CalloutBox, dedent, snippets } = ctx
+
     const PythonEventCapture = snippets?.PythonEventCapture
 
     return [
@@ -86,17 +77,4 @@ export const getPythonSteps = (
     ]
 }
 
-export const PythonInstallation = (): JSX.Element => {
-    const { Steps, Step, CodeBlock, Markdown, CalloutBox, dedent, snippets } = useMDXComponents()
-    const steps = getPythonSteps(CodeBlock, Markdown, CalloutBox, dedent, snippets)
-
-    return (
-        <Steps>
-            {steps.map((step, index) => (
-                <Step key={index} title={step.title} badge={step.badge}>
-                    {step.content}
-                </Step>
-            ))}
-        </Steps>
-    )
-}
+export const PythonInstallation = createInstallation(getPythonSteps)

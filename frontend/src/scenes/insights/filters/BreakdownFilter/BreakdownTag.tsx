@@ -16,7 +16,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
-import { extractExpressionComment } from '~/queries/nodes/DataTable/utils'
+import { extractDisplayLabel } from '~/queries/nodes/DataTable/utils'
 import { BreakdownType, GroupTypeIndex } from '~/types'
 
 import { BreakdownTagMenu } from './BreakdownTagMenu'
@@ -138,7 +138,7 @@ export function BreakdownTag({
             propertyName = group.name_singular || group.group_type
         }
     } else {
-        propertyName = extractExpressionComment(propertyName as string)
+        propertyName = extractDisplayLabel(propertyName as string)
     }
 
     const clickable = onClick !== undefined

@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from typing import Literal, Self, Union
 from uuid import uuid4
 
@@ -5,7 +6,12 @@ from langchain_core.runnables import RunnableConfig
 from posthoganalytics import capture_exception
 from pydantic import BaseModel, Field, create_model
 
-from posthog.schema import ArtifactContentType, AssistantToolCallMessage
+from posthog.schema import (
+    ArtifactContentType,
+    AssistantToolCallMessage,
+    NotebookArtifactContent,
+    VisualizationArtifactContent,
+)
 
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
@@ -14,11 +20,14 @@ from posthog.models import Dashboard, Team, User
 from posthog.sync import database_sync_to_async
 
 from ee.hogai.artifacts.types import ModelArtifactResult
-from ee.hogai.artifacts.utils import unwrap_notebook_artifact_content, unwrap_visualization_artifact_content
 from ee.hogai.chat_agent.sql.mixins import HogQLDatabaseMixin
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.context.dashboard.context import DashboardContext, DashboardInsightContext
+from ee.hogai.context.error_tracking import ErrorTrackingIssueContext
+from ee.hogai.context.experiment import ExperimentContext
+from ee.hogai.context.feature_flag import FeatureFlagContext
 from ee.hogai.context.insight.context import InsightContext
+from ee.hogai.context.survey import SurveyContext
 from ee.hogai.tool import MaxTool, ToolMessagesArtifact
 from ee.hogai.tool_errors import MaxToolFatalError, MaxToolRetryableError
 from ee.hogai.tools.read_billing_tool.tool import ReadBillingTool
@@ -26,7 +35,6 @@ from ee.hogai.tools.read_data.prompts import (
     BILLING_INSUFFICIENT_ACCESS_PROMPT,
     DASHBOARD_NOT_FOUND_PROMPT,
     INSIGHT_NOT_FOUND_PROMPT,
-    READ_DATA_ARTIFACTS_PROMPT,
     READ_DATA_BILLING_PROMPT,
     READ_DATA_PROMPT,
     READ_DATA_WAREHOUSE_SCHEMA_PROMPT,
@@ -34,6 +42,7 @@ from ee.hogai.tools.read_data.prompts import (
 from ee.hogai.utils.prompt import format_prompt_string
 from ee.hogai.utils.query import validate_assistant_query
 from ee.hogai.utils.types.base import ArtifactRefMessage, AssistantState, NodePath
+from ee.models.assistant import AgentArtifact
 
 
 class ReadDataWarehouseSchema(BaseModel):
@@ -77,10 +86,11 @@ class ReadBillingInfo(BaseModel):
     kind: Literal["billing_info"] = "billing_info"
 
 
-class ReadArtifacts(BaseModel):
-    """Reads conversation artifacts created by the agent."""
+class ReadArtifact(BaseModel):
+    """Reads a specific artifact by ID."""
 
-    kind: Literal["artifacts"] = "artifacts"
+    kind: Literal["artifact"] = "artifact"
+    artifact_id: str = Field(description="The ID of the artifact to read.")
 
 
 class ReadErrorTrackingIssue(BaseModel):
@@ -90,14 +100,40 @@ class ReadErrorTrackingIssue(BaseModel):
     issue_id: str = Field(description="The UUID of the error tracking issue.")
 
 
+class ReadSurvey(BaseModel):
+    """Retrieves survey details including questions, targeting, and response summary."""
+
+    kind: Literal["survey"] = "survey"
+    survey_id: str = Field(description="The UUID of the survey.")
+
+
+class ReadFeatureFlag(BaseModel):
+    """Retrieves a feature flag by its numeric ID or key (slug)."""
+
+    kind: Literal["feature_flag"] = "feature_flag"
+    id: int | None = Field(default=None, description="The numeric ID of the feature flag.")
+    key: str | None = Field(default=None, description="The key (slug) of the feature flag.")
+
+
+class ReadExperiment(BaseModel):
+    """Retrieves an experiment by its numeric ID or by its feature flag's key."""
+
+    kind: Literal["experiment"] = "experiment"
+    id: int | None = Field(default=None, description="The numeric ID of the experiment.")
+    feature_flag_key: str | None = Field(default=None, description="The key of the experiment's feature flag.")
+
+
 ReadDataQuery = (
     ReadDataWarehouseSchema
     | ReadDataWarehouseTableSchema
     | ReadInsight
     | ReadDashboard
     | ReadBillingInfo
-    | ReadArtifacts
     | ReadErrorTrackingIssue
+    | ReadArtifact
+    | ReadSurvey
+    | ReadFeatureFlag
+    | ReadExperiment
 )
 
 
@@ -137,10 +173,6 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
 
         has_billing_access = await context_manager.check_user_has_billing_access()
 
-        # Subagents don't have access to artifacts
-        if can_read_artifacts:
-            prompt_vars["artifacts_prompt"] = READ_DATA_ARTIFACTS_PROMPT
-            kinds.append(ReadArtifacts)
         if has_billing_access:
             prompt_vars["billing_prompt"] = READ_DATA_BILLING_PROMPT
             kinds.append(ReadBillingInfo)
@@ -151,6 +183,10 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
             ReadInsight,
             ReadDashboard,
             ReadErrorTrackingIssue,
+            ReadArtifact,
+            ReadSurvey,
+            ReadFeatureFlag,
+            ReadExperiment,
         )
         ReadDataKind = Union[tuple(base_kinds + tuple(kinds))]  # type: ignore[valid-type]
 
@@ -196,14 +232,20 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
                 return await self._read_data_warehouse_schema(), None
             case ReadDataWarehouseTableSchema() as data_warehouse_table:
                 return await self._read_data_warehouse_table_schema(data_warehouse_table.table_name), None
-            case ReadArtifacts():
-                return await self._read_artifacts()
+            case ReadArtifact() as schema:
+                return await self._read_artifact(schema.artifact_id), None
             case ReadInsight() as schema:
                 return await self._read_insight(schema.insight_id, schema.execute)
             case ReadDashboard() as schema:
                 return await self._read_dashboard(schema.dashboard_id, schema.execute)
             case ReadErrorTrackingIssue() as schema:
                 return await self._read_error_tracking_issue(schema.issue_id), None
+            case ReadSurvey() as schema:
+                return await self._read_survey(schema.survey_id), None
+            case ReadFeatureFlag() as schema:
+                return await self._read_feature_flag(schema.id, schema.key), None
+            case ReadExperiment() as schema:
+                return await self._read_experiment(schema.id, schema.feature_flag_key), None
 
     async def _read_insight(
         self, artifact_or_insight_id: str, execute: bool
@@ -213,6 +255,9 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
 
         if result is None:
             raise MaxToolRetryableError(INSIGHT_NOT_FOUND_PROMPT.format(short_id=artifact_or_insight_id))
+
+        if isinstance(result, ModelArtifactResult):
+            await self.check_object_access(result.model, "viewer", action="read")
 
         insight_name = result.content.name or f"Insight {artifact_or_insight_id}"
 
@@ -250,22 +295,6 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
 
         return "", ToolMessagesArtifact(messages=[artifact_message, tool_call_message])
 
-    async def _read_artifacts(self) -> tuple[str, None]:
-        conversation_artifacts = await self._context_manager.artifacts.aget_conversation_artifacts()
-        formatted_artifacts = []
-
-        for message in conversation_artifacts:
-            if viz_content := unwrap_visualization_artifact_content(message):
-                formatted_artifacts.append(
-                    f"- id: {message.artifact_id}\n- name: {viz_content.name}\n- description: {viz_content.description}\n- query: {viz_content.query}"
-                )
-            elif notebook_content := unwrap_notebook_artifact_content(message):
-                # We don't need to show the content of the notebook, just the title
-                formatted_artifacts.append(f"- id: {message.artifact_id}\n- title: {notebook_content.title}")
-        if len(formatted_artifacts) == 0:
-            return "No artifacts available", None
-        return "\n\n".join(formatted_artifacts), None
-
     async def _read_data_warehouse_schema(self) -> str:
         database = await self._aget_database()
         hogql_context = self._get_default_hogql_context(database)
@@ -290,6 +319,7 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
 
         warehouse_tables = database.get_warehouse_table_names()
         views = database.get_view_names()
+        system_tables = database.get_system_table_names()
 
         listify = lambda items: "\n".join(f"- {item}" for item in sorted(items))
 
@@ -298,14 +328,16 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
             template_format="mustache",
             posthog_tables="\n".join(system_table_lines),
             data_warehouse_tables=listify(warehouse_tables),
+            system_tables=listify(system_tables),
             data_warehouse_views=listify(views),
         )
 
     @database_sync_to_async
     def _build_table_schema(self, database: Database, hogql_context: HogQLContext, table_name: str) -> str:
         # Load tables on demand: warehouse first, then views, then posthog tables
-        table_sources = [
+        table_sources: list[Callable[[], list[str]]] = [
             database.get_warehouse_table_names,
+            database.get_system_table_names,
             database.get_view_names,
             database.get_posthog_table_names,
         ]
@@ -345,6 +377,8 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
         except (Dashboard.DoesNotExist, ValueError):
             raise MaxToolFatalError(DASHBOARD_NOT_FOUND_PROMPT.format(dashboard_id=dashboard_id))
 
+        await self.check_object_access(dashboard, "viewer", action="read")
+
         dashboard_name = dashboard.name or f"Dashboard {dashboard_id}"
         tiles = [
             tile
@@ -372,7 +406,9 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
                     query = validate_assistant_query(query)
                 except Exception as e:
                     capture_exception(
-                        e, distinct_id=self._user.distinct_id, properties=self._get_debug_props(self._config)
+                        e,
+                        distinct_id=self._user.distinct_id,
+                        properties=self._get_debug_props(self._config),
                     )
                     continue
 
@@ -384,6 +420,7 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
                     description=insight.description,
                     short_id=insight.short_id,
                     db_id=insight.id,
+                    layout=tile.layouts,
                 )
             )
 
@@ -404,10 +441,81 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
         return text_result, None
 
     async def _read_error_tracking_issue(self, issue_id: str) -> str:
-        from ee.hogai.context.error_tracking import ErrorTrackingIssueContext
-
         context = ErrorTrackingIssueContext(
             team=self._team,
             issue_id=issue_id,
         )
         return await context.execute_and_format()
+
+    async def _read_survey(self, survey_id: str) -> str:
+        context = SurveyContext(
+            team=self._team,
+            survey_id=survey_id,
+        )
+        survey = await context.aget_survey()
+        if survey is None:
+            raise MaxToolRetryableError(f"Survey with id={survey_id} not found.")
+        await self.check_object_access(survey, "viewer", resource="survey", action="read")
+        return await context.execute_and_format(survey)
+
+    async def _read_artifact(self, artifact_id: str) -> str:
+        try:
+            content = await self._context_manager.artifacts.aget(artifact_id)
+        except AgentArtifact.DoesNotExist:
+            raise MaxToolRetryableError(f"Artifact with id={artifact_id} not found.")
+
+        match content:
+            case VisualizationArtifactContent():
+                context = InsightContext(
+                    team=self._team,
+                    query=content.query,
+                    name=content.name,
+                    description=content.description,
+                    insight_id=artifact_id,
+                )
+                return await context.format_schema()
+
+            case NotebookArtifactContent():
+                lines = [f"# Notebook: {content.title or 'Untitled'}"]
+                for block in content.blocks:
+                    if hasattr(block, "content"):
+                        lines.append(block.content)
+                    elif hasattr(block, "query"):
+                        lines.append(f"[Visualization: {block.query.model_dump_json(exclude_none=True)}]")
+                return "\n\n".join(lines)
+
+        raise MaxToolFatalError(f"Unknown artifact type: {type(content).__name__}")
+
+    async def _read_feature_flag(self, flag_id: int | None, flag_key: str | None) -> str:
+        if flag_id is None and flag_key is None:
+            raise MaxToolRetryableError("You must provide either 'id' or 'key' to read a feature flag.")
+
+        context = FeatureFlagContext(
+            team=self._team,
+            flag_id=flag_id,
+            flag_key=flag_key,
+        )
+
+        flag = await context.aget_feature_flag()
+        if flag is None:
+            raise MaxToolRetryableError(context.get_not_found_message())
+
+        await self.check_object_access(flag, "viewer", resource="feature flag", action="read")
+        return await context.format_feature_flag(flag)
+
+    async def _read_experiment(self, experiment_id: int | None, feature_flag_key: str | None) -> str:
+        if experiment_id is None and feature_flag_key is None:
+            raise MaxToolRetryableError("You must provide either 'id' or 'feature_flag_key' to read an experiment.")
+
+        context = ExperimentContext(
+            team=self._team,
+            experiment_id=experiment_id,
+            feature_flag_key=feature_flag_key,
+        )
+
+        experiment = await context.aget_experiment()
+        if experiment is None:
+            raise MaxToolRetryableError(context.get_not_found_message())
+
+        await self.check_object_access(experiment, "viewer", resource="experiment", action="read")
+        return await context.format_experiment(experiment)

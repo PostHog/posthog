@@ -8,40 +8,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { Popover } from 'lib/lemon-ui/Popover'
 
-function IconHeading({ className }: { className?: string }): JSX.Element {
-    return (
-        <svg
-            className={className}
-            width="1em"
-            height="1em"
-            viewBox="0 0 24 24"
-            fill="none"
-            xmlns="http://www.w3.org/2000/svg"
-        >
-            <path
-                d="M4 12h8M4 18V6M12 18V6M17 10l3 2-3 2M17 14v4h6"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-            />
-        </svg>
-    )
-}
-
-function IconListNumbers(): JSX.Element {
-    return (
-        <svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path
-                d="M10 6h11M10 12h11M10 18h11M4 6h1v4M4 10h2M4 14h1.5a.5.5 0 0 1 0 1H4h2a.5.5 0 0 1 0 1H4"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-            />
-        </svg>
-    )
-}
+import { IconHeading, IconListNumbers } from './icons'
 
 export interface SlashCommandItem {
     title: string

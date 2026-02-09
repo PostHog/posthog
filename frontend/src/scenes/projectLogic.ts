@@ -131,14 +131,16 @@ export const projectLogic = kea<projectLogicType>([
         deleteProject: async ({ project }) => {
             try {
                 await api.delete(`api/projects/${project.id}`)
-                location.reload()
                 actions.deleteProjectSuccess()
             } catch {
+                lemonToast.error('Failed to delete project. Please try again.')
                 actions.deleteProjectFailure()
             }
         },
         deleteProjectSuccess: () => {
-            lemonToast.success('Project has been deleted')
+            lemonToast.success('Project deletion started. You will receive an email when complete.')
+            // Can't stay on current page since project is being deleted
+            window.location.href = '/'
         },
         createProjectSuccess: ({ currentProject }) => {
             if (currentProject) {

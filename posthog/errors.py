@@ -137,6 +137,30 @@ class CHQueryErrorIllegalAggregation(ExposedCHQueryError):
     pass
 
 
+class CHQueryErrorNumberOfArgumentsDoesntMatch(InternalCHQueryError):
+    pass
+
+
+class CHQueryErrorUnknownIdentifier(InternalCHQueryError):
+    pass
+
+
+class CHQueryErrorTooManyBytes(InternalCHQueryError):
+    pass
+
+
+class CHQueryErrorCannotParseUuid(InternalCHQueryError):
+    pass
+
+
+class CHQueryErrorUnsupportedMethod(InternalCHQueryError):
+    pass
+
+
+class CHQueryErrorInvalidJoinOnExpression(InternalCHQueryError):
+    pass
+
+
 def get_specific_clickhouse_error(meta_name: str, original_message: str, code: int) -> InternalCHQueryError | None:
     lookup: dict[str, InternalCHQueryError] = {
         # Infrastructure errors - custom messages to hide internals
@@ -156,12 +180,26 @@ def get_specific_clickhouse_error(meta_name: str, original_message: str, code: i
         "ILLEGAL_AGGREGATION": CHQueryErrorIllegalAggregation(
             original_message, code=code, code_name="illegal_aggregation"
         ),
+        "NUMBER_OF_ARGUMENTS_DOESNT_MATCH": CHQueryErrorNumberOfArgumentsDoesntMatch(
+            original_message, code=code, code_name="number_of_arguments_doesnt_match"
+        ),
+        "UNKNOWN_IDENTIFIER": CHQueryErrorUnknownIdentifier(
+            original_message, code=code, code_name="unknown_identifier"
+        ),
+        "TOO_MANY_BYTES": CHQueryErrorTooManyBytes(original_message, code=code, code_name="too_many_bytes"),
+        "CANNOT_PARSE_UUID": CHQueryErrorCannotParseUuid(original_message, code=code, code_name="cannot_parse_uuid"),
+        "UNSUPPORTED_METHOD": CHQueryErrorUnsupportedMethod(
+            original_message, code=code, code_name="unsupported_method"
+        ),
+        "INVALID_JOIN_ON_EXPRESSION": CHQueryErrorInvalidJoinOnExpression(
+            original_message, code=code, code_name="invalid_join_on_expression"
+        ),
     }
     return lookup.get(meta_name)
 
 
 #
-# From https://github.com/ClickHouse/ClickHouse/blob/v25.8.11.66-lts/src/Common/ErrorCodes.cpp#L17-L650
+# From https://github.com/ClickHouse/ClickHouse/blob/v25.8.12.129-lts/src/Common/ErrorCodes.cpp#L17-L650
 #
 # Please keep this list up to date at each ClickHouse upgrade.
 #
@@ -171,7 +209,7 @@ def get_specific_clickhouse_error(meta_name: str, original_message: str, code: i
 # import re
 # import requests
 #
-# TAG = "v25.8.11.66-lts"
+# TAG = "v25.8.12.129-lts"
 # URL = f"https://raw.githubusercontent.com/ClickHouse/ClickHouse/refs/tags/{TAG}/src/Common/ErrorCodes.cpp"
 #
 # resp = requests.get(URL, timeout=30)
@@ -497,7 +535,7 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     392: ErrorCodeMeta("QUERY_IS_PROHIBITED"),
     393: ErrorCodeMeta("THERE_IS_NO_QUERY"),
     394: ErrorCodeMeta("QUERY_WAS_CANCELLED"),
-    395: ErrorCodeMeta("FUNCTION_THROW_IF_VALUE_IS_NON_ZERO"),
+    395: ErrorCodeMeta("FUNCTION_THROW_IF_VALUE_IS_NON_ZERO", user_safe=True),
     396: ErrorCodeMeta("TOO_MANY_ROWS_OR_BYTES"),
     397: ErrorCodeMeta("QUERY_IS_NOT_SUPPORTED_IN_MATERIALIZED_VIEW"),
     398: ErrorCodeMeta("UNKNOWN_MUTATION_COMMAND"),

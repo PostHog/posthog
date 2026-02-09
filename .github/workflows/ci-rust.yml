@@ -8,6 +8,7 @@ on:
 
 env:
     CARGO_TERM_COLOR: always
+    UV_HTTP_TIMEOUT: 120
 
 jobs:
     # Job to decide if we should run rust ci
@@ -17,6 +18,9 @@ jobs:
         timeout-minutes: 5
         if: github.repository == 'PostHog/posthog'
         name: Determine need to run Rust checks
+        permissions:
+            contents: read
+            pull-requests: read
         # Set job outputs to values from filter step
         outputs:
             rust: ${{ steps.filter.outputs.rust || 'true' }}
@@ -34,6 +38,7 @@ jobs:
                       rust:
                         # Avoid running rust tests for irrelevant changes
                         - 'rust/**'
+                        - 'proto/**'
                         - '.github/workflows/ci-rust.yml'
                         - '.github/workflows/rust.yml'
                         - '.github/workflows/rust-docker-build.yml'
@@ -58,7 +63,9 @@ jobs:
             # Turning off cone mode ensures that files in the project root are not included during checkout
             - uses: actions/checkout@v6
               with:
-                  sparse-checkout: 'rust/'
+                  sparse-checkout: |
+                      rust/
+                      proto/
                   sparse-checkout-cone-mode: false
                   clean: false
 
@@ -67,10 +74,16 @@ jobs:
                   sudo apt-get update
                   sudo apt-get install -y libssl-dev pkg-config
 
+            - name: Install protoc
+              uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3.0.0
+              with:
+                  version: '28.x'
+                  repo-token: ${{ secrets.GITHUB_TOKEN }}
+
             - name: Install rust
               uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
               with:
-                  toolchain: 1.88.0
+                  toolchain: 1.91.1
 
             - name: Install sccache
               uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
@@ -145,7 +158,23 @@ jobs:
             - name: Setup main repo and dependencies
               run: |
                   docker compose -f ../docker-compose.dev.yml down
-                  docker compose -f ../docker-compose.dev.yml up -d
+
+                  # Retry docker compose up with exponential backoff to handle transient registry errors
+                  for i in 1 2 3; do
+                    if docker compose -f ../docker-compose.dev.yml up -d; then
+                      echo "Docker compose up succeeded"
+                      break
+                    else
+                      if [ $i -lt 3 ]; then
+                        echo "Docker compose up failed (attempt $i/3), retrying in $((i * 10)) seconds..."
+                        sleep $((i * 10))
+                      else
+                        echo "Docker compose up failed after 3 attempts"
+                        exit 1
+                      fi
+                    fi
+                  done
+
                   echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts
 
             - name: Dump Kafka logs on failure
@@ -159,7 +188,13 @@ jobs:
             - name: Install rust
               uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
               with:
-                  toolchain: 1.88.0
+                  toolchain: 1.91.1
+
+            - name: Install protoc
+              uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3.0.0
+              with:
+                  version: '28.x'
+                  repo-token: ${{ secrets.GITHUB_TOKEN }}
 
             - name: Install sccache
               uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
@@ -179,6 +214,7 @@ jobs:
               uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b # v7.2.0
               with:
                   enable-cache: true
+                  save-cache: ${{ github.ref == 'refs/heads/master' }}
                   version: 0.9.9
 
             - name: Install SAML (python3-saml) dependencies
@@ -240,7 +276,9 @@ jobs:
             # Turning off cone mode ensures that files in the project root are not included during checkout
             - uses: actions/checkout@v6
               with:
-                  sparse-checkout: 'rust/'
+                  sparse-checkout: |
+                      rust/
+                      proto/
                   sparse-checkout-cone-mode: false
                   clean: false
 
@@ -249,10 +287,16 @@ jobs:
                   sudo apt-get update
                   sudo apt-get install -y libssl-dev pkg-config
 
+            - name: Install protoc
+              uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3.0.0
+              with:
+                  version: '28.x'
+                  repo-token: ${{ secrets.GITHUB_TOKEN }}
+
             - name: Install rust
               uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
               with:
-                  toolchain: 1.88.0
+                  toolchain: 1.91.1
                   components: clippy,rustfmt
 
             - name: Install sccache
@@ -294,7 +338,9 @@ jobs:
             # Turning off cone mode ensures that files in the project root are not included during checkout
             - uses: actions/checkout@v6
               with:
-                  sparse-checkout: 'rust/'
+                  sparse-checkout: |
+                      rust/
+                      proto/
                   sparse-checkout-cone-mode: false
                   clean: false
 

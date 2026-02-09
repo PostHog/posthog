@@ -1,9 +1,13 @@
 import os
+import json
 import uuid
+import shlex
+import base64
 import shutil
 import logging
 import tempfile
 import subprocess
+from collections.abc import Iterable
 from typing import Optional
 
 from django.conf import settings
@@ -19,13 +23,14 @@ from products.tasks.backend.temporal.exceptions import (
     SnapshotCreationError,
 )
 
-from .sandbox import ExecutionResult, SandboxConfig, SandboxStatus
+from .sandbox import ExecutionResult, ExecutionStream, SandboxConfig, SandboxStatus, SandboxTemplate
 
 logger = logging.getLogger(__name__)
 
 WORKING_DIR = "/tmp/workspace"
 DEFAULT_TASK_TIMEOUT_SECONDS = 20 * 60  # 20 minutes
 DEFAULT_IMAGE_NAME = "posthog-sandbox-base"
+NOTEBOOK_IMAGE_NAME = "posthog-sandbox-notebook"
 
 
 class DockerSandbox:
@@ -67,16 +72,13 @@ class DockerSandbox:
         return None
 
     @staticmethod
-    def _build_base_image_if_needed() -> None:
-        """Build the base sandbox image if it doesn't exist."""
-        result = DockerSandbox._run(["docker", "images", "-q", DEFAULT_IMAGE_NAME])
+    def _build_image_if_needed(image_name: str, dockerfile_path: str) -> None:
+        """Build a sandbox image if it doesn't exist."""
+        result = DockerSandbox._run(["docker", "images", "-q", image_name])
         if result.stdout.strip():
             return
 
-        logger.info(f"Building {DEFAULT_IMAGE_NAME} image (this may take a few minutes)...")
-        dockerfile_path = os.path.join(
-            settings.BASE_DIR, "products/tasks/backend/sandbox/images/Dockerfile.sandbox-base"
-        )
+        logger.info(f"Building {image_name} image (this may take a few minutes)...")
 
         DockerSandbox._run(
             [
@@ -85,7 +87,7 @@ class DockerSandbox:
                 "-f",
                 dockerfile_path,
                 "-t",
-                DEFAULT_IMAGE_NAME,
+                image_name,
                 str(settings.BASE_DIR),
             ],
             check=True,
@@ -120,16 +122,26 @@ class DockerSandbox:
             )
 
     @staticmethod
-    def _ensure_image_exists() -> str:
+    def _ensure_image_exists(template: SandboxTemplate) -> str:
         """Build the sandbox image, using local agent if LOCAL_AGENT_PACKAGE is set."""
+        if template == SandboxTemplate.NOTEBOOK_BASE:
+            dockerfile_path = os.path.join(
+                settings.BASE_DIR, "products/tasks/backend/sandbox/images/Dockerfile.sandbox-notebook"
+            )
+            DockerSandbox._build_image_if_needed(NOTEBOOK_IMAGE_NAME, dockerfile_path)
+            return NOTEBOOK_IMAGE_NAME
+
         local_agent = DockerSandbox._get_local_agent_package()
+        dockerfile_path = os.path.join(
+            settings.BASE_DIR, "products/tasks/backend/sandbox/images/Dockerfile.sandbox-base"
+        )
 
         if local_agent:
-            DockerSandbox._build_base_image_if_needed()
+            DockerSandbox._build_image_if_needed(DEFAULT_IMAGE_NAME, dockerfile_path)
             DockerSandbox._build_local_image(local_agent)
             return "posthog-sandbox-base-local"
 
-        DockerSandbox._build_base_image_if_needed()
+        DockerSandbox._build_image_if_needed(DEFAULT_IMAGE_NAME, dockerfile_path)
         return DEFAULT_IMAGE_NAME
 
     @staticmethod
@@ -149,7 +161,7 @@ class DockerSandbox:
             except Exception as e:
                 logger.warning(f"Failed to load snapshot {config.snapshot_id}: {e}")
 
-        return DockerSandbox._ensure_image_exists()
+        return DockerSandbox._ensure_image_exists(config.template)
 
     @staticmethod
     def _transform_url_for_docker(url: str) -> str:
@@ -295,6 +307,128 @@ class DockerSandbox:
                 {"sandbox_id": self.id, "command": command, "error": str(e)},
                 cause=e,
             )
+
+    def execute_stream(
+        self,
+        command: str,
+        timeout_seconds: Optional[int] = None,
+    ) -> ExecutionStream:
+        if not self.is_running():
+            raise SandboxExecutionError(
+                "Sandbox not in running state.",
+                {"sandbox_id": self.id},
+                cause=RuntimeError(f"Sandbox {self.id} is not running"),
+            )
+
+        if timeout_seconds is None:
+            timeout_seconds = self.config.default_execution_timeout_seconds
+
+        try:
+            logger.debug(f"Streaming execution in sandbox {self.id}: {command[:100]}...")
+            process = subprocess.Popen(
+                ["docker", "exec", self._container_id, "bash", "-c", command],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                bufsize=1,
+            )
+        except Exception as e:
+            logger.exception(f"Failed to start streaming command: {e}")
+            raise SandboxExecutionError(
+                "Failed to execute command",
+                {"sandbox_id": self.id, "command": command, "error": str(e)},
+                cause=e,
+            )
+
+        class _DockerExecutionStream:
+            def __init__(self, process: subprocess.Popen, timeout: int, sandbox_id: str):
+                self._process = process
+                self._timeout = timeout
+                self._sandbox_id = sandbox_id
+                self._stdout_buffer: list[str] = []
+                self._stdout_iterated = False
+
+            def iter_stdout(self) -> Iterable[str]:
+                if not self._process.stdout:
+                    return
+                self._stdout_iterated = True
+                for line in iter(self._process.stdout.readline, ""):
+                    if line == "" and self._process.poll() is not None:
+                        break
+                    self._stdout_buffer.append(line)
+                    yield line
+                self._process.stdout.close()
+
+            def wait(self) -> ExecutionResult:
+                try:
+                    self._process.wait(timeout=self._timeout)
+                except subprocess.TimeoutExpired as e:
+                    self._process.kill()
+                    raise SandboxTimeoutError(
+                        f"Execution timed out after {self._timeout} seconds",
+                        {"sandbox_id": self._sandbox_id, "timeout_seconds": self._timeout},
+                        cause=e,
+                    )
+
+                stdout = ""
+                if not self._stdout_iterated and self._process.stdout:
+                    stdout = self._process.stdout.read()
+                else:
+                    stdout = "".join(self._stdout_buffer)
+                stderr = self._process.stderr.read() if self._process.stderr else ""
+                return ExecutionResult(
+                    stdout=stdout,
+                    stderr=stderr,
+                    exit_code=self._process.returncode or 0,
+                    error=None,
+                )
+
+        return _DockerExecutionStream(process, timeout_seconds, self.id)
+
+    def write_file(self, path: str, payload: bytes) -> ExecutionResult:
+        if not self.is_running():
+            raise SandboxExecutionError(
+                "Sandbox not in running state.",
+                {"sandbox_id": self.id},
+                cause=RuntimeError(f"Sandbox {self.id} is not running"),
+            )
+
+        chunk_size = 50000
+        encoded_payload = base64.b64encode(payload).decode("utf-8")
+        temp_path = f"{path}.tmp-{uuid.uuid4().hex}"
+        result = ExecutionResult(stdout="", stderr="", exit_code=0, error=None)
+        for index in range(0, len(encoded_payload), chunk_size):
+            chunk = encoded_payload[index : index + chunk_size]
+            write_mode = "wb" if index == 0 else "ab"
+            command = (
+                "python3 - <<'EOF_SANDBOX_WRITE'\n"
+                "import base64\n"
+                "from pathlib import Path\n"
+                f"path = Path({json.dumps(temp_path)})\n"
+                "path.parent.mkdir(parents=True, exist_ok=True)\n"
+                f"payload = base64.b64decode('{chunk}')\n"
+                f"with path.open({json.dumps(write_mode)}) as response_file:\n"
+                "    response_file.write(payload)\n"
+                "EOF_SANDBOX_WRITE"
+            )
+            result = self.execute(command, timeout_seconds=self.config.default_execution_timeout_seconds)
+            if result.exit_code != 0:
+                logger.warning(
+                    "sandbox_write_failed",
+                    extra={"stdout": result.stdout, "stderr": result.stderr, "sandbox_id": self.id},
+                )
+                break
+
+        if result.exit_code == 0:
+            move_command = f"mv {shlex.quote(temp_path)} {shlex.quote(path)}"
+            result = self.execute(move_command, timeout_seconds=self.config.default_execution_timeout_seconds)
+            if result.exit_code != 0:
+                logger.warning(
+                    "sandbox_write_failed",
+                    extra={"stdout": result.stdout, "stderr": result.stderr, "sandbox_id": self.id},
+                )
+
+        return result
 
     def clone_repository(self, repository: str, github_token: Optional[str] = "") -> ExecutionResult:
         if not self.is_running():

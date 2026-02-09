@@ -3,7 +3,9 @@ import { SessionBatchFileStorage, SessionBatchFileWriter } from './session-batch
 import { SessionBatchManager } from './session-batch-manager'
 import { SessionBatchRecorder } from './session-batch-recorder'
 import { SessionConsoleLogStore } from './session-console-log-store'
+import { SessionFilter } from './session-filter'
 import { SessionMetadataStore } from './session-metadata-store'
+import { SessionTracker } from './session-tracker'
 
 jest.setTimeout(1000)
 jest.mock('./session-batch-recorder')
@@ -16,6 +18,8 @@ describe('SessionBatchManager', () => {
     let mockWriter: jest.Mocked<SessionBatchFileWriter>
     let mockMetadataStore: jest.Mocked<SessionMetadataStore>
     let mockConsoleLogStore: jest.Mocked<SessionConsoleLogStore>
+    let mockSessionTracker: jest.Mocked<SessionTracker>
+    let mockSessionFilter: jest.Mocked<SessionFilter>
 
     const createMockBatch = (): jest.Mocked<SessionBatchRecorder> =>
         ({
@@ -56,6 +60,15 @@ describe('SessionBatchManager', () => {
             storeSessionConsoleLogs: jest.fn().mockResolvedValue(undefined),
         } as unknown as jest.Mocked<SessionConsoleLogStore>
 
+        mockSessionTracker = {
+            trackSession: jest.fn().mockResolvedValue(false),
+        } as unknown as jest.Mocked<SessionTracker>
+
+        mockSessionFilter = {
+            isBlocked: jest.fn().mockResolvedValue(false),
+            handleNewSession: jest.fn().mockResolvedValue(undefined),
+        } as unknown as jest.Mocked<SessionFilter>
+
         manager = new SessionBatchManager({
             maxBatchSizeBytes: 100,
             maxBatchAgeMs: 1000,
@@ -64,6 +77,8 @@ describe('SessionBatchManager', () => {
             fileStorage: mockFileStorage,
             metadataStore: mockMetadataStore,
             consoleLogStore: mockConsoleLogStore,
+            sessionTracker: mockSessionTracker,
+            sessionFilter: mockSessionFilter,
         })
     })
 
@@ -81,6 +96,8 @@ describe('SessionBatchManager', () => {
             mockFileStorage,
             mockMetadataStore,
             mockConsoleLogStore,
+            mockSessionTracker,
+            mockSessionFilter,
             Number.MAX_SAFE_INTEGER
         )
 
@@ -159,6 +176,8 @@ describe('SessionBatchManager', () => {
                 fileStorage: mockFileStorage,
                 metadataStore: mockMetadataStore,
                 consoleLogStore: mockConsoleLogStore,
+                sessionTracker: mockSessionTracker,
+                sessionFilter: mockSessionFilter,
             })
 
             expect(SessionBatchRecorder).toHaveBeenCalledWith(
@@ -166,6 +185,8 @@ describe('SessionBatchManager', () => {
                 mockFileStorage,
                 mockMetadataStore,
                 mockConsoleLogStore,
+                mockSessionTracker,
+                mockSessionFilter,
                 500
             )
         })
@@ -179,6 +200,8 @@ describe('SessionBatchManager', () => {
                 fileStorage: mockFileStorage,
                 metadataStore: mockMetadataStore,
                 consoleLogStore: mockConsoleLogStore,
+                sessionTracker: mockSessionTracker,
+                sessionFilter: mockSessionFilter,
             })
 
             await manager.flush()
@@ -188,6 +211,8 @@ describe('SessionBatchManager', () => {
                 mockFileStorage,
                 mockMetadataStore,
                 mockConsoleLogStore,
+                mockSessionTracker,
+                mockSessionFilter,
                 250
             )
         })
@@ -201,6 +226,8 @@ describe('SessionBatchManager', () => {
                 fileStorage: mockFileStorage,
                 metadataStore: mockMetadataStore,
                 consoleLogStore: mockConsoleLogStore,
+                sessionTracker: mockSessionTracker,
+                sessionFilter: mockSessionFilter,
             })
 
             expect(SessionBatchRecorder).toHaveBeenCalledWith(
@@ -208,6 +235,8 @@ describe('SessionBatchManager', () => {
                 mockFileStorage,
                 mockMetadataStore,
                 mockConsoleLogStore,
+                mockSessionTracker,
+                mockSessionFilter,
                 0
             )
         })
@@ -221,6 +250,8 @@ describe('SessionBatchManager', () => {
                 fileStorage: mockFileStorage,
                 metadataStore: mockMetadataStore,
                 consoleLogStore: mockConsoleLogStore,
+                sessionTracker: mockSessionTracker,
+                sessionFilter: mockSessionFilter,
             })
 
             expect(SessionBatchRecorder).toHaveBeenCalledWith(
@@ -228,6 +259,8 @@ describe('SessionBatchManager', () => {
                 mockFileStorage,
                 mockMetadataStore,
                 mockConsoleLogStore,
+                mockSessionTracker,
+                mockSessionFilter,
                 Number.MAX_SAFE_INTEGER
             )
         })

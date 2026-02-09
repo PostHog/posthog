@@ -162,7 +162,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT nullIf(nullIf(events.mat_random_prop, ''), 'null') AS random_prop
   FROM events
-  WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), '2020-01-13 00:00:00'), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), '2020-01-20 23:59:59'), isNotNull(nullIf(nullIf(events.mat_random_prop, ''), 'null')), ifNull(ilike(toString(nullIf(nullIf(events.mat_random_prop, ''), 'null')), '%qw%'), 0))
+  WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), '2020-01-13 00:00:00'), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), '2020-01-20 23:59:59'), isNotNull(nullIf(nullIf(events.mat_random_prop, ''), 'null')), ilike(events.mat_random_prop, '%qw%'))
   ORDER BY length(toString(nullIf(nullIf(events.mat_random_prop, ''), 'null'))) ASC
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -182,7 +182,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT nullIf(nullIf(events.mat_random_prop, ''), 'null') AS random_prop
   FROM events
-  WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), '2020-01-13 00:00:00'), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), '2020-01-20 23:59:59'), isNotNull(nullIf(nullIf(events.mat_random_prop, ''), 'null')), ifNull(ilike(toString(nullIf(nullIf(events.mat_random_prop, ''), 'null')), '%QW%'), 0))
+  WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), '2020-01-13 00:00:00'), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), '2020-01-20 23:59:59'), isNotNull(nullIf(nullIf(events.mat_random_prop, ''), 'null')), ilike(events.mat_random_prop, '%QW%'))
   ORDER BY length(toString(nullIf(nullIf(events.mat_random_prop, ''), 'null'))) ASC
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -202,7 +202,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT nullIf(nullIf(events.mat_random_prop, ''), 'null') AS random_prop
   FROM events
-  WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), '2020-01-13 00:00:00'), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), '2020-01-20 23:59:59'), isNotNull(nullIf(nullIf(events.mat_random_prop, ''), 'null')), ifNull(ilike(toString(nullIf(nullIf(events.mat_random_prop, ''), 'null')), '%6%'), 0))
+  WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), '2020-01-13 00:00:00'), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), '2020-01-20 23:59:59'), isNotNull(nullIf(nullIf(events.mat_random_prop, ''), 'null')), ilike(events.mat_random_prop, '%6%'))
   ORDER BY length(toString(nullIf(nullIf(events.mat_random_prop, ''), 'null'))) ASC
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -222,7 +222,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT nullIf(nullIf(events.mat_random_prop, ''), 'null') AS random_prop
   FROM events
-  WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), '2020-01-13 00:00:00'), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), '2020-01-20 23:59:59'), isNotNull(nullIf(nullIf(events.mat_random_prop, ''), 'null')), equals(events.event, 'random event'), ifNull(ilike(toString(nullIf(nullIf(events.mat_random_prop, ''), 'null')), '%6%'), 0))
+  WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), '2020-01-13 00:00:00'), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), '2020-01-20 23:59:59'), isNotNull(nullIf(nullIf(events.mat_random_prop, ''), 'null')), equals(events.event, 'random event'), ilike(events.mat_random_prop, '%6%'))
   ORDER BY length(toString(nullIf(nullIf(events.mat_random_prop, ''), 'null'))) ASC
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -242,7 +242,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT nullIf(nullIf(events.mat_random_prop, ''), 'null') AS random_prop
   FROM events
-  WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), '2020-01-13 00:00:00'), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), '2020-01-20 23:59:59'), isNotNull(nullIf(nullIf(events.mat_random_prop, ''), 'null')), or(equals(events.event, 'foo'), equals(events.event, 'random event')), ifNull(ilike(toString(nullIf(nullIf(events.mat_random_prop, ''), 'null')), '%6%'), 0))
+  WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), '2020-01-13 00:00:00'), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), '2020-01-20 23:59:59'), isNotNull(nullIf(nullIf(events.mat_random_prop, ''), 'null')), or(equals(events.event, 'foo'), equals(events.event, 'random event')), ilike(events.mat_random_prop, '%6%'))
   ORDER BY length(toString(nullIf(nullIf(events.mat_random_prop, ''), 'null'))) ASC
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -262,7 +262,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT nullIf(nullIf(events.mat_random_prop, ''), 'null') AS random_prop
   FROM events
-  WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), '2020-01-13 00:00:00'), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), '2020-01-20 23:59:59'), isNotNull(nullIf(nullIf(events.mat_random_prop, ''), 'null')), equals(events.event, '404_i_dont_exist'), ifNull(ilike(toString(nullIf(nullIf(events.mat_random_prop, ''), 'null')), '%qw%'), 0))
+  WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), '2020-01-13 00:00:00'), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), '2020-01-20 23:59:59'), isNotNull(nullIf(nullIf(events.mat_random_prop, ''), 'null')), equals(events.event, '404_i_dont_exist'), ilike(events.mat_random_prop, '%qw%'))
   ORDER BY length(toString(nullIf(nullIf(events.mat_random_prop, ''), 'null'))) ASC
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,

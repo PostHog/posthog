@@ -103,6 +103,7 @@ TEAM_METADATA_FIELDS = [
     "cookieless_server_hash_mode",
     "survey_config",
     "surveys_opt_in",
+    "product_tours_opt_in",
     "capture_console_log_opt_in",
     "capture_performance_opt_in",
     "capture_dead_clicks",

@@ -14,6 +14,7 @@ from rest_framework.response import Response
 from posthog.approvals.actions.registry import get_action
 from posthog.approvals.exceptions import ApprovalRequired
 from posthog.approvals.models import ChangeRequest, ChangeRequestState
+from posthog.approvals.notifications import send_approval_requested_notification
 from posthog.approvals.policies import PolicyDecision, PolicyEngine
 from posthog.approvals.serializers import ChangeRequestSerializer
 from posthog.event_usage import report_user_action
@@ -25,7 +26,9 @@ logger = logging.getLogger(__name__)
 class GateResult:
     """Result of evaluating the approval gate - pure data, no HTTP concerns."""
 
-    action: Literal["passthrough", "deny", "require_approval", "duplicate", "validation_error", "error"]
+    action: Literal[
+        "passthrough", "deny", "require_approval", "duplicate", "validation_error", "error", "policy_conflict"
+    ]
     change_request: Optional[ChangeRequest] = None
     decision: Optional[PolicyDecision] = None
     error_message: Optional[str] = None
@@ -33,6 +36,7 @@ class GateResult:
     resource_id: Optional[str] = None
     resource_type: Optional[str] = None
     approvers: dict = field(default_factory=dict)
+    conflicting_policies: list = field(default_factory=list)
 
 
 def _extract_context(view_or_serializer, request=None) -> tuple[Optional[Any], Optional[Any], Optional[Any]]:
@@ -81,6 +85,25 @@ def _check_for_duplicate(action_class, team, resource_id: Optional[str]) -> Opti
     ).first()
 
 
+def _check_for_policy_conflicts(action_class, team, organization, intent_data: dict[str, Any]) -> list[dict[str, Any]]:
+    """
+    Check if multiple policies match the same change.
+    Returns list of conflicting policy info dicts if more than one policy matches.
+    """
+    policy_engine = PolicyEngine()
+    matching_policies = policy_engine.get_all_matching_policies(
+        action_key=action_class.key,
+        team=team,
+        organization=organization,
+        intent=intent_data,
+    )
+
+    if len(matching_policies) > 1:
+        return [{"id": str(p.id), "name": str(p)} for p in matching_policies]
+
+    return []
+
+
 def _create_change_request(
     action_class,
     team,
@@ -126,6 +149,8 @@ def _create_change_request(
             "resource_type": action_class.resource_type,
         },
     )
+
+    send_approval_requested_notification(change_request)
 
     return change_request
 
@@ -206,7 +231,23 @@ def _evaluate_gate(
         logger.warning("Intent validation failed", extra={"action": action_class.key, "errors": errors})
         return GateResult(action="validation_error", validation_errors=errors)
 
-    # Step 3: Evaluate policy
+    # Step 3: Check for policy conflicts BEFORE creating ChangeRequest
+    conflicting_policies = _check_for_policy_conflicts(action_class, team, organization, intent_data)
+    if conflicting_policies:
+        logger.warning(
+            "Multiple policies match this change",
+            extra={
+                "action": action_class.key,
+                "conflicting_policies": conflicting_policies,
+            },
+        )
+        return GateResult(
+            action="policy_conflict",
+            conflicting_policies=conflicting_policies,
+            error_message="This change matches multiple approval policies",
+        )
+
+    # Step 4: Evaluate policy
     policy_engine = PolicyEngine()
     decision = policy_engine.evaluate(
         policy=policy,
@@ -226,7 +267,7 @@ def _evaluate_gate(
         logger.warning("Policy denied request", extra={"action": action_class.key, "reason": decision.reason})
         return GateResult(action="deny", error_message=decision.reason)
 
-    # Step 4: REQUIRE_APPROVAL - check for duplicates and create change request
+    # Step 5: REQUIRE_APPROVAL - check for duplicates and create change request
     resource_id = _extract_resource_id(request, args, kwargs)
 
     existing = _check_for_duplicate(action_class, team, resource_id)
@@ -300,6 +341,16 @@ def _result_to_exception(result: GateResult) -> None:
     if result.action == "error":
         raise APIException(result.error_message)
 
+    if result.action == "policy_conflict":
+        raise ValidationError(
+            {
+                "code": "policy_conflict",
+                "error": result.error_message,
+                "conflicting_policies": result.conflicting_policies,
+                "guidance": "Split your changes into separate API calls to address each policy independently",
+            }
+        )
+
     if result.action == "duplicate":
         raise ApprovalRequired(
             change_request=result.change_request,
@@ -332,6 +383,17 @@ def _result_to_response(result: GateResult) -> Optional[Response]:
 
     if result.action == "error":
         return Response({"error": result.error_message}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    if result.action == "policy_conflict":
+        return Response(
+            {
+                "code": "policy_conflict",
+                "error": result.error_message,
+                "conflicting_policies": result.conflicting_policies,
+                "guidance": "Split your changes into separate API calls to address each policy independently",
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
 
     if result.action == "duplicate" and result.change_request:
         return Response(

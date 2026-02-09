@@ -1,19 +1,20 @@
 import { useState } from 'react'
 
-import { IconCursorClick, IconMegaphone } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonLabel, LemonModal } from '@posthog/lemon-ui'
+import { IconCursorClick, IconMegaphone, IconMessage } from '@posthog/icons'
+import { LemonButton, LemonInput, LemonLabel, LemonModal, LemonSegmentedButton } from '@posthog/lemon-ui'
 
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 
 import { ProductTourType } from '~/types'
 
-type ModalStep = 'type-selection' | 'url-selection' | 'announcement-name'
+type ModalStep = 'type-selection' | 'url-selection' | 'announcement-config'
+type AnnouncementPresentation = 'modal' | 'banner'
 
 const MODAL_TITLES: Record<ModalStep, string> = {
     'type-selection': 'What would you like to create?',
     'url-selection': 'Create a new product tour',
-    'announcement-name': 'Create a new announcement',
+    'announcement-config': 'Create a new announcement',
 }
 
 const MODAL_DESCRIPTIONS: Partial<Record<ModalStep, string>> = {
@@ -24,14 +25,22 @@ export interface NewProductTourModalProps {
     isOpen: boolean
     onClose: () => void
     onCreateAnnouncement: (name: string) => void
+    onCreateBanner: (name: string) => void
 }
 
-export function NewProductTourModal({ isOpen, onClose, onCreateAnnouncement }: NewProductTourModalProps): JSX.Element {
+export function NewProductTourModal({
+    isOpen,
+    onClose,
+    onCreateAnnouncement,
+    onCreateBanner,
+}: NewProductTourModalProps): JSX.Element {
     const [modalStep, setModalStep] = useState<ModalStep>('type-selection')
+    const [presentation, setPresentation] = useState<AnnouncementPresentation>('modal')
     const [announcementName, setAnnouncementName] = useState('')
 
     const resetModal = (): void => {
         setModalStep('type-selection')
+        setPresentation('modal')
         setAnnouncementName('')
     }
 
@@ -44,13 +53,17 @@ export function NewProductTourModal({ isOpen, onClose, onCreateAnnouncement }: N
         if (type === 'tour') {
             setModalStep('url-selection')
         } else {
-            setModalStep('announcement-name')
+            setModalStep('announcement-config')
         }
     }
 
-    const handleCreateAnnouncement = (): void => {
+    const handleCreate = (): void => {
         if (announcementName.trim()) {
-            onCreateAnnouncement(announcementName.trim())
+            if (presentation === 'banner') {
+                onCreateBanner(announcementName.trim())
+            } else {
+                onCreateAnnouncement(announcementName.trim())
+            }
             handleClose()
         }
     }
@@ -65,12 +78,14 @@ export function NewProductTourModal({ isOpen, onClose, onCreateAnnouncement }: N
         >
             {modalStep === 'type-selection' ? (
                 <TypeSelectionStep onSelect={handleTypeSelect} />
-            ) : modalStep === 'announcement-name' ? (
-                <AnnouncementNameStep
+            ) : modalStep === 'announcement-config' ? (
+                <AnnouncementConfigStep
+                    presentation={presentation}
+                    onPresentationChange={setPresentation}
                     name={announcementName}
-                    onChange={setAnnouncementName}
+                    onNameChange={setAnnouncementName}
                     onBack={resetModal}
-                    onCreate={handleCreateAnnouncement}
+                    onCreate={handleCreate}
                 />
             ) : (
                 <UrlSelectionStep onBack={resetModal} />
@@ -112,31 +127,84 @@ function TypeSelectionStep({ onSelect }: { onSelect: (type: ProductTourType) => 
     )
 }
 
-function AnnouncementNameStep({
+function BannerIcon(): JSX.Element {
+    return (
+        <svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <rect x="2" y="4" width="20" height="6" rx="1" stroke="currentColor" strokeWidth="2" />
+            <rect x="2" y="14" width="20" height="6" rx="1" stroke="currentColor" strokeWidth="2" strokeOpacity="0.3" />
+        </svg>
+    )
+}
+
+function AnnouncementConfigStep({
+    presentation,
+    onPresentationChange,
     name,
-    onChange,
+    onNameChange,
     onBack,
     onCreate,
 }: {
+    presentation: AnnouncementPresentation
+    onPresentationChange: (presentation: AnnouncementPresentation) => void
     name: string
-    onChange: (name: string) => void
+    onNameChange: (name: string) => void
     onBack: () => void
     onCreate: () => void
 }): JSX.Element {
+    const placeholder =
+        presentation === 'banner' ? 'e.g. New feature alert, Holiday sale' : 'e.g. New feature launch, Welcome message'
+
     return (
-        <div className="space-y-4">
-            <LemonLabel className="mb-2">Announcement title</LemonLabel>
-            <LemonInput
-                placeholder="e.g. New feature launch, Welcome message"
-                value={name}
-                onChange={onChange}
-                autoFocus
-                onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                        onCreate()
-                    }
-                }}
-            />
+        <div className="space-y-6">
+            <div>
+                <LemonLabel className="mb-3">Style</LemonLabel>
+                <LemonSegmentedButton
+                    fullWidth
+                    value={presentation}
+                    onChange={(value) => onPresentationChange(value as AnnouncementPresentation)}
+                    options={[
+                        {
+                            value: 'modal',
+                            label: (
+                                <span className="flex items-center gap-2">
+                                    <IconMessage className="text-base" />
+                                    Modal
+                                </span>
+                            ),
+                        },
+                        {
+                            value: 'banner',
+                            label: (
+                                <span className="flex items-center gap-2">
+                                    <BannerIcon />
+                                    Banner
+                                </span>
+                            ),
+                        },
+                    ]}
+                />
+                <p className="text-muted text-xs mt-2">
+                    {presentation === 'modal'
+                        ? 'Popup with rich content, images, and custom positioning'
+                        : 'Horizontal bar at top of page'}
+                </p>
+            </div>
+
+            <div>
+                <LemonLabel className="mb-2">Name</LemonLabel>
+                <LemonInput
+                    placeholder={placeholder}
+                    value={name}
+                    onChange={onNameChange}
+                    autoFocus
+                    onKeyDown={(e) => {
+                        if (e.key === 'Enter' && name.trim()) {
+                            onCreate()
+                        }
+                    }}
+                />
+            </div>
+
             <div className="flex justify-end gap-2">
                 <LemonButton type="secondary" onClick={onBack}>
                     Back

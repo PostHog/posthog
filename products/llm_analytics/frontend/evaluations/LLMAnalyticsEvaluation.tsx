@@ -3,23 +3,31 @@ import { Field, Form } from 'kea-forms'
 import { router } from 'kea-router'
 import { useRef } from 'react'
 
-import { IconArrowLeft } from '@posthog/icons'
+import { IconArrowLeft, IconInfo } from '@posthog/icons'
 import {
     LemonButton,
     LemonDivider,
     LemonInput,
+    LemonSelect,
     LemonSkeleton,
     LemonSwitch,
     LemonTag,
     LemonTextArea,
+    Link,
+    Tooltip,
 } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { NotFound } from 'lib/components/NotFound'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
 import { urls } from '~/scenes/urls'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { LLMProvider, LLM_PROVIDER_LABELS } from '../settings/llmProviderKeysLogic'
 import { EvaluationPromptEditor } from './components/EvaluationPromptEditor'
 import { EvaluationRunsTable } from './components/EvaluationRunsTable'
 import { EvaluationTriggers } from './components/EvaluationTriggers'
@@ -34,9 +42,26 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
         formValid,
         isNewEvaluation,
         runsSummary,
+        selectedProvider,
+        selectedKeyId,
+        selectedModel,
+        keysForSelectedProvider,
+        availableModels,
+        availableModelsLoading,
+        providerKeysLoading,
     } = useValues(llmEvaluationLogic)
-    const { setEvaluationName, setEvaluationDescription, setEvaluationEnabled, saveEvaluation, resetEvaluation } =
-        useActions(llmEvaluationLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const {
+        setEvaluationName,
+        setEvaluationDescription,
+        setEvaluationEnabled,
+        setAllowsNA,
+        saveEvaluation,
+        resetEvaluation,
+        setSelectedProvider,
+        setSelectedKeyId,
+        setSelectedModel,
+    } = useActions(llmEvaluationLogic)
     const { push } = useActions(router)
     const triggersRef = useRef<HTMLDivElement>(null)
 
@@ -96,14 +121,19 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
                     <LemonButton type="secondary" icon={<IconArrowLeft />} onClick={handleCancel}>
                         {hasUnsavedChanges ? 'Cancel' : 'Back'}
                     </LemonButton>
-                    <LemonButton
-                        type="primary"
-                        onClick={handleSave}
-                        disabled={saveButtonDisabled}
-                        loading={evaluationFormSubmitting}
+                    <AccessControlAction
+                        resourceType={AccessControlResourceType.LlmAnalytics}
+                        minAccessLevel={AccessControlLevel.Editor}
                     >
-                        {isNewEvaluation ? 'Create Evaluation' : 'Save Changes'}
-                    </LemonButton>
+                        <LemonButton
+                            type="primary"
+                            onClick={handleSave}
+                            disabled={saveButtonDisabled}
+                            loading={evaluationFormSubmitting}
+                        >
+                            {isNewEvaluation ? 'Create Evaluation' : 'Save Changes'}
+                        </LemonButton>
+                    </AccessControlAction>
                 </div>
             </div>
 
@@ -145,6 +175,30 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
                                     </span>
                                 </div>
                             </Field>
+
+                            <Field
+                                name="allows_na"
+                                label={
+                                    <div className="flex items-center gap-1">
+                                        <span>Allow N/A responses</span>
+                                        <Tooltip title="Sometimes forcing a True or False is not enough and you want the LLM to decide if the eval is applicable or not. Enable this when the evaluation criteria may not apply to all generations.">
+                                            <IconInfo className="text-muted text-base" />
+                                        </Tooltip>
+                                    </div>
+                                }
+                            >
+                                <div className="flex items-center gap-2">
+                                    <LemonSwitch
+                                        checked={evaluation.output_config.allows_na ?? false}
+                                        onChange={setAllowsNA}
+                                    />
+                                    <span className="text-muted text-sm">
+                                        {evaluation.output_config.allows_na
+                                            ? 'Evaluation can return "Not Applicable" when criteria doesn\'t apply'
+                                            : 'Evaluation returns true or false'}
+                                    </span>
+                                </div>
+                            </Field>
                         </div>
                     </div>
 
@@ -153,6 +207,87 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
                         <h3 className="text-lg font-semibold mb-4">Evaluation prompt</h3>
                         <EvaluationPromptEditor />
                     </div>
+
+                    {/* Judge Model Configuration */}
+                    {featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_CUSTOM_MODELS] && (
+                        <div className="bg-bg-light border rounded p-6">
+                            <h3 className="text-lg font-semibold mb-2">Judge model</h3>
+                            <p className="text-muted text-sm mb-4">
+                                Select which LLM provider and model to use for running this evaluation.
+                            </p>
+
+                            <div className="space-y-4">
+                                <Field name="provider" label="Provider">
+                                    <LemonSelect
+                                        value={selectedProvider}
+                                        onChange={(value) => setSelectedProvider(value as LLMProvider)}
+                                        options={[
+                                            { value: 'openai', label: LLM_PROVIDER_LABELS.openai },
+                                            { value: 'anthropic', label: LLM_PROVIDER_LABELS.anthropic },
+                                            { value: 'gemini', label: LLM_PROVIDER_LABELS.gemini },
+                                            { value: 'openrouter', label: LLM_PROVIDER_LABELS.openrouter },
+                                        ]}
+                                        fullWidth
+                                    />
+                                </Field>
+
+                                <Field
+                                    name="provider_key"
+                                    label={
+                                        <div className="flex items-center gap-1">
+                                            <span>API key</span>
+                                            <span className="text-muted">-</span>
+                                            <Link to={`${urls.llmAnalyticsEvaluations()}?tab=settings`}>Manage</Link>
+                                        </div>
+                                    }
+                                >
+                                    <LemonSelect
+                                        value={selectedKeyId || 'posthog_default'}
+                                        onChange={(value) =>
+                                            setSelectedKeyId(value === 'posthog_default' ? null : value)
+                                        }
+                                        options={[
+                                            ...(keysForSelectedProvider.length === 0
+                                                ? [{ value: 'posthog_default', label: 'PostHog default' }]
+                                                : []),
+                                            ...keysForSelectedProvider.map((key) => ({
+                                                value: key.id,
+                                                label: key.name,
+                                            })),
+                                        ]}
+                                        loading={providerKeysLoading}
+                                        fullWidth
+                                    />
+                                </Field>
+
+                                <Field name="model" label="Model">
+                                    <>
+                                        <LemonSelect
+                                            value={selectedModel || undefined}
+                                            onChange={(value) => setSelectedModel(value || '')}
+                                            options={availableModels.map((model) => ({
+                                                value: model.id,
+                                                label: model.id,
+                                                disabledReason:
+                                                    !selectedKeyId && !model.posthog_available
+                                                        ? 'Requires API key'
+                                                        : undefined,
+                                            }))}
+                                            loading={availableModelsLoading}
+                                            placeholder="Select a model"
+                                            fullWidth
+                                            disabled={!selectedKeyId}
+                                        />
+                                        {!selectedKeyId && (
+                                            <p className="text-xs text-muted mt-1">
+                                                Add your own API key for model selection
+                                            </p>
+                                        )}
+                                    </>
+                                </Field>
+                            </div>
+                        </div>
+                    )}
 
                     {/* Trigger Configuration */}
                     <div ref={triggersRef} className="bg-bg-light border rounded p-6">
@@ -187,6 +322,14 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
                                         </div>
                                         <div className="text-muted">Success Rate</div>
                                     </div>
+                                    {evaluation.output_config.allows_na && (
+                                        <div className="text-center">
+                                            <div className="font-semibold text-lg">
+                                                {runsSummary.applicabilityRate}%
+                                            </div>
+                                            <div className="text-muted">Applicable</div>
+                                        </div>
+                                    )}
                                     <div className="text-center">
                                         <div className="font-semibold text-lg text-danger">{runsSummary.errors}</div>
                                         <div className="text-muted">Errors</div>

@@ -2,6 +2,7 @@ import os
 
 from posthog.settings import TEST
 from posthog.settings.base_variables import DEBUG
+from posthog.settings.data_stores import _parse_kafka_hosts
 from posthog.settings.utils import get_from_env, str_to_bool
 
 DATAWAREHOUSE_LOCAL_BUCKET_REGION = os.getenv("DATAWAREHOUSE_LOCAL_BUCKET_REGION", "us-east-1")
@@ -38,3 +39,8 @@ CLICKHOUSE_HOGQL_RDSPROXY_READ_PORT: str | None = os.getenv("CLICKHOUSE_HOGQL_RD
 CLICKHOUSE_HOGQL_RDSPROXY_READ_DATABASE: str | None = os.getenv("CLICKHOUSE_HOGQL_RDSPROXY_READ_DATABASE")
 CLICKHOUSE_HOGQL_RDSPROXY_READ_USER: str | None = os.getenv("CLICKHOUSE_HOGQL_RDSPROXY_READ_USER")
 CLICKHOUSE_HOGQL_RDSPROXY_READ_PASSWORD: str | None = os.getenv("CLICKHOUSE_HOGQL_RDSPROXY_READ_PASSWORD")
+
+KAFKA_CYCLOTRON_WARPSTREAM_HOSTS: list[str] = _parse_kafka_hosts(
+    os.getenv("KAFKA_CYCLOTRON_WARPSTREAM_HOSTS", "") or "kafka:9092"
+)
+KAFKA_CYCLOTRON_WARPSTREAM_PROTOCOL: str | None = os.getenv("KAFKA_CYCLOTRON_WARPSTREAM_PROTOCOL", None)

@@ -134,9 +134,7 @@ class TestExportAssetFailureRecording(APIBaseTest):
 
     @patch("time.sleep")  # Avoid real tenacity backoff waits
     @patch("posthog.tasks.exports.image_exporter.export_image")
-    def test_retriable_error_retries_then_records_and_raises(
-        self, mock_export_direct: MagicMock, mock_sleep: MagicMock
-    ) -> None:
+    def test_retriable_error_retries_then_records(self, mock_export_direct: MagicMock, mock_sleep: MagicMock) -> None:
         e = CHQueryErrorTooManySimultaneousQueries("Too many queries")
         assert isinstance(e, EXCEPTIONS_TO_RETRY)
         mock_export_direct.side_effect = e
@@ -146,8 +144,7 @@ class TestExportAssetFailureRecording(APIBaseTest):
             export_format=ExportedAsset.ExportFormat.PNG,
         )
 
-        with pytest.raises(CHQueryErrorTooManySimultaneousQueries):
-            exporter.export_asset(asset.id)
+        exporter.export_asset(asset.id)
 
         # Verify tenacity attempted multiple retries (4 attempts total)
         assert mock_export_direct.call_count == 4

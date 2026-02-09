@@ -1,7 +1,9 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonBanner, LemonSkeleton } from '@posthog/lemon-ui'
+
+import { userLogic } from 'scenes/userLogic'
 
 import { PasskeyAddForm, PasskeyAddFormEmpty } from './PasskeyAddForm'
 import { PasskeyList } from './PasskeyList'
@@ -10,6 +12,7 @@ import { passkeySettingsLogic } from './passkeySettingsLogic'
 
 export function PasskeySettings(): JSX.Element {
     const { passkeys, passkeysLoading } = useValues(passkeySettingsLogic)
+    const { user } = useValues(userLogic)
     const { loadPasskeys } = useActions(passkeySettingsLogic)
 
     useEffect(() => {
@@ -26,10 +29,22 @@ export function PasskeySettings(): JSX.Element {
     }
 
     const hasExistingPasskeys = passkeys.length > 0
+    const hasSSOEnforcement = !!user?.has_sso_enforcement
 
     return (
         <div className="space-y-4">
-            {hasExistingPasskeys ? <PasskeyAddForm /> : <PasskeyAddFormEmpty />}
+            <div>
+                <p className="text-muted mb-4">
+                    Passkeys provide a secure way to sign in and can be used for both login and two-factor
+                    authentication (2FA). Add a passkey to enable passwordless authentication.
+                </p>
+            </div>
+            {hasSSOEnforcement && (
+                <LemonBanner type="warning">
+                    Passkeys can't be added because your organization requires SSO.
+                </LemonBanner>
+            )}
+            {!hasSSOEnforcement && (hasExistingPasskeys ? <PasskeyAddForm /> : <PasskeyAddFormEmpty />)}
             {hasExistingPasskeys && <PasskeyList />}
             <PasskeyModals />
         </div>

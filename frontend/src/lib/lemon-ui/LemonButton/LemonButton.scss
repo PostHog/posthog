@@ -214,6 +214,11 @@
     &.LemonButton--secondary.LemonButton--status-alt:hover,
     &.LemonButton--secondary.LemonButton--status-alt.LemonButton--active,
     &.LemonButton--secondary:not(.LemonButton--status-alt, .LemonButton--status-danger) {
+        .reduce-visual-noise & {
+            --button-border-color: var(--color-border-primary) !important;
+            --lemon-button-border-color-hover: var(--color-border-secondary) !important;
+        }
+
         @include secondary-variables;
     }
 
@@ -282,6 +287,10 @@
                 content: '';
                 border: 1px solid var(--button-border-color);
                 border-radius: var(--lemon-button-radius);
+
+                .LemonButton--reduce & {
+                    border: 1px solid var(--color-border-primary) !important;
+                }
             }
 
             &::after {

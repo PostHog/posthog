@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 
 import { IconRefresh } from '@posthog/icons'
 import { LemonBadge, LemonButton, LemonSwitch } from '@posthog/lemon-ui'
@@ -109,9 +109,15 @@ export const ExperimentReloadAction = ({
         onRefresh: onClick,
     })
 
-    usePageVisibilityCb((pageIsVisible) => {
-        setPageVisibility(pageIsVisible)
-    })
+    // Memoize the page visibility callback to prevent unnecessary event listener churn
+    const handlePageVisibilityChange = useCallback(
+        (pageIsVisible: boolean) => {
+            setPageVisibility(pageIsVisible)
+        },
+        [setPageVisibility]
+    )
+
+    usePageVisibilityCb(handlePageVisibilityChange)
 
     // Stop auto-refresh interval when component unmounts (e.g., navigating away)
     useEffect(() => {

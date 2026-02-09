@@ -10,6 +10,11 @@ concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+permissions:
+    contents: read
+    pull-requests: write
+    actions: read
+
 jobs:
     # Job to decide if we should run frontend ci
     # See https://github.com/dorny/paths-filter#conditional-execution for more details
@@ -38,6 +43,7 @@ jobs:
                         - 'frontend/**'
                         - 'ee/frontend/**'
                         - 'common/esbuilder/**'
+                        - 'common/hogql_parser/**'
                         - 'products/**/*.ts'
                         - 'products/**/*.tsx'
                         - 'playwright/**'
@@ -71,11 +77,22 @@ jobs:
             - name: Install pnpm
               uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.2.0
 
+            - name: Fix node-gyp permissions
+              run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
+
             - name: Set up Node.js
               uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
               with:
-                  node-version: 22.17.1
+                  node-version: 24.13.0
                   cache: 'pnpm'
+
+            - name: Setup Emscripten for WASM build
+              uses: mymindstorm/setup-emsdk@6ab9eb1bda2574c4ddb79809fc9247783eaf9021 # v14
+              with:
+                  version: '4.0.23'
+
+            - name: Install Ninja
+              run: sudo apt-get install -y ninja-build
 
             - name: Install package.json dependencies with pnpm
               run: |
@@ -100,59 +117,32 @@ jobs:
             - name: Lint markdown files
               run: pnpm exec markdownlint-cli2 --config .config/.markdownlint-cli2.jsonc "**/*.{md,mdx}"
 
-    frontend-toolbar-checks:
-        name: Frontend toolbar checks
-        needs: [changes]
-        if: needs.changes.outputs.frontend == 'true' && github.event_name != 'merge_group'
-        runs-on: depot-ubuntu-24.04
-        steps:
-            - uses: actions/checkout@v6
-            - name: Install pnpm
-              uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.2.0
-
-            - name: Set up Node.js
-              uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
-              with:
-                  node-version: 22.17.1
-                  cache: 'pnpm'
-
-            - name: Install package.json dependencies with pnpm
-              run: |
-                  pnpm --filter=@posthog/playwright... install --frozen-lockfile
-                  bin/turbo --filter=@posthog/frontend prepare
-
-            - name: Build products
-              run: pnpm --filter=@posthog/frontend build:products
-
-            - name: Check toolbar bundle size
-              uses: preactjs/compressed-size-action@8518045ed95e94e971b83333085e1cb99aa18aa8 # 2.9.0
-              if: github.event_name != 'merge_group'
-              with:
-                  build-script: '--filter=@posthog/frontend build'
-                  install-script: 'pnpm --filter=@posthog/frontend... install'
-                  compression: 'none'
-                  pattern: 'frontend/dist/toolbar.js'
-                  # we only care if the toolbar will increase a lot
-                  minimum-change-threshold: 1000
-
-            - name: Check toolbar for CSP eval violations
-              run: pnpm --filter=@posthog/frontend check-toolbar-csp-eval
-
     frontend-bundle-size:
         name: Frontend bundle size
         needs: [changes]
-        if: needs.changes.outputs.frontend == 'true' && github.event_name == 'pull_request'
-        runs-on: depot-ubuntu-24.04
+        if: needs.changes.outputs.frontend == 'true' && github.event_name != 'merge_group'
+        runs-on: depot-ubuntu-24.04-4
         steps:
             - uses: actions/checkout@v6
             - name: Install pnpm
               uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.2.0
 
+            - name: Fix node-gyp permissions
+              run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
+
             - name: Set up Node.js
               uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
               with:
-                  node-version: 22.17.1
+                  node-version: 24.13.0
                   cache: 'pnpm'
+
+            - name: Setup Emscripten for WASM build
+              uses: mymindstorm/setup-emsdk@6ab9eb1bda2574c4ddb79809fc9247783eaf9021 # v14
+              with:
+                  version: '4.0.23'
+
+            - name: Install Ninja
+              run: sudo apt-get install -y ninja-build
 
             - name: Install package.json dependencies with pnpm
               run: |
@@ -169,11 +159,42 @@ jobs:
                   install-script: 'pnpm --filter=@posthog/frontend... install'
                   compression: 'none'
                   # Check all JS bundles in the dist folder
-                  pattern: 'frontend/dist/*.js'
-                  # Exclude source maps
-                  exclude: 'frontend/dist/*.js.map'
+                  pattern: 'frontend/dist/**/*.js'
+                  # Exclude source maps and chunk files (chunk hashes change every build)
+                  exclude: |
+                      **/*.js.map
+                      **/chunk*.js
                   # Only show large changes
                   minimum-change-threshold: 1000
+                  order-by: 'Size:desc'
+                  strip-hash: "-[A-Za-z0-9]{8}\\.js$"
+
+            - name: Check toolbar for CSP eval violations
+              run: pnpm --filter=@posthog/frontend check-toolbar-csp-eval
+
+            - name: Calculate dist folder size
+              id: dist-size
+              run: |
+                  size_bytes=$(du -sb frontend/dist | cut -f1)
+                  echo "size_bytes=${size_bytes}" >> $GITHUB_OUTPUT
+                  echo "Frontend dist folder size: ${size_bytes} bytes ($(numfmt --to=iec-i --suffix=B ${size_bytes}))"
+
+            - name: Capture bundle size to PostHog
+              if: |
+                  (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog') ||
+                  (github.event_name != 'pull_request' && github.repository == 'PostHog/posthog')
+              uses: PostHog/posthog-github-action@8c42e50f2c52e002eabb9bee3f69b152ee8fc1dd # v1.0.1
+              with:
+                  posthog-token: ${{secrets.POSTHOG_API_TOKEN}}
+                  event: 'posthog-ci-frontend-bundle-size'
+                  properties: |
+                      {
+                        "size_bytes": ${{ steps.dist-size.outputs.size_bytes }},
+                        "branch": ${{ toJSON(github.head_ref || github.ref_name) }},
+                        "sha": ${{ toJSON(github.sha) }},
+                        "pr_number": ${{ github.event.pull_request.number || 'null' }},
+                        "event_type": ${{ toJSON(github.event_name) }}
+                      }
 
     frontend-typescript-checks:
         name: Frontend typechecking
@@ -186,19 +207,30 @@ jobs:
             - name: Install pnpm
               uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.2.0
 
+            - name: Fix node-gyp permissions
+              run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
+
             - name: Set up Node.js
               uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
               with:
-                  node-version: 22.17.1
+                  node-version: 24.13.0
                   cache: 'pnpm'
+
+            - name: Setup Emscripten for WASM build
+              uses: mymindstorm/setup-emsdk@6ab9eb1bda2574c4ddb79809fc9247783eaf9021 # v14
+              with:
+                  version: '4.0.23'
+
+            - name: Install Ninja
+              run: sudo apt-get install -y ninja-build
 
             - name: Install package.json dependencies with pnpm
               run: |
                   pnpm --filter=@posthog/playwright... install --frozen-lockfile
                   bin/turbo --filter=@posthog/frontend prepare
 
-            - name: Cache .typegen
-              uses: actions/cache@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
+            - name: Restore .typegen cache
+              uses: actions/cache/restore@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
               with:
                   path: .typegen
                   key: ${{ runner.os }}-typegen-${{ hashFiles('pnpm-lock.yaml') }}
@@ -213,6 +245,13 @@ jobs:
             - name: Kea typegen
               run: pnpm --filter=@posthog/frontend typegen:write
 
+            - name: Save .typegen cache
+              if: github.ref == 'refs/heads/master'
+              uses: actions/cache/save@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
+              with:
+                  path: .typegen
+                  key: ${{ runner.os }}-typegen-${{ hashFiles('pnpm-lock.yaml') }}
+
             - name: Run typescript with strict
               run: pnpm --filter=@posthog/frontend typescript:check
               env:
@@ -223,6 +262,9 @@ jobs:
 
             - name: Check if mobile replay "schema.json" is up to date
               run: pnpm --filter=@posthog/frontend mobile-replay:schema:build:json && git diff --exit-code
+
+            - name: Validate SetupTaskId completions
+              run: node bin/validate-setup-tasks.mjs
 
     jest:
         runs-on: depot-ubuntu-24.04
@@ -247,11 +289,22 @@ jobs:
             - name: Install pnpm
               uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.2.0
 
+            - name: Fix node-gyp permissions
+              run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
+
             - name: Set up Node.js
               uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
               with:
-                  node-version: 22.17.1
+                  node-version: 24.13.0
                   cache: pnpm
+
+            - name: Setup Emscripten for WASM build
+              uses: mymindstorm/setup-emsdk@6ab9eb1bda2574c4ddb79809fc9247783eaf9021 # v14
+              with:
+                  version: '4.0.23'
+
+            - name: Install Ninja
+              run: sudo apt-get install -y ninja-build
 
             - name: Install package.json dependencies with pnpm
               run: pnpm --filter=@posthog/frontend... install --frozen-lockfile
@@ -265,46 +318,27 @@ jobs:
 
     calculate-running-time:
         name: Calculate running time
-        needs: [jest, frontend-typescript-checks, frontend-format, frontend-toolbar-checks, changes]
+        needs: [jest, frontend-typescript-checks, frontend-format, frontend-bundle-size, changes]
         runs-on: ubuntu-latest
         if: # Run on pull requests to PostHog/posthog + on PostHog/posthog outside of PRs - but never on forks
+            always() &&
             needs.changes.outputs.frontend == 'true' && (
             (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog') ||
             (github.event_name != 'pull_request' && github.repository == 'PostHog/posthog'))
         steps:
-            - name: Calculate running time
-              run: |
-                  echo "${{ secrets.GITHUB_TOKEN }}" | gh auth login --with-token
-                  run_id=${GITHUB_RUN_ID}
-                  repo=${GITHUB_REPOSITORY}
-                  run_info=$(gh api repos/${repo}/actions/runs/${run_id})
-                  echo run_info: ${run_info}
-                  # name is the name of the workflow file
-                  # run_started_at is the start time of the workflow
-                  # we want to get the number of seconds between the start time and now
-                  name=$(echo ${run_info} | jq -r '.name')
-                  run_url=$(echo ${run_info} | jq -r '.url')
-                  run_started_at=$(echo ${run_info} | jq -r '.run_started_at')
-                  run_attempt=$(echo ${run_info} | jq -r '.run_attempt')
-                  start_seconds=$(date -d "${run_started_at}" +%s)
-                  now_seconds=$(date +%s)
-                  duration=$((now_seconds-start_seconds))
-                  echo running_time_duration_seconds=${duration} >> $GITHUB_ENV
-                  echo running_time_run_url=${run_url} >> $GITHUB_ENV
-                  echo running_time_run_attempt=${run_attempt} >> $GITHUB_ENV
-                  echo running_time_run_id=${run_id} >> $GITHUB_ENV
-                  echo running_time_run_started_at=${run_started_at} >> $GITHUB_ENV
-
             - name: Capture running time to PostHog
-              if: needs.changes.outputs.frontend == 'true'
-              uses: PostHog/posthog-github-action@8c42e50f2c52e002eabb9bee3f69b152ee8fc1dd # v1.0.1
+              uses: PostHog/posthog-github-action@eea1405eeb2d1d2259f0ee0b44d7b152869e6840 # v1.1.1
               with:
-                  posthog-token: ${{secrets.POSTHOG_API_TOKEN}}
+                  posthog-token: ${{ secrets.POSTHOG_API_TOKEN }}
                   event: 'posthog-ci-running-time'
-                  properties: '{"runner": "depot", "duration_seconds": ${{ env.running_time_duration_seconds }}, "run_url": "${{ env.running_time_run_url }}", "run_attempt": "${{ env.running_time_run_attempt }}", "run_id": "${{ env.running_time_run_id }}", "run_started_at": "${{ env.running_time_run_started_at }}"}'
+                  capture-run-duration: true
+                  capture-job-durations: true
+                  github-token: ${{ secrets.GITHUB_TOKEN }}
+                  status-job: 'Frontend Tests Pass'
+                  runner: 'depot'
 
     frontend_tests:
-        needs: [jest, frontend-format, frontend-toolbar-checks, frontend-typescript-checks]
+        needs: [jest, frontend-format, frontend-bundle-size, frontend-typescript-checks]
         name: Frontend Tests Pass
         runs-on: ubuntu-latest
         if: always()
@@ -322,11 +356,11 @@ jobs:
                     exit 1
                   fi
                   echo "Frontend linting passed."
-                  if [[ "${{ needs.frontend-toolbar-checks.result }}" != "success" && "${{ needs.frontend-toolbar-checks.result }}" != "skipped" ]]; then
-                    echo "Frontend toolbar checks failed."
+                  if [[ "${{ needs.frontend-bundle-size.result }}" != "success" && "${{ needs.frontend-bundle-size.result }}" != "skipped" ]]; then
+                    echo "Frontend bundle size checks failed."
                     exit 1
                   fi
-                  echo "Frontend toolbar checks passed."
+                  echo "Frontend bundle size checks passed."
                   if [[ "${{ needs.frontend-typescript-checks.result }}" != "success" && "${{ needs.frontend-typescript-checks.result }}" != "skipped" ]]; then
                     echo "Frontend TypeScript checks failed."
                     exit 1

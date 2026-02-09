@@ -18,7 +18,7 @@ from posthog.temporal.data_imports.pipelines.common.extract import (
     report_heartbeat_timeout,
     trim_source_job_inputs,
 )
-from posthog.temporal.data_imports.pipelines.pipeline.pipeline import PipelineNonDLT
+from posthog.temporal.data_imports.pipelines.pipeline.pipeline import PipelineNonDLT, PipelineResult
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline_sync import PipelineInputs
 from posthog.temporal.data_imports.row_tracking import setup_row_tracking
@@ -165,14 +165,16 @@ def _run(
     reset_pipeline: bool,
     shutdown_monitor: ShutdownMonitor,
     resumable_source_manager: ResumableSourceManager | None,
-):
+) -> PipelineResult:
     try:
         pipeline = PipelineNonDLT(
             source, logger, job_inputs.run_id, reset_pipeline, shutdown_monitor, resumable_source_manager
         )
-        pipeline.run()
+        result = pipeline.run()
         logger.debug("Finished running pipeline")
         del pipeline
+
+        return result
     except Exception as e:
         source_cls = SourceRegistry.get_source(job_inputs.job_type)
         non_retryable_errors = source_cls.get_non_retryable_errors()
@@ -183,6 +185,7 @@ def _run(
         if is_non_retryable_error:
             handle_non_retryable_error(job_inputs, error_msg, logger, e)
         else:
+            logger.exception(error_msg)
             logger.debug(
                 "Error encountered during import_data_activity_sync - re-raising",
             )

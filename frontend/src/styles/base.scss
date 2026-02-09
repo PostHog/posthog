@@ -331,6 +331,10 @@
     --color-product-surveys-light: rgb(243 84 84);
     --color-product-data-warehouse-light: rgb(133 103 255);
     --color-product-llm-analytics-light: rgb(182 42 217);
+    --color-product-llm-clusters-light: rgb(147 51 234);
+    --color-product-llm-datasets-light: rgb(124 58 237);
+    --color-product-llm-evaluations-light: rgb(167 139 250);
+    --color-product-llm-prompts-light: rgb(196 181 253);
     --color-product-links-light: rgb(143 7 255);
     --color-product-revenue-analytics-light: rgb(52 175 102);
     --color-product-revenue-analytics-dark: rgb(54 196 111);
@@ -538,13 +542,12 @@
 
     // Skeleton colors
     // //////////////////////////////////////////////////////////
-    --color-skeleton-light: rgb(
-        190 190 190 / 20%
-    ); // Equivalent to --color-neutral-200 but with transparency, improve browser compatibility
 
-    --color-skeleton-dark: rgb(
-        129 129 129 / 24%
-    ); // Equivalent to --color-neutral-400 but with transparency, improve browser compatibility
+    // Equivalent to --color-neutral-200 but with transparency, improve browser compatibility
+    --color-skeleton-light: rgb(190 190 190 / 20%);
+
+    // Equivalent to --color-neutral-400 but with transparency, improve browser compatibility
+    --color-skeleton-dark: rgb(129 129 129 / 24%);
 
     // Breakpoint variables
     // //////////////////////////////////////////////////////////
@@ -718,6 +721,22 @@
     --lettermark-7-text: #35416b;
     --lettermark-8-bg: #ff906e;
     --lettermark-8-text: #2a3d65;
+    --lettermark-9-bg: #5dd4db;
+    --lettermark-9-text: #1a4a4d;
+    --lettermark-10-bg: #c8e65c;
+    --lettermark-10-text: #3d4a1a;
+    --lettermark-11-bg: #e85da4;
+    --lettermark-11-text: #4a1a35;
+    --lettermark-12-bg: #e85c5c;
+    --lettermark-12-text: #4a1a1a;
+    --lettermark-13-bg: #3d7a5a;
+    --lettermark-13-text: #c8f0dc;
+    --lettermark-14-bg: #6b5bd4;
+    --lettermark-14-text: #e0ddf5;
+    --lettermark-15-bg: #98e8c8;
+    --lettermark-15-text: #1a4a3d;
+    --lettermark-16-bg: #8c3d5a;
+    --lettermark-16-text: #f0d0dc;
 
     // Modals
     --modal-backdrop-blur: 5px; // Half the value in Figma as blur is calculated differently there it seems
@@ -1057,10 +1076,12 @@
 }
 
 @layer base {
-    /* stylelint-disable-next-line no-invalid-position-at-import-rule */ // allowing @import to be inside layer
+    // allowing @import to be inside layer
+    /* stylelint-disable-next-line no-invalid-position-at-import-rule */
     @import '../../node_modules/react-toastify/dist/ReactToastify'; // Toastify is in base so that we can override
 
-    /* stylelint-disable-next-line order/order */ // allowing @import to be first
+    // allowing @import to be first
+    /* stylelint-disable-next-line order/order */
     *,
     ::after,
     ::before,
@@ -1092,8 +1113,7 @@
 
     a:focus-visible,
     button:focus-visible,
-    a[data-focused='true'],
-    button[data-focused='true'] {
+    [data-highlighted]:not(:hover) {
         outline: 2px solid var(--color-accent);
     }
 
@@ -1101,10 +1121,13 @@
         --input-ring-color: var(--color-bg-fill-highlight-75);
         --input-ring-size: 3px;
 
+        border: 1px solid var(--color-border-primary);
         border-radius: var(--radius);
         outline: 0 solid transparent;
         box-shadow: 0 0 0 0 transparent;
-        transition: box-shadow 0.1s ease-in-out;
+        transition:
+            box-shadow 0.1s ease-in-out,
+            border-color 0.1s ease-in-out;
 
         & input,
         & textarea {
@@ -1113,7 +1136,13 @@
 
         &:not([disabled]):focus-visible,
         &:not([disabled]):focus-within {
+            background-color: var(--color-bg-fill-input);
+            border-color: var(--color-border-secondary);
             box-shadow: 0 0 0 var(--input-ring-size) var(--input-ring-color);
+        }
+
+        &:not([disabled]):hover {
+            border-color: var(--color-border-secondary) !important;
         }
     }
 
@@ -1672,6 +1701,11 @@
         animation-fill-mode: none;
     }
 
+    .animate-pulse-glow {
+        animation: pulse-glow 2s ease-in-out forwards;
+        animation-fill-mode: none;
+    }
+
     // Highlight background blink
 
     /* stylelint-disable-next-line keyframes-name-pattern */
@@ -1707,6 +1741,19 @@
 
         100% {
             transform: rotateZ(360deg);
+        }
+    }
+
+    // Pass in a different color variable to change the color of the glow
+    // Example: <span className="[--pulse-glow-color:blue] animate-pulse-glow" />
+    /* stylelint-disable-next-line keyframes-name-pattern */
+    @keyframes pulse-glow {
+        0% {
+            box-shadow: 0 0 0 2px var(--pulse-glow-color, var(--color-accent));
+        }
+
+        100% {
+            box-shadow: 0 0 0 10px transparent;
         }
     }
 
@@ -1788,16 +1835,24 @@
         /* themeable variables */
         position: relative;
         display: inline-block;
-        color: transparent; /* hide glyphs under the cover */
+        color: transparent;
+
+        /* hide glyphs under the cover */
         cursor: pointer;
-        background: var(--color-bg-primary); /* the “black bar” */
+        background: var(--color-bg-primary);
+
+        /* the “black bar” */
         border-radius: var(--radius);
     }
 
     .hogqlx-redacted:hover,
     .hogqlx-redacted:focus-visible {
-        color: inherit; /* show the text */
-        background: transparent; /* remove the bar */
+        color: inherit;
+
+        /* show the text */
+        background: transparent;
+
+        /* remove the bar */
     }
 
     .hogqlx-redacted:focus-visible {
@@ -1806,7 +1861,8 @@
     }
 
     .animate-logomark-jump {
-        --logomark-jump-magnitude: 1;
+        --logomark-jump-height-base: 12px;
+        --logomark-jump-magnitude: 1; // Overidden in code when someone wants a bigger jump
         --logomark-airtime: 0.4s; // Sync with LOGOMARK_AIRTIME_MS in Intro.tsx
 
         svg {
@@ -1837,7 +1893,7 @@
             }
 
             2% {
-                transform: translateY(calc(-200px * var(--logomark-jump-magnitude)));
+                transform: translateY(calc(var(--logomark-jump-height-base) * var(--logomark-jump-magnitude) * -1));
             }
 
             4% {
@@ -1854,7 +1910,7 @@
             }
 
             22% {
-                transform: translateY(calc(-200px * var(--logomark-jump-magnitude)));
+                transform: translateY(calc(var(--logomark-jump-height-base) * var(--logomark-jump-magnitude) * -1));
             }
         }
 
@@ -1933,5 +1989,28 @@
             opacity: 1;
             transform: translateY(0);
         }
+    }
+}
+
+// Setup highlight animation - used by quick start to draw attention to UI elements
+.setup-highlight-pulse {
+    position: relative !important;
+    border-radius: var(--radius);
+    animation: setup-highlight-pulse 1s ease-in-out 3 !important;
+}
+
+/* stylelint-disable-next-line keyframes-name-pattern */
+@keyframes setup-highlight-pulse {
+    0%,
+    100% {
+        outline: 3px solid transparent;
+        outline-offset: 2px;
+        box-shadow: 0 0 0 0 transparent;
+    }
+
+    50% {
+        outline: 3px solid var(--color-accent);
+        outline-offset: 2px;
+        box-shadow: 0 0 24px 8px var(--color-accent);
     }
 }

@@ -8,24 +8,28 @@ from fastapi.testclient import TestClient
 from httpx import ASGITransport, AsyncClient
 
 from llm_gateway.auth.models import AuthenticatedUser
-from llm_gateway.rate_limiting.redis_limiter import RateLimiter
+from llm_gateway.rate_limiting.cost_throttles import ProductCostThrottle, UserCostThrottle
+from llm_gateway.rate_limiting.runner import ThrottleRunner
+from llm_gateway.rate_limiting.throttles import Throttle
 
 
-def create_test_app(mock_db_pool: MagicMock) -> FastAPI:
+def create_test_app(
+    mock_db_pool: MagicMock,
+    throttles: list[Throttle] | None = None,
+) -> FastAPI:
     from llm_gateway.api.health import health_router
     from llm_gateway.api.routes import router
+
+    default_throttles: list[Throttle] = [
+        ProductCostThrottle(redis=None),
+        UserCostThrottle(redis=None),
+    ]
 
     @asynccontextmanager
     async def test_lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         app.state.db_pool = mock_db_pool
         app.state.redis = None
-        app.state.rate_limiter = RateLimiter(
-            redis=None,
-            burst_limit=1000,
-            burst_window=60,
-            sustained_limit=10000,
-            sustained_window=3600,
-        )
+        app.state.throttle_runner = ThrottleRunner(throttles=throttles if throttles is not None else default_throttles)
         yield
 
     app = FastAPI(title="LLM Gateway Test", lifespan=test_lifespan)
@@ -51,6 +55,7 @@ def authenticated_user() -> AuthenticatedUser:
         user_id=1,
         team_id=1,
         auth_method="personal_api_key",
+        distinct_id="test-distinct-id",
         scopes=["llm_gateway:read"],
     )
 
@@ -84,6 +89,7 @@ def authenticated_client(mock_db_pool: MagicMock) -> Generator[TestClient, None,
             "user_id": 1,
             "scopes": ["llm_gateway:read"],
             "current_team_id": 1,
+            "distinct_id": "test-distinct-id",
         }
     )
     mock_db_pool.acquire = AsyncMock(return_value=conn)

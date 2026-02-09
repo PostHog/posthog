@@ -15,7 +15,7 @@
         "fs-extra": "^10.0.0",
         "postcss": "^8.5.2",
         "postcss-preset-env": "^10.1.4",
-        "typescript": "5.2.2",
+        "typescript": "5.4.5",
         "ts-clone-node": "^4.0.0"
     }
 }

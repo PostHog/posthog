@@ -1,9 +1,11 @@
+import math
 import hashlib
+from datetime import timedelta
 from typing import Any, Optional
 
 from django.db import transaction
 from django.db.models import Q, QuerySet
-from django.http import JsonResponse
+from django.http import JsonResponse, StreamingHttpResponse
 from django.utils.timezone import now
 
 import structlog
@@ -16,6 +18,8 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
 
+from posthog.hogql.query import execute_hogql_query
+
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -27,10 +31,17 @@ from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.utils import UUIDT
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
+from posthog.renderers import SafeJSONRenderer, ServerSentEventRenderer
+from posthog.settings import SERVER_GATEWAY_INTERFACE
 from posthog.utils import relative_date_parse
 
-from products.notebooks.backend.models import Notebook
-from products.notebooks.backend.python_analysis import annotate_python_nodes
+from products.notebooks.backend.kernel_runtime import build_notebook_sandbox_config, get_kernel_runtime
+from products.notebooks.backend.models import KernelRuntime, Notebook
+from products.notebooks.backend.python_analysis import analyze_python_globals, annotate_python_nodes
+from products.tasks.backend.services.sandbox import SandboxStatus
+from products.tasks.backend.temporal.exceptions import SandboxProvisionError
+
+from ee.hogai.utils.asgi import SyncIterableToAsync
 
 logger = structlog.get_logger(__name__)
 
@@ -191,6 +202,69 @@ class NotebookSerializer(NotebookMinimalSerializer):
         return updated_notebook
 
 
+class NotebookKernelExecuteSerializer(serializers.Serializer):
+    code = serializers.CharField(allow_blank=True)
+    return_variables = serializers.BooleanField(default=True)
+    timeout = serializers.FloatField(required=False, min_value=0.1, max_value=120)
+
+
+class NotebookHogQLExecuteSerializer(serializers.Serializer):
+    query = serializers.CharField(allow_blank=True)
+
+
+class NotebookKernelDataframeSerializer(serializers.Serializer):
+    variable_name = serializers.CharField()
+    offset = serializers.IntegerField(default=0, min_value=0)
+    limit = serializers.IntegerField(default=10, min_value=1, max_value=500)
+    timeout = serializers.FloatField(required=False, min_value=0.1, max_value=120)
+
+    def validate_variable_name(self, value: str) -> str:
+        if not value.isidentifier():
+            raise serializers.ValidationError("Variable name must be a valid identifier.")
+        return value
+
+
+ALLOWED_KERNEL_CPU_CORES = [0.125, 0.25, 0.5, 1, 2, 4, 6, 8, 16, 32, 64]
+ALLOWED_KERNEL_MEMORY_GB = [0.25, 0.5, 1, 2, 4, 8, 16, 32, 64, 128, 256]
+ALLOWED_KERNEL_IDLE_TIMEOUT_SECONDS = [600, 1800, 3600, 10800, 21600, 43200]
+
+
+class NotebookKernelConfigSerializer(serializers.Serializer):
+    cpu_cores = serializers.FloatField(required=False)
+    memory_gb = serializers.FloatField(required=False)
+    idle_timeout_seconds = serializers.IntegerField(required=False)
+
+    def validate_cpu_cores(self, value: float) -> float:
+        if not any(math.isclose(value, option, rel_tol=0, abs_tol=1e-6) for option in ALLOWED_KERNEL_CPU_CORES):
+            raise serializers.ValidationError("CPU cores must be a supported option.")
+        return value
+
+    def validate_memory_gb(self, value: float) -> float:
+        if not any(math.isclose(value, option, rel_tol=0, abs_tol=1e-6) for option in ALLOWED_KERNEL_MEMORY_GB):
+            raise serializers.ValidationError("Memory must be a supported option.")
+        return value
+
+    def validate_idle_timeout_seconds(self, value: int) -> int:
+        if value not in ALLOWED_KERNEL_IDLE_TIMEOUT_SECONDS:
+            raise serializers.ValidationError("Idle timeout must be a supported option.")
+        return value
+
+    def validate(self, attrs):
+        if not attrs:
+            raise serializers.ValidationError("Provide at least one kernel configuration option.")
+        return attrs
+
+
+def _format_hogql_response_payload(response: Any) -> dict[str, Any]:
+    if hasattr(response, "model_dump"):
+        response_payload = response.model_dump(exclude_none=True)
+    else:
+        response_payload = response.dict(exclude_none=True)
+    for key in ("clickhouse", "hogql", "timings", "modifiers"):
+        response_payload.pop(key, None)
+    return response_payload
+
+
 @extend_schema(
     description="The API for interacting with Notebooks. This feature is in early access and the API can have "
     "breaking changes without announcement.",
@@ -255,6 +329,23 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
 
     def get_serializer_class(self) -> type[BaseSerializer]:
         return NotebookMinimalSerializer if self.action == "list" else NotebookSerializer
+
+    def _get_notebook_for_kernel(self) -> Notebook:
+        if self.kwargs.get(self.lookup_field) == "scratchpad":
+            notebook = Notebook(
+                short_id="scratchpad",
+                team=self.team,
+                created_by=self.request.user,
+                last_modified_by=self.request.user,
+                visibility=Notebook.Visibility.INTERNAL,
+            )
+            self.check_object_permissions(self.request, notebook)
+            return notebook
+
+        return self.get_object()
+
+    def _current_user(self) -> User | None:
+        return self.request.user if isinstance(self.request.user, User) else None
 
     def safely_get_queryset(self, queryset) -> QuerySet:
         if not self.action.endswith("update"):
@@ -357,6 +448,251 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             return Response(None, 304)
 
         return Response(serializer.data)
+
+    @action(methods=["POST"], url_path="kernel/start", detail=True)
+    def kernel_start(self, request: Request, **kwargs):
+        notebook = self._get_notebook_for_kernel()
+        try:
+            kernel_runtime = get_kernel_runtime(notebook, self._current_user()).ensure()
+        except SandboxProvisionError:
+            logger.exception("notebook_kernel_start_failed", notebook_short_id=notebook.short_id)
+            return Response({"detail": "Failed to start notebook kernel."}, status=503)
+        except RuntimeError:
+            logger.exception("notebook_kernel_start_failed", notebook_short_id=notebook.short_id)
+            return Response({"detail": "Failed to start notebook kernel."}, status=503)
+        return Response({"id": str(kernel_runtime.id), "status": kernel_runtime.status})
+
+    @action(methods=["POST"], url_path="kernel/stop", detail=True)
+    def kernel_stop(self, request: Request, **kwargs):
+        notebook = self._get_notebook_for_kernel()
+        try:
+            stopped = get_kernel_runtime(notebook, self._current_user()).shutdown()
+        except RuntimeError:
+            logger.exception("notebook_kernel_stop_failed", notebook_short_id=notebook.short_id)
+            return Response({"detail": "Failed to stop notebook kernel."}, status=503)
+        return Response({"stopped": stopped})
+
+    @action(methods=["POST"], url_path="kernel/restart", detail=True)
+    def kernel_restart(self, request: Request, **kwargs):
+        notebook = self._get_notebook_for_kernel()
+        try:
+            kernel_runtime = get_kernel_runtime(notebook, self._current_user()).restart()
+        except SandboxProvisionError:
+            logger.exception("notebook_kernel_restart_failed", notebook_short_id=notebook.short_id)
+            return Response({"detail": "Failed to restart notebook kernel."}, status=503)
+        except RuntimeError:
+            logger.exception("notebook_kernel_restart_failed", notebook_short_id=notebook.short_id)
+            return Response({"detail": "Failed to restart notebook kernel."}, status=503)
+        return Response({"id": str(kernel_runtime.id), "status": kernel_runtime.status})
+
+    @action(methods=["GET"], url_path="kernel/status", detail=True)
+    def kernel_status(self, request: Request, **kwargs):
+        notebook = self._get_notebook_for_kernel()
+        user = self._current_user()
+        runtime = (
+            KernelRuntime.objects.filter(
+                team_id=self.team_id,
+                notebook_short_id=notebook.short_id,
+                user=user if isinstance(user, User) else None,
+            )
+            .order_by("-last_used_at")
+            .first()
+        )
+        service = get_kernel_runtime(notebook, user).service
+        backend = runtime.backend if runtime else service._get_backend()
+        sandbox_config = build_notebook_sandbox_config(notebook)
+        cpu_cores = sandbox_config.cpu_cores
+
+        status = runtime.status if runtime else KernelRuntime.Status.STOPPED
+        if (
+            runtime
+            and runtime.sandbox_id
+            and runtime.backend
+            in (
+                KernelRuntime.Backend.MODAL,
+                KernelRuntime.Backend.DOCKER,
+            )
+        ):
+            try:
+                sandbox_class = service._get_sandbox_class(runtime.backend)
+                sandbox = sandbox_class.get_by_id(runtime.sandbox_id)
+                if sandbox.get_status() != SandboxStatus.RUNNING:
+                    status = KernelRuntime.Status.STOPPED
+            except Exception:
+                status = KernelRuntime.Status.STOPPED
+
+        if runtime and status == KernelRuntime.Status.STOPPED:
+            if (
+                runtime.backend == KernelRuntime.Backend.MODAL
+                and runtime.status in (KernelRuntime.Status.RUNNING, KernelRuntime.Status.STARTING)
+                and runtime.last_used_at
+                and sandbox_config.ttl_seconds
+                and now() >= runtime.last_used_at + timedelta(seconds=sandbox_config.ttl_seconds)
+            ):
+                status = KernelRuntime.Status.TIMED_OUT
+
+            if runtime.status != status:
+                runtime.status = status
+                runtime.save(update_fields=["status"])
+
+        return Response(
+            {
+                "backend": backend,
+                "status": status,
+                "last_used_at": runtime.last_used_at.isoformat() if runtime else None,
+                "last_error": runtime.last_error if runtime else None,
+                "runtime_id": str(runtime.id) if runtime else None,
+                "kernel_id": runtime.kernel_id if runtime else None,
+                "kernel_pid": runtime.kernel_pid if runtime else None,
+                "sandbox_id": runtime.sandbox_id if runtime else None,
+                "cpu_cores": cpu_cores,
+                "memory_gb": sandbox_config.memory_gb,
+                "disk_size_gb": sandbox_config.disk_size_gb,
+                "idle_timeout_seconds": sandbox_config.ttl_seconds,
+            }
+        )
+
+    @action(methods=["POST"], url_path="kernel/config", detail=True)
+    def kernel_config(self, request: Request, **kwargs):
+        serializer = NotebookKernelConfigSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        notebook = self._get_notebook_for_kernel()
+        update_fields = []
+
+        if "cpu_cores" in serializer.validated_data:
+            notebook.kernel_cpu_cores = serializer.validated_data["cpu_cores"]
+            update_fields.append("kernel_cpu_cores")
+        if "memory_gb" in serializer.validated_data:
+            notebook.kernel_memory_gb = serializer.validated_data["memory_gb"]
+            update_fields.append("kernel_memory_gb")
+        if "idle_timeout_seconds" in serializer.validated_data:
+            notebook.kernel_idle_timeout_seconds = serializer.validated_data["idle_timeout_seconds"]
+            update_fields.append("kernel_idle_timeout_seconds")
+
+        if notebook.pk:
+            notebook.save(update_fields=update_fields)
+
+        return Response(
+            {
+                "cpu_cores": notebook.kernel_cpu_cores,
+                "memory_gb": notebook.kernel_memory_gb,
+                "idle_timeout_seconds": notebook.kernel_idle_timeout_seconds,
+            }
+        )
+
+    @action(methods=["POST"], url_path="kernel/execute", detail=True)
+    def kernel_execute(self, request: Request, **kwargs):
+        serializer = NotebookKernelExecuteSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        notebook = self._get_notebook_for_kernel()
+
+        try:
+            analysis = analyze_python_globals(serializer.validated_data["code"])
+            variable_names = [entry["name"] for entry in analysis.exported_with_types]
+            execution = get_kernel_runtime(notebook, self._current_user()).execute(
+                serializer.validated_data["code"],
+                capture_variables=serializer.validated_data.get("return_variables", True),
+                variable_names=variable_names,
+                timeout=serializer.validated_data.get("timeout"),
+            )
+        except SandboxProvisionError:
+            logger.exception("notebook_kernel_execute_failed", notebook_short_id=notebook.short_id)
+            return Response({"detail": "Failed to execute notebook code."}, status=503)
+        except RuntimeError:
+            logger.exception("notebook_kernel_execute_failed", notebook_short_id=notebook.short_id)
+            return Response({"detail": "Failed to execute notebook code."}, status=503)
+
+        return Response(execution.as_dict())
+
+    @action(methods=["POST"], url_path="hogql/execute", detail=True)
+    def hogql_execute(self, request: Request, **kwargs):
+        serializer = NotebookHogQLExecuteSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        notebook = self._get_notebook_for_kernel()
+
+        try:
+            response = execute_hogql_query(query=serializer.validated_data["query"], team=self.team)
+        except Exception as err:
+            logger.exception("notebook_hogql_execute_failed", notebook_short_id=notebook.short_id)
+            return Response({"error": str(err)}, status=400)
+
+        return Response(_format_hogql_response_payload(response))
+
+    @action(
+        methods=["POST"],
+        url_path="kernel/execute/stream",
+        detail=True,
+        renderer_classes=[ServerSentEventRenderer],
+    )
+    def kernel_execute_stream(self, request: Request, **kwargs):
+        serializer = NotebookKernelExecuteSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        notebook = self._get_notebook_for_kernel()
+
+        analysis = analyze_python_globals(serializer.validated_data["code"])
+        variable_names = [entry["name"] for entry in analysis.exported_with_types]
+        renderer = SafeJSONRenderer()
+
+        def stream():
+            try:
+                for event in get_kernel_runtime(notebook, self._current_user()).execute_stream(
+                    serializer.validated_data["code"],
+                    capture_variables=serializer.validated_data.get("return_variables", True),
+                    variable_names=variable_names,
+                    timeout=serializer.validated_data.get("timeout"),
+                ):
+                    if event["type"] == "result":
+                        payload = event["data"]
+                    else:
+                        payload = {"text": event.get("text", "")}
+                    payload_json = renderer.render(payload).decode()
+                    yield f"event: {event['type']}\ndata: {payload_json}\n\n".encode()
+            except SandboxProvisionError:
+                logger.exception("notebook_kernel_execute_failed", notebook_short_id=notebook.short_id)
+                payload = {"error": "Failed to execute notebook code."}
+                payload_json = renderer.render(payload).decode()
+                yield f"event: error\ndata: {payload_json}\n\n".encode()
+            except RuntimeError:
+                logger.exception("notebook_kernel_execute_failed", notebook_short_id=notebook.short_id)
+                payload = {"error": "Failed to execute notebook code."}
+                payload_json = renderer.render(payload).decode()
+                yield f"event: error\ndata: {payload_json}\n\n".encode()
+
+        streaming_content = SyncIterableToAsync(stream()) if SERVER_GATEWAY_INTERFACE == "ASGI" else stream()
+        response = StreamingHttpResponse(
+            streaming_content=streaming_content, content_type=ServerSentEventRenderer.media_type
+        )
+        response["Cache-Control"] = "no-cache"
+        response["X-Accel-Buffering"] = "no"
+        return response
+
+    @action(methods=["GET"], url_path="kernel/dataframe", detail=True)
+    def kernel_dataframe(self, request: Request, **kwargs):
+        serializer = NotebookKernelDataframeSerializer(data=request.query_params)
+        serializer.is_valid(raise_exception=True)
+        notebook = self._get_notebook_for_kernel()
+
+        try:
+            data = get_kernel_runtime(notebook, self._current_user()).dataframe_page(
+                serializer.validated_data["variable_name"],
+                offset=serializer.validated_data["offset"],
+                limit=serializer.validated_data["limit"],
+                timeout=serializer.validated_data.get("timeout"),
+            )
+        except ValueError:
+            logger.exception(
+                "notebook_kernel_dataframe_invalid_request",
+                notebook_short_id=notebook.short_id,
+            )
+            return Response({"detail": "Invalid dataframe request."}, status=400)
+        except SandboxProvisionError:
+            logger.exception("notebook_kernel_dataframe_failed", notebook_short_id=notebook.short_id)
+            return Response({"detail": "Failed to fetch dataframe data."}, status=503)
+        except RuntimeError:
+            logger.exception("notebook_kernel_dataframe_failed", notebook_short_id=notebook.short_id)
+            return Response({"detail": "Failed to fetch dataframe data."}, status=503)
+
+        return Response(data)
 
     @action(methods=["GET"], detail=False)
     def recording_comments(self, request: Request, **kwargs):

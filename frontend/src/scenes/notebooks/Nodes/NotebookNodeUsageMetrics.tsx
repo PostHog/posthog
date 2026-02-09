@@ -1,9 +1,10 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { useEffect } from 'react'
 
-import { IconPlusSmall, IconRefresh } from '@posthog/icons'
+import { IconPlusSmall, IconRefresh, IconX } from '@posthog/icons'
 
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { UsageMetricsConfig, UsageMetricsModal } from 'scenes/settings/environment/UsageMetricsConfig'
 import { usageMetricsConfigLogic } from 'scenes/settings/environment/usageMetricsConfigLogic'
 
@@ -14,19 +15,22 @@ import {
     UsageMetricCard,
     UsageMetricCardSkeleton,
 } from 'products/customer_analytics/frontend/components/UsageMetricCard'
+import { CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS } from 'products/customer_analytics/frontend/constants'
+import { customerProfileLogic } from 'products/customer_analytics/frontend/customerProfileLogic'
 
 import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
 import { createPostHogWidgetNode } from './NodeWrapper'
 import { notebookNodeLogic } from './notebookNodeLogic'
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeUsageMetricsAttributes>): JSX.Element | null => {
-    const { expanded } = useValues(notebookNodeLogic)
-    const { setActions, toggleEditing } = useActions(notebookNodeLogic)
+    const { expanded, notebookLogic } = useValues(notebookNodeLogic)
+    const { setActions, setMenuItems } = useActions(notebookNodeLogic)
     const { personId, groupKey, groupTypeIndex, tabId } = attributes
     const dataNodeLogicProps = personId
         ? {
               query: {
                   kind: NodeKind.UsageMetricsQuery,
+                  tags: CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS,
                   person_id: personId,
               },
               key: `${personId}-${tabId}`,
@@ -35,6 +39,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeUsageMetricsAtt
           ? {
                 query: {
                     kind: NodeKind.UsageMetricsQuery,
+                    tags: CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS,
                     group_key: groupKey,
                     group_type_index: groupTypeIndex,
                 },
@@ -42,12 +47,14 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeUsageMetricsAtt
             }
           : { key: 'error', query: { kind: NodeKind.UsageMetricsQuery } }
     const logic = dataNodeLogic(dataNodeLogicProps)
+    useAttachedLogic(logic, notebookLogic)
     const { response, responseLoading, responseError } = useValues(logic)
     const { loadData } = useActions(logic)
     const usageMetricsConfigLogicProps = { logicKey: attributes.nodeId }
     const { openModal } = useActions(usageMetricsConfigLogic(usageMetricsConfigLogicProps))
+    const { removeNode } = useActions(customerProfileLogic)
 
-    useEffect(() => {
+    useOnMountEffect(() => {
         setActions([
             {
                 text: 'Add metric',
@@ -60,7 +67,26 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeUsageMetricsAtt
                 onClick: loadData,
             },
         ])
-    }, [setActions, loadData, toggleEditing])
+
+        setMenuItems([
+            {
+                label: 'Add metric',
+                sideIcon: <IconPlusSmall />,
+                onClick: openModal,
+            },
+            {
+                label: 'Refresh',
+                sideIcon: <IconRefresh />,
+                onClick: () => loadData(),
+            },
+            {
+                label: 'Remove',
+                onClick: () => removeNode(NotebookNodeType.UsageMetrics),
+                sideIcon: <IconX />,
+                status: 'danger',
+            },
+        ])
+    })
 
     if (!expanded) {
         return null

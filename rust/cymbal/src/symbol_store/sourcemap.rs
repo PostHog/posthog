@@ -1,4 +1,4 @@
-use std::{sync::Arc, time::Duration};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use axum::async_trait;
 use base64::Engine;
@@ -16,7 +16,7 @@ use crate::{
     },
 };
 
-use super::{Fetcher, Parser};
+use super::{dart_minified_names::parse_dart_minified_names, Fetcher, Parser};
 
 pub struct SourcemapProvider {
     pub client: reqwest::Client,
@@ -28,6 +28,9 @@ pub struct SourcemapProvider {
 #[derive(Debug)]
 pub struct OwnedSourceMapCache {
     data: Vec<u8>,
+    /// dart2js minified names mapping (minified -> original) for Flutter Web support.
+    /// Parsed from the x_org_dartlang_dart2js.minified_names.global extension.
+    dart_minified_names: Option<HashMap<String, String>>,
 }
 
 impl OwnedSourceMapCache {
@@ -35,21 +38,36 @@ impl OwnedSourceMapCache {
         // Pass-through parse once to assert we're given valid data, so the unwrap below
         // is safe.
         SourceMapCache::parse(&data)?;
-        Ok(Self { data })
+        Ok(Self {
+            data,
+            dart_minified_names: None,
+        })
     }
 
     pub fn from_source_and_map(
         sam: SourceAndMap,
     ) -> Result<Self, symbolic::sourcemapcache::SourceMapCacheWriterError> {
+        // Parse dart2js minified names before we lose access to the raw JSON
+        let dart_minified_names = parse_dart_minified_names(&sam.sourcemap);
+
         let mut data = Vec::with_capacity(sam.minified_source.len() + sam.sourcemap.len() + 16);
         let smcw = SourceMapCacheWriter::new(&sam.minified_source, &sam.sourcemap)?;
         smcw.serialize(&mut data).unwrap();
-        Ok(Self { data })
+        Ok(Self {
+            data,
+            dart_minified_names,
+        })
     }
 
     pub fn get_smc(&self) -> SourceMapCache<'_> {
         // UNWRAP - we've already parsed this data once, so we know it's valid
         SourceMapCache::parse(&self.data).unwrap()
+    }
+
+    /// Returns the dart2js minified names map if this sourcemap has the extension.
+    /// Used for remapping Flutter Web minified exception types like "minified:BA".
+    pub fn get_dart_minified_names(&self) -> Option<&HashMap<String, String>> {
+        self.dart_minified_names.as_ref()
     }
 }
 

@@ -4,7 +4,7 @@ import posthog from 'posthog-js'
 import { useEffect, useState } from 'react'
 
 import { IconMessage } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -36,7 +36,8 @@ export interface SurveyOpportunityButtonProps {
     disableAutoPromptSubmit?: boolean
     source: SURVEY_CREATED_SOURCE
     fromProduct: ProductKey
-    _cardWidth?: number // injected by insight card meta
+    showLabel?: boolean
+    tooltip?: string
 }
 
 export function SurveyOpportunityButton({
@@ -44,9 +45,9 @@ export function SurveyOpportunityButton({
     disableAutoPromptSubmit,
     source,
     fromProduct,
-    _cardWidth,
+    showLabel,
+    tooltip,
 }: SurveyOpportunityButtonProps): JSX.Element | null {
-    const showLabel = !_cardWidth || _cardWidth > 480
     const [modalOpen, setModalOpen] = useState(false)
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -117,11 +118,15 @@ export function SurveyOpportunityButton({
         return null
     }
 
+    const askUsersButton = (
+        <LemonButton size="xsmall" type="primary" icon={<IconMessage />} onClick={handleClick}>
+            {showLabel && 'Ask users why'}
+        </LemonButton>
+    )
+
     return (
         <>
-            <LemonButton size="xsmall" type="primary" icon={<IconMessage />} onClick={handleClick}>
-                {showLabel && 'Ask users why'}
-            </LemonButton>
+            {tooltip ? <Tooltip title={tooltip}>{askUsersButton}</Tooltip> : askUsersButton}
             {shouldUseQuickCreate && (
                 <QuickSurveyModal
                     context={{ type: QuickSurveyType.FUNNEL, funnel: funnelContext }}

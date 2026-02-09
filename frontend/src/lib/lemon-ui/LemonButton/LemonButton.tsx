@@ -273,7 +273,7 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                         {children ? <span className="LemonButton__content">{children}</span> : null}
                         {sideIcon ? (
                             <span className="LemonButton__icon">{sideIcon}</span>
-                        ) : targetBlank && !hideExternalLinkIcon ? (
+                        ) : targetBlank && !hideExternalLinkIcon && !icon ? (
                             <IconExternal />
                         ) : null}
                     </span>

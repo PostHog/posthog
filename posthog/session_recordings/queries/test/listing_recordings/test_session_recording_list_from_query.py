@@ -2901,6 +2901,146 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             [session_id_two],
         )
 
+    def test_filter_for_recordings_by_snapshot_library(self):
+        user = "test_library_filter-user"
+        Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
+
+        session_id_one = f"test_library_filter-{str(uuid4())}"
+        produce_replay_summary(
+            distinct_id=user,
+            session_id=session_id_one,
+            team_id=self.team.id,
+            snapshot_library="posthog-ios",
+        )
+
+        session_id_two = f"test_library_filter-{str(uuid4())}"
+        produce_replay_summary(
+            distinct_id=user,
+            session_id=session_id_two,
+            team_id=self.team.id,
+            snapshot_library="posthog-react-native",
+        )
+
+        self._assert_query_matches_session_ids(
+            {
+                "having_predicates": '[{"key": "snapshot_library", "value": ["posthog-ios"], "operator": "exact", "type": "recording"}]'
+            },
+            [session_id_one],
+        )
+
+        self._assert_query_matches_session_ids(
+            {
+                "having_predicates": '[{"key": "snapshot_library", "value": ["posthog-react-native"], "operator": "exact", "type": "recording"}]'
+            },
+            [session_id_two],
+        )
+
+    @snapshot_clickhouse_queries
+    def test_filter_for_recordings_by_lib_event_property_converts_to_snapshot_library(self):
+        """
+        Test that $lib event property filters are automatically converted to snapshot_library
+        recording filters for better query performance (avoids events table scan).
+        """
+        user = "test_lib_conversion-user"
+        Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
+
+        session_id_one = f"test_lib_conversion-{str(uuid4())}"
+        produce_replay_summary(
+            distinct_id=user,
+            session_id=session_id_one,
+            team_id=self.team.id,
+            snapshot_library="posthog-ios",
+        )
+
+        session_id_two = f"test_lib_conversion-{str(uuid4())}"
+        produce_replay_summary(
+            distinct_id=user,
+            session_id=session_id_two,
+            team_id=self.team.id,
+            snapshot_library="posthog-react-native",
+        )
+
+        # Using $lib event property filter should work the same as snapshot_library
+        # because the backend converts it automatically
+        self._assert_query_matches_session_ids(
+            {"properties": '[{"key": "$lib", "value": ["posthog-ios"], "operator": "exact", "type": "event"}]'},
+            [session_id_one],
+        )
+
+        self._assert_query_matches_session_ids(
+            {
+                "properties": '[{"key": "$lib", "value": ["posthog-react-native"], "operator": "exact", "type": "event"}]'
+            },
+            [session_id_two],
+        )
+
+    def test_filter_for_recordings_by_visited_page(self):
+        user = "test_visited_page_filter-user"
+        Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
+
+        # Session with /pricing page in recording
+        session_id_one = "session one id"
+        produce_replay_summary(
+            distinct_id=user,
+            session_id=session_id_one,
+            team_id=self.team.id,
+            all_urls=["https://example.com/home", "https://example.com/pricing"],
+        )
+
+        # Session with /billing page in recording
+        session_id_two = "session two id"
+        produce_replay_summary(
+            distinct_id=user,
+            session_id=session_id_two,
+            team_id=self.team.id,
+            all_urls=["https://example.com/home", "https://example.com/billing"],
+        )
+
+        # Session with no URLs (recording started but no pages captured)
+        session_id_three = "session three id"
+        produce_replay_summary(
+            distinct_id=user,
+            session_id=session_id_three,
+            team_id=self.team.id,
+            all_urls=[],
+        )
+
+        # Test exact match
+        self._assert_query_matches_session_ids(
+            {
+                "properties": '[{"key": "visited_page", "value": ["https://example.com/pricing"], "operator": "exact", "type": "recording"}]'
+            },
+            [session_id_one],
+        )
+
+        # Test contains match
+        self._assert_query_matches_session_ids(
+            {
+                "properties": '[{"key": "visited_page", "value": "billing", "operator": "icontains", "type": "recording"}]'
+            },
+            [session_id_two],
+        )
+
+        # Test multiple values (OR)
+        self._assert_query_matches_session_ids(
+            {
+                "properties": '[{"key": "visited_page", "value": ["pricing", "billing"], "operator": "icontains", "type": "recording"}]'
+            },
+            [session_id_one, session_id_two],
+        )
+
+        # Test IS_SET - should match sessions with URLs
+        self._assert_query_matches_session_ids(
+            {"properties": '[{"key": "visited_page", "value": null, "operator": "is_set", "type": "recording"}]'},
+            [session_id_one, session_id_two],
+        )
+
+        # Test IS_NOT_SET - should match session with no URLs
+        self._assert_query_matches_session_ids(
+            {"properties": '[{"key": "visited_page", "value": null, "operator": "is_not_set", "type": "recording"}]'},
+            [session_id_three],
+        )
+
     @also_test_with_materialized_columns(
         event_properties=["is_internal_user"],
         person_properties=["email"],

@@ -94,12 +94,12 @@ describe('insightHclExporter test', () => {
                 query: { kind: NodeKind.TrendsQuery },
             })
 
-            const result = generateInsightHCL(insight)
+            const result = generateInsightHCL(insight, { projectId: 1 })
             const hcl = result.hcl
 
             expect(hcl).toContain('import {')
             expect(hcl).toContain('to = posthog_insight.saved_insight')
-            expect(hcl).toContain('id = "456"')
+            expect(hcl).toContain('id = "1/456"')
 
             const warnings = result.warnings
 

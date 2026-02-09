@@ -7,7 +7,6 @@ import structlog
 import posthoganalytics
 from django_filters import BaseInFilter, CharFilter, FilterSet
 from django_filters.rest_framework import DjangoFilterBackend
-from loginas.utils import is_impersonated_session
 from rest_framework import exceptions, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
@@ -19,17 +18,19 @@ from posthog.api.hog_flow_batch_job import HogFlowBatchJobSerializer
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.api.utils import log_activity_from_viewset
 from posthog.cdp.validation import (
     HogFunctionFiltersSerializer,
     InputsSchemaItemSerializer,
     InputsSerializer,
     generate_template_bytecode,
 )
-from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
 from posthog.models.feature_flag.user_blast_radius import get_user_blast_radius
 from posthog.models.hog_flow.hog_flow import BILLABLE_ACTION_TYPES, HogFlow
 from posthog.models.hog_function_template import HogFunctionTemplate
 from posthog.plugins.plugin_server_api import create_hog_flow_invocation_test
+
+from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
 
 logger = structlog.get_logger(__name__)
 
@@ -70,6 +71,9 @@ class HogFlowActionSerializer(serializers.Serializer):
                 trigger_is_function = True
             elif data.get("config", {}).get("type") == "event":
                 filters = data.get("config", {}).get("filters", {})
+                # Move filter_test_accounts into filters for bytecode compilation
+                if data.get("config", {}).get("filter_test_accounts") is not None:
+                    filters["filter_test_accounts"] = data["config"].pop("filter_test_accounts")
                 if filters:
                     serializer = HogFunctionFiltersSerializer(data=filters, context=self.context)
                     serializer.is_valid(raise_exception=True)
@@ -305,16 +309,7 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
 
     def perform_create(self, serializer):
         serializer.save()
-        log_activity(
-            organization_id=self.organization.id,
-            team_id=self.team_id,
-            user=serializer.context["request"].user,
-            was_impersonated=is_impersonated_session(serializer.context["request"]),
-            item_id=serializer.instance.id,
-            scope="HogFlow",
-            activity="created",
-            detail=Detail(name=serializer.instance.name, type="standard"),
-        )
+        log_activity_from_viewset(self, serializer.instance, name=serializer.instance.name, detail_type="standard")
 
         try:
             # Count edges and actions
@@ -348,18 +343,7 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
 
         serializer.save()
 
-        changes = changes_between("HogFlow", previous=before_update, current=serializer.instance)
-
-        log_activity(
-            organization_id=self.organization.id,
-            team_id=self.team_id,
-            user=serializer.context["request"].user,
-            was_impersonated=is_impersonated_session(serializer.context["request"]),
-            item_id=instance_id,
-            scope="HogFlow",
-            activity="updated",
-            detail=Detail(changes=changes, name=serializer.instance.name),
-        )
+        log_activity_from_viewset(self, serializer.instance, name=serializer.instance.name, previous=before_update)
 
         # PostHog capture for hog_flow activated (draft -> active)
         if (
@@ -427,19 +411,23 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
             }
         )
 
-    @action(detail=True, methods=["POST"])
+    @action(detail=True, methods=["GET", "POST"])
     def batch_jobs(self, request: Request, *args, **kwargs):
         try:
             hog_flow = self.get_object()
         except Exception:
-            raise exceptions.NotFound(f"HogFlow {kwargs.get('pk')} not found")
+            raise exceptions.NotFound(f"Workflow {kwargs.get('pk')} not found")
 
-        serializer = HogFlowBatchJobSerializer(
-            data={**request.data, "hog_flow": hog_flow.id}, context={**self.get_serializer_context()}
-        )
-        if not serializer.is_valid():
-            return Response(serializer.errors, status=400)
+        if request.method == "POST":
+            serializer = HogFlowBatchJobSerializer(
+                data={**request.data, "hog_flow": hog_flow.id}, context={**self.get_serializer_context()}
+            )
+            if not serializer.is_valid():
+                return Response(serializer.errors, status=400)
 
-        batch_job = serializer.save()
-
-        return Response(HogFlowBatchJobSerializer(batch_job).data)
+            batch_job = serializer.save()
+            return Response(HogFlowBatchJobSerializer(batch_job).data)
+        else:
+            batch_jobs = HogFlowBatchJob.objects.filter(hog_flow=hog_flow, team=self.team).order_by("-created_at")
+            serializer = HogFlowBatchJobSerializer(batch_jobs, many=True)
+            return Response(serializer.data)
