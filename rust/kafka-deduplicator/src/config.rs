@@ -26,6 +26,17 @@ pub struct Config {
     #[envconfig(default = "30000")] // 30 seconds
     pub kafka_metadata_max_age_ms: u32,
 
+    // Session timeout: how long broker waits for heartbeats before declaring consumer dead.
+    // With static membership (group.instance.id), broker holds partition assignments for this
+    // duration after a consumer disappears. Should be longer than typical pod restart time.
+    #[envconfig(default = "60000")] // 60 seconds - covers slow pod restarts
+    pub kafka_session_timeout_ms: u32,
+
+    // Heartbeat interval: how often consumer sends heartbeats to broker.
+    // With 60s session timeout and 5s heartbeat, 12 heartbeats can miss before timeout.
+    #[envconfig(default = "5000")] // 5 seconds
+    pub kafka_heartbeat_interval_ms: u32,
+
     // supplied by k8s deploy env, used as part of kafka
     // consumer client ID for sticky partition mappings
     #[envconfig(from = "HOSTNAME")]
@@ -80,6 +91,10 @@ pub struct Config {
     #[envconfig(default = "900")]
     // 15 minutes default - minimum staleness (no recent WAL activity) before orphan directories can be deleted
     pub orphan_cleanup_min_staleness_secs: u64,
+
+    #[envconfig(default = "16")]
+    // Max parallel directory deletions during rebalance cleanup (bounded scatter-gather)
+    pub rebalance_cleanup_parallelism: usize,
 
     // Consumer processing configuration
     #[envconfig(default = "100")]

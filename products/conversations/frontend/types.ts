@@ -20,6 +20,15 @@ export interface UserBasic {
     is_email_verified: boolean
 }
 
+export interface TicketPerson {
+    id: string
+    name: string
+    distinct_ids: string[]
+    properties: Record<string, any>
+    created_at?: string
+    is_identified?: boolean
+}
+
 export interface Ticket {
     id: string
     ticket_number: number
@@ -44,6 +53,7 @@ export interface Ticket {
         current_url?: string
         [key: string]: any
     }
+    person?: TicketPerson | null
 }
 
 export interface ConversationTicket {
@@ -66,6 +76,7 @@ export interface ConversationTicket {
 export interface ConversationMessage {
     id: string
     content: string
+    rich_content?: Record<string, unknown> | null
     author_type: MessageAuthorType
     author_name?: string
     created_at: string
@@ -81,6 +92,7 @@ export interface MessageAuthor {
 export interface ChatMessage {
     id: string
     content: string
+    richContent?: Record<string, unknown> | null
     authorType: MessageAuthorType
     authorName: string
     createdBy?: MessageAuthor | null

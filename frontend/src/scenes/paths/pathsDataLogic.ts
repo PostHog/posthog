@@ -19,6 +19,33 @@ import { PathNodeData } from './pathUtils'
 import type { pathsDataLogicType } from './pathsDataLogicType'
 import { Paths, PathsNode } from './types'
 
+export function buildFunnelEventsFromPathNode(pathItemCard: PathNodeData): ActionFilter[] {
+    const events: ActionFilter[] = []
+    let currentItemCard: PathNodeData | undefined = pathItemCard
+    while (currentItemCard) {
+        const rawName = currentItemCard.name.replace(/(^[0-9]+_)/, '')
+        const isPageview = /^https?:\/\//.test(rawName)
+        events.push({
+            id: isPageview ? '$pageview' : rawName,
+            name: isPageview ? '$pageview' : rawName,
+            type: 'events',
+            order: currentItemCard.depth,
+            ...(isPageview && {
+                properties: [
+                    {
+                        key: '$current_url',
+                        operator: PropertyOperator.Exact,
+                        type: PropertyFilterType.Event,
+                        value: rawName,
+                    },
+                ],
+            }),
+        })
+        currentItemCard = currentItemCard.targetLinks[0]?.source
+    }
+    return events
+}
+
 export const DEFAULT_STEP_LIMIT = 5
 
 const DEFAULT_PATH_LOGIC_KEY = 'default_path_key'
@@ -130,47 +157,23 @@ export const pathsDataLogic = kea<pathsDataLogicType>([
             openPersonsModal(modalProps)
         },
         viewPathToFunnel: ({ pathItemCard }) => {
-            const events: ActionFilter[] = []
-            let currentItemCard = pathItemCard
-            while (currentItemCard) {
-                const name = currentItemCard.name.includes('http')
-                    ? '$pageview'
-                    : currentItemCard.name.replace(/(^[0-9]+_)/, '')
-                const url = new URL(currentItemCard.name.replace(/(^[0-9]+_)/, ''))
-                events.push({
-                    id: name,
-                    name: name,
-                    type: 'events',
-                    order: currentItemCard.depth,
-                    ...(currentItemCard.name.includes('http') && {
-                        properties: [
-                            {
-                                key: '$current_url',
-                                operator: PropertyOperator.Exact,
-                                type: PropertyFilterType.Event,
-                                value: url.href,
-                            },
-                        ],
-                    }),
-                })
-                currentItemCard = currentItemCard.targetLinks[0]?.source
+            const events = buildFunnelEventsFromPathNode(pathItemCard)
+            if (events.length === 0) {
+                return
             }
-            events.sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
 
             const query: InsightVizNode = {
                 kind: NodeKind.InsightVizNode,
                 source: {
                     kind: NodeKind.FunnelsQuery,
-                    series: actionsAndEventsToSeries({ events: events.reverse() }, true, MathAvailability.None),
+                    series: actionsAndEventsToSeries({ events }, true, MathAvailability.None),
                     dateRange: {
                         date_from: values.dateRange?.date_from,
                     },
                 },
             }
 
-            if (events.length > 0) {
-                actions.newTab(urls.insightNew({ query }))
-            }
+            actions.newTab(urls.insightNew({ query }))
         },
     })),
 ])

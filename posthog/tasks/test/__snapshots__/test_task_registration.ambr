@@ -98,7 +98,6 @@
     'posthog.tasks.tasks.delete_organization_data_and_notify_task',
     'posthog.tasks.tasks.delete_project_data_and_notify_task',
     'posthog.tasks.tasks.demo_reset_master_team',
-    'posthog.tasks.tasks.environments_rollback_migration',
     'posthog.tasks.tasks.find_flags_with_enriched_analytics',
     'posthog.tasks.tasks.ingestion_lag',
     'posthog.tasks.tasks.pg_plugin_server_query_timing',

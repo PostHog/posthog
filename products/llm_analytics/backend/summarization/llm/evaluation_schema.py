@@ -13,6 +13,9 @@ class EvaluationPattern(BaseModel):
     title: str = Field(description="Short title for the pattern (3-5 words)")
     description: str = Field(description="Detailed description of the pattern")
     frequency: str = Field(description="How common this pattern is: 'common', 'occasional', or 'rare'")
+    example_reasoning: str = Field(
+        description="An example reasoning from the evaluated runs that demonstrates this pattern"
+    )
     example_generation_ids: list[str] = Field(description="List of 1-5 generation IDs that exemplify this pattern")
 
 

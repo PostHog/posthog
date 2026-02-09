@@ -27,11 +27,43 @@ from posthog.dags.backups import (
 )
 
 
+@pytest.mark.parametrize(
+    "path",
+    [
+        "invalid/path",
+        "posthog/noshard/unknown-20240101075404/",
+        "posthog/table/noshard/20240101075404/",
+        "",
+    ],
+)
+def test_from_s3_path_returns_none_for_invalid_paths(path: str):
+    assert Backup.from_s3_path(path) is None
+
+
+def test_get_latest_backups_skips_unparseable_paths():
+    mock_s3 = MagicMock()
+    mock_s3.get_client().list_objects_v2.return_value = {
+        "CommonPrefixes": [
+            {"Prefix": "posthog/test/noshard/full-20240101075404/"},
+            {"Prefix": "posthog/test/noshard/garbage/"},
+            {"Prefix": "posthog/test/noshard/inc-20240201075404/"},
+        ]
+    }
+
+    config = BackupConfig(database="posthog", table="test", incremental=True)
+    context = dagster.build_op_context()
+    result = get_latest_backups(context=context, config=config, s3=mock_s3)
+
+    assert len(result) == 2
+    assert result[0].date == "20240201075404"
+    assert result[1].date == "20240101075404"
+
+
 def test_get_latest_backup_empty():
     mock_s3 = MagicMock()
     mock_s3.get_client().list_objects_v2.return_value = {}
 
-    config = BackupConfig(database="posthog", table="dummy")
+    config = BackupConfig(database="posthog", table="dummy", incremental=True)
     context = dagster.build_op_context()
     result = get_latest_backups(context=context, config=config, s3=mock_s3)
 
@@ -51,7 +83,7 @@ def test_get_latest_backup(table: str):
         ]
     }
 
-    config = BackupConfig(database="posthog", table=table)
+    config = BackupConfig(database="posthog", table=table, incremental=True)
     context = dagster.build_op_context()
     result = get_latest_backups(context=context, config=config, s3=mock_s3)
 

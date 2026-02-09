@@ -638,14 +638,6 @@ const SAVED_INSIGHTS_COPY = {
         title: 'There are no insights $CONDITION.',
         description: 'Once you create an insight, it will show up here.',
     },
-    [`${SavedInsightsTabs.Yours}`]: {
-        title: "You haven't created insights $CONDITION.",
-        description: 'Once you create an insight, it will show up here.',
-    },
-    [`${SavedInsightsTabs.Favorites}`]: {
-        title: 'There are no favorited insights $CONDITION.',
-        description: 'Once you favorite an insight, it will show up here.',
-    },
 }
 
 export function SavedInsightsEmptyState({
@@ -681,25 +673,23 @@ export function SavedInsightsEmptyState({
             ) : (
                 <p className="empty-state__description">{description}</p>
             )}
-            {filters.tab !== SavedInsightsTabs.Favorites && (
-                <div className="flex justify-center">
-                    <Link to={urls.insightNew()}>
-                        <AccessControlAction
-                            resourceType={AccessControlResourceType.Insight}
-                            minAccessLevel={AccessControlLevel.Editor}
+            <div className="flex justify-center">
+                <Link to={urls.insightNew()}>
+                    <AccessControlAction
+                        resourceType={AccessControlResourceType.Insight}
+                        minAccessLevel={AccessControlLevel.Editor}
+                    >
+                        <LemonButton
+                            type="primary"
+                            data-attr="add-insight-button-empty-state"
+                            icon={<IconPlusSmall />}
+                            className="add-insight-button"
                         >
-                            <LemonButton
-                                type="primary"
-                                data-attr="add-insight-button-empty-state"
-                                icon={<IconPlusSmall />}
-                                className="add-insight-button"
-                            >
-                                New insight
-                            </LemonButton>
-                        </AccessControlAction>
-                    </Link>
-                </div>
-            )}
+                            New insight
+                        </LemonButton>
+                    </AccessControlAction>
+                </Link>
+            </div>
         </div>
     )
 }

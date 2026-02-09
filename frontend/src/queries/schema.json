@@ -10,7 +10,10 @@
                 "$ai_metric",
                 "$ai_feedback",
                 "$ai_evaluation",
-                "$ai_trace_summary"
+                "$ai_trace_summary",
+                "$ai_generation_summary",
+                "$ai_trace_clusters",
+                "$ai_generation_clusters"
             ],
             "type": "string"
         },
@@ -361,7 +364,8 @@
                 "plan",
                 "execution",
                 "survey",
-                "research"
+                "research",
+                "flags"
             ],
             "type": "string"
         },
@@ -1962,11 +1966,10 @@
                 "search_error_tracking_issues",
                 "find_error_tracking_impactful_issue_event_list",
                 "experiment_results_summary",
+                "experiment_session_replays_summary",
                 "create_survey",
                 "edit_survey",
                 "analyze_survey_responses",
-                "create_dashboard",
-                "edit_current_dashboard",
                 "read_taxonomy",
                 "search",
                 "read_data",
@@ -4335,9 +4338,6 @@
                 "hogql": {
                     "description": "Generated HogQL query.",
                     "type": "string"
-                },
-                "isUdf": {
-                    "type": "boolean"
                 },
                 "is_cached": {
                     "type": "boolean"
@@ -11937,22 +11937,18 @@
                 },
                 "filters_override": {
                     "$ref": "#/definitions/DashboardFilter",
-                    "description": "A map for overriding insight query filters.\n\nTip: Use to get data for a specific customer or user."
+                    "deprecated": "Use `variables` instead. Will be removed in a future release.\n\nOverride dashboard filters for insight endpoints (TrendsQuery, FunnelsQuery, etc.).\nNot allowed for HogQL endpoints.\n\nFor date filtering, use variables: `{\"date_from\": \"2024-01-01\", \"date_to\": \"2024-01-31\"}`"
                 },
                 "limit": {
                     "$ref": "#/definitions/integer",
                     "description": "Maximum number of results to return. If not provided, returns all results."
-                },
-                "query_override": {
-                    "description": "Map of Insight query keys to be overridden at execution time. For example:   Assuming query = {\"kind\": \"TrendsQuery\", \"series\": [{\"kind\": \"EventsNode\",\"name\": \"$pageview\",\"event\": \"$pageview\",\"math\": \"total\"}]}   If query_override = {\"series\": [{\"kind\": \"EventsNode\",\"name\": \"$identify\",\"event\": \"$identify\",\"math\": \"total\"}]}   The query executed will return the count of $identify events, instead of $pageview's",
-                    "type": "object"
                 },
                 "refresh": {
                     "$ref": "#/definitions/EndpointRefreshMode",
                     "default": "cache"
                 },
                 "variables": {
-                    "description": "A map for overriding HogQL query variables, where the key is the variable name and the value is the variable value. Variable must be set on the endpoint's query between curly braces (i.e. {variable.from_date}) For example: {\"from_date\": \"1970-01-01\"}",
+                    "description": "Variables to parameterize the endpoint query. The key is the variable name and the value is the variable value.\n\nFor HogQL endpoints:   Keys must match a variable `code_name` defined in the query (referenced as `{variables.code_name}`).   Example: `{\"event_name\": \"$pageview\"}`\n\nFor non-materialized insight endpoints (e.g. TrendsQuery):   - `date_from` and `date_to` are built-in variables that filter the date range.     Example: `{\"date_from\": \"2024-01-01\", \"date_to\": \"2024-01-31\"}`\n\nFor materialized insight endpoints:   - Use the breakdown property name as the key to filter by breakdown value.     Example: `{\"$browser\": \"Chrome\"}`   - `date_from`/`date_to` are not supported on materialized insight endpoints.\n\nUnknown variable names will return a 400 error.",
                     "type": "object"
                 },
                 "version": {
@@ -15412,6 +15408,7 @@
                 "TikTokAds",
                 "BingAds",
                 "Shopify",
+                "Attio",
                 "SnapchatAds"
             ],
             "type": "string"
@@ -15667,7 +15664,15 @@
                 "folder_open",
                 "conversations",
                 "toolbar",
-                "settings"
+                "settings",
+                "health",
+                "sdk_doctor",
+                "pipeline_status",
+                "llm_evaluations",
+                "llm_datasets",
+                "llm_prompts",
+                "llm_clusters",
+                "exports"
             ],
             "type": "string"
         },
@@ -16359,6 +16364,10 @@
                 "breakdownAttributionValue": {
                     "$ref": "#/definitions/integer"
                 },
+                "breakdownSorting": {
+                    "description": "Breakdown table sorting. Format: 'column_key' or '-column_key' (descending)",
+                    "type": "string"
+                },
                 "exclusions": {
                     "default": [],
                     "items": {
@@ -16590,9 +16599,6 @@
                 "hogql": {
                     "description": "Generated HogQL query.",
                     "type": "string"
-                },
-                "isUdf": {
-                    "type": "boolean"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -17475,9 +17481,6 @@
                 },
                 "usePreaggregatedTableTransforms": {
                     "description": "Try to automatically convert HogQL queries to use preaggregated tables at the AST level *",
-                    "type": "boolean"
-                },
-                "usePresortedEventsTable": {
                     "type": "boolean"
                 },
                 "useWebAnalyticsPreAggregatedTables": {
@@ -19274,6 +19277,9 @@
                     "enum": ["latest", "earliest"],
                     "type": "string"
                 },
+                "resourceFingerprint": {
+                    "type": "string"
+                },
                 "response": {
                     "$ref": "#/definitions/LogsQueryResponse"
                 },
@@ -19934,7 +19940,7 @@
                             "type": "string"
                         },
                         "statsTableName": {
-                            "const": "campaign_stats",
+                            "const": "campaign_overview_stats",
                             "type": "string"
                         },
                         "tableExclusions": {
@@ -20491,7 +20497,7 @@
                     "type": ["string", "null"]
                 },
                 "id": {
-                    "type": "number"
+                    "$ref": "#/definitions/integer"
                 },
                 "name": {
                     "type": "string"
@@ -20770,7 +20776,7 @@
                     "$ref": "#/definitions/DashboardFilter"
                 },
                 "id": {
-                    "type": "number"
+                    "$ref": "#/definitions/integer"
                 },
                 "insights": {
                     "items": {
@@ -22392,6 +22398,12 @@
             "properties": {
                 "organization_name": {
                     "type": "string"
+                },
+                "skip_onboarding": {
+                    "type": "boolean"
+                },
+                "use_current_time": {
+                    "type": "boolean"
                 }
             },
             "type": "object"
@@ -22472,8 +22484,13 @@
                 "error_tracking_issue_explained",
                 "llm_analytics_viewed",
                 "llm_analytics_docs_viewed",
+                "llm_cluster_explored",
+                "llm_dataset_created",
+                "llm_evaluation_created",
+                "llm_prompt_created",
                 "logs_docs_viewed",
                 "logs_set_filters",
+                "logs_settings_opened",
                 "taxonomic filter empty state",
                 "create_experiment_from_funnel_button",
                 "web_analytics_insight",
@@ -22511,6 +22528,8 @@
                 "marketing_analytics_settings_updated",
                 "marketing_analytics_dashboard_interaction",
                 "marketing_analytics_ads_integration_visited",
+                "marketing_analytics_data_source_connected",
+                "marketing_analytics_onboarding_completed",
                 "customer_analytics_dashboard_business_mode_changed",
                 "customer_analytics_dashboard_configuration_button_clicked",
                 "customer_analytics_dashboard_filters_changed",
@@ -22522,6 +22541,8 @@
                 "workflow_created",
                 "data_pipeline_created",
                 "batch_export_created",
+                "batch_export_updated",
+                "batch_export_backfill_created",
                 "notebook_created",
                 "product_tour_created",
                 "task_created",
@@ -22583,6 +22604,10 @@
                 "links",
                 "live_debugger",
                 "llm_analytics",
+                "llm_clusters",
+                "llm_datasets",
+                "llm_evaluations",
+                "llm_prompts",
                 "logs",
                 "marketing_analytics",
                 "max",
@@ -26363,9 +26388,6 @@
                             "description": "Generated HogQL query.",
                             "type": "string"
                         },
-                        "isUdf": {
-                            "type": "boolean"
-                        },
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
@@ -27868,11 +27890,17 @@
                 "active": {
                     "type": "boolean"
                 },
+                "recording_ts_from_s": {
+                    "type": "number"
+                },
+                "recording_ts_to_s": {
+                    "type": "number"
+                },
                 "ts_from_s": {
-                    "$ref": "#/definitions/integer"
+                    "type": "number"
                 },
                 "ts_to_s": {
-                    "$ref": "#/definitions/integer"
+                    "type": "number"
                 }
             },
             "required": ["ts_from_s", "active"],
@@ -28008,6 +28036,16 @@
         "RetentionFilter": {
             "additionalProperties": false,
             "properties": {
+                "aggregationProperty": {
+                    "description": "The property to aggregate when aggregationType is sum or avg",
+                    "type": "string"
+                },
+                "aggregationType": {
+                    "default": "count",
+                    "description": "The aggregation type to use for retention",
+                    "enum": ["count", "sum", "avg"],
+                    "type": "string"
+                },
                 "cumulative": {
                     "type": "boolean"
                 },

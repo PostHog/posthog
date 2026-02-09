@@ -5,6 +5,10 @@ import { partial } from 'kea-test-utils'
 import { expectLogic } from 'kea-test-utils'
 import React from 'react'
 
+import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 import { NotebookTarget } from 'scenes/notebooks/types'
 import { urls } from 'scenes/urls'
@@ -517,6 +521,226 @@ describe('maxThreadLogic', () => {
                 }),
                 expect.any(Object)
             )
+        })
+    })
+
+    describe('queueing', () => {
+        beforeEach(() => {
+            featureFlagLogic.mount()
+            jest.spyOn(api.conversations.queue, 'list').mockResolvedValue({
+                messages: [],
+                max_queue_messages: 2,
+            })
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.POSTHOG_AI_QUEUE_MESSAGES_SYSTEM]: true,
+            })
+        })
+
+        afterEach(() => {
+            featureFlagLogic.unmount()
+        })
+
+        it('queues prompts while loading and omits null fields', async () => {
+            const enqueueSpy = jest.spyOn(api.conversations.queue, 'enqueue').mockResolvedValue({
+                messages: [],
+                max_queue_messages: 2,
+            })
+            const streamSpy = mockStream()
+
+            logic.actions.setConversation(MOCK_IN_PROGRESS_CONVERSATION)
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            logic.actions.askMax('Queued prompt')
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            expect(streamSpy).not.toHaveBeenCalled()
+            expect(enqueueSpy).toHaveBeenCalledWith(
+                MOCK_CONVERSATION_ID,
+                expect.objectContaining({
+                    content: 'Queued prompt',
+                })
+            )
+
+            const queuedPayload = enqueueSpy.mock.calls[0][1]
+            expect(queuedPayload).not.toHaveProperty('agent_mode')
+            expect(queuedPayload).not.toHaveProperty('billing_context')
+            expect(queuedPayload).not.toHaveProperty('ui_context')
+        })
+
+        it('includes ui_context and agent_mode when set', async () => {
+            const enqueueSpy = jest.spyOn(api.conversations.queue, 'enqueue').mockResolvedValue({
+                messages: [],
+                max_queue_messages: 2,
+            })
+            mockStream()
+
+            logic.actions.setAgentMode(AgentMode.SQL)
+            logic.actions.setConversation(MOCK_IN_PROGRESS_CONVERSATION)
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            logic.actions.askMax('Queued prompt', true, { form_answers: { q1: 'answer1' } })
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            expect(enqueueSpy).toHaveBeenCalledWith(
+                MOCK_CONVERSATION_ID,
+                expect.objectContaining({
+                    content: 'Queued prompt',
+                    agent_mode: AgentMode.SQL,
+                    ui_context: { form_answers: { q1: 'answer1' } },
+                })
+            )
+        })
+
+        it('shows an error toast when the queue is full', async () => {
+            const toastSpy = jest.spyOn(lemonToast, 'error').mockImplementation(jest.fn())
+            const enqueueSpy = jest.spyOn(api.conversations.queue, 'enqueue')
+
+            logic.actions.setQueuedMessages([
+                { id: 'queue-1', content: 'first', created_at: new Date().toISOString() },
+                { id: 'queue-2', content: 'second', created_at: new Date().toISOString() },
+            ])
+            logic.actions.setQueueLimit(2)
+            logic.actions.setConversation(MOCK_IN_PROGRESS_CONVERSATION)
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            logic.actions.askMax('Queued prompt')
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            expect(enqueueSpy).not.toHaveBeenCalled()
+            expect(toastSpy).toHaveBeenCalledWith('You can only queue two messages at a time.')
+        })
+
+        it('updates queued messages from the API', async () => {
+            const queueMessage = {
+                id: 'queue-1',
+                content: 'Original',
+                created_at: new Date().toISOString(),
+            }
+            jest.spyOn(api.conversations.queue, 'update').mockResolvedValue({
+                messages: [{ ...queueMessage, content: 'Updated' }],
+                max_queue_messages: 2,
+            })
+
+            logic.actions.setConversation(MOCK_IN_PROGRESS_CONVERSATION)
+            logic.actions.setQueuedMessages([queueMessage])
+            logic.actions.setQueueLimit(2)
+
+            logic.actions.updateQueuedMessage('queue-1', 'Updated')
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            expect(logic.values.queuedMessages).toEqual([{ ...queueMessage, content: 'Updated' }])
+        })
+
+        it('deletes queued messages from the API', async () => {
+            const queueMessage = {
+                id: 'queue-1',
+                content: 'Original',
+                created_at: new Date().toISOString(),
+            }
+            jest.spyOn(api.conversations.queue, 'delete').mockResolvedValue({
+                messages: [],
+                max_queue_messages: 2,
+            })
+
+            logic.actions.setConversation(MOCK_IN_PROGRESS_CONVERSATION)
+            logic.actions.setQueuedMessages([queueMessage])
+            logic.actions.setQueueLimit(2)
+
+            logic.actions.deleteQueuedMessage(queueMessage.id)
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            expect(logic.values.queuedMessages).toEqual([])
+        })
+
+        it('clears queued messages when approvals are pending', async () => {
+            jest.spyOn(api.conversations.queue, 'clear').mockResolvedValue({
+                messages: [],
+                max_queue_messages: 2,
+            })
+
+            logic.actions.setQueuedMessages([{ id: 'queue-1', content: 'First', created_at: new Date().toISOString() }])
+            logic.actions.setQueueLimit(2)
+
+            await expectLogic(logic, () => {
+                logic.actions.setConversation({
+                    ...MOCK_IN_PROGRESS_CONVERSATION,
+                    pending_approvals: [
+                        {
+                            proposal_id: 'proposal-1',
+                            decision_status: 'pending',
+                            tool_name: 'create_form',
+                            preview: 'Preview',
+                            payload: {},
+                        },
+                    ],
+                })
+            }).toMatchValues({
+                queuedMessages: [],
+            })
+        })
+
+        it('loads queued messages on mount', async () => {
+            const queueMessage = {
+                id: 'queue-1',
+                content: 'Queued',
+                created_at: new Date().toISOString(),
+            }
+            ;(api.conversations.queue.list as jest.Mock).mockResolvedValue({
+                messages: [queueMessage],
+                max_queue_messages: 2,
+            })
+
+            logic.unmount()
+            logic = maxThreadLogic({ conversationId: MOCK_CONVERSATION_ID, tabId: 'test' })
+            logic.mount()
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            expect(logic.values.queuedMessages).toEqual([])
+        })
+
+        it('consumes queued messages via the API', async () => {
+            const queueMessage = {
+                id: 'queue-1',
+                content: 'Queued',
+                created_at: new Date().toISOString(),
+            }
+            jest.spyOn(api.conversations.queue, 'delete').mockResolvedValue({
+                messages: [],
+                max_queue_messages: 2,
+            })
+
+            logic.actions.setQueuedMessages([queueMessage])
+            logic.actions.setQueueLimit(2)
+
+            await expectLogic(logic, () => {
+                logic.actions.consumeQueuedMessage(queueMessage)
+            }).toMatchValues({
+                queuedMessages: [],
+            })
+        })
+
+        it('clears queue state when switching conversations', async () => {
+            const queueMessage = {
+                id: 'queue-1',
+                content: 'Queued',
+                created_at: new Date().toISOString(),
+            }
+            const listSpy = jest.spyOn(api.conversations.queue, 'list').mockResolvedValue({
+                messages: [],
+                max_queue_messages: 2,
+            })
+
+            logic.actions.setQueuedMessages([queueMessage])
+            logic.actions.setQueueLimit(2)
+
+            logic.actions.setConversation({
+                ...MOCK_IN_PROGRESS_CONVERSATION,
+                id: 'new-conversation-id',
+            })
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            expect(logic.values.queuedMessages).toEqual([])
+            expect(listSpy).toHaveBeenCalledWith('new-conversation-id')
         })
     })
 
@@ -1917,6 +2141,139 @@ describe('maxThreadLogic', () => {
             const enhancedToolCalls = (logic.values.threadGrouped[0] as AssistantMessage)
                 .tool_calls as EnhancedToolCall[]
             expect(enhancedToolCalls?.[0].updates).toEqual([])
+        })
+
+        it('marks tool call as failed when approval is rejected', async () => {
+            const toolCallId = 'tool-123'
+            const proposalId = 'proposal-123'
+
+            await expectLogic(logic, () => {
+                // Set up a tool call
+                logic.actions.setThread([
+                    {
+                        type: AssistantMessageType.Assistant,
+                        content: 'Dangerous operation',
+                        status: 'completed',
+                        id: 'assistant-1',
+                        tool_calls: [
+                            {
+                                id: toolCallId,
+                                name: 'dangerous_tool',
+                                args: {},
+                                type: 'tool_call',
+                            },
+                        ],
+                    },
+                    // Tool call result message exists (operation was "completed" but later rejected)
+                    {
+                        type: AssistantMessageType.ToolCall,
+                        content: 'Tool executed',
+                        status: 'completed',
+                        id: 'tool-msg-1',
+                        tool_call_id: toolCallId,
+                        ui_payload: {},
+                    },
+                ])
+                // Set up pending approval that was rejected
+                logic.actions.addPendingApprovalData({
+                    proposal_id: proposalId,
+                    original_tool_call_id: toolCallId,
+                    tool_name: 'dangerous_tool',
+                    decision_status: 'pending',
+                    preview: 'Preview text',
+                    payload: {},
+                })
+                // Resolve the approval as rejected
+                logic.actions.setResolvedApprovalStatus(proposalId, 'rejected')
+            })
+
+            const enhancedToolCalls = (logic.values.threadGrouped[0] as AssistantMessage)
+                .tool_calls as EnhancedToolCall[]
+            // Even though there's a result message, rejected approval should mark it as failed
+            expect(enhancedToolCalls?.[0].status).toBe('failed')
+        })
+
+        it('marks tool call as failed when approval is auto_rejected', async () => {
+            const toolCallId = 'tool-456'
+            const proposalId = 'proposal-456'
+
+            await expectLogic(logic, () => {
+                logic.actions.setThread([
+                    {
+                        type: AssistantMessageType.Assistant,
+                        content: 'Dangerous operation',
+                        status: 'completed',
+                        id: 'assistant-1',
+                        tool_calls: [
+                            {
+                                id: toolCallId,
+                                name: 'dangerous_tool',
+                                args: {},
+                                type: 'tool_call',
+                            },
+                        ],
+                    },
+                ])
+                logic.actions.addPendingApprovalData({
+                    proposal_id: proposalId,
+                    original_tool_call_id: toolCallId,
+                    tool_name: 'dangerous_tool',
+                    decision_status: 'pending',
+                    preview: 'Preview text',
+                    payload: {},
+                })
+                logic.actions.setResolvedApprovalStatus(proposalId, 'auto_rejected')
+            })
+
+            const enhancedToolCalls = (logic.values.threadGrouped[0] as AssistantMessage)
+                .tool_calls as EnhancedToolCall[]
+            expect(enhancedToolCalls?.[0].status).toBe('failed')
+        })
+
+        it('marks tool call as completed when approval is approved', async () => {
+            const toolCallId = 'tool-789'
+            const proposalId = 'proposal-789'
+
+            await expectLogic(logic, () => {
+                logic.actions.setThread([
+                    {
+                        type: AssistantMessageType.Assistant,
+                        content: 'Dangerous operation',
+                        status: 'completed',
+                        id: 'assistant-1',
+                        tool_calls: [
+                            {
+                                id: toolCallId,
+                                name: 'dangerous_tool',
+                                args: {},
+                                type: 'tool_call',
+                            },
+                        ],
+                    },
+                    {
+                        type: AssistantMessageType.ToolCall,
+                        content: 'Tool executed',
+                        status: 'completed',
+                        id: 'tool-msg-1',
+                        tool_call_id: toolCallId,
+                        ui_payload: {},
+                    },
+                ])
+                logic.actions.addPendingApprovalData({
+                    proposal_id: proposalId,
+                    original_tool_call_id: toolCallId,
+                    tool_name: 'dangerous_tool',
+                    decision_status: 'pending',
+                    preview: 'Preview text',
+                    payload: {},
+                })
+                logic.actions.setResolvedApprovalStatus(proposalId, 'approved')
+            })
+
+            const enhancedToolCalls = (logic.values.threadGrouped[0] as AssistantMessage)
+                .tool_calls as EnhancedToolCall[]
+            // Approved operations should show as completed
+            expect(enhancedToolCalls?.[0].status).toBe('completed')
         })
     })
 

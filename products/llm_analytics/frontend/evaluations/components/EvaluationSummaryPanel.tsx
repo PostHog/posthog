@@ -3,7 +3,10 @@ import { useActions, useValues } from 'kea'
 import { IconCheck, IconChevronDown, IconMinus, IconX } from '@posthog/icons'
 import { LemonButton, LemonSegmentedButton, Spinner, Tooltip } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { llmEvaluationLogic } from '../llmEvaluationLogic'
 import { EvaluationPattern, EvaluationRun, EvaluationSummary, EvaluationSummaryFilter } from '../types'
@@ -41,6 +44,12 @@ const BASE_FILTER_OPTIONS: FilterOption[] = [
 
 const NA_FILTER_OPTION: FilterOption = { value: 'na', label: 'N/A' }
 
+function useShowEvaluationSummary(): boolean {
+    const summaryFlag = useFeatureFlag('LLM_ANALYTICS_EVALUATIONS_SUMMARY')
+    const earlyAdoptersFlag = useFeatureFlag('LLM_ANALYTICS_EARLY_ADOPTERS')
+    return summaryFlag || earlyAdoptersFlag
+}
+
 export function EvaluationSummaryControls(): JSX.Element | null {
     const {
         evaluation,
@@ -56,7 +65,7 @@ export function EvaluationSummaryControls(): JSX.Element | null {
         setEvaluationSummaryFilter,
         trackSummarizeClicked,
     } = useActions(llmEvaluationLogic)
-    const showSummaryFeature = useFeatureFlag('LLM_ANALYTICS_EVALUATIONS_SUMMARY')
+    const showSummaryFeature = useShowEvaluationSummary()
 
     if (!showSummaryFeature || !runsSummary || runsSummary.total === 0) {
         return null
@@ -65,23 +74,28 @@ export function EvaluationSummaryControls(): JSX.Element | null {
     return (
         <div className="flex items-center gap-2">
             <Tooltip title={getSummarizeTooltip(runsToSummarizeCount, evaluationSummaryFilter, !!evaluationSummary)}>
-                <LemonButton
-                    type="secondary"
-                    onClick={() => {
-                        if (evaluationSummary) {
-                            regenerateEvaluationSummary()
-                        } else {
-                            trackSummarizeClicked()
-                            generateEvaluationSummary({})
-                        }
-                    }}
-                    size="small"
-                    disabled={runsToSummarizeCount === 0}
-                    loading={evaluationSummaryLoading}
-                    data-attr="llma-evaluation-summarize"
+                <AccessControlAction
+                    resourceType={AccessControlResourceType.LlmAnalytics}
+                    minAccessLevel={AccessControlLevel.Editor}
                 >
-                    {evaluationSummary ? 'Regenerate' : 'Summarize'}
-                </LemonButton>
+                    <LemonButton
+                        type="secondary"
+                        onClick={() => {
+                            if (evaluationSummary) {
+                                regenerateEvaluationSummary()
+                            } else {
+                                trackSummarizeClicked()
+                                generateEvaluationSummary({})
+                            }
+                        }}
+                        size="small"
+                        disabled={runsToSummarizeCount === 0}
+                        loading={evaluationSummaryLoading}
+                        data-attr="llma-evaluation-summarize"
+                    >
+                        {evaluationSummary ? 'Regenerate' : 'Summarize'}
+                    </LemonButton>
+                </AccessControlAction>
             </Tooltip>
             <LemonSegmentedButton
                 value={evaluationSummaryFilter}
@@ -110,7 +124,7 @@ export function EvaluationSummaryPanel({ runsLookup }: EvaluationSummaryPanelPro
         summaryExpanded,
     } = useValues(llmEvaluationLogic)
     const { toggleSummaryExpanded } = useActions(llmEvaluationLogic)
-    const showSummaryFeature = useFeatureFlag('LLM_ANALYTICS_EVALUATIONS_SUMMARY')
+    const showSummaryFeature = useShowEvaluationSummary()
 
     if (!showSummaryFeature) {
         return null

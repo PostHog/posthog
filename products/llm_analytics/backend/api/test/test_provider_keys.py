@@ -8,6 +8,8 @@ from rest_framework import status
 from posthog.models import Organization, Project, Team, User
 
 from products.llm_analytics.backend.models.evaluation_config import EvaluationConfig
+from products.llm_analytics.backend.models.evaluations import Evaluation
+from products.llm_analytics.backend.models.model_configuration import LLMModelConfiguration
 from products.llm_analytics.backend.models.provider_keys import LLMProviderKey
 
 
@@ -295,6 +297,32 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
         response = self.client.post(f"/api/environments/{self.team.id}/llm_analytics/provider_keys/{key.id}/validate/")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    @patch("products.llm_analytics.backend.api.provider_keys.validate_provider_key")
+    def test_can_create_openrouter_provider_key(self, mock_validate):
+        mock_validate.return_value = (LLMProviderKey.State.OK, None)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/provider_keys/",
+            {"provider": "openrouter", "name": "OpenRouter Key", "api_key": "sk-or-v1-test-key-12345"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        key = LLMProviderKey.objects.first()
+        assert key is not None
+        self.assertEqual(key.provider, "openrouter")
+        self.assertEqual(key.state, LLMProviderKey.State.OK)
+        mock_validate.assert_called_once_with("openrouter", "sk-or-v1-test-key-12345")
+
+    @patch("products.llm_analytics.backend.api.provider_keys.validate_provider_key")
+    def test_openrouter_key_accepts_any_format(self, mock_validate):
+        mock_validate.return_value = (LLMProviderKey.State.OK, None)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/provider_keys/",
+            {"provider": "openrouter", "name": "OpenRouter Key", "api_key": "any-format-key"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
     def test_keys_ordered_by_created_at_descending(self):
         key1 = LLMProviderKey.objects.create(
             team=self.team,
@@ -353,9 +381,278 @@ class TestLLMProviderKeyValidationViewSet(APIBaseTest):
         self.assertEqual(response.data["state"], "invalid")
         self.assertEqual(response.data["error_message"], "Invalid API key")
 
+    @patch("products.llm_analytics.backend.api.provider_keys.validate_provider_key")
+    def test_can_pre_validate_openrouter_key(self, mock_validate):
+        mock_validate.return_value = (LLMProviderKey.State.OK, None)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/provider_key_validations/",
+            {"api_key": "sk-or-v1-test-key", "provider": "openrouter"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["state"], "ok")
+        mock_validate.assert_called_once_with("openrouter", "sk-or-v1-test-key")
+
     def test_pre_validate_requires_api_key(self):
         response = self.client.post(
             f"/api/environments/{self.team.id}/llm_analytics/provider_key_validations/",
             {},
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+class TestLLMProviderKeyDependentConfigs(APIBaseTest):
+    def test_dependent_configs_returns_evaluations_using_key(self):
+        key = LLMProviderKey.objects.create(
+            team=self.team,
+            provider="openai",
+            name="My Key",
+            state=LLMProviderKey.State.OK,
+            encrypted_config={"api_key": "sk-test-key"},
+            created_by=self.user,
+        )
+        model_config = LLMModelConfiguration.objects.create(
+            team=self.team,
+            provider="openai",
+            model="gpt-5-mini",
+            provider_key=key,
+        )
+        evaluation = Evaluation.objects.create(
+            team=self.team,
+            name="Test Evaluation",
+            evaluation_type="llm_judge",
+            evaluation_config={"prompt": "Is this good?"},
+            output_type="boolean",
+            model_configuration=model_config,
+        )
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/llm_analytics/provider_keys/{key.id}/dependent_configs/"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data["evaluations"]), 1)
+        self.assertEqual(response.data["evaluations"][0]["id"], str(evaluation.id))
+        self.assertEqual(response.data["evaluations"][0]["name"], "Test Evaluation")
+
+    def test_dependent_configs_excludes_deleted_evaluations(self):
+        key = LLMProviderKey.objects.create(
+            team=self.team,
+            provider="openai",
+            name="My Key",
+            state=LLMProviderKey.State.OK,
+            encrypted_config={"api_key": "sk-test-key"},
+            created_by=self.user,
+        )
+        model_config = LLMModelConfiguration.objects.create(
+            team=self.team,
+            provider="openai",
+            model="gpt-5-mini",
+            provider_key=key,
+        )
+        Evaluation.objects.create(
+            team=self.team,
+            name="Deleted Evaluation",
+            evaluation_type="llm_judge",
+            evaluation_config={"prompt": "Is this good?"},
+            output_type="boolean",
+            model_configuration=model_config,
+            deleted=True,
+        )
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/llm_analytics/provider_keys/{key.id}/dependent_configs/"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data["evaluations"]), 0)
+
+    def test_dependent_configs_returns_alternative_keys_for_same_provider(self):
+        key1 = LLMProviderKey.objects.create(
+            team=self.team,
+            provider="openai",
+            name="Key 1",
+            state=LLMProviderKey.State.OK,
+            encrypted_config={"api_key": "sk-key1"},
+            created_by=self.user,
+        )
+        key2 = LLMProviderKey.objects.create(
+            team=self.team,
+            provider="openai",
+            name="Key 2",
+            state=LLMProviderKey.State.OK,
+            encrypted_config={"api_key": "sk-key2"},
+            created_by=self.user,
+        )
+        LLMProviderKey.objects.create(
+            team=self.team,
+            provider="anthropic",
+            name="Anthropic Key",
+            state=LLMProviderKey.State.OK,
+            encrypted_config={"api_key": "sk-ant-key"},
+            created_by=self.user,
+        )
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/llm_analytics/provider_keys/{key1.id}/dependent_configs/"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data["alternative_keys"]), 1)
+        self.assertEqual(response.data["alternative_keys"][0]["id"], str(key2.id))
+        self.assertEqual(response.data["alternative_keys"][0]["provider"], "openai")
+
+    def test_dependent_configs_excludes_invalid_alternative_keys(self):
+        key1 = LLMProviderKey.objects.create(
+            team=self.team,
+            provider="openai",
+            name="Key 1",
+            state=LLMProviderKey.State.OK,
+            encrypted_config={"api_key": "sk-key1"},
+            created_by=self.user,
+        )
+        LLMProviderKey.objects.create(
+            team=self.team,
+            provider="openai",
+            name="Invalid Key",
+            state=LLMProviderKey.State.INVALID,
+            encrypted_config={"api_key": "sk-invalid"},
+            created_by=self.user,
+        )
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/llm_analytics/provider_keys/{key1.id}/dependent_configs/"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data["alternative_keys"]), 0)
+
+    def test_delete_with_replacement_updates_model_configs(self):
+        key1 = LLMProviderKey.objects.create(
+            team=self.team,
+            provider="openai",
+            name="Key 1",
+            state=LLMProviderKey.State.OK,
+            encrypted_config={"api_key": "sk-key1"},
+            created_by=self.user,
+        )
+        key2 = LLMProviderKey.objects.create(
+            team=self.team,
+            provider="openai",
+            name="Key 2",
+            state=LLMProviderKey.State.OK,
+            encrypted_config={"api_key": "sk-key2"},
+            created_by=self.user,
+        )
+        model_config = LLMModelConfiguration.objects.create(
+            team=self.team,
+            provider="openai",
+            model="gpt-5-mini",
+            provider_key=key1,
+        )
+
+        response = self.client.delete(
+            f"/api/environments/{self.team.id}/llm_analytics/provider_keys/{key1.id}/?replacement_key_id={key2.id}"
+        )
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+
+        model_config.refresh_from_db()
+        self.assertEqual(model_config.provider_key, key2)
+        self.assertEqual(LLMProviderKey.objects.filter(id=key1.id).count(), 0)
+
+    def test_delete_without_replacement_disables_evaluations(self):
+        key = LLMProviderKey.objects.create(
+            team=self.team,
+            provider="openai",
+            name="My Key",
+            state=LLMProviderKey.State.OK,
+            encrypted_config={"api_key": "sk-key"},
+            created_by=self.user,
+        )
+        model_config = LLMModelConfiguration.objects.create(
+            team=self.team,
+            provider="openai",
+            model="gpt-5-mini",
+            provider_key=key,
+        )
+        evaluation = Evaluation.objects.create(
+            team=self.team,
+            name="Test Evaluation",
+            evaluation_type="llm_judge",
+            evaluation_config={"prompt": "Is this good?"},
+            output_type="boolean",
+            model_configuration=model_config,
+            enabled=True,
+        )
+
+        response = self.client.delete(f"/api/environments/{self.team.id}/llm_analytics/provider_keys/{key.id}/")
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+
+        model_config.refresh_from_db()
+        self.assertIsNone(model_config.provider_key)
+
+        evaluation.refresh_from_db()
+        self.assertFalse(evaluation.enabled)
+
+    def test_delete_with_mismatched_provider_replacement_fails(self):
+        openai_key = LLMProviderKey.objects.create(
+            team=self.team,
+            provider="openai",
+            name="OpenAI Key",
+            state=LLMProviderKey.State.OK,
+            encrypted_config={"api_key": "sk-openai"},
+            created_by=self.user,
+        )
+        anthropic_key = LLMProviderKey.objects.create(
+            team=self.team,
+            provider="anthropic",
+            name="Anthropic Key",
+            state=LLMProviderKey.State.OK,
+            encrypted_config={"api_key": "sk-ant-key"},
+            created_by=self.user,
+        )
+
+        response = self.client.delete(
+            f"/api/environments/{self.team.id}/llm_analytics/provider_keys/{openai_key.id}/?replacement_key_id={anthropic_key.id}"
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("same provider", response.data["detail"])
+        self.assertEqual(LLMProviderKey.objects.filter(id=openai_key.id).count(), 1)
+
+    def test_delete_with_nonexistent_replacement_fails(self):
+        key = LLMProviderKey.objects.create(
+            team=self.team,
+            provider="openai",
+            name="My Key",
+            state=LLMProviderKey.State.OK,
+            encrypted_config={"api_key": "sk-key"},
+            created_by=self.user,
+        )
+
+        response = self.client.delete(
+            f"/api/environments/{self.team.id}/llm_analytics/provider_keys/{key.id}/?replacement_key_id=00000000-0000-0000-0000-000000000000"
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("not found", response.data["detail"])
+        self.assertEqual(LLMProviderKey.objects.filter(id=key.id).count(), 1)
+
+    def test_delete_with_other_teams_replacement_key_fails(self):
+        other_team = _setup_team()
+        key = LLMProviderKey.objects.create(
+            team=self.team,
+            provider="openai",
+            name="My Key",
+            state=LLMProviderKey.State.OK,
+            encrypted_config={"api_key": "sk-key"},
+            created_by=self.user,
+        )
+        other_key = LLMProviderKey.objects.create(
+            team=other_team,
+            provider="openai",
+            name="Other Team Key",
+            state=LLMProviderKey.State.OK,
+            encrypted_config={"api_key": "sk-other"},
+            created_by=self.user,
+        )
+
+        response = self.client.delete(
+            f"/api/environments/{self.team.id}/llm_analytics/provider_keys/{key.id}/?replacement_key_id={other_key.id}"
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(LLMProviderKey.objects.filter(id=key.id).count(), 1)

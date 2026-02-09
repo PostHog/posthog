@@ -198,6 +198,8 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
         addShortcutItem: (item: FileSystemEntry) => ({ item }),
         deleteShortcut: (id: FileSystemEntry['id']) => ({ id }),
         loadShortcuts: true,
+
+        pruneClosedFolders: (expandedFolders: string[]) => ({ expandedFolders }),
     }),
     loaders(({ actions, values }) => ({
         unfiledItems: [
@@ -565,6 +567,16 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                     }
                     return newState
                 },
+                pruneClosedFolders: (state, { expandedFolders }) => {
+                    const expandedPaths = new Set(expandedFolders.map((f) => f.replace(/^project:\/\//, '')))
+                    const newState: Record<string, FileSystemEntry[]> = {}
+                    for (const [key, value] of Object.entries(state)) {
+                        if (key === '' || expandedPaths.has(key)) {
+                            newState[key] = value
+                        }
+                    }
+                    return newState
+                },
             },
         ],
         folderLoadOffset: [
@@ -573,6 +585,16 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                 loadFolderSuccess: (state, { folder, offsetIncrease, forceReload }) => {
                     const previousOffset = forceReload ? 0 : (state[folder] ?? 0)
                     return { ...state, [folder]: previousOffset + offsetIncrease }
+                },
+                pruneClosedFolders: (state, { expandedFolders }) => {
+                    const expandedPaths = new Set(expandedFolders.map((f) => f.replace(/^project:\/\//, '')))
+                    const newState: Record<string, number> = {}
+                    for (const [key, value] of Object.entries(state)) {
+                        if (key === '' || expandedPaths.has(key)) {
+                            newState[key] = value
+                        }
+                    }
+                    return newState
                 },
             },
         ],
@@ -585,6 +607,16 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                     [folder]: hasMore ? 'has-more' : 'loaded',
                 }),
                 loadFolderFailure: (state, { folder }) => ({ ...state, [folder]: 'error' }),
+                pruneClosedFolders: (state, { expandedFolders }) => {
+                    const expandedPaths = new Set(expandedFolders.map((f) => f.replace(/^project:\/\//, '')))
+                    const newState: Record<string, FolderState> = {}
+                    for (const [key, value] of Object.entries(state)) {
+                        if (key === '' || expandedPaths.has(key)) {
+                            newState[key] = value
+                        }
+                    }
+                    return newState
+                },
             },
         ],
         users: [

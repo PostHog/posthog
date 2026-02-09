@@ -9,8 +9,12 @@ export function createSessionReplayStepsFromPA(
     const { snippets } = ctx
     const SessionReplayFinalSteps = snippets?.SessionReplayFinalSteps
 
+    const installationSteps = getClientStepsPA(ctx).filter(
+        (step: StepDefinition) => step.title !== 'Send events'
+    )
+
     return [
-        ...getClientStepsPA(ctx),
+        ...installationSteps,
         {
             title: 'Watch session recordings',
             badge: 'recommended',
