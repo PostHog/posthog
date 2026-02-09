@@ -185,7 +185,6 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                     const finalValues: EmailTemplate = {
                         ...formValues,
                         html: '',
-                        design: null,
                     }
                     props.onChange(finalValues)
                     actions.setIsModalOpen(false)
@@ -298,7 +297,6 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                     emailContent = {
                         ...currentValues,
                         html: '',
-                        design: null,
                     }
                 } else {
                     const editor = values.emailEditorRef?.editor
