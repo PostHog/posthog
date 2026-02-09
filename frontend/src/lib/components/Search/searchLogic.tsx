@@ -53,7 +53,7 @@ export const searchLogic = kea<searchLogicType>([
     path((logicKey) => ['lib', 'components', 'Search', 'searchLogic', logicKey]),
     props({} as SearchLogicProps),
     key((props) => props.logicKey),
-    connect({
+    connect(() => ({
         values: [
             groupsModel,
             ['groupTypes', 'aggregationLabel'],
@@ -64,7 +64,7 @@ export const searchLogic = kea<searchLogicType>([
             preflightLogic,
             ['isDev'],
         ],
-    }),
+    })),
     actions({
         setSearch: (search: string) => ({ search }),
     }),
@@ -204,8 +204,6 @@ export const searchLogic = kea<searchLogicType>([
             false,
             {
                 setSearch: (_, { search }) => search.trim() !== '',
-                loadRecentsSuccess: () => false,
-                loadRecentsFailure: () => false,
                 loadUnifiedSearchResultsSuccess: () => false,
                 loadUnifiedSearchResultsFailure: () => false,
             },
@@ -987,9 +985,9 @@ export const searchLogic = kea<searchLogicType>([
         setSearch: async ({ search }, breakpoint) => {
             await breakpoint(150)
 
-            actions.loadRecents({ search })
-
-            if (search.trim() !== '') {
+            if (search.trim() === '') {
+                actions.loadRecents({ search: '' })
+            } else {
                 actions.loadUnifiedSearchResults({ searchTerm: search })
                 actions.loadPersonSearchResults({ searchTerm: search })
                 actions.loadGroupSearchResults({ searchTerm: search })

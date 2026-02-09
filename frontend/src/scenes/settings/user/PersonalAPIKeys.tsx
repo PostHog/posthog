@@ -162,14 +162,16 @@ export function EditKeyModal({ zIndex }: EditKeyModalProps): JSX.Element {
                                                             editingKey.access_type === 'teams'
                                                         return (
                                                             <Fragment key={key}>
-                                                                <div className="flex items-center justify-between gap-2 min-h-8">
+                                                                <div className="flex items-center justify-between gap-2 min-h-8 group">
                                                                     <div
                                                                         className={clsx(
                                                                             'flex items-center gap-1',
                                                                             disabledDueToProjectScope && 'text-muted'
                                                                         )}
                                                                     >
-                                                                        <b>{objectName}</b>
+                                                                        <b className="transition-colors group-hover:text-highlight">
+                                                                            {objectName}
+                                                                        </b>
 
                                                                         {info ? (
                                                                             <Tooltip title={info}>

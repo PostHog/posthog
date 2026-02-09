@@ -1067,9 +1067,15 @@ class ExperimentQueryBuilder:
                 },
             )
 
-    def _build_exposure_predicate(self) -> ast.Expr:
+    def _build_exposure_event_predicate(self) -> ast.Expr:
         """
-        Builds the exposure predicate as an AST expression.
+        Builds the event predicate for exposure filtering (without timestamp conditions).
+
+        This handles:
+        - Custom exposure events via event_or_action_to_filter
+        - Special $feature_flag_called filtering (matching the flag key)
+
+        Used by both _build_exposure_predicate() and get_exposure_query_for_preaggregation().
         """
         event_predicate = event_or_action_to_filter(self.team, self.exposure_config)
 
@@ -1093,6 +1099,12 @@ class ExperimentQueryBuilder:
                 ]
             )
 
+        return event_predicate
+
+    def _build_exposure_predicate(self) -> ast.Expr:
+        """
+        Builds the exposure predicate as an AST expression.
+        """
         return _optimize_and_chain(
             parse_expr(
                 """
@@ -1105,7 +1117,7 @@ class ExperimentQueryBuilder:
                 placeholders={
                     "date_from": self.date_range_query.date_from_as_hogql(),
                     "date_to": self.date_range_query.date_to_as_hogql(),
-                    "event_predicate": event_predicate,
+                    "event_predicate": self._build_exposure_event_predicate(),
                     "variant_property": self._build_variant_property(),
                     "variants": ast.Constant(value=self.variants),
                     "test_accounts_filter": self._build_test_accounts_filter(),
@@ -1152,6 +1164,52 @@ class ExperimentQueryBuilder:
                 exposure_query.select.append(ast.Alias(alias=alias, expr=breakdown_attributed))
 
         return exposure_query
+
+    def get_exposure_query_for_preaggregation(self) -> tuple[str, dict[str, ast.Expr]]:
+        """
+        Returns the exposure query and placeholders for preaggregation.
+
+        The query string uses {time_window_min} and {time_window_max} placeholders
+        which are filled in by the preaggregation system for each daily bucket.
+        Other placeholders are returned in the dict and should be passed to
+        ensure_preaggregated().
+
+        Returns:
+            Tuple of (query_string, placeholders_dict)
+        """
+        # Query template with placeholders
+        # Note: uses < for time_window_max (exclusive end for bucket boundaries)
+        # vs <= in normal query (inclusive end for experiment boundary)
+        # Keep in sync with _build_exposure_select_query
+        query_string = """
+            SELECT
+                {entity_key} AS entity_id,
+                {variant_expr} AS variant,
+                min(timestamp) AS first_exposure_time,
+                max(timestamp) AS last_exposure_time,
+                argMin(uuid, timestamp) AS exposure_event_uuid,
+                argMin(`$session_id`, timestamp) AS exposure_session_id,
+                [] AS breakdown_value,
+                today() + INTERVAL 1 DAY AS expires_at
+            FROM events
+            WHERE timestamp >= {time_window_min}
+                AND timestamp < {time_window_max}
+                AND {event_predicate}
+                AND {test_accounts_filter}
+                AND {variant_property} IN {variants}
+            GROUP BY entity_id
+        """
+
+        placeholders = {
+            "entity_key": parse_expr(self.entity_key),
+            "variant_expr": self._build_variant_expr_for_mean(),
+            "event_predicate": self._build_exposure_event_predicate(),
+            "test_accounts_filter": self._build_test_accounts_filter(),
+            "variant_property": self._build_variant_property(),
+            "variants": ast.Constant(value=self.variants),
+        }
+
+        return query_string, placeholders
 
     def _build_variant_expr_for_mean(self) -> ast.Expr:
         """

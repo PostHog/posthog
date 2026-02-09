@@ -33,7 +33,11 @@ test.describe('Insights list', () => {
 
         await test.step('open the insight from the list', async () => {
             // Click near the left edge to avoid hitting the favorite button which has e.preventDefault()
-            await page.locator('table tbody tr').first().getByRole('link', { name: insightName }).click({ position: { x: 5, y: 5 } })
+            await page
+                .locator('table tbody tr')
+                .first()
+                .getByRole('link', { name: insightName })
+                .click({ position: { x: 5, y: 5 } })
             await expect(page).toHaveURL(/\/insights\/\w+/)
             await expect(insight.topBarName).toContainText(insightName)
         })

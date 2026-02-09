@@ -7,6 +7,8 @@ from ee.hogai.chat_agent.sql.mixins import HogQLGeneratorMixin, SQLSchemaGenerat
 
 
 class TestSQLMixins(NonAtomicBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
     def _get_node(self):
         class DummyNode(HogQLGeneratorMixin):
             pass

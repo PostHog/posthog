@@ -1,6 +1,5 @@
 import { actions, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
-import Papa from 'papaparse'
 import posthog from 'posthog-js'
 
 import { dayjs } from 'lib/dayjs'
@@ -109,9 +108,6 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
         selectLogRange: (fromIndex: number, toIndex: number) => ({ fromIndex, toIndex }),
         selectAll: (logsToSelect?: ParsedLogMessage[]) => ({ logsToSelect }),
         clearSelection: true,
-        copySelectedLogs: true,
-        exportSelectedAsJson: true,
-        exportSelectedAsCsv: true,
 
         // Per-row prettify
         togglePrettifyLog: (logId: string) => ({ logId }),
@@ -494,12 +490,6 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
             }
             void copyToClipboard(url.toString(), 'link to log')
         },
-        copySelectedLogs: () => {
-            const selectedLogs = values.selectedLogsArray
-            posthog.capture('logs bulk copy', { count: selectedLogs.length })
-            const text = selectedLogs.map((log) => log.body).join('\n')
-            void copyToClipboard(text, `${selectedLogs.length} log message${selectedLogs.length === 1 ? '' : 's'}`)
-        },
         selectLogRange: ({ fromIndex, toIndex }) => {
             posthog.capture('logs range selected', { count: Math.abs(toIndex - fromIndex) + 1 })
             const minIndex = Math.min(fromIndex, toIndex)
@@ -521,46 +511,6 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
                 newSelection[log.uuid] = true
             }
             actions.setSelectedLogIds(newSelection)
-        },
-        exportSelectedAsJson: () => {
-            const selectedLogs = values.selectedLogsArray.map((log) => ({
-                timestamp: log.timestamp,
-                observed_timestamp: log.observed_timestamp,
-                severity_text: log.severity_text,
-                body: log.body,
-                attributes: log.attributes,
-                resource_attributes: log.resource_attributes,
-                trace_id: log.trace_id,
-                span_id: log.span_id,
-            }))
-            posthog.capture('logs exported', { format: 'json', count: selectedLogs.length })
-            const json = JSON.stringify(selectedLogs, null, 2)
-            const blob = new Blob([json], { type: 'application/json' })
-            const url = URL.createObjectURL(blob)
-            const a = document.createElement('a')
-            a.href = url
-            a.download = `logs-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.json`
-            a.click()
-            setTimeout(() => URL.revokeObjectURL(url), 0)
-        },
-        exportSelectedAsCsv: () => {
-            const selectedLogs = values.selectedLogsArray
-            posthog.capture('logs exported', { format: 'csv', count: selectedLogs.length })
-            const headers = ['timestamp', 'severity', ...values.attributeColumns, 'body']
-            const rows = selectedLogs.map((log) => [
-                log.timestamp,
-                log.severity_text,
-                ...values.attributeColumns.map((col) => log.attributes[col] ?? log.resource_attributes[col] ?? ''),
-                log.body,
-            ])
-            const csv = Papa.unparse([headers, ...rows])
-            const blob = new Blob([csv], { type: 'text/csv' })
-            const url = URL.createObjectURL(blob)
-            const a = document.createElement('a')
-            a.href = url
-            a.download = `logs-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.csv`
-            a.click()
-            setTimeout(() => URL.revokeObjectURL(url), 0)
         },
         toggleAttributeColumn: ({ attributeKey }) => {
             if (attributeKey in values.attributeColumnsConfig) {
