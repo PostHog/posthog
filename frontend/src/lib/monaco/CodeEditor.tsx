@@ -279,7 +279,7 @@ export function CodeEditor({
         overviewRulerLanes: 3,
         overflowWidgetsDomNode: monacoRoot,
         ...options,
-        padding: { bottom: 8, top: 8 },
+        padding: { bottom: enableVimMode ? 28 : 8, top: 8 },
         scrollbar: {
             vertical: scrollbarRendering,
             horizontal: scrollbarRendering,
