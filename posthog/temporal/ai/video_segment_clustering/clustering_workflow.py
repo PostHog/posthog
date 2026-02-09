@@ -3,19 +3,22 @@
 import json
 from datetime import timedelta
 
+import temporalio
 from temporalio import workflow
 from temporalio.common import RetryPolicy
+from temporalio.exceptions import ApplicationError
 
 from posthog.temporal.common.base import PostHogWorkflow
 
 with workflow.unsafe.imports_passed_through():
+    from posthog.temporal.ai.session_summary.types.single import SingleSessionSummaryInputs
     from posthog.temporal.ai.video_segment_clustering.activities import (
         cluster_segments_activity,
         fetch_segments_activity,
+        get_sessions_to_prime_activity,
         label_clusters_activity,
         match_clusters_activity,
         persist_reports_activity,
-        prime_session_embeddings_activity,
     )
     from posthog.temporal.ai.video_segment_clustering.models import (
         ClusterForLabeling,
@@ -29,6 +32,8 @@ with workflow.unsafe.imports_passed_through():
         WorkflowResult,
     )
 
+    from ee.hogai.session_summaries.constants import DEFAULT_VIDEO_UNDERSTANDING_MODEL
+
 
 @workflow.defn(name="video-segment-clustering")
 class VideoSegmentClusteringWorkflow(PostHogWorkflow):
@@ -40,7 +45,7 @@ class VideoSegmentClusteringWorkflow(PostHogWorkflow):
     2. Cluster: Clustering segments into groups, i.e. potential reports
     3. Match: Match clusters to existing SignalReports (deduplication)
     4. Label: Generate LLM-based labels for new clusters
-    5. Persist: Create/update SignalReports and SignalReportArtefacts
+    5. Persist: Create/update SignalReorts and SignalReportArtefacts
     """
 
     @staticmethod
@@ -53,32 +58,72 @@ class VideoSegmentClusteringWorkflow(PostHogWorkflow):
     async def run(self, inputs: ClusteringWorkflowInputs) -> WorkflowResult:
         """Execute the video segment clustering workflow for a single team."""
         try:
-            # Activity 1: Prime the document_embeddings table (optional)
+            # Step 1: Prime the document_embeddings table (optional)
             if inputs.skip_priming:
                 workflow.logger.info(f"Skipping priming (team {inputs.team_id})")
             else:
                 workflow.logger.info(f"Priming session embeddings (team {inputs.team_id})")
 
-                priming_result = await workflow.execute_activity(
-                    prime_session_embeddings_activity,
+                # First, identify which sessions need summarization
+                prime_info = await workflow.execute_activity(
+                    get_sessions_to_prime_activity,
                     args=[
                         PrimeSessionEmbeddingsActivityInputs(
                             team_id=inputs.team_id,
                             lookback_hours=inputs.lookback_hours,
                         )
                     ],
-                    start_to_close_timeout=timedelta(hours=2),
+                    start_to_close_timeout=timedelta(seconds=300),
                     retry_policy=RetryPolicy(
-                        maximum_attempts=2,
-                        initial_interval=timedelta(seconds=5),
-                        maximum_interval=timedelta(seconds=30),
+                        maximum_attempts=3,
+                        initial_interval=timedelta(seconds=1),
+                        maximum_interval=timedelta(seconds=10),
                         backoff_coefficient=2.0,
                     ),
                 )
 
-                workflow.logger.info(
-                    f"Priming complete: {priming_result.sessions_summarized} summarized, {priming_result.sessions_failed} failed"
-                )
+                # Then, start session summarization as child workflows
+                sessions_summarized = 0
+                sessions_failed = 0
+                if prime_info.user_id is None:
+                    raise ApplicationError(
+                        f"No user with access to team {inputs.team_id} found for running summarization",
+                        non_retryable=True,
+                    )
+                if prime_info.session_ids_to_summarize:
+                    summarize_handles: dict[str, temporalio.workflow.ChildWorkflowHandle] = {}
+                    for session_id in prime_info.session_ids_to_summarize:
+                        redis_key_base = f"session-summary:single:{prime_info.user_id}-{inputs.team_id}:{session_id}"
+                        handle = await temporalio.workflow.start_child_workflow(
+                            "summarize-session",
+                            SingleSessionSummaryInputs(
+                                session_id=session_id,
+                                user_id=prime_info.user_id,
+                                user_distinct_id_to_log=prime_info.user_distinct_id,
+                                team_id=inputs.team_id,
+                                redis_key_base=redis_key_base,
+                                model_to_use=DEFAULT_VIDEO_UNDERSTANDING_MODEL,
+                                video_validation_enabled="full",
+                            ),
+                            id=f"session-summary:single:direct:{inputs.team_id}:{session_id}:{prime_info.user_id}:{session_id}:{workflow.uuid4()}",
+                            execution_timeout=timedelta(minutes=30),
+                            retry_policy=RetryPolicy(
+                                maximum_attempts=1,  # No retries - if video export times out, just skip
+                            ),
+                            parent_close_policy=temporalio.workflow.ParentClosePolicy.REQUEST_CANCEL,
+                        )
+                        summarize_handles[session_id] = handle
+
+                    # Wait for all summarization child workflows to complete, skipping failures
+                    for session_id, handle in summarize_handles.items():
+                        try:
+                            await handle
+                            sessions_summarized += 1
+                        except Exception as e:
+                            sessions_failed += 1
+                            workflow.logger.warning(f"Session summarization skipped for {session_id}: {e}")
+
+                workflow.logger.info(f"Priming complete: {sessions_summarized} summarized, {sessions_failed} failed")
 
             # Activity 2: Fetch segments within lookback window
             fetch_result = await workflow.execute_activity(
