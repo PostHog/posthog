@@ -32,6 +32,7 @@ class PreaggregationTable(StrEnum):
     """Allowed target tables for preaggregation results."""
 
     PREAGGREGATION_RESULTS = "preaggregation_results"
+    EXPERIMENT_EXPOSURES_PREAGGREGATED = "experiment_exposures_preaggregated"
 
 
 @dataclass
