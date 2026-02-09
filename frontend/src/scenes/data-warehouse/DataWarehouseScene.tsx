@@ -19,7 +19,6 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { DataWarehouseTab, dataWarehouseSceneLogic } from './dataWarehouseSceneLogic'
-import { DataModelingTab } from './scene/DataModelingTab'
 import { OverviewTab } from './scene/OverviewTab'
 import { SourcesTab } from './scene/SourcesTab'
 import { ViewsTab } from './scene/ViewsTab'
@@ -92,19 +91,6 @@ export function DataWarehouseScene(): JSX.Element {
                         content: <ViewsTab />,
                         link: combineUrl(urls.dataWarehouse(), { ...searchParams, tab: DataWarehouseTab.VIEWS }).url,
                     },
-                    ...(featureFlags[FEATURE_FLAGS.DATA_MODELING_TAB]
-                        ? [
-                              {
-                                  key: DataWarehouseTab.MODELING,
-                                  label: 'Modeling',
-                                  content: <DataModelingTab />,
-                                  link: combineUrl(urls.dataWarehouse(), {
-                                      ...searchParams,
-                                      tab: DataWarehouseTab.MODELING,
-                                  }).url,
-                              },
-                          ]
-                        : []),
                 ]}
             />
         </SceneContent>

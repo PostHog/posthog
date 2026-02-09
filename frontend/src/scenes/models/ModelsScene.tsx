@@ -10,12 +10,10 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
-import { ViewsTab } from '../data-warehouse/scene/ViewsTab'
-import { modelsSceneLogic } from './modelsSceneLogic'
+import { DataModelingTab } from '../data-warehouse/scene/DataModelingTab'
 
 export const scene: SceneExport = {
     component: ModelsScene,
-    logic: modelsSceneLogic,
     productKey: ProductKey.DATA_WAREHOUSE_SAVED_QUERY,
 }
 
@@ -50,7 +48,7 @@ export function ModelsScene(): JSX.Element {
                     </div>
                 }
             />
-            <ViewsTab />
+            <DataModelingTab />
         </SceneContent>
     )
 }
