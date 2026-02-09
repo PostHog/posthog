@@ -1,65 +1,20 @@
 import { useActions, useValues } from 'kea'
 
 import { IconPlus, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonCard, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonSelect, Spinner } from '@posthog/lemon-ui'
 
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 
 import { Query } from '~/queries/Query/Query'
-import { QueryBasedInsightModel } from '~/types'
+import { isInsightVizNode } from '~/queries/utils'
 
 import { AddJourneyModal } from './AddJourneyModal'
-import { CustomerJourney, customerJourneysLogic } from './customerJourneysLogic'
-
-function JourneyCard({
-    journey,
-    insight,
-    onDelete,
-}: {
-    journey: CustomerJourney
-    insight: QueryBasedInsightModel | null | undefined
-    onDelete: () => void
-}): JSX.Element {
-    if (insight === undefined) {
-        return (
-            <LemonCard className="p-6">
-                <Spinner />
-            </LemonCard>
-        )
-    }
-
-    if (!insight) {
-        return (
-            <LemonCard className="p-6">
-                <div className="text-muted">Insight not found</div>
-            </LemonCard>
-        )
-    }
-
-    return (
-        <LemonCard className="p-6">
-            <div className="flex items-center justify-between mb-4">
-                <div>
-                    <h3 className="mb-1">{journey.name}</h3>
-                    {journey.description && <p className="text-muted text-sm">{journey.description}</p>}
-                </div>
-                <LemonButton
-                    icon={<IconTrash />}
-                    size="small"
-                    type="secondary"
-                    status="danger"
-                    onClick={onDelete}
-                    tooltip="Remove journey"
-                />
-            </div>
-            {insight.query && <Query query={insight.query} readOnly embedded />}
-        </LemonCard>
-    )
-}
+import { customerJourneysLogic } from './customerJourneysLogic'
 
 export function CustomerJourneys(): JSX.Element {
-    const { sortedJourneys, journeysLoading, insights, insightsLoading } = useValues(customerJourneysLogic)
-    const { showAddJourneyModal, deleteJourney } = useActions(customerJourneysLogic)
+    const { sortedJourneys, journeysLoading, activeJourney, activeJourneyId, activeInsight, activeInsightLoading } =
+        useValues(customerJourneysLogic)
+    const { showAddJourneyModal, setActiveJourneyId, deleteJourney } = useActions(customerJourneysLogic)
 
     if (journeysLoading) {
         return (
@@ -76,8 +31,6 @@ export function CustomerJourneys(): JSX.Element {
                     title="No customer journeys yet"
                     description="Add existing funnel insights as customer journeys to track how customers move through your product."
                     buttonText="Add a funnel"
-                    buttonIcon={<IconPlus />}
-                    buttonTo={undefined}
                     buttonOnClick={showAddJourneyModal}
                 />
                 <AddJourneyModal />
@@ -85,30 +38,48 @@ export function CustomerJourneys(): JSX.Element {
         )
     }
 
+    const journeyOptions = sortedJourneys.map((j) => ({
+        value: j.id,
+        label: j.name,
+    }))
+
+    const query = activeInsight?.query
+    const fullQuery = query && isInsightVizNode(query) ? { ...query, full: true } : query
+
     return (
         <div className="space-y-4">
-            <div className="flex items-center justify-between">
-                <h2 className="m-0">Customer journeys</h2>
-                <LemonButton type="primary" icon={<IconPlus />} onClick={showAddJourneyModal}>
+            <div className="flex items-center gap-2">
+                <LemonSelect
+                    value={activeJourneyId}
+                    onChange={setActiveJourneyId}
+                    options={journeyOptions}
+                    size="small"
+                />
+                <LemonButton type="secondary" icon={<IconPlus />} size="small" onClick={showAddJourneyModal}>
                     Add journey
                 </LemonButton>
+                {activeJourney && (
+                    <LemonButton
+                        icon={<IconTrash />}
+                        size="small"
+                        type="secondary"
+                        status="danger"
+                        onClick={() => deleteJourney(activeJourney.id)}
+                        tooltip="Remove this journey"
+                    />
+                )}
             </div>
-            {insightsLoading ? (
+
+            {activeInsightLoading ? (
                 <div className="flex items-center justify-center p-8">
                     <Spinner />
                 </div>
+            ) : fullQuery ? (
+                <Query query={fullQuery} readOnly />
             ) : (
-                <div className="space-y-4">
-                    {sortedJourneys.map((journey) => (
-                        <JourneyCard
-                            key={journey.id}
-                            journey={journey}
-                            insight={insights[journey.insight]}
-                            onDelete={() => deleteJourney(journey.id)}
-                        />
-                    ))}
-                </div>
+                <div className="text-muted text-center p-8">Insight not found</div>
             )}
+
             <AddJourneyModal />
         </div>
     )

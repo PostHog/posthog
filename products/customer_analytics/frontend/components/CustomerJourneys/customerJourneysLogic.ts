@@ -28,6 +28,8 @@ export const customerJourneysLogic = kea<customerJourneysLogicType>([
     actions({
         showAddJourneyModal: true,
         hideAddJourneyModal: true,
+        setActiveJourneyId: (journeyId: string | null) => ({ journeyId }),
+        selectFirstJourneyIfNeeded: (journeys: CustomerJourney[]) => ({ journeys }),
         deleteJourney: (journeyId: string) => ({ journeyId }),
     }),
     loaders(({ values }) => ({
@@ -56,23 +58,14 @@ export const customerJourneysLogic = kea<customerJourneysLogicType>([
                 return response.results || []
             },
         },
-        insights: {
-            __default: {} as Record<number, QueryBasedInsightModel | null>,
-            loadInsights: async () => {
-                const insightIds = values.journeys.map((j) => j.insight)
-                const insights: Record<number, QueryBasedInsightModel | null> = {}
-
-                await Promise.all(
-                    insightIds.map(async (id) => {
-                        try {
-                            insights[id] = await insightsApi.getByNumericId(id)
-                        } catch {
-                            insights[id] = null
-                        }
-                    })
-                )
-
-                return insights
+        activeInsight: {
+            __default: null as QueryBasedInsightModel | null,
+            loadActiveInsight: async () => {
+                const journey = values.activeJourney
+                if (!journey) {
+                    return null
+                }
+                return await insightsApi.getByNumericId(journey.insight)
             },
         },
     })),
@@ -85,14 +78,37 @@ export const customerJourneysLogic = kea<customerJourneysLogicType>([
                 addJourneySuccess: () => false,
             },
         ],
+        activeJourneyId: [
+            null as string | null,
+            {
+                setActiveJourneyId: (_, { journeyId }) => journeyId,
+            },
+        ],
     }),
     listeners(({ actions, values }) => ({
         deleteJourney: async ({ journeyId }) => {
             await api.delete(`api/environments/${values.currentTeamId}/customer_journeys/${journeyId}/`)
             actions.loadJourneys()
         },
-        loadJourneysSuccess: () => {
-            actions.loadInsights()
+        loadJourneysSuccess: ({ journeys }) => {
+            actions.selectFirstJourneyIfNeeded(journeys)
+        },
+        addJourneySuccess: ({ journeys }) => {
+            actions.selectFirstJourneyIfNeeded(journeys)
+        },
+        selectFirstJourneyIfNeeded: ({ journeys }) => {
+            if (journeys.length > 0) {
+                const currentActive = values.activeJourneyId
+                const stillExists = currentActive && journeys.some((j: CustomerJourney) => j.id === currentActive)
+                if (!stillExists) {
+                    actions.setActiveJourneyId(journeys[0].id)
+                }
+            } else {
+                actions.setActiveJourneyId(null)
+            }
+        },
+        setActiveJourneyId: () => {
+            actions.loadActiveInsight()
         },
     })),
     selectors({
@@ -105,6 +121,15 @@ export const customerJourneysLogic = kea<customerJourneysLogicType>([
                     }
                     return new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
                 })
+            },
+        ],
+        activeJourney: [
+            (s) => [s.sortedJourneys, s.activeJourneyId],
+            (journeys, activeId): CustomerJourney | null => {
+                if (!activeId) {
+                    return null
+                }
+                return journeys.find((j) => j.id === activeId) || null
             },
         ],
     }),

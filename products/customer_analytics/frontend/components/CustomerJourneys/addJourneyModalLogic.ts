@@ -1,4 +1,4 @@
-import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -13,6 +13,7 @@ import { customerJourneysLogic } from './customerJourneysLogic'
 export const addJourneyModalLogic = kea<addJourneyModalLogicType>([
     path(['products', 'customer_analytics', 'frontend', 'components', 'CustomerJourneys', 'addJourneyModalLogic']),
     connect(() => ({
+        actions: [customerJourneysLogic, ['hideAddJourneyModal']],
         values: [teamLogic, ['currentTeamId'], customerJourneysLogic, ['isAddJourneyModalOpen']],
     })),
     actions({
