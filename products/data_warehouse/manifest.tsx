@@ -19,7 +19,7 @@ export const manifest: ProductManifest = {
         },
         Models: {
             name: 'Models',
-            import: () => import('../../frontend/src/scenes/models/ModelsScene'),
+            import: () => import('../../frontend/src/scenes/models/Scene'),
             projectBased: true,
             defaultDocsPath: '/docs/data-warehouse',
             description: 'Create and manage views and materialized views for transforming and organizing your data.',

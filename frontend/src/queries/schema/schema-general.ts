@@ -5222,6 +5222,7 @@ export enum ProductKey {
     CONVERSATIONS = 'conversations',
     CUSTOMER_ANALYTICS = 'customer_analytics',
     DATA_WAREHOUSE = 'data_warehouse',
+    DATA_MODELING = 'data_modeling',
     DATA_WAREHOUSE_SAVED_QUERY = 'data_warehouse_saved_queries',
     EARLY_ACCESS_FEATURES = 'early_access_features',
     ENDPOINTS = 'endpoints',

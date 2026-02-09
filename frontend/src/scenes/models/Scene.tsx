@@ -14,7 +14,7 @@ import { DataModelingScene } from 'products/data_modeling/frontend/Scene'
 
 export const scene: SceneExport = {
     component: ModelsScene,
-    productKey: ProductKey.DATA_WAREHOUSE_SAVED_QUERY,
+    productKey: ProductKey.DATA_MODELING,
 }
 
 export function ModelsScene(): JSX.Element {
