@@ -1,5 +1,3 @@
-# V2 - focus on using iterators to abstract object creation from iteration, also better understanding of django internals
-
 from collections.abc import Generator, Iterable
 from dataclasses import dataclass
 from graphlib import TopologicalSorter
@@ -8,6 +6,7 @@ from typing import Any
 from django.db import models, transaction
 
 from posthog.models import Project, Team
+from posthog.models.resource_transfer.resource_transfer import ResourceTransfer
 from posthog.models.resource_transfer.visitors import ResourceTransferVisitor
 
 MAX_RELATIONAL_RECURSION_DEPTH = 20
@@ -48,20 +47,24 @@ def duplicate_resource_to_new_team(resource: Any, team: Team) -> list[Any]:
 
     :returns: A list of the newly created resources
     """
+    source_team = resource.team
     with transaction.atomic():
-        graph = build_resource_duplication_graph(resource, set())
+        graph = list(build_resource_duplication_graph(resource, set()))
         dag = dag_sort_duplication_graph(graph)
-        return duplicate_resources_from_dag(dag, team)
+        return duplicate_resources_from_dag(dag, source_team, team)
 
 
-def duplicate_resources_from_dag(dag: Iterable[ResourceTransferVertex], new_team: Team) -> list[Any]:
+def duplicate_resources_from_dag(dag: Iterable[ResourceTransferVertex], source_team: Team, new_team: Team) -> list[Any]:
     """
     Given a DAG of vertices, execute the database operations to copy the resources described by each vertex into the new team.
+    Also records a ResourceTransfer for each mutable resource that is created.
 
     :param dag: The DAG of vertices. Call `dag_sort_duplication_graph` to get this. Anything that isn't a DAG will likely result in a ValueError.
+    :param source_team: The team the resources are being copied from.
     :param new_team: The team to copy the resources to.
     """
     consumed_vertices: dict[tuple[type, Any], ResourceTransferVertex] = {}
+    transfer_records: list[ResourceTransfer] = []
 
     for vertex in dag:
         payload = {}
@@ -85,15 +88,11 @@ def duplicate_resources_from_dag(dag: Iterable[ResourceTransferVertex], new_team
 
         # handle relations
         for edge in vertex.edges:
-            print(f"{edge.source_model.__name__}.{edge.name} -> {edge.target_model.__name__}")
             if edge.target_model is Team:
-                print(f"{vertex.model.__name__}.{edge.name} is Team relation")
                 payload[edge.name] = new_team
             elif edge.target_model is Project:
-                print(f"{vertex.model.__name__}.{edge.name} is Project relation")
                 payload[edge.name] = new_team.project
             else:
-                print(f"{vertex.model.__name__}.{edge.name} is miscellaneous relation ({edge.target_model.__name__})")
                 related_vertex = consumed_vertices.get(edge.key, None)
                 if related_vertex is None:
                     raise ValueError(
@@ -103,11 +102,19 @@ def duplicate_resources_from_dag(dag: Iterable[ResourceTransferVertex], new_team
                 payload[edge.name] = related_vertex.duplicated_resource
 
         # yolo
-        print(f"YOLO-ing resource create: {payload}")
         vertex.duplicated_resource = visitor.get_model().objects.create(**payload)
-
         consumed_vertices[vertex.key] = vertex
 
+        transfer_records.append(
+            ResourceTransfer(
+                source_team=source_team,
+                destination_team=new_team,
+                resource_kind=visitor.kind,
+                resource_id=str(vertex.duplicated_resource.pk),
+            )
+        )
+
+    ResourceTransfer.objects.bulk_create(transfer_records)
     return [x.duplicated_resource for x in consumed_vertices.values()]
 
 
@@ -186,7 +193,6 @@ def build_resource_duplication_graph(
                 if through_resource is None:
                     continue
 
-                print(f"{type(resource).__name__}.{attribute_name} -> {through_model.__name__} ({through_resource.pk})")
                 yield from build_resource_duplication_graph(through_resource, exclude_set, depth + 1)
         else:
             related_model = attribute_value.field.related_model
@@ -195,7 +201,6 @@ def build_resource_duplication_graph(
             if related_resource is None:
                 continue
 
-            print(f"{type(resource).__name__}.{attribute_name} -> {related_model.__name__} ({related_resource.pk})")
             yield from build_resource_duplication_graph(related_resource, exclude_set, depth + 1)
             edges.append(
                 ResourceTransferEdge(

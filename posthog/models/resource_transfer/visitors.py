@@ -19,7 +19,7 @@ class ResourceTransferVisitor:
     def __init_subclass__(
         cls, kind: ResourceKind, excluded_fields: list[str] | None = None, immutable: bool = False
     ) -> None:
-        cls.knd = kind
+        cls.kind = kind
         cls.excluded_fields = excluded_fields or []
         cls.immutable = immutable
 
