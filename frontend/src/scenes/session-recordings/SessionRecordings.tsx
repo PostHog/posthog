@@ -196,7 +196,7 @@ function MainPanel({ tabId }: { tabId: string }): JSX.Element {
     const { tab } = useValues(sessionReplaySceneLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const isRedesignEnabled = featureFlags[FEATURE_FLAGS.REPLAY_UI_REDESIGN_2026] === 'test'
+    const isRedesignEnabled = featureFlags[FEATURE_FLAGS.REPLAY_UI_REDESIGN_2026] === 'test' || true
 
     const playlistLogicProps: SessionRecordingPlaylistLogicProps = {
         logicKey: `scene-${tabId}`,
