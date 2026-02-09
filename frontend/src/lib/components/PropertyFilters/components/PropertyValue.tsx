@@ -179,9 +179,8 @@ export function PropertyValue({
     }, [propertyOptions?.values, initialSuggestedValues])
 
     const onSearchTextChange = (newInput: string): void => {
-        const trimmedInput = newInput.trim()
-        if (trimmedInput !== currentSearchInput.current && !(operator && isOperatorFlag(operator))) {
-            load(trimmedInput)
+        if (!Object.keys(options).includes(newInput) && !(operator && isOperatorFlag(operator))) {
+            load(newInput.trim())
         }
     }
 
