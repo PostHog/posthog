@@ -65,7 +65,10 @@ class Command(BaseCommand):
         team_ids_str = options.get("team_ids")
         team_ids = None
         if team_ids_str:
-            team_ids = {int(tid.strip()) for tid in team_ids_str.split(",") if tid.strip()}
+            try:
+                team_ids = {int(tid.strip()) for tid in team_ids_str.split(",") if tid.strip()}
+            except ValueError as e:
+                raise CommandError(f"Invalid team IDs format: {team_ids_str}. Expected comma-separated integers.") from e
         global_percentage = options.get("global_percentage")
         cohort_id = options.get("cohort_id")
 
