@@ -118,6 +118,14 @@ type TableLookupEntry = {
 
 type TableLookup = Record<string, TableLookupEntry>
 
+const MAX_FIELD_TRAVERSAL_DEPTH = 25
+
+type FieldTraversalOptions = {
+    expandedLazyNodeIds?: Set<string>
+    visitedColumnPaths?: Set<string>
+    depth?: number
+}
+
 const normalizeTableLookupKey = (tableName?: string | null): string | null => {
     if (!tableName) {
         return null
@@ -315,7 +323,7 @@ const createLazyTableChildren = (
     isSearch: boolean,
     columnPath: string,
     tableLookup: TableLookup | undefined,
-    expandedLazyNodeIds: Set<string>
+    options: FieldTraversalOptions
 ): TreeDataItem[] => {
     const normalizedTableName = normalizeTableLookupKey(field.table)
     const referencedTable = field.table
@@ -341,7 +349,7 @@ const createLazyTableChildren = (
                     isSearch,
                     `${columnPath}.${childFieldName}`,
                     tableLookup,
-                    { expandedLazyNodeIds }
+                    options
                 )
             )
     }
@@ -369,9 +377,7 @@ const createLazyTableChildren = (
                     isSearch,
                     `${columnPath}.${childField.name}`,
                     tableLookup,
-                    {
-                        expandedLazyNodeIds,
-                    }
+                    options
                 )
             })
             .filter((node): node is TreeDataItem => node !== null)
@@ -380,9 +386,7 @@ const createLazyTableChildren = (
     return Object.values(referencedTable.fields)
         .filter((childField) => !shouldHideField(childField))
         .map((childField) =>
-            createFieldNode(tableName, childField, isSearch, `${columnPath}.${childField.name}`, tableLookup, {
-                expandedLazyNodeIds,
-            })
+            createFieldNode(tableName, childField, isSearch, `${columnPath}.${childField.name}`, tableLookup, options)
         )
 }
 
@@ -392,7 +396,7 @@ const createViewTableChildren = (
     isSearch: boolean,
     columnPath: string,
     tableLookup?: TableLookup,
-    expandedLazyNodeIds?: Set<string>
+    options?: FieldTraversalOptions
 ): TreeDataItem[] => {
     const normalizedTableName = normalizeTableLookupKey(field.table)
     const referencedTable = field.table
@@ -418,7 +422,7 @@ const createViewTableChildren = (
                     isSearch,
                     `${columnPath}.${childFieldName}`,
                     tableLookup,
-                    { expandedLazyNodeIds }
+                    options
                 )
             )
     }
@@ -446,9 +450,7 @@ const createViewTableChildren = (
                     isSearch,
                     `${columnPath}.${childField.name}`,
                     tableLookup,
-                    {
-                        expandedLazyNodeIds,
-                    }
+                    options
                 )
             })
             .filter((node): node is TreeDataItem => node !== null)
@@ -458,9 +460,7 @@ const createViewTableChildren = (
     return sortedFields
         .filter((childField) => !shouldHideField(childField))
         .map((childField) =>
-            createFieldNode(tableName, childField, isSearch, `${columnPath}.${childField.name}`, tableLookup, {
-                expandedLazyNodeIds,
-            })
+            createFieldNode(tableName, childField, isSearch, `${columnPath}.${childField.name}`, tableLookup, options)
         )
 }
 
@@ -471,12 +471,16 @@ const createTraversedLazyTableNode = (
     isSearch: boolean,
     columnPath: string,
     tableLookup: TableLookup | undefined,
-    expandedLazyNodeIds: Set<string>
+    expandedLazyNodeIds: Set<string>,
+    options?: FieldTraversalOptions
 ): TreeDataItem => {
     const lazyNodeId = `${isSearch ? 'search-' : ''}lazy-traverser-${tableName}-${columnPath}`
     const isExpanded = expandedLazyNodeIds.has(lazyNodeId)
     const lazyChildren = isExpanded
-        ? createLazyTableChildren(tableName, traversedField, isSearch, columnPath, tableLookup, expandedLazyNodeIds)
+        ? createLazyTableChildren(tableName, traversedField, isSearch, columnPath, tableLookup, {
+              ...options,
+              expandedLazyNodeIds,
+          })
         : []
     const children = isExpanded
         ? lazyChildren.length > 0
@@ -506,7 +510,8 @@ const createTraversedVirtualTableNode = (
     isSearch: boolean,
     columnPath: string,
     tableLookup: TableLookup | undefined,
-    expandedLazyNodeIds: Set<string>
+    expandedLazyNodeIds: Set<string>,
+    options?: FieldTraversalOptions
 ): TreeDataItem => {
     const children =
         traversedField.fields
@@ -518,9 +523,14 @@ const createTraversedVirtualTableNode = (
                 if (shouldHideField(childField)) {
                     return null
                 }
-                return createFieldNode(tableName, childField, isSearch, `${columnPath}.${fieldName}`, tableLookup, {
-                    expandedLazyNodeIds,
-                })
+                return createFieldNode(
+                    tableName,
+                    childField,
+                    isSearch,
+                    `${columnPath}.${fieldName}`,
+                    tableLookup,
+                    options
+                )
             })
             .filter((node): node is TreeDataItem => node !== null) ?? []
 
@@ -544,11 +554,24 @@ const createFieldNode = (
     isSearch: boolean,
     columnPath: string,
     tableLookup?: TableLookup,
-    options?: {
-        expandedLazyNodeIds?: Set<string>
-    }
+    options?: FieldTraversalOptions
 ): TreeDataItem => {
     const expandedLazyNodeIds = options?.expandedLazyNodeIds
+    const visitedColumnPaths = options?.visitedColumnPaths ?? new Set<string>()
+    const depth = options?.depth ?? 0
+    const columnKey = `${tableName}:${columnPath}`
+
+    if (visitedColumnPaths.has(columnKey) || depth >= MAX_FIELD_TRAVERSAL_DEPTH) {
+        return createColumnNode(tableName, field, columnPath, isSearch)
+    }
+
+    const nextVisitedColumnPaths = new Set(visitedColumnPaths)
+    nextVisitedColumnPaths.add(columnKey)
+    const nextOptions: FieldTraversalOptions = {
+        expandedLazyNodeIds,
+        visitedColumnPaths: nextVisitedColumnPaths,
+        depth: depth + 1,
+    }
     if (field.type === 'virtual_table') {
         const children =
             field.fields
@@ -560,9 +583,14 @@ const createFieldNode = (
                     if (shouldHideField(childField)) {
                         return null
                     }
-                    return createFieldNode(tableName, childField, isSearch, `${columnPath}.${fieldName}`, tableLookup, {
-                        expandedLazyNodeIds,
-                    })
+                    return createFieldNode(
+                        tableName,
+                        childField,
+                        isSearch,
+                        `${columnPath}.${fieldName}`,
+                        tableLookup,
+                        nextOptions
+                    )
                 })
                 .filter((node): node is TreeDataItem => node !== null) ?? []
 
@@ -589,7 +617,8 @@ const createFieldNode = (
                 isSearch,
                 columnPath,
                 tableLookup,
-                expandedLazyNodeIds
+                expandedLazyNodeIds,
+                nextOptions
             )
         }
 
@@ -601,20 +630,14 @@ const createFieldNode = (
                 isSearch,
                 columnPath,
                 tableLookup,
-                expandedLazyNodeIds ?? new Set<string>()
+                expandedLazyNodeIds ?? new Set<string>(),
+                nextOptions
             )
         }
     }
 
     if (field.type === 'view' || field.type === 'materialized_view') {
-        const children = createViewTableChildren(
-            tableName,
-            field,
-            isSearch,
-            columnPath,
-            tableLookup,
-            expandedLazyNodeIds
-        )
+        const children = createViewTableChildren(tableName, field, isSearch, columnPath, tableLookup, nextOptions)
 
         return {
             id: `${isSearch ? 'search-' : ''}view-table-${tableName}-${columnPath}`,
@@ -636,7 +659,10 @@ const createFieldNode = (
         const isExpanded = expandedLazyNodeIds ? expandedLazyNodeIds.has(lazyNodeId) : false
         const lazyExpandedIds = expandedLazyNodeIds ?? new Set<string>()
         const lazyChildren = isExpanded
-            ? createLazyTableChildren(tableName, field, isSearch, columnPath, tableLookup, lazyExpandedIds)
+            ? createLazyTableChildren(tableName, field, isSearch, columnPath, tableLookup, {
+                  ...nextOptions,
+                  expandedLazyNodeIds: lazyExpandedIds,
+              })
             : []
 
         const children = isExpanded
