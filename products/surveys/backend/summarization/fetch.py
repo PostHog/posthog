@@ -9,6 +9,36 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.models import Team
 
+MIN_SINGLE_TOKEN_LENGTH_FOR_AI_SUMMARY = 8
+MIN_TOTAL_LENGTH_FOR_AI_SUMMARY = 3
+
+
+def is_substantive_response_for_ai_summary(response: str) -> bool:
+    """
+    Heuristic filter to reduce low-signal / accidental survey answers in AI summaries.
+
+    This is intentionally conservative: it removes obvious junk (empty/whitespace-only, punctuation-only)
+    and very short single-token answers (e.g. "ddsads") that tend to add noise rather than meaning.
+    """
+
+    text = response.strip()
+    if not text:
+        return False
+
+    # Avoid summarizing "x", "ok", etc. These are nearly always low-signal in open text summaries.
+    if len(text) < MIN_TOTAL_LENGTH_FOR_AI_SUMMARY:
+        return False
+
+    # Ignore answers with no alphanumerics (e.g. "!!!", "…", emoji-only).
+    if not any(ch.isalnum() for ch in text):
+        return False
+
+    # Drop very short single-token responses (no whitespace) as they're disproportionately accidental/noisy.
+    if len(text) < MIN_SINGLE_TOKEN_LENGTH_FOR_AI_SUMMARY and not any(ch.isspace() for ch in text):
+        return False
+
+    return True
+
 
 def fetch_responses(
     survey_id: str,
@@ -20,6 +50,7 @@ def fetch_responses(
     limit: int = 100,
     exclude_values: list[str] | None = None,
     exclude_uuids: set[str] | None = None,
+    filter_for_ai_summary: bool = False,
 ) -> list[str]:
     """
     Fetch survey responses for a specific question.
@@ -34,6 +65,7 @@ def fetch_responses(
         limit: Maximum number of responses to fetch
         exclude_values: List of values to exclude (e.g., predefined choices for choice questions)
         exclude_uuids: Set of response UUIDs to exclude (e.g., archived responses)
+        filter_for_ai_summary: If True, drop obvious low-signal responses for AI summarization
 
     Returns:
         List of response strings
@@ -81,5 +113,8 @@ def fetch_responses(
     if exclude_values:
         exclude_set = set(exclude_values)
         responses = [r for r in responses if r not in exclude_set]
+
+    if filter_for_ai_summary:
+        responses = [r for r in responses if is_substantive_response_for_ai_summary(r)]
 
     return responses

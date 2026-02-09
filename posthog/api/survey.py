@@ -1570,6 +1570,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
             team=self.team,
             exclude_values=question_choices,
             exclude_uuids=archived_uuids,
+            filter_for_ai_summary=True,
         )
         response_count = len(responses)
 
