@@ -101,22 +101,23 @@ test.describe('Trends insights', () => {
             await countPerUserItem.getByRole('button').click()
             await page.getByRole('menuitem', { name: 'median' }).click()
             await insight.trends.waitForChart()
+            await page.keyboard.press('Escape')
         })
 
         await test.step('change to Property value with sum', async () => {
-            const propertyValueItem = page.getByRole('menuitem', { name: /property value/ })
             await insight.trends.mathSelector(0).click()
+            const propertyValueItem = page.getByRole('menuitem', { name: /property value/ })
             await propertyValueItem.waitFor({ state: 'visible' })
             await propertyValueItem.getByRole('button').click()
             await page.getByRole('menuitem', { name: 'sum' }).click()
             await insight.trends.waitForChart()
+            await page.keyboard.press('Escape')
         })
 
         await test.step('change to Weekly then Monthly active users', async () => {
+            await insight.trends.mathSelector(0).click()
             const weeklyOption = page.getByRole('menuitem', { name: /Weekly active users/ })
-            if (!(await weeklyOption.isVisible())) {
-                await insight.trends.mathSelector(0).click()
-            }
+            await weeklyOption.waitFor({ state: 'visible' })
             await weeklyOption.click()
             await insight.trends.waitForChart()
 
