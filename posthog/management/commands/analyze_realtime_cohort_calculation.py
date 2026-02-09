@@ -3,7 +3,7 @@ import asyncio
 import logging
 
 from django.conf import settings
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 
 import structlog
 from temporalio.common import WorkflowIDReusePolicy
@@ -68,7 +68,9 @@ class Command(BaseCommand):
             try:
                 team_ids = {int(tid.strip()) for tid in team_ids_str.split(",") if tid.strip()}
             except ValueError as e:
-                raise CommandError(f"Invalid team IDs format: {team_ids_str}. Expected comma-separated integers.") from e
+                raise CommandError(
+                    f"Invalid team IDs format: {team_ids_str}. Expected comma-separated integers."
+                ) from e
         global_percentage = options.get("global_percentage")
         cohort_id = options.get("cohort_id")
 
