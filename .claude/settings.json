@@ -2,5 +2,17 @@
     "enabledPlugins": {
         "pyright-lsp@claude-plugins-official": true,
         "typescript-lsp@claude-plugins-official": true
+    },
+    "hooks": {
+        "SessionStart": [
+            {
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": "if [ \"$CLAUDE_CODE_REMOTE\" = 'true' ]; then cd \"$CLAUDE_PROJECT_DIR\" && pnpm install --frozen-lockfile 2>/dev/null; fi"
+                    }
+                ]
+            }
+        ]
     }
 }
