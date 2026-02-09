@@ -758,6 +758,17 @@ describe('Hog Executor', () => {
             })
         }
 
+        // Provide pre-built inputs so buildInputsWithGlobals is skipped
+        const createTicketInvocation = () =>
+            createExampleInvocation(
+                createHogFunction({
+                    ...HOG_EXAMPLES.simple_fetch,
+                    ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                    ...HOG_FILTERS_EXAMPLES.no_filters,
+                }),
+                { inputs: {} }
+            )
+
         it('postHogGetTicket queues internal fetch with correct params', async () => {
             jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue({
                 id: 1,
@@ -766,15 +777,7 @@ describe('Hog Executor', () => {
 
             mockExecHogForAsyncFunction('postHogGetTicket', [{ ticket_id: 'test-ticket-123' }])
 
-            const invocation = createExampleInvocation(
-                createHogFunction({
-                    ...HOG_EXAMPLES.simple_fetch,
-                    ...HOG_INPUTS_EXAMPLES.simple_fetch,
-                    ...HOG_FILTERS_EXAMPLES.no_filters,
-                })
-            )
-
-            const result = await executor.execute(invocation)
+            const result = await executor.execute(createTicketInvocation())
 
             expect(result.invocation.queueParameters).toEqual({
                 type: 'fetch',
@@ -794,15 +797,7 @@ describe('Hog Executor', () => {
                 { ticket_id: 'test-ticket-456', updates: { status: 'resolved', priority: 'high' } },
             ])
 
-            const invocation = createExampleInvocation(
-                createHogFunction({
-                    ...HOG_EXAMPLES.simple_fetch,
-                    ...HOG_INPUTS_EXAMPLES.simple_fetch,
-                    ...HOG_FILTERS_EXAMPLES.no_filters,
-                })
-            )
-
-            const result = await executor.execute(invocation)
+            const result = await executor.execute(createTicketInvocation())
 
             expect(result.invocation.queueParameters).toEqual({
                 type: 'fetch',
@@ -824,15 +819,7 @@ describe('Hog Executor', () => {
 
             mockExecHogForAsyncFunction('postHogGetTicket', [{}])
 
-            const invocation = createExampleInvocation(
-                createHogFunction({
-                    ...HOG_EXAMPLES.simple_fetch,
-                    ...HOG_INPUTS_EXAMPLES.simple_fetch,
-                    ...HOG_FILTERS_EXAMPLES.no_filters,
-                })
-            )
-
-            const result = await executor.execute(invocation)
+            const result = await executor.execute(createTicketInvocation())
             expect(result.error).toContain("missing 'ticket_id'")
         })
 
@@ -844,15 +831,7 @@ describe('Hog Executor', () => {
 
             mockExecHogForAsyncFunction('postHogUpdateTicket', [{ updates: { status: 'resolved' } }])
 
-            const invocation = createExampleInvocation(
-                createHogFunction({
-                    ...HOG_EXAMPLES.simple_fetch,
-                    ...HOG_INPUTS_EXAMPLES.simple_fetch,
-                    ...HOG_FILTERS_EXAMPLES.no_filters,
-                })
-            )
-
-            const result = await executor.execute(invocation)
+            const result = await executor.execute(createTicketInvocation())
             expect(result.error).toContain("missing 'ticket_id'")
         })
 
@@ -861,15 +840,7 @@ describe('Hog Executor', () => {
 
             mockExecHogForAsyncFunction('postHogGetTicket', [{ ticket_id: 'test-ticket-123' }])
 
-            const invocation = createExampleInvocation(
-                createHogFunction({
-                    ...HOG_EXAMPLES.simple_fetch,
-                    ...HOG_INPUTS_EXAMPLES.simple_fetch,
-                    ...HOG_FILTERS_EXAMPLES.no_filters,
-                })
-            )
-
-            const result = await executor.execute(invocation)
+            const result = await executor.execute(createTicketInvocation())
             expect(result.error).toContain('Team 1 not found')
         })
     })
