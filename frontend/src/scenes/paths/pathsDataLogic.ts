@@ -24,7 +24,7 @@ export function buildFunnelEventsFromPathNode(pathItemCard: PathNodeData): Actio
     let currentItemCard: PathNodeData | undefined = pathItemCard
     while (currentItemCard) {
         const rawName = currentItemCard.name.replace(/(^[0-9]+_)/, '')
-        const isPageview = currentItemCard.name.includes('http')
+        const isPageview = /^https?:\/\//.test(rawName)
         events.push({
             id: isPageview ? '$pageview' : rawName,
             name: isPageview ? '$pageview' : rawName,
