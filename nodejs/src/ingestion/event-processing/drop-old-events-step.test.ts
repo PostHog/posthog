@@ -1,32 +1,10 @@
 import { DateTime } from 'luxon'
+import { Message } from 'node-rdkafka'
 import { v4 } from 'uuid'
 
+import { EventHeaders, PipelineEvent, ProjectId, Team } from '../../types'
 import { PipelineResultType, isDropResult } from '../pipelines/results'
 import { DropOldEventsInput, createDropOldEventsStep } from './drop-old-events-step'
-
-const createTestInput = (dropThreshold: number | null, eventAgeSeconds: number): DropOldEventsInput => {
-    const now = DateTime.utc()
-    const eventTimestamp = now.minus({ seconds: eventAgeSeconds })
-    const eventUuid = v4()
-
-    return {
-        eventWithTeam: {
-            event: {
-                uuid: eventUuid,
-                event: '$pageview',
-                distinct_id: 'user-1',
-            },
-            team: {
-                id: 1,
-                drop_events_older_than_seconds: dropThreshold,
-            },
-        },
-        headers: {
-            timestamp: eventTimestamp.toMillis().toString(),
-            now: now.toJSDate(),
-        },
-    } as DropOldEventsInput
-}
 
 describe('createDropOldEventsStep', () => {
     const dropOldEventsStep = createDropOldEventsStep()
@@ -38,7 +16,7 @@ describe('createDropOldEventsStep', () => {
         { dropThreshold: 3600, eventAgeSeconds: 3600, description: 'event is exactly at threshold' },
         { dropThreshold: 3600, eventAgeSeconds: -3600, description: 'event is in the future' },
     ])('passes through event when $description', async ({ dropThreshold, eventAgeSeconds }) => {
-        const input = createTestInput(dropThreshold, eventAgeSeconds)
+        const input = createTestInput({ dropThreshold, eventAgeSeconds })
 
         const result = await dropOldEventsStep(input)
 
@@ -46,7 +24,7 @@ describe('createDropOldEventsStep', () => {
     })
 
     it('drops event older than threshold with warning', async () => {
-        const input = createTestInput(3600, 7200) // threshold: 1h, age: 2h
+        const input = createTestInput({ dropThreshold: 3600, eventAgeSeconds: 7200 }) // threshold: 1h, age: 2h
 
         const result = await dropOldEventsStep(input)
 
@@ -67,22 +45,10 @@ describe('createDropOldEventsStep', () => {
     })
 
     it('passes through when timestamp header is missing', async () => {
-        const input = {
-            eventWithTeam: {
-                event: {
-                    uuid: v4(),
-                    event: '$pageview',
-                    distinct_id: 'user-1',
-                },
-                team: {
-                    id: 1,
-                    drop_events_older_than_seconds: 3600,
-                },
-            },
-            headers: {
-                now: new Date(),
-            },
-        } as DropOldEventsInput
+        const input = createTestInput({
+            dropThreshold: 3600,
+            headers: { timestamp: undefined },
+        })
 
         const result = await dropOldEventsStep(input)
 
@@ -90,26 +56,11 @@ describe('createDropOldEventsStep', () => {
     })
 
     it('uses current time when now header is missing', async () => {
-        const now = DateTime.utc()
-        const eventTimestamp = now.minus({ hours: 2 }) // 2h old
-
-        const input = {
-            eventWithTeam: {
-                event: {
-                    uuid: v4(),
-                    event: '$pageview',
-                    distinct_id: 'user-1',
-                },
-                team: {
-                    id: 1,
-                    drop_events_older_than_seconds: 3600, // 1h threshold
-                },
-            },
-            headers: {
-                timestamp: eventTimestamp.toMillis().toString(),
-                // now is missing - should use current time
-            },
-        } as DropOldEventsInput
+        const input = createTestInput({
+            dropThreshold: 3600, // 1h threshold
+            eventAgeSeconds: 7200, // 2h old
+            headers: { now: undefined },
+        })
 
         const result = await dropOldEventsStep(input)
 
@@ -122,26 +73,18 @@ describe('createDropOldEventsStep', () => {
         // Timestamp header is set to 2h ago by capture service (after clock skew correction)
         const normalizedTimestamp = now.minus({ hours: 2 })
 
-        const input = {
-            eventWithTeam: {
-                event: {
-                    uuid: v4(),
-                    event: '$pageview',
-                    distinct_id: 'user-1',
-                    // Event body timestamp is irrelevant - we use header
-                    timestamp: now.minus({ minutes: 1 }).toISO()!,
-                },
-                team: {
-                    id: 1,
-                    drop_events_older_than_seconds: 3600, // 1h threshold
-                },
+        const input = createTestInput({
+            dropThreshold: 3600, // 1h threshold
+            event: {
+                // Event body timestamp is irrelevant - we use header
+                timestamp: now.minus({ minutes: 1 }).toISO()!,
             },
             headers: {
                 // Capture service already normalized this with clock skew correction
                 timestamp: normalizedTimestamp.toMillis().toString(),
                 now: now.toJSDate(),
             },
-        } as DropOldEventsInput
+        })
 
         const result = await dropOldEventsStep(input)
 
@@ -154,20 +97,10 @@ describe('createDropOldEventsStep', () => {
             { headers: undefined, description: 'headers is undefined' },
             { headers: null, description: 'headers is null' },
         ])('passes through when $description', async ({ headers }) => {
-            const input = {
-                eventWithTeam: {
-                    event: {
-                        uuid: v4(),
-                        event: '$pageview',
-                        distinct_id: 'user-1',
-                    },
-                    team: {
-                        id: 1,
-                        drop_events_older_than_seconds: 3600,
-                    },
-                },
-                headers,
-            } as unknown as DropOldEventsInput
+            const input = createTestInput({
+                dropThreshold: 3600,
+                headers: headers as null | undefined,
+            })
 
             const result = await dropOldEventsStep(input)
 
@@ -181,23 +114,10 @@ describe('createDropOldEventsStep', () => {
             { timestamp: 'Infinity', description: 'timestamp parses to Infinity' },
             { timestamp: '-Infinity', description: 'timestamp parses to -Infinity' },
         ])('passes through when $description', async ({ timestamp }) => {
-            const input = {
-                eventWithTeam: {
-                    event: {
-                        uuid: v4(),
-                        event: '$pageview',
-                        distinct_id: 'user-1',
-                    },
-                    team: {
-                        id: 1,
-                        drop_events_older_than_seconds: 3600,
-                    },
-                },
-                headers: {
-                    timestamp,
-                    now: new Date(),
-                },
-            } as DropOldEventsInput
+            const input = createTestInput({
+                dropThreshold: 3600,
+                headers: { timestamp },
+            })
 
             const result = await dropOldEventsStep(input)
 
@@ -206,30 +126,20 @@ describe('createDropOldEventsStep', () => {
 
         it.each([
             { now: new Date('invalid'), description: 'now is invalid Date' },
-            { now: 'not-a-date', description: 'now is a string' },
-            { now: 12345, description: 'now is a number' },
-            { now: {}, description: 'now is an object' },
+            { now: 'not-a-date' as unknown as Date, description: 'now is a string' },
+            { now: 12345 as unknown as Date, description: 'now is a number' },
+            { now: {} as unknown as Date, description: 'now is an object' },
         ])('uses current time when $description', async ({ now }) => {
             const currentTime = DateTime.utc()
             const eventTimestamp = currentTime.minus({ hours: 2 })
 
-            const input = {
-                eventWithTeam: {
-                    event: {
-                        uuid: v4(),
-                        event: '$pageview',
-                        distinct_id: 'user-1',
-                    },
-                    team: {
-                        id: 1,
-                        drop_events_older_than_seconds: 3600,
-                    },
-                },
+            const input = createTestInput({
+                dropThreshold: 3600,
                 headers: {
                     timestamp: eventTimestamp.toMillis().toString(),
                     now,
                 },
-            } as unknown as DropOldEventsInput
+            })
 
             const result = await dropOldEventsStep(input)
 
@@ -238,3 +148,96 @@ describe('createDropOldEventsStep', () => {
         })
     })
 })
+
+function createTestInput(options: {
+    dropThreshold?: number | null
+    eventAgeSeconds?: number
+    event?: Partial<PipelineEvent>
+    team?: Partial<Team>
+    headers?: Partial<EventHeaders> | null
+}): DropOldEventsInput {
+    const { dropThreshold = null, eventAgeSeconds = 0, event = {}, team = {} } = options
+
+    const now = DateTime.utc()
+    const eventTimestamp = now.minus({ seconds: eventAgeSeconds })
+
+    // Only treat headers as null/undefined if explicitly passed as such
+    const headersExplicitlyNull = 'headers' in options && (options.headers === null || options.headers === undefined)
+
+    const resolvedHeaders = headersExplicitlyNull
+        ? (options.headers as unknown as Pick<EventHeaders, 'timestamp' | 'now'>)
+        : createTestHeaders({
+              timestamp: eventTimestamp.toMillis().toString(),
+              now: now.toJSDate(),
+              ...options.headers,
+          })
+
+    return {
+        eventWithTeam: {
+            message: createTestMessage(),
+            event: createTestEvent(event),
+            team: createTestTeam({ drop_events_older_than_seconds: dropThreshold, ...team }),
+            headers: createTestHeaders(),
+        },
+        headers: resolvedHeaders,
+    }
+}
+
+function createTestTeam(overrides: Partial<Team> = {}): Team {
+    return {
+        id: 1,
+        project_id: 1 as ProjectId,
+        uuid: v4(),
+        organization_id: v4(),
+        name: 'Test Team',
+        anonymize_ips: false,
+        api_token: 'test-token',
+        slack_incoming_webhook: null,
+        session_recording_opt_in: false,
+        person_processing_opt_out: null,
+        heatmaps_opt_in: null,
+        ingested_event: true,
+        person_display_name_properties: null,
+        test_account_filters: null,
+        cookieless_server_hash_mode: null,
+        timezone: 'UTC',
+        available_features: [],
+        drop_events_older_than_seconds: null,
+        ...overrides,
+    }
+}
+
+function createTestEvent(overrides: Partial<PipelineEvent> = {}): PipelineEvent {
+    return {
+        uuid: v4(),
+        event: '$pageview',
+        distinct_id: 'user-1',
+        ip: null,
+        site_url: 'https://test.posthog.com',
+        now: DateTime.utc().toISO()!,
+        properties: {},
+        ...overrides,
+    }
+}
+
+function createTestMessage(overrides: Partial<Message> = {}): Message {
+    return {
+        value: Buffer.from('{}'),
+        size: 2,
+        topic: 'test-topic',
+        offset: 0,
+        partition: 0,
+        ...overrides,
+    }
+}
+
+function createTestHeaders(overrides: Partial<EventHeaders> = {}): EventHeaders {
+    const now = DateTime.utc()
+    return {
+        timestamp: now.toMillis().toString(),
+        now: now.toJSDate(),
+        force_disable_person_processing: false,
+        historical_migration: false,
+        ...overrides,
+    }
+}
