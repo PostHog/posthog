@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 import { useEffect } from 'react'
 
 import { Spinner } from '@posthog/lemon-ui'
@@ -6,28 +6,11 @@ import { Spinner } from '@posthog/lemon-ui'
 import { CyclotronJobInputs } from 'lib/components/CyclotronJob/CyclotronJobInputs'
 import { templateToConfiguration } from 'scenes/hog-functions/configuration/hogFunctionConfigurationLogic'
 
-import { CyclotronJobInputType, HogFunctionMappingType, SurveyEventName, SurveyQuestionType } from '~/types'
+import { CyclotronJobInputType, HogFunctionMappingType, SurveyQuestionType } from '~/types'
 
 import { workflowLogic } from '../../../workflowLogic'
-import { surveyTriggerLogic } from '../surveyTriggerLogic'
+import { isSurveyTrigger, surveyTriggerLogic } from '../surveyTriggerLogic'
 import { HogFlowFunctionMappings } from './HogFlowFunctionMappings'
-
-function getSampleValueForQuestionType(type: string): any {
-    switch (type) {
-        case SurveyQuestionType.Open:
-            return 'User response text'
-        case SurveyQuestionType.Rating:
-            return '8'
-        case SurveyQuestionType.SingleChoice:
-            return 'Selected option'
-        case SurveyQuestionType.MultipleChoice:
-            return ['Option A', 'Option B']
-        case SurveyQuestionType.Link:
-            return null
-        default:
-            return 'response'
-    }
-}
 
 export function HogFlowFunctionConfiguration({
     templateId,
@@ -45,30 +28,18 @@ export function HogFlowFunctionConfiguration({
     errors?: Record<string, string>
 }): JSX.Element {
     const { workflow, hogFunctionTemplatesById, hogFunctionTemplatesByIdLoading } = useValues(workflowLogic)
-    const { allSurveys, surveysLoading } = useValues(surveyTriggerLogic)
-    const { loadSurveys } = useActions(surveyTriggerLogic)
+    const { allSurveys, getSampleValueForQuestionType } = useValues(surveyTriggerLogic)
 
     const template = hogFunctionTemplatesById[templateId]
+    const surveyTrigger = isSurveyTrigger(workflow)
+    const triggerType = workflow?.trigger?.type
+
     useEffect(() => {
         // oxlint-disable-next-line exhaustive-deps
         if (template && Object.keys(inputs ?? {}).length === 0) {
             setInputs(templateToConfiguration(template).inputs ?? {})
         }
     }, [templateId])
-
-    // Detect survey trigger: exactly one event filter of 'survey sent'
-    const triggerType = workflow?.trigger?.type
-    const triggerEvents =
-        triggerType === 'event' && workflow?.trigger && 'filters' in workflow.trigger
-            ? (workflow.trigger.filters?.events ?? [])
-            : []
-    const isSurveyTrigger = triggerEvents.length === 1 && triggerEvents[0]?.id === SurveyEventName.SENT
-
-    useEffect(() => {
-        if (isSurveyTrigger && allSurveys.length === 0 && !surveysLoading) {
-            loadSurveys()
-        }
-    }, [isSurveyTrigger, allSurveys.length, surveysLoading, loadSurveys])
 
     if (hogFunctionTemplatesByIdLoading) {
         return (
@@ -84,7 +55,7 @@ export function HogFlowFunctionConfiguration({
 
     // If a specific survey is selected, find it for question-aware autocomplete
     const surveyIdProp =
-        isSurveyTrigger && workflow?.trigger && 'filters' in workflow.trigger
+        surveyTrigger && workflow?.trigger && 'filters' in workflow.trigger
             ? workflow.trigger.filters?.properties?.find((p: any) => p.key === '$survey_id' && p.operator === 'exact')
             : null
     const selectedSurvey = surveyIdProp ? allSurveys.find((s) => s.id === surveyIdProp.value) : null
@@ -118,7 +89,7 @@ export function HogFlowFunctionConfiguration({
             params: {},
         }
     } else if (triggerType === 'event') {
-        if (isSurveyTrigger) {
+        if (surveyTrigger) {
             // Properties matching the actual posthog-js SDK survey sent event schema
             const surveyProperties: Record<string, any> = {
                 $survey_id: selectedSurvey?.id ?? 'survey-uuid',

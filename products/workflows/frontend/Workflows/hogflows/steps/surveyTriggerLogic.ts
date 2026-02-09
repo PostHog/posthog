@@ -5,11 +5,25 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 
-import { Survey } from '~/types'
+import { Survey, SurveyQuestionType } from '~/types'
+import { SurveyEventName } from '~/types'
 
+import type { HogFlow } from '../types'
 import type { surveyTriggerLogicType } from './surveyTriggerLogicType'
 
 const SURVEYS_PAGE_SIZE = 20
+
+export function isSurveyTrigger(workflow: HogFlow | null | undefined): boolean {
+    if (!workflow) {
+        return false
+    }
+    const trigger = workflow.actions?.find((a) => a.type === 'trigger')
+    if (!trigger || trigger.config.type !== 'event') {
+        return false
+    }
+    const events = trigger.config.filters?.events ?? []
+    return events.length === 1 && events[0]?.id === SurveyEventName.SENT
+}
 
 export const surveyTriggerLogic = kea<surveyTriggerLogicType>([
     path(['products', 'workflows', 'frontend', 'Workflows', 'hogflows', 'steps', 'surveyTriggerLogic']),
@@ -50,6 +64,26 @@ export const surveyTriggerLogic = kea<surveyTriggerLogicType>([
         ],
     }),
     selectors({
+        getSampleValueForQuestionType: [
+            () => [],
+            (): ((type: string) => any) =>
+                (type: string): any => {
+                    switch (type) {
+                        case SurveyQuestionType.Open:
+                            return 'User response text'
+                        case SurveyQuestionType.Rating:
+                            return '8'
+                        case SurveyQuestionType.SingleChoice:
+                            return 'Selected option'
+                        case SurveyQuestionType.MultipleChoice:
+                            return ['Option A', 'Option B']
+                        case SurveyQuestionType.Link:
+                            return null
+                        default:
+                            return 'response'
+                    }
+                },
+        ],
         filteredSurveys: [
             (s) => [s.allSurveys, s.searchTerm],
             (allSurveys: Survey[], searchTerm: string): Survey[] => {
