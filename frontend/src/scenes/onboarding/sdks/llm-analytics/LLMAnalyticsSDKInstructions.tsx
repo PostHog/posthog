@@ -39,7 +39,7 @@ import { VercelAIInstallation } from '@posthog/shared-onboarding/llm-analytics/v
 import { VercelAIGatewayInstallation } from '@posthog/shared-onboarding/llm-analytics/vercel-ai-gateway'
 import { XAIInstallation } from '@posthog/shared-onboarding/llm-analytics/xai'
 
-import { SDKInstructionsMap, SDKKey } from '~/types'
+import { SDKInstructionsMap, SDKKey, SDKTag, SDKTagOverrides } from '~/types'
 
 import { withOnboardingDocsWrapper } from '../shared/onboardingWrappers'
 
@@ -198,6 +198,10 @@ const LLMOpenAIAgentsInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: OpenAIAgentsInstallation,
     snippets: PROVIDER_SNIPPETS,
 })
+
+export const LLMAnalyticsSDKTagOverrides: SDKTagOverrides = {
+    [SDKKey.HELICONE]: [SDKTag.GATEWAY],
+}
 
 export const LLMAnalyticsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.OPENAI]: LLMOpenAIInstructionsWrapper,

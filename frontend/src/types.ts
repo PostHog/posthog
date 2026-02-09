@@ -5783,6 +5783,7 @@ export enum SDKTag {
     WEB = 'Web',
     MOBILE = 'Mobile',
     SERVER = 'Server',
+    LLM = 'LLM',
     FRAMEWORK = 'Framework',
     MODEL_PROVIDER = 'Model provider',
     GATEWAY = 'Gateway',
@@ -5791,6 +5792,7 @@ export enum SDKTag {
 }
 
 export type SDKInstructionsMap = Partial<Record<SDKKey, React.ComponentType>>
+export type SDKTagOverrides = Partial<Record<SDKKey, SDKTag[]>>
 
 export interface AppMetricsUrlParams {
     tab?: AppMetricsTab

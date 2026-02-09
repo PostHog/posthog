@@ -415,7 +415,7 @@ export const ALL_SDKS: SDK[] = [
     {
         name: 'Helicone',
         key: SDKKey.HELICONE,
-        tags: [SDKTag.GATEWAY],
+        tags: [SDKTag.LLM, SDKTag.GATEWAY],
         image: 'https://res.cloudinary.com/dmukukwp6/image/upload/helicone_7c41fa4c2d.svg',
         docsLink: 'https://posthog.com/docs/llm-analytics/installation/helicone',
     },
@@ -447,7 +447,7 @@ export const ALL_SDKS: SDK[] = [
     {
         name: 'Langfuse',
         key: SDKKey.LANGFUSE,
-        tags: [SDKTag.FRAMEWORK],
+        tags: [SDKTag.LLM],
         image: langfuseImage,
         docsLink: 'https://posthog.com/docs/llm-analytics/integrations/langfuse-posthog',
     },
@@ -526,7 +526,7 @@ export const ALL_SDKS: SDK[] = [
     {
         name: 'Traceloop',
         key: SDKKey.TRACELOOP,
-        tags: [SDKTag.FRAMEWORK],
+        tags: [SDKTag.LLM],
         image: traceloopImage,
         docsLink: 'https://posthog.com/docs/llm-analytics/integrations/traceloop-posthog',
     },
