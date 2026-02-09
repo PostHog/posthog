@@ -9,6 +9,8 @@ from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, Literal, Optional
 from urllib.parse import urlencode
 
+from products.workflows.backend.providers import MAILDEV_MOCK_DNS_RECORDS
+
 if TYPE_CHECKING:
     import aiohttp
 
@@ -1453,7 +1455,7 @@ class EmailIntegration:
         elif provider == "maildev":
             verification_result = {
                 "status": "success",
-                "dnsRecords": [],
+                "dnsRecords": MAILDEV_MOCK_DNS_RECORDS,
             }
         else:
             raise ValueError(f"Invalid provider: {provider}")

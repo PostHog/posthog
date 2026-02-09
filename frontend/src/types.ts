@@ -4406,7 +4406,7 @@ export interface DateMappingOption {
     key: string
     inactive?: boolean // Options removed due to low usage (see relevant PR); will not show up for new insights but will be kept for existing
     values: string[]
-    getFormattedDate?: (date: dayjs.Dayjs, format?: string) => string
+    getFormattedDate?: (date: dayjs.Dayjs, format?: string, weekStartDay?: number) => string
     defaultInterval?: IntervalType
 }
 
@@ -6362,6 +6362,14 @@ export interface EmailSenderDomainStatus {
               recordHostname: '@'
               recordValue: string
               status: 'pending' | 'success'
+          }
+        | {
+              type: 'mail_from'
+              recordType: 'TXT' | 'MX'
+              recordHostname: string
+              recordValue: string
+              status: 'pending' | 'success'
+              priority?: number
           }
     )[]
 }

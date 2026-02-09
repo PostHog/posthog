@@ -170,6 +170,7 @@ class TestSESProvider(TestCase):
                     "recordValue": "feedback-smtp.us-east-1.amazonses.com",
                     "status": "pending",
                     "type": "mail_from",
+                    "priority": 10,
                 },
                 {
                     "recordHostname": "mail.test.posthog.com",

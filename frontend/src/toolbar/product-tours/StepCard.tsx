@@ -7,6 +7,7 @@ import { IconDragHandle } from 'lib/lemon-ui/icons'
 import { getStepIcon, getStepTitle, hasElementTarget, hasIncompleteTargeting } from 'scenes/product-tours/stepUtils'
 
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
+import { joinWithUiHost } from '~/toolbar/utils'
 import { ProductTourProgressionTriggerType } from '~/types'
 
 import { TourStep, productToursLogic } from './productToursLogic'
@@ -58,7 +59,7 @@ export function StepCard({
         step.selector && step.selector.length > 25 ? step.selector.slice(0, 22) + '...' : step.selector
 
     const screenshotUrl = step.screenshotMediaId
-        ? `${uiHost}/uploaded_media/${step.screenshotMediaId}?token=${temporaryToken}`
+        ? joinWithUiHost(uiHost, `/uploaded_media/${step.screenshotMediaId}?token=${temporaryToken}`)
         : null
 
     return (
