@@ -123,13 +123,12 @@ export const propertyFilterLogic = kea<propertyFilterLogicType>([
             },
         ],
         filterIdsWithNew: [
-            (s) => [s._filtersState, s.filtersWithNew],
-            (state: FiltersState, filtersWithNew: AnyPropertyFilter[]): number[] => {
-                const ids = state.items.map((i) => i._id)
-                if (filtersWithNew.length > ids.length) {
-                    return [...ids, state.nextId]
+            (s) => [s.filterIds, s._filtersState, s.filtersWithNew],
+            (filterIds: number[], state: FiltersState, filtersWithNew: AnyPropertyFilter[]): number[] => {
+                if (filtersWithNew.length > filterIds.length) {
+                    return [...filterIds, state.nextId]
                 }
-                return ids
+                return filterIds
             },
         ],
     }),
