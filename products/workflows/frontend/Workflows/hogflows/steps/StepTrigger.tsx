@@ -55,29 +55,7 @@ import { HogFlowAction } from '../types'
 import { batchTriggerLogic } from './batchTriggerLogic'
 import { HogFlowFunctionConfiguration } from './components/HogFlowFunctionConfiguration'
 import { surveyTriggerLogic } from './surveyTriggerLogic'
-
-function isSurveyTriggerConfig(config: HogFlowAction['config']): boolean {
-    if (!('type' in config) || config.type !== 'event') {
-        return false
-    }
-    const events = config.filters?.events ?? []
-    return events.length === 1 && events[0]?.id === SurveyEventName.SENT
-}
-
-function getSelectedSurveyId(config: HogFlowAction['config']): string | null | 'any' {
-    if (!('type' in config) || config.type !== 'event') {
-        return null
-    }
-    const surveyIdProp = config.filters?.properties?.find((p: any) => p.key === '$survey_id')
-    if (!surveyIdProp) {
-        return null // No selection made
-    }
-    // If operator is 'is_set', it means "Any survey" was selected
-    if (surveyIdProp.operator === 'is_set') {
-        return 'any'
-    }
-    return surveyIdProp.value ?? null
-}
+import { getSelectedSurveyId, isSurveyTriggerConfig } from './utils'
 
 function getCompletedResponsesOnly(config: HogFlowAction['config']): boolean {
     if (!('type' in config) || config.type !== 'event') {
