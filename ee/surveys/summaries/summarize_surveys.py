@@ -1,3 +1,4 @@
+import re
 from datetime import datetime
 from typing import Optional, cast
 
@@ -42,6 +43,75 @@ TOKENS_IN_PROMPT_HISTOGRAM = Histogram(
         float("inf"),
     ],
 )
+
+_LOW_SIGNAL_EXACT_MATCHES = {
+    "test",
+    "testing",
+    "asdf",
+    "asdfasdf",
+    "qwer",
+    "qwerty",
+    "hello",
+    "hi",
+    "n/a",
+    "na",
+    "none",
+    "no",
+    "nothing",
+    "nil",
+    "idk",
+    "i dont know",
+    "i don't know",
+    "dont know",
+    "don't know",
+    "dunno",
+}
+
+
+def is_low_signal_survey_response(response: str) -> bool:
+    """
+    Heuristics to drop obvious test/placeholder/gibberish survey responses.
+
+    This is intentionally conservative: we only filter content that's very likely
+    to be unusable in summaries (e.g. random keystrokes, "test", "n/a").
+    """
+    stripped = response.strip()
+    if not stripped:
+        return True
+
+    normalized = re.sub(r"\s+", " ", stripped).lower()
+    if normalized in _LOW_SIGNAL_EXACT_MATCHES:
+        return True
+
+    # Very short responses are almost always noise in free-text surveys.
+    if len(normalized) < 4:
+        return True
+
+    # Purely numeric/punctuation "responses" (including repeated chars).
+    if re.fullmatch(r"[\W_]+", normalized) or re.fullmatch(r"\d+", normalized):
+        return True
+    if re.fullmatch(r"(.)\1{3,}", normalized):
+        return True
+
+    # One-token, consonant-heavy keyboard mashing like "ddsads", "asdfgh".
+    # Avoid filtering meaningful short tokens like "pricing" (has vowels).
+    if " " not in normalized and re.fullmatch(r"[a-z]+", normalized) and len(normalized) <= 8:
+        vowel_count = sum(1 for c in normalized if c in "aeiou")
+        if vowel_count <= 1:
+            return True
+
+    return False
+
+
+def filter_low_signal_survey_responses(responses: list[str]) -> tuple[list[str], list[str]]:
+    kept: list[str] = []
+    dropped: list[str] = []
+    for response in responses:
+        if is_low_signal_survey_response(response):
+            dropped.append(response)
+        else:
+            kept.append(response)
+    return kept, dropped
 
 
 def summarize_survey_responses(
@@ -89,7 +159,14 @@ def summarize_survey_responses(
 
     with timer("llm_api_prep"):
         instance_region = get_instance_region() or "HOBBY"
-        prepared_data = [x[0] for x in query_response.results if x[0]]
+        prepared_data_raw = [x[0] for x in query_response.results if x[0]]
+        prepared_data, dropped_data = filter_low_signal_survey_responses(prepared_data_raw)
+
+        if not prepared_data:
+            return {
+                "content": "No actionable feedback yet (responses look like test/placeholder input).",
+                "timings_header": timer.to_header_string(),
+            }
 
     with timer("openai_completion"):
         result = openai.chat.completions.create(
@@ -133,6 +210,12 @@ taking into consideration the survey question being asked.
             TOKENS_IN_PROMPT_HISTOGRAM.observe(usage)
 
     logger.info("survey_summary_response", result=result)
+    if dropped_data:
+        logger.info(
+            "survey_summary_low_signal_responses_dropped",
+            dropped_count=len(dropped_data),
+            kept_count=len(prepared_data),
+        )
 
     content: str = result.choices[0].message.content or ""
     return {"content": content, "timings_header": timer.to_header_string()}
