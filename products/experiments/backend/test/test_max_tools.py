@@ -588,6 +588,22 @@ class TestExperimentSummaryTool(APIBaseTest):
         assert artifact["experiment_name"] == "Agent Discovered Experiment"
         assert artifact["has_results"] is True
 
+    async def test_fetch_and_format_handles_nonexistent_experiment(self):
+        tool = self._create_tool({})
+
+        with patch(
+            "products.experiments.backend.experiment_summary_data_service.ExperimentSummaryDataService"
+        ) as mock_service_class:
+            mock_service = mock_service_class.return_value
+            mock_service.fetch_experiment_data = AsyncMock(
+                side_effect=ValueError("Experiment 99999 not found or access denied")
+            )
+
+            result, artifact = await tool._arun_impl(experiment_id=99999)
+
+        assert "not found or access denied" in result
+        assert artifact["error"] == "not_found"
+
     async def test_context_experiment_id_takes_priority_over_argument(self):
         experiment = await self._create_experiment(
             name="Context Experiment",
