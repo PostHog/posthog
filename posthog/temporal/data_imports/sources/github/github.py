@@ -76,7 +76,7 @@ class GithubPaginator(BasePaginator):
     def __init__(
         self,
         incremental_field: str | None = None,
-        db_incremental_field_last_value: Any = None,
+        db_incremental_field_last_value: datetime | None = None,
         sort_mode: str = "asc",
     ) -> None:
         super().__init__()
@@ -118,23 +118,18 @@ class GithubPaginator(BasePaginator):
                 self._has_next_page = False
                 self._next_url = None
 
-    def _is_older_than_cutoff(self, value: Any) -> bool:
+    def _is_older_than_cutoff(self, value: str | datetime | None) -> bool:
         if value is None or self._db_incremental_field_last_value is None:
             return False
 
-        # Handle datetime strings
-        if isinstance(value, str) and isinstance(self._db_incremental_field_last_value, datetime):
+        if isinstance(value, str):
             try:
                 parsed_value = datetime.fromisoformat(value.replace("Z", "+00:00"))
                 return parsed_value <= self._db_incremental_field_last_value
             except (ValueError, TypeError):
                 return False
 
-        # Handle datetime objects
-        if isinstance(value, datetime) and isinstance(self._db_incremental_field_last_value, datetime):
-            return value <= self._db_incremental_field_last_value
-
-        return False
+        return value <= self._db_incremental_field_last_value
 
     def update_request(self, request: Request) -> None:
         if self._next_url:
