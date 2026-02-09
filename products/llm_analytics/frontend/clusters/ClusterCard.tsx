@@ -3,35 +3,11 @@ import { LemonButton, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
 
-import { formatLLMCost, formatLLMLatency } from '../utils'
+import { formatErrorRate, formatLLMCost, formatLLMLatency, formatTokens } from '../utils'
 import { ClusterDescription } from './ClusterDescriptionComponents'
 import { ClusterTraceList } from './ClusterTraceList'
 import { NOISE_CLUSTER_ID } from './constants'
 import { Cluster, ClusterMetrics, ClusteringLevel, TraceSummary } from './types'
-
-export function formatTokens(tokens: number): string {
-    if (tokens >= 1000000) {
-        return `${(tokens / 1000000).toFixed(1)}M`
-    }
-    if (tokens >= 1000) {
-        return `${(tokens / 1000).toFixed(1)}k`
-    }
-    return tokens.toFixed(0)
-}
-
-export function formatErrorRate(errorRate: number): string {
-    const percentage = errorRate * 100
-    if (percentage === 0) {
-        return '0%'
-    }
-    if (percentage < 0.1) {
-        return '<0.1%'
-    }
-    if (percentage < 1) {
-        return `${percentage.toFixed(1)}%`
-    }
-    return `${Math.round(percentage)}%`
-}
 
 interface ClusterCardProps {
     cluster: Cluster
@@ -131,7 +107,7 @@ export function ClusterCard({
                                 )}
                                 {metrics.errorRate !== null && (
                                     <Tooltip
-                                        title={`Error rate: ${metrics.errorCount} errors out of ${metrics.itemCount} ${itemLabel}`}
+                                        title={`Error rate: ${metrics.errorCount} of ${metrics.itemCount} ${itemLabel} had errors`}
                                     >
                                         <LemonTag type={metrics.errorRate > 0 ? 'danger' : 'muted'} size="small">
                                             Errors: {formatErrorRate(metrics.errorRate)}

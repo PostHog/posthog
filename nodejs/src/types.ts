@@ -500,6 +500,13 @@ export interface PluginsServerConfig
     POD_TERMINATION_ENABLED: boolean
     POD_TERMINATION_BASE_TIMEOUT_MINUTES: number
     POD_TERMINATION_JITTER_MINUTES: number
+
+    // ClickHouse
+    CLICKHOUSE_HOST: string
+    CLICKHOUSE_PORT: number
+    CLICKHOUSE_USERNAME: string
+    CLICKHOUSE_PASSWORD: string
+    CLICKHOUSE_DATABASE: string
 }
 
 export interface Hub extends PluginsServerConfig {

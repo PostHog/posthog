@@ -136,6 +136,7 @@ export function SharePasswordsTable({ dashboardId, insightId, recordingId }: Sha
                 onClose={handleCloseModal}
                 title="Create new share password"
                 width={480}
+                className="z-[1163]"
                 footer={
                     createdPasswordResult ? (
                         <LemonButton type="primary" onClick={handleCloseModal}>
