@@ -61,14 +61,17 @@ describe('MemoryKeyStore', () => {
             expect(retrieved.sessionState).toBe('ciphertext')
         })
 
-        it('should generate new key if not found', async () => {
+        it('should return cleartext state for non-existent key', async () => {
             const result = await keyStore.getKey('new-session', 1)
 
-            expect(result.sessionState).toBe('ciphertext')
-            expect(result.plaintextKey.length).toBe(32)
+            expect(result.sessionState).toBe('cleartext')
+            expect(result.plaintextKey.length).toBe(0)
+            expect(result.encryptedKey.length).toBe(0)
         })
 
         it('should return same key on subsequent calls', async () => {
+            await keyStore.generateKey('session-123', 1)
+
             const first = await keyStore.getKey('session-123', 1)
             const second = await keyStore.getKey('session-123', 1)
 
@@ -88,9 +91,10 @@ describe('MemoryKeyStore', () => {
         it('should include deletedAt timestamp in deleted state', async () => {
             await keyStore.generateKey('session-123', 1)
 
-            const beforeDelete = Date.now()
+            // Timestamps are in seconds
+            const beforeDelete = Math.floor(Date.now() / 1000)
             await keyStore.deleteKey('session-123', 1)
-            const afterDelete = Date.now()
+            const afterDelete = Math.floor(Date.now() / 1000) + 1
 
             const result = await keyStore.getKey('session-123', 1)
             expect(result.sessionState).toBe('deleted')

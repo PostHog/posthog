@@ -25,7 +25,7 @@ export class MemoryKeyStore implements KeyStore {
         return Promise.resolve(sessionKey)
     }
 
-    async getKey(sessionId: string, teamId: number): Promise<SessionKey> {
+    getKey(sessionId: string, teamId: number): Promise<SessionKey> {
         const deletedAt = this.deletedKeys.get(`${teamId}:${sessionId}`)
         if (deletedAt) {
             return {
@@ -38,7 +38,12 @@ export class MemoryKeyStore implements KeyStore {
 
         const sessionKey = this.keystore.get(`${teamId}:${sessionId}`)
         if (!sessionKey) {
-            return this.generateKey(sessionId, teamId)
+            // Return cleartext for non-existent keys
+            return {
+                plaintextKey: Buffer.alloc(0),
+                encryptedKey: Buffer.alloc(0),
+                sessionState: 'cleartext',
+            }
         }
         return sessionKey
     }
@@ -46,7 +51,8 @@ export class MemoryKeyStore implements KeyStore {
     deleteKey(sessionId: string, teamId: number): Promise<boolean> {
         if (this.keystore.has(`${teamId}:${sessionId}`)) {
             this.keystore.delete(`${teamId}:${sessionId}`)
-            this.deletedKeys.set(`${teamId}:${sessionId}`, Date.now())
+            // Store timestamp in seconds (Unix timestamp)
+            this.deletedKeys.set(`${teamId}:${sessionId}`, Math.floor(Date.now() / 1000))
             return Promise.resolve(true)
         }
         return Promise.resolve(false)

@@ -47,7 +47,7 @@ export interface SessionKey {
     encryptedKey: Buffer
     /** Current state of this session's encryption */
     sessionState: SessionState
-    /** Unix timestamp (ms) when the key was deleted, if sessionState is 'deleted' */
+    /** Unix timestamp (seconds) when the key was deleted, if sessionState is 'deleted' */
     deletedAt?: number
 }
 
