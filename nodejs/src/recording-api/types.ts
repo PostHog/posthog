@@ -13,9 +13,10 @@ import { Hub } from '../types'
 export type RecordingApiHub = Pick<
     Hub,
     | 'postgres'
-    | 'REDIS_URL'
     | 'REDIS_POOL_MIN_SIZE'
     | 'REDIS_POOL_MAX_SIZE'
+    | 'SESSION_RECORDING_API_REDIS_HOST'
+    | 'SESSION_RECORDING_API_REDIS_PORT'
     | 'SESSION_RECORDING_V2_S3_REGION'
     | 'SESSION_RECORDING_V2_S3_ENDPOINT'
     | 'SESSION_RECORDING_V2_S3_ACCESS_KEY_ID'

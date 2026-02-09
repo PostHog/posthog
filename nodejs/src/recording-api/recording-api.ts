@@ -25,8 +25,7 @@ export class RecordingApi {
     private s3Prefix: string | null = null
     private keyStore: KeyStore | null = null
     private decryptor: RecordingDecryptor | null = null
-    private keystoreRedisPool: RedisPool | null = null
-    private retentionRedisPool: RedisPool | null = null
+    private redisPool: RedisPool | null = null
     private recordingService: RecordingService | null = null
 
     constructor(private hub: RecordingApiHub) {}
@@ -73,26 +72,22 @@ export class RecordingApi {
         this.s3Client = new S3Client(s3Config)
 
         const teamService = new TeamService(this.hub.postgres)
-        this.retentionRedisPool = createRedisPoolFromConfig({
-            connection: { url: this.hub.REDIS_URL, name: 'recording-api-retention' },
+        this.redisPool = createRedisPoolFromConfig({
+            connection: {
+                url: this.hub.SESSION_RECORDING_API_REDIS_HOST,
+                options: { port: this.hub.SESSION_RECORDING_API_REDIS_PORT },
+                name: 'recording-api',
+            },
             poolMinSize: this.hub.REDIS_POOL_MIN_SIZE,
             poolMaxSize: this.hub.REDIS_POOL_MAX_SIZE,
         })
-        const retentionService = new RetentionService(this.retentionRedisPool, teamService)
-
-        // Create a separate Redis pool for the keystore cache
-        // Redis caching is enabled for the Recording API to reduce DynamoDB reads
-        this.keystoreRedisPool = createRedisPoolFromConfig({
-            connection: { url: this.hub.REDIS_URL, name: 'recording-api-keystore' },
-            poolMinSize: this.hub.REDIS_POOL_MIN_SIZE,
-            poolMaxSize: this.hub.REDIS_POOL_MAX_SIZE,
-        })
+        const retentionService = new RetentionService(this.redisPool, teamService)
 
         const keyStore: KeyStore = getKeyStore(teamService, retentionService, s3Region, {
             kmsEndpoint: this.hub.SESSION_RECORDING_KMS_ENDPOINT,
             dynamoDBEndpoint: this.hub.SESSION_RECORDING_DYNAMODB_ENDPOINT,
         })
-        this.keyStore = new MemoryCachedKeyStore(new RedisCachedKeyStore(keyStore, this.keystoreRedisPool))
+        this.keyStore = new MemoryCachedKeyStore(new RedisCachedKeyStore(keyStore, this.redisPool))
         await this.keyStore.start()
 
         this.decryptor = getBlockDecryptor(this.keyStore)
@@ -113,14 +108,9 @@ export class RecordingApi {
     async stop(): Promise<void> {
         this.s3Client?.destroy()
         this.keyStore?.stop()
-        await this.drainRedisPool(this.keystoreRedisPool)
-        await this.drainRedisPool(this.retentionRedisPool)
-    }
-
-    private async drainRedisPool(pool: RedisPool | null): Promise<void> {
-        if (pool) {
-            await pool.drain()
-            await pool.clear()
+        if (this.redisPool) {
+            await this.redisPool.drain()
+            await this.redisPool.clear()
         }
     }
 
