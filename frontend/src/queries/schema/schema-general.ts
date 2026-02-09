@@ -2913,6 +2913,7 @@ export type FileSystemIconType =
     | 'llm_prompts'
     | 'llm_clusters'
     | 'exports'
+    | 'directed_graph'
 
 export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     id?: string

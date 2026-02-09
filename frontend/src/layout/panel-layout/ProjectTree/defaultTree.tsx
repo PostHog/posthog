@@ -11,6 +11,7 @@ import {
     IconDashboard,
     IconDatabase,
     IconDecisionTree,
+    IconDirectedGraph,
     IconDownload,
     IconExternal,
     IconFeatures,
@@ -307,6 +308,9 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     exports: {
         icon: <IconDownload />,
+    },
+    direct_graph: {
+        icon: <IconDirectedGraph />,
     },
 }
 

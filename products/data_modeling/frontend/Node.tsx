@@ -44,12 +44,12 @@ function UpstreamArrow({
                 type="button"
                 onClick={onRunUpstream}
                 className={clsx(
-                    'absolute flex items-center justify-center cursor-pointer z-10 w-5 h-5 rounded-full border-1 bg-[var(--primary-3000-frame-bg)] border-[var(--primary-3000-button-border)]',
+                    'absolute flex items-center justify-center cursor-pointer z-10 w-5 h-5 rounded-full bg-[var(--primary-3000)]',
                     layoutDirection === 'DOWN' ? 'left-1/2 -translate-x-1/2 -top-3' : 'top-1/2 -translate-y-1/2 -left-3'
                 )}
             >
                 <IconPlayFilled
-                    className={clsx('w-2 h-2 text-white/75', layoutDirection === 'DOWN' ? '-rotate-90' : 'rotate-180')}
+                    className={clsx('w-2 h-2 text-white/80', layoutDirection === 'DOWN' ? '-rotate-90' : 'rotate-180')}
                 />
             </button>
         </Tooltip>
@@ -69,14 +69,14 @@ function DownstreamArrow({
                 type="button"
                 onClick={onRunDownstream}
                 className={clsx(
-                    'absolute flex items-center justify-center cursor-pointer z-10 w-5 h-5 rounded-full border-1 bg-[var(--primary-3000-frame-bg)] border-[var(--primary-3000-button-border)]',
+                    'absolute flex items-center justify-center cursor-pointer z-10 w-5 h-5 rounded-full bg-[var(--primary-3000)]',
                     layoutDirection === 'DOWN'
                         ? 'left-1/2 -translate-x-1/2 -bottom-3'
                         : 'top-1/2 -translate-y-1/2 -right-3'
                 )}
             >
                 <IconPlayFilled
-                    className={clsx('w-2 h-2 text-white/75', layoutDirection === 'DOWN' ? 'rotate-90' : '')}
+                    className={clsx('w-2 h-2 text-white/80', layoutDirection === 'DOWN' ? 'rotate-90' : '')}
                 />
             </button>
         </Tooltip>
@@ -101,14 +101,14 @@ function NodeTags({ label, color, userTag }: { label: string; color: string; use
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{
                     color: color,
-                    backgroundColor: `color-mix(in srgb, ${color} 15%, transparent)`,
-                    borderColor: `color-mix(in srgb, ${color} 30%, transparent)`,
+                    backgroundColor: `color-mix(in srgb, ${color} 20%, transparent)`,
+                    borderColor: `color-mix(in srgb, ${color} 80%, transparent)`,
                 }}
             >
                 {label}
             </span>
             {userTag && (
-                <span className="text-[10px] text-muted lowercase tracking-wide px-1 rounded dark:bg-primary/50 bg-primary border-1 border-border">
+                <span className="text-[10px] text-muted lowercase tracking-wide px-1 rounded bg-primary dark:bg-primary/20 border-1 border-black/20">
                     #{userTag}
                 </span>
             )}
@@ -185,7 +185,7 @@ function NodeMetadata({
     switch (type) {
         case 'matview':
             return (
-                <div className="flex items-center bg-primary rounded-b-lg px-2.5 py-1.5 justify-between">
+                <div className="flex items-center bg-primary dark:bg-primary/50 rounded-b-lg px-2.5 py-1.5 justify-between">
                     <div className="flex gap-1 text-[10px]">
                         <IconClockRewind className="scale-x-[-1]" />
                         {syncInterval ? (

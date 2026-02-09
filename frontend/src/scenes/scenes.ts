@@ -327,7 +327,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'Models',
         description: 'Create and manage views and materialized views for transforming and organizing your data.',
         defaultDocsPath: '/docs/data-warehouse/views/materialize',
-        iconType: 'sql_editor',
+        iconType: 'directed_graph',
     },
     [Scene.MoveToPostHogCloud]: { name: 'Move to PostHog Cloud', hideProjectNotice: true },
     [Scene.NewTab]: {
