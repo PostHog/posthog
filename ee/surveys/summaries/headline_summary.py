@@ -10,6 +10,7 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 
 from posthog.api.utils import ServerTimingsGathered
+from posthog.helpers.survey_response_quality import filter_survey_responses
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.models import Team, User
 from posthog.models.surveys.survey import Survey
@@ -47,7 +48,7 @@ def _extract_values(rows: list, col_idx: int, is_multiple_choice: bool) -> list[
 
 def _format_question_summary(question: dict, values: list[str]) -> str:
     q_text = question.get("question", "Unknown question")
-    q_type = question.get("type", "")
+    q_type = (question.get("type", "") or "").lower()
 
     if not values:
         return f'"{q_text}": No responses'
@@ -164,10 +165,23 @@ def generate_survey_headline(
         }
 
     formatted_parts = []
+    meaningful_values = 0
     for col_idx, (_, question) in enumerate(questions_with_idx):
-        is_multiple_choice = question.get("type", "").lower() == SurveyQuestionType.MULTIPLE_CHOICE
+        q_type = (question.get("type", "") or "").lower()
+        is_multiple_choice = q_type == SurveyQuestionType.MULTIPLE_CHOICE
         values = _extract_values(rows, col_idx, is_multiple_choice)
+        if q_type == SurveyQuestionType.OPEN:
+            values = filter_survey_responses(values)
+        meaningful_values += len(values)
         formatted_parts.append(_format_question_summary(question, values))
+
+    if meaningful_values == 0:
+        return {
+            "headline": "No meaningful responses yet",
+            "responses_sampled": len(rows),
+            "has_more": has_more,
+            "timings_header": timer.to_header_string(),
+        }
 
     formatted_data = "\n\n".join(formatted_parts)
 

@@ -6,6 +6,7 @@ from typing import cast
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 
+from posthog.helpers.survey_response_quality import filter_survey_responses
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.models import Team
 
@@ -82,4 +83,5 @@ def fetch_responses(
         exclude_set = set(exclude_values)
         responses = [r for r in responses if r not in exclude_set]
 
-    return responses
+    # Avoid burning tokens on obvious test/gibberish responses when summarizing.
+    return filter_survey_responses(responses)
