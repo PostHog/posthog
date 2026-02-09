@@ -244,12 +244,12 @@ describe('type mapping round-trip', () => {
         [PropertyFilterType.Session, TaxonomicFilterGroupType.SessionProperties],
         [PropertyFilterType.HogQL, TaxonomicFilterGroupType.HogQLExpression],
     ])('PropertyFilterType.%s round-trips through both mapping functions', (propertyType, expectedTaxonomicType) => {
-        const filter: AnyPropertyFilter = {
+        const filter = {
             type: propertyType,
             key: 'test_key',
             value: 'test_value',
             operator: PropertyOperator.Exact,
-        }
+        } as AnyPropertyFilter
         const taxonomicType = propertyFilterTypeToTaxonomicFilterType(filter)
         expect(taxonomicType).toEqual(expectedTaxonomicType)
 
@@ -274,7 +274,7 @@ describe('type mapping round-trip', () => {
 })
 
 describe('createDefaultPropertyFilter()', () => {
-    const noopDescribeProperty = (): undefined => undefined
+    const noopDescribeProperty = (): null => null
     const makeGroup = (type: TaxonomicFilterGroupType, groupTypeIndex?: number): TaxonomicFilterGroup =>
         ({
             type,
@@ -336,10 +336,14 @@ describe('createDefaultPropertyFilter()', () => {
             makeGroup('name_groups_0' as TaxonomicFilterGroupType, 0),
             noopDescribeProperty
         )
-        expect(result.key).toEqual('$group_key')
-        expect(result.value).toEqual('my-company')
-        expect(result.type).toEqual(PropertyFilterType.Group)
-        expect(result.group_type_index).toEqual(0)
+        expect(result).toEqual(
+            expect.objectContaining({
+                key: '$group_key',
+                value: 'my-company',
+                type: PropertyFilterType.Group,
+                group_type_index: 0,
+            })
+        )
     })
 
     it('creates a standard event property filter with Exact operator', () => {
@@ -350,10 +354,14 @@ describe('createDefaultPropertyFilter()', () => {
             makeGroup(TaxonomicFilterGroupType.EventProperties),
             noopDescribeProperty
         )
-        expect(result.key).toEqual('$browser')
-        expect(result.value).toEqual(null)
-        expect(result.type).toEqual(PropertyFilterType.Event)
-        expect(result.operator).toEqual(PropertyOperator.Exact)
+        expect(result).toEqual(
+            expect.objectContaining({
+                key: '$browser',
+                value: null,
+                type: PropertyFilterType.Event,
+                operator: PropertyOperator.Exact,
+            })
+        )
     })
 
     it('preserves originalQuery as value for standard filters', () => {
@@ -365,8 +373,7 @@ describe('createDefaultPropertyFilter()', () => {
             noopDescribeProperty,
             'https://example.com'
         )
-        expect(result.key).toEqual('$current_url')
-        expect(result.value).toEqual('https://example.com')
+        expect(result).toEqual(expect.objectContaining({ key: '$current_url', value: 'https://example.com' }))
     })
 
     it('preserves existing operator from previous filter when valid', () => {
@@ -383,6 +390,6 @@ describe('createDefaultPropertyFilter()', () => {
             makeGroup(TaxonomicFilterGroupType.EventProperties),
             noopDescribeProperty
         )
-        expect(result.operator).toEqual(PropertyOperator.IsNot)
+        expect(result).toEqual(expect.objectContaining({ operator: PropertyOperator.IsNot }))
     })
 })

@@ -32,7 +32,7 @@ describe('taxonomicPropertyFilterLogic', () => {
     })
 
     describe('activeTaxonomicGroup selector', () => {
-        function mountWithFilterType(filterType: PropertyFilterType): void {
+        function mountWithFilterType(filterType: PropertyFilterType.Person | PropertyFilterType.Event): void {
             logic.unmount()
             logic = taxonomicPropertyFilterLogic({
                 filters: [{ key: 'test_key', type: filterType, value: 'test_value', operator: PropertyOperator.Exact }],
