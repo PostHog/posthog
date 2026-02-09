@@ -3,6 +3,7 @@ from datetime import date, datetime
 from typing import Any, Optional
 
 import requests
+from dateutil import parser as dateutil_parser
 from dlt.sources.helpers.requests import Request, Response
 from dlt.sources.helpers.rest_client.paginators import BasePaginator
 
@@ -124,7 +125,7 @@ class GithubPaginator(BasePaginator):
 
         if isinstance(value, str):
             try:
-                parsed_value = datetime.fromisoformat(value.replace("Z", "+00:00"))
+                parsed_value = dateutil_parser.parse(value)
                 return parsed_value <= self._db_incremental_field_last_value
             except (ValueError, TypeError):
                 return False
