@@ -471,16 +471,12 @@ const createTraversedLazyTableNode = (
     isSearch: boolean,
     columnPath: string,
     tableLookup: TableLookup | undefined,
-    expandedLazyNodeIds: Set<string>,
     options?: FieldTraversalOptions
 ): TreeDataItem => {
     const lazyNodeId = `${isSearch ? 'search-' : ''}lazy-traverser-${tableName}-${columnPath}`
-    const isExpanded = expandedLazyNodeIds.has(lazyNodeId)
+    const isExpanded = options?.expandedLazyNodeIds?.has(lazyNodeId)
     const lazyChildren = isExpanded
-        ? createLazyTableChildren(tableName, traversedField, isSearch, columnPath, tableLookup, {
-              ...options,
-              expandedLazyNodeIds,
-          })
+        ? createLazyTableChildren(tableName, traversedField, isSearch, columnPath, tableLookup, options)
         : []
     const children = isExpanded
         ? lazyChildren.length > 0
@@ -510,7 +506,6 @@ const createTraversedVirtualTableNode = (
     isSearch: boolean,
     columnPath: string,
     tableLookup: TableLookup | undefined,
-    expandedLazyNodeIds: Set<string>,
     options?: FieldTraversalOptions
 ): TreeDataItem => {
     const children =
@@ -630,7 +625,6 @@ const createFieldNode = (
                 isSearch,
                 columnPath,
                 tableLookup,
-                expandedLazyNodeIds ?? new Set<string>(),
                 nextOptions
             )
         }
