@@ -30,6 +30,11 @@ pub struct Args {
     /// if not provided.
     #[arg(long)]
     pub version: Option<String>,
+
+    /// If the server returns a release_id_mismatch error (symbol set already exists with a different release),
+    /// retry the upload without associating a release instead of failing.
+    #[arg(long, default_value = "false")]
+    pub skip_release_on_fail: bool,
 }
 
 pub fn upload(args: &Args) -> Result<()> {
@@ -38,6 +43,7 @@ pub fn upload(args: &Args) -> Result<()> {
         map_id,
         project,
         version,
+        skip_release_on_fail,
     } = args;
 
     let path = path
@@ -69,7 +75,7 @@ pub fn upload(args: &Args) -> Result<()> {
 
     let to_upload: SymbolSetUpload = file.try_into()?;
 
-    api::symbol_sets::upload(&[to_upload], 50)?;
+    api::symbol_sets::upload_with_retry(&[to_upload], 50, *skip_release_on_fail)?;
 
     Ok(())
 }
