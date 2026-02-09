@@ -86,7 +86,8 @@ jobs:
         name: Enable canary flags
         needs: build
         runs-on: ubuntu-24.04
-
+        permissions:
+            contents: read
         steps:
             - name: Get deployer token
               id: deployer
@@ -116,6 +117,8 @@ jobs:
               || (github.event.action == 'unlabeled' && github.event.label.name == 'canary-flags')
             )
         runs-on: ubuntu-24.04
+        permissions:
+            contents: read
         steps:
             - name: Get deployer token
               id: deployer
