@@ -26,6 +26,7 @@ from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
 from posthog.models import User
+from posthog.permissions import AccessControlPermission
 from posthog.rate_limit import (
     LLMAnalyticsSummarizationBurstThrottle,
     LLMAnalyticsSummarizationDailyThrottle,
@@ -141,7 +142,8 @@ class LLMAnalyticsSummarizationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericV
     Provides AI-powered summarization using line-numbered text representations.
     """
 
-    scope_object = "llm_analytics"  # type: ignore[assignment]
+    scope_object = "llm_analytics"
+    permission_classes = [AccessControlPermission]
 
     def get_throttles(self):
         """Apply rate limiting to prevent abuse of summarization endpoint."""

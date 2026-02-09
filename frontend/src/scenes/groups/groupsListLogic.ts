@@ -23,6 +23,7 @@ export const GROUPS_LIST_DEFAULT_COLUMNS = ['group_name', 'key', 'created_at']
 export const GROUPS_LIST_DEFAULT_QUERY = (groupTypeIndex: GroupTypeIndex | number): DataTableNode =>
     ({
         kind: NodeKind.DataTableNode,
+
         source: {
             kind: NodeKind.GroupsQuery,
             tags: { productKey: ProductKey.CUSTOMER_ANALYTICS },
@@ -31,6 +32,7 @@ export const GROUPS_LIST_DEFAULT_QUERY = (groupTypeIndex: GroupTypeIndex | numbe
             properties: [],
             group_type_index: groupTypeIndex,
         },
+
         full: true,
         showEventFilter: false,
         propertiesViaUrl: true,

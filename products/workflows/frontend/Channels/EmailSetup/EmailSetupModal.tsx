@@ -25,7 +25,7 @@ export const EmailSetupModal = (props: EmailSetupModalLogicProps): JSX.Element =
     const { verifyDomain, submitEmailSender } = useActions(logic)
     return (
         <>
-            <LemonModal title="Configure email sender" width="auto" onClose={props.onComplete}>
+            <LemonModal title="Configure email sender" width="auto" onClose={props.onClose}>
                 <Form logic={emailSetupModalLogic} props={props} formKey="emailSender">
                     <div className="space-y-4">
                         <FlaggedFeature flag="messaging-ses">
@@ -144,7 +144,14 @@ export const EmailSetupModal = (props: EmailSetupModalLogicProps): JSX.Element =
                                                 </td>
                                                 <td className="py-2 max-w-[8rem]">
                                                     <div className="flex gap-1 justify-between items-center break-all text-wrap">
-                                                        <span>{record.recordValue}</span>
+                                                        <div className="flex flex-col gap-1">
+                                                            <span>{record.recordValue}</span>
+                                                            {record.priority != null && (
+                                                                <span className="text-muted text-xs">
+                                                                    Priority: {record.priority}
+                                                                </span>
+                                                            )}
+                                                        </div>
                                                         <LemonButton
                                                             size="small"
                                                             icon={<IconCopy />}

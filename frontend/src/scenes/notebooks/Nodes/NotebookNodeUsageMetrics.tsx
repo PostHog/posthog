@@ -4,6 +4,7 @@ import { IconPlusSmall, IconRefresh, IconX } from '@posthog/icons'
 
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { UsageMetricsConfig, UsageMetricsModal } from 'scenes/settings/environment/UsageMetricsConfig'
 import { usageMetricsConfigLogic } from 'scenes/settings/environment/usageMetricsConfigLogic'
 
@@ -22,7 +23,7 @@ import { createPostHogWidgetNode } from './NodeWrapper'
 import { notebookNodeLogic } from './notebookNodeLogic'
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeUsageMetricsAttributes>): JSX.Element | null => {
-    const { expanded } = useValues(notebookNodeLogic)
+    const { expanded, notebookLogic } = useValues(notebookNodeLogic)
     const { setActions, setMenuItems } = useActions(notebookNodeLogic)
     const { personId, groupKey, groupTypeIndex, tabId } = attributes
     const dataNodeLogicProps = personId
@@ -46,6 +47,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeUsageMetricsAtt
             }
           : { key: 'error', query: { kind: NodeKind.UsageMetricsQuery } }
     const logic = dataNodeLogic(dataNodeLogicProps)
+    useAttachedLogic(logic, notebookLogic)
     const { response, responseLoading, responseError } = useValues(logic)
     const { loadData } = useActions(logic)
     const usageMetricsConfigLogicProps = { logicKey: attributes.nodeId }

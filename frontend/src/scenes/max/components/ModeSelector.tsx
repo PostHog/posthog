@@ -142,25 +142,27 @@ function buildGeneralTooltip(description: string, defaultTools: ToolDefinition[]
 
 interface GetModeOptionsParams {
     planModeEnabled: boolean
-    deepResearchEnabled: boolean
+    researchEnabled: boolean
     webSearchEnabled: boolean
     errorTrackingModeEnabled: boolean
     surveyModeEnabled: boolean
     hasExistingMessages: boolean
+    flagsModeEnabled: boolean
 }
 
 function getModeOptions({
     planModeEnabled,
-    deepResearchEnabled,
+    researchEnabled,
     webSearchEnabled,
     errorTrackingModeEnabled,
     surveyModeEnabled,
     hasExistingMessages,
+    flagsModeEnabled,
 }: GetModeOptionsParams): LemonSelectSection<ModeValue>[] {
     const specialOptions = [
         {
             value: null as ModeValue,
-            label: SPECIAL_MODES.auto.name,
+            label: SPECIAL_MODES.auto.name as string | JSX.Element,
             icon: SPECIAL_MODES.auto.icon,
             tooltip: buildModeTooltip(SPECIAL_MODES.auto.description, getDefaultTools({ webSearchEnabled })),
         },
@@ -168,18 +170,36 @@ function getModeOptions({
     if (planModeEnabled) {
         specialOptions.push({
             value: 'plan' as ModeValue,
-            label: SPECIAL_MODES.plan.name,
+            label: (
+                <span className="flex items-center gap-1">
+                    {SPECIAL_MODES.plan.name}
+                    {SPECIAL_MODES.plan.beta && (
+                        <LemonTag size="small" type="warning">
+                            BETA
+                        </LemonTag>
+                    )}
+                </span>
+            ),
             icon: SPECIAL_MODES.plan.icon,
             tooltip: buildModeTooltip(SPECIAL_MODES.plan.description, getDefaultTools({ webSearchEnabled })),
         })
     }
 
-    if (deepResearchEnabled && !hasExistingMessages) {
+    if (researchEnabled && !hasExistingMessages) {
         specialOptions.push({
-            value: 'deep_research' as ModeValue,
-            label: SPECIAL_MODES.deep_research.name,
-            icon: SPECIAL_MODES.deep_research.icon,
-            tooltip: <div>{SPECIAL_MODES.deep_research.description}</div>,
+            value: 'research' as ModeValue,
+            label: (
+                <span className="flex items-center gap-1">
+                    {SPECIAL_MODES.research.name}
+                    {SPECIAL_MODES.research.beta && (
+                        <LemonTag size="small" type="warning">
+                            BETA
+                        </LemonTag>
+                    )}
+                </span>
+            ),
+            icon: SPECIAL_MODES.research.icon,
+            tooltip: <div>{SPECIAL_MODES.research.description}</div>,
         })
     }
 
@@ -190,6 +210,9 @@ function getModeOptions({
         if (mode === AgentMode.Survey && !surveyModeEnabled) {
             return false
         }
+        if (mode === AgentMode.Flags && !flagsModeEnabled) {
+            return false
+        }
         return true
     })
 
@@ -198,7 +221,16 @@ function getModeOptions({
         {
             options: modeEntries.map(([mode, def]) => ({
                 value: mode as AgentMode,
-                label: def.name,
+                label: def.beta ? (
+                    <span className="flex items-center gap-1">
+                        {def.name}
+                        <LemonTag size="small" type="warning">
+                            BETA
+                        </LemonTag>
+                    </span>
+                ) : (
+                    def.name
+                ),
                 icon: def.icon,
                 tooltip: buildModeTooltip(def.description, getToolsForMode(mode as AgentMode)),
             })),
@@ -209,59 +241,53 @@ function getModeOptions({
 export function ModeSelector(): JSX.Element | null {
     const { agentMode, contextDisabledReason, conversation, threadMessageCount } = useValues(maxThreadLogic)
     const { setAgentMode } = useActions(maxThreadLogic)
-    const deepResearchEnabled = useFeatureFlag('MAX_DEEP_RESEARCH')
+    const researchEnabled = useFeatureFlag('MAX_DEEP_RESEARCH')
     const planModeEnabled = useFeatureFlag('PHAI_PLAN_MODE')
     const webSearchEnabled = useFeatureFlag('PHAI_WEB_SEARCH')
     const errorTrackingModeEnabled = useFeatureFlag('PHAI_ERROR_TRACKING_MODE')
     const surveyModeEnabled = useFeatureFlag('PHAI_SURVEY_MODE')
-
-    const currentValue: ModeValue =
-        agentMode === AgentMode.Research ? 'deep_research' : agentMode === AgentMode.Plan ? 'plan' : agentMode
+    const flagsModeEnabled = useFeatureFlag('POSTHOG_AI_FLAGS_MODE')
 
     const hasExistingMessages = threadMessageCount > 0
     const modeOptions = useMemo(
         () =>
             getModeOptions({
                 planModeEnabled,
-                deepResearchEnabled,
+                researchEnabled,
                 webSearchEnabled,
                 errorTrackingModeEnabled,
+                flagsModeEnabled,
                 surveyModeEnabled,
                 hasExistingMessages,
             }),
         [
             planModeEnabled,
-            deepResearchEnabled,
+            researchEnabled,
             webSearchEnabled,
             errorTrackingModeEnabled,
             surveyModeEnabled,
             hasExistingMessages,
+            flagsModeEnabled,
+            surveyModeEnabled,
         ]
     )
 
     const handleChange = useCallback(
         (value: ModeValue): void => {
             posthog.capture('phai mode switched', {
-                previous_mode: currentValue,
+                previous_mode: agentMode,
                 new_mode: value,
             })
-
-            if (value === 'deep_research') {
-                setAgentMode(AgentMode.Research)
-            } else if (value === 'plan') {
-                setAgentMode(AgentMode.Plan)
-            } else {
-                setAgentMode(value as AgentMode | null)
-            }
+            setAgentMode(value as AgentMode | null)
         },
-        [currentValue, setAgentMode]
+        [agentMode, setAgentMode]
     )
 
     const isDeepResearch = conversation?.type === ConversationType.DeepResearch
 
     return (
         <LemonSelect
-            value={isDeepResearch ? 'deep_research' : currentValue}
+            value={isDeepResearch ? 'research' : agentMode}
             onChange={handleChange}
             options={modeOptions}
             size="xxsmall"

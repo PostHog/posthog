@@ -4,7 +4,7 @@ import { IconX } from '@posthog/icons'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
-import { groupLogic } from 'scenes/groups/groupLogic'
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 
 import { groupsModel } from '~/models/groupsModel'
 import { Query } from '~/queries/Query/Query'
@@ -32,7 +32,7 @@ import { notebookNodeLogic } from './notebookNodeLogic'
 import { getLogicKey } from './utils'
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeLLMTraceAttributes>): JSX.Element | null => {
-    const { expanded } = useValues(notebookNodeLogic)
+    const { expanded, notebookLogic } = useValues(notebookNodeLogic)
     const { setMenuItems } = useActions(notebookNodeLogic)
     const { groupKey, groupTypeIndex, personId, tabId } = attributes
     const group = groupKey && groupTypeIndex !== undefined ? { groupKey, groupTypeIndex } : undefined
@@ -44,8 +44,9 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeLLMTraceAttribu
     const { setTracesQuery } = useActions(tracesLogic)
     const { tracesQuery } = useValues(tracesLogic)
     const context = useTracesQueryContext()
-    const attachTo = groupTypeIndex !== undefined && groupKey ? groupLogic({ groupTypeIndex, groupKey }) : undefined
     const { removeNode } = useActions(customerProfileLogic)
+    useAttachedLogic(sharedLogic, notebookLogic)
+    useAttachedLogic(tracesLogic, notebookLogic)
 
     useOnMountEffect(() => {
         setMenuItems([
@@ -67,7 +68,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeLLMTraceAttribu
             <LLMAnalyticsSetupPrompt className="border-none" thing="trace">
                 <Query
                     uniqueKey={logicKey}
-                    attachTo={attachTo}
+                    attachTo={notebookLogic}
                     query={{
                         ...tracesQuery,
                         source: {

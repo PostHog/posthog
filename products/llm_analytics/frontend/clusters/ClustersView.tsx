@@ -3,9 +3,12 @@ import { useActions, useValues } from 'kea'
 import { IconChevronDown, IconChevronRight, IconGear, IconInfo, IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonSegmentedButton, LemonSelect, Spinner, Tooltip } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { ClusterCard } from './ClusterCard'
 import { ClusterDistributionBar } from './ClusterDistributionBar'
@@ -78,6 +81,8 @@ export function ClustersView(): JSX.Element {
         traceSummaries,
         traceSummariesLoading,
         isScatterPlotExpanded,
+        clusterMetrics,
+        clusterMetricsLoading,
     } = useValues(clustersLogic)
     const {
         setClusteringLevel,
@@ -237,16 +242,21 @@ export function ClustersView(): JSX.Element {
                     )}
 
                     {showAdminPanel && (
-                        <LemonButton
-                            type="secondary"
-                            size="small"
-                            icon={<IconGear />}
-                            onClick={openModal}
-                            tooltip="Run clustering with custom parameters"
-                            data-attr="clusters-run-clustering-button"
+                        <AccessControlAction
+                            resourceType={AccessControlResourceType.LlmAnalytics}
+                            minAccessLevel={AccessControlLevel.Editor}
                         >
-                            Run clustering
-                        </LemonButton>
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                icon={<IconGear />}
+                                onClick={openModal}
+                                tooltip="Run clustering with custom parameters"
+                                data-attr="clusters-run-clustering-button"
+                            >
+                                Run clustering
+                            </LemonButton>
+                        </AccessControlAction>
                     )}
                 </div>
             </div>
@@ -301,6 +311,8 @@ export function ClustersView(): JSX.Element {
                             loadingTraces={traceSummariesLoading}
                             runId={effectiveRunId || ''}
                             clusteringLevel={clusteringLevel}
+                            metrics={clusterMetrics[cluster.cluster_id]}
+                            metricsLoading={clusterMetricsLoading}
                         />
                     ))}
                 </div>

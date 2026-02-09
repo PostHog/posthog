@@ -33,6 +33,7 @@ import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { openNotebook } from '~/models/notebooksModel'
 import {
     AgentMode,
@@ -54,6 +55,7 @@ import {
     SubagentUpdateEvent,
     TaskExecutionStatus,
 } from '~/queries/schema/schema-assistant-messages'
+import { SidePanelTab } from '~/types'
 import {
     Conversation,
     ConversationDetail,
@@ -1563,6 +1565,36 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             }
         }
 
+        // Check for URL-based mode from side panel options (e.g., #panel=max:mode=research:question)
+        // This must be done in maxThreadLogic's afterMount to ensure the correct instance sets the mode
+        if (
+            props.tabId === 'sidepanel' &&
+            !values.agentMode &&
+            sidePanelStateLogic.isMounted() &&
+            sidePanelStateLogic.values.selectedTab === SidePanelTab.Max &&
+            sidePanelStateLogic.values.selectedTabOptions
+        ) {
+            const options = sidePanelStateLogic.values.selectedTabOptions
+            if (typeof options === 'string' && options.startsWith('mode=')) {
+                const colonIndex = options.indexOf(':', 5)
+                const modeValue = colonIndex === -1 ? options.slice(5) : options.slice(5, colonIndex)
+                // Parse the mode value (gated modes fall back to null if their feature flags are off)
+                let parsedMode: AgentMode | null = null
+                if (modeValue === 'auto') {
+                    parsedMode = null
+                } else if (modeValue === 'research') {
+                    parsedMode = values.featureFlags[FEATURE_FLAGS.MAX_DEEP_RESEARCH] ? AgentMode.Research : null
+                } else if (modeValue === 'plan') {
+                    parsedMode = values.featureFlags[FEATURE_FLAGS.PHAI_PLAN_MODE] ? AgentMode.Plan : null
+                } else if ((Object.values(AgentMode) as string[]).includes(modeValue)) {
+                    parsedMode = modeValue as AgentMode
+                }
+                if (parsedMode !== undefined) {
+                    actions.setAgentMode(parsedMode)
+                }
+            }
+        }
+
         if (values.queueingEnabled && values.conversation?.id) {
             actions.loadQueueData()
         }
@@ -1589,14 +1621,24 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
 
     subscriptions(({ actions, values }) => ({
         sceneId: (sceneId: Scene | null) => {
-            // Only auto-set mode when no conversation is active
-            if (!values.conversation) {
-                const suggestedMode = getAgentModeForScene(sceneId)
-                if (suggestedMode !== values.agentMode) {
-                    // Use sync action to not lock - allows conversation to still update mode if agent changes it
-                    actions.syncAgentModeFromConversation(suggestedMode)
+            // Defer to next tick to allow URL-based mode setting to complete first
+            // This prevents race conditions where the subscription fires during mount
+            // before setAgentMode from URL params has updated the state
+            setTimeout(() => {
+                // Guard against accessing values after the logic is unmounted
+                try {
+                    // Only auto-set mode when no conversation is active and user hasn't manually set mode (e.g., via URL params)
+                    if (!values.conversation && !values.agentModeLockedByUser) {
+                        const suggestedMode = getAgentModeForScene(sceneId)
+                        if (suggestedMode !== values.agentMode) {
+                            // Use sync action to not lock - allows conversation to still update mode if agent changes it
+                            actions.syncAgentModeFromConversation(suggestedMode)
+                        }
+                    }
+                } catch {
+                    // Logic was unmounted before setTimeout fired - ignore
                 }
-            }
+            }, 0)
         },
         queueingEnabled: (enabled: boolean) => {
             if (enabled) {
@@ -1631,15 +1673,26 @@ function enhanceThreadToolCalls(
         }
     }
 
-    // Create a set of tool call IDs that have pending approvals
+    // Create sets of tool call IDs based on approval status
     // An approval is truly pending if:
     // 1. It's in pendingApprovalsData with decision_status === 'pending', AND
     // 2. It's NOT in resolvedApprovalStatuses (which takes precedence)
     const toolCallsWithPendingApproval = new Set<string>()
+    // Track tool calls that have been rejected (declined by user)
+    const toolCallsWithRejectedApproval = new Set<string>()
     for (const approval of Object.values(pendingApprovalsData)) {
-        const isResolved = resolvedApprovalStatuses[approval.proposal_id]?.status !== undefined
-        if (approval.original_tool_call_id && approval.decision_status === 'pending' && !isResolved) {
-            toolCallsWithPendingApproval.add(approval.original_tool_call_id)
+        const frontendResolved = resolvedApprovalStatuses[approval.proposal_id]
+        if (approval.original_tool_call_id) {
+            // Frontend resolved status takes precedence over backend status
+            if (frontendResolved?.status) {
+                if (frontendResolved.status === 'rejected' || frontendResolved.status === 'auto_rejected') {
+                    toolCallsWithRejectedApproval.add(approval.original_tool_call_id)
+                }
+            } else if (approval.decision_status === 'pending') {
+                toolCallsWithPendingApproval.add(approval.original_tool_call_id)
+            } else if (approval.decision_status === 'rejected') {
+                toolCallsWithRejectedApproval.add(approval.original_tool_call_id)
+            }
         }
     }
 
@@ -1688,8 +1741,11 @@ function enhanceThreadToolCalls(
                 const isInteractiveTool = toolCall.name === 'create_form'
                 // Tool calls with pending approvals should show as "in progress" (awaiting approval)
                 const hasPendingApproval = toolCallsWithPendingApproval.has(toolCall.id)
+                // Tool calls with rejected approvals should show as "failed" (user declined)
+                const hasRejectedApproval = toolCallsWithRejectedApproval.has(toolCall.id)
                 const isFailed =
-                    !isCompleted && !isInteractiveTool && !hasPendingApproval && (!isFinalGroup || !isLoading)
+                    hasRejectedApproval ||
+                    (!isCompleted && !isInteractiveTool && !hasPendingApproval && (!isFinalGroup || !isLoading))
                 return {
                     ...toolCall,
                     status: isFailed
@@ -1833,6 +1889,7 @@ export async function onEventImplementation(
         }
     } else if (event === AssistantEventType.Approval) {
         const parsedResponse = parseResponse<PendingApproval>(data)
+
         if (!parsedResponse) {
             return
         }

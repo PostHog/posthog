@@ -12,11 +12,13 @@ import { urls } from 'scenes/urls'
 import { hogql } from '~/queries/utils'
 import { Breadcrumb } from '~/types'
 
+import { loadClusterMetrics } from './clusterMetricsLoader'
 import type { clustersLogicType } from './clustersLogicType'
 import { MAX_CLUSTERING_RUNS, NOISE_CLUSTER_ID, OUTLIER_COLOR } from './constants'
 import { loadTraceSummaries } from './traceSummaryLoader'
 import {
     Cluster,
+    ClusterMetrics,
     ClusteringLevel,
     ClusteringParams,
     ClusteringRun,
@@ -66,6 +68,9 @@ export const clustersLogic = kea<clustersLogicType>([
         setTraceSummaries: (summaries: Record<string, TraceSummary>) => ({ summaries }),
         setTraceSummariesLoading: (loading: boolean) => ({ loading }),
         loadTraceSummariesForRun: (run: ClusteringRun) => ({ run }),
+        setClusterMetrics: (metrics: Record<number, ClusterMetrics>) => ({ metrics }),
+        setClusterMetricsLoading: (loading: boolean) => ({ loading }),
+        loadClusterMetricsForRun: (run: ClusteringRun) => ({ run }),
     }),
 
     reducers({
@@ -115,6 +120,20 @@ export const clustersLogic = kea<clustersLogicType>([
             true,
             {
                 toggleScatterPlotExpanded: (state) => !state,
+            },
+        ],
+        clusterMetrics: [
+            {} as Record<number, ClusterMetrics>,
+            {
+                setClusterMetrics: (_, { metrics }) => metrics,
+                // Clear metrics when level changes (new run will load fresh metrics)
+                setClusteringLevel: () => ({}),
+            },
+        ],
+        clusterMetricsLoading: [
+            false,
+            {
+                setClusterMetricsLoading: (_, { loading }) => loading,
             },
         ],
     }),
@@ -232,11 +251,6 @@ export const clustersLogic = kea<clustersLogicType>([
             () => [],
             (): Breadcrumb[] => [
                 {
-                    key: 'LLMAnalytics',
-                    name: 'LLM analytics',
-                    path: urls.llmAnalyticsDashboard(),
-                },
-                {
                     key: 'LLMAnalyticsClusters',
                     name: 'Clusters',
                     path: urls.llmAnalyticsClusters(),
@@ -342,6 +356,28 @@ export const clustersLogic = kea<clustersLogicType>([
             actions.loadClusteringRuns()
         },
 
+        loadClusterMetricsForRun: async ({ run }) => {
+            if (!run.clusters || run.clusters.length === 0) {
+                return
+            }
+
+            actions.setClusterMetricsLoading(true)
+
+            try {
+                const metrics = await loadClusterMetrics(
+                    run.clusters,
+                    run.windowStart,
+                    run.windowEnd,
+                    run.level || values.clusteringLevel
+                )
+                actions.setClusterMetrics(metrics)
+            } catch (error) {
+                console.error('Failed to load cluster metrics:', error)
+            } finally {
+                actions.setClusterMetricsLoading(false)
+            }
+        },
+
         loadTraceSummariesForRun: async ({ run }) => {
             // Collect all item IDs from all clusters
             const allItemIds: string[] = []
@@ -410,6 +446,8 @@ export const clustersLogic = kea<clustersLogicType>([
             // Load all trace summaries when a run is loaded for scatter plot tooltips
             if (currentRun) {
                 actions.loadTraceSummariesForRun(currentRun)
+                // Load cluster metrics for displaying averages in cluster cards
+                actions.loadClusterMetricsForRun(currentRun)
             }
         },
 

@@ -31,9 +31,9 @@ export const personLogic = kea<personLogicType>([
     props({} as PersonLogicProps),
     key((props) => props.distinctId ?? props.id ?? 'undefined'),
     path((key) => ['scenes', 'persons', 'personLogic', key]),
-    connect({
+    connect(() => ({
         values: [revenueAnalyticsLogic, ['isRevenueAnalyticsEnabled']],
-    }),
+    })),
     actions({
         loadPerson: true,
         loadInfo: true,

@@ -95,6 +95,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
         setDates: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
         setBusinessType: (businessType: BusinessType) => ({ businessType }),
         setSelectedGroupType: (selectedGroupType: number) => ({ selectedGroupType }),
+        setFilterTestAccounts: (filterTestAccounts: boolean) => ({ filterTestAccounts }),
     }),
     reducers(() => ({
         dateFilter: [
@@ -120,6 +121,13 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
             persistConfig,
             {
                 setSelectedGroupType: (_, { selectedGroupType }) => selectedGroupType,
+            },
+        ],
+        filterTestAccounts: [
+            true,
+            persistConfig,
+            {
+                setFilterTestAccounts: (_, { filterTestAccounts }) => filterTestAccounts,
             },
         ],
     })),
@@ -328,13 +336,14 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
             },
         ],
         activeUsersInsights: [
-            (s) => [s.customerLabel, s.dauSeries, s.wauSeries, s.mauSeries, s.dateRange],
+            (s) => [s.customerLabel, s.dauSeries, s.wauSeries, s.mauSeries, s.dateRange, s.filterTestAccounts],
             (
                 customerLabel: Record<string, string>,
                 dauSeries: AnyEntityNode | null,
                 wauSeries: AnyEntityNode | null,
                 mauSeries: AnyEntityNode | null,
-                dateRange: { date_from: string | null; date_to: string | null }
+                dateRange: { date_from: string | null; date_to: string | null },
+                filterTestAccounts: boolean
             ): InsightDefinition[] => {
                 // Backend guarantees activity event exists, but add safety check
                 if (!dauSeries || !wauSeries || !mauSeries) {
@@ -370,7 +379,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                                 breakdownFilter: {
                                     breakdown_type: 'event',
                                 },
-                                filterTestAccounts: true,
+                                filterTestAccounts,
                             },
                         },
                     },
@@ -405,7 +414,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                                 breakdownFilter: {
                                     breakdown_type: 'event',
                                 },
-                                filterTestAccounts: true,
+                                filterTestAccounts,
                             },
                         },
                     },
@@ -441,7 +450,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                                 breakdownFilter: {
                                     breakdown_type: 'event',
                                 },
-                                filterTestAccounts: true,
+                                filterTestAccounts,
                             },
                         },
                     },
@@ -449,8 +458,8 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
             },
         ],
         sessionInsights: [
-            (s) => [s.customerLabel],
-            (customerLabel: { singular: string; plural: string }): InsightDefinition[] => [
+            (s) => [s.customerLabel, s.filterTestAccounts],
+            (customerLabel, filterTestAccounts): InsightDefinition[] => [
                 {
                     name: 'Unique sessions',
                     description: 'Events without session IDs are excluded.',
@@ -488,7 +497,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                                 compare: true,
                             },
                             breakdownFilter: undefined,
-                            filterTestAccounts: true,
+                            filterTestAccounts,
                         },
                     },
                 },
@@ -530,7 +539,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                             breakdownFilter: {
                                 breakdown_type: 'event',
                             },
-                            filterTestAccounts: true,
+                            filterTestAccounts,
                         },
                     },
                 },
@@ -573,7 +582,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                             breakdownFilter: {
                                 breakdown_type: 'event',
                             },
-                            filterTestAccounts: true,
+                            filterTestAccounts,
                         },
                     },
                 },
@@ -590,17 +599,19 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                 s.signupPageviewSeries,
                 s.dauSeries,
                 s.dateRange,
+                s.filterTestAccounts,
             ],
             (
-                businessType: BusinessType,
-                customerLabel: { singular: string; plural: string },
-                signupSeries: AnyEntityNode | null,
-                paymentSeries: AnyEntityNode | null,
-                selectedGroupType: number,
-                subscriptionSeries: AnyEntityNode | null,
-                signupPageviewSeries: AnyEntityNode | null,
-                dauSeries: AnyEntityNode | null,
-                dateRange: { date_from: string | null; date_to: string | null }
+                businessType,
+                customerLabel,
+                signupSeries,
+                paymentSeries,
+                selectedGroupType,
+                subscriptionSeries,
+                signupPageviewSeries,
+                dauSeries,
+                dateRange,
+                filterTestAccounts
             ): InsightDefinition[] => [
                 {
                     name: `${capitalizeFirstLetter(customerLabel.singular)} signups`,
@@ -634,7 +645,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                             breakdownFilter: {
                                 breakdown_type: 'event',
                             },
-                            filterTestAccounts: true,
+                            filterTestAccounts,
                         },
                     },
                 },
@@ -666,7 +677,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                             compareFilter: {
                                 compare: true,
                             },
-                            filterTestAccounts: true,
+                            filterTestAccounts,
                         },
                     },
                 },
@@ -700,7 +711,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                             breakdownFilter: {
                                 breakdown_type: 'event',
                             },
-                            filterTestAccounts: true,
+                            filterTestAccounts,
                         },
                     },
                 },
@@ -732,7 +743,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                             breakdownFilter: {
                                 breakdown_type: 'event',
                             },
-                            filterTestAccounts: true,
+                            filterTestAccounts,
                         },
                     },
                 },
@@ -766,7 +777,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                             breakdownFilter: {
                                 breakdown_type: 'event',
                             },
-                            filterTestAccounts: true,
+                            filterTestAccounts,
                         },
                     },
                 },
@@ -800,7 +811,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                             breakdownFilter: {
                                 breakdown_type: 'event',
                             },
-                            filterTestAccounts: true,
+                            filterTestAccounts,
                         },
                     },
                 },
@@ -824,7 +835,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                             lifecycleFilter: {
                                 showLegend: false,
                             },
-                            filterTestAccounts: true,
+                            filterTestAccounts,
                         },
                     },
                 },
@@ -857,7 +868,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                             breakdownFilter: {
                                 breakdown_type: 'event',
                             },
-                            filterTestAccounts: true,
+                            filterTestAccounts,
                         },
                     },
                 },
@@ -867,14 +878,25 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
     tabAwareActionToUrl(() => ({
         setDates: ({ dateFrom, dateTo }): string =>
             setQueryParams({ date_from: dateFrom ?? '', date_to: dateTo ?? '' }),
+        setFilterTestAccounts: ({ filterTestAccounts }): string =>
+            setQueryParams({ filter_test_accounts: String(filterTestAccounts) }),
     })),
     tabAwareUrlToAction(({ actions, values }) => ({
-        '*': (_, { date_from, date_to }) => {
+        '*': (_, { date_from, date_to, filter_test_accounts }) => {
             if (
                 (date_from && date_from !== values.dateFilter.dateFrom) ||
                 (date_to && date_to !== values.dateFilter.dateTo)
             ) {
                 actions.setDates(date_from, date_to)
+            }
+
+            const filterTestAccountsValue =
+                filter_test_accounts === undefined
+                    ? values.filterTestAccounts
+                    : [true, 'true', 1, '1'].includes(filter_test_accounts as string | number | boolean)
+
+            if (filterTestAccountsValue !== values.filterTestAccounts) {
+                actions.setFilterTestAccounts(filterTestAccountsValue)
             }
         },
     })),
