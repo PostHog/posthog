@@ -336,8 +336,8 @@ class TestFunnelDataWarehouse(ClickhouseTestMixin, BaseTest):
                     distinct_id_field="id",
                     timestamp_field="close_date",
                 ),
-                # funnelsFilter=FunnelsFilter(funnelWindowInterval=30),
             ],
+            funnelsFilter=FunnelsFilter(funnelWindowInterval=30),
         )
 
         with freeze_time("2024-06-30"):
