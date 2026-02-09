@@ -11,7 +11,7 @@ import {
     useReactFlow,
 } from '@xyflow/react'
 import { useActions, useValues } from 'kea'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef } from 'react'
 
 import { IconArrowRight, IconCollapse, IconDatabase, IconExpand } from '@posthog/icons'
 import { LemonButton, LemonSegmentedButton } from '@posthog/lemon-ui'
@@ -82,9 +82,13 @@ function NodeTypeButton({
 }
 
 export function NodeTypePanel(): JSX.Element {
-    const { highlightedNodeType, layoutDirection } = useValues(dataModelingLogic)
-    const { setHighlightedNodeType, setLayoutDirection, setSearchTerm } = useActions(dataModelingLogic)
-    const [collapsed, setCollapsed] = useState(false)
+    const { highlightedNodeType, layoutDirection, nodeTypePanelCollapsed: collapsed } = useValues(dataModelingLogic)
+    const {
+        setHighlightedNodeType,
+        setLayoutDirection,
+        setSearchTerm,
+        setNodeTypePanelCollapsed: setCollapsed,
+    } = useActions(dataModelingLogic)
 
     const handleNodeTypeClick = (type: DataModelingNodeType): void => {
         if (highlightedNodeType === type) {

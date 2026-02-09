@@ -148,6 +148,7 @@ export const dataModelingLogic = kea<dataModelingLogicType>([
         clearFilterDagIds: true,
         toggleFilterType: (nodeType: DataModelingNodeType) => ({ nodeType }),
         clearFilterTypes: true,
+        setNodeTypePanelCollapsed: (collapsed: boolean) => ({ collapsed }),
     }),
     loaders({
         dataModelingNodes: [
@@ -245,6 +246,13 @@ export const dataModelingLogic = kea<dataModelingLogicType>([
             { persist: true },
             {
                 setLayoutDirection: (_, { layoutDirection }) => layoutDirection,
+            },
+        ],
+        nodeTypePanelCollapsed: [
+            false,
+            { persist: true },
+            {
+                setNodeTypePanelCollapsed: (_, { collapsed }) => collapsed,
             },
         ],
         viewMode: [

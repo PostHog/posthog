@@ -309,7 +309,7 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     exports: {
         icon: <IconDownload />,
     },
-    direct_graph: {
+    directed_graph: {
         icon: <IconDirectedGraph />,
     },
 }

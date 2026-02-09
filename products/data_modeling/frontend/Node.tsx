@@ -185,7 +185,7 @@ function NodeMetadata({
     switch (type) {
         case 'matview':
             return (
-                <div className="flex items-center bg-primary dark:bg-primary/50 rounded-b-lg px-2.5 py-1.5 justify-between">
+                <div className="flex items-center bg-primary dark:bg-primary/60 rounded-b-lg px-2.5 py-1.5 justify-between">
                     <div className="flex gap-1 text-[10px]">
                         <IconClockRewind className="scale-x-[-1]" />
                         {syncInterval ? (
@@ -212,10 +212,10 @@ function NodeMetadata({
                         <div
                             className={clsx(
                                 'rounded-full w-4 h-4',
-                                lastJobStatus === 'Completed' && 'bg-success-light border-border border-1',
+                                lastJobStatus === 'Completed' && 'bg-success border-border border-1',
                                 lastJobStatus === 'Failed' && 'bg-danger border-border border-1',
                                 lastJobStatus === 'Cancelled' && 'bg-warning border-border border-1',
-                                !lastJobStatus && 'bg-surface-primary border-border border-1'
+                                !lastJobStatus && 'bg-surface-primary border-primary border-1'
                             )}
                         />
                     </Tooltip>
@@ -268,7 +268,7 @@ const NodeInner = React.memo(function NodeInner({
     return (
         <div
             className={clsx(
-                'relative rounded-lg border bg-bg-light',
+                'relative rounded-lg border dark:border-none bg-bg-light',
                 isRunning && 'border-warning ring-2 ring-warning/30 animate-pulse',
                 !isRunning && (isSearchMatch || isTypeHighlighted) && 'border-link ring-2 ring-link/30',
                 !isRunning && !isSearchMatch && !isTypeHighlighted && 'border-border',
