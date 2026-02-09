@@ -1,3 +1,5 @@
+from typing import Any
+
 import pytest
 from unittest.mock import MagicMock, patch
 
@@ -123,7 +125,7 @@ class TestGetSandboxImageReferenceIntegration:
 
 class TestModalSandboxAgentServer:
     @pytest.fixture
-    def mock_sandbox(self):
+    def mock_sandbox(self) -> Any:
         mock_modal_sandbox = MagicMock()
         mock_modal_sandbox.object_id = "test-sandbox-id"
         mock_modal_sandbox.poll.return_value = None
@@ -136,7 +138,7 @@ class TestModalSandboxAgentServer:
         config = SandboxConfig(name="test-sandbox")
         return ModalSandbox(sandbox=mock_modal_sandbox, config=config)
 
-    def test_get_connect_credentials_success(self, mock_sandbox: ModalSandbox):
+    def test_get_connect_credentials_success(self, mock_sandbox: Any):
         result = mock_sandbox.get_connect_credentials()
 
         assert isinstance(result, AgentServerResult)
@@ -146,13 +148,13 @@ class TestModalSandboxAgentServer:
 
         mock_sandbox._sandbox.create_connect_token.assert_called_once_with()
 
-    def test_get_connect_credentials_raises_when_not_running(self, mock_sandbox: ModalSandbox):
+    def test_get_connect_credentials_raises_when_not_running(self, mock_sandbox: Any):
         mock_sandbox._sandbox.poll.return_value = 0
 
         with pytest.raises(RuntimeError, match="Sandbox not in running state"):
             mock_sandbox.get_connect_credentials()
 
-    def test_start_agent_server_success(self, mock_sandbox: ModalSandbox):
+    def test_start_agent_server_success(self, mock_sandbox: Any):
         mock_sandbox.execute = MagicMock(
             side_effect=[
                 ExecutionResult(stdout="", stderr="", exit_code=0, error=None),
@@ -175,7 +177,7 @@ class TestModalSandboxAgentServer:
         assert "--runId run-456" in command
         assert "--mode background" in command
 
-    def test_start_agent_server_raises_when_not_running(self, mock_sandbox: ModalSandbox):
+    def test_start_agent_server_raises_when_not_running(self, mock_sandbox: Any):
         mock_sandbox._sandbox.poll.return_value = 0
 
         with pytest.raises(RuntimeError, match="Sandbox not in running state"):
@@ -185,7 +187,7 @@ class TestModalSandboxAgentServer:
                 run_id="run-456",
             )
 
-    def test_start_agent_server_raises_on_start_failure(self, mock_sandbox: ModalSandbox):
+    def test_start_agent_server_raises_on_start_failure(self, mock_sandbox: Any):
         mock_sandbox.execute = MagicMock(
             return_value=ExecutionResult(stdout="", stderr="npx: command not found", exit_code=127, error=None)
         )
@@ -197,7 +199,7 @@ class TestModalSandboxAgentServer:
                 run_id="run-456",
             )
 
-    def test_start_agent_server_raises_on_health_check_failure(self, mock_sandbox: ModalSandbox):
+    def test_start_agent_server_raises_on_health_check_failure(self, mock_sandbox: Any):
         mock_sandbox.execute = MagicMock(
             side_effect=[
                 ExecutionResult(stdout="", stderr="", exit_code=0, error=None),
@@ -214,7 +216,7 @@ class TestModalSandboxAgentServer:
                     run_id="run-456",
                 )
 
-    def test_wait_for_health_check_retries(self, mock_sandbox: ModalSandbox):
+    def test_wait_for_health_check_retries(self, mock_sandbox: Any):
         mock_sandbox.execute = MagicMock(
             side_effect=[
                 ExecutionResult(stdout="502", stderr="", exit_code=0, error=None),

@@ -109,6 +109,7 @@ class DockerSandbox:
             raise SandboxProvisionError(
                 f"LOCAL_TWIG_MONOREPO_ROOT is set but required packages not found: {', '.join(missing)}",
                 {"monorepo_root": monorepo_root, "missing": missing},
+                cause=RuntimeError(f"Missing packages: {', '.join(missing)}"),
             )
 
         return agent_path, shared_path, git_path

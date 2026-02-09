@@ -330,6 +330,8 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         """Send completion signal to Temporal workflow."""
         from posthog.temporal.common.client import sync_connect
 
+        from products.tasks.backend.temporal.process_task.workflow import ProcessTaskWorkflow
+
         try:
             client = sync_connect()
             workflow_id = f"task-processing-{task_run.task_id}-{task_run.id}"
@@ -337,7 +339,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
             import asyncio
 
-            asyncio.run(handle.signal("complete_task", status, error_message))
+            asyncio.run(handle.signal(ProcessTaskWorkflow.complete_task, args=[status, error_message]))
             logger.info(f"Signaled workflow completion for task run {task_run.id} with status {status}")
         except Exception as e:
             logger.warning(f"Failed to signal workflow completion for task run {task_run.id}: {e}")

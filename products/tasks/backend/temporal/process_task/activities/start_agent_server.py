@@ -56,6 +56,7 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
                     "sandbox_id": input.sandbox_id,
                     "run_id": ctx.run_id,
                 },
+                cause=RuntimeError("Sandbox URL not found in TaskRun state"),
             )
 
         emit_agent_log(ctx.run_id, "info", "Starting agent server in development environment")
