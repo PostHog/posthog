@@ -3,10 +3,10 @@ import { S3Client } from '@aws-sdk/client-s3'
 import { RetentionService } from '../session-recording/retention/retention-service'
 import { TeamService } from '../session-recording/teams/team-service'
 import { Hub } from '../types'
+import { getBlockDecryptor } from './crypto'
 import { getKeyStore } from './keystore'
 import { RecordingApi } from './recording-api'
-import { getBlockDecryptor } from './recording-decryptor'
-import { BaseKeyStore, BaseRecordingDecryptor, SessionKeyDeletedError } from './types'
+import { KeyStore, RecordingDecryptor, SessionKeyDeletedError } from './types'
 
 jest.mock('@aws-sdk/client-s3', () => ({
     S3Client: jest.fn().mockImplementation(() => ({
@@ -20,12 +20,12 @@ jest.mock('./keystore', () => ({
     getKeyStore: jest.fn(),
 }))
 
-jest.mock('./keystore-cache', () => ({
+jest.mock('./cache', () => ({
     MemoryCachedKeyStore: jest.fn().mockImplementation((delegate) => delegate),
     RedisCachedKeyStore: jest.fn().mockImplementation((delegate) => delegate),
 }))
 
-jest.mock('./recording-decryptor', () => ({
+jest.mock('./crypto', () => ({
     getBlockDecryptor: jest.fn(),
 }))
 
@@ -41,8 +41,8 @@ jest.mock('../utils/db/redis', () => ({
 describe('RecordingApi', () => {
     let recordingApi: RecordingApi
     let mockHub: Partial<Hub>
-    let mockKeyStore: jest.Mocked<BaseKeyStore>
-    let mockDecryptor: jest.Mocked<BaseRecordingDecryptor>
+    let mockKeyStore: jest.Mocked<KeyStore>
+    let mockDecryptor: jest.Mocked<RecordingDecryptor>
 
     beforeEach(() => {
         jest.clearAllMocks()
@@ -64,12 +64,12 @@ describe('RecordingApi', () => {
             getKey: jest.fn(),
             deleteKey: jest.fn(),
             stop: jest.fn(),
-        } as unknown as jest.Mocked<BaseKeyStore>
+        } as unknown as jest.Mocked<KeyStore>
 
         mockDecryptor = {
             start: jest.fn().mockResolvedValue(undefined),
             decryptBlock: jest.fn(),
-        } as unknown as jest.Mocked<BaseRecordingDecryptor>
+        } as unknown as jest.Mocked<RecordingDecryptor>
         ;(getKeyStore as jest.Mock).mockReturnValue(mockKeyStore)
         ;(getBlockDecryptor as jest.Mock).mockReturnValue(mockDecryptor)
 

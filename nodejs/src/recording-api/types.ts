@@ -32,24 +32,24 @@ export interface SerializedSessionKey {
     deletedAt?: number
 }
 
-export abstract class BaseKeyStore {
-    abstract start(): Promise<void>
-    abstract generateKey(sessionId: string, teamId: number): Promise<SessionKey>
-    abstract getKey(sessionId: string, teamId: number): Promise<SessionKey>
-    abstract deleteKey(sessionId: string, teamId: number): Promise<boolean>
-    abstract stop(): void
+export interface KeyStore {
+    start(): Promise<void>
+    generateKey(sessionId: string, teamId: number): Promise<SessionKey>
+    getKey(sessionId: string, teamId: number): Promise<SessionKey>
+    deleteKey(sessionId: string, teamId: number): Promise<boolean>
+    stop(): void
 }
 
-export abstract class BaseRecordingEncryptor {
-    abstract start(): Promise<void>
-    abstract encryptBlock(sessionId: string, teamId: number, blockData: Buffer): Promise<Buffer>
-    abstract encryptBlockWithKey(sessionId: string, teamId: number, blockData: Buffer, sessionKey: SessionKey): Buffer
+export interface RecordingEncryptor {
+    start(): Promise<void>
+    encryptBlock(sessionId: string, teamId: number, blockData: Buffer): Promise<Buffer>
+    encryptBlockWithKey(sessionId: string, teamId: number, blockData: Buffer, sessionKey: SessionKey): Buffer
 }
 
-export abstract class BaseRecordingDecryptor {
-    abstract start(): Promise<void>
-    abstract decryptBlock(sessionId: string, teamId: number, blockData: Buffer): Promise<Buffer>
-    abstract decryptBlockWithKey(sessionId: string, teamId: number, blockData: Buffer, sessionKey: SessionKey): Buffer
+export interface RecordingDecryptor {
+    start(): Promise<void>
+    decryptBlock(sessionId: string, teamId: number, blockData: Buffer): Promise<Buffer>
+    decryptBlockWithKey(sessionId: string, teamId: number, blockData: Buffer, sessionKey: SessionKey): Buffer
 }
 
 export class SessionKeyDeletedError extends Error {

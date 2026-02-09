@@ -1,30 +1,9 @@
 import sodium from 'libsodium-wrappers'
 
-import { isCloud } from '../utils/env-utils'
-import { BaseKeyStore, BaseRecordingDecryptor, SessionKey, SessionKeyDeletedError } from './types'
+import { KeyStore, RecordingDecryptor, SessionKey, SessionKeyDeletedError } from '../types'
 
-export class PassthroughRecordingDecryptor extends BaseRecordingDecryptor {
-    constructor(_keyStore: BaseKeyStore) {
-        super()
-    }
-
-    start(): Promise<void> {
-        return Promise.resolve()
-    }
-
-    decryptBlock(_sessionId: string, _teamId: number, blockData: Buffer): Promise<Buffer> {
-        return Promise.resolve(blockData)
-    }
-
-    decryptBlockWithKey(_sessionId: string, _teamId: number, blockData: Buffer, _sessionKey: SessionKey): Buffer {
-        return blockData
-    }
-}
-
-export class RecordingDecryptor extends BaseRecordingDecryptor {
-    constructor(private keyStore: BaseKeyStore) {
-        super()
-    }
+export class SodiumRecordingDecryptor implements RecordingDecryptor {
+    constructor(private keyStore: KeyStore) {}
 
     async start(): Promise<void> {
         await sodium.ready
@@ -51,11 +30,4 @@ export class RecordingDecryptor extends BaseRecordingDecryptor {
         const clearText = sodium.crypto_secretbox_open_easy(cipherText, nonce, sessionKey.plaintextKey)
         return Buffer.from(clearText)
     }
-}
-
-export function getBlockDecryptor(keyStore: BaseKeyStore): BaseRecordingDecryptor {
-    if (isCloud()) {
-        return new RecordingDecryptor(keyStore)
-    }
-    return new PassthroughRecordingDecryptor(keyStore)
 }

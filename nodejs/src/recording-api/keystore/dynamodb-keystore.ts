@@ -2,105 +2,23 @@ import { DynamoDBClient, GetItemCommand, PutItemCommand, UpdateItemCommand } fro
 import { DecryptCommand, GenerateDataKeyCommand, KMSClient } from '@aws-sdk/client-kms'
 import sodium from 'libsodium-wrappers'
 
-import { RetentionService } from '../session-recording/retention/retention-service'
-import { TeamService } from '../session-recording/teams/team-service'
-import { isCloud } from '../utils/env-utils'
-import { logger } from '../utils/logger'
-import { BaseKeyStore, SessionKey, SessionKeyDeletedError } from './types'
+import { RetentionService } from '../../session-recording/retention/retention-service'
+import { TeamService } from '../../session-recording/teams/team-service'
+import { KeyStore, SessionKey, SessionKeyDeletedError } from '../types'
 
 const KEYS_TABLE_NAME = 'session-recording-keys'
 
 /**
- * Passthrough key store used for hobby deployments and local development instances.
- */
-export class PassthroughKeyStore extends BaseKeyStore {
-    start(): Promise<void> {
-        return Promise.resolve()
-    }
-
-    generateKey(_sessionId: string, _teamId: number): Promise<SessionKey> {
-        return Promise.resolve({
-            plaintextKey: Buffer.alloc(0),
-            encryptedKey: Buffer.alloc(0),
-            sessionState: 'cleartext',
-        })
-    }
-
-    getKey(_sessionId: string, _teamId: number): Promise<SessionKey> {
-        return Promise.resolve({
-            plaintextKey: Buffer.alloc(0),
-            encryptedKey: Buffer.alloc(0),
-            sessionState: 'cleartext',
-        })
-    }
-
-    deleteKey(_sessionId: string, _teamId: number): Promise<boolean> {
-        return Promise.resolve(true)
-    }
-
-    stop(): void {}
-}
-
-/**
- * In-memory key store for testing purposes.
- * Generates real encryption keys using libsodium.
- */
-export class InMemoryKeyStore extends BaseKeyStore {
-    private keystore = new Map<string, SessionKey>()
-    private deletedKeys = new Map<string, number>()
-
-    async start(): Promise<void> {
-        await sodium.ready
-    }
-
-    generateKey(sessionId: string, teamId: number): Promise<SessionKey> {
-        const plaintextKey = Buffer.from(sodium.crypto_secretbox_keygen())
-        const sessionKey: SessionKey = {
-            plaintextKey,
-            encryptedKey: plaintextKey,
-            sessionState: 'ciphertext',
-        }
-        this.keystore.set(`${teamId}:${sessionId}`, sessionKey)
-        return Promise.resolve(sessionKey)
-    }
-
-    async getKey(sessionId: string, teamId: number): Promise<SessionKey> {
-        const deletedAt = this.deletedKeys.get(`${teamId}:${sessionId}`)
-        if (deletedAt) {
-            throw new SessionKeyDeletedError(sessionId, teamId, deletedAt)
-        }
-
-        const sessionKey = this.keystore.get(`${teamId}:${sessionId}`)
-        if (!sessionKey) {
-            return this.generateKey(sessionId, teamId)
-        }
-        return sessionKey
-    }
-
-    deleteKey(sessionId: string, teamId: number): Promise<boolean> {
-        if (this.keystore.has(`${teamId}:${sessionId}`)) {
-            this.keystore.delete(`${teamId}:${sessionId}`)
-            this.deletedKeys.set(`${teamId}:${sessionId}`, Date.now())
-            return Promise.resolve(true)
-        }
-        return Promise.resolve(false)
-    }
-
-    stop(): void {}
-}
-
-/**
  * Keystore backed by DynamoDB and KMS.
+ * Used in production cloud environments for secure key management.
  */
-export class KeyStore extends BaseKeyStore {
+export class DynamoDBKeyStore implements KeyStore {
     constructor(
         private dynamoDBClient: DynamoDBClient,
         private kmsClient: KMSClient,
         private retentionService: RetentionService,
         private teamService: TeamService
-    ) {
-        super()
-    }
+    ) {}
 
     async start(): Promise<void> {
         await sodium.ready
@@ -291,37 +209,4 @@ export class KeyStore extends BaseKeyStore {
         this.kmsClient.destroy()
         this.dynamoDBClient.destroy()
     }
-}
-
-export interface KeyStoreConfig {
-    kmsEndpoint?: string
-    dynamoDBEndpoint?: string
-}
-
-export function getKeyStore(
-    teamService: TeamService,
-    retentionService: RetentionService,
-    region: string,
-    config?: KeyStoreConfig
-): BaseKeyStore {
-    if (isCloud()) {
-        logger.info('[KeyStore] Creating KeyStore with AWS clients', {
-            region,
-            kmsEndpoint: config?.kmsEndpoint ?? 'default',
-            dynamoDBEndpoint: config?.dynamoDBEndpoint ?? 'default',
-        })
-
-        const kmsClient = new KMSClient({
-            region,
-            endpoint: config?.kmsEndpoint,
-        })
-        const dynamoDBClient = new DynamoDBClient({
-            region,
-            endpoint: config?.dynamoDBEndpoint,
-        })
-
-        return new KeyStore(dynamoDBClient, kmsClient, retentionService, teamService)
-    }
-    logger.info('[KeyStore] Creating PassthroughKeyStore (not running on cloud)')
-    return new PassthroughKeyStore()
 }

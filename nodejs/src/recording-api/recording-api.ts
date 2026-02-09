@@ -12,19 +12,19 @@ import {
 } from '../types'
 import { createRedisPoolFromConfig } from '../utils/db/redis'
 import { logger } from '../utils/logger'
+import { MemoryCachedKeyStore, RedisCachedKeyStore } from './cache'
+import { getBlockDecryptor } from './crypto'
 import { getKeyStore } from './keystore'
-import { MemoryCachedKeyStore, RedisCachedKeyStore } from './keystore-cache'
-import { getBlockDecryptor } from './recording-decryptor'
 import { RecordingParamsSchema, createGetBlockQuerySchema } from './schemas'
-import { BaseKeyStore, BaseRecordingDecryptor, RecordingApiHub, SessionKeyDeletedError } from './types'
+import { KeyStore, RecordingApiHub, RecordingDecryptor, SessionKeyDeletedError } from './types'
 
 export class RecordingApi {
     private s3Client: S3Client | null = null
     private s3Bucket: string | null = null
     private s3Prefix: string | null = null
     private getBlockQuerySchema: ReturnType<typeof createGetBlockQuerySchema> | null = null
-    private keyStore: BaseKeyStore | null = null
-    private decryptor: BaseRecordingDecryptor | null = null
+    private keyStore: KeyStore | null = null
+    private decryptor: RecordingDecryptor | null = null
     private keystoreRedisPool: RedisPool | null = null
     private retentionRedisPool: RedisPool | null = null
 
@@ -88,7 +88,7 @@ export class RecordingApi {
             poolMaxSize: this.hub.REDIS_POOL_MAX_SIZE,
         })
 
-        const keyStore: BaseKeyStore = getKeyStore(teamService, retentionService, s3Region, {
+        const keyStore: KeyStore = getKeyStore(teamService, retentionService, s3Region, {
             kmsEndpoint: this.hub.SESSION_RECORDING_KMS_ENDPOINT,
             dynamoDBEndpoint: this.hub.SESSION_RECORDING_DYNAMODB_ENDPOINT,
         })

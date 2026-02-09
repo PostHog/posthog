@@ -10,28 +10,27 @@ import sodium from 'libsodium-wrappers'
 import snappy from 'snappy'
 
 import { parseJSON } from '../utils/json-parse'
-import { InMemoryKeyStore } from './keystore'
-import { RecordingDecryptor } from './recording-decryptor'
-import { RecordingEncryptor } from './recording-encryptor'
+import { SodiumRecordingDecryptor, SodiumRecordingEncryptor } from './crypto'
+import { MemoryKeyStore } from './keystore'
 import { SessionKey, SessionKeyDeletedError } from './types'
 
 describe('Recording API encryption integration', () => {
-    let keyStore: InMemoryKeyStore
-    let encryptor: RecordingEncryptor
-    let decryptor: RecordingDecryptor
+    let keyStore: MemoryKeyStore
+    let encryptor: SodiumRecordingEncryptor
+    let decryptor: SodiumRecordingDecryptor
 
     beforeAll(async () => {
         await sodium.ready
     })
 
     beforeEach(async () => {
-        keyStore = new InMemoryKeyStore()
+        keyStore = new MemoryKeyStore()
         await keyStore.start()
 
-        encryptor = new RecordingEncryptor(keyStore)
+        encryptor = new SodiumRecordingEncryptor(keyStore)
         await encryptor.start()
 
-        decryptor = new RecordingDecryptor(keyStore)
+        decryptor = new SodiumRecordingDecryptor(keyStore)
         await decryptor.start()
     })
 
