@@ -742,6 +742,157 @@ describe('Hog Executor', () => {
         })
     })
 
+    describe('postHogGetTicket and postHogUpdateTicket', () => {
+        const mockExecHogForAsyncFunction = (asyncFunctionName: string, asyncFunctionArgs: any[]) => {
+            const hogExecModule = require('../utils/hog-exec')
+            jest.spyOn(hogExecModule, 'execHog').mockResolvedValue({
+                execResult: {
+                    finished: false,
+                    asyncFunctionName,
+                    asyncFunctionArgs,
+                    state: { syncDuration: 1, maxMemUsed: 100, ops: 10, stack: [] },
+                },
+                error: undefined,
+                durationMs: 1,
+                waitedForThreadRelief: false,
+            })
+        }
+
+        it('postHogGetTicket queues internal fetch with correct params', async () => {
+            jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue({
+                id: 1,
+                api_token: 'test-api-token',
+            } as any)
+
+            mockExecHogForAsyncFunction('postHogGetTicket', [{ ticket_id: 'test-ticket-123' }])
+
+            const invocation = createExampleInvocation(
+                createHogFunction({
+                    ...HOG_EXAMPLES.simple_fetch,
+                    ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                    ...HOG_FILTERS_EXAMPLES.no_filters,
+                })
+            )
+
+            const result = await executor.execute(invocation)
+
+            expect(result.invocation.queueParameters).toEqual({
+                type: 'fetch',
+                url: `${hub.SITE_URL}/api/conversations/external/ticket/test-ticket-123`,
+                method: 'GET',
+                headers: { Authorization: 'Bearer test-api-token' },
+            })
+        })
+
+        it('postHogUpdateTicket queues internal fetch with correct params', async () => {
+            jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue({
+                id: 1,
+                api_token: 'test-api-token',
+            } as any)
+
+            mockExecHogForAsyncFunction('postHogUpdateTicket', [
+                { ticket_id: 'test-ticket-456', updates: { status: 'resolved', priority: 'high' } },
+            ])
+
+            const invocation = createExampleInvocation(
+                createHogFunction({
+                    ...HOG_EXAMPLES.simple_fetch,
+                    ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                    ...HOG_FILTERS_EXAMPLES.no_filters,
+                })
+            )
+
+            const result = await executor.execute(invocation)
+
+            expect(result.invocation.queueParameters).toEqual({
+                type: 'fetch',
+                url: `${hub.SITE_URL}/api/conversations/external/ticket/test-ticket-456`,
+                method: 'PATCH',
+                body: JSON.stringify({ status: 'resolved', priority: 'high' }),
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: 'Bearer test-api-token',
+                },
+            })
+        })
+
+        it('postHogGetTicket errors when ticket_id is missing', async () => {
+            jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue({
+                id: 1,
+                api_token: 'test-api-token',
+            } as any)
+
+            mockExecHogForAsyncFunction('postHogGetTicket', [{}])
+
+            const invocation = createExampleInvocation(
+                createHogFunction({
+                    ...HOG_EXAMPLES.simple_fetch,
+                    ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                    ...HOG_FILTERS_EXAMPLES.no_filters,
+                })
+            )
+
+            const result = await executor.execute(invocation)
+            expect(result.error).toContain("missing 'ticket_id'")
+        })
+
+        it('postHogUpdateTicket errors when ticket_id is missing', async () => {
+            jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue({
+                id: 1,
+                api_token: 'test-api-token',
+            } as any)
+
+            mockExecHogForAsyncFunction('postHogUpdateTicket', [{ updates: { status: 'resolved' } }])
+
+            const invocation = createExampleInvocation(
+                createHogFunction({
+                    ...HOG_EXAMPLES.simple_fetch,
+                    ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                    ...HOG_FILTERS_EXAMPLES.no_filters,
+                })
+            )
+
+            const result = await executor.execute(invocation)
+            expect(result.error).toContain("missing 'ticket_id'")
+        })
+
+        it('postHogGetTicket errors when team is not found', async () => {
+            jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue(null)
+
+            mockExecHogForAsyncFunction('postHogGetTicket', [{ ticket_id: 'test-ticket-123' }])
+
+            const invocation = createExampleInvocation(
+                createHogFunction({
+                    ...HOG_EXAMPLES.simple_fetch,
+                    ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                    ...HOG_FILTERS_EXAMPLES.no_filters,
+                })
+            )
+
+            const result = await executor.execute(invocation)
+            expect(result.error).toContain('Team 1 not found')
+        })
+    })
+
+    describe('fetch does not allow internal flag', () => {
+        it('regular fetch call does not pass through internal flag', async () => {
+            const invocation = createExampleInvocation(
+                createHogFunction({
+                    ...HOG_EXAMPLES.simple_fetch,
+                    ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                    ...HOG_FILTERS_EXAMPLES.no_filters,
+                })
+            )
+
+            const result = await executor.execute(invocation)
+
+            // The fetch case handler only picks url/method/body/headers — internal is never passed
+            expect(result.invocation.queueParameters).toBeDefined()
+            expect((result.invocation.queueParameters as any).type).toBe('fetch')
+            expect((result.invocation.queueParameters as any).internal).toBeUndefined()
+        })
+    })
+
     describe('executeFetch', () => {
         jest.setTimeout(10000)
         let server: any
