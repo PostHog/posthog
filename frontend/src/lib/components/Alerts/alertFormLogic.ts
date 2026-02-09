@@ -15,6 +15,7 @@ import {
 import { InsightLogicProps, QueryBasedInsightModel } from '~/types'
 
 import type { alertFormLogicType } from './alertFormLogicType'
+import { alertNotificationLogic } from './alertNotificationLogic'
 import { insightAlertsLogic } from './insightAlertsLogic'
 import { AlertType, AlertTypeWrite } from './types'
 
@@ -141,10 +142,22 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     }
                 }
 
+                const createPendingNotifications = async (alertId: string): Promise<boolean> => {
+                    // Use props.alert?.id (not alertId) to match the logic instance where notifications were queued.
+                    // For new alerts this is undefined (key 'new'), for existing alerts it matches the edit key.
+                    const notifLogic = alertNotificationLogic({ alertId: props.alert?.id })
+                    if (notifLogic.values.pendingNotifications.length === 0) {
+                        return true
+                    }
+                    await notifLogic.asyncActions.createPendingHogFunctions(alertId, alert.name)
+                    return notifLogic.values.pendingNotifications.length === 0
+                }
+
                 try {
                     if (alert.id === undefined) {
                         const updatedAlert: AlertType = await api.alerts.create(payload)
 
+                        await createPendingNotifications(updatedAlert.id)
                         lemonToast.success(`Alert created.`)
                         upsertToParent(updatedAlert)
                         props.onEditSuccess(updatedAlert.id)
@@ -154,6 +167,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
 
                     const updatedAlert: AlertType = await api.alerts.update(alert.id, payload)
 
+                    await createPendingNotifications(updatedAlert.id)
                     lemonToast.success(`Alert saved.`)
                     upsertToParent(updatedAlert)
                     props.onEditSuccess(updatedAlert.id)
