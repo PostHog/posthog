@@ -35,6 +35,7 @@ const meta: Meta<(props: StoryProps) => JSX.Element> = {
                     realm: 'cloud',
                 },
                 '/api/projects/:id/integrations': { results: [] },
+                '/api/organizations/:id/integrations': { results: [] },
             },
             patch: {
                 '/api/projects/:id': async (req, res, ctx) => {
