@@ -57,32 +57,36 @@ class VideoSegmentClusteringWorkflow(PostHogWorkflow):
     @workflow.run
     async def run(self, inputs: ClusteringWorkflowInputs) -> WorkflowResult:
         """Execute the video segment clustering workflow for a single team."""
+        # Step 1: Prime the document_embeddings table (optional).
+        # This is outside the try/except so that failure here fails the whole workflow
+        # (allowing Temporal retries), unlike later steps which are best-effort.
+        prime_info = None
+        if inputs.skip_priming:
+            workflow.logger.info(f"Skipping priming (team {inputs.team_id})")
+        else:
+            workflow.logger.info(f"Priming session embeddings (team {inputs.team_id})")
+
+            # First, identify which sessions need summarization
+            prime_info = await workflow.execute_activity(
+                get_sessions_to_prime_activity,
+                args=[
+                    PrimeSessionEmbeddingsActivityInputs(
+                        team_id=inputs.team_id,
+                        lookback_hours=inputs.lookback_hours,
+                    )
+                ],
+                start_to_close_timeout=timedelta(seconds=300),
+                retry_policy=RetryPolicy(
+                    maximum_attempts=3,
+                    initial_interval=timedelta(seconds=1),
+                    maximum_interval=timedelta(seconds=10),
+                    backoff_coefficient=2.0,
+                ),
+            )
+
         try:
-            # Step 1: Prime the document_embeddings table (optional)
-            if inputs.skip_priming:
-                workflow.logger.info(f"Skipping priming (team {inputs.team_id})")
-            else:
-                workflow.logger.info(f"Priming session embeddings (team {inputs.team_id})")
-
-                # First, identify which sessions need summarization
-                prime_info = await workflow.execute_activity(
-                    get_sessions_to_prime_activity,
-                    args=[
-                        PrimeSessionEmbeddingsActivityInputs(
-                            team_id=inputs.team_id,
-                            lookback_hours=inputs.lookback_hours,
-                        )
-                    ],
-                    start_to_close_timeout=timedelta(seconds=300),
-                    retry_policy=RetryPolicy(
-                        maximum_attempts=3,
-                        initial_interval=timedelta(seconds=1),
-                        maximum_interval=timedelta(seconds=10),
-                        backoff_coefficient=2.0,
-                    ),
-                )
-
-                # Then, start session summarization as child workflows
+            if prime_info is not None:
+                # Start session summarization as child workflows
                 sessions_summarized = 0
                 sessions_failed = 0
                 if prime_info.user_id is None:
