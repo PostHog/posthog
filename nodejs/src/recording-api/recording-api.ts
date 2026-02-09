@@ -1,7 +1,6 @@
-import { GetObjectCommand, S3Client, S3ClientConfig } from '@aws-sdk/client-s3'
+import { S3Client, S3ClientConfig } from '@aws-sdk/client-s3'
 import express from 'ultimate-express'
 
-import { ValidRetentionPeriods } from '../session-recording/constants'
 import { RetentionService } from '../session-recording/retention/retention-service'
 import { TeamService } from '../session-recording/teams/team-service'
 import {
@@ -16,8 +15,9 @@ import { logger } from '../utils/logger'
 import { MemoryCachedKeyStore, RedisCachedKeyStore } from './cache'
 import { getBlockDecryptor } from './crypto'
 import { getKeyStore } from './keystore'
+import { RecordingService } from './recording-service'
 import { GetBlockQuerySchema, RecordingParamsSchema } from './schemas'
-import { KeyStore, RecordingApiHub, RecordingDecryptor, SessionKeyDeletedError } from './types'
+import { KeyStore, RecordingApiHub, RecordingDecryptor } from './types'
 
 export class RecordingApi {
     private s3Client: S3Client | null = null
@@ -27,6 +27,7 @@ export class RecordingApi {
     private decryptor: RecordingDecryptor | null = null
     private keystoreRedisPool: RedisPool | null = null
     private retentionRedisPool: RedisPool | null = null
+    private recordingService: RecordingService | null = null
 
     constructor(private hub: RecordingApiHub) {}
 
@@ -97,6 +98,15 @@ export class RecordingApi {
         this.decryptor = getBlockDecryptor(this.keyStore)
         await this.decryptor.start()
 
+        // Create the service layer
+        this.recordingService = new RecordingService(
+            this.s3Client,
+            this.s3Bucket!,
+            this.s3Prefix!,
+            this.keyStore,
+            this.decryptor
+        )
+
         logger.info('[RecordingApi] Started successfully')
     }
 
@@ -112,17 +122,6 @@ export class RecordingApi {
             await pool.drain()
             await pool.clear()
         }
-    }
-
-    // S3 key format: {prefix}/{retention_period}/{timestamp}-{hex_suffix}
-    // Example: session_recordings/30d/1764634738680-3cca0f5d3c7cc7ee
-    private validateS3Key(key: string): boolean {
-        const pattern = `^${this.s3Prefix}/(${ValidRetentionPeriods.join('|')})/\\d+-[0-9a-f]{16}$`
-        return new RegExp(pattern).test(key)
-    }
-
-    private formatS3KeyError(): string {
-        return `Invalid key format: must match ${this.s3Prefix}/{${ValidRetentionPeriods.join(',')}}/{timestamp}-{hex}`
     }
 
     isHealthy(): HealthCheckResult {
@@ -162,20 +161,10 @@ export class RecordingApi {
     }
 
     private getBlock = async (req: express.Request, res: express.Response): Promise<void> => {
+        // Parse and validate request
         const paramsResult = RecordingParamsSchema.safeParse(req.params)
         if (!paramsResult.success) {
             res.status(400).json({ error: paramsResult.error.issues[0].message })
-            return
-        }
-
-        // Check service initialization before processing
-        if (!this.s3Client || !this.s3Bucket || !this.s3Prefix) {
-            res.status(503).json({ error: 'S3 client not initialized' })
-            return
-        }
-
-        if (!this.decryptor) {
-            res.status(503).json({ error: 'Decryptor not initialized' })
             return
         }
 
@@ -185,78 +174,49 @@ export class RecordingApi {
             return
         }
 
-        const { team_id: teamId, session_id: sessionId } = paramsResult.data
-        const { key, start: startByte, end: endByte } = queryResult.data
-
-        // Validate S3 key format matches expected prefix
-        if (!this.validateS3Key(key)) {
-            res.status(400).json({ error: this.formatS3KeyError() })
+        // Check service initialization
+        if (!this.recordingService) {
+            res.status(503).json({ error: 'S3 client not initialized' })
             return
         }
 
-        logger.info('[RecordingApi] getBlock request', {
-            teamId,
-            sessionId,
-            key,
-            start: startByte,
-            end: endByte,
-        })
+        const { team_id: teamId, session_id: sessionId } = paramsResult.data
+        const { key, start: startByte, end: endByte } = queryResult.data
 
+        // Validate S3 key format
+        if (!this.recordingService.validateS3Key(key)) {
+            res.status(400).json({ error: this.recordingService.formatS3KeyError() })
+            return
+        }
+
+        // Call service
         try {
-            const command = new GetObjectCommand({
-                Bucket: this.s3Bucket,
-                Key: key,
-                Range: `bytes=${startByte}-${endByte}`,
-            })
-
-            logger.debug('[RecordingApi] Fetching from S3', {
-                bucket: this.s3Bucket,
+            const result = await this.recordingService.getBlock({
+                sessionId,
+                teamId,
                 key,
-                range: `bytes=${startByte}-${endByte}`,
+                startByte,
+                endByte,
             })
 
-            const response = await this.s3Client.send(command)
-
-            if (!response.Body) {
-                logger.debug('[RecordingApi] S3 returned no body', { key })
+            // Serialize response
+            if (!result.ok) {
+                if (result.error === 'deleted') {
+                    res.status(410).json({
+                        error: 'Recording has been deleted',
+                        deleted_at: result.deletedAt,
+                    })
+                    return
+                }
                 res.status(404).json({ error: 'Block not found' })
                 return
             }
 
-            const bodyContents = await response.Body.transformToByteArray()
-            logger.debug('[RecordingApi] S3 returned data', {
-                key,
-                bytesReceived: bodyContents.length,
-            })
-
-            const decrypted = await this.decryptor.decryptBlock(sessionId, teamId, Buffer.from(bodyContents))
-
-            logger.debug('[RecordingApi] Decrypted block', {
-                sessionId,
-                teamId,
-                inputSize: bodyContents.length,
-                outputSize: decrypted.length,
-            })
-
             res.set('Content-Type', 'application/octet-stream')
-            res.set('Content-Length', String(decrypted.length))
-            // Recording blocks are immutable - allow caching for 30 days
+            res.set('Content-Length', String(result.data.length))
             res.set('Cache-Control', 'public, max-age=2592000, immutable')
-            res.send(decrypted)
+            res.send(result.data)
         } catch (error) {
-            if (error instanceof SessionKeyDeletedError) {
-                logger.info('[RecordingApi] Session key has been deleted', {
-                    teamId,
-                    sessionId,
-                    deleted_at: error.deletedAt,
-                })
-                res.status(410).json({
-                    error: 'Recording has been deleted',
-                    deleted_at: error.deletedAt,
-                })
-                return
-            }
-
             logger.error('[RecordingApi] Error fetching block from S3', {
                 error,
                 key,
@@ -270,43 +230,40 @@ export class RecordingApi {
     }
 
     private deleteRecording = async (req: express.Request, res: express.Response): Promise<void> => {
+        // Parse and validate request
         const paramsResult = RecordingParamsSchema.safeParse(req.params)
         if (!paramsResult.success) {
             res.status(400).json({ error: paramsResult.error.issues[0].message })
             return
         }
 
-        const { team_id: teamId, session_id: sessionId } = paramsResult.data
-
-        logger.info('[RecordingApi] deleteRecording request', { teamId, sessionId })
-
-        if (!this.keyStore) {
+        // Check service initialization
+        if (!this.recordingService) {
             res.status(503).json({ error: 'KeyStore not initialized' })
             return
         }
 
+        const { team_id: teamId, session_id: sessionId } = paramsResult.data
+
+        // Call service
         try {
-            const deleted = await this.keyStore.deleteKey(sessionId, teamId)
-            logger.debug('[RecordingApi] deleteKey result', { teamId, sessionId, deleted })
-            if (deleted) {
-                res.json({ team_id: teamId, session_id: sessionId, status: 'deleted' })
-            } else {
+            const result = await this.recordingService.deleteRecording(sessionId, teamId)
+
+            // Serialize response
+            if (!result.ok) {
+                if (result.error === 'already_deleted') {
+                    res.status(410).json({
+                        error: 'Recording has already been deleted',
+                        deleted_at: result.deletedAt,
+                    })
+                    return
+                }
                 res.status(404).json({ error: 'Recording key not found' })
-            }
-        } catch (error) {
-            if (error instanceof SessionKeyDeletedError) {
-                logger.info('[RecordingApi] Recording already deleted', {
-                    teamId,
-                    sessionId,
-                    deleted_at: error.deletedAt,
-                })
-                res.status(410).json({
-                    error: 'Recording has already been deleted',
-                    deleted_at: error.deletedAt,
-                })
                 return
             }
 
+            res.json({ team_id: teamId, session_id: sessionId, status: 'deleted' })
+        } catch (error) {
             logger.error('[RecordingApi] Error deleting recording key', { error, teamId, sessionId })
             res.status(500).json({ error: 'Failed to delete recording key' })
         }

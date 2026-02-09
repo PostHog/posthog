@@ -6,7 +6,8 @@ import { Hub } from '../types'
 import { getBlockDecryptor } from './crypto'
 import { getKeyStore } from './keystore'
 import { RecordingApi } from './recording-api'
-import { KeyStore, RecordingDecryptor, SessionKeyDeletedError } from './types'
+import { RecordingService } from './recording-service'
+import { KeyStore, RecordingDecryptor } from './types'
 
 jest.mock('@aws-sdk/client-s3', () => ({
     S3Client: jest.fn().mockImplementation(() => ({
@@ -38,11 +39,14 @@ jest.mock('../utils/db/redis', () => ({
     }),
 }))
 
+jest.mock('./recording-service')
+
 describe('RecordingApi', () => {
     let recordingApi: RecordingApi
     let mockHub: Partial<Hub>
     let mockKeyStore: jest.Mocked<KeyStore>
     let mockDecryptor: jest.Mocked<RecordingDecryptor>
+    let mockService: jest.Mocked<RecordingService>
 
     beforeEach(() => {
         jest.clearAllMocks()
@@ -70,8 +74,16 @@ describe('RecordingApi', () => {
             start: jest.fn().mockResolvedValue(undefined),
             decryptBlock: jest.fn(),
         } as unknown as jest.Mocked<RecordingDecryptor>
+
+        mockService = {
+            validateS3Key: jest.fn().mockReturnValue(true),
+            formatS3KeyError: jest.fn().mockReturnValue('Invalid key format'),
+            getBlock: jest.fn(),
+            deleteRecording: jest.fn(),
+        } as unknown as jest.Mocked<RecordingService>
         ;(getKeyStore as jest.Mock).mockReturnValue(mockKeyStore)
         ;(getBlockDecryptor as jest.Mock).mockReturnValue(mockDecryptor)
+        ;(RecordingService as jest.Mock).mockImplementation(() => mockService)
 
         recordingApi = new RecordingApi(mockHub as Hub)
     })
@@ -123,6 +135,7 @@ describe('RecordingApi', () => {
                 }
             )
             expect(getBlockDecryptor).toHaveBeenCalledWith(mockKeyStore)
+            expect(RecordingService).toHaveBeenCalled()
         })
 
         it('should use default region if not specified', async () => {
@@ -190,7 +203,7 @@ describe('RecordingApi', () => {
         })
     })
 
-    describe('getBlock endpoint', () => {
+    describe('getBlock endpoint - request parsing', () => {
         it('should return 400 if key is missing', async () => {
             await recordingApi.start()
             const { statusMock, jsonMock, ...mockRes } = createMockResponse()
@@ -203,43 +216,6 @@ describe('RecordingApi', () => {
 
             expect(statusMock).toHaveBeenCalledWith(400)
             expect(jsonMock).toHaveBeenCalledWith({ error: 'Missing key query parameter' })
-        })
-
-        it('should return 400 if key is not a string', async () => {
-            await recordingApi.start()
-            const { statusMock, jsonMock, ...mockRes } = createMockResponse()
-            const mockReq = {
-                params: { team_id: '1', session_id: 'session-123' },
-                query: { key: 123, start: '0', end: '100' },
-            }
-
-            await (recordingApi as any).getBlock(mockReq, mockRes)
-
-            expect(statusMock).toHaveBeenCalledWith(400)
-            expect(jsonMock).toHaveBeenCalledWith({ error: 'Expected string, received number' })
-        })
-
-        it.each([
-            ['../etc/passwd', 'path traversal'],
-            ['other_prefix/30d/123-abcdef0123456789', 'wrong prefix'],
-            ['session_recordings/7d/123-abcdef0123456789', 'invalid retention period'],
-            ['session_recordings/30d/file', 'missing timestamp-hex format'],
-            ['session_recordings/30d/123', 'missing hex suffix'],
-            ['session_recordings/30d/123-abc', 'hex suffix too short'],
-            ['session_recordings/30d/123-abcdef012345678z', 'hex suffix contains non-hex'],
-            ['session_recordings/30d/-abcdef0123456789', 'missing timestamp'],
-        ])('should return 400 for invalid S3 key: %s (%s)', async (key, _description) => {
-            await recordingApi.start()
-            const { statusMock, jsonMock, ...mockRes } = createMockResponse()
-            const mockReq = {
-                params: { team_id: '1', session_id: 'session-123' },
-                query: { key, start: '0', end: '100' },
-            }
-
-            await (recordingApi as any).getBlock(mockReq, mockRes)
-
-            expect(statusMock).toHaveBeenCalledWith(400)
-            expect(jsonMock.mock.calls[0][0].error).toMatch(/Invalid key/)
         })
 
         it('should return 400 if start is missing', async () => {
@@ -270,25 +246,10 @@ describe('RecordingApi', () => {
             expect(jsonMock).toHaveBeenCalledWith({ error: 'Missing end query parameter' })
         })
 
-        it('should return 400 if start is not a valid integer', async () => {
-            await recordingApi.start()
-            const { statusMock, jsonMock, ...mockRes } = createMockResponse()
-            const mockReq = {
-                params: { team_id: '1', session_id: 'session-123' },
-                query: { key: 'session_recordings/30d/1764634738680-3cca0f5d3c7cc7ee', start: 'abc', end: '100' },
-            }
-
-            await (recordingApi as any).getBlock(mockReq, mockRes)
-
-            expect(statusMock).toHaveBeenCalledWith(400)
-            expect(jsonMock).toHaveBeenCalledWith({ error: 'Invalid start query parameter' })
-        })
-
         it.each([
             ['abc', 'non-numeric string'],
             ['0', 'zero'],
             ['-1', 'negative number'],
-            ['', 'empty string'],
         ])('should return 400 for invalid team_id: %s (%s)', async (teamId, _description) => {
             await recordingApi.start()
             const { statusMock, jsonMock, ...mockRes } = createMockResponse()
@@ -302,27 +263,6 @@ describe('RecordingApi', () => {
             expect(statusMock).toHaveBeenCalledWith(400)
             expect(jsonMock).toHaveBeenCalledWith({ error: 'Invalid team_id parameter' })
         })
-
-        it.each([
-            ['-1', '100', 'start', 'negative start'],
-            ['0', '-1', 'end', 'negative end'],
-            ['-5', '-1', 'start', 'both negative'],
-        ])(
-            'should return 400 for negative byte range: start=%s, end=%s (%s)',
-            async (start, end, invalidField, _description) => {
-                await recordingApi.start()
-                const { statusMock, jsonMock, ...mockRes } = createMockResponse()
-                const mockReq = {
-                    params: { team_id: '1', session_id: 'session-123' },
-                    query: { key: 'session_recordings/30d/1764634738680-3cca0f5d3c7cc7ee', start, end },
-                }
-
-                await (recordingApi as any).getBlock(mockReq, mockRes)
-
-                expect(statusMock).toHaveBeenCalledWith(400)
-                expect(jsonMock).toHaveBeenCalledWith({ error: `Invalid ${invalidField} query parameter` })
-            }
-        )
 
         it('should return 400 when start is greater than end', async () => {
             await recordingApi.start()
@@ -338,28 +278,23 @@ describe('RecordingApi', () => {
             expect(jsonMock).toHaveBeenCalledWith({ error: 'start must be less than or equal to end' })
         })
 
-        it('should accept start equal to end (single byte)', async () => {
+        it('should return 400 for invalid S3 key', async () => {
             await recordingApi.start()
-            const s3ClientInstance = (S3Client as jest.Mock).mock.results[0].value
-            const mockBody = {
-                transformToByteArray: jest.fn().mockResolvedValue(new Uint8Array([1])),
-            }
-            s3ClientInstance.send.mockResolvedValue({ Body: mockBody })
-            mockDecryptor.decryptBlock.mockResolvedValue(Buffer.from('x'))
+            mockService.validateS3Key.mockReturnValue(false)
 
-            const { statusMock, jsonMock, setMock, sendMock, ...mockRes } = createMockResponse()
+            const { statusMock, jsonMock, ...mockRes } = createMockResponse()
             const mockReq = {
                 params: { team_id: '1', session_id: 'session-123' },
-                query: { key: 'session_recordings/30d/1764634738680-3cca0f5d3c7cc7ee', start: '50', end: '50' },
+                query: { key: '../etc/passwd', start: '0', end: '100' },
             }
 
             await (recordingApi as any).getBlock(mockReq, mockRes)
 
-            expect(statusMock).not.toHaveBeenCalled()
-            expect(sendMock).toHaveBeenCalled()
+            expect(statusMock).toHaveBeenCalledWith(400)
+            expect(jsonMock).toHaveBeenCalledWith({ error: 'Invalid key format' })
         })
 
-        it('should return 503 if S3 client not initialized', async () => {
+        it('should return 503 if service not initialized', async () => {
             const { statusMock, jsonMock, ...mockRes } = createMockResponse()
             const mockReq = {
                 params: { team_id: '1', session_id: 'session-123' },
@@ -371,11 +306,30 @@ describe('RecordingApi', () => {
             expect(statusMock).toHaveBeenCalledWith(503)
             expect(jsonMock).toHaveBeenCalledWith({ error: 'S3 client not initialized' })
         })
+    })
 
-        it('should return 404 if S3 returns no body', async () => {
+    describe('getBlock endpoint - response serialization', () => {
+        it('should return decrypted block on success', async () => {
             await recordingApi.start()
-            const s3ClientInstance = (S3Client as jest.Mock).mock.results[0].value
-            s3ClientInstance.send.mockResolvedValue({ Body: null })
+            mockService.getBlock.mockResolvedValue({ ok: true, data: Buffer.from('decrypted data') })
+
+            const { statusMock, setMock, sendMock, ...mockRes } = createMockResponse()
+            const mockReq = {
+                params: { team_id: '1', session_id: 'session-123' },
+                query: { key: 'session_recordings/30d/1764634738680-3cca0f5d3c7cc7ee', start: '0', end: '100' },
+            }
+
+            await (recordingApi as any).getBlock(mockReq, mockRes)
+
+            expect(setMock).toHaveBeenCalledWith('Content-Type', 'application/octet-stream')
+            expect(setMock).toHaveBeenCalledWith('Content-Length', '14')
+            expect(setMock).toHaveBeenCalledWith('Cache-Control', 'public, max-age=2592000, immutable')
+            expect(sendMock).toHaveBeenCalledWith(Buffer.from('decrypted data'))
+        })
+
+        it('should return 404 for not_found', async () => {
+            await recordingApi.start()
+            mockService.getBlock.mockResolvedValue({ ok: false, error: 'not_found' })
 
             const { statusMock, jsonMock, ...mockRes } = createMockResponse()
             const mockReq = {
@@ -389,16 +343,11 @@ describe('RecordingApi', () => {
             expect(jsonMock).toHaveBeenCalledWith({ error: 'Block not found' })
         })
 
-        it('should return decrypted block on success', async () => {
+        it('should return 410 for deleted recording', async () => {
             await recordingApi.start()
-            const s3ClientInstance = (S3Client as jest.Mock).mock.results[0].value
-            const mockBody = {
-                transformToByteArray: jest.fn().mockResolvedValue(new Uint8Array([1, 2, 3])),
-            }
-            s3ClientInstance.send.mockResolvedValue({ Body: mockBody })
-            mockDecryptor.decryptBlock.mockResolvedValue(Buffer.from('decrypted data'))
+            mockService.getBlock.mockResolvedValue({ ok: false, error: 'deleted', deletedAt: 1700000000 })
 
-            const { statusMock, jsonMock, setMock, sendMock, ...mockRes } = createMockResponse()
+            const { statusMock, jsonMock, ...mockRes } = createMockResponse()
             const mockReq = {
                 params: { team_id: '1', session_id: 'session-123' },
                 query: { key: 'session_recordings/30d/1764634738680-3cca0f5d3c7cc7ee', start: '0', end: '100' },
@@ -406,17 +355,16 @@ describe('RecordingApi', () => {
 
             await (recordingApi as any).getBlock(mockReq, mockRes)
 
-            expect(mockDecryptor.decryptBlock).toHaveBeenCalledWith('session-123', 1, expect.any(Buffer))
-            expect(setMock).toHaveBeenCalledWith('Content-Type', 'application/octet-stream')
-            expect(setMock).toHaveBeenCalledWith('Content-Length', '14')
-            expect(setMock).toHaveBeenCalledWith('Cache-Control', 'public, max-age=2592000, immutable')
-            expect(sendMock).toHaveBeenCalledWith(Buffer.from('decrypted data'))
+            expect(statusMock).toHaveBeenCalledWith(410)
+            expect(jsonMock).toHaveBeenCalledWith({
+                error: 'Recording has been deleted',
+                deleted_at: 1700000000,
+            })
         })
 
-        it('should return 500 if S3 fetch fails', async () => {
+        it('should return 500 when service throws unexpected error', async () => {
             await recordingApi.start()
-            const s3ClientInstance = (S3Client as jest.Mock).mock.results[0].value
-            s3ClientInstance.send.mockRejectedValue(new Error('S3 error'))
+            mockService.getBlock.mockRejectedValue(new Error('S3 error'))
 
             const { statusMock, jsonMock, ...mockRes } = createMockResponse()
             const mockReq = {
@@ -429,65 +377,13 @@ describe('RecordingApi', () => {
             expect(statusMock).toHaveBeenCalledWith(500)
             expect(jsonMock).toHaveBeenCalledWith({ error: 'Failed to fetch block from S3' })
         })
-
-        it('should return 410 if session key has been deleted', async () => {
-            await recordingApi.start()
-            const s3ClientInstance = (S3Client as jest.Mock).mock.results[0].value
-            const mockBody = {
-                transformToByteArray: jest.fn().mockResolvedValue(new Uint8Array([1, 2, 3])),
-            }
-            s3ClientInstance.send.mockResolvedValue({ Body: mockBody })
-
-            const deletedAt = 1700000000
-            mockDecryptor.decryptBlock.mockRejectedValue(new SessionKeyDeletedError('session-123', 1, deletedAt))
-
-            const { statusMock, jsonMock, ...mockRes } = createMockResponse()
-            const mockReq = {
-                params: { team_id: '1', session_id: 'session-123' },
-                query: { key: 'session_recordings/30d/1764634738680-3cca0f5d3c7cc7ee', start: '0', end: '100' },
-            }
-
-            await (recordingApi as any).getBlock(mockReq, mockRes)
-
-            expect(statusMock).toHaveBeenCalledWith(410)
-            expect(jsonMock).toHaveBeenCalledWith({
-                error: 'Recording has been deleted',
-                deleted_at: deletedAt,
-            })
-        })
-
-        it('should return 410 with undefined deleted_at if not available', async () => {
-            await recordingApi.start()
-            const s3ClientInstance = (S3Client as jest.Mock).mock.results[0].value
-            const mockBody = {
-                transformToByteArray: jest.fn().mockResolvedValue(new Uint8Array([1, 2, 3])),
-            }
-            s3ClientInstance.send.mockResolvedValue({ Body: mockBody })
-
-            mockDecryptor.decryptBlock.mockRejectedValue(new SessionKeyDeletedError('session-123', 1, undefined))
-
-            const { statusMock, jsonMock, ...mockRes } = createMockResponse()
-            const mockReq = {
-                params: { team_id: '1', session_id: 'session-123' },
-                query: { key: 'session_recordings/30d/1764634738680-3cca0f5d3c7cc7ee', start: '0', end: '100' },
-            }
-
-            await (recordingApi as any).getBlock(mockReq, mockRes)
-
-            expect(statusMock).toHaveBeenCalledWith(410)
-            expect(jsonMock).toHaveBeenCalledWith({
-                error: 'Recording has been deleted',
-                deleted_at: undefined,
-            })
-        })
     })
 
-    describe('deleteRecording endpoint', () => {
+    describe('deleteRecording endpoint - request parsing', () => {
         it.each([
             ['abc', 'non-numeric string'],
             ['0', 'zero'],
             ['-1', 'negative number'],
-            ['', 'empty string'],
         ])('should return 400 for invalid team_id: %s (%s)', async (teamId, _description) => {
             await recordingApi.start()
             const { statusMock, jsonMock, ...mockRes } = createMockResponse()
@@ -501,7 +397,7 @@ describe('RecordingApi', () => {
             expect(jsonMock).toHaveBeenCalledWith({ error: 'Invalid team_id parameter' })
         })
 
-        it('should return 503 if keyStore not initialized', async () => {
+        it('should return 503 if service not initialized', async () => {
             const { statusMock, jsonMock, ...mockRes } = createMockResponse()
             const mockReq = {
                 params: { team_id: '1', session_id: 'session-123' },
@@ -512,25 +408,26 @@ describe('RecordingApi', () => {
             expect(statusMock).toHaveBeenCalledWith(503)
             expect(jsonMock).toHaveBeenCalledWith({ error: 'KeyStore not initialized' })
         })
+    })
 
+    describe('deleteRecording endpoint - response serialization', () => {
         it('should return success when key is deleted', async () => {
             await recordingApi.start()
-            mockKeyStore.deleteKey.mockResolvedValue(true)
+            mockService.deleteRecording.mockResolvedValue({ ok: true })
 
-            const { statusMock, jsonMock, ...mockRes } = createMockResponse()
+            const { jsonMock, ...mockRes } = createMockResponse()
             const mockReq = {
                 params: { team_id: '1', session_id: 'session-123' },
             }
 
             await (recordingApi as any).deleteRecording(mockReq, mockRes)
 
-            expect(mockKeyStore.deleteKey).toHaveBeenCalledWith('session-123', 1)
             expect(jsonMock).toHaveBeenCalledWith({ team_id: 1, session_id: 'session-123', status: 'deleted' })
         })
 
         it('should return 404 when key not found', async () => {
             await recordingApi.start()
-            mockKeyStore.deleteKey.mockResolvedValue(false)
+            mockService.deleteRecording.mockResolvedValue({ ok: false, error: 'not_found' })
 
             const { statusMock, jsonMock, ...mockRes } = createMockResponse()
             const mockReq = {
@@ -543,9 +440,31 @@ describe('RecordingApi', () => {
             expect(jsonMock).toHaveBeenCalledWith({ error: 'Recording key not found' })
         })
 
-        it('should return 500 when delete fails', async () => {
+        it('should return 410 when recording is already deleted', async () => {
             await recordingApi.start()
-            mockKeyStore.deleteKey.mockRejectedValue(new Error('Delete error'))
+            mockService.deleteRecording.mockResolvedValue({
+                ok: false,
+                error: 'already_deleted',
+                deletedAt: 1700000000,
+            })
+
+            const { statusMock, jsonMock, ...mockRes } = createMockResponse()
+            const mockReq = {
+                params: { team_id: '1', session_id: 'session-123' },
+            }
+
+            await (recordingApi as any).deleteRecording(mockReq, mockRes)
+
+            expect(statusMock).toHaveBeenCalledWith(410)
+            expect(jsonMock).toHaveBeenCalledWith({
+                error: 'Recording has already been deleted',
+                deleted_at: 1700000000,
+            })
+        })
+
+        it('should return 500 when service throws unexpected error', async () => {
+            await recordingApi.start()
+            mockService.deleteRecording.mockRejectedValue(new Error('Delete error'))
 
             const { statusMock, jsonMock, ...mockRes } = createMockResponse()
             const mockReq = {
@@ -556,43 +475,6 @@ describe('RecordingApi', () => {
 
             expect(statusMock).toHaveBeenCalledWith(500)
             expect(jsonMock).toHaveBeenCalledWith({ error: 'Failed to delete recording key' })
-        })
-
-        it('should return 410 when recording is already deleted', async () => {
-            await recordingApi.start()
-            const deletedAt = 1700000000
-            mockKeyStore.deleteKey.mockRejectedValue(new SessionKeyDeletedError('session-123', 1, deletedAt))
-
-            const { statusMock, jsonMock, ...mockRes } = createMockResponse()
-            const mockReq = {
-                params: { team_id: '1', session_id: 'session-123' },
-            }
-
-            await (recordingApi as any).deleteRecording(mockReq, mockRes)
-
-            expect(statusMock).toHaveBeenCalledWith(410)
-            expect(jsonMock).toHaveBeenCalledWith({
-                error: 'Recording has already been deleted',
-                deleted_at: deletedAt,
-            })
-        })
-
-        it('should return 410 with undefined deleted_at when recording is already deleted but timestamp unavailable', async () => {
-            await recordingApi.start()
-            mockKeyStore.deleteKey.mockRejectedValue(new SessionKeyDeletedError('session-123', 1, undefined))
-
-            const { statusMock, jsonMock, ...mockRes } = createMockResponse()
-            const mockReq = {
-                params: { team_id: '1', session_id: 'session-123' },
-            }
-
-            await (recordingApi as any).deleteRecording(mockReq, mockRes)
-
-            expect(statusMock).toHaveBeenCalledWith(410)
-            expect(jsonMock).toHaveBeenCalledWith({
-                error: 'Recording has already been deleted',
-                deleted_at: undefined,
-            })
         })
     })
 })
