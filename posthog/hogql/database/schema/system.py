@@ -72,7 +72,6 @@ dashboards: PostgresTable = PostgresTable(
         "name": StringDatabaseField(name="name"),
         "description": StringDatabaseField(name="description"),
         "created_at": DateTimeDatabaseField(name="created_at"),
-        "created_by_id": IntegerDatabaseField(name="created_by_id"),
         "_deleted": BooleanDatabaseField(name="deleted", hidden=True),
         "deleted": ExpressionField(name="deleted", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])])),
         "filters": StringJSONDatabaseField(name="filters"),
@@ -97,7 +96,6 @@ insights: PostgresTable = PostgresTable(
         "_saved": BooleanDatabaseField(name="saved", hidden=True),
         "saved": ExpressionField(name="saved", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_saved"])])),
         "created_at": DateTimeDatabaseField(name="created_at"),
-        "created_by_id": IntegerDatabaseField(name="created_by_id"),
         "updated_at": DateTimeDatabaseField(name="updated_at"),
     },
 )
@@ -111,7 +109,6 @@ experiments: PostgresTable = PostgresTable(
         "name": StringDatabaseField(name="name"),
         "description": StringDatabaseField(name="description"),
         "created_at": DateTimeDatabaseField(name="created_at"),
-        "created_by_id": IntegerDatabaseField(name="created_by_id"),
         "updated_at": DateTimeDatabaseField(name="updated_at"),
         "filters": StringJSONDatabaseField(name="filters"),
         "parameters": StringJSONDatabaseField(name="parameters"),
@@ -134,7 +131,6 @@ data_warehouse_sources: PostgresTable = PostgresTable(
         "source_type": StringDatabaseField(name="source_type"),
         "prefix": StringDatabaseField(name="prefix"),
         "created_at": DateTimeDatabaseField(name="created_at"),
-        "created_by_id": IntegerDatabaseField(name="created_by_id"),
         "updated_at": DateTimeDatabaseField(name="updated_at"),
         "_deleted": BooleanDatabaseField(name="deleted", hidden=True),
         "deleted": ExpressionField(name="deleted", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])])),
@@ -153,7 +149,6 @@ feature_flags: PostgresTable = PostgresTable(
         "filters": StringJSONDatabaseField(name="filters"),
         "rollout_percentage": IntegerDatabaseField(name="rollout_percentage"),
         "created_at": DateTimeDatabaseField(name="created_at"),
-        "created_by_id": IntegerDatabaseField(name="created_by_id"),
         "_deleted": BooleanDatabaseField(name="deleted", hidden=True),
         "deleted": ExpressionField(name="deleted", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])])),
     },
@@ -211,7 +206,6 @@ surveys: PostgresTable = PostgresTable(
         "start_date": DateTimeDatabaseField(name="start_date"),
         "end_date": DateTimeDatabaseField(name="end_date"),
         "created_at": DateTimeDatabaseField(name="created_at"),
-        "created_by_id": IntegerDatabaseField(name="created_by_id"),
     },
 )
 

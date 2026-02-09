@@ -30,6 +30,10 @@ class HogQLContext:
     team_id: Optional[int] = None
     # Team making the queries - if team is passed in, then the team isn't queried when creating the database
     team: Optional["Team"] = None
+
+    # User making the queries - used for access control on system tables
+    user: Optional["User"] = None
+
     # Virtual database we're querying, will be populated from team_id if not present
     database: Optional["Database"] = None
     # If set, will save string constants to this dict. Inlines strings into the query if None.
@@ -63,18 +67,9 @@ class HogQLContext:
 
     property_swapper: Optional["PropertySwapper"] = None
 
-    # Access control context (optional, for system table queries)
-    user: Optional["User"] = None
-    user_id: Optional[int] = None
-    is_org_admin: bool = False
-    organization_membership_id: Optional[str] = None
-    role_ids: list[str] = field(default_factory=list)
-
     def __post_init__(self):
         if self.team:
             self.team_id = self.team.id
-        if self.user and not self.user_id:
-            self.user_id = self.user.id
 
     def add_value(self, value: Any) -> str:
         key = f"hogql_val_{len(self.values)}"

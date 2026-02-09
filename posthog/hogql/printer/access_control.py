@@ -13,9 +13,17 @@ def get_blocked_resource_ids(resource: str, context: "HogQLContext") -> set[str]
     Get the set of resource IDs that should be blocked for this user.
     Uses the existing UserAccessControl logic to determine access.
     """
+    from posthog.models import OrganizationMembership
     from posthog.rbac.user_access_control import NO_ACCESS_LEVEL, UserAccessControl
 
     if not context.user or not context.team:
+        return set()
+
+    # Org admins see everything — no object-level filtering
+    org_membership = OrganizationMembership.objects.filter(
+        user=context.user, organization=context.team.organization
+    ).first()
+    if org_membership and org_membership.level >= OrganizationMembership.Level.ADMIN:
         return set()
 
     uac = UserAccessControl(user=context.user, team=context.team)
@@ -65,63 +73,24 @@ def build_access_control_guard(
     Build access control WHERE clause for system tables.
     Returns None if no filtering needed.
     """
-    from posthog.rbac.user_access_control import NO_ACCESS_LEVEL, UserAccessControl
-
     resource = SYSTEM_TABLE_TO_RESOURCE.get(table.name)
     if not resource:
         return None  # Not access-controlled
 
-    if context.is_org_admin:
-        return None  # Org admins see everything
-
-    if not context.user_id or not context.user or not context.team:
-        return None  # No user context, skip
-
-    # Check if user has resource-level access
-    uac = UserAccessControl(user=context.user, team=context.team)
-    resource_access_level = uac.access_level_for_resource(resource)
-    has_resource_access = resource_access_level and resource_access_level != NO_ACCESS_LEVEL
-
     # Get blocked IDs for this resource
     blocked_ids = get_blocked_resource_ids(resource, context)
-
-    # If user has no resource access and no blocked IDs, they shouldn't see anything
-    # (except their own creations) - this case should have been handled at resource level
-    if not has_resource_access and not blocked_ids:
-        # Only show objects created by the user
-        return ast.CompareOperation(
-            op=ast.CompareOperationOp.Eq,
-            left=ast.Field(chain=["created_by_id"], type=ast.FieldType(name="created_by_id", table_type=table_type)),
-            right=ast.Constant(value=context.user_id),
-            type=ast.BooleanType(),
-        )
 
     if not blocked_ids:
         return None  # No blocked IDs, no filtering needed
 
-    # Build the filter: (created_by_id = user_id) OR (id NOT IN blocked_ids)
-    # This allows creators to always see their own objects, even if blocked
-
-    # Creator bypass: created_by_id = user_id
-    creator_check = ast.CompareOperation(
-        op=ast.CompareOperationOp.Eq,
-        left=ast.Field(chain=["created_by_id"], type=ast.FieldType(name="created_by_id", table_type=table_type)),
-        right=ast.Constant(value=context.user_id),
-        type=ast.BooleanType(),
-    )
-
-    # Not in blocked IDs: toString(id) NOT IN (blocked_ids)
+    # Build: toString(id) NOT IN (blocked_ids)
     # We convert id to string because AccessControl stores resource_id as string
-    blocked_ids_list = list(blocked_ids)
-    not_blocked = ast.CompareOperation(
+    return ast.CompareOperation(
         op=ast.CompareOperationOp.NotIn,
         left=ast.Call(
             name="toString",
             args=[ast.Field(chain=["id"], type=ast.FieldType(name="id", table_type=table_type))],
         ),
-        right=ast.Tuple(exprs=[ast.Constant(value=bid) for bid in blocked_ids_list]),
+        right=ast.Tuple(exprs=[ast.Constant(value=bid) for bid in blocked_ids]),
         type=ast.BooleanType(),
     )
-
-    # Combine: creator_check OR not_blocked
-    return ast.Or(exprs=[creator_check, not_blocked], type=ast.BooleanType())
