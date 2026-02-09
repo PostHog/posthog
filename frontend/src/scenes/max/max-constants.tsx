@@ -8,6 +8,7 @@ import {
     IconGlobe,
     IconMemory,
     IconNotebook,
+    IconNotification,
     IconSearch,
     IconShuffle,
 } from '@posthog/icons'
@@ -935,6 +936,19 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
                 return 'Created a document'
             }
             return 'Creating a document...'
+        },
+    },
+    create_alert: {
+        name: 'Create alerts',
+        description: 'Create alerts to monitor insight metrics',
+        icon: <IconNotification />,
+        product: Scene.Insight,
+        modes: [AgentMode.ProductAnalytics],
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Created alert'
+            }
+            return 'Creating alert...'
         },
     },
     finalize_plan: {
