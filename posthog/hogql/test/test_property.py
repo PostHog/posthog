@@ -459,7 +459,7 @@ class TestProperty(BaseTest):
         )
 
     def test_property_to_expr_multiSearch_edge_cases(self):
-        # Test empty array with icontains - generates multiSearchAnyCaseInsensitive with empty array
+        # Test empty array with icontains - falls back to single value logic
         result = self._property_to_expr(
             {
                 "type": "event",
@@ -468,19 +468,32 @@ class TestProperty(BaseTest):
                 "operator": "icontains",
             }
         )
-        expected = self._parse_expr("multiSearchAnyCaseInsensitive(toString(properties.a), []) > 0")
+        # Empty arrays are treated as single values, converted to string representation
+        expected = self._parse_expr("toString(properties.a) ILIKE '%[]%'")
         self.assertEqual(result, expected)
 
-        # Test empty array with not_icontains - generates multiSearchAnyCaseInsensitive with empty array
+        # Test single-element array with icontains - should use ILIKE, not multiSearch
         result = self._property_to_expr(
             {
                 "type": "event",
                 "key": "a",
-                "value": [],
+                "value": ["single"],
+                "operator": "icontains",
+            }
+        )
+        expected = self._parse_expr("toString(properties.a) ILIKE '%single%'")
+        self.assertEqual(result, expected)
+
+        # Test single-element array with not_icontains - should use NOT ILIKE, not multiSearch
+        result = self._property_to_expr(
+            {
+                "type": "event",
+                "key": "a",
+                "value": ["single"],
                 "operator": "not_icontains",
             }
         )
-        expected = self._parse_expr("multiSearchAnyCaseInsensitive(toString(properties.a), []) = 0")
+        expected = self._parse_expr("toString(properties.a) NOT ILIKE '%single%'")
         self.assertEqual(result, expected)
 
         # Test non-string values being stringified

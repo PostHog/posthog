@@ -342,26 +342,28 @@ def _expr_to_compare_op(
             right=ast.Constant(value=None),
         )
     elif operator == PropertyOperator.ICONTAINS:
-        if isinstance(value, list):
+        if isinstance(value, list) and len(value) > 1:
             # Multiple values: use ClickHouse's multiSearchAnyCaseInsensitive for efficient searching
             return _multi_search_found(_create_multi_search_call(expr, value))
         else:
-            # Single value: keep existing ILIKE logic for backward compatibility
+            # Single value (or single-element array): keep existing ILIKE logic for backward compatibility
+            single_value = value[0] if isinstance(value, list) and len(value) == 1 else value
             return ast.CompareOperation(
                 op=ast.CompareOperationOp.ILike,
                 left=ast.Call(name="toString", args=[expr]),
-                right=ast.Constant(value=f"%{value}%"),
+                right=ast.Constant(value=f"%{single_value}%"),
             )
     elif operator == PropertyOperator.NOT_ICONTAINS:
-        if isinstance(value, list):
+        if isinstance(value, list) and len(value) > 1:
             # Multiple values: use ClickHouse's multiSearchAnyCaseInsensitive with negation
             return _multi_search_not_found(_create_multi_search_call(expr, value))
         else:
-            # Single value: keep existing NOT ILIKE logic for backward compatibility
+            # Single value (or single-element array): keep existing NOT ILIKE logic for backward compatibility
+            single_value = value[0] if isinstance(value, list) and len(value) == 1 else value
             return ast.CompareOperation(
                 op=ast.CompareOperationOp.NotILike,
                 left=ast.Call(name="toString", args=[expr]),
-                right=ast.Constant(value=f"%{value}%"),
+                right=ast.Constant(value=f"%{single_value}%"),
             )
     elif operator == PropertyOperator.REGEX:
         return ast.Call(
