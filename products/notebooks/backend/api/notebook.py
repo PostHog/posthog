@@ -614,8 +614,6 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             response = execute_hogql_query(query=serializer.validated_data["query"], team=self.team)
         except Exception as err:
             logger.exception("notebook_hogql_execute_failed", notebook_short_id=notebook.short_id)
-            # Re: "information exposure", this should be fine...
-            # We're passing to users the same errors they'd get if they'd hit out /query API directly
             return Response({"error": str(err)}, status=400)
 
         return Response(_format_hogql_response_payload(response))
