@@ -41,11 +41,12 @@ export const ScreenshotUploadModal = ({
         if (!query.trim()) {
             setEventDefinitions([])
             setShowSuggestions(false)
+            setIsLoadingEvents(false)
             return
         }
 
+        setIsLoadingEvents(true)
         debounceTimerRef.current = setTimeout(() => {
-            setIsLoadingEvents(true)
             api.get(`api/projects/@current/event_definitions/?search=${encodeURIComponent(query)}&limit=20`)
                 .then((response) => {
                     if (response.results) {
@@ -159,26 +160,32 @@ export const ScreenshotUploadModal = ({
                 <div className="relative">
                     <label className="text-sm font-semibold mb-1 block">Event name</label>
                     <LemonInput
-                        placeholder={isLoadingEvents ? 'Loading events...' : 'Type to search events...'}
+                        placeholder="Type to search events..."
                         value={eventName}
                         onChange={handleEventNameChange}
                         onFocus={() => eventName.length > 0 && setShowSuggestions(true)}
                         onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
-                        disabled={isUploading || isLoadingEvents}
+                        disabledReason={isUploading ? 'Upload in progress' : null}
                         autoFocus
                     />
-                    {showSuggestions && eventDefinitions.length > 0 && (
+                    {showSuggestions && eventName.trim() && (
                         <div className="absolute z-10 w-full mt-1 bg-bg-light border border-border rounded shadow-md max-h-60 overflow-y-auto">
-                            {eventDefinitions.map((ed) => (
-                                <div
-                                    key={ed.id}
-                                    className="px-3 py-2 hover:bg-bg-3000 cursor-pointer"
-                                    onClick={() => handleSelectEvent(ed.name)}
-                                    onMouseDown={(e) => e.preventDefault()}
-                                >
-                                    {ed.name}
-                                </div>
-                            ))}
+                            {isLoadingEvents ? (
+                                <div className="px-3 py-2 text-muted">Loading events...</div>
+                            ) : eventDefinitions.length > 0 ? (
+                                eventDefinitions.map((ed) => (
+                                    <div
+                                        key={ed.id}
+                                        className="px-3 py-2 hover:bg-bg-3000 cursor-pointer"
+                                        onClick={() => handleSelectEvent(ed.name)}
+                                        onMouseDown={(e) => e.preventDefault()}
+                                    >
+                                        {ed.name}
+                                    </div>
+                                ))
+                            ) : (
+                                <div className="px-3 py-2 text-muted">No matching events found</div>
+                            )}
                         </div>
                     )}
                 </div>
