@@ -31,7 +31,7 @@ export default defineConfig({
     /* Fail the build on CI if you accidentally left test.only in the source code. */
     forbidOnly: !!process.env.CI,
     /* Retry on CI only */
-    retries: 3, // process.env.CI ? 3 : 2,
+    retries: process.env.CI ? 3 : 2,
     /* 
         GitHub Actions has 4 cores so run 3 workers 
         and leave one core for all the rest
@@ -51,7 +51,7 @@ export default defineConfig({
         baseURL: process.env.CI ? 'http://localhost:8000' : process.env.BASE_URL || 'http://localhost:8080',
 
         /* Collect trace when retrying the failed test. See https://playwright.dev/docs/trace-viewer */
-        trace: 'retain-on-failure',
+        trace: 'on-first-retry',
 
         /* Locate elements defined by `data-attr-something` with `page.getByTestId('something')` */
         testIdAttribute: 'data-attr',
