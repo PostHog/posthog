@@ -79,7 +79,7 @@ function getRegexValidationError(operator: PropertyOperator, value: any): string
     return null
 }
 
-const semverNumericPartRegex = /^[+-]?\d+$/
+const semverNumericPartRegex = /^\d+$/
 
 function isSemverNumericPart(part: string): boolean {
     const trimmed = part.trim()
