@@ -468,16 +468,18 @@ def _set_table_partitioning(
         conn.execute(f"ALTER TABLE {alias}.posthog.{table} SET PARTITIONED BY ({partition_expr})")
         context.log.info(f"Successfully set partitioning on {table} table")
         logger.info(
-            f"duckling_{table}_partitioning_set",
+            "duckling_table_partitioning_set",
             team_id=team_id,
+            table=table,
             partition_expr=partition_expr,
         )
         return True
     except Exception as exc:
         context.log.warning(f"Failed to set partitioning on {table} table: {exc}")
         logger.warning(
-            f"duckling_{table}_partitioning_failed",
+            "duckling_table_partitioning_failed",
             team_id=team_id,
+            table=table,
             partition_expr=partition_expr,
             error=str(exc),
             error_type=type(exc).__name__,
