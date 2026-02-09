@@ -32,28 +32,10 @@ describe('taxonomicPropertyFilterLogic', () => {
     })
 
     describe('activeTaxonomicGroup selector', () => {
-        it.each([
-            {
-                desc: 'person property filter → PersonProperties group',
-                filterType: PropertyFilterType.Person,
-                expectedGroup: TaxonomicFilterGroupType.PersonProperties,
-            },
-            {
-                desc: 'event property filter → EventProperties group',
-                filterType: PropertyFilterType.Event,
-                expectedGroup: TaxonomicFilterGroupType.EventProperties,
-            },
-        ])('$desc', ({ filterType, expectedGroup }) => {
+        function mountWithFilterType(filterType: PropertyFilterType): void {
             logic.unmount()
             logic = taxonomicPropertyFilterLogic({
-                filters: [
-                    {
-                        key: 'test_key',
-                        type: filterType,
-                        value: 'test_value',
-                        operator: PropertyOperator.Exact,
-                    },
-                ],
+                filters: [{ key: 'test_key', type: filterType, value: 'test_value', operator: PropertyOperator.Exact }],
                 setFilter: () => {},
                 taxonomicGroupTypes: [
                     TaxonomicFilterGroupType.EventProperties,
@@ -63,7 +45,16 @@ describe('taxonomicPropertyFilterLogic', () => {
                 pageKey: `test-active-group-${filterType}`,
             })
             logic.mount()
-            expect(logic.values.activeTaxonomicGroup?.type).toBe(expectedGroup)
+        }
+
+        it('selects PersonProperties group for person property filter', () => {
+            mountWithFilterType(PropertyFilterType.Person)
+            expect(logic.values.activeTaxonomicGroup?.type).toBe(TaxonomicFilterGroupType.PersonProperties)
+        })
+
+        it('selects EventProperties group for event property filter', () => {
+            mountWithFilterType(PropertyFilterType.Event)
+            expect(logic.values.activeTaxonomicGroup?.type).toBe(TaxonomicFilterGroupType.EventProperties)
         })
 
         it('defaults to first group when filter is empty', () => {
@@ -106,62 +97,76 @@ describe('taxonomicPropertyFilterLogic', () => {
             logic.mount()
         })
 
-        it.each([
-            {
-                desc: 'event property',
-                groupType: TaxonomicFilterGroupType.EventProperties,
+        function selectAndExpect(
+            groupType: TaxonomicFilterGroupType,
+            key: string,
+            itemType: PropertyFilterType,
+            expected: Record<string, any>,
+            item?: Record<string, any>
+        ): void {
+            const group = logic.values.taxonomicGroups.find((g) => g.type === groupType)!
+            logic.actions.selectItem(group, key, itemType, item)
+            expect(setFilterSpy).toHaveBeenCalledWith(0, expect.objectContaining(expected))
+        }
+
+        it('creates event property filter with Exact operator', () => {
+            selectAndExpect(TaxonomicFilterGroupType.EventProperties, '$browser', PropertyFilterType.Event, {
                 key: '$browser',
-                itemType: PropertyFilterType.Event,
-                expected: { key: '$browser', type: PropertyFilterType.Event, operator: PropertyOperator.Exact },
-            },
-            {
-                desc: 'person property',
-                groupType: TaxonomicFilterGroupType.PersonProperties,
+                type: PropertyFilterType.Event,
+                operator: PropertyOperator.Exact,
+            })
+        })
+
+        it('creates person property filter', () => {
+            selectAndExpect(TaxonomicFilterGroupType.PersonProperties, 'email', PropertyFilterType.Person, {
                 key: 'email',
-                itemType: PropertyFilterType.Person,
-                expected: { key: 'email', type: PropertyFilterType.Person },
-            },
-            {
-                desc: 'cohort with parseInt and cohort_name',
-                groupType: TaxonomicFilterGroupType.Cohorts,
-                key: '42',
-                itemType: PropertyFilterType.Cohort,
-                item: { name: 'Power Users' },
-                expected: { key: 'id', value: 42, type: PropertyFilterType.Cohort, cohort_name: 'Power Users' },
-            },
-            {
-                desc: 'HogQL with null value',
-                groupType: TaxonomicFilterGroupType.HogQLExpression,
-                key: "properties.$browser = 'Chrome'",
-                itemType: PropertyFilterType.HogQL,
-                expected: { type: PropertyFilterType.HogQL, key: "properties.$browser = 'Chrome'", value: null },
-            },
-            {
-                desc: 'feature flag with default true and FlagEvaluatesTo',
-                groupType: TaxonomicFilterGroupType.FeatureFlags,
-                key: 'beta-feature',
-                itemType: PropertyFilterType.Flag,
-                item: { key: 'beta-feature' },
-                expected: {
+                type: PropertyFilterType.Person,
+            })
+        })
+
+        it('creates cohort filter with parseInt value and cohort_name', () => {
+            selectAndExpect(
+                TaxonomicFilterGroupType.Cohorts,
+                '42',
+                PropertyFilterType.Cohort,
+                { key: 'id', value: 42, type: PropertyFilterType.Cohort, cohort_name: 'Power Users' },
+                { name: 'Power Users' }
+            )
+        })
+
+        it('creates HogQL filter with null value', () => {
+            selectAndExpect(
+                TaxonomicFilterGroupType.HogQLExpression,
+                "properties.$browser = 'Chrome'",
+                PropertyFilterType.HogQL,
+                { type: PropertyFilterType.HogQL, key: "properties.$browser = 'Chrome'", value: null }
+            )
+        })
+
+        it('creates feature flag filter with default true and FlagEvaluatesTo', () => {
+            selectAndExpect(
+                TaxonomicFilterGroupType.FeatureFlags,
+                'beta-feature',
+                PropertyFilterType.Flag,
+                {
                     type: PropertyFilterType.Flag,
                     key: 'beta-feature',
                     value: true,
                     operator: PropertyOperator.FlagEvaluatesTo,
                     label: 'beta-feature',
                 },
-            },
-            {
-                desc: 'EventMetadata $group_* with label from item name',
-                groupType: TaxonomicFilterGroupType.EventMetadata,
-                key: '$group_0',
-                itemType: PropertyFilterType.EventMetadata,
-                item: { id: '$group_0', name: 'Organization' },
-                expected: { type: PropertyFilterType.EventMetadata, key: '$group_0', label: 'Organization' },
-            },
-        ])('$desc', ({ groupType, key, itemType, item, expected }) => {
-            const group = logic.values.taxonomicGroups.find((g) => g.type === groupType)!
-            logic.actions.selectItem(group, key, itemType, item)
-            expect(setFilterSpy).toHaveBeenCalledWith(0, expect.objectContaining(expected))
+                { key: 'beta-feature' }
+            )
+        })
+
+        it('creates EventMetadata filter with label from item name', () => {
+            selectAndExpect(
+                TaxonomicFilterGroupType.EventMetadata,
+                '$group_0',
+                PropertyFilterType.EventMetadata,
+                { type: PropertyFilterType.EventMetadata, key: '$group_0', label: 'Organization' },
+                { id: '$group_0', name: 'Organization' }
+            )
         })
 
         it('closes the dropdown after selecting an item', () => {

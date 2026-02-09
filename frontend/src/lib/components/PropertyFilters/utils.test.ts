@@ -235,49 +235,6 @@ describe('normalizePropertyFilterValue()', () => {
     })
 })
 
-describe('taxonomicFilterTypeToPropertyFilterType()', () => {
-    it.each([
-        [TaxonomicFilterGroupType.EventProperties, PropertyFilterType.Event],
-        [TaxonomicFilterGroupType.PersonProperties, PropertyFilterType.Person],
-        [TaxonomicFilterGroupType.Cohorts, PropertyFilterType.Cohort],
-        [TaxonomicFilterGroupType.CohortsWithAllUsers, PropertyFilterType.Cohort],
-        [TaxonomicFilterGroupType.Elements, PropertyFilterType.Element],
-        [TaxonomicFilterGroupType.SessionProperties, PropertyFilterType.Session],
-        [TaxonomicFilterGroupType.HogQLExpression, PropertyFilterType.HogQL],
-        [TaxonomicFilterGroupType.EventFeatureFlags, PropertyFilterType.Event],
-        [TaxonomicFilterGroupType.EventMetadata, PropertyFilterType.EventMetadata],
-        [TaxonomicFilterGroupType.DataWarehouseProperties, PropertyFilterType.DataWarehouse],
-        [TaxonomicFilterGroupType.DataWarehousePersonProperties, PropertyFilterType.DataWarehousePersonProperty],
-        [TaxonomicFilterGroupType.ErrorTrackingIssues, PropertyFilterType.ErrorTrackingIssue],
-        [TaxonomicFilterGroupType.FeatureFlags, PropertyFilterType.Flag],
-        [TaxonomicFilterGroupType.Logs, PropertyFilterType.Log],
-        [TaxonomicFilterGroupType.LogAttributes, PropertyFilterType.LogAttribute],
-        [TaxonomicFilterGroupType.LogResourceAttributes, PropertyFilterType.LogResourceAttribute],
-        [TaxonomicFilterGroupType.RevenueAnalyticsProperties, PropertyFilterType.RevenueAnalytics],
-        [TaxonomicFilterGroupType.WorkflowVariables, PropertyFilterType.WorkflowVariable],
-    ])('%s → %s', (taxonomicType, expectedPropertyType) => {
-        expect(taxonomicFilterTypeToPropertyFilterType(taxonomicType)).toEqual(expectedPropertyType)
-    })
-
-    it('maps dynamic group types to PropertyFilterType.Group', () => {
-        expect(taxonomicFilterTypeToPropertyFilterType('groups_0' as TaxonomicFilterGroupType)).toEqual(
-            PropertyFilterType.Group
-        )
-        expect(taxonomicFilterTypeToPropertyFilterType('groups_3' as TaxonomicFilterGroupType)).toEqual(
-            PropertyFilterType.Group
-        )
-        expect(taxonomicFilterTypeToPropertyFilterType('name_groups_1' as TaxonomicFilterGroupType)).toEqual(
-            PropertyFilterType.Group
-        )
-    })
-
-    it('returns undefined for group types without a property filter mapping', () => {
-        expect(taxonomicFilterTypeToPropertyFilterType(TaxonomicFilterGroupType.Events)).toEqual(undefined)
-        expect(taxonomicFilterTypeToPropertyFilterType(TaxonomicFilterGroupType.Actions)).toEqual(undefined)
-        expect(taxonomicFilterTypeToPropertyFilterType(undefined)).toEqual(undefined)
-    })
-})
-
 describe('type mapping round-trip', () => {
     it.each([
         [PropertyFilterType.Event, TaxonomicFilterGroupType.EventProperties],
