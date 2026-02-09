@@ -136,7 +136,7 @@ export function PersonSelectList({
     const { response, responseLoading, canLoadNextData, nextDataLoading } = useValues(dataNodeLogic(dataNodeLogicProps))
     const { loadNextData } = useActions(dataNodeLogic(dataNodeLogicProps))
 
-    const persons = useMemo(() => parseResults(response?.results as any[][] | undefined), [response])
+    const persons = useMemo(() => parseResults((response as Record<string, any> | null)?.results), [response])
 
     const [searchValue, setSearchValue] = useState('')
     const debouncedSetSearch = useDebouncedCallback((value: string) => {
@@ -184,8 +184,7 @@ export function PersonSelectList({
                             renderProp={({ height }) =>
                                 height ? (
                                     <List<PersonRowProps>
-                                        height={height}
-                                        width="100%"
+                                        style={{ height, width: '100%' }}
                                         rowCount={persons.length}
                                         rowHeight={ROW_HEIGHT}
                                         overscanCount={10}
