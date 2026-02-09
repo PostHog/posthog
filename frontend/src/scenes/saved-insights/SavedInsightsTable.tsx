@@ -28,7 +28,7 @@ import { insightDashboardModalLogic } from './insightDashboardModalLogic'
 
 interface SavedInsightsTableProps {
     renderActionColumn?: (insight: QueryBasedInsightModel) => JSX.Element
-    dashboard?: DashboardType | null
+    dashboard?: DashboardType<QueryBasedInsightModel> | null
 }
 
 export function SavedInsightsTable({ renderActionColumn, dashboard }: SavedInsightsTableProps): JSX.Element {
