@@ -52,9 +52,9 @@ export function TaxonomicStringPopover(props: TaxonomicPopoverProps<string>): JS
     return (
         <TaxonomicPopover
             {...props}
-            value={String(props.value)}
+            value={props.value != null ? String(props.value) : undefined}
             onChange={(value, groupType, item) => props.onChange?.(String(value), groupType, item)}
-            renderValue={(value) => props.renderValue?.(String(value)) ?? <>{String(props.value)}</>}
+            renderValue={(value) => props.renderValue?.(String(value)) ?? <>{String(value)}</>}
         />
     )
 }
@@ -89,13 +89,14 @@ export const TaxonomicPopover = forwardRef(function TaxonomicPopover_<
     }: TaxonomicPopoverProps<ValueType>,
     ref: Ref<HTMLButtonElement>
 ): JSX.Element {
-    const [localValue, setLocalValue] = useState<ValueType>(value || ('' as ValueType))
+    const [localValue, setLocalValue] = useState<ValueType>(value ?? ('' as ValueType))
     const [visible, setVisible] = useState(false)
 
-    const isClearButtonShown = allowClear && !!localValue
+    const hasValue = localValue != null && localValue !== ''
+    const isClearButtonShown = allowClear && hasValue
 
     const buttonPropsFinal: Omit<LemonButtonProps, 'sideAction' | 'sideIcon'> = buttonPropsRest
-    buttonPropsFinal.children = localValue ? (
+    buttonPropsFinal.children = hasValue ? (
         <span>{renderValue?.(localValue) ?? localValue}</span>
     ) : placeholder || placeholderClass ? (
         <span className={placeholderClass}>{placeholder}</span>
@@ -107,7 +108,7 @@ export const TaxonomicPopover = forwardRef(function TaxonomicPopover_<
 
     useEffect(() => {
         if (!buttonPropsFinal.loading) {
-            setLocalValue(value || ('' as ValueType))
+            setLocalValue(value ?? ('' as ValueType))
         }
     }, [value]) // oxlint-disable-line react-hooks/exhaustive-deps
 
