@@ -186,7 +186,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             capture_exception(e)
             raise
 
-    @action(methods=["POST"], detail=False, url_path=r"(?P<query_kind>[^/]+)")
+    @action(methods=["POST"], detail=False, url_path=r"(?P<query_kind>[A-Za-z]+)")
     def create_with_kind(self, request: Request, *args, **kwargs) -> Response:
         return self.create(request, *args, **kwargs)
 
