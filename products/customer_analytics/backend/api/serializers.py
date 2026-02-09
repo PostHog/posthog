@@ -65,7 +65,7 @@ class CustomerProfileConfigSerializer(serializers.ModelSerializer):
 class CustomerJourneySerializer(serializers.ModelSerializer):
     class Meta:
         model = CustomerJourney
-        fields = ["id", "insight", "name", "description", "order", "created_at", "created_by", "updated_at"]
+        fields = ["id", "insight", "name", "description", "created_at", "created_by", "updated_at"]
         read_only_fields = ["id", "created_at", "created_by", "updated_at"]
 
     def create(self, validated_data):

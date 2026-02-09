@@ -14,7 +14,6 @@ export interface CustomerJourney {
     insight: number
     name: string
     description: string | null
-    order: number
     created_at: string
     created_by: { id: number; uuid: string; distinct_id: string; first_name: string; email: string } | null
     updated_at: string
@@ -52,7 +51,6 @@ export const customerJourneysLogic = kea<customerJourneysLogicType>([
                     insight: insightId,
                     name,
                     description: description || null,
-                    order: values.journeys.length,
                 })
                 const response = await api.get(`api/environments/${values.currentTeamId}/customer_journeys/`)
                 return response.results || []
@@ -115,12 +113,7 @@ export const customerJourneysLogic = kea<customerJourneysLogicType>([
         sortedJourneys: [
             (s) => [s.journeys],
             (journeys): CustomerJourney[] => {
-                return [...journeys].sort((a, b) => {
-                    if (a.order !== b.order) {
-                        return a.order - b.order
-                    }
-                    return new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
-                })
+                return [...journeys].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
             },
         ],
         activeJourney: [

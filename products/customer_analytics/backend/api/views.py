@@ -37,7 +37,7 @@ class CustomerProfileConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
 
 class CustomerJourneyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "customer_journey"
-    queryset = CustomerJourney.objects.order_by("order", "created_at").all()
+    queryset = CustomerJourney.objects.order_by("created_at").all()
     serializer_class = CustomerJourneySerializer
 
     def safely_get_queryset(self, queryset):

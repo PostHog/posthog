@@ -8,9 +8,8 @@ class CustomerJourney(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
     insight = models.ForeignKey("posthog.Insight", on_delete=models.CASCADE)
     name = models.CharField(max_length=400)
     description = models.TextField(null=True, blank=True)
-    order = models.IntegerField(default=0)
 
     class Meta:
-        indexes = [
-            models.Index(fields=["team_id", "order"]),
+        constraints = [
+            models.UniqueConstraint(fields=["team_id", "insight_id"], name="unique insight journey per team"),
         ]
