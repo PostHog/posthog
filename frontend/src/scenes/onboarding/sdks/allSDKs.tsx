@@ -381,7 +381,7 @@ export const ALL_SDKS: SDK[] = [
         name: 'Mastra',
         key: SDKKey.MASTRA,
         tags: [SDKTag.FRAMEWORK],
-        image: 'https://res.cloudinary.com/dmukukwp6/image/upload/mastra_afca560af6.svg',
+        image: 'https://res.cloudinary.com/dmukukwp6/image/upload/mastra_7ea7df92ab.svg',
         docsLink: 'https://posthog.com/docs/llm-analytics/installation/mastra',
     },
     {
