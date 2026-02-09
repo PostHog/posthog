@@ -1,4 +1,5 @@
 import time
+import random
 import asyncio
 import datetime as dt
 import dataclasses
@@ -61,16 +62,21 @@ class RealtimeCohortCalculationWorkflowInputs:
 
     limit: Optional[int] = None
     offset: int = 0
-    team_id: Optional[int] = None
     cohort_id: Optional[int] = None
+    # Dictionary mapping team_id to percentage (0.0 to 1.0)
+    # Special key 0 means "default behavior" (PostHog team only when no specific teams)
+    # Simple structure: specific team IDs that process all cohorts, and global percentage for others
+    team_ids: set[int] = dataclasses.field(default_factory=set)  # Teams that process all cohorts
+    global_percentage: float = 0.0  # Percentage for all other teams
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
         return {
             "limit": self.limit,
             "offset": self.offset,
-            "team_id": self.team_id,
             "cohort_id": self.cohort_id,
+            "team_ids": list(self.team_ids),
+            "global_percentage": self.global_percentage,
         }
 
 
@@ -143,25 +149,70 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
 
         @database_sync_to_async
         def get_cohorts():
-            # Only get cohorts that are not deleted and have cohort_type='realtime'
-            queryset = Cohort.objects.filter(deleted=False, cohort_type=CohortType.REALTIME).select_related("team")
-
-            # Apply team_id filter if provided
-            if inputs.team_id is not None:
-                queryset = queryset.filter(team_id=inputs.team_id)
-
-            # Apply cohort_id filter if provided - skip pagination when filtering by specific cohort
+            # If cohort_id is specified, just get that specific cohort
             if inputs.cohort_id is not None:
-                queryset = queryset.filter(id=inputs.cohort_id)
-            else:
-                # Only apply pagination when not filtering by specific cohort
-                queryset = (
-                    queryset.order_by("id")[inputs.offset : inputs.offset + inputs.limit]
-                    if inputs.limit
-                    else queryset[inputs.offset :]
-                )
+                queryset = Cohort.objects.filter(
+                    deleted=False, cohort_type=CohortType.REALTIME, id=inputs.cohort_id
+                ).select_related("team")
+                return list(queryset)
 
-            return list(queryset)
+            selected_cohorts = []
+
+            # First, get all cohorts for teams that should process everything
+            for team_id in inputs.team_ids:
+                team_cohorts = list(
+                    Cohort.objects.filter(deleted=False, cohort_type=CohortType.REALTIME, team_id=team_id)
+                    .select_related("team")
+                    .order_by("id")
+                )
+                selected_cohorts.extend(team_cohorts)
+
+            # Handle global percentage for all other teams
+            if inputs.global_percentage > 0.0:
+                # Get cohorts from teams not in the force list
+                if inputs.team_ids:
+                    other_teams_cohorts = list(
+                        Cohort.objects.filter(deleted=False, cohort_type=CohortType.REALTIME)
+                        .exclude(team_id__in=inputs.team_ids)
+                        .select_related("team")
+                        .order_by("id")
+                    )
+                else:
+                    other_teams_cohorts = list(
+                        Cohort.objects.filter(deleted=False, cohort_type=CohortType.REALTIME)
+                        .select_related("team")
+                        .order_by("id")
+                    )
+
+                if other_teams_cohorts:
+                    # Apply global percentage to other teams' cohorts (minimum 1)
+                    num_to_include = max(1, int(len(other_teams_cohorts) * inputs.global_percentage))
+                    # Randomly sample cohorts to ensure fairness
+                    if num_to_include >= len(other_teams_cohorts):
+                        # Include all cohorts if percentage would include everything
+                        selected_other_cohorts = other_teams_cohorts
+                    else:
+                        # Randomly sample the specified number of cohorts
+                        selected_other_cohorts = random.sample(other_teams_cohorts, num_to_include)
+                    selected_cohorts.extend(selected_other_cohorts)
+
+            # Remove duplicates and sort by ID for consistent ordering
+            seen = set()
+            unique_cohorts = []
+            for cohort in selected_cohorts:
+                if cohort.id not in seen:
+                    seen.add(cohort.id)
+                    unique_cohorts.append(cohort)
+
+            unique_cohorts.sort(key=lambda c: c.id)
+
+            # Apply pagination
+            if inputs.limit:
+                cohorts = unique_cohorts[inputs.offset : inputs.offset + inputs.limit]
+            else:
+                cohorts = unique_cohorts[inputs.offset :]
+
+            return cohorts
 
         cohorts: list[Cohort] = await get_cohorts()
 

@@ -29,11 +29,17 @@ class RealtimeCohortCalculationForm(forms.Form):
         help_text="Delay between batches in minutes",
         label="Batch delay (minutes)",
     )
-    team_id = forms.IntegerField(
+    team_ids = forms.CharField(
         required=False,
-        min_value=1,
-        help_text="Filter cohorts by team_id (optional)",
-        label="Team ID",
+        help_text="Comma-separated list of team IDs that should process all cohorts (optional)",
+        label="Team IDs",
+    )
+    global_percentage = forms.FloatField(
+        required=False,
+        min_value=0.0,
+        max_value=1.0,
+        help_text="Global percentage for teams not in team-ids list (0.0 to 1.0, optional)",
+        label="Global Percentage",
     )
     cohort_id = forms.IntegerField(
         required=False,
@@ -58,8 +64,10 @@ def analyze_realtime_cohort_calculation_view(request):
             command_args.extend(["--parallelism", str(form.cleaned_data["parallelism"])])
             command_args.extend(["--workflows-per-batch", str(form.cleaned_data["workflows_per_batch"])])
             command_args.extend(["--batch-delay-minutes", str(form.cleaned_data["batch_delay_minutes"])])
-            if form.cleaned_data.get("team_id"):
-                command_args.extend(["--team-id", str(form.cleaned_data["team_id"])])
+            if form.cleaned_data.get("team_ids"):
+                command_args.extend(["--team-ids", form.cleaned_data["team_ids"]])
+            if form.cleaned_data.get("global_percentage") is not None:
+                command_args.extend(["--global-percentage", str(form.cleaned_data["global_percentage"])])
             if form.cleaned_data.get("cohort_id"):
                 command_args.extend(["--cohort-id", str(form.cleaned_data["cohort_id"])])
 

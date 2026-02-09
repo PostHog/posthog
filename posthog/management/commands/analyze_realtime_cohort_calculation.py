@@ -40,10 +40,16 @@ class Command(BaseCommand):
             help="Delay between batches in minutes (default: 5)",
         )
         parser.add_argument(
-            "--team-id",
-            type=int,
+            "--team-ids",
+            type=str,
             default=None,
-            help="Filter cohorts by team_id (optional)",
+            help="Comma-separated list of team IDs that should process all cohorts (optional)",
+        )
+        parser.add_argument(
+            "--global-percentage",
+            type=float,
+            default=None,
+            help="Global percentage for teams not in team-ids list (0.0 to 1.0, optional)",
         )
         parser.add_argument(
             "--cohort-id",
@@ -56,7 +62,11 @@ class Command(BaseCommand):
         parallelism = options.get("parallelism", 10)
         workflows_per_batch = options.get("workflows_per_batch", 5)
         batch_delay_minutes = options.get("batch_delay_minutes", 5)
-        team_id = options.get("team_id")
+        team_ids_str = options.get("team_ids")
+        team_ids = None
+        if team_ids_str:
+            team_ids = {int(tid.strip()) for tid in team_ids_str.split(",") if tid.strip()}
+        global_percentage = options.get("global_percentage")
         cohort_id = options.get("cohort_id")
 
         logger.info(
@@ -64,7 +74,8 @@ class Command(BaseCommand):
             parallelism=parallelism,
             workflows_per_batch=workflows_per_batch,
             batch_delay_minutes=batch_delay_minutes,
-            team_id=team_id,
+            team_ids=team_ids,
+            global_percentage=global_percentage,
             cohort_id=cohort_id,
         )
 
@@ -72,7 +83,8 @@ class Command(BaseCommand):
             parallelism=parallelism,
             workflows_per_batch=workflows_per_batch,
             batch_delay_minutes=batch_delay_minutes,
-            team_id=team_id,
+            team_ids=team_ids,
+            global_percentage=global_percentage,
             cohort_id=cohort_id,
         )
 
@@ -89,7 +101,8 @@ class Command(BaseCommand):
         parallelism: int,
         workflows_per_batch: int,
         batch_delay_minutes: int,
-        team_id: int | None,
+        team_ids: set[int] | None,
+        global_percentage: float | None,
         cohort_id: int | None,
     ) -> None:
         """Run the Temporal workflow for parallel processing."""
@@ -103,7 +116,8 @@ class Command(BaseCommand):
                 parallelism=parallelism,
                 workflows_per_batch=workflows_per_batch,
                 batch_delay_minutes=batch_delay_minutes,
-                team_id=team_id,
+                team_ids=team_ids,
+                global_percentage=global_percentage,
                 cohort_id=cohort_id,
             )
 

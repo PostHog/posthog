@@ -29,10 +29,9 @@ DEFAULT_COORDINATOR_PARALLELISM = 6
 DEFAULT_WORKFLOWS_PER_BATCH = 2
 DEFAULT_BATCH_DELAY_MINUTES = 5
 
-# PostHog team ID for realtime cohort calculation processing
-# The idea is to first test the workflow for the PostHog team
+# Removed hardcoded team ID - now configurable via REALTIME_COHORT_DEFAULT_TEAM_ID env var
+# The idea is to first test the workflow for the PostHog team (default: 2)
 # and then test if it scales for other teams
-POSTHOG_TEAM_ID = 2
 
 # No execution timeout for coordinator - let children have their own timeouts
 COORDINATOR_EXECUTION_TIMEOUT_SECONDS: int | None = None
@@ -47,6 +46,7 @@ async def create_realtime_cohort_calculation_schedule(client: Client):
     This schedule runs every hour. If a previous run is still executing,
     the new run will be buffered and executed after the current one completes.
     """
+
     realtime_cohort_calculation_schedule = Schedule(
         action=ScheduleActionStartWorkflow(
             REALTIME_COHORT_CALCULATION_COORDINATOR_WORKFLOW_NAME,
@@ -55,8 +55,7 @@ async def create_realtime_cohort_calculation_schedule(client: Client):
                     parallelism=DEFAULT_COORDINATOR_PARALLELISM,
                     workflows_per_batch=DEFAULT_WORKFLOWS_PER_BATCH,
                     batch_delay_minutes=DEFAULT_BATCH_DELAY_MINUTES,
-                    team_id=POSTHOG_TEAM_ID,
-                    cohort_id=None,
+                    # team_percentages will be auto-populated from REALTIME_COHORT_CALCULATION_PERCENTAGES_PER_TEAM
                 )
             ),
             id=REALTIME_COHORT_CALCULATION_SCHEDULE_ID,

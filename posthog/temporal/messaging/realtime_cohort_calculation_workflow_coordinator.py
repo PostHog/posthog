@@ -40,8 +40,23 @@ class RealtimeCohortCalculationCoordinatorWorkflowInputs:
     parallelism: int = 10  # Number of child workflows to spawn
     workflows_per_batch: int = 5  # Number of workflows to start per batch
     batch_delay_minutes: int = 5  # Delay between batches in minutes
-    team_id: Optional[int] = None  # Filter by team_id (optional)
     cohort_id: Optional[int] = None  # Filter to a specific cohort_id (optional)
+    # Specific teams that should process all cohorts, and global percentage for others
+    team_ids: Optional[set[int]] = None  # Teams that process all cohorts
+    global_percentage: Optional[float] = None  # Percentage for all other teams
+
+    def __post_init__(self):
+        """Load default configuration from environment if not provided."""
+        if self.team_ids is None or self.global_percentage is None:
+            from posthog.settings.schedules import (
+                REALTIME_COHORT_CALCULATION_GLOBAL_PERCENTAGE,
+                REALTIME_COHORT_CALCULATION_TEAMS,
+            )
+
+            if self.team_ids is None:
+                self.team_ids = REALTIME_COHORT_CALCULATION_TEAMS.copy()
+            if self.global_percentage is None:
+                self.global_percentage = REALTIME_COHORT_CALCULATION_GLOBAL_PERCENTAGE
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
@@ -49,8 +64,9 @@ class RealtimeCohortCalculationCoordinatorWorkflowInputs:
             "parallelism": self.parallelism,
             "workflows_per_batch": self.workflows_per_batch,
             "batch_delay_minutes": self.batch_delay_minutes,
-            "team_id": self.team_id,
             "cohort_id": self.cohort_id,
+            "team_ids": list(self.team_ids) if self.team_ids else [],
+            "global_percentage": self.global_percentage,
         }
 
 
@@ -69,12 +85,40 @@ async def get_realtime_cohort_calculation_count_activity(
 
     @database_sync_to_async
     def get_cohort_count():
-        queryset = Cohort.objects.filter(deleted=False, cohort_type=CohortType.REALTIME)
-        if inputs.team_id is not None:
-            queryset = queryset.filter(team_id=inputs.team_id)
+        # If cohort_id is specified, just count that specific cohort
         if inputs.cohort_id is not None:
-            queryset = queryset.filter(id=inputs.cohort_id)
-        return queryset.count()
+            queryset = Cohort.objects.filter(deleted=False, cohort_type=CohortType.REALTIME, id=inputs.cohort_id)
+            return queryset.count()
+
+        total_count = 0
+
+        # First, process teams that should include all cohorts
+        for team_id in inputs.team_ids:
+            team_cohorts_count = Cohort.objects.filter(
+                deleted=False, cohort_type=CohortType.REALTIME, team_id=team_id
+            ).count()
+            total_count += team_cohorts_count
+
+        # Handle global percentage for all other teams
+        if inputs.global_percentage > 0.0:
+            # Get cohorts from teams not in the force list
+            if inputs.team_ids:
+                other_teams_cohorts_count = (
+                    Cohort.objects.filter(deleted=False, cohort_type=CohortType.REALTIME)
+                    .exclude(team_id__in=inputs.team_ids)
+                    .count()
+                )
+            else:
+                other_teams_cohorts_count = Cohort.objects.filter(
+                    deleted=False, cohort_type=CohortType.REALTIME
+                ).count()
+
+            if other_teams_cohorts_count > 0:
+                # Apply global percentage to other teams' cohorts (minimum 1)
+                num_to_include = max(1, int(other_teams_cohorts_count * inputs.global_percentage))
+                total_count += min(num_to_include, other_teams_cohorts_count)
+
+        return total_count
 
     count = await get_cohort_count()
     return RealtimeCohortCalculationCountResult(count=count)
@@ -131,8 +175,9 @@ class RealtimeCohortCalculationCoordinatorWorkflow(PostHogWorkflow):
                     inputs=RealtimeCohortCalculationWorkflowInputs(
                         limit=limit,
                         offset=offset,
-                        team_id=inputs.team_id,
                         cohort_id=inputs.cohort_id,
+                        team_ids=inputs.team_ids,
+                        global_percentage=inputs.global_percentage,
                     ),
                     offset=offset,
                     limit=limit,
