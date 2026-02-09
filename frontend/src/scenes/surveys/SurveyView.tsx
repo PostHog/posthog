@@ -68,7 +68,7 @@ const getTraceIdFromRecord = (record: unknown): string | null => {
     return event?.properties?.$ai_trace_id ?? null
 }
 
-const getThumbIcon = (value: unknown): JSX.Element | null => {
+export const getThumbIcon = (value: unknown): JSX.Element | null => {
     if (value == '1') {
         return <IconThumbsUp className="text-brand-blue" />
     }
@@ -438,7 +438,7 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
                                     Thumbs {value == '1' ? 'up' : 'down'}
                                 </span>
                             ) : (
-                                value
+                                String(value)
                             )}
                         </span>
                     )

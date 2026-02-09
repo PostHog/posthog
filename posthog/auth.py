@@ -3,14 +3,14 @@ import logging
 import functools
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any, Optional, TypedDict, Union
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlparse, urlsplit
 
 from django.apps import apps
 from django.contrib.auth.backends import BaseBackend
 from django.contrib.auth.models import AnonymousUser
 from django.core.exceptions import ValidationError
 from django.db import transaction
-from django.http import HttpRequest, JsonResponse
+from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.utils import timezone
 
 import jwt
@@ -25,7 +25,7 @@ from zxcvbn import zxcvbn
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.helpers.two_factor_session import enforce_two_factor
 from posthog.jwt import PosthogJwtAudience, decode_jwt
-from posthog.models.oauth import OAuthAccessToken
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthApplicationAuthBrand
 from posthog.models.personal_api_key import PERSONAL_API_KEY_MODES_TO_TRY, PersonalAPIKey, hash_key_value
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.user import User
@@ -53,6 +53,56 @@ PERSONAL_API_KEY_QUERY_PARAM_COUNTER = Counter(
     "Requests where the personal api key is specified in a query parameter",
     labelnames=["user_uuid"],
 )
+
+AUTH_BRAND_COOKIE = "ph_auth_brand"
+
+
+def get_auth_brand_for_client_id(client_id: str | None) -> str | None:
+    if not client_id:
+        return None
+    try:
+        application = OAuthApplication.objects.only("auth_brand", "is_first_party").get(client_id=client_id)
+    except OAuthApplication.DoesNotExist:
+        return None
+    if not application.is_first_party:
+        return None
+    return application.auth_brand or None
+
+
+def get_auth_brand_from_next_param(next_param: str | None) -> str | None:
+    if not next_param:
+        return None
+    try:
+        parsed = urlparse(next_param)
+        client_id = parse_qs(parsed.query).get("client_id", [None])[0]
+        return get_auth_brand_for_client_id(client_id)
+    except (ValueError, IndexError, KeyError):
+        # Only catch expected parsing errors
+        return None
+
+
+def normalize_auth_brand(value: str | None) -> str | None:
+    if not value:
+        return None
+    allowed_brands = {brand.value for brand in OAuthApplicationAuthBrand}
+    return value if value in allowed_brands else None
+
+
+def apply_auth_brand_cookie(request: HttpRequest, response: JsonResponse | HttpResponse) -> JsonResponse | HttpResponse:
+    brand = get_auth_brand_for_client_id(request.GET.get("client_id")) or get_auth_brand_from_next_param(
+        request.GET.get("next")
+    )
+    brand = normalize_auth_brand(brand)
+    if brand:
+        response.set_cookie(
+            key=AUTH_BRAND_COOKIE,
+            value=brand,
+            max_age=60 * 30,
+            samesite="Lax",
+            secure=request.is_secure(),
+            httponly=True,
+        )
+    return response
 
 
 class ZxcvbnValidator:

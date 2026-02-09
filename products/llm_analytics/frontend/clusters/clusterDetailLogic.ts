@@ -1,12 +1,15 @@
-import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { getSeriesColor } from 'lib/colors'
 import { dayjs } from 'lib/dayjs'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
 import { Breadcrumb } from '~/types'
 
@@ -49,6 +52,9 @@ export const clusterDetailLogic = kea<clusterDetailLogicType>([
     path(['products', 'llm_analytics', 'frontend', 'clusters', 'clusterDetailLogic']),
     props({} as ClusterDetailLogicProps),
     key((props) => `${props.runId}:${props.clusterId}`),
+    connect(() => ({
+        actions: [teamLogic, ['addProductIntent']],
+    })),
 
     actions({
         setPage: (page: number) => ({ page }),
@@ -269,11 +275,6 @@ export const clusterDetailLogic = kea<clusterDetailLogicType>([
             (s, p) => [s.cluster, p.runId],
             (cluster: Cluster | null, runId: string): Breadcrumb[] => [
                 {
-                    key: 'LLMAnalytics',
-                    name: 'LLM analytics',
-                    path: urls.llmAnalyticsDashboard(),
-                },
-                {
                     key: 'LLMAnalyticsClusters',
                     name: 'Clusters',
                     path: urls.llmAnalyticsClusters(),
@@ -293,13 +294,24 @@ export const clusterDetailLogic = kea<clusterDetailLogicType>([
         ],
     }),
 
-    listeners(({ actions, values }) => ({
-        loadClusterDataSuccess: async () => {
+    listeners(({ actions, values, props }) => ({
+        loadClusterDataSuccess: () => {
             // Load summaries for the first page of traces
-            await actions.setPage(1)
+            actions.setPage(1)
+
+            // Track product intent when user explores a cluster
+            void actions.addProductIntent({
+                product_type: ProductKey.LLM_CLUSTERS,
+                intent_context: ProductIntentContext.LLM_CLUSTER_EXPLORED,
+            })
         },
 
-        setPage: async () => {
+        setPage: async ({ page }) => {
+            posthog.capture('llma clusters page changed', {
+                page,
+                cluster_id: props.clusterId,
+                run_id: props.runId,
+            })
             // Load trace summaries for the current page
             const traceIds = values.paginatedTraceIds
             const { windowStart, windowEnd, clusteringLevel } = values

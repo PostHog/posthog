@@ -1,6 +1,7 @@
 """Tests for generation summarization activity."""
 
 import uuid
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 
 import pytest
@@ -10,6 +11,11 @@ from posthog.temporal.llm_analytics.trace_summarization.generation_summarization
     _format_generation_text_repr,
     generate_and_save_generation_summary_activity,
 )
+
+
+@asynccontextmanager
+async def _noop_heartbeater(*args, **kwargs):
+    yield
 
 
 class TestFormatGenerationTextRepr:
@@ -75,8 +81,11 @@ class TestGenerateAndSaveGenerationSummaryActivity:
 
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.asyncio
+    @patch(
+        "posthog.temporal.llm_analytics.trace_summarization.generation_summarization.Heartbeater",
+        _noop_heartbeater,
+    )
     async def test_generation_not_found_returns_skipped(self, mock_team):
-        """Test that missing generation returns skipped result."""
         with patch(
             "posthog.temporal.llm_analytics.trace_summarization.generation_summarization.execute_hogql_query"
         ) as mock_query:
@@ -99,8 +108,11 @@ class TestGenerateAndSaveGenerationSummaryActivity:
 
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.asyncio
+    @patch(
+        "posthog.temporal.llm_analytics.trace_summarization.generation_summarization.Heartbeater",
+        _noop_heartbeater,
+    )
     async def test_successful_summary_generation(self, mock_team):
-        """Test successful summary generation and saving."""
         from products.llm_analytics.backend.summarization.llm.schema import SummarizationResponse
 
         generation_id = str(uuid.uuid4())
@@ -163,8 +175,11 @@ class TestGenerateAndSaveGenerationSummaryActivity:
 
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.asyncio
+    @patch(
+        "posthog.temporal.llm_analytics.trace_summarization.generation_summarization.Heartbeater",
+        _noop_heartbeater,
+    )
     async def test_embedding_failure_captured(self, mock_team):
-        """Test that embedding failures are captured but don't fail the activity."""
         from products.llm_analytics.backend.summarization.llm.schema import SummarizationResponse
 
         mock_summary = SummarizationResponse(

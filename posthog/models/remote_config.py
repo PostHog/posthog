@@ -280,6 +280,14 @@ class RemoteConfig(UUIDTModel):
                 "token": conv_settings.get("widget_public_token"),
                 # NOTE: domains is cached but stripped out at the api level depending on the caller
                 "domains": conv_settings.get("widget_domains") or [],
+                "requireEmail": conv_settings.get("widget_require_email", False),
+                "collectName": conv_settings.get("widget_collect_name", False),
+                "identificationFormTitle": conv_settings.get("widget_identification_form_title")
+                or "Before we start...",
+                "identificationFormDescription": conv_settings.get("widget_identification_form_description")
+                or "Please provide your details so we can help you better.",
+                "placeholderText": conv_settings.get("widget_placeholder_text") or "Type your message...",
+                "widgetPosition": conv_settings.get("widget_position") or "bottom_right",
             }
         else:
             config["conversations"] = False

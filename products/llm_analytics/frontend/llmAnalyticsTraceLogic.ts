@@ -42,6 +42,7 @@ export enum TraceViewMode {
     Summary = 'summary',
     Evals = 'evals',
     Clusters = 'clusters',
+    Feedback = 'feedback',
 }
 
 export interface LLMAnalyticsTraceDataNodeLogicParams {
@@ -129,6 +130,9 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
                     }
                     if (tab === 'clusters') {
                         return TraceViewMode.Clusters
+                    }
+                    if (tab === 'feedback') {
+                        return TraceViewMode.Feedback
                     }
                     return TraceViewMode.Conversation
                 },

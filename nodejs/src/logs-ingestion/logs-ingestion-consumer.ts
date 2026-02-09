@@ -11,6 +11,7 @@ import { HealthCheckResult, Hub, LogsIngestionConsumerConfig, PluginServerServic
 import { isDevEnv } from '../utils/env-utils'
 import { logger } from '../utils/logger'
 import { castTimestampOrNow } from '../utils/utils'
+import { processLogMessageBuffer } from './log-record-avro'
 import { LogsRateLimiterService } from './services/logs-rate-limiter.service'
 import { LogsIngestionMessage } from './types'
 
@@ -61,6 +62,12 @@ export type UsageStatsByTeam = Map<number, UsageStats>
 export const logMessageDroppedCounter = new Counter({
     name: 'logs_ingestion_message_dropped_count',
     help: 'The number of logs ingestion messages dropped',
+    labelNames: ['reason'],
+})
+
+export const logMessageDlqCounter = new Counter({
+    name: 'logs_ingestion_message_dlq_count',
+    help: 'The number of logs ingestion messages sent to DLQ',
     labelNames: ['reason'],
 })
 
@@ -271,30 +278,81 @@ export class LogsIngestionConsumer {
     }
 
     private async produceValidLogMessages(messages: LogsIngestionMessage[]): Promise<void> {
-        await Promise.all(
+        const results = await Promise.allSettled(
             messages.map(async (message) => {
-                // Fetch team to get logs_settings
-                const team = await this.hub.teamManager.getTeam(message.teamId)
-                const logsSettings = team?.logs_settings || {}
+                try {
+                    // Fetch team to get logs_settings
+                    const team = await this.hub.teamManager.getTeam(message.teamId)
+                    const logsSettings = team?.logs_settings || {}
 
-                // Extract settings with defaults
-                const jsonParse = logsSettings.json_parse_logs ?? true
-                const retentionDays = logsSettings.retention_days ?? 15
+                    // Extract settings with defaults
+                    const jsonParse = logsSettings.json_parse_logs ?? false
+                    const retentionDays = logsSettings.retention_days ?? 15
 
-                return this.kafkaProducer!.produce({
-                    topic: this.clickhouseTopic,
-                    value: message.message.value,
-                    key: null,
-                    headers: {
-                        ...parseKafkaHeaders(message.message.headers),
-                        token: message.token,
-                        team_id: message.teamId.toString(),
-                        'json-parse': jsonParse.toString(),
-                        'retention-days': retentionDays.toString(),
-                    },
-                })
+                    // ignore empty messages
+                    if (message.message.value === null) {
+                        return Promise.resolve()
+                    }
+                    const processedValue = await processLogMessageBuffer(message.message.value, logsSettings)
+
+                    return this.kafkaProducer!.produce({
+                        topic: this.clickhouseTopic,
+                        value: processedValue,
+                        key: null,
+                        headers: {
+                            ...parseKafkaHeaders(message.message.headers),
+                            token: message.token,
+                            team_id: message.teamId.toString(),
+                            'json-parse': jsonParse.toString(),
+                            'retention-days': retentionDays.toString(),
+                        },
+                    })
+                } catch (error) {
+                    await this.produceToDlq(message, error)
+                    throw error
+                }
             })
         )
+
+        const failures = results.filter((r) => r.status === 'rejected')
+        if (failures.length > 0) {
+            logger.error('Failed to process some log messages', {
+                failureCount: failures.length,
+                totalCount: messages.length,
+            })
+        }
+    }
+
+    private async produceToDlq(message: LogsIngestionMessage, error: unknown): Promise<void> {
+        if (!this.dlqTopic) {
+            return
+        }
+
+        const errorMessage = error instanceof Error ? error.message : String(error)
+        const errorName = error instanceof Error ? error.name : 'UnknownError'
+
+        logMessageDlqCounter.inc({ reason: errorName })
+
+        try {
+            await this.kafkaProducer!.produce({
+                topic: this.dlqTopic,
+                value: message.message.value,
+                key: null,
+                headers: {
+                    ...parseKafkaHeaders(message.message.headers),
+                    token: message.token,
+                    team_id: message.teamId.toString(),
+                    error_message: errorMessage,
+                    error_name: errorName,
+                    failed_at: new Date().toISOString(),
+                },
+            })
+        } catch (dlqError) {
+            logger.error('Failed to produce message to DLQ', {
+                error: dlqError,
+                originalError: errorMessage,
+            })
+        }
     }
 
     private async emitUsageMetrics(usageStats: UsageStatsByTeam): Promise<void> {

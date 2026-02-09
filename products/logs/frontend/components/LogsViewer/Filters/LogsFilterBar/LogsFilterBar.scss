@@ -1,0 +1,24 @@
+.LogsDateButtonGroup {
+    display: flex;
+
+    > .LemonButton {
+        --lemon-button-radius: 0;
+
+        margin-left: -1px;
+
+        &:hover,
+        &:active {
+            z-index: 1;
+        }
+
+        &:first-child {
+            --lemon-button-radius: var(--radius) 0 0 var(--radius);
+
+            margin-left: 0;
+        }
+
+        &:last-child {
+            --lemon-button-radius: 0 var(--radius) var(--radius) 0;
+        }
+    }
+}
