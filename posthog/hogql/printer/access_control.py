@@ -14,23 +14,20 @@ def get_blocked_resource_ids(resource: str, context: "HogQLContext") -> set[str]
     Uses the existing UserAccessControl logic to determine access.
     """
     from posthog.models import OrganizationMembership
-    from posthog.rbac.user_access_control import NO_ACCESS_LEVEL, UserAccessControl
+    from posthog.rbac.user_access_control import NO_ACCESS_LEVEL
 
-    if not context.user or not context.team:
+    if not context.database or not context.database._user_access_control:
         return set()
 
-    # Org admins see everything — no object-level filtering
-    org_membership = OrganizationMembership.objects.filter(
-        user=context.user, organization=context.team.organization
-    ).first()
+    user_access_control = context.database._user_access_control
+
+    org_membership = user_access_control._organization_membership
     if org_membership and org_membership.level >= OrganizationMembership.Level.ADMIN:
         return set()
 
-    uac = UserAccessControl(user=context.user, team=context.team)
-
     # Get the access controls filters for this resource
-    filters = uac._access_controls_filters_for_queryset(resource)
-    access_controls = uac._get_access_controls(filters)
+    filters = user_access_control._access_controls_filters_for_queryset(resource)
+    access_controls = user_access_control._get_access_controls(filters)
 
     blocked_resource_ids: set[str] = set()
     resource_id_access_levels: dict[str, list[str]] = {}
