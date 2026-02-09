@@ -10,7 +10,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
-import { DataModelingTab } from '../data-warehouse/scene/DataModelingTab'
+import { DataModelingScene } from 'products/data_modeling/frontend/Scene'
 
 export const scene: SceneExport = {
     component: ModelsScene,
@@ -48,7 +48,7 @@ export function ModelsScene(): JSX.Element {
                     </div>
                 }
             />
-            <DataModelingTab />
+            <DataModelingScene />
         </SceneContent>
     )
 }

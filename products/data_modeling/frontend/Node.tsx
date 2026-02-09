@@ -12,7 +12,7 @@ import { urls } from 'scenes/urls'
 
 import { DataModelingJobStatus, DataModelingNodeType, DataWarehouseSyncInterval } from '~/types'
 
-import { dataModelingLogic } from '../dataModelingLogic'
+import { dataModelingLogic } from './dataModelingLogic'
 import type { ElkDirection, NodeData, NodeHandle } from './types'
 
 const NODE_TYPE_SETTINGS: Record<DataModelingNodeType, { label: string; color: string }> = {

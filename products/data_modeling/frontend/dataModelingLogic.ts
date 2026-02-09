@@ -23,10 +23,10 @@ import {
     DataModelingNodeType,
 } from '~/types'
 
+import { getFormattedNodes } from './autolayout'
+import { PAGE_SIZE } from './constants'
 import type { dataModelingLogicType } from './dataModelingLogicType'
-import { getFormattedNodes } from './modeling/autolayout'
-import { PAGE_SIZE } from './modeling/constants'
-import { Edge, ElkDirection, Node, NodeHandle, SearchMode, ViewMode } from './modeling/types'
+import { Edge, ElkDirection, Node, NodeHandle, SearchMode, ViewMode } from './types'
 
 const POLL_INTERVAL_MS = 5000
 const MIN_RUNNING_DURATION_MS = 2000

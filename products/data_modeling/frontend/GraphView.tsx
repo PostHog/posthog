@@ -21,8 +21,8 @@ import { IconArrowDown } from 'lib/lemon-ui/icons'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { DataModelingNodeType } from '~/types'
 
-import { dataModelingLogic, parseSearchTerm } from '../dataModelingLogic'
 import { REACT_FLOW_NODE_TYPES } from './Node'
+import { dataModelingLogic, parseSearchTerm } from './dataModelingLogic'
 import { CreateModelNodeType, ElkDirection, Node } from './types'
 
 const FIT_VIEW_OPTIONS = {
@@ -197,7 +197,7 @@ function GraphViewContent(): JSX.Element {
     return (
         <div
             ref={reactFlowWrapper}
-            className="relative w-full border rounded-lg overflow-hidden h-[calc(100vh-17rem)] min-h-[400px]"
+            className="relative w-full border rounded-lg overflow-hidden h-[calc(100vh-14rem)] min-h-[400px]"
         >
             <ReactFlow<Node, Edge>
                 fitView={!savedViewport}

@@ -3,9 +3,9 @@ import { useActions, useValues } from 'kea'
 import { IconDirectedGraph, IconList } from '@posthog/icons'
 import { LemonInput, LemonSegmentedButton, Spinner } from '@posthog/lemon-ui'
 
+import { GraphView } from './GraphView'
+import { TableView } from './TableView'
 import { dataModelingLogic } from './dataModelingLogic'
-import { GraphView } from './modeling/GraphView'
-import { TableView } from './modeling/TableView'
 
 function ToolBar(): JSX.Element {
     const { viewNodes, searchTerm, viewMode } = useValues(dataModelingLogic)
@@ -30,7 +30,7 @@ function ToolBar(): JSX.Element {
     )
 }
 
-export function DataModelingTab(): JSX.Element {
+export function DataModelingScene(): JSX.Element {
     const { viewMode, nodesLoading } = useValues(dataModelingLogic)
 
     if (nodesLoading) {
