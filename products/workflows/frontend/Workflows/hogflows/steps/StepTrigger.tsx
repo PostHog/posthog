@@ -502,7 +502,7 @@ function StepTriggerConfigurationWebhook({
     const webhookUrl = workflow.id === 'new' ? null : publicWebhooksHostOrigin() + '/public/webhooks/' + workflow.id
 
     return (
-        <>
+        <div className="w-full">
             <LemonCollapse
                 className="shrink-0"
                 defaultActiveKey="instructions"
@@ -544,7 +544,7 @@ function StepTriggerConfigurationWebhook({
                 }
                 errors={validationResult?.errors}
             />
-        </>
+        </div>
     )
 }
 
