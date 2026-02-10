@@ -1,3 +1,4 @@
+import { KeyStore, RecordingEncryptor } from '../../recording-api/types'
 import { logger } from '../../utils/logger'
 import { KafkaOffsetManager } from '../kafka/offset-manager'
 import { SessionBatchFileStorage } from './session-batch-file-storage'
@@ -26,6 +27,10 @@ export interface SessionBatchManagerConfig {
     sessionTracker: SessionTracker
     /** Session filter for blocking and rate-limiting sessions */
     sessionFilter: SessionFilter
+    /** Key store for session encryption keys */
+    keyStore: KeyStore
+    /** Encryptor for session recording data */
+    encryptor: RecordingEncryptor
 }
 
 /**
@@ -74,6 +79,8 @@ export class SessionBatchManager {
     private lastFlushTime: number
     private readonly sessionTracker: SessionTracker
     private readonly sessionFilter: SessionFilter
+    private readonly keyStore: KeyStore
+    private readonly encryptor: RecordingEncryptor
 
     constructor(config: SessionBatchManagerConfig) {
         this.maxBatchSizeBytes = config.maxBatchSizeBytes
@@ -85,6 +92,8 @@ export class SessionBatchManager {
         this.consoleLogStore = config.consoleLogStore
         this.sessionTracker = config.sessionTracker
         this.sessionFilter = config.sessionFilter
+        this.keyStore = config.keyStore
+        this.encryptor = config.encryptor
 
         this.currentBatch = new SessionBatchRecorder(
             this.offsetManager,
@@ -93,6 +102,8 @@ export class SessionBatchManager {
             this.consoleLogStore,
             this.sessionTracker,
             this.sessionFilter,
+            this.keyStore,
+            this.encryptor,
             this.maxEventsPerSessionPerBatch
         )
         this.lastFlushTime = Date.now()
@@ -118,6 +129,8 @@ export class SessionBatchManager {
             this.consoleLogStore,
             this.sessionTracker,
             this.sessionFilter,
+            this.keyStore,
+            this.encryptor,
             this.maxEventsPerSessionPerBatch
         )
         this.lastFlushTime = Date.now()

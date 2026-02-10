@@ -1,3 +1,4 @@
+import { KeyStore, RecordingEncryptor } from '../../recording-api/types'
 import { KafkaOffsetManager } from '../kafka/offset-manager'
 import { SessionBatchFileStorage, SessionBatchFileWriter } from './session-batch-file-storage'
 import { SessionBatchManager } from './session-batch-manager'
@@ -20,6 +21,8 @@ describe('SessionBatchManager', () => {
     let mockConsoleLogStore: jest.Mocked<SessionConsoleLogStore>
     let mockSessionTracker: jest.Mocked<SessionTracker>
     let mockSessionFilter: jest.Mocked<SessionFilter>
+    let mockKeyStore: jest.Mocked<KeyStore>
+    let mockEncryptor: jest.Mocked<RecordingEncryptor>
 
     const createMockBatch = (): jest.Mocked<SessionBatchRecorder> =>
         ({
@@ -69,6 +72,28 @@ describe('SessionBatchManager', () => {
             handleNewSession: jest.fn().mockResolvedValue(undefined),
         } as unknown as jest.Mocked<SessionFilter>
 
+        mockKeyStore = {
+            start: jest.fn().mockResolvedValue(undefined),
+            generateKey: jest.fn().mockResolvedValue({
+                plaintextKey: Buffer.alloc(0),
+                encryptedKey: Buffer.alloc(0),
+                sessionState: 'cleartext',
+            }),
+            getKey: jest.fn().mockResolvedValue({
+                plaintextKey: Buffer.alloc(0),
+                encryptedKey: Buffer.alloc(0),
+                sessionState: 'cleartext',
+            }),
+            deleteKey: jest.fn().mockResolvedValue(true),
+            stop: jest.fn().mockResolvedValue(undefined),
+        } as unknown as jest.Mocked<KeyStore>
+
+        mockEncryptor = {
+            start: jest.fn().mockResolvedValue(undefined),
+            encryptBlock: jest.fn().mockImplementation((_sessionId, _teamId, buffer) => Promise.resolve(buffer)),
+            encryptBlockWithKey: jest.fn().mockImplementation((_sessionId, _teamId, buffer, _sessionKey) => buffer),
+        } as unknown as jest.Mocked<RecordingEncryptor>
+
         manager = new SessionBatchManager({
             maxBatchSizeBytes: 100,
             maxBatchAgeMs: 1000,
@@ -79,6 +104,8 @@ describe('SessionBatchManager', () => {
             consoleLogStore: mockConsoleLogStore,
             sessionTracker: mockSessionTracker,
             sessionFilter: mockSessionFilter,
+            keyStore: mockKeyStore,
+            encryptor: mockEncryptor,
         })
     })
 
@@ -98,6 +125,8 @@ describe('SessionBatchManager', () => {
             mockConsoleLogStore,
             mockSessionTracker,
             mockSessionFilter,
+            mockKeyStore,
+            mockEncryptor,
             Number.MAX_SAFE_INTEGER
         )
 
@@ -178,6 +207,8 @@ describe('SessionBatchManager', () => {
                 consoleLogStore: mockConsoleLogStore,
                 sessionTracker: mockSessionTracker,
                 sessionFilter: mockSessionFilter,
+                keyStore: mockKeyStore,
+                encryptor: mockEncryptor,
             })
 
             expect(SessionBatchRecorder).toHaveBeenCalledWith(
@@ -187,6 +218,8 @@ describe('SessionBatchManager', () => {
                 mockConsoleLogStore,
                 mockSessionTracker,
                 mockSessionFilter,
+                mockKeyStore,
+                mockEncryptor,
                 500
             )
         })
@@ -202,6 +235,8 @@ describe('SessionBatchManager', () => {
                 consoleLogStore: mockConsoleLogStore,
                 sessionTracker: mockSessionTracker,
                 sessionFilter: mockSessionFilter,
+                keyStore: mockKeyStore,
+                encryptor: mockEncryptor,
             })
 
             await manager.flush()
@@ -213,6 +248,8 @@ describe('SessionBatchManager', () => {
                 mockConsoleLogStore,
                 mockSessionTracker,
                 mockSessionFilter,
+                mockKeyStore,
+                mockEncryptor,
                 250
             )
         })
@@ -228,6 +265,8 @@ describe('SessionBatchManager', () => {
                 consoleLogStore: mockConsoleLogStore,
                 sessionTracker: mockSessionTracker,
                 sessionFilter: mockSessionFilter,
+                keyStore: mockKeyStore,
+                encryptor: mockEncryptor,
             })
 
             expect(SessionBatchRecorder).toHaveBeenCalledWith(
@@ -237,6 +276,8 @@ describe('SessionBatchManager', () => {
                 mockConsoleLogStore,
                 mockSessionTracker,
                 mockSessionFilter,
+                mockKeyStore,
+                mockEncryptor,
                 0
             )
         })
@@ -252,6 +293,8 @@ describe('SessionBatchManager', () => {
                 consoleLogStore: mockConsoleLogStore,
                 sessionTracker: mockSessionTracker,
                 sessionFilter: mockSessionFilter,
+                keyStore: mockKeyStore,
+                encryptor: mockEncryptor,
             })
 
             expect(SessionBatchRecorder).toHaveBeenCalledWith(
@@ -261,6 +304,8 @@ describe('SessionBatchManager', () => {
                 mockConsoleLogStore,
                 mockSessionTracker,
                 mockSessionFilter,
+                mockKeyStore,
+                mockEncryptor,
                 Number.MAX_SAFE_INTEGER
             )
         })

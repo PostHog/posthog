@@ -26,6 +26,7 @@
 import { DateTime } from 'luxon'
 import snappy from 'snappy'
 
+import { KeyStore, RecordingEncryptor } from '../../recording-api/types'
 import { parseJSON } from '../../utils/json-parse'
 import { KafkaOffsetManager } from '../kafka/offset-manager'
 import { MessageWithTeam } from '../teams/types'
@@ -52,6 +53,8 @@ describe('session recording integration', () => {
     let mockConsoleLogStore: jest.Mocked<SessionConsoleLogStore>
     let mockSessionTracker: jest.Mocked<SessionTracker>
     let mockSessionFilter: jest.Mocked<SessionFilter>
+    let mockKeyStore: jest.Mocked<KeyStore>
+    let mockEncryptor: jest.Mocked<RecordingEncryptor>
     let batchBuffer: Uint8Array
     let currentOffset: number
 
@@ -106,13 +109,37 @@ describe('session recording integration', () => {
             handleNewSession: jest.fn().mockResolvedValue(undefined),
         } as unknown as jest.Mocked<SessionFilter>
 
+        mockKeyStore = {
+            start: jest.fn().mockResolvedValue(undefined),
+            generateKey: jest.fn().mockResolvedValue({
+                plaintextKey: Buffer.alloc(0),
+                encryptedKey: Buffer.alloc(0),
+                sessionState: 'cleartext',
+            }),
+            getKey: jest.fn().mockResolvedValue({
+                plaintextKey: Buffer.alloc(0),
+                encryptedKey: Buffer.alloc(0),
+                sessionState: 'cleartext',
+            }),
+            deleteKey: jest.fn().mockResolvedValue(true),
+            stop: jest.fn().mockResolvedValue(undefined),
+        } as unknown as jest.Mocked<KeyStore>
+
+        mockEncryptor = {
+            start: jest.fn().mockResolvedValue(undefined),
+            encryptBlock: jest.fn().mockImplementation((_sessionId, _teamId, buffer) => Promise.resolve(buffer)),
+            encryptBlockWithKey: jest.fn().mockImplementation((_sessionId, _teamId, buffer, _sessionKey) => buffer),
+        } as unknown as jest.Mocked<RecordingEncryptor>
+
         recorder = new SessionBatchRecorder(
             mockOffsetManager,
             mockStorage,
             mockMetadataStore,
             mockConsoleLogStore,
             mockSessionTracker,
-            mockSessionFilter
+            mockSessionFilter,
+            mockKeyStore,
+            mockEncryptor
         )
     })
 
