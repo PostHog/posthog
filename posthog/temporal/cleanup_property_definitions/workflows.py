@@ -37,7 +37,7 @@ class CleanupPropertyDefinitionsWorkflow(PostHogWorkflow):
         """Run the cleanup workflow.
 
         Returns a dict with:
-        - postgres_deleted: Number of definitions deleted from PostgreSQL
+        - property_definitions_deleted: Number of definitions deleted from PostgreSQL
         - dry_run: Whether this was a dry run
         """
         property_type_int = input.get_property_type_int()
@@ -47,7 +47,7 @@ class CleanupPropertyDefinitionsWorkflow(PostHogWorkflow):
             "pattern": input.pattern,
             "property_type": input.property_type,
             "dry_run": input.dry_run,
-            "postgres_deleted": 0,
+            "property_definitions_deleted": 0,
             "event_properties_deleted": 0,
         }
 
@@ -101,7 +101,7 @@ class CleanupPropertyDefinitionsWorkflow(PostHogWorkflow):
                     f"({total_property_definitions_deleted:,} property definitions deleted). "
                     f"Re-run the workflow to continue deleting remaining rows."
                 )
-        result["postgres_deleted"] = total_property_definitions_deleted
+        result["property_definitions_deleted"] = total_property_definitions_deleted
         result["event_properties_deleted"] = total_event_properties_deleted
 
         # Delete from ClickHouse

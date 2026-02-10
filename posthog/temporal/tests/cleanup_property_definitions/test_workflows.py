@@ -69,7 +69,7 @@ async def test_cleanup_property_definitions_workflow():
     assert result["pattern"] == TEST_PATTERN
     assert result["property_type"] == TEST_PROPERTY_TYPE
     assert result["dry_run"] is False
-    assert result["postgres_deleted"] == 5
+    assert result["property_definitions_deleted"] == 5
     assert result["event_properties_deleted"] == 0
     assert postgres_deleted == 5
     assert clickhouse_deleted is True
@@ -126,7 +126,7 @@ async def test_cleanup_property_definitions_workflow_dry_run():
     assert result["pattern"] == TEST_PATTERN
     assert result["property_type"] == TEST_PROPERTY_TYPE
     assert result["dry_run"] is True
-    assert result["postgres_deleted"] == 0
+    assert result["property_definitions_deleted"] == 0
     assert result["preview"]["total_count"] == 2
     assert result["preview"]["names"] == PREVIEW_NAMES
 
@@ -169,7 +169,7 @@ async def test_cleanup_property_definitions_workflow_no_matches():
                 task_queue=task_queue_name,
             )
 
-    assert result["postgres_deleted"] == 0
+    assert result["property_definitions_deleted"] == 0
     assert result["event_properties_deleted"] == 0
 
 
@@ -212,7 +212,7 @@ async def test_cleanup_property_definitions_workflow_event_type_deletes_event_pr
                 task_queue=task_queue_name,
             )
 
-    assert result["postgres_deleted"] == 10
+    assert result["property_definitions_deleted"] == 10
     assert result["event_properties_deleted"] == 25
 
 
@@ -262,7 +262,7 @@ async def test_cleanup_property_definitions_workflow_multiple_batches():
             )
 
     assert postgres_call_count == 3
-    assert result["postgres_deleted"] == BATCH_SIZE + BATCH_SIZE + 3000
+    assert result["property_definitions_deleted"] == BATCH_SIZE + BATCH_SIZE + 3000
     assert result["event_properties_deleted"] == BATCH_SIZE * 2 + BATCH_SIZE * 2 + 6000
 
 
