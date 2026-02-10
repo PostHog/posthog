@@ -4,7 +4,7 @@ Cloud runs are AI agents that execute code tasks in isolated sandboxes. A user c
 
 ## Architecture
 
-```
+```text
                                      PostHog API
                                     ┌─────────────┐
                   POST /run         │ TaskViewSet  │
