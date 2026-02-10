@@ -144,8 +144,8 @@ Key constants in `constants.py`:
 | `DEFAULT_MODE`                              | "detailed"     | Summary detail level                            |
 | `DEFAULT_MODEL`                             | "gpt-4.1-nano" | LLM model for summarization                     |
 | `DEFAULT_WINDOW_MINUTES`                    | 60             | Time window to query                            |
-| `WORKFLOW_EXECUTION_TIMEOUT_MINUTES`        | 180            | Max per-team workflow duration                  |
-| `COORDINATOR_EXECUTION_TIMEOUT_MINUTES`     | 240            | Max coordinator workflow duration (4 hours)     |
+| `WORKFLOW_EXECUTION_TIMEOUT_MINUTES`        | 30             | Max per-team workflow duration                  |
+| `COORDINATOR_EXECUTION_TIMEOUT_MINUTES`     | 55             | Max coordinator workflow duration               |
 | `SAMPLE_TIMEOUT_SECONDS`                    | 900            | Sampling activity timeout (per attempt)         |
 | `FETCH_AND_FORMAT_START_TO_CLOSE_TIMEOUT`   | 120s           | Fetch + format activity timeout (per attempt)   |
 | `FETCH_AND_FORMAT_HEARTBEAT_TIMEOUT`        | 60s            | Heartbeat window for fetch activity             |
@@ -156,9 +156,7 @@ Retry policies: `SAMPLE_RETRY_POLICY` (3 attempts), `FETCH_AND_FORMAT_RETRY_POLI
 
 ## Redis Intermediate Storage
 
-
 Text representations (up to 2 MB) are stored in Redis between the two activities to keep Temporal workflow history small (~100 bytes per reference). Key pattern: `llma:summarization:{trace|generation}:{team_id}:{item_id}:text_repr`. Keys have a 200-minute TTL (exceeds the 30-minute workflow timeout) and are cleaned up after use. See `state.py`.
-
 
 ## Error Handling
 
