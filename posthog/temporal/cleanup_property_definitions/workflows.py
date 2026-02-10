@@ -95,8 +95,8 @@ class CleanupPropertyDefinitionsWorkflow(PostHogWorkflow):
                 break
             if _batch_num == max_batches:
                 raise CleanupPropertyDefinitionsError(
-                    f"Postgres delete hit the per-run limit of {max_batches * batch_size:,} rows "
-                    f"({total_postgres_deleted:,} deleted). "
+                    f"Postgres delete exceeded {max_batches} batches "
+                    f"({total_postgres_deleted:,} rows deleted). "
                     f"Re-run the workflow to continue deleting remaining rows."
                 )
         result["postgres_deleted"] = total_postgres_deleted
