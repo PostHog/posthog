@@ -5,3 +5,4 @@ pub mod endpoints;
 pub mod kafka;
 pub mod log_record;
 pub mod service;
+pub mod team_resolver;

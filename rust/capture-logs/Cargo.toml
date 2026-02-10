@@ -35,6 +35,9 @@ prost = { workspace = true }
 bytes = { workspace = true }
 tower-http = { workspace = true }
 hex = "0.4"
+common-database = { path = "../common/database" }
+sqlx = { workspace = true }
+moka = { workspace = true }
 
 [lints]
 workspace = true

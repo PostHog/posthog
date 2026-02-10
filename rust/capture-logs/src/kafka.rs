@@ -194,6 +194,7 @@ impl KafkaSink {
         token: &str,
         rows: Vec<KafkaLogRow>,
         uncompressed_bytes: u64,
+        team_id: Option<i32>,
     ) -> Result<(), anyhow::Error> {
         if rows.is_empty() {
             return Ok(());
@@ -244,6 +245,10 @@ impl KafkaSink {
                     .insert(Header {
                         key: "batch_uuid",
                         value: Some(&uuid::Uuid::new_v4().to_string()),
+                    })
+                    .insert(Header {
+                        key: "team_id",
+                        value: team_id.map(|id| id.to_string()).as_deref(),
                     })
             }),
         }) {

@@ -8,6 +8,7 @@ use capture_logs::endpoints::datadog;
 use capture_logs::kafka::KafkaSink;
 use capture_logs::service::Service;
 use capture_logs::service::{export_logs_http, options_handler};
+use capture_logs::team_resolver::TeamResolver;
 use common_metrics::setup_metrics_routes;
 use std::future::ready;
 use std::net::SocketAddr;
@@ -104,7 +105,32 @@ async fn main() {
 
     let token_dropper = TokenDropper::new(&config.drop_events_by_token.unwrap_or_default());
     let token_dropper_arc = Arc::new(token_dropper);
-    let logs_service = match Service::new(kafka_sink, token_dropper_arc).await {
+
+    let team_resolver = if !config.database_url.is_empty() {
+        let pool = common_database::get_pool_with_config(
+            &config.database_url,
+            common_database::PoolConfig {
+                max_connections: config.team_resolver_max_pool_size,
+                acquire_timeout: Duration::from_secs(2),
+                statement_timeout_ms: Some(1000),
+                ..Default::default()
+            },
+        )
+        .expect("Failed to create team resolver DB pool");
+        info!(
+            "Team resolver enabled with DB pool (max_connections={})",
+            config.team_resolver_max_pool_size
+        );
+        Some(Arc::new(TeamResolver::new(
+            pool,
+            config.team_resolver_cache_ttl_secs,
+        )))
+    } else {
+        info!("DATABASE_URL not set, team_id resolution disabled");
+        None
+    };
+
+    let logs_service = match Service::new(kafka_sink, token_dropper_arc, team_resolver).await {
         Ok(service) => service,
         Err(e) => {
             error!("Failed to initialize log service: {}", e);

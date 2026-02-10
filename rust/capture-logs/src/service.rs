@@ -16,6 +16,7 @@ use std::io::Write;
 use std::sync::Arc;
 
 use crate::kafka::KafkaSink;
+use crate::team_resolver::TeamResolver;
 
 use tracing::{debug, error, instrument};
 
@@ -95,6 +96,7 @@ pub fn parse_otel_message(json_bytes: &Bytes) -> Result<ExportLogsServiceRequest
 pub struct Service {
     pub(crate) sink: KafkaSink,
     pub(crate) token_dropper: Arc<TokenDropper>,
+    pub(crate) team_resolver: Option<Arc<TeamResolver>>,
 }
 
 #[derive(Deserialize)]
@@ -106,10 +108,12 @@ impl Service {
     pub async fn new(
         kafka_sink: KafkaSink,
         token_dropper: Arc<TokenDropper>,
+        team_resolver: Option<Arc<TeamResolver>>,
     ) -> Result<Self, anyhow::Error> {
         Ok(Self {
             sink: kafka_sink,
             token_dropper,
+            team_resolver,
         })
     }
 }
@@ -234,8 +238,17 @@ pub async fn export_logs_http(
         }
     }
 
+    let team_id = match &service.team_resolver {
+        Some(resolver) => resolver.resolve(token).await,
+        None => None,
+    };
+
     let row_count = rows.len();
-    if let Err(e) = service.sink.write(token, rows, body.len() as u64).await {
+    if let Err(e) = service
+        .sink
+        .write(token, rows, body.len() as u64, team_id)
+        .await
+    {
         error!("Failed to send logs to Kafka: {}", e);
         return Err((
             StatusCode::INTERNAL_SERVER_ERROR,

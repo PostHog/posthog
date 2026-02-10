@@ -28,6 +28,15 @@ pub struct Config {
 
     #[envconfig(from = "MAX_REQUEST_BODY_SIZE_BYTES", default = "2097152")] // 2MB (Axum default)
     pub max_request_body_size_bytes: usize,
+
+    #[envconfig(from = "DATABASE_URL", default = "")]
+    pub database_url: String,
+
+    #[envconfig(from = "TEAM_RESOLVER_CACHE_TTL_SECS", default = "300")]
+    pub team_resolver_cache_ttl_secs: u64,
+
+    #[envconfig(from = "TEAM_RESOLVER_MAX_POOL_SIZE", default = "5")]
+    pub team_resolver_max_pool_size: u32,
 }
 
 impl Config {

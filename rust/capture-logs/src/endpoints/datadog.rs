@@ -289,8 +289,17 @@ pub async fn export_datadog_logs_http(
         .map(|log| datadog_log_to_kafka_row(log, &query_params))
         .collect();
 
+    let team_id = match &service.team_resolver {
+        Some(resolver) => resolver.resolve(&token).await,
+        None => None,
+    };
+
     let row_count = rows.len();
-    if let Err(e) = service.sink.write(&token, rows, body.len() as u64).await {
+    if let Err(e) = service
+        .sink
+        .write(&token, rows, body.len() as u64, team_id)
+        .await
+    {
         error!("Failed to send logs to Kafka: {}", e);
         return Err((
             StatusCode::INTERNAL_SERVER_ERROR,
