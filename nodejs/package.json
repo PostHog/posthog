@@ -99,7 +99,7 @@
         "node-fetch": "^2.6.1",
         "node-rdkafka": "^3.6.1",
         "node-schedule": "^2.1.0",
-        "nodemailer": "^7.0.5",
+        "nodemailer": "^7.0.11",
         "p-limit": "3.1.0",
         "pg": "^8.6.0",
         "pino": "^8.6.0",
