@@ -1,23 +1,28 @@
 # End-to-End Testing
 
-## Running tests
+## Running playwright
+
+### Local: no pre-existing instance
 
 Spin up a full local E2E environment (backend, frontend, docker services, Playwright UI):
 
 ```bash
-./bin/e2e-test-runner
+hogli test:e2e
 ```
 
-This uses `bin/mprocs-e2e.yaml` under the hood. If you need to reset the E2E database,
-trigger the `reset-db` process in the mprocs UI.
+This will start a setup with playwright, backend, celery-worker, frontend, docker-compose stack and reset-db process.
 
-To run tests against an already-running PostHog instance:
+1. Ensure all processes are up and running without errors before executing any tests
+2. Trigger `reset-db` process from mprocs's UI to start with a clean backend
+3. Launch desired tests using Playwright's UI
+
+### Local: with pre-existing instance
+
+If you do not have playwright browsers installed they will be automatically installed prior to running the test command
 
 ```bash
-LOGIN_USERNAME='my@email.address' LOGIN_PASSWORD="the-password" BASE_URL='http://localhost:8010' pnpm --filter=@posthog/playwright exec playwright test --ui
+LOGIN_USERNAME="mylogin@example.com" LOGIN_PASSWORD="1234abcd" pnpm test:playwright:local
 ```
-
-You might need to install Playwright first: `pnpm --filter=@posthog/playwright exec playwright install`
 
 ## Writing tests
 
