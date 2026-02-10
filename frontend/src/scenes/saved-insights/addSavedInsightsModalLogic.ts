@@ -161,7 +161,7 @@ export const addSavedInsightsModalLogic = kea<addSavedInsightsModalLogicType>([
             if (newFilters.search !== undefined && newFilters.search !== oldFilters.search) {
                 await breakpoint(1000)
                 posthog.capture('insight dashboard modal searched', {
-                    search_term: values.filters.search,
+                    search_term: newFilters.search,
                 })
             }
         },

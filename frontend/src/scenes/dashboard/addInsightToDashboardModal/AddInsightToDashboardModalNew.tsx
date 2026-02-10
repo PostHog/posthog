@@ -34,7 +34,7 @@ export function AddInsightToDashboardModalNew(): JSX.Element {
     }
 
     const handleNewInsightClicked = (insightType: string): void => {
-        posthog.capture('insight dashboard modal new insight clicked', {
+        posthog.capture('insight dashboard modal - new insight clicked', {
             insight_type: insightType,
         })
     }
