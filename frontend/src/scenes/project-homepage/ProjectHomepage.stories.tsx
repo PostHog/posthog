@@ -1,3 +1,5 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import { Meta, StoryObj } from '@storybook/react'
 
 import { App } from 'scenes/App'
@@ -94,3 +96,32 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 export const ProjectHomepage: Story = {}
+
+const teamWithNoPrimaryDashboard = { ...MOCK_DEFAULT_TEAM, primary_dashboard: null }
+
+export const NoPrimaryDashboard: Story = {
+    parameters: {
+        docs: {
+            description: {
+                story: 'When primary_dashboard is null (e.g. after deletion), the homepage should show the NewTabScene search fallback — not a "not found" error.',
+            },
+        },
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/environments/@current/': teamWithNoPrimaryDashboard,
+                '/api/projects/@current/': teamWithNoPrimaryDashboard,
+                '/api/environments/:team_id/': teamWithNoPrimaryDashboard,
+            },
+        }),
+        (Story) => {
+            const appContext = (window as any).POSTHOG_APP_CONTEXT
+            const originalTeam = appContext.current_team
+            appContext.current_team = teamWithNoPrimaryDashboard
+            const result = <Story />
+            appContext.current_team = originalTeam
+            return result
+        },
+    ],
+}
