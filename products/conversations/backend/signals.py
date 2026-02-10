@@ -191,6 +191,7 @@ def post_slack_reply_on_team_message(sender, instance: Comment, created: bool, *
     team_id = instance.team_id
     item_id = instance.item_id
     content = instance.content or ""
+    rich_content = instance.rich_content
     created_by = instance.created_by
 
     def do_post_to_slack():
@@ -211,8 +212,10 @@ def post_slack_reply_on_team_message(sender, instance: Comment, created: bool, *
                 return
 
             author_name = ""
+            author_email = None
             if created_by:
                 author_name = f"{created_by.first_name} {created_by.last_name}".strip() or created_by.email
+                author_email = created_by.email
 
             from .tasks import post_reply_to_slack
 
@@ -220,7 +223,9 @@ def post_slack_reply_on_team_message(sender, instance: Comment, created: bool, *
                 ticket_id=str(ticket.id),
                 team_id=team_id,
                 content=content,
+                rich_content=rich_content,
                 author_name=author_name,
+                author_email=author_email,
                 slack_channel_id=ticket.slack_channel_id,
                 slack_thread_ts=ticket.slack_thread_ts,
                 integration_id=integration_id,

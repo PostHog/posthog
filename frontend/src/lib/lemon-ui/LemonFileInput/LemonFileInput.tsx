@@ -79,6 +79,8 @@ export const LemonFileInput = ({
             setFiles(localFiles)
             onChange?.(localFiles)
         }
+        // Allow selecting the same file again (native file inputs suppress duplicate selections otherwise).
+        e.target.value = ''
     }
 
     const handleDrag = (e: DragEvent): void => {

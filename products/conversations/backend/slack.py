@@ -9,21 +9,35 @@ Handles three triggers that create or update tickets from Slack:
 All three converge to create_or_update_slack_ticket().
 """
 
-import re
+from io import BytesIO
+from urllib.parse import urljoin, urlparse
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from django.conf import settings
 
 import structlog
+from PIL import Image
 from slack_sdk import WebClient
 
 from posthog.models.comment import Comment
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.models.team.team import Team
+from posthog.models.uploaded_media import UploadedMedia, save_content_to_object_storage
 
+from .formatting import slack_to_content_and_rich_content
 from .models import Ticket
 from .models.constants import Channel, Status
 
 logger = structlog.get_logger(__name__)
+MAX_IMAGE_BYTES = 4 * 1024 * 1024
+SLACK_DOWNLOAD_TIMEOUT_SECONDS = 10
+ALLOWED_SLACK_FILE_HOST_SUFFIXES = ("slack.com", "slack-edge.com", "slack-files.com")
+MAX_REDIRECTS = 5
+
+
+class _NoRedirectHandler(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # type: ignore[override]
+        return None
 
 
 def get_slack_client(team: Team, integration: Integration | None = None) -> WebClient:
@@ -61,17 +75,6 @@ def resolve_slack_user(client: WebClient, slack_user_id: str) -> dict:
         return {"name": "Unknown", "email": None, "avatar": None}
 
 
-def clean_slack_text(text: str) -> str:
-    """Strip Slack formatting artifacts like <@U123> mentions and <url|label> links."""
-    # Replace <@USER_ID> with @user
-    text = re.sub(r"<@[A-Z0-9]+>", "", text)
-    # Replace <url|label> with label
-    text = re.sub(r"<([^|>]+)\|([^>]+)>", r"\2", text)
-    # Replace <url> with url
-    text = re.sub(r"<([^>]+)>", r"\1", text)
-    return text.strip()
-
-
 def get_bot_user_id(client: WebClient) -> str | None:
     """Get the bot's own user ID to filter out self-messages."""
     try:
@@ -81,47 +84,167 @@ def get_bot_user_id(client: WebClient) -> str | None:
         return None
 
 
-def extract_slack_files(files: list[dict] | None, client: WebClient | None = None) -> list[dict]:
-    """
-    Extract image URLs from Slack file attachments.
+def _is_allowed_slack_file_url(url: str) -> bool:
+    parsed = urlparse(url)
+    hostname = parsed.hostname or ""
+    if parsed.scheme != "https":
+        return False
+    return any(hostname == suffix or hostname.endswith(f".{suffix}") for suffix in ALLOWED_SLACK_FILE_HOST_SUFFIXES)
 
-    If client is provided, attempts to make files publicly accessible via Slack API.
+
+def _is_valid_image_bytes(content: bytes) -> bool:
+    try:
+        image = Image.open(BytesIO(content))
+        image.transpose(Image.FLIP_LEFT_RIGHT)
+        image.close()
+        return True
+    except Exception:
+        return False
+
+
+def _download_slack_image_bytes(url: str, bot_token: str) -> bytes | None:
+    if not _is_allowed_slack_file_url(url):
+        logger.warning("🖼️ slack_file_download_invalid_host", url=url)
+        return None
+
+    opener = build_opener(_NoRedirectHandler)
+    next_url = url
+
+    for _ in range(MAX_REDIRECTS + 1):
+        request = Request(next_url, headers={"Authorization": f"Bearer {bot_token}"})
+        with opener.open(request, timeout=SLACK_DOWNLOAD_TIMEOUT_SECONDS) as response:
+            status = response.getcode()
+            if status in (301, 302, 303, 307, 308):
+                location = response.headers.get("Location")
+                if not location:
+                    logger.warning("🖼️ slack_file_download_redirect_missing_location", url=next_url, status=status)
+                    return None
+                redirect_url = urljoin(next_url, location)
+                if not _is_allowed_slack_file_url(redirect_url):
+                    logger.warning("🖼️ slack_file_download_invalid_redirect_host", url=redirect_url)
+                    return None
+                next_url = redirect_url
+                logger.debug("🖼️ slack_file_download_redirect", status=status, redirect_url=redirect_url)
+                continue
+
+            if status != 200:
+                logger.warning("🖼️ slack_file_download_non_200", url=next_url, status=status)
+                return None
+
+            content_length_header = response.headers.get("Content-Length")
+            if content_length_header:
+                try:
+                    if int(content_length_header) > MAX_IMAGE_BYTES:
+                        logger.warning(
+                            "🖼️ slack_file_download_too_large_from_header",
+                            url=next_url,
+                            content_length=int(content_length_header),
+                            max_allowed=MAX_IMAGE_BYTES,
+                        )
+                        return None
+                except ValueError:
+                    logger.warning(
+                        "🖼️ slack_file_download_invalid_content_length", url=next_url, value=content_length_header
+                    )
+                    return None
+            payload = response.read(MAX_IMAGE_BYTES + 1)
+            if len(payload) > MAX_IMAGE_BYTES:
+                logger.warning(
+                    "🖼️ slack_file_download_too_large_from_body",
+                    url=next_url,
+                    bytes_read=len(payload),
+                    max_allowed=MAX_IMAGE_BYTES,
+                )
+                return None
+            logger.debug("🖼️ slack_file_download_succeeded", url=next_url, bytes_read=len(payload))
+            return payload
+
+    logger.warning("🖼️ slack_file_download_too_many_redirects", url=url, max_redirects=MAX_REDIRECTS)
+    return None
+
+
+def _save_image_to_uploaded_media(team: Team, file_name: str, mimetype: str, content: bytes) -> str | None:
+    if not settings.OBJECT_STORAGE_ENABLED:
+        logger.warning("🖼️ slack_file_copy_no_object_storage", team_id=team.id)
+        return None
+
+    uploaded_media = UploadedMedia.objects.create(
+        team=team,
+        file_name=file_name,
+        content_type=mimetype,
+        created_by=None,
+    )
+    try:
+        save_content_to_object_storage(uploaded_media, content)
+    except Exception as e:
+        logger.warning("🖼️ slack_file_copy_storage_failed", uploaded_media_id=str(uploaded_media.id), error=str(e))
+        uploaded_media.delete()
+        return None
+    logger.info(
+        "🖼️ slack_file_copy_saved",
+        team_id=team.id,
+        uploaded_media_id=str(uploaded_media.id),
+        file_name=file_name,
+        content_type=mimetype,
+        bytes_size=len(content),
+    )
+    return uploaded_media.get_absolute_url()
+
+
+def extract_slack_files(files: list[dict] | None, team: Team, client: WebClient | None = None) -> list[dict]:
+    """
+    Extract image attachments from Slack and re-host them in UploadedMedia.
     """
     if not files:
         return []
 
+    bot_token = getattr(client, "token", None) if client else None
+    logger.info("🖼️ slack_file_extract_started", team_id=team.id, total_files=len(files), has_bot_token=bool(bot_token))
     images = []
     for f in files:
         mimetype = f.get("mimetype", "")
         if not mimetype.startswith("image/"):
+            logger.debug("🖼️ slack_file_extract_skipped_non_image", file_id=f.get("id"), mimetype=mimetype)
             continue
 
         file_id = f.get("id")
-        url = f.get("permalink_public")
+        source_url = f.get("url_private_download") or f.get("url_private")
+        if not source_url or not bot_token:
+            logger.warning(
+                "🖼️ slack_file_missing_download_info",
+                file_id=file_id,
+                has_source_url=bool(source_url),
+                has_bot_token=bool(bot_token),
+            )
+            continue
 
-        # If no public URL and we have a client, try to make it public
-        if not url and client and file_id:
-            try:
-                result = client.files_sharedPublicURL(file=file_id)
-                if result.get("ok"):
-                    # The API returns the file with permalink_public populated
-                    url = result.get("file", {}).get("permalink_public")
-            except Exception as e:
-                logger.debug("slack_file_share_public_failed", file_id=file_id, error=str(e))
+        try:
+            image_bytes = _download_slack_image_bytes(source_url, bot_token)
+        except Exception as e:
+            logger.warning("🖼️ slack_file_download_failed", file_id=file_id, error=str(e))
+            continue
 
-        # Fall back to url_private (won't work without auth, but store it anyway)
-        if not url:
-            url = f.get("url_private")
+        if not image_bytes:
+            logger.warning("🖼️ slack_file_download_rejected", file_id=file_id, source_url=source_url)
+            continue
 
-        if url:
+        if not _is_valid_image_bytes(image_bytes):
+            logger.warning("🖼️ slack_file_invalid_image_content", file_id=file_id)
+            continue
+
+        stored_url = _save_image_to_uploaded_media(team, f.get("name", "image"), mimetype, image_bytes)
+        if stored_url:
             images.append(
                 {
-                    "url": url,
+                    "url": stored_url,
                     "name": f.get("name", "image"),
                     "mimetype": mimetype,
                     "thumb": f.get("thumb_360") or f.get("thumb_160"),
                 }
             )
+        else:
+            logger.warning("🖼️ slack_file_copy_save_failed", file_id=file_id)
+    logger.info("🖼️ slack_file_extract_finished", team_id=team.id, image_count=len(images))
     return images
 
 
@@ -133,6 +256,7 @@ def create_or_update_slack_ticket(
     thread_ts: str,
     slack_user_id: str,
     text: str,
+    blocks: list[dict] | None = None,
     files: list[dict] | None = None,
     is_thread_reply: bool = False,
 ) -> Ticket | None:
@@ -148,9 +272,18 @@ def create_or_update_slack_ticket(
       - Creates a new Comment on that ticket
     """
     client = get_slack_client(team, integration)
+    logger.info(
+        "🧵 slack_support_ticket_ingest_started",
+        team_id=team.id,
+        slack_channel_id=slack_channel_id,
+        thread_ts=thread_ts,
+        is_thread_reply=is_thread_reply,
+        has_text=bool(text and text.strip()),
+        files_count=len(files or []),
+    )
 
     # Extract images from Slack files, making them publicly accessible
-    images = extract_slack_files(files, client)
+    images = extract_slack_files(files, team, client)
 
     if is_thread_reply:
         ticket = Ticket.objects.filter(
@@ -167,9 +300,16 @@ def create_or_update_slack_ticket(
             )
             return None
 
-        cleaned_text = clean_slack_text(text)
+        cleaned_text, rich_content = slack_to_content_and_rich_content(text, blocks)
         # Allow messages with only images (no text)
         if not cleaned_text and not images:
+            logger.warning(
+                "🧵 slack_support_ticket_ingest_empty_after_processing",
+                team_id=team.id,
+                slack_channel_id=slack_channel_id,
+                thread_ts=thread_ts,
+                is_thread_reply=is_thread_reply,
+            )
             return ticket
 
         # Resolve Slack user info for this message author
@@ -180,12 +320,23 @@ def create_or_update_slack_ticket(
         if images:
             image_markdown = "\n".join(f"![{img['name']}]({img['url']})" for img in images)
             content = f"{cleaned_text}\n\n{image_markdown}" if cleaned_text else image_markdown
+            if not isinstance(rich_content, dict):
+                rich_content = {"type": "doc", "content": []}
+            rich_nodes = rich_content.setdefault("content", [])
+            for img in images:
+                rich_nodes.append(
+                    {
+                        "type": "image",
+                        "attrs": {"src": img["url"], "alt": img.get("name", "image")},
+                    }
+                )
 
         Comment.objects.create(
             team=team,
             scope="conversations_ticket",
             item_id=str(ticket.id),
             content=content,
+            rich_content=rich_content,
             item_context={
                 "author_type": "customer",
                 "is_private": False,
@@ -206,9 +357,16 @@ def create_or_update_slack_ticket(
 
     # New ticket from top-level message
     user_info = resolve_slack_user(client, slack_user_id)
-    cleaned_text = clean_slack_text(text)
+    cleaned_text, rich_content = slack_to_content_and_rich_content(text, blocks)
     # Allow messages with only images (no text)
     if not cleaned_text and not images:
+        logger.warning(
+            "🧵 slack_support_ticket_ingest_empty_after_processing",
+            team_id=team.id,
+            slack_channel_id=slack_channel_id,
+            thread_ts=thread_ts,
+            is_thread_reply=is_thread_reply,
+        )
         return None
 
     # Build content with image markdown if present
@@ -216,6 +374,16 @@ def create_or_update_slack_ticket(
     if images:
         image_markdown = "\n".join(f"![{img['name']}]({img['url']})" for img in images)
         content = f"{cleaned_text}\n\n{image_markdown}" if cleaned_text else image_markdown
+        if not isinstance(rich_content, dict):
+            rich_content = {"type": "doc", "content": []}
+        rich_nodes = rich_content.setdefault("content", [])
+        for img in images:
+            rich_nodes.append(
+                {
+                    "type": "image",
+                    "attrs": {"src": img["url"], "alt": img.get("name", "image")},
+                }
+            )
 
     ticket = Ticket.objects.create_with_number(
         team=team,
@@ -237,6 +405,7 @@ def create_or_update_slack_ticket(
         scope="conversations_ticket",
         item_id=str(ticket.id),
         content=content,
+        rich_content=rich_content,
         item_context={
             "author_type": "customer",
             "is_private": False,
@@ -298,6 +467,7 @@ def handle_support_message(event: dict, integration: Integration) -> None:
 
     slack_user_id = event.get("user")
     text = event.get("text", "")
+    blocks = event.get("blocks")
     files = event.get("files")  # Slack file attachments (images, etc.)
 
     # Require either text or files
@@ -323,6 +493,7 @@ def handle_support_message(event: dict, integration: Integration) -> None:
             thread_ts=thread_ts,
             slack_user_id=slack_user_id,
             text=text,
+            blocks=blocks,
             files=files,
             is_thread_reply=True,
         )
@@ -335,6 +506,7 @@ def handle_support_message(event: dict, integration: Integration) -> None:
             thread_ts=message_ts or "",
             slack_user_id=slack_user_id,
             text=text,
+            blocks=blocks,
             files=files,
             is_thread_reply=False,
         )
@@ -349,6 +521,7 @@ def handle_support_mention(event: dict, integration: Integration) -> None:
     channel = event.get("channel")
     slack_user_id = event.get("user")
     text = event.get("text", "")
+    blocks = event.get("blocks")
     files = event.get("files")
     if not channel or not slack_user_id:
         return
@@ -381,6 +554,7 @@ def handle_support_mention(event: dict, integration: Integration) -> None:
             thread_ts=thread_ts,
             slack_user_id=slack_user_id,
             text=text,
+            blocks=blocks,
             files=files,
             is_thread_reply=True,
         )
@@ -392,6 +566,7 @@ def handle_support_mention(event: dict, integration: Integration) -> None:
             thread_ts=thread_ts,
             slack_user_id=slack_user_id,
             text=text,
+            blocks=blocks,
             files=files,
             is_thread_reply=False,
         )
@@ -450,6 +625,7 @@ def handle_support_reaction(event: dict, integration: Integration) -> None:
         original_msg = messages[0]
         original_user = original_msg.get("user", "")
         original_text = original_msg.get("text", "")
+        original_blocks = original_msg.get("blocks")
         original_files = original_msg.get("files")
     except Exception:
         logger.warning("slack_support_reaction_fetch_failed", channel=channel, message_ts=message_ts)
@@ -466,6 +642,7 @@ def handle_support_reaction(event: dict, integration: Integration) -> None:
         thread_ts=message_ts,
         slack_user_id=original_user,
         text=original_text,
+        blocks=original_blocks,
         files=original_files,
         is_thread_reply=False,
     )

@@ -200,7 +200,7 @@ function SlackChannelSection(): JSX.Element {
             {isConfigured && (
                 <>
                     <LemonDivider />
-                    <div className="flex items-center gap-4 justify-between">
+                    <div className=" gap-4">
                         <div>
                             <label className="font-medium">Support channel</label>
                             <p className="text-xs text-muted-alt">
