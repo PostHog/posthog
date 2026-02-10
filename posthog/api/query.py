@@ -299,7 +299,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
 
         tag_queries(client_query_id=query_id)
 
-    @action(methods=["POST"], detail=False, url_path=r"(?P<query_kind>[A-Za-z]+)")
+    @action(methods=["POST"], detail=False, url_path=r"(?P<query_kind>[A-Z][A-Za-z]*)")
     def create_with_kind(self, request: Request, *args, **kwargs) -> Response:
         return self.create(request, *args, **kwargs)
 

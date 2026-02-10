@@ -34,3 +34,18 @@ class TestQueryKindEndpoint(APIBaseTest):
 
         self.assertEqual(response.status_code, 400)
         self.assertIn("Query kind mismatch", response.json().get("detail", ""))
+
+    @parameterized.expand(
+        [
+            ("environment", "/api/environments/{team_id}/query/upgrade/"),
+            ("project", "/api/projects/{team_id}/query/upgrade/"),
+        ]
+    )
+    def test_reserved_query_routes_are_not_treated_as_query_kind(self, _name: str, url_template: str) -> None:
+        response = self.client.post(
+            url_template.format(team_id=self.team.pk),
+            {"query": {"kind": "RetentionQuery", "retentionFilter": {"period": "Day", "totalIntervals": 7}}},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
