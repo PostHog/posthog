@@ -41,6 +41,7 @@ import {
     TrendsFilter,
     TrendsFormulaNode,
     TrendsQuery,
+    VizSpecificOptions,
 } from '~/queries/schema/schema-general'
 import {
     filterForQuery,
@@ -122,6 +123,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         setDetailedResultsAggregationType: (detailedResultsAggregationType: AggregationType) => ({
             detailedResultsAggregationType,
         }),
+        updateVizSpecificOptions: (vizSpecificOptions: VizSpecificOptions) => ({ vizSpecificOptions }),
     }),
 
     reducers({
@@ -652,6 +654,16 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             })
         },
 
+        updateVizSpecificOptions: ({ vizSpecificOptions }) => {
+            actions.setQuery({
+                ...values.query,
+                vizSpecificOptions: {
+                    ...values.vizSpecificOptions,
+                    ...vizSpecificOptions,
+                },
+            } as Node)
+        },
+
         // data loading side effects i.e. displaying loading screens for queries with longer duration
         loadData: async ({ queryId }, breakpoint) => {
             actions.setTimedOutQueryId(null)
@@ -828,7 +840,7 @@ const handleQuerySourceUpdateSideEffects = (
         display !== maybeChangedDisplay &&
         maybeChangedDisplay === ChartDisplayType.WorldMap
     ) {
-        const math = (maybeChangedSeries || (currentState as TrendsQuery).series)?.[0].math
+        const math = (maybeChangedSeries || (currentState as TrendsQuery).series)?.[0]?.math
 
         mergedUpdate['breakdownFilter'] = {
             breakdown: '$geoip_country_code',

@@ -51,7 +51,7 @@ export function EnvironmentSwitcherOverlay({
     const { currentOrganization, projectCreationForbiddenReason } = useValues(organizationLogic)
     const { currentTeam, currentProject } = useValues(teamLogic)
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
-    const { showCreateProjectModal, showCreateEnvironmentModal } = useActions(globalModalsLogic)
+    const { showCreateProjectModal } = useActions(globalModalsLogic)
     const [open, setOpen] = useState(false)
 
     const { location } = useValues(router)
@@ -139,13 +139,6 @@ export function EnvironmentSwitcherOverlay({
                     className="shrink-0"
                     tooltip="We're temporarily pausing new environments as we make some improvements! Stay tuned for more. In the meantime, you can create new projects."
                     disabled
-                    onClick={() => {
-                        guardAvailableFeature(AvailableFeature.ENVIRONMENTS, showCreateEnvironmentModal, {
-                            currentUsage: currentOrganization?.teams?.filter(
-                                (team) => team.project_id === currentTeam.project_id
-                            ).length,
-                        })
-                    }}
                 >
                     <IconBlank />
                     <IconPlusSmall />
@@ -239,7 +232,6 @@ export function EnvironmentSwitcherOverlay({
         location.pathname,
         onClickInside,
         guardAvailableFeature,
-        showCreateEnvironmentModal,
     ])
 
     if (!currentOrganization || !currentTeam) {

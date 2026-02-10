@@ -108,6 +108,7 @@ export const manifest: ProductManifest = {
             sceneKey: 'EndpointsScene',
             flag: FEATURE_FLAGS.ENDPOINTS,
             tags: ['beta'],
+            sceneKeys: ['EndpointsScene', 'EndpointScene'],
         },
     ],
 }

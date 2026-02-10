@@ -1,4 +1,5 @@
-import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { router } from 'kea-router'
 
 import { DataColorTheme, DataColorToken } from 'lib/colors'
 import { BIN_COUNT_AUTO } from 'lib/constants'
@@ -89,15 +90,17 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
             ['aggregationLabel'],
             featureFlagLogic,
             ['featureFlags'],
+            router,
+            ['searchParams'],
         ],
-        actions: [insightVizDataLogic(props), ['updateInsightFilter', 'updateQuerySource']],
+        actions: [insightVizDataLogic(props), ['updateInsightFilter', 'updateQuerySource'], router, ['push']],
     })),
 
     actions({
         hideSkewWarning: true,
         setHiddenLegendBreakdowns: (hiddenLegendBreakdowns: string[]) => ({ hiddenLegendBreakdowns }),
         toggleLegendBreakdownVisibility: (breakdown: string) => ({ breakdown }),
-        setBreakdownSortOrder: (breakdownSortOrder: (string | number)[]) => ({ breakdownSortOrder }),
+        setBreakdownSorting: (breakdownSorting: string | undefined) => ({ breakdownSorting }),
         setConversionWindowInterval: (funnelWindowInterval: number) => ({ funnelWindowInterval }),
         setConversionWindowUnit: (funnelWindowIntervalUnit: FunnelConversionWindowTimeUnit) => ({
             funnelWindowIntervalUnit,
@@ -110,12 +113,6 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
             false,
             {
                 hideSkewWarning: () => true,
-            },
-        ],
-        breakdownSortOrder: [
-            [] as (string | number)[],
-            {
-                setBreakdownSortOrder: (_, { breakdownSortOrder }) => breakdownSortOrder,
             },
         ],
         conversionWindowInterval: [
@@ -287,20 +284,22 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                 return flattenedStepsByBreakdown(steps, funnelsFilter?.layout, disableBaseline, true)
             },
         ],
-        hiddenLegendBreakdowns: [(s) => [s.funnelsFilter], (funnelsFilter) => funnelsFilter?.hiddenLegendBreakdowns],
+        hiddenLegendBreakdowns: [
+            (s) => [s.funnelsFilter],
+            (funnelsFilter): string[] | undefined => funnelsFilter?.hiddenLegendBreakdowns,
+        ],
+        breakdownSorting: [
+            (s) => [s.funnelsFilter],
+            (funnelsFilter: FunnelsFilter | null | undefined): string | undefined => funnelsFilter?.breakdownSorting,
+        ],
         resultCustomizations: [(s) => [s.funnelsFilter], (funnelsFilter) => funnelsFilter?.resultCustomizations],
         visibleStepsWithConversionMetrics: [
-            (s) => [
-                s.stepsWithConversionMetrics,
-                s.flattenedBreakdowns,
-                s.breakdownSortOrder,
-                s.hiddenLegendBreakdowns,
-            ],
+            (s) => [s.stepsWithConversionMetrics, s.flattenedBreakdowns, s.breakdownSorting, s.hiddenLegendBreakdowns],
             (
                 steps: FunnelStepWithConversionMetrics[],
                 flattenedBreakdowns: FlattenedFunnelStepByBreakdown[],
-                breakdownSortOrder: (string | number)[],
-                hiddenLegendBreakdowns: string[]
+                breakdownSorting: string | undefined,
+                hiddenLegendBreakdowns: string[] | undefined
             ): FunnelStepWithConversionMetrics[] => {
                 const isOnlySeries = flattenedBreakdowns.length <= 1
                 const baseLineSteps = flattenedBreakdowns.find((b) => b.isBaseline)
@@ -318,12 +317,30 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                             (b) =>
                                 isOnlySeries || !hiddenLegendBreakdowns?.includes(getVisibilityKey(b.breakdown_value))
                         )
-                    // Sort by breakdownSortOrder if present
-                    if (breakdownSortOrder && breakdownSortOrder.length > 0 && nested) {
+                    // Sort by breakdownSorting if present
+                    if (breakdownSorting && nested) {
+                        const isDescending = breakdownSorting.startsWith('-')
+                        const columnKey = isDescending ? breakdownSorting.slice(1) : breakdownSorting
+                        const sortOrder = isDescending ? -1 : 1
+
+                        // Sort based on the column key
                         nested = [...nested].sort((a, b) => {
-                            const aValue = Array.isArray(a.breakdown_value) ? a.breakdown_value[0] : a.breakdown_value
-                            const bValue = Array.isArray(b.breakdown_value) ? b.breakdown_value[0] : b.breakdown_value
-                            return breakdownSortOrder.indexOf(aValue ?? '') - breakdownSortOrder.indexOf(bValue ?? '')
+                            if (columnKey === 'breakdown_value') {
+                                const aValue = Array.isArray(a.breakdown_value)
+                                    ? a.breakdown_value[0]
+                                    : a.breakdown_value
+                                const bValue = Array.isArray(b.breakdown_value)
+                                    ? b.breakdown_value[0]
+                                    : b.breakdown_value
+                                if (typeof aValue === 'number' && typeof bValue === 'number') {
+                                    return sortOrder * (aValue - bValue)
+                                }
+                                return sortOrder * String(aValue ?? '').localeCompare(String(bValue ?? ''))
+                            }
+                            // For other columns, use the raw numeric comparison
+                            const aVal = (a as any)[columnKey] ?? 0
+                            const bVal = (b as any)[columnKey] ?? 0
+                            return sortOrder * (aVal - bVal)
                         })
                     }
                     return {
@@ -607,5 +624,19 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                 })
             }
         },
+        setBreakdownSorting: ({ breakdownSorting }) => {
+            actions.updateInsightFilter({ breakdownSorting })
+        },
     })),
+
+    afterMount(({ actions, values }) => {
+        // Sync URL with saved sorting on mount
+        if (values.breakdownSorting && !values.searchParams.order) {
+            actions.push(
+                window.location.pathname,
+                { ...values.searchParams, order: values.breakdownSorting },
+                window.location.hash
+            )
+        }
+    }),
 ])

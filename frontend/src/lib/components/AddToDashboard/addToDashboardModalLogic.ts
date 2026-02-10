@@ -38,6 +38,7 @@ export const addToDashboardModalLogic = kea<addToDashboardModalLogicType>([
         setScrollIndex: (index: number) => ({ index }),
         addToDashboard: (dashboardId: number) => ({ dashboardId }),
         removeFromDashboard: (dashboardId: number) => ({ dashboardId }),
+        setDashboardToNavigateTo: (dashboardId: number | null) => ({ dashboardId }),
     }),
     reducers({
         searchQuery: ['', { setSearchQuery: (_, { query }) => query }],
@@ -49,6 +50,12 @@ export const addToDashboardModalLogic = kea<addToDashboardModalLogicType>([
                 removeFromDashboard: (_, { dashboardId }) => dashboardId,
                 updateInsightSuccess: () => null,
                 updateInsightFailure: () => null,
+            },
+        ],
+        _dashboardToNavigateTo: [
+            null as number | null,
+            {
+                setDashboardToNavigateTo: (_, { dashboardId }) => dashboardId,
             },
         ],
     }),
@@ -90,10 +97,12 @@ export const addToDashboardModalLogic = kea<addToDashboardModalLogicType>([
     listeners(({ actions, values }) => ({
         addNewDashboard: async () => {
             actions.showNewDashboardModal()
+            newDashboardLogic.actions.setRedirectAfterCreation(false)
         },
 
         [dashboardsModel.actionTypes.addDashboardSuccess]: async ({ dashboard }) => {
             actions.reportCreatedDashboardFromModal()
+            actions.setDashboardToNavigateTo(dashboard.id)
             actions.addToDashboard(dashboard.id)
             actions.setScrollIndex(values.orderedDashboards.findIndex((d) => d.id === dashboard.id))
         },
@@ -108,12 +117,17 @@ export const addToDashboardModalLogic = kea<addToDashboardModalLogicType>([
                 () => {
                     actions.reportSavedInsightToDashboard(values.insight, dashboardId)
                     dashboardsModel.actions.tileAddedToDashboard(dashboardId)
-                    lemonToast.success('Insight added to dashboard', {
-                        button: {
-                            label: 'View dashboard',
-                            action: () => router.actions.push(urls.dashboard(dashboardId)),
-                        },
-                    })
+                    if (values._dashboardToNavigateTo === dashboardId) {
+                        actions.setDashboardToNavigateTo(null)
+                        router.actions.push(urls.dashboard(dashboardId))
+                    } else {
+                        lemonToast.success('Insight added to dashboard', {
+                            button: {
+                                label: 'View dashboard',
+                                action: () => router.actions.push(urls.dashboard(dashboardId)),
+                            },
+                        })
+                    }
                 }
             )
         },

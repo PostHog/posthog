@@ -168,4 +168,4 @@ data/seaweedfs/
 agent-os/
 
 # MCP build files
-services/mcp/typescript/ui-apps-dist
+services/mcp/ui-apps-dist

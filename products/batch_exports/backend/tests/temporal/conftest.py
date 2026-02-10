@@ -94,6 +94,16 @@ async def ateam(aorganization):
     await sync_to_async(team.delete)()
 
 
+@pytest_asyncio.fixture
+async def another_ateam(aorganization):
+    name = f"BatchExportsTestTeam-{random.randint(1, 99999)}"
+    team = await sync_to_async(Team.objects.create)(organization=aorganization, name=name)
+
+    yield team
+    await sync_to_async(delete_batch_exports)(team_ids=[team.pk])
+    await sync_to_async(team.delete)()
+
+
 @pytest.fixture
 def activity_environment():
     """Return a testing temporal ActivityEnvironment."""

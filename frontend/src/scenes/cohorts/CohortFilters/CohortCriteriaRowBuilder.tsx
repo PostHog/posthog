@@ -69,7 +69,7 @@ export function CohortCriteriaRowBuilder({
                                     error && `CohortCriteriaRow__Criteria--error`
                                 )}
                             >
-                                {kids}
+                                {kids as React.ReactNode}
                                 {error && (
                                     <LemonBanner className="my-2" type="error">
                                         {error}
@@ -93,7 +93,7 @@ export function CohortCriteriaRowBuilder({
                                                 error && `CohortCriteriaRow__Criteria__Field--error`
                                             )}
                                         >
-                                            {kids}
+                                            {kids as React.ReactNode}
                                         </div>
                                     </>
                                 )
@@ -137,7 +137,7 @@ export function CohortCriteriaRowBuilder({
                                                                 error && `CohortCriteriaRow__Criteria__Field--error`
                                                             )}
                                                         >
-                                                            {kids}
+                                                            {kids as React.ReactNode}
                                                         </div>
                                                     </>
                                                 )

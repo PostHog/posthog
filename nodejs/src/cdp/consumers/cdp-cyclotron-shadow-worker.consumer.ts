@@ -25,7 +25,7 @@ export class CdpCyclotronShadowWorker extends CdpCyclotronWorker {
         const shadowHub: CdpCyclotronWorkerHub = {
             ...hub,
             CYCLOTRON_DATABASE_URL: hub.CYCLOTRON_SHADOW_DATABASE_URL,
-            CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: 'postgres',
+            CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: 'shadow',
             CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_MAPPING: '*:postgres',
         }
         super(shadowHub)

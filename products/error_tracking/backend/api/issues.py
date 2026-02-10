@@ -18,6 +18,7 @@ from posthog.api.utils import action
 from posthog.models.activity_logging.activity_log import Change, Detail, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.cohort.cohort import Cohort
+from posthog.models.organization import OrganizationMembership
 from posthog.tasks.email import send_error_tracking_issue_assigned
 
 from products.error_tracking.backend.models import (
@@ -136,7 +137,7 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
                     ErrorTrackingIssue.objects.with_first_seen()
                     .select_related("assignment")
                     .prefetch_related("external_issues__integration")
-                    .get(id=record.issue_id)
+                    .get(id=record.issue_id, team=self.team)
                 )
                 serializer = self.get_serializer(issue)
                 return Response(serializer.data)
@@ -287,6 +288,15 @@ def assign_issue(issue: ErrorTrackingIssue, assignee, organization, user, team_i
     )
 
     if assignee:
+        if assignee["type"] == "user":
+            if not OrganizationMembership.objects.filter(user_id=assignee["id"], organization=organization).exists():
+                raise ValidationError("Assignee user does not belong to this organization.")
+        elif assignee["type"] == "role":
+            from ee.models.rbac.role import Role
+
+            if not Role.objects.filter(id=assignee["id"], organization=organization).exists():
+                raise ValidationError("Assignee role does not belong to this organization.")
+
         assignment_after, _ = ErrorTrackingIssueAssignment.objects.update_or_create(
             issue_id=issue.id,
             defaults={

@@ -55,11 +55,11 @@ export const getAngularSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                             <Tab.Panel>
                                 <Markdown>
                                     {dedent`
-                                    For Angular v17 and above, you can set up PostHog as a singleton service. 
-                                    To do this, start by creating and injecting a \`PosthogService\` instance.
+                                        For Angular v17 and above, you can set up PostHog as a singleton service. 
+                                        To do this, start by creating and injecting a \`PosthogService\` instance.
 
-                                    Create a service by running \`ng g service services/posthog\`. The 
-                                    service should look like this:
+                                        Create a service by running \`ng g service services/posthog\`. The 
+                                        service should look like this:
                                     `}
                                 </Markdown>
                                 <CodeBlock
@@ -86,7 +86,7 @@ export const getAngularSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                                                   this.ngZone.runOutsideAngular(() => {
                                                     posthog.init(environment.posthogKey, {
                                                       api_host: environment.posthogHost,
-                                                      defaults: '2025-11-30',
+                                                      defaults: '2026-01-30',
                                                     });
                                                   });
                                                 }
@@ -100,7 +100,6 @@ export const getAngularSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                                         The service is initialized [outside of the Angular zone](https://angular.dev/api/core/NgZone#runOutsideAngular) 
                                         to reduce change detection cycles. This is important to avoid performance issues with 
                                         session recording.
-
                                         Then, inject the service in your app's root component \`app.component.ts\`. 
                                         This will make sure PostHog is initialized before any other component is rendered.
                                     `}

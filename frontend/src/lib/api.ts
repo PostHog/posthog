@@ -714,6 +714,10 @@ export class ApiRequest {
         return this.logs(projectId).addPathComponent('explainLogWithAI')
     }
 
+    public logsExport(projectId?: ProjectType['id']): ApiRequest {
+        return this.logs(projectId).addPathComponent('export')
+    }
+
     // # Data management
     public eventDefinitions(projectId?: ProjectType['id']): ApiRequest {
         return this.projectsDetail(projectId).addPathComponent('event_definitions')
@@ -1783,6 +1787,10 @@ export class ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('llm_prompts').addPathComponent(id)
     }
 
+    public llmPromptByName(name: string, teamId?: TeamType['id']): ApiRequest {
+        return this.llmPrompts(teamId).addPathComponent('name').addPathComponent(name)
+    }
+
     public evaluationRuns(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('evaluation_runs')
     }
@@ -2419,7 +2427,7 @@ const api = {
         }: {
             query: Omit<LogsQuery, 'kind'>
             signal?: AbortSignal
-        }): Promise<{ results: LogMessage[]; hasMore: boolean; nextCursor?: string }> {
+        }): Promise<{ results: LogMessage[]; hasMore: boolean; nextCursor?: string; maxExportableLogs: number }> {
             return new ApiRequest().logsQuery().create({ signal, data: { query } })
         },
         async sparkline({ query, signal }: { query: Omit<LogsQuery, 'kind'>; signal?: AbortSignal }): Promise<any[]> {
@@ -2433,6 +2441,15 @@ const api = {
         },
         async explain(uuid: string, timestamp: string): Promise<LogExplanation> {
             return new ApiRequest().logsExplainWithAI().create({ data: { uuid, timestamp } })
+        },
+        async exportQuery({
+            query,
+            columns,
+        }: {
+            query: Omit<LogsQuery, 'kind'>
+            columns?: string[]
+        }): Promise<{ id: number; export_format: string; has_content: boolean; filename: string }> {
+            return new ApiRequest().logsExport().create({ data: { query, columns } })
         },
     },
 
@@ -3893,6 +3910,12 @@ const api = {
         ): Promise<Record<string, any>> {
             return await new ApiRequest().notebook(notebookId).withAction('kernel/execute').create({ data })
         },
+        async hogqlExecute(
+            notebookId: NotebookType['short_id'],
+            data: { query: string }
+        ): Promise<{ columns?: string[]; results?: any[]; error?: string }> {
+            return await new ApiRequest().notebook(notebookId).withAction('hogql/execute').create({ data })
+        },
         async kernelExecuteStream(
             notebookId: NotebookType['short_id'],
             data: { code: string; return_variables?: boolean; timeout?: number },
@@ -4125,6 +4148,9 @@ const api = {
         },
         async run(id: Task['id']): Promise<Task> {
             return await new ApiRequest().task(id).withAction('run').create()
+        },
+        async clusterVideoSegments(): Promise<{ status: string; workflow_id: string; message: string }> {
+            return await new ApiRequest().tasks().withAction('cluster_video_segments').create()
         },
         runs: {
             async list(taskId: Task['id']): Promise<PaginatedResponse<TaskRun>> {
@@ -5300,6 +5326,10 @@ const api = {
 
         get(promptId: string): Promise<LLMPrompt> {
             return new ApiRequest().llmPrompt(promptId).get()
+        },
+
+        getByName(promptName: string): Promise<LLMPrompt> {
+            return new ApiRequest().llmPromptByName(promptName).get()
         },
 
         async create(data: Omit<Partial<LLMPrompt>, 'created_by'>): Promise<LLMPrompt> {

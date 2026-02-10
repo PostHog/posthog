@@ -182,16 +182,18 @@ function DangerousOperationInput({ operation }: DangerousOperationInputProps): J
                 <span className="font-medium">Approval required</span>
             </div>
             {operation.toolName !== 'finalize_plan' && (
-                <p className="text-xs text-secondary m-0">This operation will make the following changes:</p>
+                <p className="text-xs text-secondary m-0">Review the changes below before approving:</p>
             )}
             <LemonDivider className="my-0 -mx-3 w-[calc(100%+var(--spacing)*6)]" />
-            <MarkdownMessage content={operation.preview} id={`approval-${operation.proposalId}`} />
+            <div className="max-h-60 overflow-y-auto">
+                <MarkdownMessage content={operation.preview} id={`approval-${operation.proposalId}`} />
+            </div>
             <LemonDivider className="my-0 -mx-3 w-[calc(100%+var(--spacing)*6)]" />
             <OptionSelector
                 options={options}
                 onSelect={handleSelect}
                 allowCustom
-                customPlaceholder="Type something..."
+                customPlaceholder="Explain what you'd like instead..."
                 onCustomSubmit={handleCustomSubmit}
                 loading={isLoading}
                 loadingMessage={
