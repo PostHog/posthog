@@ -40,10 +40,6 @@ export class EmailService {
             endpoint: this.hub.SES_ENDPOINT || undefined,
         })
         this.sesV2Client = new SESv2Client({
-            credentials: {
-                accessKeyId: this.hub.SES_ACCESS_KEY_ID,
-                secretAccessKey: this.hub.SES_SECRET_ACCESS_KEY,
-            },
             region: this.hub.SES_REGION,
             endpoint: this.hub.SES_ENDPOINT || undefined,
         })
