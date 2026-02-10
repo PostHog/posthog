@@ -62,6 +62,11 @@ export function formatUnitByQuantity(value: number, unit: string): string {
     return value === 1 ? unit : unit + 's'
 }
 
+export function ensureIsPercent(value: string | number | undefined): number {
+    const num = typeof value === 'string' ? parseInt(value) : (value ?? 0)
+    return Math.min(100, Math.max(0, isNaN(num) ? 0 : num))
+}
+
 export function percentageDistribution(variantCount: number): number[] {
     const basePercentage = Math.floor(100 / variantCount)
     const percentages = new Array(variantCount).fill(basePercentage)

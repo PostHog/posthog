@@ -7,13 +7,15 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
+import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 import { Lettermark, LettermarkColor } from 'lib/lemon-ui/Lettermark'
 import { Link } from 'lib/lemon-ui/Link/Link'
 import { alphabet } from 'lib/utils'
 
 import type { Experiment, MultivariateFlagVariant } from '~/types'
 
-import { isEvenlyDistributed, percentageDistribution } from '../utils'
+import { NEW_EXPERIMENT } from '../constants'
+import { ensureIsPercent, isEvenlyDistributed, percentageDistribution } from '../utils'
 
 interface VariantsPanelCreateFeatureFlagProps {
     experiment: Experiment
@@ -24,6 +26,7 @@ interface VariantsPanelCreateFeatureFlagProps {
         parameters?: {
             feature_flag_variants?: MultivariateFlagVariant[]
             ensure_experience_continuity?: boolean
+            rollout_percentage?: number
         }
     }) => void
     disabled?: boolean
@@ -43,6 +46,18 @@ export const VariantsPanelCreateFeatureFlag = ({
 
     const ensureExperienceContinuity =
         (experiment.parameters as { ensure_experience_continuity?: boolean })?.ensure_experience_continuity ?? false
+
+    const rolloutPercentage = experiment.parameters?.rollout_percentage ?? NEW_EXPERIMENT.parameters.rollout_percentage
+
+    const updateRolloutPercentage = (value: number): void => {
+        onChange({
+            parameters: {
+                feature_flag_variants: variants,
+                ensure_experience_continuity: ensureExperienceContinuity,
+                rollout_percentage: value,
+            },
+        })
+    }
 
     const variantRolloutSum = variants.reduce((sum, { rollout_percentage }) => sum + rollout_percentage, 0)
     const areVariantRolloutsValid =
@@ -69,6 +84,7 @@ export const VariantsPanelCreateFeatureFlag = ({
                 ...experiment.parameters,
                 feature_flag_variants: newVariants,
                 ensure_experience_continuity: ensureExperienceContinuity,
+                rollout_percentage: rolloutPercentage,
             },
         })
     }
@@ -108,137 +124,180 @@ export const VariantsPanelCreateFeatureFlag = ({
             parameters: {
                 feature_flag_variants: newVariants,
                 ensure_experience_continuity: ensureExperienceContinuity,
+                rollout_percentage: rolloutPercentage,
             },
         })
     }
 
     return (
         <div className="flex flex-col gap-4">
-            <LemonField.Pure label="Variants">
-                <div className="border border-primary rounded p-4">
-                    <table className="w-full">
-                        <thead>
-                            <tr className="text-sm font-bold">
-                                <td className="w-5" />
-                                <td className="w-20">Variant key</td>
-                                <td className="w-10">
-                                    <div className="flex items-center gap-1">
-                                        <span>Split</span>
-                                        {!disabled && (
-                                            <>
-                                                <LemonButton
-                                                    onClick={() => setIsCustomSplit(!isCustomSplit)}
-                                                    tooltip="Customize split"
-                                                >
-                                                    <IconPencil />
-                                                </LemonButton>
-                                                <LemonButton
-                                                    onClick={() => distributeVariantsEqually()}
-                                                    tooltip="Distribute split evenly"
-                                                    className={isEvenlyDistributed(variants) ? 'invisible' : ''}
-                                                >
-                                                    <IconBalance />
-                                                </LemonButton>
-                                            </>
-                                        )}
-                                    </div>
-                                </td>
-                                <td className="w-65" />
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {variants.map((variant, index) => (
-                                <tr
-                                    key={index}
-                                    className={hasVariantError(index) ? 'bg-danger-highlight border border-danger' : ''}
-                                >
-                                    <td className="py-2">
-                                        <div className="flex items-center justify-center">
-                                            <Lettermark name={alphabet[index]} color={LettermarkColor.Gray} />
-                                        </div>
-                                    </td>
-                                    <td className="py-2 pr-2">
-                                        <LemonInput
-                                            value={variant.key}
-                                            disabledReason={
-                                                disabled
-                                                    ? 'Cannot edit feature flag in edit mode'
-                                                    : variant.key === 'control'
-                                                      ? 'Control variant cannot be changed'
-                                                      : null
-                                            }
-                                            onChange={(value) =>
-                                                updateVariant(index, { key: value.replace(/\s+/g, '-') })
-                                            }
-                                            data-attr="experiment-variant-key"
-                                            data-key-index={index.toString()}
-                                            className="ph-ignore-input"
-                                            placeholder={`example-variant-${index + 1}`}
-                                            autoComplete="off"
-                                            autoCapitalize="off"
-                                            autoCorrect="off"
-                                            spellCheck={false}
-                                        />
-                                    </td>
-                                    <td className="py-2">
-                                        {isCustomSplit && !disabled ? (
-                                            <LemonInput
-                                                type="number"
-                                                min={0}
-                                                max={100}
-                                                value={variant.rollout_percentage}
-                                                onChange={(changedValue) => {
-                                                    const valueInt =
-                                                        changedValue !== undefined && !Number.isNaN(changedValue)
-                                                            ? parseInt(changedValue.toString(), 10)
-                                                            : 0
-                                                    updateVariant(index, { rollout_percentage: valueInt })
-                                                }}
-                                                suffix={<span>%</span>}
-                                                data-attr="experiment-variant-rollout-percentage-input"
-                                                className="w-30"
-                                            />
-                                        ) : (
-                                            <div className="flex items-center h-10 px-2">
-                                                {variant.rollout_percentage}%
+            <div className="flex gap-4">
+                <div className="flex-1">
+                    <LemonField.Pure label="Variants">
+                        <div className="border border-primary rounded p-4">
+                            <table className="w-full">
+                                <thead>
+                                    <tr className="text-sm font-bold">
+                                        <td className="w-8" />
+                                        <td>Variant key</td>
+                                        <td>
+                                            <div className="flex items-center gap-1">
+                                                <span>Split</span>
+                                                {!disabled && (
+                                                    <>
+                                                        <LemonButton
+                                                            onClick={() => setIsCustomSplit(!isCustomSplit)}
+                                                            tooltip="Customize split"
+                                                        >
+                                                            <IconPencil />
+                                                        </LemonButton>
+                                                        <LemonButton
+                                                            onClick={() => distributeVariantsEqually()}
+                                                            tooltip="Distribute split evenly"
+                                                            className={isEvenlyDistributed(variants) ? 'invisible' : ''}
+                                                        >
+                                                            <IconBalance />
+                                                        </LemonButton>
+                                                    </>
+                                                )}
                                             </div>
-                                        )}
-                                    </td>
-                                    <td className="py-2">
-                                        <div className="flex items-center justify-center">
-                                            {!disabled && variants.length > 2 && index > 0 && (
-                                                <LemonButton
-                                                    icon={<IconTrash />}
-                                                    data-attr={`delete-prop-filter-${index}`}
-                                                    noPadding
-                                                    onClick={() => removeVariant(index)}
-                                                    tooltipPlacement="top-end"
+                                        </td>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {variants.map((variant, index) => (
+                                        <tr
+                                            key={index}
+                                            className={
+                                                hasVariantError(index) ? 'bg-danger-highlight border border-danger' : ''
+                                            }
+                                        >
+                                            <td className="py-2 pr-2">
+                                                <div className="flex items-center justify-center">
+                                                    <Lettermark name={alphabet[index]} color={LettermarkColor.Gray} />
+                                                </div>
+                                            </td>
+                                            <td className="py-2 pr-2">
+                                                <LemonInput
+                                                    value={variant.key}
+                                                    disabledReason={
+                                                        disabled
+                                                            ? 'Cannot edit feature flag in edit mode'
+                                                            : variant.key === 'control'
+                                                              ? 'Control variant cannot be changed'
+                                                              : null
+                                                    }
+                                                    onChange={(value) =>
+                                                        updateVariant(index, { key: value.replace(/\s+/g, '-') })
+                                                    }
+                                                    data-attr="experiment-variant-key"
+                                                    data-key-index={index.toString()}
+                                                    className="ph-ignore-input"
+                                                    placeholder={`example-variant-${index + 1}`}
+                                                    autoComplete="off"
+                                                    autoCapitalize="off"
+                                                    autoCorrect="off"
+                                                    spellCheck={false}
                                                 />
-                                            )}
-                                        </div>
-                                    </td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                    {variants.length > 0 && !areVariantRolloutsValid && (
-                        <p className="text-danger mt-2">
-                            Variant splits must sum to 100 (currently {variantRolloutSum}).
-                        </p>
-                    )}
-                    {variants.length > 0 && !areVariantKeysValid && (
-                        <p className="text-danger mt-2">All variants must have a key.</p>
-                    )}
-                    {variants.length > 0 && hasDuplicateKeys && (
-                        <p className="text-danger mt-2">Variant keys must be unique.</p>
-                    )}
-                    {!disabled && variants.length < MAX_EXPERIMENT_VARIANTS && (
-                        <LemonButton type="secondary" onClick={addVariant} icon={<IconPlus />} className="mt-2">
-                            Add variant
-                        </LemonButton>
-                    )}
+                                            </td>
+                                            <td className="py-2">
+                                                <div className="flex items-center gap-1">
+                                                    {isCustomSplit && !disabled ? (
+                                                        <LemonInput
+                                                            type="number"
+                                                            min={0}
+                                                            max={100}
+                                                            value={variant.rollout_percentage}
+                                                            onChange={(changedValue) => {
+                                                                const valueInt =
+                                                                    changedValue !== undefined &&
+                                                                    !Number.isNaN(changedValue)
+                                                                        ? parseInt(changedValue.toString(), 10)
+                                                                        : 0
+                                                                updateVariant(index, {
+                                                                    rollout_percentage: valueInt,
+                                                                })
+                                                            }}
+                                                            suffix={<span>%</span>}
+                                                            data-attr="experiment-variant-rollout-percentage-input"
+                                                            className="w-30"
+                                                        />
+                                                    ) : (
+                                                        <div className="flex items-center h-10 px-2">
+                                                            {variant.rollout_percentage}%
+                                                        </div>
+                                                    )}
+                                                    {!disabled && variants.length > 2 && index > 0 && (
+                                                        <LemonButton
+                                                            icon={<IconTrash />}
+                                                            data-attr={`delete-prop-filter-${index}`}
+                                                            noPadding
+                                                            onClick={() => removeVariant(index)}
+                                                            tooltipPlacement="top-end"
+                                                        />
+                                                    )}
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                            {variants.length > 0 && !areVariantRolloutsValid && (
+                                <p className="text-danger mt-2">
+                                    Variant splits must sum to 100 (currently {variantRolloutSum}).
+                                </p>
+                            )}
+                            {variants.length > 0 && !areVariantKeysValid && (
+                                <p className="text-danger mt-2">All variants must have a key.</p>
+                            )}
+                            {variants.length > 0 && hasDuplicateKeys && (
+                                <p className="text-danger mt-2">Variant keys must be unique.</p>
+                            )}
+                            {!disabled && variants.length < MAX_EXPERIMENT_VARIANTS && (
+                                <LemonButton type="secondary" onClick={addVariant} icon={<IconPlus />} className="mt-2">
+                                    Add variant
+                                </LemonButton>
+                            )}
+                        </div>
+                    </LemonField.Pure>
                 </div>
-            </LemonField.Pure>
+
+                <div className="flex-1">
+                    <LemonField.Pure label="Rollout percentage">
+                        <div className="border border-primary rounded p-4 flex flex-col gap-3">
+                            <div
+                                className={`flex items-center gap-3 ${disabled ? 'pointer-events-none opacity-50' : ''}`}
+                            >
+                                <div className="flex-1">
+                                    <LemonSlider
+                                        value={rolloutPercentage}
+                                        onChange={updateRolloutPercentage}
+                                        min={0}
+                                        max={100}
+                                        step={1}
+                                    />
+                                </div>
+                                <LemonInput
+                                    type="number"
+                                    min={0}
+                                    max={100}
+                                    value={rolloutPercentage}
+                                    onChange={(value) => updateRolloutPercentage(ensureIsPercent(value))}
+                                    suffix={<span>%</span>}
+                                    disabledReason={
+                                        disabled ? 'Cannot edit rollout percentage in edit mode' : undefined
+                                    }
+                                    data-attr="experiment-rollout-percentage-input"
+                                    className="w-20"
+                                />
+                            </div>
+                            <p className="text-xs text-secondary m-0">
+                                Percentage of users who this experiment will be released to.
+                            </p>
+                        </div>
+                    </LemonField.Pure>
+                </div>
+            </div>
 
             <div>
                 <LemonCheckbox
@@ -248,6 +307,7 @@ export const VariantsPanelCreateFeatureFlag = ({
                             parameters: {
                                 feature_flag_variants: variants,
                                 ensure_experience_continuity: checked,
+                                rollout_percentage: rolloutPercentage,
                             },
                         })
                     }}
