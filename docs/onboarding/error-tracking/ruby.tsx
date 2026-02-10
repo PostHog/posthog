@@ -53,7 +53,7 @@ export const getRubySteps = (ctx: OnboardingComponentsContext): StepDefinition[]
 
                         | Param | Type | Description |
                         | --- | --- | --- |
-                        | `exception`` | Exception | The exception object to capture (required) |
+                        | `exception` | Exception | The exception object to capture (required) |
                         | `distinct_id` | String | The distinct ID of the user (optional) |
                         | `properties` | Hash | Additional properties to attach to the exception event (optional) |
                     `}
