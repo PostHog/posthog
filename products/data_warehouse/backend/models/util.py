@@ -1,5 +1,5 @@
 import re
-from ipaddress import ip_address
+from ipaddress import IPv6Address, ip_address
 from typing import TYPE_CHECKING, Union
 from urllib.parse import urlparse
 
@@ -177,10 +177,11 @@ def _is_safe_public_ip(host: str) -> bool:
     ip = ip_address(host)
 
     # IPv6 can carry embedded IPv4 addresses that need the same SSRF checks.
-    if getattr(ip, "ipv4_mapped", None):
-        return _is_safe_public_ip(str(ip.ipv4_mapped))
-    if getattr(ip, "sixtofour", None):
-        return _is_safe_public_ip(str(ip.sixtofour))
+    if isinstance(ip, IPv6Address):
+        if ip.ipv4_mapped:
+            return _is_safe_public_ip(str(ip.ipv4_mapped))
+        if ip.sixtofour:
+            return _is_safe_public_ip(str(ip.sixtofour))
 
     return not (
         ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_reserved or ip.is_unspecified
