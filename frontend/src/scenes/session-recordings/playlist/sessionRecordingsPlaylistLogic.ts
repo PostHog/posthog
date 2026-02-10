@@ -487,6 +487,7 @@ export interface SessionRecordingPlaylistLogicProps {
     distinctIds?: string[]
     updateSearchParams?: boolean
     autoPlay?: boolean
+    onlyPinned?: boolean
     filters?: RecordingUniversalFilters
     onFiltersChange?: (filters: RecordingUniversalFilters) => void
     pinnedRecordings?: (SessionRecordingType | string)[]
@@ -1404,9 +1405,9 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         ],
 
         recordings: [
-            (s) => [s.pinnedRecordings, s.otherRecordings],
-            (pinnedRecordings, otherRecordings): SessionRecordingType[] => {
-                return [...pinnedRecordings, ...otherRecordings]
+            (s) => [s.pinnedRecordings, s.otherRecordings, (_, props) => props.onlyPinned],
+            (pinnedRecordings, otherRecordings, onlyPinned): SessionRecordingType[] => {
+                return onlyPinned ? [...pinnedRecordings] : [...pinnedRecordings, ...otherRecordings]
             },
         ],
 
@@ -1565,7 +1566,9 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
     }),
 
     // NOTE: It is important this comes after urlToAction, as it will override the default behavior
-    afterMount(({ actions }) => {
-        actions.loadSessionRecordings()
+    afterMount(({ actions, props }) => {
+        if (!props.onlyPinned) {
+            actions.loadSessionRecordings()
+        }
     }),
 ])

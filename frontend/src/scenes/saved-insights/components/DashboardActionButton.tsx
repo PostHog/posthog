@@ -35,6 +35,7 @@ export function DashboardActionButton({ insight }: { insight: QueryBasedInsightM
                     : addInsightToDashboard(insight, dashboard?.id || 0)
             }}
             icon={isInDashboard ? <IconMinusSmall /> : <IconPlusSmall />}
+            data-attr="dashboard-insight-action-button"
         />
     )
 }

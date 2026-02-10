@@ -34,8 +34,36 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
 
 from ee import settings
+from ee.api.scim.utils import mask_email
 from ee.api.vercel.types import VercelClaims, VercelSystemClaims, VercelUser, VercelUserClaims
 from ee.api.vercel.utils import get_vercel_jwks
+
+saml_logger = structlog.get_logger("posthog.auth.saml")
+
+
+def _saml_log_context(email: str, organization_domain: OrganizationDomain | None = None) -> dict[str, Any]:
+    from posthog.models.user import User
+
+    ctx: dict[str, Any] = {
+        "masked_email": mask_email(email),
+        "email_domain": email.split("@")[-1].lower(),
+    }
+
+    try:
+        user = User.objects.filter(email__iexact=email).first()
+        if user:
+            ctx["user_id"] = str(user.id)
+            if organization_domain:
+                membership = user.organization_memberships.filter(
+                    organization_id=organization_domain.organization_id,
+                ).first()
+                ctx["membership_level"] = membership.get_level_display() if membership else "none"
+        else:
+            ctx["user_id"] = "unknown"
+    except Exception:
+        pass
+
+    return ctx
 
 
 @api_view(["GET"])
@@ -62,11 +90,14 @@ class MultitenantSAMLAuth(SAMLAuth):
 
     def auth_complete(self, *args, **kwargs):
         try:
-            return super().auth_complete(*args, **kwargs)
-        except Exception:
+            result = super().auth_complete(*args, **kwargs)
+            saml_logger.info("saml_auth_complete")
+            return result
+        except Exception as e:
             import json
 
             posthoganalytics.tag("request_data", json.dumps(self.strategy.request_data()))
+            saml_logger.warning("saml_auth_complete_failed", error=str(e))
             raise
 
     def get_idp(self, organization_domain_or_id: Union["OrganizationDomain", str]):
@@ -77,9 +108,15 @@ class MultitenantSAMLAuth(SAMLAuth):
                 else OrganizationDomain.objects.verified_domains().get(id=organization_domain_or_id)
             )
         except (OrganizationDomain.DoesNotExist, DjangoValidationError):
+            saml_logger.warning("saml_idp_lookup_failed", idp_id=str(organization_domain_or_id))
             raise AuthFailed(self, "Authentication request is invalid. Invalid RelayState.")
 
         if not organization_domain.organization.is_feature_available(AvailableFeature.SAML):
+            saml_logger.warning(
+                "saml_license_missing",
+                domain=organization_domain.domain,
+                organization_id=str(organization_domain.organization_id),
+            )
             raise AuthFailed(
                 self,
                 "Your organization does not have the required license to use SAML.",
@@ -107,8 +144,15 @@ class MultitenantSAMLAuth(SAMLAuth):
         instance = OrganizationDomain.objects.get_verified_for_email_address(email=email)
 
         if not instance or not instance.has_saml:
+            saml_logger.warning("saml_not_configured", **_saml_log_context(email))
             raise AuthFailed(self, "SAML not configured for this user.")
 
+        saml_logger.info(
+            "saml_auth_redirect",
+            domain=instance.domain,
+            organization_id=str(instance.organization_id),
+            **_saml_log_context(email, instance),
+        )
         auth = self._create_saml_auth(idp=self.get_idp(instance))
         # Below, return_to sets the RelayState, which contains the ID of
         # the `OrganizationDomain`.  We use it to store the specific SAML IdP
@@ -194,15 +238,31 @@ class MultitenantSAMLAuth(SAMLAuth):
         """
         idp_name = response.get("idp_name")
         if not idp_name:
+            saml_logger.warning(
+                "saml_email_domain_validation_failed",
+                reason="missing_idp_name",
+                **_saml_log_context(email),
+            )
             raise AuthFailed(self, "Authentication request is invalid. Missing IdP identifier.")
 
         try:
             organization_domain = OrganizationDomain.objects.verified_domains().get(id=idp_name)
         except (OrganizationDomain.DoesNotExist, DjangoValidationError):
+            saml_logger.warning(
+                "saml_email_domain_validation_failed",
+                reason="invalid_idp",
+                idp_id=str(idp_name),
+                **_saml_log_context(email),
+            )
             raise AuthFailed(self, "Authentication request is invalid. Invalid IdP identifier.")
 
-        email_domain = email.split("@")[-1].lower()
-        if email_domain != organization_domain.domain.lower():
+        if email.split("@")[-1].lower() != organization_domain.domain.lower():
+            saml_logger.warning(
+                "saml_email_domain_mismatch",
+                configured_domain=organization_domain.domain,
+                organization_id=str(organization_domain.organization_id),
+                **_saml_log_context(email, organization_domain),
+            )
             raise AuthFailed(
                 self,
                 "Authentication failed. The email domain from your identity provider does not match the configured domain.",
@@ -516,6 +576,13 @@ def social_auth_allowed(backend, details, response, *args, **kwargs) -> None:
     sso_enforcement = OrganizationDomain.objects.get_sso_enforcement_for_email_address(email)
     if sso_enforcement is None or sso_enforcement == backend.name:
         return
+
+    saml_logger.warning(
+        "sso_enforcement_blocked_login",
+        attempted_backend=backend.name,
+        enforced_backend=sso_enforcement,
+        **(_saml_log_context(email) if email else {"masked_email": "unknown"}),
+    )
 
     if sso_enforcement == "saml":
         raise AuthFailed(backend, "saml_sso_enforced")
