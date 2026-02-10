@@ -23,7 +23,7 @@ impl S3Source {
 }
 
 // String matching hack to get around the fact that there didn't seem to be an easy way to import and handle the different error types with the aws sdk
-fn extract_user_friendly_error(
+pub(crate) fn extract_user_friendly_error(
     error: &dyn std::error::Error,
     bucket: &str,
     operation: &str,

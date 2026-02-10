@@ -669,6 +669,12 @@ class FeatureFlagSerializer(
                         code="invalid_value",
                     )
 
+                if prop.operator in (PropertyOperator.IN_, PropertyOperator.NOT_IN) and prop.type != "cohort":
+                    raise serializers.ValidationError(
+                        detail=f"The '{prop.operator}' operator is only valid for cohort properties, not '{prop.type}' properties.",
+                        code="invalid_operator",
+                    )
+
         payloads = filters.get("payloads", {})
 
         if not isinstance(payloads, dict):
