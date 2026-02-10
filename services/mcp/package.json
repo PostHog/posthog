@@ -31,7 +31,7 @@
         "@modelcontextprotocol/ext-apps": "^1.0.1",
         "@modelcontextprotocol/sdk": "^1.26.0",
         "@toon-format/toon": "^2.1.0",
-        "agents": "^0.3.6",
+        "agents": "^0.3.7",
         "ai": "^6.0.0",
         "fflate": "^0.8.2",
         "posthog-js-lite": "4.2.2",
