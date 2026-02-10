@@ -270,7 +270,7 @@ class UserAccessControl:
             )
         )
 
-    def _get_access_controls(self, filters: dict) -> list[_AccessControl]:
+    def get_access_controls(self, filters: dict) -> list[_AccessControl]:
         key = json.dumps(filters, sort_keys=True)
         if key not in self._cache:
             self._cache[key] = list(AccessControl.objects.filter(self._filter_options(filters)))
@@ -298,7 +298,7 @@ class UserAccessControl:
 
         return {"team_id": self._team.id, "resource": resource, "resource_id": None}  # type: ignore
 
-    def _access_controls_filters_for_queryset(self, resource: APIScopeObject) -> dict:
+    def access_controls_filters_for_queryset(self, resource: APIScopeObject) -> dict:
         """
         Used to filter out IDs from a queryset based on access controls where the specific resource is denied access
         """
@@ -378,7 +378,7 @@ class UserAccessControl:
         if resource_id:
             filter_groups.append(self._access_controls_filters_for_object(resource, resource_id=resource_id))
         else:
-            filter_groups.append(self._access_controls_filters_for_queryset(resource))
+            filter_groups.append(self.access_controls_filters_for_queryset(resource))
 
         q = Q()
         for filters in filter_groups:
@@ -430,7 +430,7 @@ class UserAccessControl:
             return default_access_level(resource) if not explicit else None
 
         filters = self._access_controls_filters_for_object(resource, str(obj.id))  # type: ignore
-        access_controls = self._get_access_controls(filters)
+        access_controls = self.get_access_controls(filters)
 
         # Filter to specific access controls if requested
         if specific_only:
@@ -528,7 +528,7 @@ class UserAccessControl:
 
         # Get cached access controls for this object
         filters = self._access_controls_filters_for_object(resource, str(obj.id))  # type: ignore
-        cached_controls = self._get_access_controls(filters)
+        cached_controls = self.get_access_controls(filters)
 
         # Check for explicit member access
         if any(ac.organization_member_id == org_membership.id for ac in cached_controls):
@@ -543,7 +543,7 @@ class UserAccessControl:
             return AccessSource.DEFAULT
 
         project_filters = self._access_controls_filters_for_object("project", str(self._team.id))
-        project_access_controls = self._get_access_controls(project_filters)
+        project_access_controls = self.get_access_controls(project_filters)
         if any(
             ac.resource_id == str(self._team.id) and ac.organization_member_id == org_membership.id
             for ac in project_access_controls
@@ -599,7 +599,7 @@ class UserAccessControl:
             return default_access_level(resource)
 
         filters = self._access_controls_filters_for_resource(resource)
-        access_controls = self._get_access_controls(filters)
+        access_controls = self.get_access_controls(filters)
 
         if not access_controls:
             return default_access_level(resource)
@@ -615,7 +615,7 @@ class UserAccessControl:
             return False
 
         filters = self._access_controls_filters_for_resource(resource)
-        access_controls = self._get_access_controls(filters)
+        access_controls = self.get_access_controls(filters)
         return bool(access_controls)
 
     def check_access_level_for_resource(self, resource: APIScopeObject, required_level: AccessControlLevel) -> bool:
@@ -665,8 +665,8 @@ class UserAccessControl:
             return False
 
         # Get all object-level access controls for this resource type
-        filters = self._access_controls_filters_for_queryset(resource)
-        access_controls = self._get_access_controls(filters)
+        filters = self.access_controls_filters_for_queryset(resource)
+        access_controls = self.get_access_controls(filters)
 
         # These are already pre-loaded so filter what's in memory
         access_controls = [ac for ac in access_controls if ac.role is not None or ac.organization_member is not None]
@@ -732,8 +732,8 @@ class UserAccessControl:
 
         model_has_creator = hasattr(model, "created_by")
 
-        filters = self._access_controls_filters_for_queryset(resource)
-        access_controls = self._get_access_controls(filters)
+        filters = self.access_controls_filters_for_queryset(resource)
+        access_controls = self.get_access_controls(filters)
 
         blocked_resource_ids: set[str] = set()
         allowed_resource_ids: set[str] = set()

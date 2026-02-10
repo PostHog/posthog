@@ -302,7 +302,7 @@ class HogQLPrinter(Visitor[str]):
             if not isinstance(table_type, ast.TableType) and not isinstance(table_type, ast.LazyTableType):
                 raise ImpossibleASTError(f"Invalid table type {type(table_type).__name__} in join_expr")
 
-            if self.context.database and self.context.database._user_access_control:
+            if self.context.database and self.context.database.user_access_control:
                 # :IMPORTANT: Ensures team_id and and resource_id filtering on every table.
                 # For LEFT JOINs, we add guards to ON (not WHERE) to preserve NULL rows.
                 team_id_expr = self._ensure_team_id_where_clause(table_type, node.type)

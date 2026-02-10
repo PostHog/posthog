@@ -18,10 +18,10 @@ def get_blocked_resource_ids(resource: "APIScopeObject", context: "HogQLContext"
     from posthog.models import OrganizationMembership
     from posthog.rbac.user_access_control import NO_ACCESS_LEVEL
 
-    if not context.database or not context.database._user_access_control:
+    if not context.database or not context.database.user_access_control:
         return set()
 
-    uac = context.database._user_access_control
+    uac = context.database.user_access_control
 
     # Org admins see everything
     org_membership = uac._organization_membership
@@ -29,8 +29,8 @@ def get_blocked_resource_ids(resource: "APIScopeObject", context: "HogQLContext"
         return set()
 
     # Get object-level access control entries
-    filters = uac._access_controls_filters_for_queryset(resource)
-    access_controls = uac._get_access_controls(filters)
+    filters = uac.access_controls_filters_for_queryset(resource)
+    access_controls = uac.get_access_controls(filters)
 
     # Block resource_ids where the highest access is "none"
     access_by_id: dict[str, list[str]] = {}

@@ -260,7 +260,7 @@ class Database(BaseModel):
     _warehouse_self_managed_table_names: list[str] = []
     _view_table_names: list[str] = []
     _denied_tables: set[str] = set()  # Tables user doesn't have permission to access
-    _user_access_control: Optional["UserAccessControl"] = None
+    user_access_control: Optional["UserAccessControl"] = None
 
     _timezone: str | None
     _week_start_day: WeekStartDay | None
@@ -363,9 +363,9 @@ class Database(BaseModel):
         from posthog.models import OrganizationMembership
         from posthog.rbac.user_access_control import NO_ACCESS_LEVEL, UserAccessControl
 
-        self._user_access_control = UserAccessControl(user=user, team=team)
+        self.user_access_control = UserAccessControl(user=user, team=team)
 
-        org_membership = self._user_access_control._organization_membership
+        org_membership = self.user_access_control._organization_membership
         if org_membership and org_membership.level >= OrganizationMembership.Level.ADMIN:
             return
 
@@ -379,7 +379,7 @@ class Database(BaseModel):
             if resource is None:
                 continue  # Not access-controlled, keep it
 
-            access_level = self._user_access_control.access_level_for_resource(resource)
+            access_level = self.user_access_control.access_level_for_resource(resource)
             if access_level and access_level != NO_ACCESS_LEVEL:
                 continue  # User has access, keep it
 
