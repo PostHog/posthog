@@ -498,32 +498,28 @@ class Command(BaseCommand):
                     return_when=asyncio.FIRST_COMPLETED,
                 )
 
-                if shutdown_waiter in done and worker_task in pending:
-                    # Shutdown signal received while worker was still running
+                if shutdown_waiter in done:
                     logger.info("Signal %s received", received_signal)
 
                     if not worker.is_shutdown():
                         logger.info("Initiating shutdown")
-
                         await worker.shutdown()
 
-                        if health_server:
-                            await health_server.stop()
-
-                    try:
-                        await worker_task
-                    except asyncio.CancelledError:
-                        pass
-
-                    return
-
-                # Worker exited on its own (or shutdown_waiter completed simultaneously)
-                if shutdown_waiter in pending:
+                    if worker_task in pending:
+                        try:
+                            await worker_task
+                        except asyncio.CancelledError:
+                            pass
+                else:
+                    # Worker exited on its own
                     shutdown_waiter.cancel()
                     try:
                         await shutdown_waiter
                     except asyncio.CancelledError:
                         pass
+
+                if health_server:
+                    await health_server.stop()
 
             runner.run(run_worker_with_shutdown())
 
