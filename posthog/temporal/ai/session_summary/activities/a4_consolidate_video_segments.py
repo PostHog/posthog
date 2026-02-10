@@ -113,7 +113,6 @@ async def _call_llm_to_consolidate_segments(
                 model="models/gemini-2.5-flash",
                 contents=prompt_parts,
                 config=types.GenerateContentConfig(
-                    max_output_tokens=8192,
                     response_mime_type="application/json",
                     response_json_schema=ConsolidatedVideoAnalysis.model_json_schema(),
                 ),
