@@ -3616,7 +3616,7 @@
   SELECT
       team_id,
       toUInt128(accurateCast(session_id, 'UUID')) AS session_id_v7,
-  
+      fromUnixTimestamp64Milli(toUInt64(bitShiftRight(session_id_v7, 80))) AS session_timestamp,
       initializeAggregation('argMaxState', source_table.distinct_id, min_ts_64) as distinct_id,
       initializeAggregation('groupUniqArrayState', source_table.distinct_id) as distinct_ids,
   
@@ -4593,7 +4593,7 @@
       -- Ideally we would not need to store this separately, as the ID *is* the timestamp
       -- Unfortunately for now, chaining clickhouse functions to extract the timestamp will break indexes / partition pruning, so do this workaround
       -- again, when the new CH UUID type is released, we should try to switch to that and remove the separate timestamp column
-      session_timestamp DateTime64 MATERIALIZED fromUnixTimestamp64Milli(toUInt64(bitShiftRight(session_id_v7, 80))),
+      session_timestamp DateTime64 DEFAULT fromUnixTimestamp64Milli(toUInt64(bitShiftRight(session_id_v7, 80))),
   
       -- ClickHouse will pick the latest value of distinct_id for the session
       -- this is fine since even if the distinct_id changes during a session
@@ -5948,7 +5948,7 @@
       -- Ideally we would not need to store this separately, as the ID *is* the timestamp
       -- Unfortunately for now, chaining clickhouse functions to extract the timestamp will break indexes / partition pruning, so do this workaround
       -- again, when the new CH UUID type is released, we should try to switch to that and remove the separate timestamp column
-      session_timestamp DateTime64 MATERIALIZED fromUnixTimestamp64Milli(toUInt64(bitShiftRight(session_id_v7, 80))),
+      session_timestamp DateTime64 DEFAULT fromUnixTimestamp64Milli(toUInt64(bitShiftRight(session_id_v7, 80))),
   
       -- ClickHouse will pick the latest value of distinct_id for the session
       -- this is fine since even if the distinct_id changes during a session
@@ -7527,7 +7527,7 @@
       -- Ideally we would not need to store this separately, as the ID *is* the timestamp
       -- Unfortunately for now, chaining clickhouse functions to extract the timestamp will break indexes / partition pruning, so do this workaround
       -- again, when the new CH UUID type is released, we should try to switch to that and remove the separate timestamp column
-      session_timestamp DateTime64 MATERIALIZED fromUnixTimestamp64Milli(toUInt64(bitShiftRight(session_id_v7, 80))),
+      session_timestamp DateTime64 DEFAULT fromUnixTimestamp64Milli(toUInt64(bitShiftRight(session_id_v7, 80))),
   
       -- ClickHouse will pick the latest value of distinct_id for the session
       -- this is fine since even if the distinct_id changes during a session
