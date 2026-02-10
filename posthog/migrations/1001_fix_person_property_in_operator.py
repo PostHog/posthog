@@ -50,8 +50,6 @@ def fix_person_property_in_operators(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-    atomic = False
-
     dependencies = [
         ("posthog", "1000_create_healthissue_table"),
     ]
