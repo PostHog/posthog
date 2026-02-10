@@ -13,6 +13,10 @@ import {
 } from '../ingestion/session_replay'
 import { KafkaConsumer } from '../kafka/consumer'
 import { KafkaProducerWrapper } from '../kafka/producer'
+import { MemoryCachedKeyStore } from '../recording-api/cache'
+import { getBlockEncryptor } from '../recording-api/crypto'
+import { getKeyStore } from '../recording-api/keystore'
+import { KeyStore, RecordingEncryptor } from '../recording-api/types'
 import {
     HealthCheckResult,
     PluginServerService,
@@ -100,6 +104,8 @@ export class SessionRecordingIngester {
     private readonly overflowTopic: string
     private readonly topTracker: TopTracker
     private topTrackerLogInterval?: NodeJS.Timeout
+    private readonly keyStore: KeyStore
+    private readonly encryptor: RecordingEncryptor
 
     constructor(
         private hub: SessionRecordingIngesterHub,
@@ -238,6 +244,14 @@ export class SessionRecordingIngester {
             localCacheTtlMs: this.hub.SESSION_RECORDING_SESSION_FILTER_CACHE_TTL_MS,
         })
 
+        const region = hub.SESSION_RECORDING_V2_S3_REGION ?? 'us-east-1'
+        const keyStore = getKeyStore(teamService, retentionService, region, {
+            kmsEndpoint: hub.SESSION_RECORDING_KMS_ENDPOINT,
+            dynamoDBEndpoint: hub.SESSION_RECORDING_DYNAMODB_ENDPOINT,
+        })
+        this.keyStore = new MemoryCachedKeyStore(keyStore)
+        this.encryptor = getBlockEncryptor(this.keyStore)
+
         this.sessionBatchManager = new SessionBatchManager({
             maxBatchSizeBytes: this.hub.SESSION_RECORDING_MAX_BATCH_SIZE_KB * 1024,
             maxBatchAgeMs: this.hub.SESSION_RECORDING_MAX_BATCH_AGE_MS,
@@ -248,6 +262,8 @@ export class SessionRecordingIngester {
             consoleLogStore,
             sessionTracker,
             sessionFilter,
+            keyStore: this.keyStore,
+            encryptor: this.encryptor,
         })
 
         this.restrictionPipeline = createRestrictionPipeline({
@@ -383,6 +399,9 @@ export class SessionRecordingIngester {
             librdKafkaVersion: librdkafkaVersion,
             kafkaCapabilities: features,
         })
+
+        await this.keyStore.start()
+        await this.encryptor.start()
 
         // Check that the storage backend is healthy before starting the consumer
         // This is especially important in local dev with minio
