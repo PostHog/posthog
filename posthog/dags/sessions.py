@@ -442,26 +442,28 @@ def _do_experimental_backfill(
         workload=Workload.OFFLINE, team_id=None, readonly=False, ch_user=ClickHouseUser.DEFAULT
     )
     with get_http_client(**kwargs, **config.client_overrides) as client:
-        # this loop is largely copied from _do_backfill, but not writing per shard
-        for chunk_i in range(team_id_chunks):
-            wait_for_parts_to_merge(context, config, sync_client=client)
+        tags = dagster_tags(context)
+        with tags_context(kind="dagster", dagster=tags):
+            # this loop is largely copied from _do_backfill, but not writing per shard
+            for chunk_i in range(team_id_chunks):
+                wait_for_parts_to_merge(context, config, sync_client=client)
 
-            if team_id_chunks > 1:
-                chunk_where_clause = f"({where_clause}) AND team_id % {team_id_chunks} = {chunk_i}"
-                context.log.info(
-                    f"Processing chunk {chunk_i + 1}/{team_id_chunks} (team_id % {team_id_chunks} = {chunk_i})"
+                if team_id_chunks > 1:
+                    chunk_where_clause = f"({where_clause}) AND team_id % {team_id_chunks} = {chunk_i}"
+                    context.log.info(
+                        f"Processing chunk {chunk_i + 1}/{team_id_chunks} (team_id % {team_id_chunks} = {chunk_i})"
+                    )
+                else:
+                    chunk_where_clause = where_clause
+
+                backfill_sql = sql_template(
+                    where=chunk_where_clause,
+                    target_table=DISTRIBUTED_RAW_SESSIONS_TABLE_V3(),
                 )
-            else:
-                chunk_where_clause = where_clause
+                context.log.info(backfill_sql)
+                sync_execute(backfill_sql, settings=merged_settings, sync_client=client)
 
-            backfill_sql = sql_template(
-                where=chunk_where_clause,
-                target_table=DISTRIBUTED_RAW_SESSIONS_TABLE_V3(),
-            )
-            context.log.info(backfill_sql)
-            sync_execute(backfill_sql, settings=merged_settings, sync_client=client)
+                if team_id_chunks > 1:
+                    context.log.info(f"Completed chunk {chunk_i + 1}/{team_id_chunks}")
 
-            if team_id_chunks > 1:
-                context.log.info(f"Completed chunk {chunk_i + 1}/{team_id_chunks}")
-
-        context.log.info(f"Successfully backfilled sessions_v3 for Dagster partitions {partition_range_str}")
+            context.log.info(f"Successfully backfilled sessions_v3 for Dagster partitions {partition_range_str}")
