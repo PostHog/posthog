@@ -294,6 +294,13 @@ class TestFunnelDataWarehouse(ClickhouseTestMixin, BaseTest):
                     distinct_id_field="id",
                     timestamp_field="created_date",
                 ),
+                DataWarehouseNode(
+                    id=opportunity_table_name,
+                    table_name=opportunity_table_name,
+                    id_field="id",
+                    distinct_id_field="id",
+                    timestamp_field="close_date",
+                ),
             ],
             funnelsFilter=FunnelsFilter(funnelWindowInterval=30),
         )
@@ -305,3 +312,4 @@ class TestFunnelDataWarehouse(ClickhouseTestMixin, BaseTest):
         results = response.results
         assert results[0]["count"] == 5
         assert results[1]["count"] == 3
+        assert results[2]["count"] == 2

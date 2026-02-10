@@ -1618,6 +1618,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
             version: currentPerson.version,
             is_identified: currentPerson.is_identified || personUpdate.is_identified,
             is_user_id: personUpdate.is_user_id,
+            last_seen_at: currentPerson.last_seen_at,
             needs_write: personUpdate.needs_write,
             properties_to_set: personUpdate.properties_to_set,
             properties_to_unset: personUpdate.properties_to_unset,
