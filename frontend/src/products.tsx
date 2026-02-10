@@ -9,9 +9,10 @@ import type { Params } from 'scenes/sceneTypes'
 import { SurveysTabs } from 'scenes/surveys/surveysLogic'
 import { urls } from 'scenes/urls'
 
-import type { DateRange, FileSystemImport } from '~/queries/schema/schema-general'
+import type { FileSystemImport } from '~/queries/schema/schema-general'
 import {
     DashboardFilter,
+    DateRange,
     ExperimentMetric,
     FileSystemIconType,
     HogQLFilters,
@@ -551,11 +552,11 @@ export const productUrls = {
     errorTrackingIssue: (
         id: string,
         params: {
-          timestamp?: string
-          fingerprint?: string,
-          searchQuery?: string,
-          dateRange?: DateRange,
-          filterGroup?: UniversalFiltersGroup,
+            timestamp?: string
+            fingerprint?: string
+            searchQuery?: string
+            dateRange?: DateRange
+            filterGroup?: UniversalFiltersGroup
         } = {}
     ): string => combineUrl(`/error_tracking/${id}`, params).url,
     errorTrackingIssueFingerprints: (id: string): string => `/error_tracking/${id}/fingerprints`,
