@@ -9,12 +9,8 @@ inputs:
         description: 'Emscripten SDK version to install'
         required: false
         default: '4.0.23'
-    emsdk-sha:
-        description: 'Pinned emsdk repository commit SHA (must match emsdk-tag)'
-        required: false
-        default: 'c0bb220cb6e6f4e0fabb6f6db9efd53390ef5e56'
     emsdk-tag:
-        description: 'Pinned emsdk repository tag (used for tarball download URL)'
+        description: 'Pinned emsdk repository tag (used for tarball download URL and cache key)'
         required: false
         default: '4.0.23'
 
@@ -26,7 +22,7 @@ runs:
           uses: actions/cache/restore@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
           with:
               path: ${{ runner.temp }}/emsdk-pinned.tar.gz
-              key: emsdk-tarball-${{ inputs.emsdk-sha }}
+              key: emsdk-tarball-${{ inputs.emsdk-tag }}
 
         - name: Download emsdk tarball on cache miss
           if: steps.cache-emsdk.outputs.cache-hit != 'true'
@@ -51,7 +47,7 @@ runs:
           uses: actions/cache/save@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
           with:
               path: ${{ runner.temp }}/emsdk-pinned.tar.gz
-              key: emsdk-tarball-${{ inputs.emsdk-sha }}
+              key: emsdk-tarball-${{ inputs.emsdk-tag }}
 
         - name: Install and activate Emscripten SDK ${{ inputs.version }}
           shell: bash
