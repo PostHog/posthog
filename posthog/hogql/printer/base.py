@@ -301,19 +301,17 @@ class HogQLPrinter(Visitor[str]):
             if not isinstance(table_type, ast.TableType) and not isinstance(table_type, ast.LazyTableType):
                 raise ImpossibleASTError(f"Invalid table type {type(table_type).__name__} in join_expr")
 
-            # :IMPORTANT: Ensures team_id filtering on every table. For LEFT JOINs, we add it to the
+            # :IMPORTANT: Ensures team_id and resource_id filtering on every table. For LEFT JOINs, we add it to the
             # ON clause (not WHERE) to preserve LEFT JOIN semantics - otherwise NULL rows get filtered out.
             team_id_expr = self._ensure_team_id_where_clause(table_type, node.type)
             access_control_expr = self._ensure_access_control_where_clause(table_type, node.type)
 
-            # Combine security guards
-            security_guards = [g for g in [team_id_expr, access_control_expr] if g]
-            if len(security_guards) == 1:
-                combined_guard = security_guards[0]
-            elif len(security_guards) > 1:
-                combined_guard = ast.And(exprs=security_guards, type=ast.BooleanType())
+            # Combine team_id and access_control expressions with AND
+            combined_guard: ast.Expr | None = None
+            if team_id_expr and access_control_expr:
+                combined_guard = ast.And(exprs=[team_id_expr, access_control_expr], type=ast.BooleanType())
             else:
-                combined_guard = None
+                combined_guard = team_id_expr or access_control_expr
 
             is_left_join = node.join_type is not None and "LEFT" in node.join_type
             if is_left_join and combined_guard is not None and node.constraint is not None:
