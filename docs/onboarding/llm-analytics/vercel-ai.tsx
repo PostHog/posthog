@@ -62,7 +62,7 @@ export const getVercelAISteps = (ctx: OnboardingComponentsContext): StepDefiniti
                     </Markdown>
 
                     <CodeBlock
-                        language="ts"
+                        language="typescript"
                         code={dedent`
                             import { PostHog } from "posthog-node";
                             import { withTracing } from "@posthog/ai"
@@ -109,7 +109,7 @@ export const getVercelAISteps = (ctx: OnboardingComponentsContext): StepDefiniti
                     </Markdown>
 
                     <CodeBlock
-                        language="ts"
+                        language="typescript"
                         code={dedent`
                             const { text } = await generateText({
                               model: model,
