@@ -239,6 +239,7 @@ export const defaultMocks: Mocks = {
         'https://us.i.posthog.com/engage/': (req, res, ctx): MockSignature => posthogCORSResponse(req, res, ctx),
         '/api/environments/:team_id/insights/viewed/': (): MockSignature => [201, null],
         'api/environments/:team_id/query': [200, { results: [] }],
+        'api/environments/:team_id/query/:query_kind/': [200, { results: [] }],
         '/api/environments/:team_id/file_system/log_view/': {},
     },
     patch: {
