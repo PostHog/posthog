@@ -268,6 +268,83 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
+    @parameterized.expand(
+        [
+            ("in",),
+            ("not_in",),
+        ]
+    )
+    def test_cant_create_flag_with_in_operator_for_person_properties(self, operator: str) -> None:
+        count = FeatureFlag.objects.count()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags",
+            {
+                "name": "Beta feature",
+                "key": f"beta-person-{operator}",
+                "filters": {
+                    "groups": [
+                        {
+                            "rollout_percentage": 65,
+                            "properties": [
+                                {
+                                    "key": "email",
+                                    "type": "person",
+                                    "value": ["user1@example.com", "user2@example.com"],
+                                    "operator": operator,
+                                }
+                            ],
+                        }
+                    ]
+                },
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "invalid_operator",
+                "detail": f"The '{operator}' operator is only valid for cohort properties, not 'person' properties.",
+                "attr": "filters",
+            },
+        )
+        self.assertEqual(FeatureFlag.objects.count(), count)
+
+    @parameterized.expand(
+        [
+            ("in",),
+            ("not_in",),
+        ]
+    )
+    def test_can_create_flag_with_in_operator_for_cohort_properties(self, operator: str) -> None:
+        cohort = Cohort.objects.create(team=self.team, name="test cohort", created_by=self.user)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags",
+            {
+                "name": f"Cohort feature {operator}",
+                "key": f"cohort-feature-{operator}",
+                "filters": {
+                    "groups": [
+                        {
+                            "rollout_percentage": 100,
+                            "properties": [
+                                {
+                                    "key": "id",
+                                    "type": "cohort",
+                                    "value": cohort.pk,
+                                    "operator": operator,
+                                }
+                            ],
+                        }
+                    ]
+                },
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["key"], f"cohort-feature-{operator}")
+
     def test_cant_update_flag_with_duplicate_key(self):
         existing_flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="red_button")
         another_feature_flag = FeatureFlag.objects.create(
@@ -333,6 +410,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "aggregating_by_groups": True,
                 "payload_count": 0,
                 "creation_context": "feature_flags",
+                "source": "web",
             },
         )
 
@@ -368,6 +446,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "aggregating_by_groups": False,
                 "payload_count": 0,
                 "creation_context": "feature_flags",
+                "source": "web",
             },
         )
 
@@ -422,6 +501,41 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "aggregating_by_groups": False,
                 "payload_count": 0,
                 "creation_context": "feature_flags",
+                "source": "web",
+            },
+        )
+
+    @patch("posthog.api.feature_flag.report_user_action")
+    def test_create_feature_flag_via_api_key_reports_api_source(self, mock_capture):
+        personal_api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="X", user=self.user, secure_value=hash_key_value(personal_api_key))
+
+        self.client.logout()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {"key": "api-created-feature"},
+            format="json",
+            headers={"authorization": f"Bearer {personal_api_key}"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        instance = FeatureFlag.objects.get(id=response.json()["id"])
+
+        mock_capture.assert_called_once_with(
+            self.user,
+            "feature flag created",
+            {
+                "groups_count": 1,
+                "has_variants": False,
+                "variants_count": 0,
+                "has_rollout_percentage": False,
+                "has_filters": False,
+                "filter_count": 0,
+                "created_at": instance.created_at,
+                "aggregating_by_groups": False,
+                "payload_count": 0,
+                "creation_context": "feature_flags",
+                "source": "api",
             },
         )
 
@@ -476,6 +590,18 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["attr"], "analytics_dashboards")
         self.assertIn("does not exist", response.json()["detail"])
+
+    def test_serializer_without_team_context_returns_empty_dashboard_queryset(self):
+        """When team_id is missing from context, analytics_dashboards should allow nothing (fail safe)."""
+        Dashboard.objects.create(team=self.team, name="test dashboard", created_by=self.user)
+
+        # Instantiate serializer WITHOUT team_id in context
+        serializer = FeatureFlagSerializer(context={})
+        fields = serializer.get_fields()
+
+        # The queryset should be empty (fail safe to prevent IDOR)
+        analytics_field = fields["analytics_dashboards"]
+        self.assertEqual(analytics_field.child_relation.queryset.count(), 0)
 
     @patch("posthog.api.feature_flag.report_user_action")
     def test_create_feature_flag_with_evaluation_runtime(self, mock_capture):
@@ -596,6 +722,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "aggregating_by_groups": False,
                 "payload_count": 0,
                 "creation_context": "feature_flags",
+                "source": "web",
             },
         )
 
@@ -3184,27 +3311,15 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         self.client.logout()
 
-        with self.assertNumQueries(FuzzyInt(22, 24)):
-            # 1. SAVEPOINT
-            # 2. SELECT "posthog_personalapikey"."id",
-            # 3. RELEASE SAVEPOINT
-            # 4. UPDATE "posthog_personalapikey" SET "last_used_at"
-            # 5. SELECT "posthog_team"."id", "posthog_team"."uuid",
-            # 6. SELECT "posthog_team"."id", "posthog_team"."uuid",
-            # 7. SELECT "posthog_project"."id", "posthog_project"."organization_id",
-            # 8. SELECT "posthog_organizationmembership"."id",
-            # 9. SELECT "ee_accesscontrol"."id",
-            # 10. SELECT "posthog_organizationmembership"."id",
-            # 11. SELECT "posthog_cohort"."id"  -- all cohorts
-            # 12. SELECT "posthog_featureflag"."id", "posthog_featureflag"."key", -- all flags
-            # 13. SELECT "posthog_team"."id", "posthog_team"."uuid",
-            # 14. SELECT "posthog_cohort". id = 99999
-            # 15. SELECT "posthog_team"."id", "posthog_team"."uuid",
-            # 16. SELECT "posthog_cohort". id = deleted cohort
-            # 17. SELECT "posthog_team"."id", "posthog_team"."uuid",
-            # 18. SELECT "posthog_cohort". id = cohort from other team
-            # 19. SELECT "posthog_grouptypemapping"."id", -- group type mapping
-            # TODO add the evaluation tag queries
+        with self.assertNumQueries(FuzzyInt(17, 21)):
+            # 1-10: Auth, team, project, membership, and access control queries
+            # 11. SELECT surveys (for survey exclusion)
+            # 12. SELECT all feature flags
+            # 13. SELECT cohorts (only referenced cohorts in bulk, not all cohorts)
+            # 14-18. SELECT evaluation tags (one per flag)
+            # 19. SELECT group type mapping
+            # Note: Query count reduced because cohorts are now loaded in bulk
+            # for only those referenced by flags, instead of loading all cohorts.
 
             response = self.client.get(
                 f"/api/feature_flag/local_evaluation?token={self.team.api_token}&send_cohorts",
@@ -6610,7 +6725,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
         # TODO: Ensure server-side cursors are disabled, since in production we use this with pgbouncer
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(29):
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(24):
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature2", self.team.pk)
 
         cohort.refresh_from_db()
@@ -6664,7 +6779,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
         # Extra queries because each batch adds its own queries
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(47):
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(37):
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature2", self.team.pk, batchsize=2)
 
         cohort.refresh_from_db()
@@ -6675,7 +6790,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(len(response.json()["results"]), 3, response)
 
         # if the batch is big enough, it's fewer queries
-        with self.assertNumQueries(26):
+        with self.assertNumQueries(21):
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature2", self.team.pk, batchsize=10)
 
         cohort.refresh_from_db()
@@ -6739,7 +6854,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             name="some cohort",
         )
 
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(28):
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(23):
             # no queries to evaluate flags, because all evaluated using override properties
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature2", self.team.pk)
 
@@ -6756,7 +6871,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             name="some cohort2",
         )
 
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(28):
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(23):
             # person3 doesn't match filter conditions so is pre-filtered out
             get_cohort_actors_for_feature_flag(cohort2.pk, "some-feature-new", self.team.pk)
 
@@ -6850,7 +6965,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             name="some cohort",
         )
 
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(43):
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(40):
             # forced to evaluate flags by going to db, because cohorts need db query to evaluate
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature-new", self.team.pk)
 

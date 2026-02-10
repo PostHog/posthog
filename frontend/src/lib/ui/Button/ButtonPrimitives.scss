@@ -72,7 +72,6 @@
         &[data-current='true'],
         &[data-state='open'],
         &[data-state='checked'],
-        &[data-highlighted],
         &[aria-expanded='true'],
         &.button-primitive--active {
             background-color: var(--color-bg-fill-button-tertiary-active);
@@ -83,6 +82,7 @@
         }
 
         &[data-focused='true'],
+        &[data-highlighted],
         &:hover {
             background-color: var(--color-bg-fill-button-tertiary-hover);
         }
@@ -103,7 +103,6 @@
         &[data-state='open'],
         &[data-state='checked'],
         &[data-menu-item='true'],
-        &[data-highlighted],
         &[aria-expanded='true'],
         &.button-primitive--active {
             background-color: var(--active-bg-color);
@@ -114,6 +113,7 @@
         }
 
         &[data-focused='true'],
+        &[data-highlighted],
         &:hover {
             background-color: var(--hover-bg-color);
         }
@@ -130,7 +130,6 @@
         &[data-state='open'],
         &[data-state='checked'],
         &[data-menu-item='true'],
-        &[data-highlighted],
         &[aria-expanded='true'],
         &.button-primitive--active {
             background-color: var(--color-bg-fill-error-highlight);
@@ -141,6 +140,7 @@
         }
 
         &[data-focused='true'],
+        &[data-highlighted],
         &:hover {
             background-color: var(--color-bg-fill-error-highlight);
         }
@@ -156,7 +156,6 @@
         &[data-state='open'],
         &[data-state='checked'],
         &[data-menu-item='true'],
-        &[data-highlighted],
         &[aria-expanded='true'],
         &.button-primitive--active {
             background-color: var(--color-bg-fill-button-tertiary-active);
@@ -167,6 +166,7 @@
         }
 
         &[data-focused='true'],
+        &[data-highlighted],
         &:hover {
             background-color: var(--color-bg-fill-button-tertiary-hover);
         }

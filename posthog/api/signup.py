@@ -37,6 +37,7 @@ from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.permissions import CanCreateOrg
 from posthog.rate_limit import SignupEmailPrecheckThrottle, SignupIPThrottle
 from posthog.utils import get_can_create_org, is_relative_url
+from posthog.workos_radar import RadarAction, RadarAuthMethod, evaluate_auth_attempt
 
 logger = structlog.get_logger(__name__)
 
@@ -160,6 +161,15 @@ class SignupSerializer(serializers.Serializer):
 
         request = self.context["request"]
         passkey_credential = request.session.get(WEBAUTHN_SIGNUP_CREDENTIAL_KEY)
+
+        # Evaluate signup attempt with WorkOS Radar (log-only mode, does not block)
+        auth_method = RadarAuthMethod.PASSKEY if passkey_credential else RadarAuthMethod.PASSWORD
+        evaluate_auth_attempt(
+            request=request._request,
+            email=validated_data["email"],
+            action=RadarAction.SIGNUP,
+            auth_method=auth_method,
+        )
 
         is_instance_first_user: bool = not User.objects.exists()
 
@@ -368,6 +378,17 @@ class InviteSignupSerializer(serializers.Serializer):
             invite: OrganizationInvite = OrganizationInvite.objects.select_related("organization").get(id=invite_id)
         except OrganizationInvite.DoesNotExist:
             raise serializers.ValidationError("The provided invite ID is not valid.")
+
+        # Evaluate signup attempt with WorkOS Radar (log-only mode, does not block)
+        # Only for new users, not existing authenticated users
+        if not user and invite.target_email:
+            auth_method = RadarAuthMethod.PASSKEY if passkey_credential else RadarAuthMethod.PASSWORD
+            evaluate_auth_attempt(
+                request=request._request,
+                email=invite.target_email,
+                action=RadarAction.SIGNUP,
+                auth_method=auth_method,
+            )
 
         # Only check SSO enforcement if we're not already logged in
         if (

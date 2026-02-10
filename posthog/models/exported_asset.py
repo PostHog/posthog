@@ -138,6 +138,10 @@ class ExportedAsset(models.Model):
         elif self.insight:
             filename = f"{filename}-{slugify(self.insight.name or self.insight.derived_name)}"
 
+        timestamp = self.created_at.strftime("%Y-%m-%d") if self.created_at else ""
+        if timestamp:
+            filename = f"{filename}-{timestamp}"
+
         filename = f"{filename}.{ext}"
 
         return filename

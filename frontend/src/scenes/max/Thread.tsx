@@ -5,7 +5,6 @@ import React, { useLayoutEffect, useMemo, useState } from 'react'
 
 import {
     IconBrain,
-    IconBug,
     IconCheck,
     IconChevronRight,
     IconCollapse,
@@ -82,7 +81,7 @@ import { maxThreadLogic } from './maxThreadLogic'
 import { MessageTemplate } from './messages/MessageTemplate'
 import { MultiQuestionFormRecap } from './messages/MultiQuestionForm'
 import { NotebookArtifactAnswer } from './messages/NotebookArtifactAnswer'
-import { RecordingsWidget, UIPayloadAnswer } from './messages/UIPayloadAnswer'
+import { RecordingsWidget, UIPayloadAnswer, isRenderableUIPayloadTool } from './messages/UIPayloadAnswer'
 import { VisualizationArtifactAnswer } from './messages/VisualizationArtifactAnswer'
 import { MAX_SLASH_COMMANDS, SlashCommandName } from './slash-commands'
 import { getTicketPromptData, getTicketSummaryData, isTicketConfirmationMessage } from './ticketUtils'
@@ -178,6 +177,15 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
                                 if (isRetryPattern) {
                                     return null
                                 }
+                            }
+
+                            // Hide UI payload answers that are not renderable to prevent rendering an empty message component
+                            if (
+                                isAssistantToolCallMessage(message) &&
+                                (!message.ui_payload ||
+                                    !isRenderableUIPayloadTool(Object.keys(message.ui_payload)[0], message.ui_payload))
+                            ) {
+                                return null
                             }
 
                             const nextMessage = threadGrouped[index + 1]
@@ -287,11 +295,12 @@ function MessageContainer({
     )
 }
 
-// Enhanced tool call with completion status and planning flag
 export interface EnhancedToolCall extends AssistantToolCall {
     status: ExecutionStatus
     isLastPlanningMessage?: boolean
     updates?: string[]
+    /** The tool call result message, if available */
+    result?: AssistantToolCallMessage
 }
 
 interface MessageProps {
@@ -313,8 +322,6 @@ function Message({
     const { activeTabId, activeSceneId } = useValues(sceneLogic)
     const { threadLoading, isSharedThread, pendingApprovalsData, resolvedApprovalStatuses } = useValues(maxThreadLogic)
     const { conversationId } = useValues(maxLogic)
-    const { isDev } = useValues(preflightLogic)
-    const [showUiPayloadJson, setShowUiPayloadJson] = useState(false)
 
     const groupType = message.type === 'human' ? 'human' : 'ai'
     const key = message.id || 'no-id'
@@ -360,8 +367,8 @@ function Message({
         isAssistantMessage(message) ||
         isFailureMessage(message) ||
         (isAssistantToolCallMessage(message) &&
-            ((message.ui_payload && Object.values(message.ui_payload).filter((value) => value != null).length > 0) ||
-                isDev)) ||
+            message.ui_payload &&
+            Object.values(message.ui_payload).filter((value) => value != null).length > 0) ||
         (isArtifactMessage(message) &&
             (isVisualizationArtifactContent(message.content) || isNotebookArtifactContent(message.content))) ||
         isMultiVisualizationMessage(message)
@@ -578,67 +585,6 @@ function Message({
                                 {actionsElement}
                             </div>
                         )
-                    } else if (
-                        isAssistantToolCallMessage(message) &&
-                        message.ui_payload &&
-                        Object.keys(message.ui_payload).length > 0
-                    ) {
-                        const [toolName, toolPayload] = Object.entries(message.ui_payload)[0]
-                        return (
-                            <>
-                                <UIPayloadAnswer
-                                    key={key}
-                                    toolCallId={message.tool_call_id}
-                                    toolName={toolName}
-                                    toolPayload={toolPayload}
-                                />
-                                {isDev && (
-                                    <div className="ml-5 flex flex-col gap-1">
-                                        <LemonButton
-                                            size="xxsmall"
-                                            type="secondary"
-                                            icon={<IconBug />}
-                                            onClick={() => setShowUiPayloadJson(!showUiPayloadJson)}
-                                            tooltip="Development-only. Note: The JSON here is prettified"
-                                            tooltipPlacement="top-start"
-                                            className="w-fit"
-                                        >
-                                            {showUiPayloadJson ? 'Hide' : 'Show'} above tool call result as JSON
-                                        </LemonButton>
-                                        {showUiPayloadJson && (
-                                            <CodeSnippet language={Language.JSON}>
-                                                {JSON.stringify(message, null, 2)}
-                                            </CodeSnippet>
-                                        )}
-                                    </div>
-                                )}
-                            </>
-                        )
-                    } else if (isAssistantToolCallMessage(message)) {
-                        // Tool call message without ui_payload - only show dev debug in dev mode
-                        if (!isDev) {
-                            return null
-                        }
-                        return (
-                            <div className="ml-5 flex flex-col gap-1">
-                                <LemonButton
-                                    size="xxsmall"
-                                    type="secondary"
-                                    icon={<IconBug />}
-                                    onClick={() => setShowUiPayloadJson(!showUiPayloadJson)}
-                                    tooltip="Development-only. Note: The JSON here is prettified"
-                                    tooltipPlacement="top-start"
-                                    className="w-fit"
-                                >
-                                    {showUiPayloadJson ? 'Hide' : 'Show'} tool call result as JSON
-                                </LemonButton>
-                                {showUiPayloadJson && (
-                                    <CodeSnippet language={Language.JSON}>
-                                        {JSON.stringify(message, null, 2)}
-                                    </CodeSnippet>
-                                )}
-                            </div>
-                        )
                     } else if (isFailureMessage(message)) {
                         return (
                             <>
@@ -837,10 +783,8 @@ function PlanningAnswer({ toolCall, isLastPlanningMessage = true }: PlanningAnsw
                 onClick={!hasMultipleSteps ? undefined : () => setIsExpanded(!isExpanded)}
                 aria-label={!hasMultipleSteps ? undefined : isExpanded ? 'Collapse plan' : 'Expand plan'}
             >
-                <div className="relative flex-shrink-0 flex items-start justify-center size-6 h-full">
-                    <div className="p-1 flex items-center justify-center">
-                        <IconNotebook />
-                    </div>
+                <div className="flex items-center justify-center size-5">
+                    <IconNotebook />
                 </div>
                 <div className="flex items-center gap-1.5 flex-1 min-w-0">
                     <span>Planning</span>
@@ -857,7 +801,7 @@ function PlanningAnswer({ toolCall, isLastPlanningMessage = true }: PlanningAnsw
                 </div>
             </div>
             {isExpanded && (
-                <div className="mt-1.5 space-y-1.5 border-l-2 border-border-secondary pl-3.5 ml-[calc(0.775rem)]">
+                <div className="mt-1.5 space-y-1.5 border-l-2 border-border-secondary pl-3.5 ml-2">
                     {steps.map((step, index) => {
                         const isCompleted = step.status === 'completed'
                         const isInProgress = step.status === 'in_progress'
@@ -939,29 +883,38 @@ function AssistantActionComponent({
     animate = true,
     showCompletionIcon = true,
     widget = null,
+    isResultExpanded = false,
+    toolCall = null,
 }: {
     id: string
     content: string
+    // actually a markdown message
     substeps: string[]
     state: ExecutionStatus
     icon?: React.ReactNode
     animate?: boolean
     showCompletionIcon?: boolean
     widget?: JSX.Element | null
+    isResultExpanded?: boolean
+    toolCall?: EnhancedToolCall | null
 }): JSX.Element {
     const isPending = state === 'pending'
     const isCompleted = state === 'completed'
     const isInProgress = state === 'in_progress'
     const isFailed = state === 'failed'
-    const showChevron = !!substeps.length
+    const showSubstepsChevron = !!substeps.length || !!toolCall?.result?.content
     // Initialize with the same logic as the effect to prevent flickering
-    const [isExpanded, setIsExpanded] = useState(showChevron && !(isCompleted || isFailed))
+    const [isSubstepsExpanded, setIsSubstepsExpanded] = useState(showSubstepsChevron && !(isCompleted || isFailed))
+    const [showToolCallJson, setShowToolCallJson] = useState(false)
+    const [showResultJson, setShowResultJson] = useState(false)
 
     useLayoutEffect(() => {
-        setIsExpanded(showChevron && !(isCompleted || isFailed))
-    }, [showChevron, isCompleted, isFailed])
+        setIsSubstepsExpanded(showSubstepsChevron && !(isCompleted || isFailed))
+    }, [showSubstepsChevron, isCompleted, isFailed])
 
     let markdownContent = <MarkdownMessage id={id} content={content} />
+    const result = toolCall?.result
+    const uiPayload = result?.ui_payload
 
     return (
         <div className="flex flex-col rounded transition-all duration-500 flex-1 min-w-0 gap-1 text-xs">
@@ -970,10 +923,18 @@ function AssistantActionComponent({
                     'transition-all duration-500 flex select-none',
                     (isPending || isFailed) && 'text-muted',
                     !isInProgress && !isPending && !isFailed && 'text-default',
-                    !showChevron ? 'cursor-default' : 'cursor-pointer'
+                    !showSubstepsChevron ? 'cursor-default' : 'cursor-pointer'
                 )}
-                onClick={!showChevron ? undefined : () => setIsExpanded(!isExpanded)}
-                aria-label={!showChevron ? undefined : isExpanded ? 'Collapse history' : 'Expand history'}
+                onClick={showSubstepsChevron ? () => setIsSubstepsExpanded(!isSubstepsExpanded) : undefined}
+                aria-label={
+                    showSubstepsChevron
+                        ? isSubstepsExpanded
+                            ? 'Collapse history'
+                            : 'Expand history'
+                        : isResultExpanded
+                          ? 'Collapse result'
+                          : 'Expand result'
+                }
             >
                 {icon && (
                     <div className="flex items-center justify-center size-5">
@@ -992,10 +953,15 @@ function AssistantActionComponent({
                             <span className={clsx('inline-flex', isInProgress && 'text-muted')}>{markdownContent}</span>
                         )}
                     </div>
-                    {showChevron && (
+                    {showSubstepsChevron && (
                         <div className="relative flex-shrink-0 flex items-start justify-center h-full pt-px">
                             <button className="inline-flex items-center hover:opacity-70 transition-opacity flex-shrink-0 cursor-pointer">
-                                <span className={clsx('transform transition-transform', isExpanded && 'rotate-90')}>
+                                <span
+                                    className={clsx(
+                                        'transform transition-transform',
+                                        isSubstepsExpanded && 'rotate-90'
+                                    )}
+                                >
                                     <IconChevronRight />
                                 </span>
                             </button>
@@ -1005,7 +971,7 @@ function AssistantActionComponent({
                     {isFailed && showCompletionIcon && <IconX className="text-danger size-3" />}
                 </div>
             </div>
-            {isExpanded && substeps && substeps.length > 0 && (
+            {isSubstepsExpanded && substeps && substeps.length > 0 && (
                 <div
                     className={clsx(
                         'space-y-1 border-l-2 border-border-secondary',
@@ -1034,6 +1000,89 @@ function AssistantActionComponent({
                 </div>
             )}
             {widget}
+            {toolCall && isSubstepsExpanded && (
+                <>
+                    {!!uiPayload &&
+                        isRenderableUIPayloadTool(toolCall.name, uiPayload) &&
+                        Object.entries(uiPayload).map(([toolName, toolPayload]) => (
+                            <div
+                                key={`${result?.tool_call_id}-${toolName}`}
+                                className="ml-3 border-l-2 border-border-secondary pl-3.5"
+                            >
+                                <UIPayloadAnswer
+                                    toolCallId={result!.tool_call_id}
+                                    toolName={toolName}
+                                    toolPayload={toolPayload}
+                                />
+                            </div>
+                        ))}
+                    <div className="ml-3 border-l-2 border-border-secondary pl-3.5 flex flex-col gap-1">
+                        <LemonButton
+                            size="xxsmall"
+                            type="tertiary"
+                            onClick={(e) => {
+                                e.stopPropagation()
+                                setShowToolCallJson(!showToolCallJson)
+                            }}
+                            tooltip="Tool call arguments as JSON"
+                            tooltipPlacement="top-start"
+                            className="w-fit"
+                        >
+                            <span className="flex items-center gap-1">
+                                <b>Tool called:</b>
+                                <span className="text-secondary">{toolCall.name}</span>
+                                <span
+                                    className={clsx('transform transition-transform', showToolCallJson && 'rotate-90')}
+                                >
+                                    <IconChevronRight />
+                                </span>
+                            </span>
+                        </LemonButton>
+                        {showToolCallJson && (
+                            <CodeSnippet language={Language.JSON} className="text-xs">
+                                {JSON.stringify(toolCall.args, null, 2)}
+                            </CodeSnippet>
+                        )}
+                        {result && result.content && (
+                            <React.Fragment>
+                                <LemonButton
+                                    size="xxsmall"
+                                    type="tertiary"
+                                    onClick={(e) => {
+                                        e.stopPropagation()
+                                        setShowResultJson(!showResultJson)
+                                    }}
+                                    tooltip="Show tool call results"
+                                    tooltipPlacement="top-start"
+                                    className="w-fit"
+                                >
+                                    <span className="flex items-center gap-1">
+                                        <b>Tool result:</b>
+                                        <span className="text-secondary">{result.content.slice(0, 20)}...</span>
+                                        <span
+                                            className={clsx(
+                                                'transform transition-transform',
+                                                showResultJson && 'rotate-90'
+                                            )}
+                                        >
+                                            <IconChevronRight />
+                                        </span>
+                                    </span>
+                                </LemonButton>
+                                {showResultJson && (
+                                    <div className="border rounded p-2 bg-surface-primary">
+                                        <MarkdownMessage
+                                            id={`${toolCall.id}-result`}
+                                            content={result.content}
+                                            className="text-xs [&_code]:text-xs"
+                                        />
+                                    </div>
+                                )}
+                            </React.Fragment>
+                        )}
+                    </div>
+                </>
+            )}
         </div>
     )
 }
@@ -1072,9 +1121,6 @@ interface ToolCallsAnswerProps {
 }
 
 function ToolCallsAnswer({ toolCalls, registeredToolMap }: ToolCallsAnswerProps): JSX.Element {
-    const { isDev } = useValues(preflightLogic)
-    const [showToolCallsJson, setShowToolCallsJson] = useState(false)
-
     // Separate todo_write tool calls from regular tool calls
     const todoWriteToolCalls = toolCalls.filter((tc) => tc.name === 'todo_write')
     const regularToolCalls = toolCalls.filter((tc) => tc.name !== 'todo_write')
@@ -1099,7 +1145,6 @@ function ToolCallsAnswer({ toolCalls, registeredToolMap }: ToolCallsAnswerProps)
             {regularToolCalls.length > 0 && (
                 <div className="flex flex-col gap-1.5">
                     {regularToolCalls.map((toolCall) => {
-                        const updates = toolCall.updates ?? []
                         const definition = getToolDefinitionFromToolCall(toolCall)
                         const [description, widget] = getToolCallDescriptionAndWidget(toolCall, registeredToolMap)
                         return (
@@ -1107,33 +1152,15 @@ function ToolCallsAnswer({ toolCalls, registeredToolMap }: ToolCallsAnswerProps)
                                 key={toolCall.id}
                                 id={toolCall.id}
                                 content={description}
-                                substeps={updates}
+                                substeps={[]}
                                 state={toolCall.status}
                                 icon={definition?.icon || <IconWrench />}
                                 showCompletionIcon={true}
                                 widget={widget}
+                                toolCall={toolCall}
                             />
                         )
                     })}
-                </div>
-            )}
-
-            {isDev && toolCalls.length > 0 && (
-                <div className="ml-5 flex flex-col gap-1">
-                    <LemonButton
-                        size="xxsmall"
-                        type="secondary"
-                        icon={<IconBug />}
-                        onClick={() => setShowToolCallsJson(!showToolCallsJson)}
-                        tooltip="Development-only. Note: The JSON here is prettified"
-                        tooltipPlacement="top-start"
-                        className="w-fit"
-                    >
-                        {showToolCallsJson ? 'Hide' : 'Show'} above tool call(s) as JSON
-                    </LemonButton>
-                    {showToolCallsJson && (
-                        <CodeSnippet language={Language.JSON}>{JSON.stringify(toolCalls, null, 2)}</CodeSnippet>
-                    )}
                 </div>
             )}
         </>

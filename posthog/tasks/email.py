@@ -50,6 +50,7 @@ class NotificationSetting(Enum):
     ERROR_TRACKING_ISSUE_ASSIGNED = "error_tracking_issue_assigned"
     DISCUSSIONS_MENTIONED = "discussions_mentioned"
     PROJECT_API_KEY_EXPOSED = "project_api_key_exposed"
+    MATERIALIZED_VIEW_SYNC_FAILED = "materialized_view_sync_failed"
 
 
 NotificationSettingType = Literal[
@@ -58,6 +59,7 @@ NotificationSettingType = Literal[
     "error_tracking_issue_assigned",
     "discussions_mentioned",
     "project_api_key_exposed",
+    "materialized_view_sync_failed",
 ]
 
 
@@ -151,6 +153,9 @@ def should_send_notification(
 
     elif notification_type == NotificationSetting.PROJECT_API_KEY_EXPOSED.value:
         return settings.get(notification_type, True)
+
+    elif notification_type == NotificationSetting.MATERIALIZED_VIEW_SYNC_FAILED.value:
+        return settings.get(notification_type, False)
 
     # The below typeerror is ignored because we're currently handling the notification
     # types above, so technically it's unreachable. However if another is added but
@@ -424,6 +429,47 @@ def send_batch_export_run_failure(
         },
     )
     logger.info("Prepared notification email for campaign %s", campaign_key)
+
+    for membership in memberships_to_email:
+        message.add_user_recipient(membership.user)
+    message.send()
+
+
+def send_saved_query_materialization_failure(saved_query_id: str) -> None:
+    """Send email notification when a materialized view sync fails."""
+    from products.data_warehouse.backend.models import DataWarehouseSavedQuery
+
+    if not is_email_available(with_absolute_urls=True):
+        logger.warning("Email service is not available for materialization failure notification")
+        return
+
+    try:
+        saved_query = DataWarehouseSavedQuery.objects.select_related("team").get(id=saved_query_id)
+    except DataWarehouseSavedQuery.DoesNotExist:
+        logger.warning("Saved query %s not found for materialization failure notification", saved_query_id)
+        return
+
+    team: Team = saved_query.team
+
+    memberships_to_email = get_members_to_notify(team, NotificationSetting.MATERIALIZED_VIEW_SYNC_FAILED.value)
+    if not memberships_to_email:
+        return
+
+    logger.info("Preparing materialization failure notification email for saved query %s", saved_query_id)
+
+    today = datetime.date.today().strftime("%Y-%m-%d")
+    campaign_key = f"saved_query_materialization_failure_{saved_query_id}_{today}"
+
+    message = EmailMessage(
+        campaign_key=campaign_key,
+        subject=f"PostHog: Materialized view '{saved_query.name}' sync failed",
+        template_name="saved_query_materialization_failure",
+        template_context={
+            "team": team,
+            "saved_query_id": str(saved_query.id),
+            "saved_query_name": saved_query.name,
+        },
+    )
 
     for membership in memberships_to_email:
         message.add_user_recipient(membership.user)
@@ -1049,30 +1095,34 @@ def send_team_hog_functions_digest(team_id: int, hog_function_ids: list[str] | N
             last_editors[hog_function_id] = None
             last_edit_dates[hog_function_id] = None
 
-    # Build function metrics
+    # Build function metrics. Only include functions with at least one failure; per-user threshold
+    # (data_pipeline_error_threshold) then filters which functions each user sees in send_hog_functions_digest_email.
     function_metrics = []
     for hog_function in hog_functions:
         hog_function_id = str(hog_function["id"])
-        if hog_function_id in metrics_by_function:
-            metrics = metrics_by_function[hog_function_id]
-            total_runs = metrics["succeeded"] + metrics["failed"]
-            failure_rate = (metrics["failed"] / total_runs * 100) if total_runs > 0 else 0
+        if hog_function_id not in metrics_by_function:
+            continue
 
-            # Only include functions with failure rate > 1%
-            if failure_rate > 1.0:
-                function_info = {
-                    "id": hog_function_id,
-                    "name": hog_function["name"],
-                    "type": hog_function["type"],
-                    "created_by_email": hog_function["created_by__email"],
-                    "last_edited_by_email": last_editors.get(hog_function_id),
-                    "last_edit_date": last_edit_dates.get(hog_function_id),
-                    "succeeded": metrics["succeeded"],
-                    "failed": metrics["failed"],
-                    "failure_rate": round(failure_rate, 1),
-                    "url": f"{settings.SITE_URL}/project/{team_id}/pipeline/destinations/hog-{hog_function_id}",
-                }
-                function_metrics.append(function_info)
+        metrics = metrics_by_function[hog_function_id]
+        if metrics["failed"] <= 0:
+            continue
+
+        total_runs = metrics["succeeded"] + metrics["failed"]
+        failure_rate = (metrics["failed"] / total_runs * 100) if total_runs > 0 else 0
+
+        function_info = {
+            "id": hog_function_id,
+            "name": hog_function["name"],
+            "type": hog_function["type"],
+            "created_by_email": hog_function["created_by__email"],
+            "last_edited_by_email": last_editors.get(hog_function_id),
+            "last_edit_date": last_edit_dates.get(hog_function_id),
+            "succeeded": metrics["succeeded"],
+            "failed": metrics["failed"],
+            "failure_rate": round(failure_rate, 1),
+            "url": f"{settings.SITE_URL}/project/{team_id}/pipeline/destinations/hog-{hog_function_id}",
+        }
+        function_metrics.append(function_info)
 
     if not function_metrics:
         logger.info(f"No functions with failures found for team {team_id}")

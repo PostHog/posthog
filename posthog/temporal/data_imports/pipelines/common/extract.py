@@ -1,6 +1,6 @@
 import gc
 from collections.abc import Callable
-from contextlib import contextmanager
+from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any, NoReturn
 
 from django.conf import settings
@@ -11,7 +11,8 @@ from structlog.typing import FilteringBoundLogger
 from temporalio import activity
 
 from posthog.exceptions_capture import capture_exception
-from posthog.redis import get_client
+from posthog.redis import get_async_client
+from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.data_imports.pipelines.common.load import get_incremental_field_value
 from posthog.temporal.data_imports.pipelines.pipeline.cdp_producer import CDPProducer
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
@@ -29,31 +30,29 @@ if TYPE_CHECKING:
     from products.data_warehouse.backend.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
 
 
-@contextmanager
-def get_redis_client():
-    redis_client = None
+@asynccontextmanager
+async def _get_redis():
+    """Returns an async Redis client for row tracking operations."""
+    redis = None
     try:
         if not settings.DATA_WAREHOUSE_REDIS_HOST or not settings.DATA_WAREHOUSE_REDIS_PORT:
             raise Exception(
                 "Missing env vars for dwh row tracking: DATA_WAREHOUSE_REDIS_HOST or DATA_WAREHOUSE_REDIS_PORT"
             )
 
-        redis_client = get_client(f"redis://{settings.DATA_WAREHOUSE_REDIS_HOST}:{settings.DATA_WAREHOUSE_REDIS_PORT}/")
-        redis_client.ping()
+        redis = get_async_client(f"redis://{settings.DATA_WAREHOUSE_REDIS_HOST}:{settings.DATA_WAREHOUSE_REDIS_PORT}/")
+        await redis.ping()
     except Exception as e:
         capture_exception(e)
 
-    try:
-        yield redis_client
-    finally:
-        pass
+    yield redis
 
 
 def build_non_retryable_errors_redis_key(team_id: int, source_id: str, run_id: str) -> str:
     return f"posthog:data_warehouse:non_retryable_errors:{team_id}:{source_id}:{run_id}"
 
 
-def trim_source_job_inputs(source: "ExternalDataSource") -> None:
+async def trim_source_job_inputs(source: "ExternalDataSource") -> None:
     if not source.job_inputs:
         return
 
@@ -65,7 +64,7 @@ def trim_source_job_inputs(source: "ExternalDataSource") -> None:
                 did_update_inputs = True
 
     if did_update_inputs:
-        source.save()
+        await database_sync_to_async_pool(source.save)()
 
 
 def report_heartbeat_timeout(inputs: "ImportDataActivityInputs", logger: FilteringBoundLogger) -> None:
@@ -153,32 +152,32 @@ def report_heartbeat_timeout(inputs: "ImportDataActivityInputs", logger: Filteri
         logger.debug(f"Error while reporting heartbeat timeout: {e}", exc_info=e)
 
 
-def handle_non_retryable_error(
+async def handle_non_retryable_error(
     job_inputs: "PipelineInputs",
     error_msg: str,
     logger: FilteringBoundLogger,
     error: Exception,
 ) -> NoReturn:
-    with get_redis_client() as redis_client:
+    async with _get_redis() as redis_client:
         if redis_client is None:
-            logger.debug(f"Failed to get Redis client for non-retryable error tracking. error={error_msg}")
+            await logger.adebug(f"Failed to get Redis client for non-retryable error tracking. error={error_msg}")
             raise NonRetryableException() from error
 
         retry_key = build_non_retryable_errors_redis_key(
             job_inputs.team_id, str(job_inputs.source_id), job_inputs.run_id
         )
-        attempts = redis_client.incr(retry_key)
+        attempts = await redis_client.incr(retry_key)
 
         if attempts <= 3:
-            redis_client.expire(retry_key, 86400)  # Expire after 24 hours
-            logger.debug(f"Non-retryable error attempt {attempts}/3, retrying. error={error_msg}")
+            await redis_client.expire(retry_key, 86400)  # Expire after 24 hours
+            await logger.adebug(f"Non-retryable error attempt {attempts}/3, retrying. error={error_msg}")
             raise error
 
-    logger.debug(f"Non-retryable error after {attempts} runs, giving up. error={error_msg}")
+    await logger.adebug(f"Non-retryable error after {attempts} runs, giving up. error={error_msg}")
     raise NonRetryableException() from error
 
 
-def reset_rows_synced_if_needed(
+async def reset_rows_synced_if_needed(
     job: "ExternalDataJob",
     is_incremental: bool,
     reset_pipeline: bool,
@@ -192,7 +191,7 @@ def reset_rows_synced_if_needed(
         and not should_resume
     ):
         job.rows_synced = 0
-        job.save()
+        await database_sync_to_async_pool(job.save)()
 
 
 def validate_incremental_sync(
@@ -207,7 +206,7 @@ def validate_incremental_sync(
         )
 
 
-def setup_row_tracking_with_billing_check(
+async def setup_row_tracking_with_billing_check(
     team_id: int,
     schema: "ExternalDataSchema",
     resource: SourceResponse,
@@ -215,16 +214,16 @@ def setup_row_tracking_with_billing_check(
     billable: bool = True,
 ) -> None:
     if resource.rows_to_sync:
-        increment_rows(team_id, schema.id, resource.rows_to_sync)
+        await increment_rows(team_id, schema.id, resource.rows_to_sync)
         # Check billing limits against incoming rows (skip for non-billable jobs)
-        if billable and will_hit_billing_limit(team_id=team_id, source=schema.source, logger=logger):
+        if billable and await will_hit_billing_limit(team_id=team_id, source=schema.source, logger=logger):
             raise BillingLimitsWillBeReachedException(
                 f"Your account will hit your Data Warehouse billing limits syncing {resource.name} "
                 f"with {resource.rows_to_sync} rows"
             )
 
 
-def handle_reset_or_full_refresh(
+async def handle_reset_or_full_refresh(
     reset_pipeline: bool,
     should_resume: bool,
     schema: "ExternalDataSchema",
@@ -235,14 +234,14 @@ def handle_reset_or_full_refresh(
     from products.data_warehouse.backend.models import ExternalDataSchema as ExternalDataSchemaModel
 
     if reset_pipeline and not should_resume:
-        logger.debug(f"{log_prefix}Cleaning up previous data due to reset_pipeline")
-        reset_callback()
-        schema.update_sync_type_config_for_reset_pipeline()
+        await logger.debug(f"{log_prefix}Cleaning up previous data due to reset_pipeline")
+        await reset_callback()
+        await database_sync_to_async_pool(schema.update_sync_type_config_for_reset_pipeline)()
     elif schema.sync_type == ExternalDataSchemaModel.SyncType.FULL_REFRESH and not should_resume:
         # Avoid schema mismatches from existing data about to be overwritten
-        logger.debug(f"{log_prefix}Cleaning up previous data due to full refresh sync")
-        reset_callback()
-        schema.update_sync_type_config_for_reset_pipeline()
+        await logger.debug(f"{log_prefix}Cleaning up previous data due to full refresh sync")
+        await reset_callback()
+        await database_sync_to_async_pool(schema.update_sync_type_config_for_reset_pipeline)()
 
 
 def cleanup_memory(pa_memory_pool: pa.MemoryPool, py_table: pa.Table | None = None) -> None:
@@ -252,7 +251,7 @@ def cleanup_memory(pa_memory_pool: pa.MemoryPool, py_table: pa.Table | None = No
     gc.collect()
 
 
-def update_incremental_field_values(
+async def update_incremental_field_values(
     schema: "ExternalDataSchema",
     pa_table: pa.Table,
     resource: SourceResponse,
@@ -275,21 +274,23 @@ def update_incremental_field_values(
             last_incremental_field_value = last_value
 
         if resource.sort_mode == "asc":
-            logger.debug(f"{log_prefix}Updating incremental_field_last_value with {last_incremental_field_value}")
-            schema.update_incremental_field_value(last_incremental_field_value)
+            await logger.debug(f"{log_prefix}Updating incremental_field_last_value with {last_incremental_field_value}")
+            await database_sync_to_async_pool(schema.update_incremental_field_value)(last_incremental_field_value)
 
         if resource.sort_mode == "desc":
             earliest_value = get_incremental_field_value(schema, pa_table, aggregate="min")
 
             if earliest_incremental_field_value is None or earliest_value < earliest_incremental_field_value:
                 earliest_incremental_field_value = earliest_value
-                logger.debug(f"{log_prefix}Updating incremental_field_earliest_value with {earliest_value}")
-                schema.update_incremental_field_value(earliest_value, type="earliest")
+                await logger.debug(f"{log_prefix}Updating incremental_field_earliest_value with {earliest_value}")
+                await database_sync_to_async_pool(schema.update_incremental_field_value)(
+                    earliest_value, type="earliest"
+                )
 
     return last_incremental_field_value, earliest_incremental_field_value
 
 
-def update_row_tracking_after_batch(
+async def update_row_tracking_after_batch(
     job_id: str,
     team_id: int,
     schema_id: Any,
@@ -298,8 +299,8 @@ def update_row_tracking_after_batch(
 ) -> None:
     from posthog.temporal.data_imports.pipelines.common.load import update_job_row_count
 
-    update_job_row_count(job_id, row_count, logger)
-    decrement_rows(team_id, schema_id, row_count)
+    await update_job_row_count(job_id, row_count, logger)
+    await decrement_rows(team_id, schema_id, row_count)
 
 
 def should_check_shutdown(
@@ -317,7 +318,7 @@ def should_check_shutdown(
     return incremental_sync_raise_during_shutdown or source_is_resumable
 
 
-def finalize_desc_sort_incremental_value(
+async def finalize_desc_sort_incremental_value(
     resource: SourceResponse,
     schema: "ExternalDataSchema",
     last_incremental_field_value: Any,
@@ -327,19 +328,19 @@ def finalize_desc_sort_incremental_value(
     # As mentioned above, for sort mode 'desc' we only want to update the `incremental_field_last_value` once we
     # have processed all of the data (we could also update it here for 'asc' but it's not needed)
     if resource.sort_mode == "desc" and last_incremental_field_value is not None:
-        logger.debug(
+        await logger.debug(
             f"{log_prefix}Sort mode is 'desc' -> updating incremental_field_last_value "
             f"with {last_incremental_field_value}"
         )
-        schema.refresh_from_db()
-        schema.update_incremental_field_value(last_incremental_field_value)
+        await database_sync_to_async_pool(schema.refresh_from_db)()
+        await database_sync_to_async_pool(schema.update_incremental_field_value)(last_incremental_field_value)
 
 
-def cdp_producer_clear_chunks(cdp_producer: CDPProducer):
-    if cdp_producer.should_produce_table:
-        cdp_producer.clear_s3_chunks()
+async def cdp_producer_clear_chunks(cdp_producer: CDPProducer):
+    if await cdp_producer.should_produce_table():
+        await cdp_producer.clear_s3_chunks()
 
 
-def write_chunk_for_cdp_producer(cdp_producer: CDPProducer, index: int, pa_table: pa.Table):
-    if cdp_producer.should_produce_table:
-        cdp_producer.write_chunk_for_cdp_producer(chunk=index, table=pa_table)
+async def write_chunk_for_cdp_producer(cdp_producer: CDPProducer, index: int, pa_table: pa.Table):
+    if await cdp_producer.should_produce_table():
+        await cdp_producer.write_chunk_for_cdp_producer(chunk=index, table=pa_table)

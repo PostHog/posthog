@@ -8,6 +8,7 @@ import posthoganalytics
 from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions_capture import capture_exception
+from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.data_imports.pipelines.pipeline.utils import normalize_column_name
 from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
@@ -24,9 +25,11 @@ if TYPE_CHECKING:
 LOGGER = get_logger(__name__)
 
 
-def update_job_row_count(job_id: str, count: int, logger: FilteringBoundLogger) -> None:
-    logger.debug(f"Updating rows_synced with +{count}")
-    ExternalDataJob.objects.filter(id=job_id).update(rows_synced=F("rows_synced") + count)
+async def update_job_row_count(job_id: str, count: int, logger: FilteringBoundLogger) -> None:
+    await logger.adebug(f"Updating rows_synced with +{count}")
+    await database_sync_to_async_pool(
+        lambda: ExternalDataJob.objects.filter(id=job_id).update(rows_synced=F("rows_synced") + count)
+    )()
 
 
 def get_incremental_field_value(

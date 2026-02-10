@@ -23,8 +23,7 @@ import { PlayerFrameMetaOverlay } from './PlayerFrameMetaOverlay'
 import { PlayerFrameOverlay } from './PlayerFrameOverlay'
 import { ClipOverlay } from './controller/ClipRecording'
 import { PlayerController } from './controller/PlayerController'
-import { PlayerMeta } from './player-meta/PlayerMeta'
-import { PlayerMetaTopSettings } from './player-meta/PlayerMetaTopSettings'
+import { PlayerMetaBar } from './player-meta/PlayerMetaBar'
 import { playerSettingsLogic } from './playerSettingsLogic'
 import { sessionRecordingDataCoordinatorLogic } from './sessionRecordingDataCoordinatorLogic'
 import {
@@ -257,14 +256,7 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
                         ) : (
                             <div className="flex w-full h-full">
                                 <div className="flex flex-col flex-1 w-full relative">
-                                    <div className="relative">
-                                        {showMeta ? (
-                                            <>
-                                                <PlayerMeta />
-                                                <PlayerMetaTopSettings />
-                                            </>
-                                        ) : null}
-                                    </div>
+                                    <div className="relative">{showMeta ? <PlayerMetaBar /> : null}</div>
                                     <div
                                         className="SessionRecordingPlayer__body"
                                         draggable={draggable && !isCommenting}

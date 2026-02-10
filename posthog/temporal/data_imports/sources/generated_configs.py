@@ -214,7 +214,14 @@ class RedditAdsSourceConfig(config.Config):
 
 @config.config
 class RedshiftSourceConfig(config.Config):
-    pass
+    host: str
+    database: str
+    user: str
+    password: str
+    schema: str
+    port: int = config.value(converter=int)
+    connection_string: str | None = None
+    ssh_tunnel: SSHTunnelConfig | None = None
 
 
 @config.config
@@ -236,7 +243,8 @@ class ShopifySourceConfig(config.Config):
 
 @config.config
 class SnapchatAdsSourceConfig(config.Config):
-    pass
+    ad_account_id: str
+    snapchat_integration_id: int = config.value(converter=config.str_to_int)
 
 
 @config.config

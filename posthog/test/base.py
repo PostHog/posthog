@@ -120,6 +120,7 @@ from posthog.models.person.sql import (
     TRUNCATE_PERSON_STATIC_COHORT_TABLE_SQL,
 )
 from posthog.models.person.util import bulk_create_persons, create_person
+from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.precalculated_events.sql import (
     DROP_PRECALCULATED_EVENTS_KAFKA_TABLE_SQL,
     DROP_PRECALCULATED_EVENTS_MV_SQL,
@@ -167,6 +168,7 @@ from posthog.models.sessions.sql import (
     SESSIONS_TABLE_SQL,
     SESSIONS_VIEW_SQL,
 )
+from posthog.models.utils import generate_random_token_personal
 from posthog.models.web_preaggregated.sql import (
     DROP_WEB_BOUNCES_DAILY_SQL,
     DROP_WEB_BOUNCES_HOURLY_SQL,
@@ -860,6 +862,17 @@ class APIBaseTest(PostHogTestCase, ErrorResponsesMixin, DRFTestCase):
         user = User.objects.create_user(email="testuser@example.com", first_name="Test", password="password")
         organization.members.add(user)
         return user
+
+    def create_personal_api_key_with_scopes(self, scopes: list[str]) -> str:
+        """Create a Personal API Key with specified scopes for the current user."""
+        key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="Test Key",
+            user=self.user,
+            secure_value=hash_key_value(key_value),
+            scopes=scopes,
+        )
+        return key_value
 
     def complete_email_mfa(self, email: str, user: Optional[Any] = None):
         if user is None:

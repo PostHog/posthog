@@ -15,7 +15,6 @@ import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { DataPipelinesNewSceneKind } from 'scenes/data-pipelines/DataPipelinesNewScene'
-import { DataPipelinesSceneTab } from 'scenes/data-pipelines/DataPipelinesScene'
 import { HogFunctionConfiguration } from 'scenes/hog-functions/configuration/HogFunctionConfiguration'
 import {
     HogFunctionConfigurationLogicProps,
@@ -49,12 +48,11 @@ import { HogFunctionSkeleton } from './misc/HogFunctionSkeleton'
 const HOG_FUNCTION_SCENE_TABS = ['configuration', 'metrics', 'logs', 'testing', 'backfills', 'history'] as const
 export type HogFunctionSceneTab = (typeof HOG_FUNCTION_SCENE_TABS)[number]
 
-const DataPipelinesSceneMapping: Partial<Record<HogFunctionTypeType, DataPipelinesSceneTab>> = {
-    transformation: 'transformations',
-    destination: 'destinations',
-    site_destination: 'destinations',
-    site_app: 'site_apps',
-    source_webhook: 'sources',
+const HogFunctionSceneMapping: Partial<Record<HogFunctionTypeType, { scene: Scene; url: () => string }>> = {
+    transformation: { scene: Scene.Transformations, url: urls.transformations },
+    destination: { scene: Scene.Destinations, url: urls.destinations },
+    site_destination: { scene: Scene.Destinations, url: urls.destinations },
+    source_webhook: { scene: Scene.Sources, url: urls.sources },
 }
 
 export const hogFunctionSceneLogic = kea<hogFunctionSceneLogicType>([
@@ -93,13 +91,41 @@ export const hogFunctionSceneLogic = kea<hogFunctionSceneLogicType>([
                 return value ? String(value) : undefined
             },
         ],
+        surveyId: [
+            (s) => [s.configuration],
+            (configuration: HogFunctionType | null): string | undefined => {
+                for (const event of configuration?.filters?.events ?? []) {
+                    const surveyIdProp = event.properties?.find((p) => p.key === '$survey_id')
+                    if (surveyIdProp?.value) {
+                        return String(surveyIdProp.value)
+                    }
+                }
+                return undefined
+            },
+        ],
+        isSurveyNotification: [
+            (s) => [s.configuration],
+            (configuration: HogFunctionType | null): boolean => {
+                return (configuration?.filters?.events ?? []).some((e) => e.id === 'survey sent')
+            },
+        ],
         breadcrumbs: [
-            (s) => [s.type, s.loading, s.configuration, s.alertId, (_, props) => props.id ?? null],
+            (s) => [
+                s.type,
+                s.loading,
+                s.configuration,
+                s.alertId,
+                s.surveyId,
+                s.isSurveyNotification,
+                (_, props) => props.id ?? null,
+            ],
             (
                 type: HogFunctionTypeType,
                 loading: boolean,
                 configuration: HogFunctionType | null,
                 alertId: string | undefined,
+                surveyId: string | undefined,
+                isSurveyNotification: boolean,
                 id: string | null
             ): Breadcrumb[] => {
                 if (loading) {
@@ -136,22 +162,45 @@ export const hogFunctionSceneLogic = kea<hogFunctionSceneLogicType>([
                     ]
                 }
 
-                const pipelineTab = DataPipelinesSceneMapping[type]
+                if (isSurveyNotification) {
+                    const crumbs: Breadcrumb[] = [
+                        {
+                            key: Scene.Surveys,
+                            name: 'surveys',
+                            path: urls.surveys(),
+                        },
+                    ]
+                    if (surveyId) {
+                        crumbs.push({
+                            key: Scene.Survey,
+                            name: 'survey',
+                            path: urls.survey(surveyId),
+                        })
+                    }
+                    crumbs.push(finalCrumb)
+                    return crumbs
+                }
 
-                if (pipelineTab) {
+                if (type === 'site_app') {
                     return [
                         {
-                            key: Scene.DataPipelines,
-                            name: 'Data pipelines',
-                            path: urls.dataPipelines('overview'),
+                            key: Scene.Apps,
+                            name: 'Apps',
+                            path: urls.apps(),
                             iconType: 'data_pipeline',
                         },
+                        finalCrumb,
+                    ]
+                }
+
+                const sceneMapping = HogFunctionSceneMapping[type]
+
+                if (sceneMapping) {
+                    return [
                         {
-                            key: [Scene.DataPipelines, pipelineTab],
+                            key: sceneMapping.scene,
                             name: `${capitalizeFirstLetter(type).replace('_', ' ')}s`,
-                            path: id
-                                ? urls.dataPipelines(pipelineTab)
-                                : urls.dataPipelinesNew(type as DataPipelinesNewSceneKind),
+                            path: id ? sceneMapping.url() : urls.dataPipelinesNew(type as DataPipelinesNewSceneKind),
                             iconType: 'data_pipeline',
                         },
                         finalCrumb,
