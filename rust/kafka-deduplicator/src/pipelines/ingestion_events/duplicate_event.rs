@@ -327,10 +327,7 @@ mod tests {
 
         assert!(!duplicate_event.is_confirmed);
         assert_eq!(duplicate_event.dedup_type, "timestamp");
-        assert_eq!(
-            duplicate_event.reason,
-            Some("ContentDiffers".to_string())
-        );
+        assert_eq!(duplicate_event.reason, Some("ContentDiffers".to_string()));
         assert_eq!(duplicate_event.similarity_score, 0.7);
     }
 
