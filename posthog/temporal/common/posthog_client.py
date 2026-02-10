@@ -1,3 +1,4 @@
+import asyncio
 from dataclasses import is_dataclass
 from typing import Any, Optional
 
@@ -17,6 +18,28 @@ from posthog.temporal.common.logger import get_write_only_logger
 
 logger = get_write_only_logger()
 
+CAPTURE_EXCEPTION_TIMEOUT_SECONDS = 5
+
+
+async def _safe_capture_exception(e: Exception, **kwargs: Any) -> None:
+    """Run capture_exception in a thread with a timeout.
+
+    The PostHog SDK's capture_exception can block indefinitely when
+    exception variable serialization encounters large objects (the
+    _pattern_matches regex loop in exception_utils.py). Running it
+    in a thread with a timeout prevents it from blocking the asyncio
+    event loop.
+    """
+    try:
+        await asyncio.wait_for(
+            asyncio.to_thread(capture_exception, e, **kwargs),
+            timeout=CAPTURE_EXCEPTION_TIMEOUT_SECONDS,
+        )
+    except TimeoutError:
+        pass
+    except Exception:
+        pass
+
 
 async def _add_inputs_to_capture_kwargs(
     capture_kwargs: dict[str, Any],
@@ -34,7 +57,7 @@ async def _add_inputs_to_capture_kwargs(
         await logger.awarning(
             "Failed to add inputs to properties for class %s", type(input.args[0]).__name__, exc_info=e
         )
-        capture_exception(e, **capture_kwargs)
+        await _safe_capture_exception(e, **capture_kwargs)
 
 
 class _PostHogClientActivityInboundInterceptor(ActivityInboundInterceptor):
@@ -59,10 +82,7 @@ class _PostHogClientActivityInboundInterceptor(ActivityInboundInterceptor):
             }
             await _add_inputs_to_capture_kwargs(capture_kwargs, input)
             if api_key:
-                try:
-                    capture_exception(e, **capture_kwargs)  # type: ignore[arg-type]
-                except Exception as capture_error:
-                    await logger.awarning("Failed to capture exception", exc_info=capture_error)
+                await _safe_capture_exception(e, **capture_kwargs)
             raise
 
 
@@ -95,10 +115,7 @@ class _PostHogClientWorkflowInterceptor(WorkflowInboundInterceptor):
             await _add_inputs_to_capture_kwargs(capture_kwargs, input)
             if api_key and not workflow.unsafe.is_replaying():
                 with workflow.unsafe.sandbox_unrestricted():
-                    try:
-                        capture_exception(e, **capture_kwargs)  # type: ignore[arg-type]
-                    except Exception as capture_error:
-                        await logger.awarning("Failed to capture exception", exc_info=capture_error)
+                    await _safe_capture_exception(e, **capture_kwargs)
             raise
 
 
