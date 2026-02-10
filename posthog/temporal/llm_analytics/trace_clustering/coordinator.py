@@ -130,7 +130,7 @@ class TraceClusteringCoordinatorWorkflow(PostHogWorkflow):
                     id=f"{child_id_prefix}-{team_id}-{temporalio.workflow.now().isoformat()}",
                     execution_timeout=constants.WORKFLOW_EXECUTION_TIMEOUT,
                     retry_policy=constants.COORDINATOR_CHILD_WORKFLOW_RETRY_POLICY,
-                    parent_close_policy=temporalio.workflow.ParentClosePolicy.ABANDON,
+                    parent_close_policy=temporalio.workflow.ParentClosePolicy.TERMINATE,
                 )
                 workflow_handles.append((team_id, handle))
 
