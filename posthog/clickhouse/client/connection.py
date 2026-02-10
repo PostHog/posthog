@@ -44,6 +44,7 @@ class NodeRole(StrEnum):
     SHUFFLEHOG = "shufflehog"
     ENDPOINTS = "endpoints"
     LOGS = "logs"
+    AGENT_LOGS = "agent_logs"
 
 
 _default_workload = Workload.ONLINE

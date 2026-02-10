@@ -48,6 +48,10 @@ services:
                         path /i/v1/logs
                     }
 
+                    @capture-logs-agent {
+                        path /i/v1/agent-logs
+                    }
+
                     @flags {
                         path /flags
                         path /flags*
@@ -70,6 +74,11 @@ services:
 
                     handle @capture-logs {
                         reverse_proxy capture-logs:4318
+                    }
+
+                    handle @capture-logs-agent {
+                        uri replace /i/v1/agent-logs /i/v1/logs
+                        reverse_proxy capture-logs-agent:4319
                     }
 
                     handle @replay-capture {
@@ -267,6 +276,16 @@ services:
             service: capture-logs
         depends_on:
             - kafka
+
+    capture-logs-agent:
+        extends:
+            file: docker-compose.base.yml
+            service: capture-logs
+        depends_on:
+            - kafka
+        environment:
+            BIND_PORT: '4319'
+            KAFKA_TOPIC: agent_logs
 
     jaeger:
         extends:
