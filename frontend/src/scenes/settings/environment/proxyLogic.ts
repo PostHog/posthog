@@ -69,7 +69,7 @@ export const proxyLogic = kea<proxyLogicType>([
             },
         ],
         maxProxyRecords: [
-            0 as number, // default, overridden by backend response
+            2 as number, // default matching backend DEFAULT_MAX_PROXY_RECORDS
             {
                 setMaxProxyRecords: (_, { maxProxyRecords }) => maxProxyRecords,
             },
