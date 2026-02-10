@@ -30,7 +30,7 @@ from posthog.temporal.ai.session_summary.activities import (
     capture_timing_activity,
     consolidate_video_segments_activity,
     embed_and_store_segments_activity,
-    export_session_video_activity,
+    prep_session_video_asset_activity,
     store_video_session_summary_activity,
     upload_video_to_gemini_activity,
 )
@@ -594,7 +594,7 @@ async def ensure_llm_single_session_summary(inputs: SingleSessionSummaryInputs):
 
     # Activity 1: Prepare video export (find or create ExportedAsset)
     export_result = await temporalio.workflow.execute_activity(
-        export_session_video_activity,
+        prep_session_video_asset_activity,
         video_inputs,
         start_to_close_timeout=timedelta(minutes=3),
         retry_policy=retry_policy,

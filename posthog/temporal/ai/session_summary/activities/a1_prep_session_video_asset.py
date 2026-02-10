@@ -18,7 +18,7 @@ from posthog.models import Team
 from posthog.models.exported_asset import ExportedAsset
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from posthog.sync import database_sync_to_async
-from posthog.temporal.ai.session_summary.types.video import ExportSessionVideoResult, VideoSummarySingleSessionInputs
+from posthog.temporal.ai.session_summary.types.video import PrepSessionVideoAssetResult, VideoSummarySingleSessionInputs
 
 from ee.hogai.session_summaries.constants import (
     EXPIRES_AFTER_DAYS,
@@ -34,12 +34,10 @@ VIDEO_ANALYSIS_PLAYBACK_SPEED = 1
 
 
 @temporalio.activity.defn
-async def export_session_video_activity(inputs: VideoSummarySingleSessionInputs) -> ExportSessionVideoResult | None:
-    """Prepare session video export: find or create ExportedAsset record.
-
-    Returns ExportSessionVideoResult with needs_export=True if the video still needs rendering,
-    needs_export=False if an existing asset was reused, or None if the session is too short.
-    """
+async def prep_session_video_asset_activity(
+    inputs: VideoSummarySingleSessionInputs,
+) -> PrepSessionVideoAssetResult | None:
+    """Prepare session video export: find or create ExportedAsset record."""
     start_time = time.monotonic()
     success = False
     try:
@@ -78,7 +76,7 @@ async def export_session_video_activity(inputs: VideoSummarySingleSessionInputs)
                 signals_type="session-summaries",
             )
             success = True
-            return ExportSessionVideoResult(asset_id=existing_asset.id, needs_export=False)
+            return PrepSessionVideoAssetResult(asset_id=existing_asset.id, needs_export=False)
 
         # Get session duration from metadata
         team = await Team.objects.aget(id=inputs.team_id)
@@ -128,7 +126,7 @@ async def export_session_video_activity(inputs: VideoSummarySingleSessionInputs)
         )
 
         success = True
-        return ExportSessionVideoResult(asset_id=exported_asset.id, needs_export=True)
+        return PrepSessionVideoAssetResult(asset_id=exported_asset.id, needs_export=True)
 
     except Exception as e:
         logger.exception(

@@ -21,8 +21,8 @@ class VideoSummarySingleSessionInputs(BaseModel):
     extra_summary_context: ExtraSummaryContext | None = None
 
 
-class ExportSessionVideoResult(BaseModel):
-    """Result from preparing a session video export."""
+class PrepSessionVideoAssetResult(BaseModel):
+    """Result from preparing the session video ExportedAsset."""
 
     model_config = ConfigDict(frozen=True)
 
