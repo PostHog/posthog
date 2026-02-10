@@ -159,11 +159,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
      * Also tracks metrics for ignored properties at the batch level.
      */
     private getPersonUpdateOutcome(update: PersonUpdate): 'changed' | 'ignored' | 'no_change' {
-        const lastSeenAtChanged =
-            update.last_seen_at !== update.original_last_seen_at &&
-            (update.last_seen_at === null ||
-                update.original_last_seen_at === null ||
-                !update.last_seen_at.equals(update.original_last_seen_at))
+        const lastSeenAtChanged = (update.last_seen_at?.toMillis() ?? null) !==  (update.original_last_seen_at?.toMillis() ?? null);
 
         const hasNonPropertyChanges =
             update.is_identified !== update.original_is_identified ||
