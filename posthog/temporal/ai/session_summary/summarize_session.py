@@ -31,7 +31,7 @@ from posthog.temporal.ai.session_summary.activities import (
     capture_timing_activity,
     consolidate_video_segments_activity,
     embed_and_store_segments_activity,
-    export_session_video_activity,
+    prep_session_video_asset_activity,
     store_video_session_summary_activity,
     upload_video_to_gemini_activity,
 )
@@ -54,6 +54,7 @@ from posthog.temporal.ai.session_summary.types.video import (
 )
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import async_connect
+from posthog.temporal.exports_video.workflow import VideoExportInputs
 
 from ee.hogai.session_summaries import ExceptionToRetry
 from ee.hogai.session_summaries.constants import (
@@ -621,17 +622,32 @@ async def ensure_llm_single_session_summary(inputs: SingleSessionSummaryInputs):
         extra_summary_context=inputs.extra_summary_context,
     )
 
-    # Activity 1: Export full session video
-    asset_id = await temporalio.workflow.execute_activity(
-        export_session_video_activity,
+    # Activity 1: Prepare video export (find or create ExportedAsset)
+    export_result = await temporalio.workflow.execute_activity(
+        prep_session_video_asset_activity,
         video_inputs,
-        start_to_close_timeout=timedelta(minutes=300),
+        start_to_close_timeout=timedelta(minutes=3),
         retry_policy=retry_policy,
     )
 
     # Skip video-based summarization if session is too short
-    if asset_id is None:
+    if export_result is None:
         return
+
+    asset_id = export_result.asset_id
+
+    # If the asset needs rendering, run the video export as a child workflow
+    if export_result.needs_export:
+        workflow_id = f"session-video-summary-export_{video_inputs.team_id}_{video_inputs.session_id}"
+        await temporalio.workflow.execute_child_workflow(
+            "export-video",
+            VideoExportInputs(exported_asset_id=asset_id, use_puppeteer=True),
+            id=workflow_id,
+            task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+            retry_policy=RetryPolicy(maximum_attempts=int(settings.TEMPORAL_WORKFLOW_MAX_ATTEMPTS)),
+            id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+            execution_timeout=timedelta(hours=3),
+        )
 
     # Activity 2: Upload full video to Gemini (single upload)
     upload_result = await temporalio.workflow.execute_activity(
