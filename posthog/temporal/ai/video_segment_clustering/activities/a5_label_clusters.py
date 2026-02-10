@@ -105,12 +105,7 @@ async def generate_label_for_cluster(
     *, team: Team, cluster_id: int, cluster_segments: list[VideoSegmentMetadata], genai_client
 ) -> tuple[int, ClusterLabel]:
     if not cluster_segments:
-        # This should not happen, but you never know...
-        return cluster_id, ClusterLabel(
-            actionable=False,
-            title="",
-            description="",
-        )
+        raise ValueError("Cluster segments cannot be empty")
 
     metrics = await _calculate_metrics_from_segments(team, cluster_segments)
 
@@ -131,11 +126,7 @@ async def generate_label_for_cluster(
             "Failed to generate LLM label for cluster, marking not actionable",
             cluster_id=cluster_id,
         )
-        return cluster_id, ClusterLabel(
-            actionable=False,
-            title="",
-            description="",
-        )
+        raise
 
 
 async def _calculate_metrics_from_segments(team: Team, segments: list[VideoSegmentMetadata]) -> dict:
@@ -171,11 +162,7 @@ async def _call_llm_to_label_cluster(
 ) -> ClusterLabel:
     """Generate a label for a cluster using LLM, including actionability check."""
     if not context.segment_contents:
-        return ClusterLabel(
-            actionable=False,
-            title="",
-            description="",
-        )
+        raise ValueError("No segment contents provided")
 
     # Build prompt with full context
     segment_texts = [f"{i}. {content}" for i, content in enumerate(context.segment_contents, 1)]
@@ -206,10 +193,13 @@ async def _call_llm_to_label_cluster(
             if not content:
                 raise ValueError("Empty response from LLM")
             result = json.loads(content)
+            title = result["title"]
+            description = result["description"]
+            assert title and description, "Title and description must be non-empty"
             return ClusterLabel(
                 actionable=result["actionable"],
-                title=result["title"],
-                description=result["description"],
+                title=title,
+                description=description,
             )
         except Exception as e:
             if attempt == 2:
