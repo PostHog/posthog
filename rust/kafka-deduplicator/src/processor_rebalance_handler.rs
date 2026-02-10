@@ -529,10 +529,34 @@ where
             return Ok(());
         }
 
-        // Cleanup revoked_setup_tasks for partitions not in owned (avoid leaking handles)
+        // Count and remove revoked_setup_tasks for partitions not in owned (avoid leaking handles).
+        // Peek each pruned task and increment REBALANCE_CHECKPOINT_IMPORT_COUNTER; use reason=revoked_incomplete when peek is None (pending).
         let owned_set: std::collections::HashSet<_> = owned.iter().collect();
-        self.revoked_setup_tasks
-            .retain(|p, _| owned_set.contains(p));
+        let to_prune: Vec<Partition> = self
+            .revoked_setup_tasks
+            .iter()
+            .filter(|entry| !owned_set.contains(entry.key()))
+            .map(|entry| entry.key().clone())
+            .collect();
+        for partition in to_prune {
+            if let Some((_, task)) = self.revoked_setup_tasks.remove(&partition) {
+                let peeked = task.handle.as_ref().and_then(|h| h.peek());
+                let (result, reason): (&str, &str) = match peeked {
+                    None => ("cancelled", "revoked_incomplete"),
+                    Some(Ok(PartitionImportOutcome::Completed(_))) => ("success", "not_owned"),
+                    Some(Ok(PartitionImportOutcome::Cancelled)) => ("cancelled", "import_cancelled"),
+                    Some(Ok(PartitionImportOutcome::Failed(_))) => ("failed", "import"),
+                    Some(Ok(PartitionImportOutcome::TimedOut)) => ("failed", "timeout"),
+                    Some(Err(_)) => ("failed", "panic"),
+                };
+                metrics::counter!(
+                    REBALANCE_CHECKPOINT_IMPORT_COUNTER,
+                    "result" => result,
+                    "reason" => reason,
+                )
+                .increment(1);
+            }
+        }
 
         // Step 3: Create fallback stores for any owned partitions that don't have a registered store
         // This handles cases where checkpoint import failed, was cancelled, or was disabled
