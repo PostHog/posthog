@@ -63,6 +63,15 @@ jobs:
             - name: Type check
               run: cd services/mcp && pnpm typecheck
 
+            - name: Check MCP schema is up to date
+              run: |
+                  cd services/mcp && npx tsx scripts/generate-tool-schema.ts
+                  if ! git diff --exit-code schema/tool-inputs.json; then
+                    echo ""
+                    echo "::error::MCP tool-inputs.json is out of date. Run 'hogli build:schema-mcp' and commit the result."
+                    exit 1
+                  fi
+
     unit-tests:
         name: Unit Tests
         runs-on: ubuntu-latest
