@@ -416,12 +416,7 @@ export function chooseOperatorMap(propertyType: PropertyType | undefined): Recor
 }
 
 export function isOperatorMulti(operator: PropertyOperator): boolean {
-    return [
-        PropertyOperator.Exact,
-        PropertyOperator.IsNot,
-        PropertyOperator.IContains,
-        PropertyOperator.NotIContains,
-    ].includes(operator)
+    return [PropertyOperator.Exact, PropertyOperator.IsNot].includes(operator)
 }
 
 export function isOperatorFlag(operator: PropertyOperator): boolean {
