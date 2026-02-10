@@ -1,4 +1,4 @@
-import { expectLogic } from 'kea-test-utils'
+import { expectLogic, resetTestUtilsContext } from 'kea-test-utils'
 
 import api from 'lib/api'
 
@@ -66,6 +66,7 @@ describe('liveDebuggerLogic', () => {
     beforeEach(() => {
         jest.useFakeTimers()
         initKeaTests()
+        resetTestUtilsContext()
     })
 
     afterEach(() => {
