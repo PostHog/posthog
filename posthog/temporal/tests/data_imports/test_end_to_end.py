@@ -1,4 +1,5 @@
 import re
+import json
 import uuid
 import functools
 from concurrent.futures import ThreadPoolExecutor
@@ -48,7 +49,7 @@ from posthog.models.team.team import Team
 from posthog.temporal.common.shutdown import ShutdownMonitor, WorkerShuttingDownError
 from posthog.temporal.data_imports.cdp_producer_job import CDPProducerJobWorkflow
 from posthog.temporal.data_imports.external_data_job import ExternalDataJobWorkflow
-from posthog.temporal.data_imports.pipelines.pipeline.cdp_producer import FakeKafka
+from posthog.temporal.data_imports.pipelines.pipeline.cdp_producer import CDPProducer
 from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
 from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import DeltaTableHelper
 from posthog.temporal.data_imports.pipelines.pipeline.pipeline import PipelineNonDLT
@@ -3022,8 +3023,13 @@ async def test_cdp_producer_push_to_kafka(team, stripe_customer, mock_stripe_cli
         filters={"source": "data-warehouse-table", "data_warehouse": [{"table_name": "stripe.customer"}]},
     )
 
+    mock_kafka_producer = mock.AsyncMock()
+    mock_kafka_producer.start = mock.AsyncMock()
+    mock_kafka_producer.stop = mock.AsyncMock()
+    mock_kafka_producer.send_and_wait = mock.AsyncMock()
+
     with (
-        mock.patch.object(FakeKafka, "produce") as mock_produce,
+        mock.patch.object(CDPProducer, "_create_kafka_producer", return_value=mock_kafka_producer),
         mock.patch(
             "posthog.temporal.data_imports.pipelines.pipeline.pipeline.time.time_ns", return_value=1768828644858352000
         ),
@@ -3037,36 +3043,35 @@ async def test_cdp_producer_push_to_kafka(team, stripe_customer, mock_stripe_cli
             mock_data_response=stripe_customer["data"],
         )
 
-    mock_produce.assert_called_with(
-        topic="",
-        data={
-            "team_id": team.id,
-            "properties": {
-                "delinquent": False,
-                "object": "customer",
-                "tax_exempt": "none",
-                "address": None,
-                "invoice_prefix": "0759376C",
-                "balance": 0,
-                "currency": None,
-                "livemode": False,
-                "invoice_settings": '{"custom_fields":null,"default_payment_method":null,"footer":null,"rendering_options":null}',
-                "metadata": "{}",
-                "id": "cus_NffrFeUfNV2Hib",
-                "next_invoice_sequence": 1,
-                "email": "jennyrosen@example.com",
-                "phone": None,
-                "test_clock": None,
-                "discount": None,
-                "default_source": None,
-                "created": 1680893993,
-                "shipping": None,
-                "name": "Jenny Rosen",
-                "preferred_locales": "[]",
-                "description": None,
-                "_ph_debug": '{"load_id": 1768828644858352000}',
-                "_ph_partition_key": "2023-w14",
-            },
+    mock_kafka_producer.send_and_wait.assert_called()
+    call_kwargs = mock_kafka_producer.send_and_wait.call_args[1]
+    sent_value = json.loads(call_kwargs["value"])
+    assert sent_value == {
+        "team_id": team.id,
+        "properties": {
+            "delinquent": False,
+            "object": "customer",
+            "tax_exempt": "none",
+            "address": None,
+            "invoice_prefix": "0759376C",
+            "balance": 0,
+            "currency": None,
+            "livemode": False,
+            "invoice_settings": '{"custom_fields":null,"default_payment_method":null,"footer":null,"rendering_options":null}',
+            "metadata": "{}",
+            "id": "cus_NffrFeUfNV2Hib",
+            "next_invoice_sequence": 1,
+            "email": "jennyrosen@example.com",
+            "phone": None,
+            "test_clock": None,
+            "discount": None,
+            "default_source": None,
+            "created": 1680893993,
+            "shipping": None,
+            "name": "Jenny Rosen",
+            "preferred_locales": "[]",
+            "description": None,
+            "_ph_debug": '{"load_id": 1768828644858352000}',
+            "_ph_partition_key": "2023-w14",
         },
-        value_serializer=mock.ANY,
-    )
+    }
