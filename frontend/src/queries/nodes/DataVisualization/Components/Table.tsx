@@ -1,7 +1,6 @@
 import '../../DataTable/DataTable.scss'
 
 import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
 import posthog from 'posthog-js'
 import React from 'react'
 
@@ -63,10 +62,9 @@ export const Table = (props: TableProps): JSX.Element => {
         pinnedColumns,
         isColumnPinned,
         isPinningEnabled,
+        isInsightPage,
     } = useValues(dataVisualizationLogic)
     const { toggleColumnPin } = useActions(dataVisualizationLogic)
-    const { location } = useValues(router)
-    const isInsightPage = location.pathname.includes('/insights/')
 
     const tableColumns: LemonTableColumn<TableDataCell<any>[], any>[] = tabularColumns.map(
         ({ column, settings }, index) => {

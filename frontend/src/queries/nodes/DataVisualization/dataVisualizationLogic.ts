@@ -698,6 +698,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 return !dashboardId
             },
         ],
+        isInsightPage: [(s) => [s.activeSceneId], (activeSceneId): boolean => activeSceneId === Scene.Insight],
         presetChartHeight: [
             (s, props) => [props.key, s.dashboardId, s.activeSceneId],
             (key, dashboardId, activeSceneId) => {
