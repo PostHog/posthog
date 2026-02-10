@@ -252,8 +252,11 @@ export const SURVEY_SDK_REQUIREMENTS: SurveyFeatureRequirement[] = [
     },
     {
         feature: 'Response length validation',
-        sdkVersions: { 'posthog-js': 'X.X.X' },
-        unsupportedSdks: ['posthog-ios', 'posthog-android'],
+        sdkVersions: { 'posthog-js': '1.344.0', 'posthog-react-native': '4.31.0' },
+        unsupportedSdks: [
+            { sdk: 'posthog-ios', issue: false },
+            { sdk: 'posthog-android', issue: false },
+        ],
         check: (s) =>
             s.questions.some(
                 (q) =>
