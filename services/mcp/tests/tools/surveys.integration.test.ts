@@ -926,7 +926,7 @@ describe('Surveys', { concurrent: false }, () => {
                             properties: [
                                 {
                                     key: 'email',
-                                    value: 'test@example.com',
+                                    value: ['test@example.com'],
                                     operator: 'exact' as const,
                                     type: 'person',
                                 },
