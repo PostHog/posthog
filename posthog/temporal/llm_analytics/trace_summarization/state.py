@@ -42,4 +42,4 @@ async def delete_text_repr(redis_client: aioredis.Redis, key: str) -> None:
     try:
         await redis_client.delete(key)
     except Exception:
-        logger.warning("Failed to delete Redis key, TTL will handle cleanup", key=key)
+        logger.warning("Failed to delete Redis key, TTL will handle cleanup", key=key, exc_info=True)
