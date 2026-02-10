@@ -1,16 +1,21 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 
 import { IconPlus, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonSelect, Spinner } from '@posthog/lemon-ui'
 
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 
 import { Query } from '~/queries/Query/Query'
 
+import { customerAnalyticsSceneLogic } from '../../customerAnalyticsSceneLogic'
 import { AddJourneyModal } from './AddJourneyModal'
 import { customerJourneysLogic } from './customerJourneysLogic'
 
 export function CustomerJourneys(): JSX.Element {
+    const mountedSceneLogic = useMountedLogic(customerAnalyticsSceneLogic)
+    const mountedCustomerJourneysLogic = customerJourneysLogic()
+    useAttachedLogic(mountedCustomerJourneysLogic, mountedSceneLogic)
     const {
         journeyOptions,
         journeysLoading,
@@ -18,8 +23,8 @@ export function CustomerJourneys(): JSX.Element {
         activeJourneyId,
         activeInsightLoading,
         activeJourneyFullQuery,
-    } = useValues(customerJourneysLogic)
-    const { showAddJourneyModal, setActiveJourneyId, deleteJourney } = useActions(customerJourneysLogic)
+    } = useValues(mountedCustomerJourneysLogic)
+    const { showAddJourneyModal, setActiveJourneyId, deleteJourney } = useActions(mountedCustomerJourneysLogic)
 
     if (journeysLoading) {
         return (

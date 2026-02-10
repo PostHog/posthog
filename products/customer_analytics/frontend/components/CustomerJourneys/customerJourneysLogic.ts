@@ -84,7 +84,7 @@ export const customerJourneysLogic = kea<customerJourneysLogicType>([
         },
         addJourneyFailure: ({ error }) => {
             posthog.captureException(error)
-            lemonToast.error(error.detail || 'Failed to create customer journey')
+            lemonToast.error(error || 'Failed to create customer journey')
         },
         deleteJourneySuccess: ({ journeys }) => {
             lemonToast.success('Customer journey deleted')

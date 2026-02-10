@@ -1,10 +1,11 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 
 import { LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
 
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
 import { InsightIcon } from 'scenes/saved-insights/SavedInsights'
 
@@ -14,10 +15,13 @@ import { addJourneyModalLogic } from './addJourneyModalLogic'
 import { customerJourneysLogic } from './customerJourneysLogic'
 
 export function AddJourneyModal(): JSX.Element {
+    const mountedCustomerJourneysLogic = useMountedLogic(customerJourneysLogic)
+    const mountedAddJourneyModalLogic = addJourneyModalLogic()
+    useAttachedLogic(mountedAddJourneyModalLogic, mountedCustomerJourneysLogic)
     const { isAddJourneyModalOpen } = useValues(customerJourneysLogic)
     const { hideAddJourneyModal, addJourney } = useActions(customerJourneysLogic)
-    const { funnels, funnelsLoading, selectedInsight, searchTerm } = useValues(addJourneyModalLogic)
-    const { setSearchTerm, setSelectedInsight } = useActions(addJourneyModalLogic)
+    const { funnels, funnelsLoading, selectedInsight, searchTerm } = useValues(mountedAddJourneyModalLogic)
+    const { setSearchTerm, setSelectedInsight } = useActions(mountedAddJourneyModalLogic)
     const summarizeInsight = useSummarizeInsight()
 
     const handleAddJourney = (): void => {
