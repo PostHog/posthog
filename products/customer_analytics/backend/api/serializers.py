@@ -68,6 +68,11 @@ class CustomerJourneySerializer(serializers.ModelSerializer):
         fields = ["id", "insight", "name", "description", "created_at", "created_by", "updated_at"]
         read_only_fields = ["id", "created_at", "created_by", "updated_at"]
 
+    def validate_insight(self, value):
+        if value.team_id != self.context["team_id"]:
+            raise serializers.ValidationError("The insight does not belong to this team.")
+        return value
+
     def create(self, validated_data):
         from django.db import IntegrityError
 

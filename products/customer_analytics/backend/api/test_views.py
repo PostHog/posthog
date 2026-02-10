@@ -333,6 +333,21 @@ class TestCustomerJourneyViewSet(APIBaseTest):
         response = self.client.get(f"{self.endpoint_base}{other_journey.id}/")
         self.assertEqual(status.HTTP_404_NOT_FOUND, response.status_code)
 
+    def test_cannot_create_journey_with_other_team_insight(self):
+        other_team = Team.objects.create(organization=self.organization)
+        other_insight = Insight.objects.create(team=other_team)
+
+        response = self.client.post(
+            self.endpoint_base,
+            {"insight": other_insight.id, "name": "Cross-team journey"},
+            format="json",
+        )
+
+        self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code)
+        data = response.json()
+        self.assertEqual(data["attr"], "insight")
+        self.assertEqual(data["detail"], "The insight does not belong to this team.")
+
     @parameterized.expand(
         [
             ("missing_name", lambda self: {"insight": self.insight.id}, "name"),
