@@ -8,7 +8,7 @@ The preaggregation system INSERTs data into ClickHouse and immediately SELECTs i
 
 2. **Replication layer**: Even after data reaches the target shard, only 1 replica acknowledges the write by default. A SELECT hitting another replica gets stale/empty results.
 
-Table definitions: [`posthog/clickhouse/preaggregation/sql.py`](../../../posthog/clickhouse/preaggregation/sql.py)
+Table definitions: [`posthog/clickhouse/preaggregation/sql.py`](../../../../posthog/clickhouse/preaggregation/sql.py)
 
 ## ClickHouse settings investigated
 
