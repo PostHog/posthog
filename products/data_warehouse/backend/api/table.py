@@ -111,11 +111,14 @@ class TableSerializer(serializers.ModelSerializer):
         if not credential:
             raise serializers.ValidationError("Credentials are required")
 
-        access_key = credential["access_key"]
-        access_secret = credential["access_secret"]
+        access_key: str | None = credential.get("access_key")
+        access_secret: str | None = credential.get("access_secret")
 
         if not access_key or not access_secret:
             raise serializers.ValidationError("Access key and secret are required")
+
+        if len(access_key.strip()) == 0 or len(access_secret.strip()) == 0:
+            raise serializers.ValidationError("Access key and secret can't be blank")
 
         validated_data["credential"] = DataWarehouseCredential.objects.create(
             team_id=team_id,
