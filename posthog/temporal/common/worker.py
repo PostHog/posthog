@@ -15,6 +15,7 @@ from posthog.temporal.common.liveness_tracker import LivenessInterceptor
 from posthog.temporal.common.logger import get_write_only_logger
 from posthog.temporal.common.posthog_client import PostHogClientInterceptor
 from posthog.temporal.llm_analytics.metrics import EvalsMetricsInterceptor
+from posthog.temporal.llm_analytics.trace_clustering.metrics import ClusteringMetricsInterceptor
 from posthog.temporal.llm_analytics.trace_summarization.metrics import SummarizationMetricsInterceptor
 
 from products.batch_exports.backend.temporal.metrics import BatchExportsMetricsInterceptor
@@ -65,6 +66,24 @@ SUMMARIZATION_LATENCY_HISTOGRAM_METRICS = (
 )
 SUMMARIZATION_LATENCY_HISTOGRAM_BUCKETS = [
     500.0,  # 500ms
+    1_000.0,  # 1 second
+    5_000.0,  # 5 seconds
+    10_000.0,  # 10 seconds
+    30_000.0,  # 30 seconds
+    60_000.0,  # 1 minute
+    120_000.0,  # 2 minutes
+    300_000.0,  # 5 minutes
+    600_000.0,  # 10 minutes
+    900_000.0,  # 15 minutes
+    1_800_000.0,  # 30 minutes
+]
+
+CLUSTERING_LATENCY_HISTOGRAM_METRICS = (
+    "llma_clustering_activity_execution_latency",
+    "llma_clustering_activity_schedule_to_start_latency",
+    "llma_clustering_workflow_execution_latency",
+)
+CLUSTERING_LATENCY_HISTOGRAM_BUCKETS = [
     1_000.0,  # 1 second
     5_000.0,  # 5 seconds
     10_000.0,  # 10 seconds
@@ -194,6 +213,12 @@ async def create_worker(
                         itertools.repeat(SUMMARIZATION_LATENCY_HISTOGRAM_BUCKETS),
                     )
                 )
+                | dict(
+                    zip(
+                        CLUSTERING_LATENCY_HISTOGRAM_METRICS,
+                        itertools.repeat(CLUSTERING_LATENCY_HISTOGRAM_BUCKETS),
+                    )
+                )
                 | {"batch_exports_activity_attempt": [1.0, 5.0, 10.0, 100.0]},
             ),
         )
@@ -223,6 +248,7 @@ async def create_worker(
                 BatchExportsMetricsInterceptor(),
                 EvalsMetricsInterceptor(),
                 SummarizationMetricsInterceptor(),
+                ClusteringMetricsInterceptor(),
             ],
             activity_executor=ThreadPoolExecutor(max_workers=max_concurrent_activities or 50),
             tuner=WorkerTuner.create_resource_based(
@@ -249,6 +275,7 @@ async def create_worker(
                 BatchExportsMetricsInterceptor(),
                 EvalsMetricsInterceptor(),
                 SummarizationMetricsInterceptor(),
+                ClusteringMetricsInterceptor(),
             ],
             activity_executor=ThreadPoolExecutor(max_workers=max_concurrent_activities or 50),
             max_concurrent_activities=max_concurrent_activities or 50,

@@ -30,6 +30,11 @@ from posthog.temporal.llm_analytics.trace_clustering.models import (
 from posthog.temporal.llm_analytics.trace_clustering.workflow import DailyTraceClusteringWorkflow
 
 with temporalio.workflow.unsafe.imports_passed_through():
+    from posthog.temporal.llm_analytics.coordinator_metrics import (
+        increment_team_failed,
+        increment_team_succeeded,
+        record_teams_discovered,
+    )
     from posthog.temporal.llm_analytics.team_discovery import (
         DISCOVERY_ACTIVITY_RETRY_POLICY,
         DISCOVERY_ACTIVITY_TIMEOUT,
@@ -98,6 +103,7 @@ class TraceClusteringCoordinatorWorkflow(PostHogWorkflow):
             team_ids = sorted(GUARANTEED_TEAM_IDS)
 
         logger.info("Processing discovered teams", team_count=len(team_ids), team_ids=team_ids)
+        record_teams_discovered(len(team_ids), "clustering", inputs.analysis_level)
 
         # Spawn child workflows for each team with concurrency limit
         total_clusters = 0
@@ -141,6 +147,7 @@ class TraceClusteringCoordinatorWorkflow(PostHogWorkflow):
                     total_clusters += workflow_result.metrics.num_clusters
                     total_items += workflow_result.metrics.total_items_analyzed
                     successful_teams.append(team_id)
+                    increment_team_succeeded("clustering", inputs.analysis_level)
 
                     logger.info(
                         "Completed clustering for team",
@@ -152,6 +159,7 @@ class TraceClusteringCoordinatorWorkflow(PostHogWorkflow):
                 except Exception:
                     logger.exception("Failed to cluster team", team_id=team_id)
                     failed_teams.append(team_id)
+                    increment_team_failed("clustering", inputs.analysis_level)
 
         logger.info(
             "Trace clustering coordinator completed",

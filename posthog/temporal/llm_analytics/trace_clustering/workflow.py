@@ -27,6 +27,14 @@ from posthog.temporal.llm_analytics.trace_clustering.constants import (
     NOISE_CLUSTER_ID,
     WORKFLOW_NAME,
 )
+from posthog.temporal.llm_analytics.trace_clustering.metrics import (
+    increment_errors,
+    increment_workflow_finished,
+    increment_workflow_started,
+    record_clusters_generated,
+    record_items_analyzed,
+    record_noise_points,
+)
 from posthog.temporal.llm_analytics.trace_clustering.models import (
     ClusteringActivityInputs,
     ClusteringComputeResult,
@@ -144,98 +152,111 @@ class DailyTraceClusteringWorkflow(PostHogWorkflow):
         Returns:
             ClusteringResult with clustering metrics and cluster info
         """
+        analysis_level = inputs.analysis_level
+        increment_workflow_started(analysis_level)
 
-        # Calculate window from workflow time (deterministic for replays)
-        now = workflow.now()
-        window_end = now.isoformat()
-        window_start = (now - timedelta(days=inputs.lookback_days)).isoformat()
+        try:
+            # Calculate window from workflow time (deterministic for replays)
+            now = workflow.now()
+            window_end = now.isoformat()
+            window_start = (now - timedelta(days=inputs.lookback_days)).isoformat()
 
-        # Activity 1: Compute clustering (fetch embeddings, cluster, distances)
-        compute_result = await workflow.execute_activity(
-            perform_clustering_compute_activity,
-            args=[
-                ClusteringActivityInputs(
-                    team_id=inputs.team_id,
-                    window_start=window_start,
-                    window_end=window_end,
-                    analysis_level=inputs.analysis_level,
-                    max_samples=inputs.max_samples,
-                    min_k=inputs.min_k,
-                    max_k=inputs.max_k,
-                    embedding_normalization=inputs.embedding_normalization,
-                    dimensionality_reduction_method=inputs.dimensionality_reduction_method,
-                    dimensionality_reduction_ndims=inputs.dimensionality_reduction_ndims,
-                    run_label=inputs.run_label,
-                    clustering_method=inputs.clustering_method,
-                    clustering_method_params=inputs.clustering_method_params,
-                    visualization_method=inputs.visualization_method,
-                    trace_filters=inputs.trace_filters,
-                )
-            ],
-            start_to_close_timeout=COMPUTE_ACTIVITY_TIMEOUT,
-            schedule_to_close_timeout=COMPUTE_SCHEDULE_TO_CLOSE_TIMEOUT,
-            heartbeat_timeout=COMPUTE_HEARTBEAT_TIMEOUT,
-            retry_policy=COMPUTE_ACTIVITY_RETRY_POLICY,
-        )
-
-        # Compute per-item metadata for labeling (O(n) instead of O(n × k))
-        item_metadata = _compute_item_labeling_metadata(compute_result)
-
-        # Activity 2: Generate LLM labels (longer timeout for agent run)
-        labels_result = await workflow.execute_activity(
-            generate_cluster_labels_activity,
-            args=[
-                GenerateLabelsActivityInputs(
-                    team_id=inputs.team_id,
-                    items=compute_result.items,
-                    labels=compute_result.labels,
-                    item_metadata=item_metadata,
-                    centroid_coords_2d=compute_result.centroid_coords_2d,
-                    window_start=window_start,
-                    window_end=window_end,
-                    analysis_level=compute_result.analysis_level,
-                    batch_run_ids=compute_result.batch_run_ids,
-                )
-            ],
-            start_to_close_timeout=LLM_ACTIVITY_TIMEOUT,
-            schedule_to_close_timeout=LLM_SCHEDULE_TO_CLOSE_TIMEOUT,
-            heartbeat_timeout=LLM_HEARTBEAT_TIMEOUT,
-            retry_policy=LLM_ACTIVITY_RETRY_POLICY,
-        )
-
-        # Activity 3: Emit events to ClickHouse
-        result = await workflow.execute_activity(
-            emit_cluster_events_activity,
-            args=[
-                EmitEventsActivityInputs(
-                    team_id=inputs.team_id,
-                    clustering_run_id=compute_result.clustering_run_id,
-                    window_start=window_start,
-                    window_end=window_end,
-                    items=compute_result.items,
-                    labels=compute_result.labels,
-                    centroids=compute_result.centroids,
-                    distances=compute_result.distances,
-                    cluster_labels=labels_result.cluster_labels,
-                    coords_2d=compute_result.coords_2d,
-                    centroid_coords_2d=compute_result.centroid_coords_2d,
-                    analysis_level=compute_result.analysis_level,
-                    batch_run_ids=compute_result.batch_run_ids,
-                    clustering_params=ClusteringParams(
-                        clustering_method=inputs.clustering_method,
-                        clustering_method_params=inputs.clustering_method_params,
+            # Activity 1: Compute clustering (fetch embeddings, cluster, distances)
+            compute_result = await workflow.execute_activity(
+                perform_clustering_compute_activity,
+                args=[
+                    ClusteringActivityInputs(
+                        team_id=inputs.team_id,
+                        window_start=window_start,
+                        window_end=window_end,
+                        analysis_level=inputs.analysis_level,
+                        max_samples=inputs.max_samples,
+                        min_k=inputs.min_k,
+                        max_k=inputs.max_k,
                         embedding_normalization=inputs.embedding_normalization,
                         dimensionality_reduction_method=inputs.dimensionality_reduction_method,
                         dimensionality_reduction_ndims=inputs.dimensionality_reduction_ndims,
+                        run_label=inputs.run_label,
+                        clustering_method=inputs.clustering_method,
+                        clustering_method_params=inputs.clustering_method_params,
                         visualization_method=inputs.visualization_method,
-                        max_samples=inputs.max_samples,
-                    ),
-                )
-            ],
-            start_to_close_timeout=EMIT_ACTIVITY_TIMEOUT,
-            schedule_to_close_timeout=EMIT_SCHEDULE_TO_CLOSE_TIMEOUT,
-            heartbeat_timeout=EMIT_HEARTBEAT_TIMEOUT,
-            retry_policy=EMIT_ACTIVITY_RETRY_POLICY,
-        )
+                        trace_filters=inputs.trace_filters,
+                    )
+                ],
+                start_to_close_timeout=COMPUTE_ACTIVITY_TIMEOUT,
+                schedule_to_close_timeout=COMPUTE_SCHEDULE_TO_CLOSE_TIMEOUT,
+                heartbeat_timeout=COMPUTE_HEARTBEAT_TIMEOUT,
+                retry_policy=COMPUTE_ACTIVITY_RETRY_POLICY,
+            )
 
-        return result
+            record_items_analyzed(len(compute_result.items), analysis_level)
+            record_noise_points(compute_result.num_noise_points, analysis_level)
+
+            # Compute per-item metadata for labeling (O(n) instead of O(n × k))
+            item_metadata = _compute_item_labeling_metadata(compute_result)
+
+            # Activity 2: Generate LLM labels (longer timeout for agent run)
+            labels_result = await workflow.execute_activity(
+                generate_cluster_labels_activity,
+                args=[
+                    GenerateLabelsActivityInputs(
+                        team_id=inputs.team_id,
+                        items=compute_result.items,
+                        labels=compute_result.labels,
+                        item_metadata=item_metadata,
+                        centroid_coords_2d=compute_result.centroid_coords_2d,
+                        window_start=window_start,
+                        window_end=window_end,
+                        analysis_level=compute_result.analysis_level,
+                        batch_run_ids=compute_result.batch_run_ids,
+                    )
+                ],
+                start_to_close_timeout=LLM_ACTIVITY_TIMEOUT,
+                schedule_to_close_timeout=LLM_SCHEDULE_TO_CLOSE_TIMEOUT,
+                heartbeat_timeout=LLM_HEARTBEAT_TIMEOUT,
+                retry_policy=LLM_ACTIVITY_RETRY_POLICY,
+            )
+
+            # Activity 3: Emit events to ClickHouse
+            result = await workflow.execute_activity(
+                emit_cluster_events_activity,
+                args=[
+                    EmitEventsActivityInputs(
+                        team_id=inputs.team_id,
+                        clustering_run_id=compute_result.clustering_run_id,
+                        window_start=window_start,
+                        window_end=window_end,
+                        items=compute_result.items,
+                        labels=compute_result.labels,
+                        centroids=compute_result.centroids,
+                        distances=compute_result.distances,
+                        cluster_labels=labels_result.cluster_labels,
+                        coords_2d=compute_result.coords_2d,
+                        centroid_coords_2d=compute_result.centroid_coords_2d,
+                        analysis_level=compute_result.analysis_level,
+                        batch_run_ids=compute_result.batch_run_ids,
+                        clustering_params=ClusteringParams(
+                            clustering_method=inputs.clustering_method,
+                            clustering_method_params=inputs.clustering_method_params,
+                            embedding_normalization=inputs.embedding_normalization,
+                            dimensionality_reduction_method=inputs.dimensionality_reduction_method,
+                            dimensionality_reduction_ndims=inputs.dimensionality_reduction_ndims,
+                            visualization_method=inputs.visualization_method,
+                            max_samples=inputs.max_samples,
+                        ),
+                    )
+                ],
+                start_to_close_timeout=EMIT_ACTIVITY_TIMEOUT,
+                schedule_to_close_timeout=EMIT_SCHEDULE_TO_CLOSE_TIMEOUT,
+                heartbeat_timeout=EMIT_HEARTBEAT_TIMEOUT,
+                retry_policy=EMIT_ACTIVITY_RETRY_POLICY,
+            )
+
+            record_clusters_generated(result.metrics.num_clusters, analysis_level)
+            increment_workflow_finished("completed", analysis_level)
+            return result
+
+        except Exception as e:
+            increment_errors(type(e).__name__)
+            increment_workflow_finished("failed", analysis_level)
+            raise
