@@ -39,3 +39,7 @@ export class Navigation {
         })
     }
 }
+
+export const waitForPageLoaded = async (page: Page, timeout = 30000): Promise<void> => {
+    await page.waitForSelector('[data-attr-pageloaded="true"]', { timeout })
+}
