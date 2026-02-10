@@ -1,9 +1,11 @@
 """Daily trace clustering workflow."""
 
+import json
 from datetime import timedelta
 
 from temporalio import workflow
 
+from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.llm_analytics.trace_clustering.activities import (
     emit_cluster_events_activity,
     generate_cluster_labels_activity,
@@ -12,9 +14,16 @@ from posthog.temporal.llm_analytics.trace_clustering.activities import (
 from posthog.temporal.llm_analytics.trace_clustering.constants import (
     COMPUTE_ACTIVITY_RETRY_POLICY,
     COMPUTE_ACTIVITY_TIMEOUT,
+    COMPUTE_HEARTBEAT_TIMEOUT,
+    COMPUTE_SCHEDULE_TO_CLOSE_TIMEOUT,
     EMIT_ACTIVITY_RETRY_POLICY,
     EMIT_ACTIVITY_TIMEOUT,
+    EMIT_HEARTBEAT_TIMEOUT,
+    EMIT_SCHEDULE_TO_CLOSE_TIMEOUT,
     LLM_ACTIVITY_RETRY_POLICY,
+    LLM_ACTIVITY_TIMEOUT,
+    LLM_HEARTBEAT_TIMEOUT,
+    LLM_SCHEDULE_TO_CLOSE_TIMEOUT,
     NOISE_CLUSTER_ID,
     WORKFLOW_NAME,
 )
@@ -102,7 +111,7 @@ def _compute_item_labeling_metadata(
 
 
 @workflow.defn(name=WORKFLOW_NAME)
-class DailyTraceClusteringWorkflow:
+class DailyTraceClusteringWorkflow(PostHogWorkflow):
     """
     Daily workflow to cluster LLM traces based on their embeddings.
 
@@ -115,6 +124,14 @@ class DailyTraceClusteringWorkflow:
     passes them to activities. Embeddings (~30+ MB) stay within Activity 1,
     only ~250 KB of results are passed between activities.
     """
+
+    @staticmethod
+    def parse_inputs(inputs: list[str]) -> ClusteringWorkflowInputs:
+        """Parse workflow inputs from CLI arguments (JSON string)."""
+        if inputs:
+            data = json.loads(inputs[0])
+            return ClusteringWorkflowInputs(**data)
+        return ClusteringWorkflowInputs(team_id=0)
 
     @workflow.run
     async def run(self, inputs: ClusteringWorkflowInputs) -> ClusteringResult:
@@ -156,6 +173,8 @@ class DailyTraceClusteringWorkflow:
                 )
             ],
             start_to_close_timeout=COMPUTE_ACTIVITY_TIMEOUT,
+            schedule_to_close_timeout=COMPUTE_SCHEDULE_TO_CLOSE_TIMEOUT,
+            heartbeat_timeout=COMPUTE_HEARTBEAT_TIMEOUT,
             retry_policy=COMPUTE_ACTIVITY_RETRY_POLICY,
         )
 
@@ -178,7 +197,9 @@ class DailyTraceClusteringWorkflow:
                     batch_run_ids=compute_result.batch_run_ids,
                 )
             ],
-            start_to_close_timeout=timedelta(seconds=600),  # 10 minutes for agent run
+            start_to_close_timeout=LLM_ACTIVITY_TIMEOUT,
+            schedule_to_close_timeout=LLM_SCHEDULE_TO_CLOSE_TIMEOUT,
+            heartbeat_timeout=LLM_HEARTBEAT_TIMEOUT,
             retry_policy=LLM_ACTIVITY_RETRY_POLICY,
         )
 
@@ -212,6 +233,8 @@ class DailyTraceClusteringWorkflow:
                 )
             ],
             start_to_close_timeout=EMIT_ACTIVITY_TIMEOUT,
+            schedule_to_close_timeout=EMIT_SCHEDULE_TO_CLOSE_TIMEOUT,
+            heartbeat_timeout=EMIT_HEARTBEAT_TIMEOUT,
             retry_policy=EMIT_ACTIVITY_RETRY_POLICY,
         )
 

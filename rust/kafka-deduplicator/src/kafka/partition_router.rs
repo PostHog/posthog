@@ -272,7 +272,7 @@ pub async fn shutdown_workers<T: Send + 'static>(workers: Vec<PartitionWorker<T>
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::create_test_coordinator;
+    use crate::test_utils::create_test_tracker;
     use axum::async_trait;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -300,7 +300,7 @@ mod tests {
     #[tokio::test]
     async fn test_router_add_partition() {
         let processor = Arc::new(TestProcessor::new());
-        let coordinator = create_test_coordinator();
+        let coordinator = create_test_tracker();
         let offset_tracker = Arc::new(OffsetTracker::new(coordinator));
         let config = PartitionRouterConfig::default();
         let router = PartitionRouter::new(processor, offset_tracker, config);
@@ -320,7 +320,7 @@ mod tests {
     #[tokio::test]
     async fn test_router_route_requires_worker() {
         let processor = Arc::new(TestProcessor::new());
-        let coordinator = create_test_coordinator();
+        let coordinator = create_test_tracker();
         let offset_tracker = Arc::new(OffsetTracker::new(coordinator));
         let config = PartitionRouterConfig::default();
         let router = PartitionRouter::new(processor, offset_tracker, config);
@@ -345,7 +345,7 @@ mod tests {
     #[tokio::test]
     async fn test_router_multiple_partitions() {
         let processor = Arc::new(TestProcessor::new());
-        let coordinator = create_test_coordinator();
+        let coordinator = create_test_tracker();
         let offset_tracker = Arc::new(OffsetTracker::new(coordinator));
         let config = PartitionRouterConfig::default();
         let router = PartitionRouter::new(processor, offset_tracker, config);
@@ -364,7 +364,7 @@ mod tests {
     #[tokio::test]
     async fn test_router_remove_partition() {
         let processor = Arc::new(TestProcessor::new());
-        let coordinator = create_test_coordinator();
+        let coordinator = create_test_tracker();
         let offset_tracker = Arc::new(OffsetTracker::new(coordinator));
         let config = PartitionRouterConfig::default();
         let router = PartitionRouter::new(processor, offset_tracker, config);
@@ -386,7 +386,7 @@ mod tests {
     #[tokio::test]
     async fn test_router_reuses_after_readd() {
         let processor = Arc::new(TestProcessor::new());
-        let coordinator = create_test_coordinator();
+        let coordinator = create_test_tracker();
         let offset_tracker = Arc::new(OffsetTracker::new(coordinator));
         let config = PartitionRouterConfig::default();
         let router = PartitionRouter::new(processor, offset_tracker, config);
@@ -412,7 +412,7 @@ mod tests {
         // Simulates rapid revoke → assign where cleanup hasn't run yet
         // The router should reuse the existing worker instead of creating a new one
         let processor = Arc::new(TestProcessor::new());
-        let coordinator = create_test_coordinator();
+        let coordinator = create_test_tracker();
         let offset_tracker = Arc::new(OffsetTracker::new(coordinator));
         let config = PartitionRouterConfig::default();
         let router = PartitionRouter::new(processor, offset_tracker, config);
@@ -440,7 +440,7 @@ mod tests {
     async fn test_router_add_partition_idempotent() {
         // Calling add_partition multiple times should not create multiple workers
         let processor = Arc::new(TestProcessor::new());
-        let coordinator = create_test_coordinator();
+        let coordinator = create_test_tracker();
         let offset_tracker = Arc::new(OffsetTracker::new(coordinator));
         let config = PartitionRouterConfig::default();
         let router = PartitionRouter::new(processor, offset_tracker, config);

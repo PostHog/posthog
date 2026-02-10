@@ -63,6 +63,7 @@ import { EventContentDisplayAsync, EventContentGeneration } from './components/E
 import { FeedbackTag } from './components/FeedbackTag'
 import { MetricTag } from './components/MetricTag'
 import { SaveToDatasetButton } from './datasets/SaveToDatasetButton'
+import { FeedbackViewDisplay } from './feedback-view/FeedbackViewDisplay'
 import { useAIData } from './hooks/useAIData'
 import { llmAnalyticsPlaygroundLogic } from './llmAnalyticsPlaygroundLogic'
 import { EnrichedTraceTreeNode, llmAnalyticsTraceDataLogic } from './llmAnalyticsTraceDataLogic'
@@ -190,7 +191,11 @@ function TraceSceneWrapper(): JSX.Element {
                                 path: urls.llmAnalyticsTraces(),
                                 key: 'traces',
                             }}
-                            actions={<TraceNavigation />}
+                            actions={
+                                featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TRACE_NAVIGATION] ? (
+                                    <TraceNavigation />
+                                ) : undefined
+                            }
                             noBorder
                         />
                         <div className="flex items-start justify-between">
@@ -318,11 +323,9 @@ function TraceMetadata({
 
     return (
         <header className="flex gap-1.5 flex-wrap">
-            {'person' in trace && (
-                <Chip title="Person">
-                    <PersonDisplay withIcon="sm" person={trace.person} />
-                </Chip>
-            )}
+            <Chip title="Person">
+                <PersonDisplay withIcon="sm" person={trace.person ?? { distinct_id: trace.distinctId }} />
+            </Chip>
             {trace.aiSessionId && (
                 <Chip
                     title={
@@ -765,6 +768,9 @@ const EventContent = React.memo(
 
         const isGenerationEvent = event && isLLMEvent(event) && event.event === '$ai_generation'
 
+        const promptName = event && isLLMEvent(event) ? event.properties['$ai_prompt_name'] : null
+        const showPromptButton = !!promptName
+
         const showPlaygroundButton = isGenerationEvent
 
         const showSaveToDatasetButton = featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_DATASETS]
@@ -776,6 +782,8 @@ const EventContent = React.memo(
             featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
 
         const showClustersTab = !!event && isTraceLevel(event) && featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_CLUSTERS_TAB]
+
+        const showFeedbackTab = !!event && isTraceLevel(event)
 
         // Check if we're viewing a trace with actual content vs. a pseudo-trace (grouping of generations w/o input/output state)
         const isTopLevelTraceWithoutContent = !event || (!isLLMEvent(event) && !event.inputState && !event.outputState)
@@ -834,6 +842,8 @@ const EventContent = React.memo(
                                     model={event.properties.$ai_model}
                                     latency={event.properties.$ai_latency}
                                     timestamp={event.createdAt}
+                                    timeToFirstToken={event.properties.$ai_time_to_first_token}
+                                    isStreaming={event.properties.$ai_stream === true}
                                 />
                             ) : (
                                 <MetadataHeader
@@ -865,8 +875,23 @@ const EventContent = React.memo(
                                     )}
                                 </div>
                             )}
-                            {(showPlaygroundButton || hasSessionRecording || showSaveToDatasetButton) && (
+                            {(showPromptButton ||
+                                showPlaygroundButton ||
+                                hasSessionRecording ||
+                                showSaveToDatasetButton) && (
                                 <div className="flex flex-row items-center gap-2">
+                                    {showPromptButton && (
+                                        <LemonButton
+                                            type="secondary"
+                                            size="xsmall"
+                                            icon={<IconAIText />}
+                                            to={urls.llmAnalyticsPrompt(promptName)}
+                                            tooltip="View the prompt used for this generation"
+                                            data-attr="view-prompt-trace"
+                                        >
+                                            View prompt
+                                        </LemonButton>
+                                    )}
                                     {showPlaygroundButton && (
                                         <LemonButton
                                             type="secondary"
@@ -1041,7 +1066,7 @@ const EventContent = React.memo(
                                                       generationEventId={event.id}
                                                       timestamp={event.createdAt}
                                                       event={event.event}
-                                                      distinctId={trace.person.distinct_id}
+                                                      distinctId={trace.person?.distinct_id ?? trace.distinctId}
                                                   />
                                               ),
                                           },
@@ -1060,6 +1085,22 @@ const EventContent = React.memo(
                                                   </>
                                               ),
                                               content: <ClustersTabContent />,
+                                          },
+                                      ]
+                                    : []),
+                                ...(showFeedbackTab
+                                    ? [
+                                          {
+                                              key: TraceViewMode.Feedback,
+                                              label: (
+                                                  <>
+                                                      Feedback{' '}
+                                                      <LemonTag className="ml-1" type="completion">
+                                                          Beta
+                                                      </LemonTag>
+                                                  </>
+                                              ),
+                                              content: <FeedbackViewDisplay />,
                                           },
                                       ]
                                     : []),

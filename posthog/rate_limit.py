@@ -363,34 +363,38 @@ class ClickHouseSustainedRateThrottle(PersonalApiKeyRateThrottle):
     rate = "1200/hour"
 
 
-class AIBurstRateThrottle(UserRateThrottle):
-    # Throttle class that's very aggressive and is used specifically on endpoints that hit OpenAI
-    # Intended to block quick bursts of requests, per user
+class _AIThrottleBase(UserRateThrottle):
+    action_name: str
+
+    def allow_request(self, request, view):
+        request_allowed = super().allow_request(request, view)
+        if not request_allowed and request.user.is_authenticated:
+            report_user_action(request.user, self.action_name)
+        return request_allowed
+
+
+class AIBurstRateThrottle(_AIThrottleBase):
     scope = "ai_burst"
     rate = "10/minute"
-
-    def allow_request(self, request, view):
-        request_allowed = super().allow_request(request, view)
-
-        if not request_allowed and request.user.is_authenticated:
-            report_user_action(request.user, "ai burst rate limited")
-
-        return request_allowed
+    action_name = "ai burst rate limited"
 
 
-class AISustainedRateThrottle(UserRateThrottle):
-    # Throttle class that's very aggressive and is used specifically on endpoints that hit OpenAI
-    # Intended to block slower but sustained bursts of requests, per user
+class AISustainedRateThrottle(_AIThrottleBase):
     scope = "ai_sustained"
     rate = "100/day"
+    action_name = "ai sustained rate limited"
 
-    def allow_request(self, request, view):
-        request_allowed = super().allow_request(request, view)
 
-        if not request_allowed and request.user.is_authenticated:
-            report_user_action(request.user, "ai sustained rate limited")
+class AIResearchBurstRateThrottle(_AIThrottleBase):
+    scope = "ai_research_burst"
+    rate = "3/minute"
+    action_name = "ai research burst rate limited"
 
-        return request_allowed
+
+class AIResearchSustainedRateThrottle(_AIThrottleBase):
+    scope = "ai_research_sustained"
+    rate = "10/day"
+    action_name = "ai research sustained rate limited"
 
 
 class LLMProxyBurstRateThrottle(UserRateThrottle):

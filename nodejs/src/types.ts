@@ -54,12 +54,12 @@ export enum PluginServerMode {
     cdp_precalculated_filters = 'cdp-precalculated-filters',
     cdp_cohort_membership = 'cdp-cohort-membership',
     cdp_cyclotron_worker_hogflow = 'cdp-cyclotron-worker-hogflow',
-    cdp_cyclotron_worker_delay = 'cdp-cyclotron-worker-delay',
     cdp_api = 'cdp-api',
     cdp_legacy_on_event = 'cdp-legacy-on-event',
     evaluation_scheduler = 'evaluation-scheduler',
     ingestion_logs = 'ingestion-logs',
     cdp_batch_hogflow_requests = 'cdp-batch-hogflow-requests',
+    cdp_cyclotron_shadow_worker = 'cdp-cyclotron-shadow-worker',
 }
 
 export const stringToPluginServerMode = Object.fromEntries(
@@ -189,6 +189,11 @@ export type CdpConfig = {
     // Cyclotron (CDP job queue)
     CYCLOTRON_DATABASE_URL: string
     CYCLOTRON_SHARD_DEPTH_LIMIT: number
+    CYCLOTRON_SHADOW_DATABASE_URL: string
+    CDP_CYCLOTRON_SHADOW_WRITE_ENABLED: boolean
+    CDP_CYCLOTRON_TEST_SEEK_LATENCY: boolean // When true, samples consumed messages and seeks back to verify read latency
+    CDP_CYCLOTRON_TEST_SEEK_SAMPLE_RATE: number // Fraction of messages to test (0.0-1.0, e.g. 0.01 = 1%)
+    CDP_CYCLOTRON_TEST_SEEK_MAX_OFFSET: number // Max offsets to seek back (e.g. 50000000 ≈ 14 days at current throughput)
 
     // SES (Workflows email sending)
     SES_ENDPOINT: string
@@ -451,6 +456,8 @@ export interface PluginsServerConfig
     PERSON_INFO_CACHE_TTL: number
     KAFKA_HEALTHCHECK_SECONDS: number
     PLUGIN_SERVER_MODE: PluginServerMode | null
+    /** Comma-separated list of capability groups for local dev: cdp_workflows, realtime_cohorts, session_replay, logs, feature_flags */
+    NODEJS_CAPABILITY_GROUPS: string | null
     PLUGIN_SERVER_EVENTS_INGESTION_PIPELINE: string | null // TODO: shouldn't be a string probably
     PLUGIN_LOAD_SEQUENTIALLY: boolean // could help with reducing memory usage spikes on startup
     /** Label of the PostHog Cloud environment. Null if not running PostHog Cloud. @example 'US' */
@@ -496,6 +503,13 @@ export interface PluginsServerConfig
     POD_TERMINATION_ENABLED: boolean
     POD_TERMINATION_BASE_TIMEOUT_MINUTES: number
     POD_TERMINATION_JITTER_MINUTES: number
+
+    // ClickHouse
+    CLICKHOUSE_HOST: string
+    CLICKHOUSE_PORT: number
+    CLICKHOUSE_USERNAME: string
+    CLICKHOUSE_PASSWORD: string
+    CLICKHOUSE_DATABASE: string
 }
 
 export interface Hub extends PluginsServerConfig {
@@ -538,12 +552,12 @@ export interface PluginServerCapabilities {
     cdpBatchHogFlow?: boolean
     cdpCyclotronWorker?: boolean
     cdpCyclotronWorkerHogFlow?: boolean
-    cdpCyclotronWorkerDelay?: boolean
     cdpPrecalculatedFilters?: boolean
     cdpCohortMembership?: boolean
     cdpApi?: boolean
     appManagementSingleton?: boolean
     evaluationScheduler?: boolean
+    cdpCyclotronShadowWorker?: boolean
 }
 
 export type TeamId = Team['id']

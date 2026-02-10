@@ -8,7 +8,7 @@ from .provider_keys import LLMProvider
 # Cost-controlled models for PostHog default keys
 POSTHOG_ALLOWED_MODELS: dict[str, list[str]] = {
     "openai": ["gpt-5-mini"],
-    "anthropic": ["claude-3-5-haiku-20241022"],
+    "anthropic": ["claude-haiku-4-5"],
     "gemini": ["gemini-2.0-flash-lite"],
 }
 

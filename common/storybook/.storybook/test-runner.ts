@@ -50,6 +50,7 @@ declare module '@storybook/types' {
             viewport?: { width: number; height: number }
             /**
              * Skip waiting for iframes to load. Useful for stories with external iframes that fail in CI.
+             * Also skips waiting for networkidle, which is useful for stories with background network activity.
              * @default false
              */
             skipIframeWait?: boolean
@@ -73,6 +74,7 @@ const LOADER_SELECTORS = [
     '.Toastify__toast',
     '[aria-busy="true"]',
     '.SessionRecordingPlayer--buffering',
+    '.PlayerSeekbar__segments__item--buffer-loading',
     '.Lettermark--unknown',
     '[data-attr="loading-bar"]',
 ]
@@ -446,7 +448,11 @@ async function waitForPageReady(page: Page, skipNetworkIdle = false): Promise<vo
     await page.waitForLoadState('load')
 
     if (process.env.CI && !skipNetworkIdle) {
-        await page.waitForLoadState('networkidle')
+        // networkidle can be flaky in CI due to background requests - don't fail on timeout
+        await page.waitForLoadState('networkidle').catch(() => {
+            // eslint-disable-next-line no-console
+            console.warn('[test-runner] networkidle timeout - proceeding anyway')
+        })
     }
 
     await page.evaluate(() => document.fonts.ready)

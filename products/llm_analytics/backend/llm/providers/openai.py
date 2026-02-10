@@ -21,6 +21,7 @@ from products.llm_analytics.backend.llm.errors import (
     ModelPermissionError,
     QuotaExceededError,
     RateLimitError,
+    StructuredOutputParseError,
 )
 from products.llm_analytics.backend.llm.types import (
     AnalyticsContext,
@@ -38,6 +39,7 @@ logger = logging.getLogger(__name__)
 class OpenAIConfig:
     REASONING_EFFORT: ReasoningEffort = "medium"
     TEMPERATURE: float = 0
+    TIMEOUT: float = 300.0
 
     SUPPORTED_MODELS: list[str] = [
         "gpt-4.1",
@@ -74,9 +76,13 @@ class OpenAIAdapter:
         request: CompletionRequest,
         api_key: str | None,
         analytics: AnalyticsContext,
+        base_url: str | None = None,
     ) -> CompletionResponse:
         """Non-streaming completion with optional structured output."""
         effective_api_key = api_key or self._get_default_api_key()
+        effective_base_url = base_url or settings.OPENAI_BASE_URL
+
+        default_headers = self._get_default_headers()
 
         posthog_client = posthoganalytics.default_client
         client: Any
@@ -84,10 +90,17 @@ class OpenAIAdapter:
             client = OpenAI(
                 api_key=effective_api_key,
                 posthog_client=posthog_client,
-                base_url=settings.OPENAI_BASE_URL,
+                base_url=effective_base_url,
+                timeout=OpenAIConfig.TIMEOUT,
+                default_headers=default_headers or None,
             )
         else:
-            client = openai.OpenAI(api_key=effective_api_key, base_url=settings.OPENAI_BASE_URL)
+            client = openai.OpenAI(
+                api_key=effective_api_key,
+                base_url=effective_base_url,
+                timeout=OpenAIConfig.TIMEOUT,
+                default_headers=default_headers or None,
+            )
 
         messages: Any = self._build_messages(request)
 
@@ -138,7 +151,7 @@ class OpenAIAdapter:
             raise ModelPermissionError(request.model)
         except openai.RateLimitError as e:
             error_body = getattr(e, "body", {}) or {}
-            error_code = error_body.get("error", {}).get("code", "")
+            error_code = error_body.get("code", "") or error_body.get("error", {}).get("code", "")
             if error_code == "insufficient_quota":
                 raise QuotaExceededError(str(e))
             raise RateLimitError(str(e))
@@ -184,7 +197,7 @@ Return ONLY the JSON object, no other text or markdown formatting."""
             parsed = request.response_format.model_validate_json(clean_content)
         except Exception as e:
             logger.warning(f"Failed to parse structured output from OpenAI fallback: {e}")
-            raise ValueError(f"Failed to parse structured output: {e}") from e
+            raise StructuredOutputParseError(f"Failed to parse structured output: {e}") from e
 
         return CompletionResponse(
             content=content,
@@ -198,10 +211,14 @@ Return ONLY the JSON object, no other text or markdown formatting."""
         request: CompletionRequest,
         api_key: str | None,
         analytics: AnalyticsContext,
+        base_url: str | None = None,
     ) -> Generator[StreamChunk, None, None]:
         """Streaming completion."""
         effective_api_key = api_key or self._get_default_api_key()
+        effective_base_url = base_url or settings.OPENAI_BASE_URL
         model_id = request.model
+
+        default_headers = self._get_default_headers()
 
         posthog_client = posthoganalytics.default_client
         client: Any
@@ -209,10 +226,17 @@ Return ONLY the JSON object, no other text or markdown formatting."""
             client = OpenAI(
                 api_key=effective_api_key,
                 posthog_client=posthog_client,
-                base_url=settings.OPENAI_BASE_URL,
+                base_url=effective_base_url,
+                timeout=OpenAIConfig.TIMEOUT,
+                default_headers=default_headers or None,
             )
         else:
-            client = openai.OpenAI(api_key=effective_api_key, base_url=settings.OPENAI_BASE_URL)
+            client = openai.OpenAI(
+                api_key=effective_api_key,
+                base_url=effective_base_url,
+                timeout=OpenAIConfig.TIMEOUT,
+                default_headers=default_headers or None,
+            )
 
         supports_reasoning = model_id in OpenAIConfig.SUPPORTED_MODELS_WITH_THINKING
         reasoning_on = supports_reasoning and (request.thinking or bool(request.reasoning_level))
@@ -302,7 +326,7 @@ Return ONLY the JSON object, no other text or markdown formatting."""
         if not api_key.startswith(("sk-", "sk-proj-")):
             return (LLMProviderKey.State.INVALID, "Invalid key format (should start with 'sk-' or 'sk-proj-')")
         try:
-            client = openai.OpenAI(api_key=api_key)
+            client = openai.OpenAI(api_key=api_key, timeout=OpenAIConfig.TIMEOUT)
             client.models.list()
             return (LLMProviderKey.State.OK, None)
         except openai.AuthenticationError:
@@ -320,7 +344,7 @@ Return ONLY the JSON object, no other text or markdown formatting."""
         """List available OpenAI models."""
         if api_key:
             try:
-                client = openai.OpenAI(api_key=api_key)
+                client = openai.OpenAI(api_key=api_key, timeout=OpenAIConfig.TIMEOUT)
                 all_models = [m.id for m in client.models.list()]
                 return [
                     m
@@ -342,6 +366,9 @@ Return ONLY the JSON object, no other text or markdown formatting."""
 
     def _get_default_api_key(self) -> str:
         return self.get_api_key()
+
+    def _get_default_headers(self) -> dict[str, str]:
+        return {}
 
     def _build_messages(self, request: CompletionRequest) -> list[dict]:
         messages = []

@@ -14,6 +14,8 @@ from posthog.temporal.common.combined_metrics_server import CombinedMetricsServe
 from posthog.temporal.common.liveness_tracker import LivenessInterceptor
 from posthog.temporal.common.logger import get_write_only_logger
 from posthog.temporal.common.posthog_client import PostHogClientInterceptor
+from posthog.temporal.llm_analytics.metrics import EvalsMetricsInterceptor
+from posthog.temporal.llm_analytics.trace_summarization.metrics import SummarizationMetricsInterceptor
 
 from products.batch_exports.backend.temporal.metrics import BatchExportsMetricsInterceptor
 
@@ -36,6 +38,43 @@ BATCH_EXPORTS_LATENCY_HISTOGRAM_BUCKETS = [
     21_600_000.0,  # 6 hours
     43_200_000.0,  # 12 hours
     86_400_000.0,  # 24 hours
+]
+
+EVALS_LATENCY_HISTOGRAM_METRICS = (
+    "llma_eval_activity_execution_latency",
+    "llma_eval_workflow_execution_latency",
+    "llma_eval_activity_schedule_to_start_latency",
+)
+EVALS_LATENCY_HISTOGRAM_BUCKETS = [
+    100.0,  # 100ms
+    500.0,  # 500ms
+    1_000.0,  # 1 second
+    2_000.0,  # 2 seconds
+    5_000.0,  # 5 seconds
+    10_000.0,  # 10 seconds
+    30_000.0,  # 30 seconds
+    60_000.0,  # 1 minute
+    120_000.0,  # 2 minutes
+    300_000.0,  # 5 minutes
+]
+
+SUMMARIZATION_LATENCY_HISTOGRAM_METRICS = (
+    "llma_summarization_activity_execution_latency",
+    "llma_summarization_activity_schedule_to_start_latency",
+    "llma_summarization_workflow_execution_latency",
+)
+SUMMARIZATION_LATENCY_HISTOGRAM_BUCKETS = [
+    500.0,  # 500ms
+    1_000.0,  # 1 second
+    5_000.0,  # 5 seconds
+    10_000.0,  # 10 seconds
+    30_000.0,  # 30 seconds
+    60_000.0,  # 1 minute
+    120_000.0,  # 2 minutes
+    300_000.0,  # 5 minutes
+    600_000.0,  # 10 minutes
+    900_000.0,  # 15 minutes
+    1_800_000.0,  # 30 minutes
 ]
 
 
@@ -143,6 +182,18 @@ async def create_worker(
                         itertools.repeat(BATCH_EXPORTS_LATENCY_HISTOGRAM_BUCKETS),
                     )
                 )
+                | dict(
+                    zip(
+                        EVALS_LATENCY_HISTOGRAM_METRICS,
+                        itertools.repeat(EVALS_LATENCY_HISTOGRAM_BUCKETS),
+                    )
+                )
+                | dict(
+                    zip(
+                        SUMMARIZATION_LATENCY_HISTOGRAM_METRICS,
+                        itertools.repeat(SUMMARIZATION_LATENCY_HISTOGRAM_BUCKETS),
+                    )
+                )
                 | {"batch_exports_activity_attempt": [1.0, 5.0, 10.0, 100.0]},
             ),
         )
@@ -166,7 +217,13 @@ async def create_worker(
             activities=activities,
             workflow_runner=UnsandboxedWorkflowRunner(),
             graceful_shutdown_timeout=graceful_shutdown_timeout or dt.timedelta(minutes=5),
-            interceptors=[LivenessInterceptor(), PostHogClientInterceptor(), BatchExportsMetricsInterceptor()],
+            interceptors=[
+                LivenessInterceptor(),
+                PostHogClientInterceptor(),
+                BatchExportsMetricsInterceptor(),
+                EvalsMetricsInterceptor(),
+                SummarizationMetricsInterceptor(),
+            ],
             activity_executor=ThreadPoolExecutor(max_workers=max_concurrent_activities or 50),
             tuner=WorkerTuner.create_resource_based(
                 target_memory_usage=target_memory_usage,
@@ -186,7 +243,13 @@ async def create_worker(
             activities=activities,
             workflow_runner=UnsandboxedWorkflowRunner(),
             graceful_shutdown_timeout=graceful_shutdown_timeout or dt.timedelta(minutes=5),
-            interceptors=[LivenessInterceptor(), PostHogClientInterceptor(), BatchExportsMetricsInterceptor()],
+            interceptors=[
+                LivenessInterceptor(),
+                PostHogClientInterceptor(),
+                BatchExportsMetricsInterceptor(),
+                EvalsMetricsInterceptor(),
+                SummarizationMetricsInterceptor(),
+            ],
             activity_executor=ThreadPoolExecutor(max_workers=max_concurrent_activities or 50),
             max_concurrent_activities=max_concurrent_activities or 50,
             max_concurrent_workflow_tasks=max_concurrent_workflow_tasks or 50,

@@ -17,8 +17,8 @@ export type BatchPersonGetArgs = {
 const toKey = (args: PersonGetArgs): string => `${args.teamId}:${args.distinctId}`
 
 const fromKey = (key: string): PersonGetArgs => {
-    const [teamId, distinctId] = key.split(':')
-    return { teamId: parseInt(teamId), distinctId }
+    const [teamId, ...distinctIdParts] = key.split(':')
+    return { teamId: parseInt(teamId), distinctId: distinctIdParts.join(':') }
 }
 
 export type PersonManagerPerson = {
@@ -35,6 +35,7 @@ export class PersonsManagerService {
         this.lazyLoader = new LazyLoader({
             name: 'person_manager',
             loader: async (ids) => await this.fetchPersons(ids),
+            refreshAgeMs: 1000 * 60, // 1 minute, so that we don't hold stale person data for too long
         })
     }
 

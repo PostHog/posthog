@@ -114,6 +114,17 @@ class TestAccessControlProjectLevelAPI(BaseAccessControlTest):
         assert res.status_code == status.HTTP_400_BAD_REQUEST, res.json()
         assert res.json()["detail"] == "Invalid access level. Must be one of: none, member, admin", res.json()
 
+    def test_invalid_organization_member_id_error_message(self):
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+        res = self._put_project_access_control({"organization_member": "not-a-valid-uuid", "access_level": "member"})
+        assert res.status_code == status.HTTP_400_BAD_REQUEST, res.json()
+        assert res.json()["attr"] == "organization_member"
+        # Should not mention "UUID" in the error message
+        assert "UUID" not in res.json()["detail"]
+        # Should provide helpful guidance
+        assert "organization member id" in res.json()["detail"]
+        assert "/api/organizations/" in res.json()["detail"]
+
 
 class TestAccessControlMinimumLevelValidation(BaseAccessControlTest):
     def test_action_access_level_cannot_be_below_viewer(self):

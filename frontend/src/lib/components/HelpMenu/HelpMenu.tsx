@@ -4,9 +4,9 @@ import {
     IconBook,
     IconConfetti,
     IconDatabase,
+    IconDownload,
     IconEllipsis,
     IconExpand45,
-    IconFeatures,
     IconGear,
     IconLive,
     IconOpenSidebar,
@@ -37,7 +37,6 @@ import { userLogic } from 'scenes/userLogic'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
-import { SidePanelStatusIcon } from '~/layout/navigation-3000/sidepanel/panels/SidePanelStatus'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SidePanelTab } from '~/types'
 
@@ -67,6 +66,8 @@ export function HelpMenu(): JSX.Element {
                             <RenderKeybind keybind={[keyBinds.helpMenu]} className="ml-1" />
                         </>
                     }
+                    tooltipPlacement="top"
+                    tooltipCloseDelayMs={0}
                     iconOnly
                     className="group"
                 >
@@ -134,15 +135,16 @@ export function HelpMenu(): JSX.Element {
                     </DropdownMenuItem>
                     <DropdownMenuItem asChild>
                         <Link
-                            targetBlankIcon
-                            target="_blank"
+                            tooltip="View your exports"
+                            tooltipPlacement="right"
                             buttonProps={{ menuItem: true }}
-                            to="https://status.posthog.com"
+                            to={urls.exports()}
                         >
-                            <SidePanelStatusIcon className="flex" size="xsmall" />
-                            PostHog status
+                            <IconDownload />
+                            Exports
                         </Link>
                     </DropdownMenuItem>
+
                     <DropdownMenuItem asChild>
                         <Link
                             tooltip="View our changelog"
@@ -156,20 +158,7 @@ export function HelpMenu(): JSX.Element {
                             Changelog
                         </Link>
                     </DropdownMenuItem>
-                    <DropdownMenuItem asChild>
-                        <Link
-                            to={urls.settings('user-feature-previews')}
-                            buttonProps={{
-                                menuItem: true,
-                            }}
-                            data-attr="top-menu-feature-previews"
-                            tooltip="View and access upcoming features"
-                            tooltipPlacement="right"
-                        >
-                            <IconFeatures />
-                            Feature previews
-                        </Link>
-                    </DropdownMenuItem>
+
                     {user?.is_staff && <></>}
                     {!isCloud && (
                         <DropdownMenuItem asChild>

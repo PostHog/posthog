@@ -18,6 +18,7 @@ interface MetricsTableProps {
     metrics: ExperimentMetric[]
     results: NewExperimentQueryResponse[]
     errors: any[]
+    metricIndexes: number[]
     isSecondary: boolean
     getInsightType: (metric: ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery) => InsightType
     showDetailsModal?: boolean
@@ -27,6 +28,7 @@ export function MetricsTable({
     metrics,
     results,
     errors,
+    metricIndexes,
     isSecondary,
     getInsightType,
     showDetailsModal = true,
@@ -36,18 +38,36 @@ export function MetricsTable({
         useActions(experimentLogic)
 
     // Calculate shared axisRange across all metrics
-    const maxAbsValue = Math.max(
-        ...results.flatMap((result: NewExperimentQueryResponse) => {
-            const variantResults = result?.variant_results || []
-            return variantResults.flatMap((variant: ExperimentVariantResult) => {
-                const interval = getVariantInterval(variant)
-                return interval ? [Math.abs(interval[0]), Math.abs(interval[1])] : []
-            })
-        })
-    )
+    let hasBreakdowns = false
+    const allIntervalValues = results.flatMap((result: NewExperimentQueryResponse) => {
+        const allVariants: ExperimentVariantResult[] = []
 
+        // Include main variant results
+        if (result?.variant_results) {
+            allVariants.push(...result.variant_results)
+        }
+
+        // Include breakdown variant results
+        if (result?.breakdown_results && result.breakdown_results.length > 0) {
+            hasBreakdowns = true
+            result.breakdown_results.forEach((breakdownResult) => {
+                if (breakdownResult?.variants) {
+                    allVariants.push(...breakdownResult.variants)
+                }
+            })
+        }
+
+        return allVariants.flatMap((variant: ExperimentVariantResult) => {
+            const interval = getVariantInterval(variant)
+            return interval ? [Math.abs(interval[0]), Math.abs(interval[1])] : []
+        })
+    })
+
+    // Use 0 as default if no intervals exist, otherwise get the maximum value
+    const maxAbsValue = allIntervalValues.length > 0 ? Math.max(...allIntervalValues) : 0
     const axisMargin = Math.max(maxAbsValue * 0.05, 0.1)
-    const axisRange = Math.min(maxAbsValue + axisMargin, MAX_AXIS_RANGE)
+    // When breakdowns are present, ignore MAX_AXIS_RANGE to show full range of breakdown data
+    const axisRange = hasBreakdowns ? maxAbsValue + axisMargin : Math.min(maxAbsValue + axisMargin, MAX_AXIS_RANGE)
 
     if (metrics.length === 0) {
         return (
@@ -77,6 +97,7 @@ export function MetricsTable({
                     {metrics.map((metric, index) => {
                         const result = results[index]
                         const error = errors[index]
+                        const metricIndex = metricIndexes[index]
 
                         const isLoading = !result && !error && !!experiment.start_date
 
@@ -87,6 +108,7 @@ export function MetricsTable({
                                 result={result}
                                 experiment={experiment}
                                 metricType={getInsightType(metric)}
+                                metricIndex={metricIndex}
                                 displayOrder={index}
                                 axisRange={axisRange}
                                 isSecondary={isSecondary}
@@ -113,7 +135,19 @@ export function MetricsTable({
                                         return
                                     }
 
-                                    removeMetricBreakdown(metric.uuid, index)
+                                    /**
+                                     * we pass the breakdown just for instrumentation purposes
+                                     */
+                                    const breakdown = metric.breakdownFilter?.breakdowns?.[index]
+
+                                    /**
+                                     * throw an error if the breakdown is not found
+                                     */
+                                    if (!breakdown) {
+                                        throw new Error('Breakdown not found')
+                                    }
+
+                                    removeMetricBreakdown(metric.uuid, index, breakdown)
                                 }}
                                 error={error}
                                 isLoading={isLoading}

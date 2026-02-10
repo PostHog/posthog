@@ -11,6 +11,7 @@ from posthog.api.test.test_user import create_user
 
 pytestmark = [
     pytest.mark.django_db,
+    pytest.mark.usefixtures("temporal_worker", "cleanup"),
 ]
 
 
