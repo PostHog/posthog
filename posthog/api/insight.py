@@ -876,7 +876,6 @@ class InsightSerializer(InsightBasicSerializer):
                 logger.warn(
                     "concurrency_limit_exceeded_api", exception=e, insight_id=insight.id, team_id=insight.team_id
                 )
-
                 return InsightResult(
                     result=None,
                     last_refresh=now(),
@@ -888,6 +887,29 @@ class InsightSerializer(InsightBasicSerializer):
                             insight_id=str(insight.id),
                             dashboard_id=str(dashboard.id) if dashboard else None,
                             error_message="concurrency_limit_exceeded",
+                            error=True,
+                        )
+                    ),
+                    cache_key=None,
+                    hogql=None,
+                    columns=None,
+                    has_more=None,
+                    timezone=self.context["get_team"]().timezone,
+                )
+            except Exception as e:
+                # Capture unexpected crashes so the API list doesn't fail
+                logger.exception("insight_calculation_error", insight_id=insight.id, team_id=insight.team_id)
+                return InsightResult(
+                    result=None,
+                    last_refresh=None,
+                    is_cached=False,
+                    query_status=dict(
+                        QueryStatus(
+                            id=self.context["request"].query_params.get("client_query_id"),
+                            team_id=insight.team_id,
+                            insight_id=str(insight.id),
+                            dashboard_id=str(dashboard.id) if dashboard else None,
+                            error_message=str(e),
                             error=True,
                         )
                     ),

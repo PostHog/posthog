@@ -60,7 +60,8 @@ export const issueFiltersLogic = kea<issueFiltersLogicType>([
         filterGroup: [
             DEFAULT_FILTER_GROUP as UniversalFiltersGroup,
             {
-                setFilterGroup: (_, { filterGroup }) => filterGroup,
+                setFilterGroup: (_, { filterGroup }) =>
+                    filterGroup?.values?.length ? filterGroup : DEFAULT_FILTER_GROUP,
             },
         ],
         filterTestAccounts: [
