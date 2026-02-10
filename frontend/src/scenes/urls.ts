@@ -116,6 +116,7 @@ export const urls = {
     login: (): string => '/login',
     login2FA: (): string => '/login/2fa',
     login2FASetup: (): string => '/login/2fa_setup',
+    loginChooseAccount: (): string => '/login/choose-account',
     cliAuthorize: (): string => '/cli/authorize',
     emailMFAVerify: (): string => '/login/verify',
     liveDebugger: (): string => '/live-debugger',

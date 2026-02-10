@@ -253,6 +253,27 @@ urlpatterns = [
     path(
         "login/<str:backend>/", authentication.sso_login, name="social_begin"
     ),  # overrides from `social_django.urls` to validate proper license
+    path("api/social/connect/<str:backend>/", authentication.social_connect, name="social_connect"),
+    path(
+        "api/social/connections/",
+        authentication.SocialConnectionViewSet.as_view({"get": "list"}),
+        name="social_connections_list",
+    ),
+    path(
+        "api/social/connections/<int:pk>/",
+        authentication.SocialConnectionViewSet.as_view({"delete": "destroy"}),
+        name="social_connections_detail",
+    ),
+    path(
+        "api/social/account-choices/",
+        authentication.AccountChoicesView.as_view({"get": "list"}),
+        name="social_account_choices",
+    ),
+    path(
+        "api/social/choose-account/",
+        authentication.ChooseAccountView.as_view({"post": "create"}),
+        name="social_choose_account",
+    ),
     path("", include("social_django.urls", namespace="social")),
     path("uploaded_media/<str:image_uuid>", uploaded_media.download),
     opt_slash_path("slack/interactivity-callback", slack_interactivity_callback),
@@ -318,6 +339,7 @@ frontend_unauthenticated_routes = [
     "organization/billing/subscribed",
     "organization/confirm-creation",
     "login",
+    r"login\/choose-account",
     "unsubscribe",
     "verify_email",
 ]
