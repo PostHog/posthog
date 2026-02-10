@@ -50,7 +50,7 @@ _BINARY_CHECK_SIZE = 8192
 def _create_jinja_env(**extra_globals: object) -> Environment:
     """Create a Jinja2 Environment with the standard skill rendering settings."""
     env = Environment(
-        # nosemgrep: python.jinja2.security.audit.autoescape-disabled-false.incorrect-autoescape-disabled-- output is Markdown for a JSON manifest, not HTML
+        # nosemgrep: python.jinja2.security.audit.autoescape-disabled-false.incorrect-autoescape-disabled -- output is Markdown for a JSON manifest, not HTML
         autoescape=False,
         undefined=StrictUndefined,
         keep_trailing_newline=True,
