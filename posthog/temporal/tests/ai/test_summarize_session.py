@@ -22,7 +22,7 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 from posthog.models import Team
 from posthog.models.user import User
 from posthog.sync import database_sync_to_async
-from posthog.temporal.ai import WORKFLOWS
+from posthog.temporal.ai import AI_WORKFLOWS
 from posthog.temporal.ai.session_summary.state import (
     StateActivitiesEnum,
     _compress_redis_data,
@@ -297,8 +297,8 @@ class TestSummarizeSingleSessionStreamWorkflow:
         try:
             async with Worker(
                 activity_environment.client,
-                task_queue=settings.MAX_AI_TASK_QUEUE,
-                workflows=WORKFLOWS,
+                task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+                workflows=AI_WORKFLOWS,
                 activities=[stream_llm_single_session_summary_activity, fetch_session_data_activity],
                 workflow_runner=UnsandboxedWorkflowRunner(),
             ) as worker:

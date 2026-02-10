@@ -8,7 +8,7 @@ from django.core.management.base import BaseCommand
 
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 
-from posthog.temporal.ai import WORKFLOWS as AI_WORKFLOWS
+from posthog.temporal.ai import AI_WORKFLOWS as AI_WORKFLOWS
 from posthog.temporal.common.client import connect
 from posthog.temporal.data_imports.settings import WORKFLOWS as DATA_IMPORT_WORKFLOWS
 from posthog.temporal.data_modeling import WORKFLOWS as DATA_MODELING_WORKFLOWS
