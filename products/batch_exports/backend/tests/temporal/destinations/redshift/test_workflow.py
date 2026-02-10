@@ -22,7 +22,6 @@ from products.batch_exports.backend.temporal.destinations.redshift_batch_export 
     RedshiftBatchExportInputs,
     RedshiftBatchExportWorkflow,
     copy_into_redshift_activity_from_stage,
-    insert_into_redshift_activity,
     insert_into_redshift_activity_from_stage,
 )
 from products.batch_exports.backend.temporal.pipeline.internal_stage import insert_into_internal_stage_activity
@@ -37,8 +36,6 @@ from products.batch_exports.backend.tests.temporal.utils.workflow import mocked_
 pytestmark = [
     pytest.mark.asyncio,
     pytest.mark.django_db,
-    # While we migrate to the new workflow, we need to test both new and old activities
-    pytest.mark.parametrize("use_internal_stage", [False, True]),
 ]
 
 
@@ -112,7 +109,6 @@ async def test_redshift_export_workflow(
     bucket_name,
     bucket_region,
     key_prefix,
-    use_internal_stage,
 ):
     """Test Redshift Export Workflow end-to-end.
 
@@ -136,9 +132,6 @@ async def test_redshift_export_workflow(
     if mode == "COPY":
         if MISSING_REQUIRED_ENV_VARS:
             pytest.skip("Testing COPY mode requires a Redshift instance")
-
-        if use_internal_stage is False:
-            pytest.skip("Testing COPY mode requires internal stage")
 
         if not aws_credentials or not bucket_name or not bucket_region:
             pytest.skip("Testing COPY mode requires S3 variables to be configured")
@@ -173,33 +166,29 @@ async def test_redshift_export_workflow(
         **redshift_batch_export.destination.config,
     )
 
-    use_stage_team_ids = [str(ateam.pk)] if use_internal_stage else []
-
-    with override_settings(BATCH_EXPORT_REDSHIFT_USE_STAGE_TEAM_IDS=use_stage_team_ids):
-        async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
-            async with Worker(
-                activity_environment.client,
-                task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
-                workflows=[RedshiftBatchExportWorkflow],
-                activities=[
-                    start_batch_export_run,
-                    insert_into_redshift_activity,
-                    insert_into_internal_stage_activity,
-                    insert_into_redshift_activity_from_stage,
-                    copy_into_redshift_activity_from_stage,
-                    finish_batch_export_run,
-                ],
-                workflow_runner=UnsandboxedWorkflowRunner(),
-            ):
-                with override_settings(BATCH_EXPORT_REDSHIFT_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2):
-                    await activity_environment.client.execute_workflow(
-                        RedshiftBatchExportWorkflow.run,
-                        inputs,
-                        id=workflow_id,
-                        task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
-                        retry_policy=RetryPolicy(maximum_attempts=1),
-                        execution_timeout=dt.timedelta(seconds=20),
-                    )
+    async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
+        async with Worker(
+            activity_environment.client,
+            task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
+            workflows=[RedshiftBatchExportWorkflow],
+            activities=[
+                start_batch_export_run,
+                insert_into_internal_stage_activity,
+                insert_into_redshift_activity_from_stage,
+                copy_into_redshift_activity_from_stage,
+                finish_batch_export_run,
+            ],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            with override_settings(BATCH_EXPORT_REDSHIFT_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2):
+                await activity_environment.client.execute_workflow(
+                    RedshiftBatchExportWorkflow.run,
+                    inputs,
+                    id=workflow_id,
+                    task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                    execution_timeout=dt.timedelta(seconds=20),
+                )
 
     runs = await afetch_batch_export_runs(batch_export_id=redshift_batch_export.id)
     assert len(runs) == 1
@@ -236,14 +225,14 @@ async def test_redshift_export_workflow(
 
 
 async def test_redshift_export_workflow_handles_unexpected_insert_activity_errors(
-    ateam, redshift_batch_export, interval, use_internal_stage
+    ateam, redshift_batch_export, interval
 ):
     """Test that Redshift Export Workflow can gracefully handle unexpected errors when inserting Redshift data.
 
     This means we do the right updates to the BatchExportRun model and ensure the workflow fails (since we
     treat this as an unexpected internal error).
 
-    To simulate an unexpected error, we mock the `Producer.start` activity.
+    To simulate an unexpected error, we mock the `ProducerFromInternalStage.start` activity.
     """
     data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
 
@@ -256,43 +245,33 @@ async def test_redshift_export_workflow_handles_unexpected_insert_activity_error
         **redshift_batch_export.destination.config,
     )
 
-    use_stage_team_ids = [str(ateam.pk)] if use_internal_stage else []
-
-    with override_settings(BATCH_EXPORT_REDSHIFT_USE_STAGE_TEAM_IDS=use_stage_team_ids):
-        async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
-            async with Worker(
-                activity_environment.client,
-                task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
-                workflows=[RedshiftBatchExportWorkflow],
-                activities=[
-                    mocked_start_batch_export_run,
-                    insert_into_redshift_activity,
-                    insert_into_internal_stage_activity,
-                    insert_into_redshift_activity_from_stage,
-                    copy_into_redshift_activity_from_stage,
-                    finish_batch_export_run,
-                ],
-                workflow_runner=UnsandboxedWorkflowRunner(),
+    async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
+        async with Worker(
+            activity_environment.client,
+            task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
+            workflows=[RedshiftBatchExportWorkflow],
+            activities=[
+                mocked_start_batch_export_run,
+                insert_into_internal_stage_activity,
+                insert_into_redshift_activity_from_stage,
+                copy_into_redshift_activity_from_stage,
+                finish_batch_export_run,
+            ],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            with unittest.mock.patch(
+                "products.batch_exports.backend.temporal.destinations.redshift_batch_export.ProducerFromInternalStage.start",
+                side_effect=ValueError("A useful error message"),
             ):
-                with (
-                    unittest.mock.patch(
-                        "products.batch_exports.backend.temporal.destinations.redshift_batch_export.Producer.start",
-                        side_effect=ValueError("A useful error message"),
-                    ),
-                    unittest.mock.patch(
-                        "products.batch_exports.backend.temporal.destinations.redshift_batch_export.ProducerFromInternalStage.start",
-                        side_effect=ValueError("A useful error message"),
-                    ),
-                ):
-                    with pytest.raises(WorkflowFailureError):
-                        await activity_environment.client.execute_workflow(
-                            RedshiftBatchExportWorkflow.run,
-                            inputs,
-                            id=workflow_id,
-                            task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
-                            retry_policy=RetryPolicy(maximum_attempts=1),
-                            execution_timeout=dt.timedelta(seconds=20),
-                        )
+                with pytest.raises(WorkflowFailureError):
+                    await activity_environment.client.execute_workflow(
+                        RedshiftBatchExportWorkflow.run,
+                        inputs,
+                        id=workflow_id,
+                        task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
+                        retry_policy=RetryPolicy(maximum_attempts=1),
+                        execution_timeout=dt.timedelta(seconds=20),
+                    )
 
     runs = await afetch_batch_export_runs(batch_export_id=redshift_batch_export.id)
     assert len(runs) == 1
@@ -304,14 +283,14 @@ async def test_redshift_export_workflow_handles_unexpected_insert_activity_error
 
 
 async def test_redshift_export_workflow_handles_insert_activity_non_retryable_errors(
-    ateam, redshift_batch_export, interval, use_internal_stage
+    ateam, redshift_batch_export, interval
 ):
     """Test that Redshift Export Workflow can gracefully handle non-retryable errors when inserting Redshift data.
 
     This means we do the right updates to the BatchExportRun model and ensure the workflow succeeds (since we
     treat this as a user error).
 
-    To simulate a user error, we mock the `Producer.start` activity.
+    To simulate a user error, we mock the `ProducerFromInternalStage.start` activity.
     """
     data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
 
@@ -327,41 +306,31 @@ async def test_redshift_export_workflow_handles_insert_activity_non_retryable_er
     class InsufficientPrivilege(Exception):
         pass
 
-    use_stage_team_ids = [str(ateam.pk)] if use_internal_stage else []
-
-    with override_settings(BATCH_EXPORT_REDSHIFT_USE_STAGE_TEAM_IDS=use_stage_team_ids):
-        async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
-            async with Worker(
-                activity_environment.client,
-                task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
-                workflows=[RedshiftBatchExportWorkflow],
-                activities=[
-                    mocked_start_batch_export_run,
-                    insert_into_redshift_activity,
-                    insert_into_internal_stage_activity,
-                    insert_into_redshift_activity_from_stage,
-                    copy_into_redshift_activity_from_stage,
-                    finish_batch_export_run,
-                ],
-                workflow_runner=UnsandboxedWorkflowRunner(),
+    async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
+        async with Worker(
+            activity_environment.client,
+            task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
+            workflows=[RedshiftBatchExportWorkflow],
+            activities=[
+                mocked_start_batch_export_run,
+                insert_into_internal_stage_activity,
+                insert_into_redshift_activity_from_stage,
+                copy_into_redshift_activity_from_stage,
+                finish_batch_export_run,
+            ],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            with unittest.mock.patch(
+                "products.batch_exports.backend.temporal.destinations.redshift_batch_export.ProducerFromInternalStage.start",
+                side_effect=InsufficientPrivilege("A useful error message"),
             ):
-                with (
-                    unittest.mock.patch(
-                        "products.batch_exports.backend.temporal.destinations.redshift_batch_export.Producer.start",
-                        side_effect=InsufficientPrivilege("A useful error message"),
-                    ),
-                    unittest.mock.patch(
-                        "products.batch_exports.backend.temporal.destinations.redshift_batch_export.ProducerFromInternalStage.start",
-                        side_effect=InsufficientPrivilege("A useful error message"),
-                    ),
-                ):
-                    await activity_environment.client.execute_workflow(
-                        RedshiftBatchExportWorkflow.run,
-                        inputs,
-                        id=workflow_id,
-                        task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
-                        retry_policy=RetryPolicy(maximum_attempts=1),
-                    )
+                await activity_environment.client.execute_workflow(
+                    RedshiftBatchExportWorkflow.run,
+                    inputs,
+                    id=workflow_id,
+                    task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
 
     runs = await afetch_batch_export_runs(batch_export_id=redshift_batch_export.id)
     assert len(runs) == 1
@@ -394,7 +363,6 @@ async def test_redshift_export_workflow_handles_undefined_function_error(
     bucket_name,
     bucket_region,
     key_prefix,
-    use_internal_stage,
 ):
     """Test Redshift Export Workflow can handle 'UndefinedFunction' as a non-retryable error.
 
@@ -404,9 +372,6 @@ async def test_redshift_export_workflow_handles_undefined_function_error(
     """
     if MISSING_REQUIRED_ENV_VARS:
         pytest.skip("MERGE is only available in Redshift")
-
-    if not use_internal_stage:
-        pytest.skip("MERGE of events only happens in internal stage activity")
 
     if mode == "COPY":
         if not aws_credentials or not bucket_name or not bucket_region:
@@ -437,33 +402,29 @@ async def test_redshift_export_workflow_handles_undefined_function_error(
         **redshift_batch_export.destination.config,
     )
 
-    use_stage_team_ids = [str(ateam.pk)]
-
-    with override_settings(BATCH_EXPORT_REDSHIFT_USE_STAGE_TEAM_IDS=use_stage_team_ids):
-        async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
-            async with Worker(
-                activity_environment.client,
-                task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
-                workflows=[RedshiftBatchExportWorkflow],
-                activities=[
-                    start_batch_export_run,
-                    insert_into_redshift_activity,
-                    insert_into_internal_stage_activity,
-                    insert_into_redshift_activity_from_stage,
-                    copy_into_redshift_activity_from_stage,
-                    finish_batch_export_run,
-                ],
-                workflow_runner=UnsandboxedWorkflowRunner(),
-            ):
-                with override_settings(BATCH_EXPORT_REDSHIFT_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2):
-                    await activity_environment.client.execute_workflow(
-                        RedshiftBatchExportWorkflow.run,
-                        inputs,
-                        id=workflow_id,
-                        task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
-                        retry_policy=RetryPolicy(maximum_attempts=1),
-                        execution_timeout=dt.timedelta(seconds=20),
-                    )
+    async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
+        async with Worker(
+            activity_environment.client,
+            task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
+            workflows=[RedshiftBatchExportWorkflow],
+            activities=[
+                start_batch_export_run,
+                insert_into_internal_stage_activity,
+                insert_into_redshift_activity_from_stage,
+                copy_into_redshift_activity_from_stage,
+                finish_batch_export_run,
+            ],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            with override_settings(BATCH_EXPORT_REDSHIFT_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2):
+                await activity_environment.client.execute_workflow(
+                    RedshiftBatchExportWorkflow.run,
+                    inputs,
+                    id=workflow_id,
+                    task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                    execution_timeout=dt.timedelta(seconds=20),
+                )
 
     runs = await afetch_batch_export_runs(batch_export_id=redshift_batch_export.id)
     assert len(runs) == 1
@@ -507,31 +468,29 @@ async def test_redshift_export_workflow_handles_undefined_function_error(
                 )
             )
 
-    with override_settings(BATCH_EXPORT_REDSHIFT_USE_STAGE_TEAM_IDS=use_stage_team_ids):
-        async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
-            async with Worker(
-                activity_environment.client,
-                task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
-                workflows=[RedshiftBatchExportWorkflow],
-                activities=[
-                    start_batch_export_run,
-                    insert_into_redshift_activity,
-                    insert_into_internal_stage_activity,
-                    insert_into_redshift_activity_from_stage,
-                    copy_into_redshift_activity_from_stage,
-                    finish_batch_export_run,
-                ],
-                workflow_runner=UnsandboxedWorkflowRunner(),
-            ):
-                with override_settings(BATCH_EXPORT_REDSHIFT_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2):
-                    await activity_environment.client.execute_workflow(
-                        RedshiftBatchExportWorkflow.run,
-                        inputs,
-                        id=workflow_id,
-                        task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
-                        retry_policy=RetryPolicy(maximum_attempts=1),
-                        execution_timeout=dt.timedelta(seconds=20),
-                    )
+    async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
+        async with Worker(
+            activity_environment.client,
+            task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
+            workflows=[RedshiftBatchExportWorkflow],
+            activities=[
+                start_batch_export_run,
+                insert_into_internal_stage_activity,
+                insert_into_redshift_activity_from_stage,
+                copy_into_redshift_activity_from_stage,
+                finish_batch_export_run,
+            ],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            with override_settings(BATCH_EXPORT_REDSHIFT_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2):
+                await activity_environment.client.execute_workflow(
+                    RedshiftBatchExportWorkflow.run,
+                    inputs,
+                    id=workflow_id,
+                    task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                    execution_timeout=dt.timedelta(seconds=20),
+                )
 
     runs = await afetch_batch_export_runs(batch_export_id=redshift_batch_export.id)
     assert len(runs) == 2
