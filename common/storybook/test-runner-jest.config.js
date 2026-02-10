@@ -1,4 +1,5 @@
 const { getJestConfig } = require('@storybook/test-runner')
+const path = require('path')
 
 const baseConfig = getJestConfig()
 
@@ -17,5 +18,5 @@ module.exports = {
     testEnvironment: './test-runner-jest-environment.js',
     snapshotResolver: './test-snapshot-resolver.js',
     testPathIgnorePatterns: ['/node_modules/', '/rust/cymbal/tests/snapshots/'],
-    testSequencer: './test-sequencer.js',
+    testSequencer: path.resolve(__dirname, 'test-sequencer.js'),
 }
