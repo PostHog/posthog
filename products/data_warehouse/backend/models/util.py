@@ -1,5 +1,4 @@
 import re
-import socket
 from ipaddress import ip_address
 from typing import TYPE_CHECKING, Union
 from urllib.parse import urlparse
@@ -176,6 +175,13 @@ STR_TO_HOGQL_MAPPING = {
 
 def _is_safe_public_ip(host: str) -> bool:
     ip = ip_address(host)
+
+    # IPv6 can carry embedded IPv4 addresses that need the same SSRF checks.
+    if getattr(ip, "ipv4_mapped", None):
+        return _is_safe_public_ip(str(ip.ipv4_mapped))
+    if getattr(ip, "sixtofour", None):
+        return _is_safe_public_ip(str(ip.sixtofour))
+
     return not (
         ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_reserved or ip.is_unspecified
     )
@@ -192,24 +198,16 @@ def validate_warehouse_table_url_pattern(url_pattern: str | None) -> tuple[bool,
     if not parsed.hostname:
         return False, "URL pattern must include a valid hostname."
 
-    # Block direct internal IPs.
+    normalized_hostname = parsed.hostname.lower().strip().rstrip(".")
+    if normalized_hostname in {"localhost"}:
+        return False, "URL pattern hostname is not allowed."
+
+    # Block direct internal IP literals.
     try:
         if not _is_safe_public_ip(parsed.hostname):
             return False, "URL pattern hostname must not resolve to internal IP ranges."
-        return True, ""
     except ValueError:
+        # Not an IP literal: avoid DNS/network calls in request validation path.
         pass
-
-    # Block hostnames that resolve to any internal IP (SSRF guard).
-    try:
-        resolved_hosts = socket.getaddrinfo(parsed.hostname, parsed.port or 443, proto=socket.IPPROTO_TCP)
-    except socket.gaierror:
-        return False, "URL pattern hostname could not be resolved."
-
-    for resolved_host in resolved_hosts:
-        sockaddr = resolved_host[4]
-        ip = sockaddr[0]
-        if not _is_safe_public_ip(ip):
-            return False, "URL pattern hostname must not resolve to internal IP ranges."
 
     return True, ""

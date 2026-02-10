@@ -18,13 +18,15 @@ class TestTable(APIBaseTest):
         [
             ("http_scheme", "http://example.com/path/*.csv", "URL pattern must use https."),
             ("s3_scheme", "s3://bucket/path/*.parquet", "URL pattern must use https."),
-            ("localhost", "https://localhost/path/*.csv", "internal IP ranges"),
+            ("localhost", "https://localhost/path/*.csv", "hostname is not allowed"),
             ("literal_ipv4_loopback", "https://127.0.0.1/path/*.csv", "internal IP ranges"),
             ("literal_ipv4_linklocal", "https://169.254.169.254/path/*.csv", "internal IP ranges"),
+            ("literal_ipv6_mapped_loopback", "https://[::ffff:127.0.0.1]/path/*.csv", "internal IP ranges"),
+            ("literal_ipv6_6to4_loopback", "https://[2002:7f00:1::]/path/*.csv", "internal IP ranges"),
         ]
     )
     def test_create_columns_blocks_unsafe_url_patterns(self, _: str, url_pattern: str, expected_error: str):
-        with patch("products.data_warehouse.backend.models.table.DataWarehouseTable.get_columns") as patch_get_columns:
+        with patch.object(DataWarehouseTable, "get_columns") as patch_get_columns:
             response = self.client.post(
                 f"/api/projects/{self.team.id}/warehouse_tables/",
                 {
