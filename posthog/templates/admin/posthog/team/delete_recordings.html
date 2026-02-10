@@ -1,0 +1,243 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block content %}
+<p><a href="{% url 'admin:posthog_team_change' team.pk %}">&larr; Back to team</a></p>
+
+<h2>Delete Session Recordings</h2>
+<p><strong style="color: red;">Warning: This action permanently deletes session recording data and cannot be undone.</strong></p>
+
+<!-- Workflow Status Section -->
+<div class="workflow-section" style="background: #fff;">
+    <h3>Recent Deletion Workflows</h3>
+    {% if workflows %}
+    <table style="width: 100%; border-collapse: collapse;">
+        <thead>
+            <tr style="background: #f5f5f5;">
+                <th style="padding: 8px; text-align: left; border-bottom: 2px solid #ddd;">Workflow ID</th>
+                <th style="padding: 8px; text-align: left; border-bottom: 2px solid #ddd;">Type</th>
+                <th style="padding: 8px; text-align: left; border-bottom: 2px solid #ddd;">Status</th>
+                <th style="padding: 8px; text-align: left; border-bottom: 2px solid #ddd;">Started</th>
+                <th style="padding: 8px; text-align: left; border-bottom: 2px solid #ddd;">Completed</th>
+                <th style="padding: 8px; text-align: left; border-bottom: 2px solid #ddd;">Certificate</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for wf in workflows %}
+            <tr style="border-bottom: 1px solid #eee;">
+                <td style="padding: 8px; font-family: monospace; font-size: 11px;">{{ wf.id }}</td>
+                <td style="padding: 8px;">{{ wf.workflow_type }}</td>
+                <td style="padding: 8px;">
+                    {% if wf.status == "RUNNING" %}
+                        <span style="color: blue; font-weight: bold;">Running</span>
+                    {% elif wf.status == "COMPLETED" %}
+                        <span style="color: green;">Completed</span>
+                    {% elif wf.status == "FAILED" %}
+                        <span style="color: red;">Failed</span>
+                    {% elif wf.status == "CANCELED" %}
+                        <span style="color: orange;">Canceled</span>
+                    {% elif wf.status == "TERMINATED" %}
+                        <span style="color: red;">Terminated</span>
+                    {% elif wf.status == "TIMED_OUT" %}
+                        <span style="color: red;">Timed Out</span>
+                    {% else %}
+                        {{ wf.status }}
+                    {% endif %}
+                </td>
+                <td style="padding: 8px;">{{ wf.start_time|date:"Y-m-d H:i:s" }}</td>
+                <td style="padding: 8px;">{{ wf.close_time|date:"Y-m-d H:i:s"|default:"-" }}</td>
+                <td style="padding: 8px;">
+                    {% if wf.status == "COMPLETED" %}
+                        <a href="{% url 'admin:posthog_team_deletion_certificate' team.pk wf.id %}" style="margin-right: 8px;">View</a>
+                        <a href="{% url 'admin:posthog_team_download_deletion_certificate' team.pk wf.id %}">JSON</a>
+                    {% else %}
+                        -
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    <p style="margin-top: 10px;"><a href="" onclick="location.reload(); return false;">Refresh status</a></p>
+    {% else %}
+    <p style="color: #666;">No deletion workflows found for this team.</p>
+    {% endif %}
+</div>
+
+<style>
+    .workflow-section {
+        border: 1px solid #ddd;
+        padding: 20px;
+        margin: 20px 0;
+        border-radius: 4px;
+        background: #fafafa;
+    }
+    .workflow-section h3 {
+        margin-top: 0;
+        border-bottom: 1px solid #ddd;
+        padding-bottom: 10px;
+    }
+    .form-row {
+        margin: 15px 0;
+    }
+    .form-row label {
+        display: block;
+        font-weight: bold;
+        margin-bottom: 5px;
+    }
+    .form-row input[type="text"],
+    .form-row textarea {
+        width: 100%;
+        max-width: 500px;
+        padding: 8px;
+        box-sizing: border-box;
+    }
+    .form-row textarea {
+        height: 100px;
+        font-family: monospace;
+    }
+    .checkbox-row {
+        margin: 15px 0;
+    }
+    .checkbox-row label {
+        font-weight: normal;
+    }
+    .submit-row {
+        margin-top: 20px;
+    }
+    .submit-row input[type="submit"] {
+        padding: 10px 20px;
+        background: #dc3545;
+        color: white;
+        border: none;
+        cursor: pointer;
+    }
+    .submit-row input[type="submit"]:hover {
+        background: #c82333;
+    }
+    .help-text {
+        color: #666;
+        font-size: 12px;
+        margin-top: 5px;
+    }
+</style>
+
+<!-- Delete by Person -->
+<div class="workflow-section">
+    <h3>Delete by Person (Distinct IDs)</h3>
+    <p>Delete all recordings associated with specific person distinct IDs.</p>
+    <form method="post">
+        {% csrf_token %}
+        <input type="hidden" name="workflow_type" value="person">
+
+        <div class="form-row">
+            <label for="distinct_ids_person">Distinct IDs (one per line):</label>
+            <textarea id="distinct_ids_person" name="distinct_ids" required placeholder="user@example.com&#10;another-user-id"></textarea>
+            <p class="help-text">Enter each distinct ID on a new line.</p>
+        </div>
+
+        <div class="form-row">
+            <label for="reason_person">Reason:</label>
+            <input type="text" id="reason_person" name="reason" required placeholder="e.g. GDPR deletion request #1234">
+        </div>
+
+        <div class="submit-row">
+            <input type="submit" value="Delete Recordings for Person(s)">
+        </div>
+    </form>
+</div>
+
+<!-- Delete by Team -->
+<div class="workflow-section">
+    <h3>Delete All Recordings for Team</h3>
+    <p><strong style="color: red;">Danger:</strong> This will delete ALL recordings for this team.</p>
+    <form method="post">
+        {% csrf_token %}
+        <input type="hidden" name="workflow_type" value="team">
+
+        <div class="checkbox-row">
+            <label>
+                <input type="checkbox" name="dry_run" checked>
+                Dry run (preview only, don't actually delete)
+            </label>
+        </div>
+
+        <div class="form-row">
+            <label for="reason_team">Reason:</label>
+            <input type="text" id="reason_team" name="reason" required placeholder="e.g. Team data deletion request">
+        </div>
+
+        <div class="submit-row">
+            <input type="submit" value="Delete All Team Recordings">
+        </div>
+    </form>
+</div>
+
+<!-- Delete by Filters -->
+<div class="workflow-section">
+    <h3>Delete by Filters</h3>
+    <p>Delete recordings matching the specified filters. At least one filter is required.</p>
+    <form method="post">
+        {% csrf_token %}
+        <input type="hidden" name="workflow_type" value="filters">
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; max-width: 600px;">
+            <div class="form-row" style="margin: 0;">
+                <label for="date_from">Date from:</label>
+                <input type="text" id="date_from" name="date_from" placeholder="e.g. -30d or 2024-01-01" style="width: 100%;">
+                <p class="help-text">Relative (-7d, -30d) or absolute (YYYY-MM-DD)</p>
+            </div>
+
+            <div class="form-row" style="margin: 0;">
+                <label for="date_to">Date to:</label>
+                <input type="text" id="date_to" name="date_to" placeholder="e.g. -7d or 2024-01-31" style="width: 100%;">
+                <p class="help-text">Leave empty for "now"</p>
+            </div>
+
+            <div class="form-row" style="margin: 0;">
+                <label for="duration_min">Min duration (seconds):</label>
+                <input type="number" id="duration_min" name="duration_min" min="0" placeholder="e.g. 0" style="width: 100%;">
+            </div>
+
+            <div class="form-row" style="margin: 0;">
+                <label for="duration_max">Max duration (seconds):</label>
+                <input type="number" id="duration_max" name="duration_max" min="0" placeholder="e.g. 5">
+                <p class="help-text">Useful for filtering out bot sessions</p>
+            </div>
+        </div>
+
+        <div class="form-row">
+            <label for="person_uuid">Person UUID:</label>
+            <input type="text" id="person_uuid" name="person_uuid" placeholder="e.g. 01234567-89ab-cdef-0123-456789abcdef" style="max-width: 400px;">
+            <p class="help-text">Delete all recordings for a specific person</p>
+        </div>
+
+        <div class="form-row">
+            <label for="platform">Platform:</label>
+            <select id="platform" name="platform" style="padding: 8px;">
+                <option value="">Any</option>
+                <option value="web">Web</option>
+                <option value="mobile">Mobile</option>
+            </select>
+            <p class="help-text">Filter by recording source platform</p>
+        </div>
+
+        <div class="checkbox-row">
+            <label>
+                <input type="checkbox" name="dry_run" checked>
+                Dry run (preview only, don't actually delete)
+            </label>
+        </div>
+
+        <div class="form-row">
+            <label for="reason_filters">Reason:</label>
+            <input type="text" id="reason_filters" name="reason" required placeholder="e.g. Cleanup old recordings">
+        </div>
+
+        <div class="submit-row">
+            <input type="submit" value="Delete Recordings by Filters">
+        </div>
+    </form>
+</div>
+
+{% endblock %}
