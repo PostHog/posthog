@@ -31,10 +31,10 @@ from posthog.cloud_utils import is_cloud
 from posthog.dags.common.common import JobOwners, dagster_tags
 from posthog.git import get_git_commit_short
 from posthog.models.raw_sessions.sessions_v3 import (
-    DISTRIBUTED_RAW_SESSIONS_TABLE_V3,
     GET_NUM_SHARDED_RAW_SESSIONS_ACTIVE_PARTS,
     RAW_SESSION_TABLE_BACKFILL_RECORDINGS_SQL_V3,
     RAW_SESSION_TABLE_BACKFILL_SQL_V3,
+    WRITABLE_RAW_SESSIONS_TABLE_V3,
 )
 
 # This is the number of days to backfill in one SQL operation
@@ -458,7 +458,8 @@ def _do_experimental_backfill(
 
                 backfill_sql = sql_template(
                     where=chunk_where_clause,
-                    target_table=DISTRIBUTED_RAW_SESSIONS_TABLE_V3(),
+                    target_table=WRITABLE_RAW_SESSIONS_TABLE_V3(),
+                    include_session_timestamp=False,
                 )
                 context.log.info(backfill_sql)
                 sync_execute(backfill_sql, settings=merged_settings, sync_client=client)
