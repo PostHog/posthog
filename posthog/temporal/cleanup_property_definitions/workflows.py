@@ -9,6 +9,7 @@ from posthog.temporal.cleanup_property_definitions.activities import (
     preview_property_definitions,
 )
 from posthog.temporal.cleanup_property_definitions.types import (
+    CleanupPropertyDefinitionsError,
     CleanupPropertyDefinitionsInput,
     DeleteClickHousePropertyDefinitionsInput,
     DeletePostgresPropertyDefinitionsInput,
@@ -66,10 +67,12 @@ class CleanupPropertyDefinitionsWorkflow(PostHogWorkflow):
             )
             return result
 
-        # Delete from PostgreSQL in batches to avoid long-held locks
+        # Delete from PostgreSQL in batches to avoid long-held locks.
+        # Cap iterations so a pathological regex or concurrent churn can't loop forever.
         batch_size = 5000
+        max_batches = 400  # 400 * 5000 = 2M rows
         total_postgres_deleted = 0
-        while True:
+        for _batch_num in range(max_batches):
             batch_deleted = await workflow.execute_activity(
                 delete_property_definitions_from_postgres,
                 DeletePostgresPropertyDefinitionsInput(
@@ -87,6 +90,12 @@ class CleanupPropertyDefinitionsWorkflow(PostHogWorkflow):
             total_postgres_deleted += batch_deleted
             if batch_deleted < batch_size:
                 break
+        else:
+            raise CleanupPropertyDefinitionsError(
+                f"Postgres delete hit the per-run limit of {max_batches * batch_size:,} rows "
+                f"({total_postgres_deleted:,} deleted). "
+                f"Re-run the workflow to continue deleting remaining rows."
+            )
         result["postgres_deleted"] = total_postgres_deleted
 
         # Delete from ClickHouse
