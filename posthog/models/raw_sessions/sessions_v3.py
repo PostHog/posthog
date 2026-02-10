@@ -301,7 +301,7 @@ PROPERTIES = f"""
         ]) AS Array(String)) as ad_ids_set"""
 
 
-def RAW_SESSION_TABLE_MV_SELECT_SQL_V3(source_table, where="TRUE"):
+def RAW_SESSION_TABLE_MV_SELECT_SQL_V3(source_table, where="TRUE", include_session_timestamp=False):
     return """
 WITH
     {PROPERTIES},
@@ -311,7 +311,7 @@ WITH
 SELECT
     team_id,
     `$session_id_uuid` AS session_id_v7,
-    fromUnixTimestamp64Milli(toUInt64(bitShiftRight(`$session_id_uuid`, 80))) AS `session_timestamp`,
+    {session_timestamp}
 
     initializeAggregation('argMaxState', source_table.distinct_id, timestamp) as distinct_id,
     initializeAggregation('groupUniqArrayState', source_table.distinct_id) as distinct_ids,
@@ -389,6 +389,9 @@ AND {where}
         source_table=source_table,
         where=where,
         PROPERTIES=PROPERTIES,
+        session_timestamp="fromUnixTimestamp64Milli(toUInt64(bitShiftRight(session_id_v7, 80))),"
+        if include_session_timestamp
+        else "",
     )
 
 
@@ -546,8 +549,10 @@ def RAW_SESSION_TABLE_BACKFILL_SQL_V3(
     if shard_index is not None and num_shards is not None:
         shard_filter = f"modulo(cityHash64(`$session_id_uuid`), {num_shards}) = {shard_index}"
         combined_where = f"({where}) AND {shard_filter}"
+        include_session_timestamp = False
     else:
         combined_where = where
+        include_session_timestamp = True
 
     return """
 INSERT INTO {database}.{target_table}
@@ -558,6 +563,7 @@ INSERT INTO {database}.{target_table}
         select_sql=RAW_SESSION_TABLE_MV_SELECT_SQL_V3(
             where=combined_where,
             source_table=f"{settings.CLICKHOUSE_DATABASE}.events",
+            include_session_timestamp=include_session_timestamp,
         ),
     )
 

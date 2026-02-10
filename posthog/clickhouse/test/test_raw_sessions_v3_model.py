@@ -342,6 +342,14 @@ class TestRawSessionsModel(ClickhouseTestMixin, BaseTest):
             ),
             {"team_id": self.team.id},
         )
+        # # this is currently commented out so we can run this on an usual db setup
+        # sync_execute(
+        #     RAW_SESSION_TABLE_BACKFILL_SQL_V3(
+        #         where="team_id = %(team_id)s AND timestamp >= '2024-03-01'",
+        #         target_table=DISTRIBUTED_RAW_SESSIONS_TABLE_V3()
+        #     ),
+        #     {"team_id": self.team.id},
+        # )
 
     def test_max_inserted_at(self):
         distinct_id = create_distinct_id()
