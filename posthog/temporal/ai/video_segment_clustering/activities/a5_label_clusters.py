@@ -179,31 +179,44 @@ async def _call_llm_to_label_cluster(
 
     # Build prompt with full context
     segment_texts = [f"{i}. {content}" for i, content in enumerate(context.segment_contents, 1)]
-    response = await genai_client.models.generate_content(
-        model=model,
-        contents=[
-            types.Part(text=LABELING_SYSTEM_PROMPT),
-            types.Part(
-                text=LABELING_USER_PROMPT_TEMPLATE.format(
-                    sample_count=len(context.segment_contents),
-                    segment_texts_joined="\n".join(segment_texts),
-                    relevant_user_count=context.relevant_user_count,
-                    occurrence_count=context.occurrence_count,
-                    last_occurrence_iso=context.last_occurrence_iso or "Unknown",
-                )
-            ),
-        ],
-        config=GenerateContentConfig(
-            response_mime_type="application/json",
-            response_json_schema=ClusterLabel.model_json_schema(),
-        ),
+    user_prompt = LABELING_USER_PROMPT_TEMPLATE.format(
+        sample_count=len(context.segment_contents),
+        segment_texts_joined="\n".join(segment_texts),
+        relevant_user_count=context.relevant_user_count,
+        occurrence_count=context.occurrence_count,
+        last_occurrence_iso=context.last_occurrence_iso or "Unknown",
     )
-    content = response.text
-    if not content:
-        raise ValueError("Empty response from LLM")
-    result = json.loads(content)
-    return ClusterLabel(
-        actionable=result.get("actionable", False),
-        title=result.get("title", ""),
-        description=result.get("description", ""),
-    )
+
+    prompt_parts = [
+        types.Part(text=LABELING_SYSTEM_PROMPT),
+        types.Part(text=user_prompt),
+    ]
+
+    for attempt in range(3):
+        try:
+            response = await genai_client.models.generate_content(
+                model=model,
+                contents=prompt_parts,
+                config=GenerateContentConfig(
+                    response_mime_type="application/json",
+                    response_json_schema=ClusterLabel.model_json_schema(),
+                ),
+            )
+            content = response.text
+            if not content:
+                raise ValueError("Empty response from LLM")
+            result = json.loads(content)
+            return ClusterLabel(
+                actionable=result.get("actionable", False),
+                title=result.get("title", ""),
+                description=result.get("description", ""),
+            )
+        except Exception as e:
+            if attempt == 2:
+                raise
+            prompt_parts.append(
+                types.Part(text=f"\n\nAttempt {attempt + 1} failed with error: {e!r}\nPlease fix your output.")
+            )
+
+    # Should never reach here, but satisfy type checker
+    raise RuntimeError("Unreachable")
