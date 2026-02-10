@@ -155,7 +155,10 @@ jobs:
                   else
                     AUTHOR="${{ github.actor }}"
                     echo "Workflow triggered by: $AUTHOR"
-                    if [[ "$AUTHOR" == *"github-actions"* ]] || [[ "$AUTHOR" == *"[bot]"* ]] || [[ "$AUTHOR" == "posthog-bot" ]]; then
+                    # Dependabot is excluded - it creates new PRs that may need snapshot updates
+                    # Other bots (github-actions, posthog-bot) commit snapshots and must use CHECK mode to avoid loops
+                    if [[ "$AUTHOR" != "dependabot[bot]" ]] && \
+                       ([[ "$AUTHOR" == *"github-actions"* ]] || [[ "$AUTHOR" == *"[bot]"* ]] || [[ "$AUTHOR" == "posthog-bot" ]]); then
                       echo "mode=check" >> $GITHUB_OUTPUT
                       echo "::notice::🔍 Running in CHECK mode - snapshots must match exactly"
                     else
@@ -194,7 +197,7 @@ jobs:
 
             - name: Install uv
               id: setup-uv
-              uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b # v7.2.0
+              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
               with:
                   enable-cache: true
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
@@ -458,6 +461,9 @@ jobs:
             - name: Install pnpm
               uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
 
+            - name: Fix node-gyp permissions
+              run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
+
             - name: Set up Node.js
               uses: actions/setup-node@v4
               with:
@@ -702,7 +708,7 @@ jobs:
 
             - name: Install uv
               id: setup-uv-tests
-              uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b # v7.2.0
+              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
               with:
                   enable-cache: true
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
@@ -1215,7 +1221,7 @@ jobs:
 
             - name: Install uv
               id: setup-uv-async
-              uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b # v7.2.0
+              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
               with:
                   enable-cache: true
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
@@ -1315,7 +1321,7 @@ jobs:
                   python-version: '3.12'
 
             - name: Install uv
-              uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b # v7.2.0
+              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
 
             - name: Install dependencies
               run: uv sync --frozen --dev

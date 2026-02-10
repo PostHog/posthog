@@ -9,6 +9,7 @@ import { Query } from '~/queries/Query/Query'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { InsightLogicProps } from '~/types'
 
+import { CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS } from 'products/customer_analytics/frontend/constants'
 import { customerProfileLogic } from 'products/customer_analytics/frontend/customerProfileLogic'
 import { issueFiltersLogic } from 'products/error_tracking/frontend/components/IssueFilters/issueFiltersLogic'
 import { issueQueryOptionsLogic } from 'products/error_tracking/frontend/components/IssueQueryOptions/issueQueryOptionsLogic'
@@ -107,7 +108,19 @@ const IssuesQuery = ({ personId, groupKey, groupTypeIndex, logicKey, attachTo }:
 
     return (
         <BindLogic logic={issuesDataNodeLogic} props={{ key: insightVizDataNodeKey(insightProps) }}>
-            <Query uniqueKey={logicKey} attachTo={attachTo} query={{ ...query, embedded: true }} context={context} />
+            <Query
+                uniqueKey={logicKey}
+                attachTo={attachTo}
+                query={{
+                    ...query,
+                    source: {
+                        ...query.source,
+                        tags: CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS,
+                    },
+                    embedded: true,
+                }}
+                context={context}
+            />
         </BindLogic>
     )
 }

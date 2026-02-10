@@ -3,7 +3,6 @@ import json
 from typing import Any, Optional
 
 from django.conf import settings
-from django.core.cache import cache
 from django.db import models, transaction
 from django.db.models.signals import post_delete, post_save, pre_save
 from django.dispatch.dispatcher import receiver
@@ -32,9 +31,6 @@ from products.error_tracking.backend.models import ErrorTrackingAutoCaptureContr
 from products.product_tours.backend.models import ProductTour
 
 tracer = trace.get_tracer(__name__)
-
-CACHE_TIMEOUT = 60 * 60 * 24  # 1 day - it will be invalidated by the daily sync
-
 
 CELERY_TASK_REMOTE_CONFIG_SYNC = Counter(
     "posthog_remote_config_sync",
@@ -78,10 +74,6 @@ def indent_js(js_content: str, indent: int = 4) -> str:
     joined = "\n".join([f"{' ' * indent}{line}" for line in js_content.split("\n")])
 
     return joined
-
-
-def cache_key_for_team_token(team_token: str) -> str:
-    return f"remote_config/{team_token}/config"
 
 
 @tracer.start_as_current_span("RemoteConfig.sanitize_config_for_public_cdn")
@@ -380,35 +372,22 @@ class RemoteConfig(UUIDTModel):
 
     @classmethod
     def _get_config_via_cache(cls, token: str) -> dict:
-        key = cache_key_for_team_token(token)
+        # source tells us where the result came from ("redis", "s3", or None).
+        # When data is None, source disambiguates: a cache hit returning None means
+        # the team was explicitly cached as missing, while no source means a true cache miss.
+        data, source = cls.get_hypercache().get_from_cache_with_source(token)
 
-        data = cache.get(key)
-        if data == "404":
-            REMOTE_CONFIG_CACHE_COUNTER.labels(result="hit_but_missing").inc()
+        if data is None:
+            if source in ("redis", "s3"):
+                REMOTE_CONFIG_CACHE_COUNTER.labels(result="hit_but_missing").inc()
+            else:
+                REMOTE_CONFIG_CACHE_COUNTER.labels(result="miss_but_missing").inc()
             raise cls.DoesNotExist()
 
-        if data:
+        if source in ("redis", "s3"):
             REMOTE_CONFIG_CACHE_COUNTER.labels(result="hit").inc()
-            return data
-
-        REMOTE_CONFIG_CACHE_COUNTER.labels(result="miss").inc()
-        try:
-            remote_config = cls.objects.select_related("team").get(team__api_token=token)
-        except cls.DoesNotExist:
-            # Try to find the team and create RemoteConfig if it exists
-            try:
-                from posthog.models.team import Team
-
-                team = Team.objects.get(api_token=token)
-                remote_config = cls(team=team)  # type: ignore[assignment]
-            except Team.DoesNotExist:
-                cache.set(key, "404", timeout=CACHE_TIMEOUT)
-                REMOTE_CONFIG_CACHE_COUNTER.labels(result="miss_but_missing").inc()
-                raise cls.DoesNotExist()
-
-        data = remote_config.build_config()
-        cache.set(key, data, timeout=CACHE_TIMEOUT)
-
+        else:
+            REMOTE_CONFIG_CACHE_COUNTER.labels(result="miss").inc()
         return data
 
     @classmethod
@@ -473,8 +452,6 @@ class RemoteConfig(UUIDTModel):
                 logger.exception(f"Failed to update hypercache for team {self.team_id}")
                 capture_exception(e)
 
-            # Update the redis cache key for the config
-            cache.set(cache_key_for_team_token(self.team.api_token), config, timeout=CACHE_TIMEOUT)
             # Invalidate Cloudflare CDN cache
             self._purge_cdn()
 

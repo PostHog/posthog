@@ -10,7 +10,7 @@ from posthog.temporal.ai.session_summary.activities import (
     capture_timing_activity,
     consolidate_video_segments_activity,
     embed_and_store_segments_activity,
-    export_session_video_activity,
+    prep_session_video_asset_activity,
     store_video_session_summary_activity,
     upload_video_to_gemini_activity,
 )
@@ -58,10 +58,10 @@ from .sync_vectors import (
 from .video_segment_clustering.activities import (
     cluster_segments_activity,
     fetch_segments_activity,
+    get_sessions_to_prime_activity,
     label_clusters_activity,
     match_clusters_activity,
     persist_reports_activity,
-    prime_session_embeddings_activity,
 )
 from .video_segment_clustering.clustering_workflow import VideoSegmentClusteringWorkflow
 from .video_segment_clustering.coordinator_workflow import (
@@ -103,7 +103,7 @@ ACTIVITIES = [
     summarize_llm_traces_activity,
     process_slack_conversation_activity,
     # Video analysis activities
-    export_session_video_activity,
+    prep_session_video_asset_activity,
     upload_video_to_gemini_activity,
     analyze_video_segment_activity,
     embed_and_store_segments_activity,
@@ -111,7 +111,7 @@ ACTIVITIES = [
     consolidate_video_segments_activity,
     capture_timing_activity,
     # Video segment clustering activities
-    prime_session_embeddings_activity,
+    get_sessions_to_prime_activity,
     fetch_segments_activity,
     cluster_segments_activity,
     match_clusters_activity,

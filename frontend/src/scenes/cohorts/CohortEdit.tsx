@@ -2,16 +2,7 @@ import { BindLogic, BuiltLogic, Logic, LogicWrapper, useActions, useValues } fro
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
 
-import {
-    IconClock,
-    IconCopy,
-    IconMinusSmall,
-    IconPlusSmall,
-    IconRefresh,
-    IconTrash,
-    IconUpload,
-    IconWarning,
-} from '@posthog/icons'
+import { IconClock, IconCopy, IconRefresh, IconTrash, IconUpload, IconWarning } from '@posthog/icons'
 import { LemonBanner, LemonDialog, LemonDivider, LemonFileInput, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
@@ -46,10 +37,10 @@ import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Query } from '~/queries/Query/Query'
 import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
-import { QueryContext } from '~/queries/types'
 import { CohortType, SidePanelTab } from '~/types'
 
 import { AddPersonToCohortModal } from './AddPersonToCohortModal'
+import { PersonSelectList } from './PersonSelectList'
 import { PersonDisplayNameType, RemovePersonFromCohortButton } from './RemovePersonFromCohortButton'
 import { addPersonToCohortModalLogic } from './addPersonToCohortModalLogic'
 import { cohortCountWarningLogic } from './cohortCountWarningLogic'
@@ -118,38 +109,6 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
         enabled: Boolean(cohortId && !cohortLoading && !cohortMissing && !cohort.deleted),
         deps: [cohortId, cohortLoading, cohortMissing, cohort.deleted],
     })
-
-    const createStaticCohortContext: QueryContext = {
-        columns: {
-            id: {
-                renderTitle: () => null,
-                render: (props) => {
-                    const id = props.value as string
-                    const isAdded = personsToCreateStaticCohort[id] != null
-                    return (
-                        <LemonButton
-                            type="secondary"
-                            status={isAdded ? 'danger' : 'default'}
-                            size="small"
-                            onClick={(e) => {
-                                e.preventDefault()
-                                if (isAdded) {
-                                    removePersonFromCreateStaticCohort(id)
-                                } else {
-                                    addPersonToCreateStaticCohort(id)
-                                }
-                            }}
-                        >
-                            {isAdded ? <IconMinusSmall /> : <IconPlusSmall />}
-                        </LemonButton>
-                    )
-                },
-            },
-        },
-        showOpenEditorButton: false,
-        emptyStateHeading: 'There are no persons matching your search',
-        emptyStateDetail: 'Try adjusting your search to see more results.',
-    }
 
     if (cohortMissing) {
         return <NotFound object="cohort" />
@@ -471,10 +430,13 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
                                                 Select the users that you would like to add to the new cohort.
                                             </span>
                                         </div>
-                                        <Query
+                                        <PersonSelectList
                                             query={creationPersonQuery}
                                             setQuery={setCreationPersonQuery}
-                                            context={createStaticCohortContext}
+                                            selectedPersons={personsToCreateStaticCohort}
+                                            onAddPerson={addPersonToCreateStaticCohort}
+                                            onRemovePerson={removePersonFromCreateStaticCohort}
+                                            dataNodeKey="createStaticCohort"
                                         />
                                     </>
                                 )}
@@ -490,6 +452,7 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
                                                 className="w-fit mt-4"
                                                 type="primary"
                                                 onClick={showAddPersonToCohortModal}
+                                                data-attr="cohort-add-users-modal-open"
                                             >
                                                 Add Users
                                             </LemonButton>

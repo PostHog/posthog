@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PostHog MCP Server</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --brand-blue: #1d4aff;
+            --text-primary: #111;
+            --text-secondary: #5e5e5e;
+            --bg: #f3f0ec;
+            --bg-card: #fff;
+            --border: #e2dfda;
+            --radius: 6px;
+            --button-border: #b17816;
+            --button-border-hover: #8e5b03;
+            --button-frame: #eb9d2a;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+            background: var(--bg);
+            color: var(--text-primary);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        .container {
+            max-width: 520px;
+            width: 100%;
+        }
+
+        .window {
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            overflow: hidden;
+        }
+
+        .window-titlebar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background: var(--bg);
+            border-bottom: 1px solid var(--border);
+            padding: 8px 12px;
+        }
+
+        .window-titlebar-left {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            color: var(--text-secondary);
+        }
+
+        .window-titlebar-left svg {
+            width: 14px;
+            height: 14px;
+        }
+
+        .window-titlebar-left .chevron {
+            width: 10px;
+            height: 10px;
+        }
+
+        .window-title {
+            font-size: 12px;
+            font-weight: 500;
+            color: var(--text-secondary);
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .window-title .chevron {
+            width: 10px;
+            height: 10px;
+            color: var(--text-secondary);
+        }
+
+        .window-controls {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            color: var(--text-secondary);
+        }
+
+        .window-controls svg {
+            width: 14px;
+            height: 14px;
+        }
+
+        .card {
+            background: var(--bg-card);
+            padding: 48px 40px;
+            text-align: center;
+        }
+
+        .logo-row {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 28px;
+        }
+
+        .logo-row svg {
+            height: 28px;
+            width: auto;
+        }
+
+        .badge {
+            background: var(--brand-blue);
+            color: #fff;
+            font-size: 11px;
+            font-weight: 600;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+            padding: 3px 8px;
+            border-radius: var(--radius);
+        }
+
+        h1 {
+            font-size: 22px;
+            font-weight: 600;
+            line-height: 1.3;
+            margin-bottom: 12px;
+            color: var(--text-primary);
+        }
+
+        .description {
+            font-size: 15px;
+            line-height: 1.6;
+            color: var(--text-secondary);
+            margin-bottom: 32px;
+        }
+
+        .cta {
+            position: relative;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            background: transparent;
+            color: var(--text-primary);
+            font-family: inherit;
+            font-size: 0.875rem;
+            font-weight: 500;
+            line-height: 1.5rem;
+            text-decoration: none;
+            padding: 2.5px 12px 5.5px;
+            border: 1px solid var(--button-border);
+            border-radius: var(--radius);
+            box-shadow: 0 3px 0 -1px var(--button-frame);
+            cursor: pointer;
+            transition: transform 200ms ease, box-shadow 200ms ease, border-color 200ms ease;
+        }
+
+        .cta:hover {
+            border-color: var(--button-border-hover);
+            transform: translateY(-0.5px);
+            box-shadow: 0 3.5px 0 -1px var(--button-frame);
+        }
+
+        .cta:active {
+            transform: translateY(0.5px);
+            box-shadow: 0 2.5px 0 -1px var(--button-frame);
+        }
+
+        .cta svg {
+            width: 16px;
+            height: 16px;
+        }
+
+        .footer {
+            text-align: center;
+            margin-top: 20px;
+            font-size: 13px;
+            color: var(--text-secondary);
+        }
+
+        .footer a {
+            color: var(--text-secondary);
+            text-decoration: underline;
+            text-underline-offset: 2px;
+        }
+
+        .footer a:hover {
+            color: var(--text-primary);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="window">
+            <div class="window-titlebar">
+                <div class="window-titlebar-left">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z"/></svg>
+                    <svg class="chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5"/></svg>
+                </div>
+                <span class="window-title">
+                    mcp.posthog.com
+                    <svg class="chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5"/></svg>
+                </span>
+                <div class="window-controls">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M5 12h14"/></svg>
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><rect x="4.5" y="4.5" width="15" height="15" rx="1.5"/></svg>
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12"/></svg>
+                </div>
+            </div>
+            <div class="card">
+            <div class="logo-row">
+                <svg fill="none" height="30" viewBox="0 0 157 30" xmlns="http://www.w3.org/2000/svg"><clipPath id="a"><path d="m0 0h157v30h-157z"/></clipPath><g clip-path="url(#a)"><path d="m10.8914 17.2058c-.3685.7371-1.42034.7371-1.78887 0l-.88136-1.7627c-.14077-.2815-.14077-.6129 0-.8944l.88136-1.7628c.36853-.737 1.42037-.737 1.78887 0l.8814 1.7628c.1407.2815.1407.6129 0 .8944z" fill="#1d4aff"/><path d="m10.8914 27.2029c-.3685.737-1.42034.737-1.78887 0l-.88136-1.7627c-.14077-.2816-.14077-.6129 0-.8945l.88136-1.7627c.36853-.7371 1.42037-.7371 1.78887 0l.8814 1.7627c.1407.2816.1407.6129 0 .8945z" fill="#1d4aff"/><path d="m0 23.4082c0-.8909 1.07714-1.3371 1.70711-.7071l4.58338 4.5834c.62997.63.1838 1.7071-.7071 1.7071h-4.583391c-.552284 0-.999999-.4477-.999999-1zm0-4.8278c0 .2652.105357.5196.292893.7071l9.411217 9.4112c.18753.1875.44189.2929.70709.2929h5.1692c.8909 0 1.3371-1.0771.7071-1.7071l-14.58039-14.5804c-.62997-.63-1.70711-.1838-1.70711.7071zm0-9.99701c0 .26521.105357.51957.292893.7071l19.408207 19.40821c.1875.1875.4419.2929.7071.2929h5.1692c.8909 0 1.3371-1.0771.7071-1.7071l-24.57739-24.57739c-.62996-.62996-1.70711-.1838-1.70711.7071zm9.997 0c0 .26521.1054.51957.2929.7071l17.994 17.99401c.63.63 1.7071.1838 1.7071-.7071v-5.1692c0-.2652-.1054-.5196-.2929-.7071l-17.994-17.994c-.63-.62996-1.7071-.18379-1.7071.70711zm11.7041-5.87628c-.63-.62997-1.7071-.1838-1.7071.7071v5.16918c0 .26521.1054.51957.2929.7071l7.997 7.99701c.63.63 1.7071.1838 1.7071-.7071v-5.1692c0-.2652-.1054-.5196-.2929-.7071z" fill="#f9bd2b"/><path d="m42.5249 23.531-9.4128-9.4128c-.6299-.6299-1.7071-.1838-1.7071.7071v13.1665c0 .5522.4477 1 1 1h14.5807c.5522 0 1-.4478 1-1v-1.1991c0-.5523-.4496-.9933-.9973-1.0646-1.6808-.2188-3.2528-.9864-4.4635-2.1971zm-6.3213 2.2617c-.8829 0-1.5995-.7166-1.5995-1.5995s.7166-1.5995 1.5995-1.5995 1.5995.7166 1.5995 1.5995-.7166 1.5995-1.5995 1.5995z" fill="#111"/><path d="m0 27.9917c0 .5523.447715 1 1 1h4.58339c.8909 0 1.33707-1.0771.70711-1.7071l-4.58339-4.5834c-.62997-.6299-1.70711-.1838-1.70711.7072z" fill="#1d4aff"/><path d="m9.997 10.997-8.28989-8.28989c-.62997-.62997-1.70711-.1838-1.70711.7071v5.16918c0 .26521.105357.51957.292893.7071l9.704107 9.70411z" fill="#1d4aff"/><path d="m1.70711 12.7042c-.62997-.63-1.70711-.1838-1.70711.7071v5.1692c0 .2652.105357.5195.292893.7071l9.704107 9.7041v-7.9976z" fill="#1d4aff"/><path d="m19.9939 11.4112c0-.2652-.1053-.5196-.2928-.7071l-7.997-7.99699c-.63-.62997-1.70715-.1838-1.70715.7071v5.16918c0 .26521.10535.51957.29285.7071l9.7041 9.70411z" fill="#f54e00"/><path d="m9.99707 28.9917h5.58343c.8909 0 1.337-1.0771.7071-1.7071l-6.29053-6.2905z" fill="#f54e00"/><path d="m9.99707 10.9971v7.5834c0 .2652.10533.5195.29293.7071l9.7041 9.7041v-7.5834c0-.2652-.1054-.5196-.2929-.7071z" fill="#f54e00"/><g fill="#111"><path d="m59.6497 24.9998h4.108v-6.812h3.432c3.77 0 6.188-2.236 6.188-5.694 0-3.45799-2.418-5.694-6.188-5.694h-7.54zm4.108-10.322v-4.368h3.016c1.56 0 2.496.832 2.496 2.184s-.936 2.184-2.496 2.184z"/><path d="m80.8096 25.2078c4.004 0 6.916-2.86 6.916-6.76s-2.912-6.76-6.916-6.76c-4.056 0-6.916 2.86-6.916 6.76s2.86 6.76 6.916 6.76zm-3.12-6.76c0-2.08 1.248-3.51 3.12-3.51 1.846 0 3.094 1.43 3.094 3.51s-1.248 3.51-3.094 3.51c-1.872 0-3.12-1.43-3.12-3.51z"/><path d="m94.2995 25.2078c3.068 0 5.148-1.924 5.148-4.186 0-5.304-7.046-3.588-7.046-5.668 0-.572.598-.936 1.456-.936.884 0 1.95.546 2.288 1.742l3.068-1.274c-.598-1.898-2.808-3.198-5.486-3.198-2.886 0-4.68 1.716-4.68 3.77 0 4.966 6.942 3.588 6.942 5.642 0 .728-.676 1.222-1.69 1.222-1.456 0-2.47-1.014-2.782-2.236l-3.068 1.196c.676 1.976 2.652 3.926 5.85 3.926z"/><path d="m109.33 24.8698-.26-3.302c-.442.234-1.014.312-1.482.312-.936 0-1.56-.676-1.56-1.846v-4.966h3.172v-3.172h-3.172v-3.796h-3.822v3.796h-2.08v3.172h2.08v5.46c0 3.172 2.158 4.68 4.992 4.68.78 0 1.508-.13 2.132-.338z"/><path d="m122.656 6.7998v7.072h-7.228v-7.072h-4.108v18.2h4.108v-7.618h7.228v7.618h4.134v-18.2z"/><path d="m135.908 25.2078c4.004 0 6.916-2.86 6.916-6.76s-2.912-6.76-6.916-6.76c-4.056 0-6.916 2.86-6.916 6.76s2.86 6.76 6.916 6.76zm-3.12-6.76c0-2.08 1.248-3.51 3.12-3.51 1.846 0 3.094 1.43 3.094 3.51s-1.248 3.51-3.094 3.51c-1.872 0-3.12-1.43-3.12-3.51z"/><path d="m150.201 24.5838c1.43 0 2.704-.494 3.38-1.352v1.248c0 1.456-1.17 2.47-2.964 2.47-1.274 0-2.392-.624-2.574-1.69l-3.484.546c.468 2.47 2.99 4.134 6.058 4.134 4.03 0 6.708-2.366 6.708-5.876v-12.168h-3.77v1.118c-.702-.806-1.898-1.326-3.432-1.326-3.64 0-5.928 2.496-5.928 6.448s2.288 6.448 6.006 6.448zm-2.288-6.448c0-1.95 1.144-3.198 2.912-3.198 1.794 0 2.938 1.248 2.938 3.198s-1.144 3.198-2.938 3.198c-1.768 0-2.912-1.248-2.912-3.198z"/></g></g></svg>
+                <span class="badge">MCP Server</span>
+            </div>
+
+            <h1>Connect your AI tools to PostHog</h1>
+
+            <p class="description">
+                Use the Model Context Protocol to query your analytics,
+                manage feature flags, create insights, and more — directly from
+                AI-powered tools like Claude and Cursor.
+            </p>
+
+            <!-- Not a template engine variable, replaced server-side with a hardcoded constant (MCP_DOCS_URL) -->
+            <!-- nosemgrep: generic.html-templates.security.var-in-href.var-in-href -->
+            <a href="{{DOCS_URL}}" class="cta">
+                Setup instructions
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5 21 12m0 0-7.5 7.5M21 12H3"/></svg>
+            </a>
+            </div>
+        </div>
+
+        <p class="footer">
+            <a href="https://posthog.com">posthog.com</a>
+        </p>
+    </div>
+</body>
+</html>
