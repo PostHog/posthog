@@ -14,6 +14,7 @@ import structlog
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiExample, OpenApiParameter
 from loginas.utils import is_impersonated_session
+from opentelemetry import trace
 from prometheus_client import Counter
 from requests import HTTPError
 from rest_framework import request, response, serializers, viewsets
@@ -53,7 +54,7 @@ from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.person.deletion import reset_deleted_person_distinct_ids
 from posthog.models.person.missing_person import MissingPerson
 from posthog.models.person.person import PersonDistinctId
-from posthog.models.person.util import delete_person
+from posthog.models.person.util import delete_person, get_persons_by_distinct_ids
 from posthog.queries.actor_base_query import ActorBaseQuery, get_serialized_people
 from posthog.queries.funnels import ClickhouseFunnelActors, ClickhouseFunnelTrendsActors
 from posthog.queries.funnels.funnel_strict_persons import ClickhouseFunnelStrictActors
@@ -75,6 +76,7 @@ from posthog.temporal.delete_recordings.types import RecordingsWithPersonInput
 from posthog.utils import convert_property_value, format_query_params_absolute_url, is_anonymous_id
 
 logger = structlog.get_logger(__name__)
+tracer = trace.get_tracer(__name__)
 
 DEFAULT_PAGE_LIMIT = 100
 # Sync with .../lib/constants.tsx and .../ingestion/webhook-formatter.ts
@@ -505,24 +507,32 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     @action(methods=["GET"], detail=False, required_scopes=["person:read"])
     def values(self, request: request.Request, **kwargs) -> response.Response:
-        key = request.GET.get("key")
-        value = request.GET.get("value")
-        flattened = []
-        if key and not key.startswith("$virt"):
-            result = self._get_person_property_values_for_key(key, value)
+        with tracer.start_as_current_span("person_api_property_values") as span:
+            key = request.GET.get("key")
+            value = request.GET.get("value")
 
-            for value, count in result:
-                try:
-                    # Try loading as json for dicts or arrays
-                    flattened.append(
-                        {
-                            "name": convert_property_value(json.loads(value)),
-                            "count": count,
-                        }
-                    )
-                except json.decoder.JSONDecodeError:
-                    flattened.append({"name": convert_property_value(value), "count": count})
-        return response.Response(flattened)
+            span.set_attribute("team_id", self.team.pk)
+            span.set_attribute("property_key", key or "")
+            span.set_attribute("has_value_filter", value is not None)
+
+            flattened = []
+            if key and not key.startswith("$virt"):
+                result = self._get_person_property_values_for_key(key, value)
+
+                for value, count in result:
+                    try:
+                        # Try loading as json for dicts or arrays
+                        flattened.append(
+                            {
+                                "name": convert_property_value(json.loads(value)),
+                                "count": count,
+                            }
+                        )
+                    except json.decoder.JSONDecodeError:
+                        flattened.append({"name": convert_property_value(value), "count": count})
+
+            span.set_attribute("result_count", len(flattened))
+            return response.Response(flattened)
 
     @timed("get_person_property_values_for_key_timer")
     def _get_person_property_values_for_key(self, key, value):
@@ -1005,6 +1015,34 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         reset_deleted_person_distinct_ids(self.team_id, distinct_id)
 
         return response.Response(status=202)
+
+    @action(methods=["POST"], detail=False, url_path="batch_by_distinct_ids")
+    def batch_by_distinct_ids(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        distinct_ids = request.data.get("distinct_ids", [])
+
+        if not isinstance(distinct_ids, list) or len(distinct_ids) == 0:
+            return response.Response({"results": {}})
+
+        MAX_BATCH_SIZE = 200
+        distinct_ids = distinct_ids[:MAX_BATCH_SIZE]
+
+        persons = get_persons_by_distinct_ids(self.team_id, distinct_ids).prefetch_related(
+            Prefetch(
+                "persondistinctid_set",
+                queryset=PersonDistinctId.objects.filter(team_id=self.team_id).order_by("id"),
+                to_attr="distinct_ids_cache",
+            )
+        )
+
+        results: dict[str, Any] = {}
+        for person in persons:
+            person_data = MinimalPersonSerializer(person, context={"get_team": lambda: self.team}).data
+
+            for did in getattr(person, "distinct_ids_cache", []):
+                if did.distinct_id in distinct_ids:
+                    results[did.distinct_id] = person_data
+
+        return response.Response({"results": results})
 
     def _queue_event_deletion(self, persons: builtins.list[Person]) -> None:
         """Helper to queue deletion of all events for a person."""

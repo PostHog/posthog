@@ -3983,7 +3983,7 @@ export interface LLMTraceEvent {
 export interface LLMTracePerson {
     uuid: string
     created_at: string
-    properties: Record<string, any>
+    properties: Record<string, unknown>
     distinct_id: string
 }
 
@@ -3991,7 +3991,8 @@ export interface LLMTrace {
     id: string
     aiSessionId?: string
     createdAt: string
-    person: LLMTracePerson
+    distinctId: string
+    person?: LLMTracePerson
     totalLatency?: number
     inputTokens?: number
     outputTokens?: number
@@ -5383,6 +5384,8 @@ export enum ProductIntentContext {
     // Data Pipelines
     DATA_PIPELINE_CREATED = 'data_pipeline_created',
     BATCH_EXPORT_CREATED = 'batch_export_created',
+    BATCH_EXPORT_UPDATED = 'batch_export_updated',
+    BATCH_EXPORT_BACKFILL_CREATED = 'batch_export_backfill_created',
 
     // Notebooks
     NOTEBOOK_CREATED = 'notebook_created',
