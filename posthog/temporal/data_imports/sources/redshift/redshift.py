@@ -58,6 +58,9 @@ def get_redshift_row_count(
         password=password,
         sslmode="require",
         connect_timeout=15,
+        sslrootcert="/tmp/no.txt",
+        sslcert="/tmp/no.txt",
+        sslkey="/tmp/no.txt",
         options="-c client_encoding=UTF8",
     )
 
@@ -116,6 +119,9 @@ def get_schemas(
         password=password,
         sslmode="require",
         connect_timeout=15,
+        sslrootcert="/tmp/no.txt",
+        sslcert="/tmp/no.txt",
+        sslkey="/tmp/no.txt",
         options="-c client_encoding=UTF8",
     )
 
@@ -538,6 +544,9 @@ def redshift_source(
             password=password,
             sslmode="require",
             connect_timeout=15,
+            sslrootcert="/tmp/no.txt",
+            sslcert="/tmp/no.txt",
+            sslkey="/tmp/no.txt",
             options="-c client_encoding=UTF8",
         ) as connection:
             with connection.cursor() as cursor:
@@ -616,6 +625,9 @@ def redshift_source(
                     password=password,
                     sslmode="require",
                     connect_timeout=15,
+                    sslrootcert="/tmp/no.txt",
+                    sslcert="/tmp/no.txt",
+                    sslkey="/tmp/no.txt",
                     options="-c client_encoding=UTF8",
                 )
                 connection.adapters.register_loader("json", JsonAsStringLoader)
