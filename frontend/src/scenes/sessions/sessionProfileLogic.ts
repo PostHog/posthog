@@ -2,8 +2,10 @@ import { actions, connect, events, kea, key, listeners, path, props, reducers, s
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
+import { PERSON_DISPLAY_NAME_COLUMN_NAME } from 'lib/constants'
 
-import { NodeKind } from '~/queries/schema/schema-general'
+import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
+import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
 import { SessionEventType } from '~/types'
 
@@ -52,6 +54,27 @@ export interface SessionData {
     last_external_click_url: string | null
 }
 
+export const SESSION_EVENTS_CONTEXT_KEY = 'session-profile-events'
+
+function createSessionEventsQuery(sessionId: string): DataTableNode {
+    const { startDate } = getTimestampFromUUIDv7(sessionId)
+    return {
+        kind: NodeKind.DataTableNode,
+        full: true,
+        showEventsFilter: true,
+        showTableViews: true,
+        contextKey: SESSION_EVENTS_CONTEXT_KEY,
+        hiddenColumns: [PERSON_DISPLAY_NAME_COLUMN_NAME],
+        source: {
+            kind: NodeKind.EventsQuery,
+            select: defaultDataTableColumns(NodeKind.EventsQuery),
+            where: [`\`$session_id\` = '${sessionId}'`],
+            after: startDate.toISOString(),
+            orderBy: ['timestamp ASC'],
+        },
+    }
+}
+
 export const sessionProfileLogic = kea<sessionProfileLogicType>([
     path(['scenes', 'sessions', 'sessionProfileLogic']),
     props({} as SessionProfileLogicProps),
@@ -61,47 +84,19 @@ export const sessionProfileLogic = kea<sessionProfileLogicType>([
     }),
     actions({
         loadSessionData: true,
-        loadSessionEvents: true,
-        loadMoreSessionEvents: true,
-        loadEventDetails: (eventId: string, eventName: string) => ({ eventId, eventName }),
-        setHasMoreEvents: (hasMore: boolean) => ({ hasMore }),
-        updateEventsOffset: (offset: number) => ({ offset }),
         loadTotalEventCount: true,
-        setSortOrder: (sortOrder: 'asc' | 'desc') => ({ sortOrder }),
         loadRecordingAvailability: true,
-        setEventsListFolded: (isFolded: boolean) => ({ isFolded }),
         loadSupportTicketEvents: true,
+        setEventsQuery: (eventsQuery: DataTableNode) => ({ eventsQuery }),
     }),
-    reducers({
-        hasMoreEvents: [
-            true,
+    reducers(({ props }) => ({
+        eventsQuery: [
+            createSessionEventsQuery(props.sessionId),
             {
-                loadSessionEventsSuccess: (_, { sessionEvents }) => sessionEvents.length === 50,
-                setHasMoreEvents: (_, { hasMore }) => hasMore,
+                setEventsQuery: (_, { eventsQuery }) => eventsQuery,
             },
         ],
-        eventsOffset: [
-            0 as number,
-            {
-                loadSessionEventsSuccess: (_, { sessionEvents }) => sessionEvents.length,
-                loadMoreSessionEvents: (state) => state, // Preserve before loading
-                updateEventsOffset: (_, { offset }) => offset,
-                setSortOrder: () => 0, // Reset offset when sort changes
-            },
-        ],
-        sortOrder: [
-            'asc' as 'asc' | 'desc',
-            {
-                setSortOrder: (_, { sortOrder }) => sortOrder,
-            },
-        ],
-        eventsListFolded: [
-            false,
-            {
-                setEventsListFolded: (_, { isFolded }) => isFolded,
-            },
-        ],
-    }),
+    })),
     loaders(({ props, values }) => ({
         sessionData: [
             null as SessionData | null,
@@ -243,273 +238,6 @@ export const sessionProfileLogic = kea<sessionProfileLogicType>([
                 },
             },
         ],
-        sessionEvents: [
-            null as SessionEventType[] | null,
-            {
-                loadSessionEvents: async () => {
-                    const sortOrder = values.sortOrder || 'asc'
-                    // Extract timestamp from UUIDv7 for partition pruning
-                    const { startDate, endDate } = getTimestampFromUUIDv7(props.sessionId)
-                    const eventsQuery =
-                        sortOrder === 'asc'
-                            ? hogql`
-                        SELECT
-                            uuid,
-                            event,
-                            timestamp,
-                            properties.$window_id,
-                            properties.$current_url,
-                            properties.$event_type,
-                            properties.$screen_name,
-                            properties.$pathname,
-                            properties.$exception_type,
-                            properties.$exception_message,
-                            properties.$console_log_level,
-                            properties.$response_status,
-                            properties.$exception_list,
-                            distinct_id
-                        FROM events
-                        WHERE timestamp >= toDateTime(${startDate.toISOString()})
-                            AND timestamp <= toDateTime(${endDate.toISOString()})
-                            AND \`$session_id\` = ${props.sessionId}
-                        ORDER BY timestamp ASC
-                        LIMIT 50
-                    `
-                            : hogql`
-                        SELECT
-                            uuid,
-                            event,
-                            timestamp,
-                            properties.$window_id,
-                            properties.$current_url,
-                            properties.$event_type,
-                            properties.$screen_name,
-                            properties.$pathname,
-                            properties.$exception_type,
-                            properties.$exception_message,
-                            properties.$console_log_level,
-                            properties.$response_status,
-                            properties.$exception_list,
-                            distinct_id
-                        FROM events
-                        WHERE timestamp >= toDateTime(${startDate.toISOString()})
-                            AND timestamp <= toDateTime(${endDate.toISOString()})
-                            AND \`$session_id\` = ${props.sessionId}
-                        ORDER BY timestamp DESC
-                        LIMIT 50
-                    `
-
-                    const response = await api.queryHogQL(eventsQuery, {
-                        scene: 'SessionProfile',
-                        productKey: 'persons',
-                    })
-
-                    return (response.results || []).map((row: any): SessionEventType => {
-                        const properties: Record<string, any> = {}
-
-                        // Only add properties if they have values (not null/undefined)
-                        if (row[3] != null) {
-                            properties.$window_id = row[3]
-                        }
-                        if (row[4] != null) {
-                            properties.$current_url = row[4]
-                        }
-                        if (row[5] != null) {
-                            properties.$event_type = row[5]
-                        }
-                        if (row[6] != null) {
-                            properties.$screen_name = row[6]
-                        }
-                        if (row[7] != null) {
-                            properties.$pathname = row[7]
-                        }
-                        if (row[8] != null) {
-                            properties.$exception_type = row[8]
-                        }
-                        if (row[9] != null) {
-                            properties.$exception_message = row[9]
-                        }
-                        if (row[10] != null) {
-                            properties.$console_log_level = row[10]
-                        }
-                        if (row[11] != null) {
-                            properties.$response_status = row[11]
-                        }
-
-                        // Parse $exception_list if it exists (comes as JSON string)
-                        if (row[12] != null) {
-                            try {
-                                properties.$exception_list = JSON.parse(row[12])
-                            } catch (e) {
-                                console.error(e)
-                                properties.$exception_list = []
-                            }
-                        }
-
-                        return {
-                            id: row[0],
-                            event: row[1],
-                            timestamp: row[2],
-                            properties,
-                            distinct_id: row[13],
-                            fullyLoaded: false,
-                        }
-                    })
-                },
-                loadMoreSessionEvents: async (_, breakpoint) => {
-                    await breakpoint(500) // Debounce rapid scroll
-
-                    const currentEvents = values.sessionEvents || []
-                    const offset = values.eventsOffset
-                    const sortOrder = values.sortOrder || 'asc'
-                    // Extract timestamp from UUIDv7 for partition pruning
-                    const { startDate, endDate } = getTimestampFromUUIDv7(props.sessionId)
-
-                    const eventsQuery =
-                        sortOrder === 'asc'
-                            ? hogql`
-                        SELECT
-                            uuid,
-                            event,
-                            timestamp,
-                            properties.$window_id,
-                            properties.$current_url,
-                            properties.$event_type,
-                            properties.$screen_name,
-                            properties.$pathname,
-                            properties.$exception_type,
-                            properties.$exception_message,
-                            properties.$console_log_level,
-                            properties.$response_status,
-                            properties.$exception_list,
-                            distinct_id
-                        FROM events
-                        WHERE timestamp >= toDateTime(${startDate.toISOString()})
-                            AND timestamp <= toDateTime(${endDate.toISOString()})
-                            AND \`$session_id\` = ${props.sessionId}
-                        ORDER BY timestamp ASC
-                        LIMIT 50
-                        OFFSET ${offset}
-                    `
-                            : hogql`
-                        SELECT
-                            uuid,
-                            event,
-                            timestamp,
-                            properties.$window_id,
-                            properties.$current_url,
-                            properties.$event_type,
-                            properties.$screen_name,
-                            properties.$pathname,
-                            properties.$exception_type,
-                            properties.$exception_message,
-                            properties.$console_log_level,
-                            properties.$response_status,
-                            properties.$exception_list,
-                            distinct_id
-                        FROM events
-                        WHERE timestamp >= toDateTime(${startDate.toISOString()})
-                            AND timestamp <= toDateTime(${endDate.toISOString()})
-                            AND \`$session_id\` = ${props.sessionId}
-                        ORDER BY timestamp DESC
-                        LIMIT 50
-                        OFFSET ${offset}
-                    `
-
-                    const response = await api.queryHogQL(eventsQuery, {
-                        scene: 'SessionProfile',
-                        productKey: 'persons',
-                    })
-
-                    const newEvents = (response.results || []).map((row: any): SessionEventType => {
-                        const properties: Record<string, any> = {}
-
-                        if (row[3] != null) {
-                            properties.$window_id = row[3]
-                        }
-                        if (row[4] != null) {
-                            properties.$current_url = row[4]
-                        }
-                        if (row[5] != null) {
-                            properties.$event_type = row[5]
-                        }
-                        if (row[6] != null) {
-                            properties.$screen_name = row[6]
-                        }
-                        if (row[7] != null) {
-                            properties.$pathname = row[7]
-                        }
-                        if (row[8] != null) {
-                            properties.$exception_type = row[8]
-                        }
-                        if (row[9] != null) {
-                            properties.$exception_message = row[9]
-                        }
-                        if (row[10] != null) {
-                            properties.$console_log_level = row[10]
-                        }
-                        if (row[11] != null) {
-                            properties.$response_status = row[11]
-                        }
-
-                        if (row[12] != null) {
-                            try {
-                                properties.$exception_list = JSON.parse(row[12])
-                            } catch (e) {
-                                console.error(e)
-                                properties.$exception_list = []
-                            }
-                        }
-
-                        return {
-                            id: row[0],
-                            event: row[1],
-                            timestamp: row[2],
-                            properties,
-                            distinct_id: row[13],
-                            fullyLoaded: false,
-                        }
-                    })
-
-                    // Append new events to existing events
-                    return [...currentEvents, ...newEvents]
-                },
-            },
-        ],
-        eventDetails: [
-            {} as Record<string, Record<string, any>>,
-            {
-                loadEventDetails: async ({ eventId, eventName }) => {
-                    // Fetch full properties for the specific event
-                    // Use timestamp filtering based on session_id to enable partition pruning
-                    // Also filter by event name to improve query performance
-                    const { startDate, endDate } = getTimestampFromUUIDv7(props.sessionId)
-                    const detailsQuery = hogql`
-                        SELECT properties, uuid
-                        FROM events
-                        WHERE event = ${eventName}
-                        AND timestamp >= toDateTime(${startDate.toISOString()})
-                        AND timestamp <= toDateTime(${endDate.toISOString()})
-                        AND uuid = ${eventId}
-                        LIMIT 1
-                    `
-
-                    const response = await api.queryHogQL(detailsQuery, {
-                        scene: 'SessionProfile',
-                        productKey: 'persons',
-                    })
-
-                    if (!response.results || response.results.length === 0) {
-                        return {}
-                    }
-
-                    const [propertiesJson, uuid] = response.results[0]
-                    const fullProperties = JSON.parse(propertiesJson)
-
-                    return { [uuid]: fullProperties }
-                },
-            },
-        ],
         totalEventCount: [
             null as number | null,
             {
@@ -600,7 +328,6 @@ export const sessionProfileLogic = kea<sessionProfileLogicType>([
         sessionDuration: [
             (s) => [s.sessionData],
             (sessionData: SessionData | null): number | null => {
-                // Session duration is already calculated in seconds in the table
                 return sessionData?.session_duration || null
             },
         ],
@@ -635,21 +362,6 @@ export const sessionProfileLogic = kea<sessionProfileLogicType>([
                     (sessionData.screen_count || 0)
                 return Math.max(0, totalEventCount - categorized)
             },
-        ],
-        isInitialLoading: [
-            (s) => [s.sessionDataLoading, s.sessionEventsLoading, s.sessionData, s.sessionEvents],
-            (
-                sessionDataLoading: boolean,
-                sessionEventsLoading: boolean,
-                sessionData: SessionData | null,
-                sessionEvents: SessionEventType[] | null
-            ): boolean =>
-                (sessionDataLoading && sessionData === null) || (sessionEventsLoading && sessionEvents === null),
-        ],
-        isLoadingMore: [
-            (s) => [s.sessionEventsLoading, s.sessionEvents],
-            (sessionEventsLoading: boolean, sessionEvents: SessionEventType[] | null): boolean =>
-                sessionEventsLoading && sessionEvents !== null,
         ],
         sessionProperties: [
             (s) => [s.sessionData],
@@ -690,57 +402,11 @@ export const sessionProfileLogic = kea<sessionProfileLogicType>([
             },
         ],
     }),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions }) => ({
         loadSessionData: () => {
-            actions.loadSessionEvents()
             actions.loadTotalEventCount()
             actions.loadRecordingAvailability()
             actions.loadSupportTicketEvents()
-        },
-        setSortOrder: () => {
-            // Reset hasMoreEvents when changing sort order
-            actions.setHasMoreEvents(true)
-            // Reload events with new sort order
-            actions.loadSessionEvents()
-        },
-        loadMoreSessionEventsSuccess: ({ sessionEvents }) => {
-            const previousCount = values.eventsOffset
-            const newCount = sessionEvents.length
-            const fetchedCount = newCount - previousCount
-
-            // Stop loading if we fetched less than 50 events (or if something went wrong)
-            if (fetchedCount < 50) {
-                actions.setHasMoreEvents(false)
-            }
-
-            // Only update offset if we actually got new events
-            if (fetchedCount > 0) {
-                actions.updateEventsOffset(newCount)
-            }
-        },
-        loadEventDetailsSuccess: ({ eventDetails }) => {
-            // After loading event details, update the sessionEvents array
-            const events = values.sessionEvents
-            if (!events || !eventDetails || Object.keys(eventDetails).length === 0) {
-                return
-            }
-
-            const updatedEvents = events.map((event) => {
-                const fullProperties = eventDetails[event.id]
-                if (fullProperties) {
-                    return {
-                        ...event,
-                        properties: {
-                            ...event.properties,
-                            ...fullProperties,
-                        },
-                        fullyLoaded: true,
-                    }
-                }
-                return event
-            })
-
-            actions.loadSessionEventsSuccess(updatedEvents)
         },
     })),
     events(({ actions }) => ({
