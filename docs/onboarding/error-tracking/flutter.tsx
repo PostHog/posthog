@@ -49,11 +49,11 @@ export const getFlutterSteps = (ctx: OnboardingComponentsContext): StepDefinitio
 
                         | Option | Description |
                         | --- | --- |
-                        | \`captureFlutterErrors\` | Captures Flutter framework errors (FlutterError.onError) |
-                        | \`capturePlatformDispatcherErrors\` | Captures Dart runtime errors (PlatformDispatcher.onError) // Web not supported |
-                        | \`captureIsolateErrors\` | Captures errors from main isolate // Web not supported |
-                        | \`captureNativeExceptions\` | Captures native exceptions (Java/Kotlin exceptions) // Android only |
-                        | \`captureSilentFlutterErrors\` | Captures Flutter errors that are marked as silent (default: false) |
+                        | \`captureFlutterErrors\` | Captures Flutter framework errors (\`FlutterError.onError\`) |
+                        | \`capturePlatformDispatcherErrors\` | Captures Dart runtime errors (\`PlatformDispatcher.onError\`). Web not supported. |
+                        | \`captureIsolateErrors\` | Captures errors from main isolate. Web not supported. |
+                        | \`captureNativeExceptions\` | Captures native exceptions (Java/Kotlin exceptions). Android only. |
+                        | \`captureSilentFlutterErrors\` | Captures Flutter errors that are marked as silent. Default: false. |
                     `}
                 </Markdown>
             </>
