@@ -402,7 +402,7 @@ def experimental_sessions_v3_backfill(
 
 
 experimental_sessions_backfill_job = define_asset_job(
-    name="sessions_v3_backfill_job",
+    name="experimental_sessions_v3_backfill_job",
     selection=["experimental_sessions_v3_backfill"],
     config=sessions_backfill_partitioned_config,
     tags={"owner": JobOwners.TEAM_ANALYTICS_PLATFORM.value, **CONCURRENCY_TAG},
