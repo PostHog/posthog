@@ -117,7 +117,7 @@ function DestinationEmailTemplaterForm({ mode }: { mode: EmailEditorMode }): JSX
     return (
         <>
             <Form
-                className="flex overflow-hidden flex-col flex-1 rounded border"
+                {...{ className: 'flex overflow-hidden flex-col flex-1 rounded border' }}
                 logic={emailTemplaterLogic}
                 props={logicProps}
                 formKey="emailTemplate"
@@ -437,7 +437,7 @@ function NativeEmailTemplaterForm({
     return (
         <>
             <Form
-                className="flex overflow-hidden flex-col flex-1 rounded border"
+                {...{ className: 'flex overflow-hidden flex-col flex-1 rounded border' }}
                 logic={emailTemplaterLogic}
                 props={logicProps}
                 formKey="emailTemplate"

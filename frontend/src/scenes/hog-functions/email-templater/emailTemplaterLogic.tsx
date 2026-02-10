@@ -104,7 +104,10 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             'visual' as 'visual' | 'plaintext',
             {
                 setActiveContentTab: (_, { tab }) => tab,
-                applyTemplate: () => 'visual' as const,
+                applyTemplate: (_, { template }) => {
+                    const hasHtml = !!template.content.email.html
+                    return hasHtml ? 'visual' : 'plaintext'
+                },
             },
         ],
     }),
