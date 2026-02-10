@@ -48,6 +48,7 @@ class CleanupPropertyDefinitionsWorkflow(PostHogWorkflow):
             "property_type": input.property_type,
             "dry_run": input.dry_run,
             "postgres_deleted": 0,
+            "event_properties_deleted": 0,
         }
 
         if input.dry_run:
@@ -68,15 +69,14 @@ class CleanupPropertyDefinitionsWorkflow(PostHogWorkflow):
             return result
 
         # Delete from PostgreSQL in batches to avoid long-held locks.
-        # Cap iterations so a pathological regex or concurrent churn can't loop forever.
-        # We allow max_batches + 1 iterations: the extra iteration distinguishes
-        # "exactly 2M rows" (drain batch returns 0, done) from "more than 2M rows"
-        # (drain batch returns rows, raise).
-        batch_size = 5000
-        max_batches = 400  # 400 * 5000 = 2M rows
-        total_postgres_deleted = 0
+        # Each batch selects property names, then deletes from both
+        # PropertyDefinition and EventProperty in a single transaction.
+        batch_size = input.batch_size
+        max_batches = 2_000_000 // batch_size
+        total_property_definitions_deleted = 0
+        total_event_properties_deleted = 0
         for _batch_num in range(max_batches + 1):
-            batch_deleted = await workflow.execute_activity(
+            postgres_result = await workflow.execute_activity(
                 delete_property_definitions_from_postgres,
                 DeletePostgresPropertyDefinitionsInput(
                     team_id=input.team_id,
@@ -90,16 +90,19 @@ class CleanupPropertyDefinitionsWorkflow(PostHogWorkflow):
                     initial_interval=timedelta(seconds=30),
                 ),
             )
-            total_postgres_deleted += batch_deleted
+            batch_deleted = postgres_result["property_definitions_deleted"]
+            total_property_definitions_deleted += batch_deleted
+            total_event_properties_deleted += postgres_result["event_properties_deleted"]
             if batch_deleted < batch_size:
                 break
             if _batch_num == max_batches:
                 raise CleanupPropertyDefinitionsError(
                     f"Postgres delete exceeded {max_batches} batches "
-                    f"({total_postgres_deleted:,} rows deleted). "
+                    f"({total_property_definitions_deleted:,} property definitions deleted). "
                     f"Re-run the workflow to continue deleting remaining rows."
                 )
-        result["postgres_deleted"] = total_postgres_deleted
+        result["postgres_deleted"] = total_property_definitions_deleted
+        result["event_properties_deleted"] = total_event_properties_deleted
 
         # Delete from ClickHouse
         await workflow.execute_activity(
@@ -118,7 +121,8 @@ class CleanupPropertyDefinitionsWorkflow(PostHogWorkflow):
         )
 
         workflow.logger.info(
-            f"Cleanup complete: deleted {total_postgres_deleted} definitions from PostgreSQL "
+            f"Cleanup complete: deleted {total_property_definitions_deleted} property definitions "
+            f"and {total_event_properties_deleted} event properties from PostgreSQL, "
             f"and matching definitions from ClickHouse"
         )
 
