@@ -315,6 +315,11 @@ def main() -> int:
         "user_scoped": "User-scoped",
     }
 
+    # Union of all code models across scopes for staleness checks.
+    # A model is only stale if it doesn't exist in ANY scope (cross-scope
+    # categorization differences between script and semgrep are fine).
+    all_code_models = code_models["team_scoped"] | code_models["org_scoped"] | code_models["user_scoped"]
+
     print("=" * 60)
     print("IDOR Semgrep Rule Coverage Check")
     print("=" * 60)
@@ -328,8 +333,8 @@ def main() -> int:
         to_check = all_in_code - excluded_models
 
         missing = to_check - semgrep_set
-        # Models in semgrep that don't exist in code at all (excluding intentionally excluded models)
-        stale = semgrep_set - all_in_code - excluded_models
+        # Models in semgrep that don't exist in code at all (in any scope)
+        stale = semgrep_set - all_code_models
 
         print(f"\n{label} models:")
         print(f"  In code: {len(all_in_code)} ({len(excluded_in_scope)} excluded)")
