@@ -1,3 +1,4 @@
+import { disableAnimations } from '../utils/pagePerformance'
 import { expect, test } from '../utils/playwright-test-base'
 
 test.describe('Before Onboarding', () => {
@@ -6,6 +7,10 @@ test.describe('Before Onboarding', () => {
             data: { completed_snippet_onboarding: false },
             headers: { Authorization: 'Bearer e2e_demo_api_key' },
         })
+    })
+
+    test.beforeEach(async ({ page }) => {
+        await disableAnimations(page)
     })
 
     test.afterAll(async ({ request }) => {

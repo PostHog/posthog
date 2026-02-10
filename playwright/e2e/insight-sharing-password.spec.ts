@@ -5,6 +5,7 @@ import { expect } from '@playwright/test'
 
 import { InsightVizNode, NodeKind, TrendsQuery } from '../../frontend/src/queries/schema/schema-general'
 import { SharePasswordType, SharingConfigurationType } from '../../frontend/src/types'
+import { disableAnimations } from '../utils/pagePerformance'
 import { test } from '../utils/workspace-test-base'
 
 type InsightCreationPayload = {
@@ -13,6 +14,7 @@ type InsightCreationPayload = {
 }
 
 test('password-protected insight sharing', async ({ page, playwrightSetup }) => {
+    await disableAnimations(page)
     // Create workspace with API key
     const workspace = await playwrightSetup.createWorkspace('Password Sharing Test Org')
 

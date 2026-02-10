@@ -1,11 +1,14 @@
 import { PreflightStatus } from '~/types'
 
 import { LoginPage } from '../page-models/loginPage'
+import { disableAnimations } from '../utils/pagePerformance'
 import { LOGIN_PASSWORD, LOGIN_USERNAME, expect, test } from '../utils/playwright-test-base'
 
 test.describe('Auth', () => {
     let loginPage: LoginPage
+
     test.beforeEach(async ({ page }) => {
+        await disableAnimations(page)
         await page.locator('[data-attr=menu-item-me]').click()
         loginPage = new LoginPage(page)
     })

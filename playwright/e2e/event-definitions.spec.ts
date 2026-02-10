@@ -1,6 +1,11 @@
+import { disableAnimations } from '../utils/pagePerformance'
 import { expect, test } from '../utils/playwright-test-base'
 
 test.describe('Event Definitions', () => {
+    test.beforeEach(async ({ page }) => {
+        await disableAnimations(page)
+    })
+
     test('See recordings action', async ({ page }) => {
         await page.goToMenuItem('datamanagement')
         await page.goToMenuItem('event-definitions')

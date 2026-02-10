@@ -2,6 +2,7 @@ import { Page } from '@playwright/test'
 import fs from 'fs'
 import path from 'path'
 
+import { disableAnimations } from '../../utils/pagePerformance'
 import { expect, test } from '../../utils/playwright-test-base'
 
 type BillingRouteHandlers = {
@@ -46,6 +47,10 @@ async function setupBillingRoutes(page: Page, handlers: BillingRouteHandlers): P
 }
 
 test.describe('Billing Limits', () => {
+    test.beforeEach(async ({ page }) => {
+        await disableAnimations(page)
+    })
+
     test.skip('Show no limits set and allow user to set one', async ({ page }) => {
         await setupBillingRoutes(page, {
             getResponse: (billingContent) => billingContent,

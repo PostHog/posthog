@@ -1,6 +1,11 @@
+import { disableAnimations } from '../utils/pagePerformance'
 import { expect, test } from '../utils/playwright-test-base'
 
 test.describe('Toolbar', () => {
+    test.beforeEach(async ({ page }) => {
+        await disableAnimations(page)
+    })
+
     test.skip('Toolbar loads', async ({ page }) => {
         await page.goToMenuItem('toolbar')
         await page.getByText('Add authorized URL').click()

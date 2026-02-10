@@ -4,6 +4,7 @@
 import { expect } from '@playwright/test'
 
 import { InsightVizNode, NodeKind, TrendsQuery } from '../../frontend/src/queries/schema/schema-general'
+import { disableAnimations } from '../utils/pagePerformance'
 import { test } from '../utils/workspace-test-base'
 
 type InsightCreationPayload = {
@@ -12,6 +13,8 @@ type InsightCreationPayload = {
 }
 
 test('create trends insight via API and snapshot', async ({ page, playwrightSetup }) => {
+    await disableAnimations(page)
+
     // Create workspace with API key
     const workspace = await playwrightSetup.createWorkspace({
         organization_name: 'API Test Org',

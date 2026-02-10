@@ -1,9 +1,14 @@
 import fs from 'fs'
 import path from 'path'
 
+import { disableAnimations } from '../../utils/pagePerformance'
 import { expect, test } from '../../utils/playwright-test-base'
 
 test.describe('Billing', () => {
+    test.beforeAll(async ({ page }) => {
+        await disableAnimations(page)
+    })
+
     test.beforeEach(async ({ page }) => {
         // This replicates cy.intercept('/api/billing/') with fixture
         // We'll read the JSON from a fixture folder. Adjust the path as needed.

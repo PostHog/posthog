@@ -2,6 +2,9 @@
 
 ## Running playwright
 
+Note: All animations and transitions are disabled for E2E tests for speed reasons.
+If you absolutely need them, turn them back on by setting the env variable `DISABLE_ANIMATIONS="false"`
+
 ### Local: no pre-existing instance
 
 Spin up a full local E2E environment (backend, frontend, docker services, Playwright UI):

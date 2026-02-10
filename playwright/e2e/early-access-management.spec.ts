@@ -1,10 +1,12 @@
 import { delay } from 'lib/utils'
 
 import { randomString } from '../utils'
+import { disableAnimations } from '../utils/pagePerformance'
 import { expect, test } from '../utils/playwright-test-base'
 
 test.describe('Early Access Management', () => {
     test.beforeEach(async ({ page }) => {
+        await disableAnimations(page)
         await page.goto('/early_access_features')
     })
 

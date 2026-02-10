@@ -1,7 +1,9 @@
+import { disableAnimations } from '../utils/pagePerformance'
 import { expect, test } from '../utils/playwright-test-base'
 
 test.describe('SQL Editor', () => {
     test.beforeEach(async ({ page }) => {
+        await disableAnimations(page)
         await page.goToMenuItem('sql-editor')
     })
 

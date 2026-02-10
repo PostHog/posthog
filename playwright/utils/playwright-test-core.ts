@@ -29,8 +29,9 @@ export const test = base.extend<{ page: Page }>({
     // This fixture runs before the page fixture because it's defined first
     context: async ({ context }, use) => {
         // Add init script via context to disable animations on all page loads
-        // Control with env variable to measure performance
-        if (process.env.DISABLE_ANIMATIONS === 'true') {
+        // Animations are disabled by default for faster, more reliable tests
+        // Opt-out with DISABLE_ANIMATIONS=false if you need to test animations
+        if (process.env.DISABLE_ANIMATIONS !== 'false') {
             const disableAnimationsScript = createDisableAnimationsInitScript()
             await context.addInitScript({ content: disableAnimationsScript })
         }

@@ -1,9 +1,14 @@
 import path from 'path'
 
+import { disableAnimations } from '../../utils/pagePerformance'
 import { expect, test } from '../../utils/playwright-test-base'
 
 test.describe('Logs', () => {
     test.describe('UI integration tests (mocked API)', () => {
+        test.beforeAll(async ({ page }) => {
+            await disableAnimations(page)
+        })
+
         test.beforeEach(async ({ page }) => {
             // Mock APIs BEFORE navigation to avoid race conditions
             await page.route('**/api/environments/*/logs/query/', (route) =>

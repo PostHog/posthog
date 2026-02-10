@@ -1,5 +1,6 @@
 import type { APIRequestContext, Page } from '@playwright/test'
 
+import { disableAnimations } from '../utils/pagePerformance'
 import { expect, test } from '../utils/playwright-test-base'
 
 const VALID_PASSWORD = 'hedgE-hog-123%'
@@ -39,6 +40,7 @@ const submitEmailAndExpectExistingAccount = async (page: Page, email: string): P
 
 test.describe('Signup', () => {
     test.beforeEach(async ({ page }) => {
+        await disableAnimations(page)
         await page.route('**/flags/*', async (route) => {
             const response = {
                 config: {

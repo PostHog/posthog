@@ -2,6 +2,7 @@ import { InsightType } from '~/types'
 
 import { InsightPage } from '../../page-models/insightPage'
 import { Navigation } from '../../utils/navigation'
+import { disableAnimations } from '../../utils/pagePerformance'
 import { expect, test } from '../../utils/playwright-test-base'
 
 const typeTestCases: { type: InsightType; selector: string }[] = [
@@ -14,9 +15,25 @@ const typeTestCases: { type: InsightType; selector: string }[] = [
     { type: InsightType.SQL, selector: '[data-attr="hogql-query-editor"]' },
 ]
 
+test.describe('Insight Navigation', () => {
+    test.beforeEach(async ({ page }) => {
+        await disableAnimations(page)
+    })
+
+    // skipping things because we want to get a single passing test in
+    test.skip('can navigate to each insight type', async ({ page }) => {
+        for (const { type } of typeTestCases) {
+            await new InsightPage(page).goToNew(type)
+            // have to use contains to make paths match user paths
+            await expect(page.locator('.LemonTabs__tab--active')).toContainText(type, { ignoreCase: true })
+        }
+    })
+})
+
 typeTestCases.forEach(({ type, selector }) => {
     // skipping things because we want to get a single passing test in
     test.skip(`can navigate to ${type} insight from saved insights page`, async ({ page }) => {
+        await disableAnimations(page)
         await new InsightPage(page).goToNew(type)
         // have to use contains to make paths match user paths
         await expect(page.locator('.LemonTabs__tab--active')).toContainText(type, { ignoreCase: true })

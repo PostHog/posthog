@@ -1,6 +1,11 @@
+import { disableAnimations } from '../utils/pagePerformance'
 import { expect, test } from '../utils/playwright-test-base'
 
 test.describe('Web Analytics', () => {
+    test.beforeEach(async ({ page }) => {
+        await disableAnimations(page)
+    })
+
     test('Can open add authorized URL form', async ({ page }) => {
         await page.goto('/web')
         // Open the domain filter dropdown

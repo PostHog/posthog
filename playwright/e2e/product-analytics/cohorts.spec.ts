@@ -1,8 +1,13 @@
 import { CohortPage } from '../../page-models/cohortPage'
 import { randomString } from '../../utils'
+import { disableAnimations } from '../../utils/pagePerformance'
 import { expect, test } from '../../utils/playwright-test-base'
 
 test.describe('Cohorts', () => {
+    test.beforeAll(async ({ page }) => {
+        await disableAnimations(page)
+    })
+
     test.beforeEach(async ({ page }) => {
         await page.goToMenuItem('people')
         await page.goToMenuItem('cohorts')

@@ -1,3 +1,4 @@
+import { disableAnimations } from '../utils/pagePerformance'
 import { expect, test } from '../utils/playwright-test-base'
 
 const preflightSuccessResponse = {
@@ -21,6 +22,10 @@ const preflightSuccessResponse = {
 }
 
 test.describe('Preflight', () => {
+    test.beforeEach(async ({ page }) => {
+        await disableAnimations(page)
+    })
+
     test('Preflight experimentation', async ({ page }) => {
         await page.route(/_preflight/, async (route) => {
             await route.fulfill({ json: preflightSuccessResponse })

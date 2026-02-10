@@ -1,8 +1,13 @@
 import { urls } from 'scenes/urls'
 
+import { disableAnimations } from '../../utils/pagePerformance'
 import { expect, test } from '../../utils/playwright-test-base'
 
 test.describe('Retention', () => {
+    test.beforeEach(async ({ page }) => {
+        await disableAnimations(page)
+    })
+
     test.beforeEach(async ({ page }) => {
         await page.goto(urls.insightNew())
         await page.click('[data-attr=insight-retention-tab]')
