@@ -1947,6 +1947,54 @@ class FeatureFlagViewSet(
 
         return Response(response_data)
 
+    @action(methods=["GET"], detail=False, required_scopes=["feature_flag:read"])
+    def matching_ids(self, request: request.Request, **kwargs):
+        """
+        Get IDs of all feature flags matching the current filters.
+        Uses the same filtering logic as the list endpoint.
+        Returns only IDs that the user has permission to edit.
+        """
+        from posthog.rbac.user_access_control import access_level_satisfied_for_resource
+
+        # Build queryset with same filtering as list endpoint
+        queryset = self.queryset.filter(team__project_id=self.project_id, deleted=False)
+
+        # Exclude internal flags (same as list endpoint)
+        survey_flag_ids = Survey.get_internal_flag_ids(project_id=self.project_id)
+        product_tour_internal_targeting_flags = ProductTour.all_objects.filter(
+            team__project_id=self.project_id, internal_targeting_flag__isnull=False
+        ).values_list("internal_targeting_flag_id", flat=True)
+        queryset = queryset.exclude(Q(id__in=survey_flag_ids)).exclude(Q(id__in=product_tour_internal_targeting_flags))
+
+        # Apply client filters (same filtering as list endpoint)
+        queryset = self._filter_request(self.request, queryset)
+
+        # Get all matching flags
+        flags = list(queryset)
+
+        # If no access control, all flags are editable
+        if not self.user_access_control:
+            editable_ids = [f.id for f in flags]
+        else:
+            # Preload access controls to avoid N+1 queries
+            self.user_access_control.preload_object_access_controls(cast(list, flags))
+
+            # Filter to only flags the user can edit (same logic as serializer's get_can_edit)
+            editable_ids = []
+            for flag in flags:
+                user_access_level = self.user_access_control.get_user_access_level(flag)
+                if user_access_level and access_level_satisfied_for_resource(
+                    "feature_flag", user_access_level, "editor"
+                ):
+                    editable_ids.append(flag.id)
+
+        return Response(
+            {
+                "ids": editable_ids,
+                "total": len(editable_ids),
+            }
+        )
+
     @action(methods=["POST"], detail=False, required_scopes=["feature_flag:write"])
     def bulk_delete(self, request: request.Request, **kwargs):
         """

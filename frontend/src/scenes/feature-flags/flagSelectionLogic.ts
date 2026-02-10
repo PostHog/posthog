@@ -2,11 +2,12 @@ import { actions, afterMount, connect, kea, listeners, path, reducers, selectors
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
+import { toParams } from 'lib/utils'
 import { projectLogic } from 'scenes/projectLogic'
 
 import { FeatureFlagType } from '~/types'
 
-import { featureFlagsLogic } from './featureFlagsLogic'
+import { FLAGS_PER_PAGE, featureFlagsLogic } from './featureFlagsLogic'
 import type { flagSelectionLogicType } from './flagSelectionLogicType'
 
 export type FlagRolloutState = 'fully_rolled_out' | 'not_rolled_out' | 'partial'
@@ -23,11 +24,19 @@ export interface BulkDeleteResult {
     errors: Array<{ id: number; key?: string; reason: string }>
 }
 
+// Maximum flags that can be deleted in a single API call
+const BULK_DELETE_BATCH_SIZE = 100
+
 export const flagSelectionLogic = kea<flagSelectionLogicType>([
     path(['scenes', 'feature-flags', 'flagSelectionLogic']),
 
     connect(() => ({
-        values: [projectLogic, ['currentProjectId'], featureFlagsLogic({}), ['displayedFlags']],
+        values: [
+            projectLogic,
+            ['currentProjectId'],
+            featureFlagsLogic({}),
+            ['displayedFlags', 'count', 'paramsFromFilters'],
+        ],
         actions: [featureFlagsLogic({}), ['loadFeatureFlags', 'setFeatureFlagsFilters']],
     })),
 
@@ -35,11 +44,14 @@ export const flagSelectionLogic = kea<flagSelectionLogicType>([
         setSelectedFlagIds: (ids: number[]) => ({ ids }),
         toggleFlagSelection: (id: number, index: number) => ({ id, index }),
         selectAll: true,
+        selectAllMatching: true,
         clearSelection: true,
         setShiftKeyHeld: (shiftKeyHeld: boolean) => ({ shiftKeyHeld }),
         setPreviouslyCheckedIndex: (index: number | null) => ({ index }),
         showResultsModal: (result: BulkDeleteResult) => ({ result }),
         hideResultsModal: true,
+        setAllMatchingSelected: (allMatchingSelected: boolean) => ({ allMatchingSelected }),
+        setBulkDeleteProgress: (progress: { current: number; total: number } | null) => ({ progress }),
     }),
 
     reducers({
@@ -70,16 +82,75 @@ export const flagSelectionLogic = kea<flagSelectionLogicType>([
                 hideResultsModal: () => null,
             },
         ],
+        // Tracks whether "select all matching" mode is active
+        allMatchingSelected: [
+            false as boolean,
+            {
+                setAllMatchingSelected: (_, { allMatchingSelected }) => allMatchingSelected,
+                clearSelection: () => false,
+                // When manually toggling selection, exit "all matching" mode
+                toggleFlagSelection: () => false,
+                selectAll: () => false,
+            },
+        ],
+        // Progress indicator for batched deletion
+        bulkDeleteProgress: [
+            null as { current: number; total: number } | null,
+            {
+                setBulkDeleteProgress: (_, { progress }) => progress,
+                bulkDeleteFlagsSuccess: () => null,
+                bulkDeleteFlagsFailure: () => null,
+            },
+        ],
     }),
 
-    loaders(({ values }) => ({
+    loaders(({ values, actions }) => ({
+        matchingFlagIds: [
+            null as { ids: number[]; total: number } | null,
+            {
+                loadMatchingFlagIds: async () => {
+                    // Build query params matching the current filters (without pagination)
+                    const { limit, offset, ...filters } = values.paramsFromFilters
+                    const response = await api.get(
+                        `api/projects/${values.currentProjectId}/feature_flags/matching_ids/?${toParams(filters)}`
+                    )
+                    return response as { ids: number[]; total: number }
+                },
+            },
+        ],
         bulkDeleteResponse: [
             null as BulkDeleteResult | null,
             {
                 bulkDeleteFlags: async () => {
+                    const idsToDelete = values.selectedFlagIds
+                    const totalFlags = idsToDelete.length
+
+                    // If more than batch size, delete in batches
+                    if (totalFlags > BULK_DELETE_BATCH_SIZE) {
+                        const allDeleted: DeletedFlagInfo[] = []
+                        const allErrors: Array<{ id: number; key?: string; reason: string }> = []
+
+                        for (let i = 0; i < totalFlags; i += BULK_DELETE_BATCH_SIZE) {
+                            const batch = idsToDelete.slice(i, i + BULK_DELETE_BATCH_SIZE)
+                            actions.setBulkDeleteProgress({ current: i, total: totalFlags })
+
+                            const response = (await api.create(
+                                `api/projects/${values.currentProjectId}/feature_flags/bulk_delete/`,
+                                { ids: batch }
+                            )) as BulkDeleteResult
+
+                            allDeleted.push(...response.deleted)
+                            allErrors.push(...response.errors)
+                        }
+
+                        actions.setBulkDeleteProgress(null)
+                        return { deleted: allDeleted, errors: allErrors }
+                    }
+
+                    // Single batch
                     const response = await api.create(
                         `api/projects/${values.currentProjectId}/feature_flags/bulk_delete/`,
-                        { ids: values.selectedFlagIds }
+                        { ids: idsToDelete }
                     )
                     return response as BulkDeleteResult
                 },
@@ -116,6 +187,26 @@ export const flagSelectionLogic = kea<flagSelectionLogicType>([
             },
         ],
         resultsModalVisible: [(s) => [s.bulkDeleteResult], (result: BulkDeleteResult | null) => result !== null],
+        // Show the "select all matching" banner when all page items are selected
+        // and there are more flags matching the filter than currently displayed
+        showSelectAllMatchingBanner: [
+            (s) => [s.isAllSelected, s.displayedFlags, s.count, s.allMatchingSelected],
+            (
+                isAllSelected: boolean,
+                displayedFlags: FeatureFlagType[],
+                totalCount: number,
+                allMatchingSelected: boolean
+            ) => {
+                if (allMatchingSelected) {
+                    return false // Already selected all matching
+                }
+                const editableOnPage = displayedFlags.filter((f) => f.can_edit).length
+                // Show banner if all on page are selected and there are more flags than the page size
+                return isAllSelected && editableOnPage > 0 && totalCount > FLAGS_PER_PAGE
+            },
+        ],
+        // Total matching count for the banner
+        totalMatchingCount: [(s) => [s.count], (count: number) => count],
     }),
 
     listeners(({ values, actions }) => ({
@@ -159,6 +250,16 @@ export const flagSelectionLogic = kea<flagSelectionLogicType>([
                 .map((f: FeatureFlagType) => f.id)
                 .filter((id: number | null): id is number => id !== null)
             actions.setSelectedFlagIds(flagIds)
+        },
+        selectAllMatching: () => {
+            // Fetch all matching IDs from the backend
+            actions.loadMatchingFlagIds()
+        },
+        loadMatchingFlagIdsSuccess: ({ matchingFlagIds }) => {
+            if (matchingFlagIds) {
+                actions.setSelectedFlagIds(matchingFlagIds.ids)
+                actions.setAllMatchingSelected(true)
+            }
         },
         setFeatureFlagsFilters: () => {
             actions.clearSelection()

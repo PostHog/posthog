@@ -276,9 +276,20 @@ export function OverViewTab({
     const { setFeatureFlagsFilters } = useActions(flagLogic)
     const { featureFlags: enabledFeatureFlags } = useValues(enabledFeaturesLogic)
 
-    const { selectedFlagIds, selectedCount, isAllSelected, isSomeSelected, bulkDeleteResponseLoading } =
-        useValues(flagSelectionLogic)
-    const { toggleFlagSelection, selectAll, clearSelection, bulkDeleteFlags } = useActions(flagSelectionLogic)
+    const {
+        selectedFlagIds,
+        selectedCount,
+        isAllSelected,
+        isSomeSelected,
+        bulkDeleteResponseLoading,
+        showSelectAllMatchingBanner,
+        totalMatchingCount,
+        allMatchingSelected,
+        matchingFlagIdsLoading,
+        bulkDeleteProgress,
+    } = useValues(flagSelectionLogic)
+    const { toggleFlagSelection, selectAll, selectAllMatching, clearSelection, bulkDeleteFlags } =
+        useActions(flagSelectionLogic)
 
     const page = filters.page || 1
     const startCount = (page - 1) * FLAGS_PER_PAGE + 1
@@ -526,8 +537,20 @@ export function OverViewTab({
                 {selectedCount > 0 && (
                     <div className="flex items-center gap-2">
                         <span className="text-muted text-sm">
-                            {selectedCount} flag{selectedCount !== 1 ? 's' : ''} selected
+                            {allMatchingSelected
+                                ? `All ${selectedCount} matching flags selected`
+                                : `${selectedCount} flag${selectedCount !== 1 ? 's' : ''} selected`}
                         </span>
+                        {showSelectAllMatchingBanner && (
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                onClick={selectAllMatching}
+                                loading={matchingFlagIdsLoading}
+                            >
+                                Select all {totalMatchingCount} matching flags
+                            </LemonButton>
+                        )}
                         <LemonButton type="secondary" size="small" onClick={clearSelection}>
                             Clear
                         </LemonButton>
@@ -538,9 +561,13 @@ export function OverViewTab({
                             icon={<IconTrash />}
                             loading={bulkDeleteResponseLoading}
                             onClick={() => {
+                                const description =
+                                    selectedCount > 100
+                                        ? `Are you sure you want to delete ${selectedCount} feature flags? This will be processed in batches and may take a moment. This action cannot be undone.`
+                                        : `Are you sure you want to delete ${selectedCount} feature flag${selectedCount !== 1 ? 's' : ''}? This action cannot be undone.`
                                 LemonDialog.open({
                                     title: `Delete ${selectedCount} feature flag${selectedCount !== 1 ? 's' : ''}?`,
-                                    description: `Are you sure you want to delete ${selectedCount} feature flag${selectedCount !== 1 ? 's' : ''}? This action cannot be undone.`,
+                                    description,
                                     primaryButton: {
                                         children: 'Delete',
                                         status: 'danger',
@@ -555,7 +582,9 @@ export function OverViewTab({
                                 })
                             }}
                         >
-                            Delete selected
+                            {bulkDeleteProgress
+                                ? `Deleting… ${bulkDeleteProgress.current}/${bulkDeleteProgress.total}`
+                                : 'Delete selected'}
                         </LemonButton>
                     </div>
                 )}
