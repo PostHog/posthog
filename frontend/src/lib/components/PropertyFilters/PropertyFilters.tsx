@@ -117,14 +117,14 @@ export function PropertyFilters({
                     {displayedFilters.map((item: AnyPropertyFilter, index: number) => {
                         return (
                             <React.Fragment key={displayedFilterIds[index]}>
-                                {logicalRowDivider && index > 0 && index !== filtersWithNew.length - 1 && (
+                                {logicalRowDivider && index > 0 && index !== displayedFilters.length - 1 && (
                                     <LogicalRowDivider logicalOperator={FilterLogicalOperator.And} />
                                 )}
                                 <FilterRow
                                     item={item}
                                     index={index}
-                                    totalCount={filtersWithNew.length - 1} // empty state
-                                    filters={filtersWithNew}
+                                    totalCount={displayedFilters.length - 1} // empty state
+                                    filters={displayedFilters}
                                     pageKey={pageKey}
                                     showConditionBadge={showConditionBadge}
                                     disablePopover={disablePopover || orFiltering}
