@@ -5,7 +5,7 @@ from django.http import Http404
 
 from pydantic import BaseModel
 from rest_framework import status
-from rest_framework.decorators import api_view, permission_classes
+from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.permissions import AllowAny
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -14,6 +14,7 @@ from posthog.test.playwright_setup_functions import PLAYWRIGHT_SETUP_FUNCTIONS
 
 
 @api_view(["POST"])
+@authentication_classes([])
 @permission_classes([AllowAny])
 def setup_test(request: Request, test_name: str) -> Response:
     """Setup test data for Playwright tests. Only accessible in test/debug/CI modes."""
