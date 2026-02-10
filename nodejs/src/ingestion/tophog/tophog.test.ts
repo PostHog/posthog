@@ -249,6 +249,98 @@ describe('TopHog', () => {
         })
     })
 
+    describe('maxKeys LRU eviction', () => {
+        it('should evict least recently used key when instance maxKeys is exceeded', async () => {
+            const tophog = new TopHog(createOptions({ maxKeys: 3 }))
+            tophog.increment('metric', 'a', 1)
+            tophog.increment('metric', 'b', 1)
+            tophog.increment('metric', 'c', 1)
+            tophog.increment('metric', 'd', 1) // evicts 'a'
+
+            await tophog.flush()
+
+            const keys = getProducedMessages().map((m) => m.key)
+            expect(keys).toEqual(expect.arrayContaining(['b', 'c', 'd']))
+            expect(keys).not.toContain('a')
+        })
+
+        it('should evict least recently used key when per-metric maxKeys is exceeded', async () => {
+            const tophog = new TopHog(createOptions())
+            tophog.increment('metric', 'a', 1, 2)
+            tophog.increment('metric', 'b', 1, 2)
+            tophog.increment('metric', 'c', 1, 2) // evicts 'a'
+
+            await tophog.flush()
+
+            const keys = getProducedMessages().map((m) => m.key)
+            expect(keys).toEqual(expect.arrayContaining(['b', 'c']))
+            expect(keys).not.toContain('a')
+        })
+
+        it('should per-metric maxKeys override instance maxKeys', async () => {
+            const tophog = new TopHog(createOptions({ maxKeys: 10 }))
+            tophog.increment('metric', 'a', 1, 2)
+            tophog.increment('metric', 'b', 1, 2)
+            tophog.increment('metric', 'c', 1, 2) // evicts 'a' (per-metric limit of 2)
+
+            await tophog.flush()
+
+            const keys = getProducedMessages().map((m) => m.key)
+            expect(keys).not.toContain('a')
+            expect(keys).toHaveLength(2)
+        })
+
+        it('should refresh key on increment preventing eviction', async () => {
+            const tophog = new TopHog(createOptions({ maxKeys: 3 }))
+            tophog.increment('metric', 'a', 1)
+            tophog.increment('metric', 'b', 1)
+            tophog.increment('metric', 'c', 1)
+            tophog.increment('metric', 'a', 1) // refreshes 'a', now 'b' is LRU
+            tophog.increment('metric', 'd', 1) // evicts 'b'
+
+            await tophog.flush()
+
+            const keys = getProducedMessages().map((m) => m.key)
+            expect(keys).toEqual(expect.arrayContaining(['a', 'c', 'd']))
+            expect(keys).not.toContain('b')
+        })
+
+        it('should preserve accumulated value when refreshing key', async () => {
+            const tophog = new TopHog(createOptions({ maxKeys: 3 }))
+            tophog.increment('metric', 'a', 5)
+            tophog.increment('metric', 'b', 1)
+            tophog.increment('metric', 'c', 1)
+            tophog.increment('metric', 'a', 3) // refreshes 'a', value should be 8
+
+            await tophog.flush()
+
+            const messages = getProducedMessages()
+            expect(messages.find((m) => m.key === 'a')?.value).toBe(8)
+        })
+
+        it('should not evict when under the limit', async () => {
+            const tophog = new TopHog(createOptions({ maxKeys: 5 }))
+            tophog.increment('metric', 'a', 1)
+            tophog.increment('metric', 'b', 1)
+            tophog.increment('metric', 'c', 1)
+
+            await tophog.flush()
+
+            expect(getProducedMessages()).toHaveLength(3)
+        })
+
+        it('should not limit when maxKeys is not set', async () => {
+            const tophog = new TopHog(createOptions())
+            for (let i = 0; i < 100; i++) {
+                tophog.increment('metric', `key_${i}`, 1)
+            }
+
+            await tophog.flush()
+
+            expect(getProducedMessages()).toHaveLength(10) // limited by defaultTopN, not maxKeys
+        })
+    })
+
     describe('message format', () => {
         it('should include pipeline and lane in every message', async () => {
             const tophog = new TopHog(createOptions({ pipeline: 'analytics', lane: 'heatmap' }))

@@ -7,6 +7,7 @@ export interface TopHogOptions {
     lane: string
     flushIntervalMs?: number
     defaultTopN?: number
+    maxKeys?: number
     labels?: Record<string, string>
 }
 
@@ -19,6 +20,7 @@ export interface TopHogMetric<T> {
     key: (input: T) => string
     type: TopHogMetricType
     name: string
+    maxKeys?: number
 }
 
 export type TopHogPipeOptions<T> = TopHogMetric<T>[]
@@ -30,6 +32,7 @@ interface TopHogConfig {
     lane: string
     flushIntervalMs: number
     defaultTopN: number
+    maxKeys?: number
     labels: Record<string, string>
 }
 
@@ -43,18 +46,32 @@ export class TopHog {
             ...options,
             flushIntervalMs: options.flushIntervalMs ?? 60_000,
             defaultTopN: options.defaultTopN ?? 10,
+            maxKeys: options.maxKeys,
             labels: options.labels ?? {},
         }
     }
 
-    increment(metric: string, key: string, value: number = 1): void {
+    increment(metric: string, key: string, value: number = 1, maxKeys?: number): void {
         let metricCounters = this.counters.get(metric)
         if (!metricCounters) {
             metricCounters = new Map()
             this.counters.set(metric, metricCounters)
         }
-        const current = metricCounters.get(key) ?? 0
-        metricCounters.set(key, current + value)
+
+        const existing = metricCounters.get(key)
+        if (existing === undefined) {
+            const limit = maxKeys ?? this.config.maxKeys
+            if (limit && metricCounters.size >= limit) {
+                // Evict LRU (first key in insertion order)
+                const lruKey = metricCounters.keys().next().value!
+                metricCounters.delete(lruKey)
+            }
+        } else {
+            // Move to end of insertion order (mark as most recently used)
+            metricCounters.delete(key)
+        }
+
+        metricCounters.set(key, (existing ?? 0) + value)
     }
 
     async flush(): Promise<void> {
