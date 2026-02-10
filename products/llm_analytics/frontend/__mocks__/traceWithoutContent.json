@@ -1,5 +1,6 @@
 {
     "createdAt": "2025-01-29T16:04:53.816000+00:00",
+    "distinctId": "test-user-123",
     "id": "537b7988-0186-494f-a313-77a5a8f7db26",
     "traceName": "Trace without content",
     "inputState": null,

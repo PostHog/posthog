@@ -29,6 +29,7 @@ import { AddInsightToDashboardModal } from './AddInsightToDashboardModal'
 import { DashboardHeader } from './DashboardHeader'
 import { DashboardOverridesBanner } from './DashboardOverridesBanner'
 import { EmptyDashboardComponent } from './EmptyDashboardComponent'
+import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
 
 interface DashboardProps {
     id?: string
@@ -70,6 +71,7 @@ function DashboardScene(): JSX.Element {
         hasVariables,
     } = useValues(dashboardLogic)
     const { currentTeamId } = useValues(teamLogic)
+    const { addInsightToDashboardModalVisible } = useValues(addInsightToDashboardLogic)
     const { reportDashboardViewed, abortAnyRunningQuery } = useActions(dashboardLogic)
 
     useFileSystemLogView({
@@ -97,7 +99,7 @@ function DashboardScene(): JSX.Element {
     return (
         <SceneContent className={cn('dashboard')}>
             {placement == DashboardPlacement.Dashboard && <DashboardHeader />}
-            {canEditDashboard && <AddInsightToDashboardModal />}
+            {canEditDashboard && addInsightToDashboardModalVisible && <AddInsightToDashboardModal />}
 
             {dashboardFailedToLoad ? (
                 <InsightErrorState title="There was an error loading this dashboard" />
