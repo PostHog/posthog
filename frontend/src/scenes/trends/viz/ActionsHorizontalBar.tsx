@@ -33,7 +33,7 @@ export function ActionsHorizontalBar({ showPersonsModal = true, context }: Chart
         hasDataWarehouseSeries,
         querySource,
         breakdownFilter,
-        hasOnlyOneSeries,
+        isSingleSeriesDefinition,
         getTrendsColor,
         getTrendsHidden,
         theme,
@@ -98,7 +98,7 @@ export function ActionsHorizontalBar({ showPersonsModal = true, context }: Chart
             formula={formula}
             showValuesOnSeries={showValuesOnSeries}
             ignoreActionsInSeriesLabels={
-                context?.ignoreActionsInSeriesLabels || (hasOnlyOneSeries && !!breakdownFilter?.breakdown)
+                context?.ignoreActionsInSeriesLabels || (isSingleSeriesDefinition && !!breakdownFilter?.breakdown)
             }
             isStacked={false}
             onClick={

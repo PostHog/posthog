@@ -508,7 +508,7 @@ describe('insightVizDataLogic', () => {
         })
     })
 
-    describe('isSingleSeries', () => {
+    describe('isSingleSeriesOutput', () => {
         it('returns true for single series without breakdown', () => {
             expectLogic(builtInsightVizDataLogic, () => {
                 builtInsightVizDataLogic.actions.updateQuerySource({
@@ -520,7 +520,7 @@ describe('insightVizDataLogic', () => {
                         },
                     ],
                 } as Partial<TrendsQuery>)
-            }).toMatchValues({ isSingleSeries: true })
+            }).toMatchValues({ isSingleSeriesOutput: true })
         })
 
         it('returns false for multiple series without formula', () => {
@@ -539,7 +539,7 @@ describe('insightVizDataLogic', () => {
                         },
                     ],
                 } as Partial<TrendsQuery>)
-            }).toMatchValues({ isSingleSeries: false })
+            }).toMatchValues({ isSingleSeriesOutput: false })
         })
 
         it('returns true for multiple series with single formula', () => {
@@ -561,7 +561,7 @@ describe('insightVizDataLogic', () => {
                         formula: 'A + B',
                     },
                 } as Partial<TrendsQuery>)
-            }).toMatchValues({ isSingleSeries: true })
+            }).toMatchValues({ isSingleSeriesOutput: true })
         })
 
         it('returns true for multiple series with single formula in formulas array', () => {
@@ -583,7 +583,7 @@ describe('insightVizDataLogic', () => {
                         formulas: ['A + B'],
                     },
                 } as Partial<TrendsQuery>)
-            }).toMatchValues({ isSingleSeries: true })
+            }).toMatchValues({ isSingleSeriesOutput: true })
         })
 
         it('returns false for multiple series with multiple formulas', () => {
@@ -605,7 +605,7 @@ describe('insightVizDataLogic', () => {
                         formulas: ['A + B', 'A - B'],
                     },
                 } as Partial<TrendsQuery>)
-            }).toMatchValues({ isSingleSeries: false })
+            }).toMatchValues({ isSingleSeriesOutput: false })
         })
 
         it('returns false for single series with breakdown', () => {
@@ -623,11 +623,11 @@ describe('insightVizDataLogic', () => {
                         breakdown_type: 'event',
                     },
                 } as Partial<TrendsQuery>)
-            }).toMatchValues({ isSingleSeries: false })
+            }).toMatchValues({ isSingleSeriesOutput: false })
         })
     })
 
-    describe('hasOnlyOneSeries', () => {
+    describe('isSingleSeriesDefinition', () => {
         it('returns true for single series without breakdown', () => {
             expectLogic(builtInsightVizDataLogic, () => {
                 builtInsightVizDataLogic.actions.updateQuerySource({
@@ -639,7 +639,7 @@ describe('insightVizDataLogic', () => {
                         },
                     ],
                 } as Partial<TrendsQuery>)
-            }).toMatchValues({ hasOnlyOneSeries: true })
+            }).toMatchValues({ isSingleSeriesDefinition: true })
         })
 
         it('returns false for multiple series', () => {
@@ -658,10 +658,10 @@ describe('insightVizDataLogic', () => {
                         },
                     ],
                 } as Partial<TrendsQuery>)
-            }).toMatchValues({ hasOnlyOneSeries: false })
+            }).toMatchValues({ isSingleSeriesDefinition: false })
         })
 
-        it('returns true for single series WITH breakdown (unlike isSingleSeries)', () => {
+        it('returns true for single series WITH breakdown (unlike isSingleSeriesOutput)', () => {
             expectLogic(builtInsightVizDataLogic, () => {
                 builtInsightVizDataLogic.actions.updateQuerySource({
                     series: [
@@ -676,7 +676,7 @@ describe('insightVizDataLogic', () => {
                         breakdown_type: 'event',
                     },
                 } as Partial<TrendsQuery>)
-            }).toMatchValues({ hasOnlyOneSeries: true })
+            }).toMatchValues({ isSingleSeriesDefinition: true })
         })
 
         it('returns true for multiple series with single formula', () => {
@@ -698,7 +698,7 @@ describe('insightVizDataLogic', () => {
                         formula: 'A + B',
                     },
                 } as Partial<TrendsQuery>)
-            }).toMatchValues({ hasOnlyOneSeries: true })
+            }).toMatchValues({ isSingleSeriesDefinition: true })
         })
     })
 })

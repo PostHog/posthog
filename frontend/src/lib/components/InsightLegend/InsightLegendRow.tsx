@@ -29,7 +29,7 @@ export function InsightLegendRow({ item }: InsightLegendRowProps): JSX.Element {
         display,
         trendsFilter,
         breakdownFilter,
-        hasOnlyOneSeries,
+        isSingleSeriesDefinition,
         getTrendsColor,
         getTrendsHidden,
         resultCustomizationBy,
@@ -87,7 +87,7 @@ export function InsightLegendRow({ item }: InsightLegendRowProps): JSX.Element {
                                     seriesColor={mainColor}
                                     action={item.action}
                                     fallbackName={item.breakdown_value === '' ? 'None' : item.label}
-                                    hasMultipleSeries={!hasOnlyOneSeries}
+                                    hasMultipleSeries={!isSingleSeriesDefinition}
                                     hideBreakdown
                                     compareValue={isPrevious ? formatCompareLabel(item) : undefined}
                                     hideIcon
@@ -101,7 +101,7 @@ export function InsightLegendRow({ item }: InsightLegendRowProps): JSX.Element {
                                 seriesColor={mainColor}
                                 action={item.action}
                                 fallbackName={item.breakdown_value === '' ? 'None' : item.label}
-                                hasMultipleSeries={!hasOnlyOneSeries}
+                                hasMultipleSeries={!isSingleSeriesDefinition}
                                 breakdownValue={formattedBreakdownValue}
                                 compareValue={isPrevious ? formatCompareLabel(item) : undefined}
                                 pillMidEllipsis={breakdownFilter?.breakdown === '$current_url'} // TODO: define set of breakdown values that would benefit from mid ellipsis truncation

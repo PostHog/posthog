@@ -312,7 +312,10 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             (display) => !!display && NON_TIME_SERIES_DISPLAY_TYPES.includes(display),
         ],
 
-        isSingleSeries: [
+        // Whether the insight will produce a single visual output (one line/bar).
+        // Considers breakdowns: a breakdown splits one series into multiple visual outputs.
+        // See also: isSingleSeriesDefinition (which ignores breakdowns).
+        isSingleSeriesOutput: [
             (s) => [s.isTrends, s.formula, s.formulas, s.formulaNodes, s.series, s.breakdownFilter],
             (
                 isTrends: boolean,
@@ -336,9 +339,10 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             },
         ],
 
-        // Whether there's only one event/action series defined in the query
-        // (ignores breakdowns which create multiple visual lines from the same series)
-        hasOnlyOneSeries: [
+        // Whether there's only one event/action series defined in the query.
+        // Ignores breakdowns which create multiple visual outputs from the same series.
+        // See also: isSingleSeriesOutput (which considers breakdowns).
+        isSingleSeriesDefinition: [
             (s) => [s.isTrends, s.formula, s.formulas, s.formulaNodes, s.series],
             (
                 isTrends: boolean,
@@ -369,7 +373,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         currentDataWarehouseSchemaColumns: [
             (s) => [
                 s.series,
-                s.isSingleSeries,
+                s.isSingleSeriesOutput,
                 s.isTrends,
                 s.hasDataWarehouseSeries,
                 s.isBreakdownSeries,
@@ -377,13 +381,13 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             ],
             (
                 series,
-                isSingleSeries,
+                isSingleSeriesOutput,
                 isTrends,
                 hasDataWarehouseSeries,
                 isBreakdownSeries,
                 dataWarehouseTablesMap
             ): DatabaseSchemaField[] => {
-                if (!hasDataWarehouseSeries || (isTrends && !isSingleSeries && !isBreakdownSeries)) {
+                if (!hasDataWarehouseSeries || (isTrends && !isSingleSeriesOutput && !isBreakdownSeries)) {
                     return []
                 }
 
