@@ -1,8 +1,8 @@
 name: Setup Emscripten SDK
 description: |
-  Installs and activates the Emscripten SDK for WASM builds.
-  Replaces mymindstorm/setup-emsdk to avoid its truthy-string bug
-  that causes unnecessary emsdk update downloads (HTTP 502/429 failures).
+    Installs and activates the Emscripten SDK for WASM builds.
+    Replaces mymindstorm/setup-emsdk to avoid its truthy-string bug
+    that causes unnecessary emsdk update downloads (HTTP 502/429 failures).
 
 inputs:
     version:
