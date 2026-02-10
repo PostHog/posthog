@@ -408,9 +408,11 @@ class RedshiftClient(PostgreSQLClient):
                         (self.database,),
                     )
                     row = await cursor.fetchone()
-
-        except Exception:
-            self.logger.exception("Check isolation level failed")
+        except Exception as e:
+            if isinstance(e, psycopg.errors.InsufficientPrivilege):
+                self.logger.warning("Insufficient privileges to get isolation level")
+            else:
+                self.logger.exception("Check isolation level failed")
             return "UNKNOWN"
 
         else:
