@@ -33,8 +33,14 @@ import { OnboardingInstallStep } from './sdks/OnboardingInstallStep'
 import { ErrorTrackingSDKInstructions } from './sdks/error-tracking/ErrorTrackingSDKInstructions'
 import { ExperimentsSDKInstructions } from './sdks/experiments/ExperimentsSDKInstructions'
 import { FeatureFlagsSDKInstructions } from './sdks/feature-flags/FeatureFlagsSDKInstructions'
-import { LLMAnalyticsSDKInstructions } from './sdks/llm-analytics/LLMAnalyticsSDKInstructions'
-import { ProductAnalyticsSDKInstructions } from './sdks/product-analytics/ProductAnalyticsSDKInstructions'
+import {
+    LLMAnalyticsSDKInstructions,
+    LLMAnalyticsSDKTagOverrides,
+} from './sdks/llm-analytics/LLMAnalyticsSDKInstructions'
+import {
+    ProductAnalyticsSDKInstructions,
+    ProductAnalyticsSDKTagOverrides,
+} from './sdks/product-analytics/ProductAnalyticsSDKInstructions'
 import { SessionReplaySDKInstructions } from './sdks/session-replay/SessionReplaySDKInstructions'
 import { SurveysSDKInstructions } from './sdks/surveys/SurveysSDKInstructions'
 import { OnboardingWebAnalyticsAuthorizedDomainsStep } from './web-analytics/OnboardingWebAnalyticsAuthorizedDomainsStep'
@@ -203,7 +209,10 @@ const ProductAnalyticsOnboarding = (): JSX.Element => {
 
     return (
         <OnboardingWrapper>
-            <OnboardingInstallStep sdkInstructionMap={ProductAnalyticsSDKInstructions} />
+            <OnboardingInstallStep
+                sdkInstructionMap={ProductAnalyticsSDKInstructions}
+                sdkTagOverrides={ProductAnalyticsSDKTagOverrides}
+            />
             <OnboardingProductConfiguration options={filteredOptions} />
 
             <OnboardingSessionReplayConfiguration />
@@ -390,7 +399,11 @@ const ErrorTrackingOnboarding = (): JSX.Element => {
 const LLMAnalyticsOnboarding = (): JSX.Element => {
     return (
         <OnboardingWrapper>
-            <OnboardingInstallStep sdkInstructionMap={LLMAnalyticsSDKInstructions} listeningForName="LLM generation" />
+            <OnboardingInstallStep
+                sdkInstructionMap={LLMAnalyticsSDKInstructions}
+                sdkTagOverrides={LLMAnalyticsSDKTagOverrides}
+                listeningForName="LLM generation"
+            />
         </OnboardingWrapper>
     )
 }
@@ -402,6 +415,7 @@ const WorkflowsOnboarding = (): JSX.Element => {
             {/* Show Product Analytics instructions by default to allow events from any source but display warning showing it's not neccessary */}
             <OnboardingInstallStep
                 sdkInstructionMap={ProductAnalyticsSDKInstructions}
+                sdkTagOverrides={ProductAnalyticsSDKTagOverrides}
                 header={
                     <LemonBanner type="warning" className="mb-4">
                         Setting up events is <strong>not</strong> necessary for workflows but it means you'll be able to
