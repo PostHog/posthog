@@ -814,6 +814,79 @@ class TestHogFlowAPI(APIBaseTest):
         assert "email" in bytecode_with, "Bytecode should include email property check"
         assert "person" in bytecode_with, "Bytecode should include person property type"
 
+    def test_hog_flow_draft_compiles_bytecode_for_complete_actions(self):
+        hog_flow, action = self._create_hog_flow_with_action(
+            {
+                "template_id": "template-webhook",
+                "inputs": {"url": {"value": "https://example.com"}},
+            }
+        )
+        hog_flow["status"] = "draft"
+
+        action["filters"] = {
+            "properties": [{"key": "event", "type": "event_metadata", "value": ["custom_event"], "operator": "exact"}]
+        }
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+
+        assert response.status_code == 201, response.json()
+        flow = HogFlow.objects.get(pk=response.json()["id"])
+
+        assert flow.trigger["filters"].get("bytecode") == ["_H", 1, 32, "$pageview", 32, "event", 1, 1, 11]
+
+        assert flow.actions[1]["filters"].get("bytecode") == ["_H", 1, 32, "custom_event", 32, "event", 1, 1, 11]
+
+        assert flow.actions[1]["config"]["inputs"] == {
+            "url": {"order": 0, "value": "https://example.com", "bytecode": ["_H", 1, 32, "https://example.com"]}
+        }
+
+    def test_hog_flow_draft_to_active_compiles_bytecode(self):
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {
+                "template_id": "template-webhook",
+                "inputs": {"url": {"value": "https://example.com"}},
+            }
+        )
+        hog_flow["status"] = "draft"
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 201, response.json()
+        flow_id = response.json()["id"]
+
+        # Activate the draft — re-validation should compile bytecodes
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {"status": "active"},
+        )
+        assert response.status_code == 200, response.json()
+
+        flow = HogFlow.objects.get(pk=flow_id)
+        assert flow.trigger["filters"].get("bytecode") == ["_H", 1, 32, "$pageview", 32, "event", 1, 1, 11]
+        assert flow.actions[1]["config"]["inputs"] == {
+            "url": {"order": 0, "value": "https://example.com", "bytecode": ["_H", 1, 32, "https://example.com"]}
+        }
+
+    def test_hog_flow_draft_partial_inputs_skips_input_bytecode(self):
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {
+                "template_id": "template-webhook",
+                "inputs": {},
+            }
+        )
+        hog_flow["status"] = "draft"
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 201, response.json()
+
+        flow = HogFlow.objects.get(pk=response.json()["id"])
+
+        # Trigger filter bytecode should still compile even though action inputs are incomplete
+        assert flow.trigger["filters"].get("bytecode") == ["_H", 1, 32, "$pageview", 32, "event", 1, 1, 11]
+
+        # Action inputs should NOT have bytecode since required 'url' is missing
+        # (is_valid() fails on the whole inputs serializer)
+        assert flow.actions[1]["config"]["inputs"] == {}
+
     def _get_hog_flow_activity(self, flow_id: Optional[str] = None) -> list:
         params: dict = {"scope": "HogFlow", "page": 1, "limit": 20}
         if flow_id:
