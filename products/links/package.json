@@ -4,10 +4,10 @@
         "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short"
     },
     "dependencies": {
-        "kea": "^3.1.7",
-        "kea-forms": "^3.2.0",
-        "kea-loaders": "^3.1.1",
-        "kea-router": "^3.4.1",
+        "kea": "catalog:",
+        "kea-forms": "catalog:",
+        "kea-loaders": "catalog:",
+        "kea-router": "catalog:",
         "qrcode.react": "^4.2.0"
     },
     "peerDependencies": {

@@ -4,15 +4,15 @@
         "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short"
     },
     "dependencies": {
-        "kea": "^3.1.7",
-        "kea-forms": "^3.2.0",
-        "kea-loaders": "^3.1.1",
-        "kea-router": "^3.4.1",
-        "kea-subscriptions": "^3.0.1",
-        "posthog-js": "1.343.1"
+        "kea": "catalog:",
+        "kea-forms": "catalog:",
+        "kea-loaders": "catalog:",
+        "kea-router": "catalog:",
+        "kea-subscriptions": "catalog:",
+        "posthog-js": "catalog:"
     },
     "devDependencies": {
-        "kea-test-utils": "*"
+        "kea-test-utils": "catalog:"
     },
     "peerDependencies": {
         "@posthog/icons": "*",

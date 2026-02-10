@@ -18551,6 +18551,9 @@
                 "createdAt": {
                     "type": "string"
                 },
+                "distinctId": {
+                    "type": "string"
+                },
                 "errorCount": {
                     "type": "number"
                 },
@@ -18593,7 +18596,7 @@
                     "type": "string"
                 }
             },
-            "required": ["id", "createdAt", "person", "events"],
+            "required": ["id", "createdAt", "distinctId", "events"],
             "type": "object"
         },
         "LLMTraceEvent": {
@@ -18632,6 +18635,7 @@
                     "type": "string"
                 },
                 "properties": {
+                    "additionalProperties": {},
                     "type": "object"
                 },
                 "uuid": {
