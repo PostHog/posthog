@@ -120,7 +120,7 @@ class ExperimentalSessionsBackfillConfig(Config):
     max_unmerged_parts: int = 100
     parts_check_poll_frequency_seconds: int = 30
     parts_check_max_wait_seconds: int = 3600
-    host_ip: str
+    client_overrides: dict[str, Any]
 
 
 daily_partitions = DailyPartitionsDefinition(
@@ -441,8 +441,7 @@ def _do_experimental_backfill(
     kwargs = get_kwargs_for_client(
         workload=Workload.OFFLINE, team_id=None, readonly=False, ch_user=ClickHouseUser.DEFAULT
     )
-    overrides = {"host": config.host_ip}
-    with get_http_client(**kwargs, **overrides) as client:
+    with get_http_client(**kwargs, **config.client_overrides) as client:
         # this loop is largely copied from _do_backfill, but not writing per shard
         for chunk_i in range(team_id_chunks):
             wait_for_parts_to_merge(context, config, sync_client=client)
