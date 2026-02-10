@@ -621,7 +621,7 @@ class JoinedTableReferenceFinder(TraversingVisitor):
         """Check if a name matches a column on the events table."""
         if self.events_table_type is None:
             return False
-        target = self.events_table_type
+        target: ast.TableType | ast.TableAliasType | ast.LazyTableType = self.events_table_type
         if isinstance(target, ast.TableAliasType):
             target = target.table_type
         if isinstance(target, ast.TableType) and hasattr(target.table, "fields"):
