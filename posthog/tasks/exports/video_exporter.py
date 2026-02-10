@@ -174,11 +174,16 @@ class PuppeteerRecorder(_ReplayVideoRecorder):
                 )
                 raise RuntimeError(msg)
             # Parse inactivity periods
-            inactivity_periods = None
-            if output.get("inactivity_periods"):
-                inactivity_periods = [
-                    ReplayInactivityPeriod.model_validate(period) for period in output["inactivity_periods"]
-                ]
+            if not output.get("inactivity_periods"):
+                # Expect that all the recordings should have at least one period with active: True/False
+                msg = "Puppeteer recorder produced no inactivity periods when recording the session."
+                err = RuntimeError(msg)
+                logger.exception(msg, output=output, options=options, signals_type="video_export")
+                posthoganalytics.capture_exception(err, additional_properties={"options": options, "output": output})
+                raise err
+            inactivity_periods = [
+                ReplayInactivityPeriod.model_validate(period) for period in output["inactivity_periods"]
+            ]
             # Parse segment timestamps
             segment_start_timestamps = {}
             if output.get("segment_start_timestamps"):

@@ -111,10 +111,8 @@ def record_replay_video_activity(build: dict[str, Any]) -> dict[str, Any]:
                 use_puppeteer=build.get("use_puppeteer", False),
             ),
         )
-        return {
-            "tmp_path": tmp_path,
-            "inactivity_periods": [x.model_dump() for x in inactivity_periods] if inactivity_periods else None,
-        }
+
+        return {"tmp_path": tmp_path, "inactivity_periods": [x.model_dump() for x in inactivity_periods]}
     except Exception:
         # Clean up temp directory on failure
         shutil.rmtree(tmp_dir, ignore_errors=True)
