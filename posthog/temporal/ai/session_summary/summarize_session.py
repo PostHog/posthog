@@ -622,8 +622,8 @@ async def ensure_llm_single_session_summary(inputs: SingleSessionSummaryInputs):
             await handle.result()
         except WorkflowAlreadyStartedError:
             # Another summarization request already started exporting this session - wait for it
-            handle = temporalio.workflow.get_external_workflow_handle(workflow_id)
-            await handle.result()
+            external_handle = temporalio.workflow.get_external_workflow_handle(workflow_id)
+            await external_handle.result()
 
     # Activity 2: Upload full video to Gemini (single upload)
     upload_result = await temporalio.workflow.execute_activity(
