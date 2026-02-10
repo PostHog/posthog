@@ -510,6 +510,22 @@ export const featureFlagsLocalEvaluationRetrieve = async (
 }
 
 /**
+ * Get IDs of all feature flags matching the current filters.
+Uses the same filtering logic as the list endpoint.
+Returns only IDs that the user has permission to edit.
+ */
+export const getFeatureFlagsMatchingIdsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/feature_flags/matching_ids/`
+}
+
+export const featureFlagsMatchingIdsRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getFeatureFlagsMatchingIdsRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+/**
  * Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
 
 If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
