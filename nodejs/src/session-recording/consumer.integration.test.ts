@@ -1,69 +1,8 @@
 /**
- * End-to-end integration test for the session recording consumer.
+ * E2E test for the session recording consumer.
  *
- * This test validates behavioral parity of the session recording pipeline by testing
- * at the consumer level using real local infrastructure (Kafka, S3, Redis, Postgres).
- *
- * ## How it works
- *
- * 1. Produces test messages to the input Kafka topic (session_recording_snapshot_item_events)
- * 2. The real SessionRecordingIngester consumes and processes messages
- * 3. Ingester writes session data to S3 and publishes metadata to the output Kafka topic
- * 4. ClickHouse's materialized view (session_replay_events_mv) consumes metadata from Kafka
- *    and writes to the aggregated session_replay_events table
- * 5. Test queries the aggregated ClickHouse table to verify metadata was correctly written
- * 6. Uses the block_url byte ranges from metadata to read specific S3 blocks
- * 7. Decompresses snappy blocks and parses JSONL event data
- * 8. Builds a snapshot capturing event types, ordering, window IDs, and metadata counts
- *
- * This allows us to:
- * - Capture baseline behavior before refactoring
- * - Verify behavioral parity after incremental changes
- * - Guarantee event ordering and session batching correctness
- *
- * ## Running locally
- *
- * Prerequisites:
- * - Docker (for local infrastructure)
- * - Python environment (for Django migrations)
- *
- * Steps:
- * 1. Start the required services (Kafka, MinIO, Postgres, Redis):
- *      hogli dev:setup
- *    Or manually:
- *      docker compose -f docker-compose.dev.yml up
- *
- * 2. Set up the test database (creates test_posthog DB and runs migrations):
- *      pnpm setup:test
- *
- * 3. Run the tests:
- *      pnpm jest src/session-recording/consumer.integration.test.ts
- *
- * Tests will fail if required infrastructure is not available, with a message
- * indicating which services are missing. To skip these tests when running the
- * full suite, use: pnpm jest --testPathIgnorePatterns=e2e
- *
- * ## Adding new test cases
- *
- * 1. Add a new entry to the `testCases` array with:
- *    - `name`: Short identifier used in the snapshot name
- *    - `description`: What the test verifies
- *    - `createPayloads`: Function returning PayloadConfig[] with test data
- *    - `expectedOutcome`: 'written' (data should appear in S3) or 'dropped' (rejected)
- *
- * 2. Run tests with the update flag to generate the new snapshot:
- *      pnpm jest src/session-recording/consumer.integration.test.ts -u
- *
- * 3. Review the generated snapshot in __snapshots__/consumer.integration.test.ts.snap
- *    to ensure it captures the expected behavior.
- *
- * ## Updating snapshots after refactoring
- *
- * If refactoring changes the output format (but behavior is correct), update snapshots:
- *      pnpm jest src/session-recording/consumer.integration.test.ts -u
- *
- * Always review snapshot diffs carefully - they should reflect intentional changes only.
- * If a snapshot changes unexpectedly, investigate before updating.
+ * Validates the full session recording pipeline using real local infrastructure.
+ * See README.md for architecture details, setup instructions, and how to add new test cases.
  */
 import { DeleteObjectsCommand, GetObjectCommand, ListObjectsV2Command, S3Client } from '@aws-sdk/client-s3'
 import { HighLevelProducer } from 'node-rdkafka'
