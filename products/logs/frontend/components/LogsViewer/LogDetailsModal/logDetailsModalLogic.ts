@@ -1,12 +1,13 @@
-import { actions, kea, key, listeners, path, props, reducers } from 'kea'
+import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
 import { ParsedLogMessage } from 'products/logs/frontend/types'
+import { isSessionIdKey } from 'products/logs/frontend/utils'
 
 import type { logDetailsModalLogicType } from './logDetailsModalLogicType'
 
-export type LogDetailsTab = 'details' | 'explore-ai' | 'comments'
+export type LogDetailsTab = 'details' | 'raw' | 'explore-ai' | 'comments' | 'related-errors'
 
 export interface LogDetailsModalProps {
     tabId: string
@@ -67,5 +68,33 @@ export const logDetailsModalLogic = kea<logDetailsModalLogicType>([
                 closeLogDetails: () => 'details',
             },
         ],
+    }),
+
+    selectors({
+        sessionId: [
+            (s) => [s.selectedLog],
+            (selectedLog): string | null => {
+                if (!selectedLog) {
+                    return null
+                }
+
+                // Check log attributes first
+                for (const [key, value] of Object.entries(selectedLog?.attributes || {})) {
+                    if (isSessionIdKey(key) && value) {
+                        return String(value)
+                    }
+                }
+
+                // Then check resource_attributes
+                for (const [key, value] of Object.entries(selectedLog?.resource_attributes || {})) {
+                    if (isSessionIdKey(key) && value) {
+                        return String(value)
+                    }
+                }
+
+                return null
+            },
+        ],
+        hasSessionId: [(s) => [s.sessionId], (sessionId): boolean => sessionId !== null],
     }),
 ])

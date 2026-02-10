@@ -708,40 +708,31 @@ export function SavedInsights(): JSX.Element {
             key: 'name',
             render: function renderName(name: string, insight) {
                 return (
-                    <>
+                    <div className="flex items-center gap-1">
                         <LemonTableLink
                             to={urls.insightView(insight.short_id)}
-                            title={
-                                <>
-                                    {name || <i>{summarizeInsight(insight.query)}</i>}
-
-                                    <AccessControlAction
-                                        resourceType={AccessControlResourceType.Insight}
-                                        minAccessLevel={AccessControlLevel.Editor}
-                                        userAccessLevel={insight.user_access_level}
-                                    >
-                                        <LemonButton
-                                            className="ml-1"
-                                            size="xsmall"
-                                            onClick={(e) => {
-                                                e.preventDefault()
-                                                updateFavoritedInsight(insight, !insight.favorited)
-                                            }}
-                                            icon={
-                                                insight.favorited ? (
-                                                    <IconStarFilled className="text-warning" />
-                                                ) : (
-                                                    <IconStar className="text-secondary" />
-                                                )
-                                            }
-                                            tooltip={`${insight.favorited ? 'Remove from' : 'Add to'} favorite insights`}
-                                        />
-                                    </AccessControlAction>
-                                </>
-                            }
+                            title={name || <i>{summarizeInsight(insight.query)}</i>}
                             description={insight.description}
                         />
-                    </>
+                        <AccessControlAction
+                            resourceType={AccessControlResourceType.Insight}
+                            minAccessLevel={AccessControlLevel.Editor}
+                            userAccessLevel={insight.user_access_level}
+                        >
+                            <LemonButton
+                                size="xsmall"
+                                onClick={() => updateFavoritedInsight(insight, !insight.favorited)}
+                                icon={
+                                    insight.favorited ? (
+                                        <IconStarFilled className="text-warning" />
+                                    ) : (
+                                        <IconStar className="text-secondary" />
+                                    )
+                                }
+                                tooltip={`${insight.favorited ? 'Remove from' : 'Add to'} favorite insights`}
+                            />
+                        </AccessControlAction>
+                    </div>
                 )
             },
             sorter: (a, b) => (a.name || summarizeInsight(a.query)).localeCompare(b.name || summarizeInsight(b.query)),
