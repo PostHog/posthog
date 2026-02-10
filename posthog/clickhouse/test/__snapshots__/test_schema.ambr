@@ -1388,9 +1388,7 @@
   group4_created_at,
   person_mode,
   _timestamp,
-  _timestamp_ms,
-  _offset,
-  _partition
+  _offset
   FROM posthog_test.kafka_events_recent_json
   
   '''
