@@ -1960,6 +1960,9 @@ const api = {
         async analyze(id: number): Promise<{ result: string }> {
             return await new ApiRequest().insight(id).withAction('analyze').get()
         },
+        async generateName(query: Record<string, any>): Promise<{ name: string }> {
+            return await new ApiRequest().insights().withAction('generate_name').create({ data: { query } })
+        },
     },
 
     endpoint: {

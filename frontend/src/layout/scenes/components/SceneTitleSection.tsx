@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 
 import { IconEllipsis, IconPencil, IconX } from '@posthog/icons'
@@ -8,12 +8,15 @@ import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { ProductSetupButton } from 'lib/components/ProductSetup'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive, buttonPrimitiveVariants } from 'lib/ui/Button/ButtonPrimitives'
 import { TextareaPrimitive } from 'lib/ui/TextareaPrimitive/TextareaPrimitive'
 import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
 import { cn } from 'lib/utils/css-classes'
+import { AnimatedSparkles } from 'scenes/max/components/AnimatedSparkles'
 
 import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
@@ -159,6 +162,12 @@ type SceneMainTitleProps = {
      * Additional class name for the title section
      */
     className?: string
+
+    /**
+     * Optional callback to generate a name using AI
+     * When provided, shows a sparkle button next to the name input when editing
+     */
+    onGenerateName?: () => Promise<string>
 }
 
 export function SceneTitleSection({
@@ -177,6 +186,7 @@ export function SceneTitleSection({
     actions,
     forceBackTo,
     className,
+    onGenerateName,
 }: SceneMainTitleProps): JSX.Element | null {
     const { breadcrumbs } = useValues(breadcrumbsLogic)
     const { zenMode } = useValues(navigation3000Logic)
@@ -272,6 +282,7 @@ export function SceneTitleSection({
                                     forceEdit={forceEdit}
                                     renameDebounceMs={renameDebounceMs}
                                     saveOnBlur={saveOnBlur}
+                                    onGenerateName={onGenerateName}
                                 />
                             </>
                         )}
@@ -317,6 +328,7 @@ type SceneNameProps = {
     forceEdit?: boolean
     renameDebounceMs?: number
     saveOnBlur?: boolean
+    onGenerateName?: () => Promise<string>
 }
 
 function SceneName({
@@ -327,9 +339,15 @@ function SceneName({
     forceEdit = false,
     renameDebounceMs = 100,
     saveOnBlur = false,
+    onGenerateName,
 }: SceneNameProps): JSX.Element {
     const [name, setName] = useState(initialName)
     const [isEditing, setIsEditing] = useState(forceEdit)
+    const [isGenerating, setIsGenerating] = useState(false)
+    const containerRef = useRef<HTMLDivElement>(null)
+
+    const { featureFlags } = useValues(featureFlagLogic)
+    const canAccessAutoname = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_AUTONAME_INSIGHTS_WITH_AI]
 
     const textClasses =
         'text-xl font-semibold my-0 pl-[var(--button-padding-x-sm)] min-h-[var(--button-height-sm)] leading-[1.4] select-auto'
@@ -360,49 +378,109 @@ function SceneName({
         }
     }, renameDebounceMs)
 
+    const handleGenerateName = async (): Promise<string | undefined> => {
+        if (!onGenerateName || isGenerating) {
+            return
+        }
+        setIsGenerating(true)
+        try {
+            const generatedName = await onGenerateName()
+            return generatedName
+        } finally {
+            setIsGenerating(false)
+        }
+    }
+
     // If onBlur is provided, we want to show a button that allows the user to edit the name
     // Otherwise, we want to show the name as a text
     const Element =
         onChange && canEdit ? (
             <>
                 {isEditing ? (
-                    <TextareaPrimitive
-                        variant="default"
-                        name="name"
-                        value={name || ''}
-                        onChange={(e) => {
-                            setName(e.target.value)
-                            if (!saveOnBlur) {
-                                debouncedOnChange(e.target.value)
-                            }
-                        }}
-                        data-attr="scene-title-textarea"
-                        className={cn(
-                            buttonPrimitiveVariants({
-                                inert: true,
-                                className: `${textClasses} w-full hover:bg-fill-input py-0`,
-                                autoHeight: true,
-                            }),
-                            '[&_.LemonIcon]:size-4 input-like'
+                    <div ref={containerRef} className="flex items-center gap-1 w-full">
+                        <TextareaPrimitive
+                            variant="default"
+                            name="name"
+                            value={name || ''}
+                            onChange={(e) => {
+                                setName(e.target.value)
+                                if (!saveOnBlur) {
+                                    debouncedOnChange(e.target.value)
+                                }
+                            }}
+                            data-attr="scene-title-textarea"
+                            className={cn(
+                                buttonPrimitiveVariants({
+                                    inert: true,
+                                    className: `${textClasses} w-full hover:bg-fill-input py-0`,
+                                    autoHeight: true,
+                                }),
+                                '[&_.LemonIcon]:size-4 input-like'
+                            )}
+                            wrapperClassName="flex-1 min-w-0"
+                            placeholder="Enter name"
+                            onBlur={(e) => {
+                                // Check if focus is moving to an element within our container (like the generate button)
+                                const relatedTarget = e.relatedTarget as HTMLElement | null
+                                if (
+                                    relatedTarget &&
+                                    containerRef.current &&
+                                    containerRef.current.contains(relatedTarget)
+                                ) {
+                                    // Focus is staying within the container, don't exit edit mode
+                                    return
+                                }
+                                // Save changes when leaving the field (only if saveOnBlur is true)
+                                if (saveOnBlur && name !== initialName) {
+                                    debouncedOnBlurSave(name || '')
+                                }
+                                // Exit edit mode if not forced
+                                if (!forceEdit) {
+                                    setIsEditing(false)
+                                }
+                            }}
+                            autoFocus={!forceEdit}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                    e.preventDefault()
+                                }
+                            }}
+                        />
+                        {canAccessAutoname && onGenerateName && (
+                            <Tooltip title={isGenerating ? 'Thinking...' : 'Name this insight'}>
+                                <button
+                                    type="button"
+                                    onClick={async () => {
+                                        if (isGenerating) {
+                                            return
+                                        }
+
+                                        const name = await handleGenerateName()
+                                        if (name && name !== initialName) {
+                                            setName(name)
+                                            // Trigger save with the new name
+                                            if (saveOnBlur) {
+                                                debouncedOnBlurSave(name)
+                                            } else {
+                                                debouncedOnChange(name)
+                                            }
+                                        }
+
+                                        if (!forceEdit) {
+                                            setIsEditing(false)
+                                        }
+                                    }}
+                                    disabled={isGenerating}
+                                    className="shrink-0 transition duration-50 cursor-pointer hover:scale-110 rounded-md border border-dashed border-accent size-7 backdrop-blur-[2px] bg-[rgba(255,255,255,0.5)] dark:bg-[rgba(0,0,0,0.5)] disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                    <AnimatedSparkles
+                                        triggerAnimation={isGenerating}
+                                        className="relative size-full pl-0.5 pb-0.5"
+                                    />
+                                </button>
+                            </Tooltip>
                         )}
-                        placeholder="Enter name"
-                        onBlur={() => {
-                            // Save changes when leaving the field (only if saveOnBlur is true)
-                            if (saveOnBlur && name !== initialName) {
-                                debouncedOnBlurSave(name || '')
-                            }
-                            // Exit edit mode if not forced
-                            if (!forceEdit) {
-                                setIsEditing(false)
-                            }
-                        }}
-                        autoFocus={!forceEdit}
-                        onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
-                                e.preventDefault()
-                            }
-                        }}
-                    />
+                    </div>
                 ) : (
                     <Tooltip
                         title={canEdit && !forceEdit ? 'Edit name' : undefined}

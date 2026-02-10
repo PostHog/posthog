@@ -4,6 +4,7 @@ import { useState } from 'react'
 
 import { IconCode2, IconInfo, IconPencil, IconPeople, IconShare, IconTrash } from '@posthog/icons'
 
+import api from 'lib/api'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AddToDashboardModal } from 'lib/components/AddToDashboard/AddToDashboardModal'
 import { areAlertsSupportedForInsight, insightAlertsLogic } from 'lib/components/Alerts/insightAlertsLogic'
@@ -550,6 +551,17 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                 onDescriptionChange={(description) => {
                     setInsightMetadata({ description })
                 }}
+                onGenerateName={
+                    insightQuery
+                        ? async () => {
+                              const response = await api.insights.generateName({
+                                  kind: NodeKind.InsightVizNode,
+                                  source: insightQuery,
+                              })
+                              return response.name
+                          }
+                        : undefined
+                }
                 canEdit={canEditInsight}
                 isLoading={insightLoading && !insight?.id}
                 forceEdit={insightMode === ItemMode.Edit}
