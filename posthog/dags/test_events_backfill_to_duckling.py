@@ -696,6 +696,7 @@ class TestFullBackfillSensorEarliestDate:
         context = build_sensor_context(instance=instance)
         result = duckling_events_full_backfill_sensor(context)
         assert isinstance(result, SensorResult)
+        assert result.run_requests is not None
 
         assert len(result.run_requests) > 0
         first_key = result.run_requests[0].partition_key
@@ -718,6 +719,7 @@ class TestFullBackfillSensorEarliestDate:
         context = build_sensor_context(instance=instance)
         result = duckling_events_full_backfill_sensor(context)
         assert isinstance(result, SensorResult)
+        assert result.run_requests is not None
 
         assert len(result.run_requests) == 0
 
