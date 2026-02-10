@@ -92,7 +92,7 @@ def is_data_warehouse_entity(entity: EntityNode | ExclusionEntityNode) -> TypeGu
     return isinstance(entity, DataWarehouseNode)
 
 
-def data_warehouse_config_key(node: DataWarehouseNode) -> tuple[str | None, str | None, str | None]:
+def data_warehouse_config_key(node: DataWarehouseNode) -> tuple[str, str, str]:
     return (
         node.id_field,
         node.distinct_id_field,
@@ -100,16 +100,14 @@ def data_warehouse_config_key(node: DataWarehouseNode) -> tuple[str | None, str 
     )
 
 
-def entity_config_mismatch(step_entity: EntityNode, table_entity: EntityNode) -> bool:
-    step_is_dw = isinstance(step_entity, DataWarehouseNode)
-    table_is_dw = isinstance(table_entity, DataWarehouseNode)
-
-    if step_is_dw != table_is_dw:
+def entity_config_mismatch(step_entity: EntityNode, table_entity: EntityNode | None) -> bool:
+    if isinstance(step_entity, DataWarehouseNode) != isinstance(table_entity, DataWarehouseNode):
         return True
 
-    if not step_is_dw:
+    if not isinstance(step_entity, DataWarehouseNode):
         return False
 
+    assert isinstance(table_entity, DataWarehouseNode)
     return data_warehouse_config_key(step_entity) != data_warehouse_config_key(table_entity)
 
 
