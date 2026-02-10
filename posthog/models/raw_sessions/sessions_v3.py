@@ -311,6 +311,7 @@ WITH
 SELECT
     team_id,
     `$session_id_uuid` AS session_id_v7,
+    fromUnixTimestamp64Milli(toUInt64(bitShiftRight(`$session_id_uuid`, 80))) AS `session_timestamp`,
 
     initializeAggregation('argMaxState', source_table.distinct_id, timestamp) as distinct_id,
     initializeAggregation('groupUniqArrayState', source_table.distinct_id) as distinct_ids,
