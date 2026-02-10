@@ -20,6 +20,7 @@ runs:
           run: |
               set -euo pipefail
 
+              VERSION="$EMSDK_VERSION"
               EMSDK_DIR="$RUNNER_TEMP/emsdk"
 
               # Download emsdk with retry logic to handle transient GitHub errors (502/429)
@@ -32,19 +33,19 @@ runs:
               rm "$RUNNER_TEMP/emsdk.tar.gz"
 
               # Install and activate the pinned version — no emsdk update needed
-              "$EMSDK_DIR/emsdk" install "$EMSDK_VERSION"
-              "$EMSDK_DIR/emsdk" activate "$EMSDK_VERSION"
+              "$EMSDK_DIR/emsdk" install "$VERSION"
+              "$EMSDK_DIR/emsdk" activate "$VERSION"
 
-              # Export environment variables for subsequent steps
+              # Source emsdk_env.sh to get canonical env vars, then propagate to subsequent steps
+              # Note: emsdk_env.sh may unset/overwrite env vars, so we save VERSION above
+              source "$EMSDK_DIR/emsdk_env.sh" 2>/dev/null || true
+
               echo "EMSDK=$EMSDK_DIR" >> "$GITHUB_ENV"
               echo "$EMSDK_DIR" >> "$GITHUB_PATH"
               echo "$EMSDK_DIR/upstream/emscripten" >> "$GITHUB_PATH"
-
-              # Source emsdk_env.sh and propagate any additional env vars it sets
-              source "$EMSDK_DIR/emsdk_env.sh" 2>/dev/null || true
               if [ -n "${EM_CONFIG:-}" ]; then
                 echo "EM_CONFIG=$EM_CONFIG" >> "$GITHUB_ENV"
               fi
 
-              echo "Emscripten SDK $EMSDK_VERSION installed and activated"
+              echo "Emscripten SDK $VERSION installed and activated"
               emcc --version | head -1
