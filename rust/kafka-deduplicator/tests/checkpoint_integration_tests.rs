@@ -6,8 +6,8 @@ use chrono::Utc;
 use tokio_util::sync::CancellationToken;
 
 use kafka_deduplicator::checkpoint::{
-    CheckpointConfig, CheckpointDownloader, CheckpointExporter, CheckpointImporter,
-    CheckpointMetadata, CheckpointWorker, S3Downloader, S3Uploader,
+    hash_prefix_for_partition, CheckpointConfig, CheckpointDownloader, CheckpointExporter,
+    CheckpointImporter, CheckpointMetadata, CheckpointWorker, S3Downloader, S3Uploader,
 };
 use kafka_deduplicator::kafka::types::Partition;
 use kafka_deduplicator::store::{
@@ -54,9 +54,12 @@ async fn test_checkpoint_export_import_via_minio() -> Result<()> {
     let minio_client = create_minio_client().await;
     ensure_bucket_exists(&minio_client, TEST_BUCKET).await;
 
-    // Clean up any previous test data
+    // Clean up any previous test data (unhashed metadata path and hashed object path)
     let test_prefix = format!("checkpoints/{test_topic}/{test_partition}");
+    let hash = hash_prefix_for_partition(test_topic, test_partition);
+    let hashed_prefix = format!("checkpoints/{hash}/{test_topic}/{test_partition}");
     cleanup_bucket(&minio_client, TEST_BUCKET, &test_prefix).await;
+    cleanup_bucket(&minio_client, TEST_BUCKET, &hashed_prefix).await;
 
     // Create temp directories
     let tmp_store_dir = TempDir::new()?;
@@ -125,17 +128,23 @@ async fn test_checkpoint_export_import_via_minio() -> Result<()> {
         "Uploaded checkpoint"
     );
 
-    // Verify checkpoint was uploaded by listing objects
-    let list_result = minio_client
+    // Verify checkpoint was uploaded by listing objects (metadata under unhashed prefix, objects under hashed)
+    let list_meta = minio_client
         .list_objects_v2()
         .bucket(TEST_BUCKET)
         .prefix(&test_prefix)
         .send()
         .await?;
-
-    let uploaded_keys: Vec<String> = list_result
+    let list_objects = minio_client
+        .list_objects_v2()
+        .bucket(TEST_BUCKET)
+        .prefix(&hashed_prefix)
+        .send()
+        .await?;
+    let uploaded_keys: Vec<String> = list_meta
         .contents()
         .iter()
+        .chain(list_objects.contents().iter())
         .filter_map(|obj| obj.key().map(String::from))
         .collect();
 
@@ -148,10 +157,28 @@ async fn test_checkpoint_export_import_via_minio() -> Result<()> {
         !uploaded_keys.is_empty(),
         "Should have uploaded files to MinIO"
     );
-    assert!(
-        uploaded_keys.iter().any(|k| k.ends_with("metadata.json")),
-        "Should have uploaded metadata.json"
-    );
+    let meta_keys: Vec<_> = uploaded_keys
+        .iter()
+        .filter(|k| k.ends_with("metadata.json"))
+        .collect();
+    assert!(!meta_keys.is_empty(), "Should have uploaded metadata.json");
+    for k in &meta_keys {
+        assert!(
+            !k.contains(&hash),
+            "metadata.json key must not contain hash prefix, got: {k}"
+        );
+    }
+    let object_keys: Vec<_> = uploaded_keys
+        .iter()
+        .filter(|k| !k.ends_with("metadata.json"))
+        .collect();
+    assert!(!object_keys.is_empty(), "Should have uploaded object files");
+    for k in &object_keys {
+        assert!(
+            k.contains(&hash),
+            "object file key must contain hash prefix, got: {k}"
+        );
+    }
     assert!(
         uploaded_keys.iter().any(|k| k.ends_with(".sst")),
         "Should have uploaded .sst files"
@@ -204,6 +231,14 @@ async fn test_checkpoint_export_import_via_minio() -> Result<()> {
         downloaded_metadata.files.len(),
         uploaded_info.metadata.files.len()
     );
+    // Object file paths in metadata must contain hash prefix (round-trip: export wrote hashed paths)
+    for f in &downloaded_metadata.files {
+        assert!(
+            f.remote_filepath.contains(&hash),
+            "metadata.files[].remote_filepath should contain hash prefix, got: {}",
+            f.remote_filepath
+        );
+    }
 
     // Test full import via CheckpointImporter - downloads directly to store directory
     let importer = CheckpointImporter::new(
@@ -670,9 +705,12 @@ async fn test_export_cancellation_via_minio() -> Result<()> {
     let minio_client = create_minio_client().await;
     ensure_bucket_exists(&minio_client, TEST_BUCKET).await;
 
-    // Clean up any previous test data
+    // Clean up any previous test data (unhashed metadata path and hashed object path)
     let test_prefix = format!("checkpoints/{test_topic}/{test_partition}");
+    let hash = hash_prefix_for_partition(test_topic, test_partition);
+    let hashed_prefix = format!("checkpoints/{hash}/{test_topic}/{test_partition}");
     cleanup_bucket(&minio_client, TEST_BUCKET, &test_prefix).await;
+    cleanup_bucket(&minio_client, TEST_BUCKET, &hashed_prefix).await;
 
     // Create temp directory for store (shared across test cases)
     let tmp_store_dir = TempDir::new()?;
@@ -764,6 +802,7 @@ async fn test_export_cancellation_via_minio() -> Result<()> {
     info!("Test 2: Normal export should succeed");
 
     cleanup_bucket(&minio_client, TEST_BUCKET, &test_prefix).await;
+    cleanup_bucket(&minio_client, TEST_BUCKET, &hashed_prefix).await;
 
     let tmp_checkpoint_dir_2 = TempDir::new()?;
     let config_2 = create_test_checkpoint_config(&tmp_checkpoint_dir_2);
@@ -793,17 +832,23 @@ async fn test_export_cancellation_via_minio() -> Result<()> {
         "Normal export succeeded"
     );
 
-    // Verify files were uploaded
-    let list_result = minio_client
+    // Verify files were uploaded (metadata at unhashed path, objects at hashed path)
+    let list_meta = minio_client
         .list_objects_v2()
         .bucket(TEST_BUCKET)
         .prefix(&test_prefix)
         .send()
         .await?;
-
-    let uploaded_keys: Vec<String> = list_result
+    let list_objects = minio_client
+        .list_objects_v2()
+        .bucket(TEST_BUCKET)
+        .prefix(&hashed_prefix)
+        .send()
+        .await?;
+    let uploaded_keys: Vec<String> = list_meta
         .contents()
         .iter()
+        .chain(list_objects.contents().iter())
         .filter_map(|obj| obj.key().map(String::from))
         .collect();
 
@@ -811,10 +856,28 @@ async fn test_export_cancellation_via_minio() -> Result<()> {
         !uploaded_keys.is_empty(),
         "Files should be uploaded for normal export"
     );
-    assert!(
-        uploaded_keys.iter().any(|k| k.ends_with("metadata.json")),
-        "Should have uploaded metadata.json"
-    );
+    let meta_keys: Vec<_> = uploaded_keys
+        .iter()
+        .filter(|k| k.ends_with("metadata.json"))
+        .collect();
+    assert!(!meta_keys.is_empty(), "Should have uploaded metadata.json");
+    for k in &meta_keys {
+        assert!(
+            !k.contains(&hash),
+            "metadata.json key must not contain hash, got: {k}"
+        );
+    }
+    let object_keys: Vec<_> = uploaded_keys
+        .iter()
+        .filter(|k| !k.ends_with("metadata.json"))
+        .collect();
+    assert!(!object_keys.is_empty(), "Should have uploaded object files");
+    for k in &object_keys {
+        assert!(
+            k.contains(&hash),
+            "object file key must contain hash, got: {k}"
+        );
+    }
     assert!(
         uploaded_keys.iter().any(|k| k.ends_with(".sst")),
         "Should have uploaded SST files"
@@ -832,6 +895,7 @@ async fn test_export_cancellation_via_minio() -> Result<()> {
     info!("Test 3: Export with active token should succeed");
 
     cleanup_bucket(&minio_client, TEST_BUCKET, &test_prefix).await;
+    cleanup_bucket(&minio_client, TEST_BUCKET, &hashed_prefix).await;
 
     let tmp_checkpoint_dir_3 = TempDir::new()?;
     let config_3 = create_test_checkpoint_config(&tmp_checkpoint_dir_3);
@@ -859,17 +923,23 @@ async fn test_export_cancellation_via_minio() -> Result<()> {
 
     let checkpoint_info = result.unwrap();
 
-    // Verify files were uploaded
-    let list_result = minio_client
+    // Verify files were uploaded (metadata unhashed, objects hashed)
+    let list_meta = minio_client
         .list_objects_v2()
         .bucket(TEST_BUCKET)
         .prefix(&test_prefix)
         .send()
         .await?;
-
-    let uploaded_keys: Vec<String> = list_result
+    let list_objects = minio_client
+        .list_objects_v2()
+        .bucket(TEST_BUCKET)
+        .prefix(&hashed_prefix)
+        .send()
+        .await?;
+    let uploaded_keys: Vec<String> = list_meta
         .contents()
         .iter()
+        .chain(list_objects.contents().iter())
         .filter_map(|obj| obj.key().map(String::from))
         .collect();
 
@@ -886,6 +956,7 @@ async fn test_export_cancellation_via_minio() -> Result<()> {
 
     // Cleanup MinIO bucket
     cleanup_bucket(&minio_client, TEST_BUCKET, &test_prefix).await;
+    cleanup_bucket(&minio_client, TEST_BUCKET, &hashed_prefix).await;
 
     info!("All export cancellation tests passed");
     Ok(())
