@@ -295,6 +295,9 @@ frontend_files:
     generated/:
         __init__: false # for OpenAPI-generated TypeScript types
 
+    tests/:
+        __init__: false
+
 # Files that are known but should live in specific locations
 # Used by lint to detect misplaced files in backend/
 backend_known_files:
