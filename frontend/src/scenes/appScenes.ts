@@ -61,6 +61,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.Coupons]: () => import('./coupons/Coupons'),
     [Scene.LiveEvents]: () => import('./activity/live/LiveEventsTable'),
     [Scene.Login2FA]: () => import('./authentication/Login2FA'),
+    [Scene.LoginChooseAccount]: () => import('./authentication/ChooseAccount'),
     [Scene.EmailMFAVerify]: () => import('./authentication/EmailMFAVerify'),
     [Scene.Login]: () => import('./authentication/Login'),
     [Scene.MarketingAnalytics]: () => import('./marketing-analytics/MarketingAnalyticsScene'),

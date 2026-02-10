@@ -110,6 +110,7 @@ import { ProjectDisplayName } from './project/ProjectSettings'
 import { SettingSection } from './types'
 import { AllowImpersonation } from './user/AllowImpersonation'
 import { ChangePassword, ChangePasswordTitle } from './user/ChangePassword'
+import { ConnectedAccounts } from './user/ConnectedAccounts'
 import { HedgehogModeSettings } from './user/HedgehogModeSettings'
 import { OptOutCapture } from './user/OptOutCapture'
 import { PasskeySettings } from './user/PasskeySettings'
@@ -996,6 +997,11 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'passkeys',
                 title: 'Passkeys',
                 component: <PasskeySettings />,
+            },
+            {
+                id: 'connected-accounts',
+                title: 'Connected accounts',
+                component: <ConnectedAccounts />,
             },
         ],
     },

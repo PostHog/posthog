@@ -83,6 +83,7 @@ export enum Scene {
     LiveEvents = 'LiveEvents',
     Login = 'Login',
     Login2FA = 'Login2FA',
+    LoginChooseAccount = 'LoginChooseAccount',
     EmailMFAVerify = 'EmailMFAVerify',
     MaterializedColumns = 'MaterializedColumns',
     Max = 'Max',
