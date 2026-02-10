@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconCheck, IconCopy, IconWarning, IconX } from '@posthog/icons'
-import { LemonButton, LemonCollapse, LemonModal, lemonToast } from '@posthog/lemon-ui'
+import { LemonButton, LemonCollapse, LemonModal } from '@posthog/lemon-ui'
 
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
@@ -126,7 +126,6 @@ export function BulkDeleteResultsModal(): JSX.Element | null {
     const handleCopyPrompt = async (): Promise<void> => {
         await copyToClipboard(cleanupPrompt, 'cleanup prompt')
         setCopied(true)
-        lemonToast.success('Copied cleanup prompt to clipboard')
         setTimeout(() => setCopied(false), 2000)
     }
 
