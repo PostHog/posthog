@@ -9,6 +9,7 @@ from posthog.schema import DataTableNode, HogQLQuery, InsightVizNode, QuerySchem
 
 from posthog.models import Dashboard, DashboardTile, Insight
 from posthog.sync import database_sync_to_async
+from posthog.utils import pluralize
 
 from ee.hogai.artifacts.types import ModelArtifactResult, VisualizationWithSourceResult
 from ee.hogai.context.dashboard.context import DashboardContext, DashboardInsightContext
@@ -113,20 +114,20 @@ class UpsertDashboardTool(MaxTool):
             return artifact.content.name or "Insight"
 
         def join(items: list[str]) -> str:
-            return "\n".join(items)
+            return "\n".join(f"- {item}" for item in items)
 
-        created_insights = join([get_artifact_name(artifact) for artifact in diff["created"]])
-        deleted_insights = join(
-            [get_insight_name(tile.insight) for tile in diff["deleted"] if tile.insight is not None]
-        )
+        created_list = [get_artifact_name(artifact) for artifact in diff["created"]]
+        deleted_list = [get_insight_name(tile.insight) for tile in diff["deleted"] if tile.insight is not None]
 
         return format_prompt_string(
             PERMISSION_REQUEST_PROMPT,
             dashboard_name=dashboard.name or f"Dashboard #{dashboard.id}",
             new_dashboard_name=action.name,
             new_dashboard_description=action.description,
-            deleted_insights=deleted_insights,
-            new_insights=created_insights,
+            deleted_insights=join(deleted_list),
+            deleted_count=pluralize(len(deleted_list), "insight"),
+            new_insights=join(created_list),
+            added_count=pluralize(len(created_list), "insight"),
         )
 
     async def _arun_impl(self, action: UpsertDashboardAction) -> tuple[str, dict | None]:

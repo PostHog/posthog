@@ -1812,6 +1812,9 @@ def duckling_events_daily_backfill_sensor(context: SensorEvaluationContext) -> S
 # Number of monthly partitions to create per sensor tick (to avoid timeout)
 BACKFILL_MONTHS_PER_TICK = 3
 
+# Ignore events before this date — pre-2015 data is typically junk timestamps
+EARLIEST_BACKFILL_DATE = datetime(2015, 1, 1)
+
 
 def get_months_in_range(start_date: date, end_date: date) -> list[str]:
     """Generate list of month strings (YYYY-MM) between start and end dates."""
@@ -1902,6 +1905,7 @@ def duckling_events_full_backfill_sensor(context: SensorEvaluationContext) -> Se
             if earliest_dt is None:
                 context.log.info(f"No events found for team_id={team_id}, skipping")
                 continue
+            earliest_dt = max(earliest_dt, EARLIEST_BACKFILL_DATE)
             earliest_month = earliest_dt.strftime("%Y-%m")
             current_month = earliest_month
 

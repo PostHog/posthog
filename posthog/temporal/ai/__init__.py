@@ -10,7 +10,7 @@ from posthog.temporal.ai.session_summary.activities import (
     capture_timing_activity,
     consolidate_video_segments_activity,
     embed_and_store_segments_activity,
-    export_session_video_activity,
+    prep_session_video_asset_activity,
     store_video_session_summary_activity,
     upload_video_to_gemini_activity,
 )
@@ -103,7 +103,7 @@ ACTIVITIES = [
     summarize_llm_traces_activity,
     process_slack_conversation_activity,
     # Video analysis activities
-    export_session_video_activity,
+    prep_session_video_asset_activity,
     upload_video_to_gemini_activity,
     analyze_video_segment_activity,
     embed_and_store_segments_activity,
