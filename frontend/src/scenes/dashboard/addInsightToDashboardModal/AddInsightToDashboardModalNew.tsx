@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { BindLogic } from 'kea'
+import posthog from 'posthog-js'
 
 import { IconFunnels, IconPlus, IconRetention, IconTrends } from '@posthog/icons'
 
@@ -27,6 +28,17 @@ export function AddInsightToDashboardModalNew(): JSX.Element {
     const { addInsightToDashboardModalVisible, showMoreInsightTypes } = useValues(addInsightToDashboardLogic)
     const { dashboard } = useValues(dashboardLogic)
 
+    const handleClose = (): void => {
+        posthog.capture('insight dashboard modal - closed')
+        hideAddInsightToDashboardModal()
+    }
+
+    const handleNewInsightClicked = (insightType: string): void => {
+        posthog.capture('insight dashboard modal new insight clicked', {
+            insight_type: insightType,
+        })
+    }
+
     const additionalTypes = Object.entries(INSIGHT_TYPES_METADATA).filter(
         ([type, meta]) =>
             meta.inMenu &&
@@ -39,7 +51,7 @@ export function AddInsightToDashboardModalNew(): JSX.Element {
         <BindLogic logic={addSavedInsightsModalLogic} props={{}}>
             <LemonModal
                 title="Add insight to dashboard"
-                onClose={hideAddInsightToDashboardModal}
+                onClose={handleClose}
                 isOpen={addInsightToDashboardModalVisible}
                 width={860}
             >
@@ -61,6 +73,7 @@ export function AddInsightToDashboardModalNew(): JSX.Element {
                                     to={urls.insightNew({ type: type, dashboardId: dashboard?.id })}
                                     tooltip={INSIGHT_TYPES_METADATA[type]?.description}
                                     data-attr={`quick-create-${type.toLowerCase()}`}
+                                    onClick={() => handleNewInsightClicked(type)}
                                 >
                                     {label}
                                 </LemonButton>
@@ -83,6 +96,7 @@ export function AddInsightToDashboardModalNew(): JSX.Element {
                                                         dashboardId: dashboard?.id,
                                                     })}
                                                     data-attr={`create-${type.toLowerCase()}`}
+                                                    onClick={() => handleNewInsightClicked(type)}
                                                 >
                                                     {metadata.name}
                                                 </LemonButton>
