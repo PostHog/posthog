@@ -57,7 +57,7 @@ async fn test_checkpoint_export_import_via_minio() -> Result<()> {
     // Clean up any previous test data (unhashed metadata path and hashed object path)
     let test_prefix = format!("checkpoints/{test_topic}/{test_partition}");
     let hash = hash_prefix_for_partition(test_topic, test_partition);
-    let hashed_prefix = format!("checkpoints/{hash}/{test_topic}/{test_partition}");
+    let hashed_prefix = format!("{hash}/checkpoints/{test_topic}/{test_partition}");
     cleanup_bucket(&minio_client, TEST_BUCKET, &test_prefix).await;
     cleanup_bucket(&minio_client, TEST_BUCKET, &hashed_prefix).await;
 
@@ -708,7 +708,7 @@ async fn test_export_cancellation_via_minio() -> Result<()> {
     // Clean up any previous test data (unhashed metadata path and hashed object path)
     let test_prefix = format!("checkpoints/{test_topic}/{test_partition}");
     let hash = hash_prefix_for_partition(test_topic, test_partition);
-    let hashed_prefix = format!("checkpoints/{hash}/{test_topic}/{test_partition}");
+    let hashed_prefix = format!("{hash}/checkpoints/{test_topic}/{test_partition}");
     cleanup_bucket(&minio_client, TEST_BUCKET, &test_prefix).await;
     cleanup_bucket(&minio_client, TEST_BUCKET, &hashed_prefix).await;
 

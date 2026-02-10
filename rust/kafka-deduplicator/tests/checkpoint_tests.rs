@@ -401,8 +401,8 @@ async fn test_checkpoint_from_plan_with_no_previous_metadata() {
     let hash = hash_prefix_for_partition(partition.topic(), partition.partition_number());
     let expected_object_prefix = format!(
         "{}/{}/{}/{}/{}",
-        config.s3_key_prefix,
         hash,
+        config.s3_key_prefix,
         partition.topic(),
         partition.partition_number(),
         CheckpointMetadata::generate_id(attempt_timestamp),
@@ -509,8 +509,8 @@ async fn test_checkpoint_from_plan_with_previous_metadata() {
     let hash = hash_prefix_for_partition(partition.topic(), partition.partition_number());
     let orig_expected_object_prefix = format!(
         "{}/{}/{}/{}/{}",
-        config.s3_key_prefix,
         hash,
+        config.s3_key_prefix,
         partition.topic(),
         partition.partition_number(),
         CheckpointMetadata::generate_id(attempt_timestamp),
@@ -561,8 +561,8 @@ async fn test_checkpoint_from_plan_with_previous_metadata() {
     );
     let next_expected_object_prefix = format!(
         "{}/{}/{}/{}/{}",
-        config.s3_key_prefix,
         hash,
+        config.s3_key_prefix,
         partition.topic(),
         partition.partition_number(),
         next_checkpoint_id,

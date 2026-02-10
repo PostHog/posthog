@@ -196,8 +196,8 @@ impl CheckpointInfo {
         match &self.hash_prefix {
             Some(h) => format!(
                 "{}/{}/{}/{}",
-                self.s3_key_prefix,
                 h,
+                self.s3_key_prefix,
                 self.metadata.get_attempt_path(),
                 relative_file_path
             ),
@@ -218,7 +218,7 @@ impl CheckpointInfo {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CheckpointFile {
     /// Fully-qualified remote path from original upload (latest or previous attempt).
-    /// Object files: <namespace>/<hash>/<topic>/<partition>/<id>/<filename> (new exports) or unhashed (legacy).
+    /// Object files: <hash>/<namespace>/<topic>/<partition>/<id>/<filename> (new exports) or unhashed (legacy).
     /// Importer GETs using this path; metadata.json is always at unhashed path.
     pub remote_filepath: String,
 
@@ -491,7 +491,7 @@ mod tests {
         assert!(file_key.contains(&hash));
         assert_eq!(
             file_key,
-            format!("{bucket_namespace}/{hash}/{topic}/{partition}/{checkpoint_id}/000001.sst")
+            format!("{hash}/{bucket_namespace}/{topic}/{partition}/{checkpoint_id}/000001.sst")
         );
     }
 

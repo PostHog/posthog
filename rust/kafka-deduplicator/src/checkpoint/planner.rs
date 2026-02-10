@@ -301,7 +301,7 @@ mod tests {
         assert_eq!(plan.info.metadata.files.len(), 2);
         let hash = hash_prefix_for_partition(topic, partition_number);
         let expected_remote_path =
-            format!("{remote_bucket_namespace}/{hash}/{topic}/{partition_number}/{checkpoint_id}");
+            format!("{hash}/{remote_bucket_namespace}/{topic}/{partition_number}/{checkpoint_id}");
         assert!(plan
             .info
             .metadata
@@ -445,7 +445,7 @@ mod tests {
         // Check that file3 is in metadata as a reference (new files use hashed path)
         let hash = hash_prefix_for_partition(topic, partition_number);
         let current_attempt_remote_path =
-            format!("{remote_bucket_namespace}/{hash}/{topic}/{partition_number}/{checkpoint_id}");
+            format!("{hash}/{remote_bucket_namespace}/{topic}/{partition_number}/{checkpoint_id}");
 
         let sst1_remote_path = format!("{prev_remote_path}/00001.sst");
         let sst2_remote_path = format!("{prev_remote_path}/00002.sst");
@@ -756,7 +756,7 @@ mod tests {
         // new files (sst3, CURRENT, log) use hashed path; retained use prev (unhashed)
         let hash = hash_prefix_for_partition(topic, partition_number);
         let current_attempt_remote_path =
-            format!("{remote_bucket_namespace}/{hash}/{topic}/{partition_number}/{checkpoint_id}");
+            format!("{hash}/{remote_bucket_namespace}/{topic}/{partition_number}/{checkpoint_id}");
         let sst1_remote_path = format!("{prev_remote_path}/00001.sst");
         let sst2_remote_path = format!("{prev_remote_path}/00002.sst");
         let sst3_remote_path = format!("{current_attempt_remote_path}/00003.sst");
