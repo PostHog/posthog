@@ -9,30 +9,13 @@ import { BufferingBatchPipeline } from '../buffering-batch-pipeline'
 import { ConcurrentBatchProcessingPipeline } from '../concurrent-batch-pipeline'
 import { ConcurrentlyGroupingBatchPipeline, GroupingFunction } from '../concurrently-grouping-batch-pipeline'
 import { FilterMapBatchPipeline, FilterMapMappingFunction } from '../filter-map-batch-pipeline'
-import { FilterOkBatchPipeline } from '../filter-ok-batch-pipeline'
 import { GatheringBatchPipeline } from '../gathering-batch-pipeline'
 import { IngestionWarningHandlingBatchPipeline } from '../ingestion-warning-handling-batch-pipeline'
-import { MappingBatchPipeline, MappingFunction } from '../mapping-batch-pipeline'
 import { Pipeline } from '../pipeline.interface'
 import { PipelineConfig, ResultHandlingPipeline } from '../result-handling-pipeline'
 import { SequentialBatchPipeline } from '../sequential-batch-pipeline'
 import { SideEffectHandlingPipeline } from '../side-effect-handling-pipeline'
 import { PipelineBuilder, StartPipelineBuilder } from './pipeline-builders'
-
-export class FilteredBatchPipelineBuilder<TInput, TOutput, CInput, COutput> {
-    constructor(private filteredPipeline: FilterOkBatchPipeline<TInput, TOutput, CInput, COutput>) {}
-
-    map<TMapped, CMapped = COutput>(
-        mappingFn: MappingFunction<TOutput, TMapped, COutput, CMapped>
-    ): BatchPipelineBuilder<TInput, TMapped, CInput, CMapped> {
-        return new BatchPipelineBuilder(
-            new MappingBatchPipeline<TInput, TOutput, TMapped, CInput, COutput, CMapped>(
-                this.filteredPipeline,
-                mappingFn
-            )
-        )
-    }
-}
 
 /**
  * Builder for configuring how items within a group are processed.
@@ -105,10 +88,6 @@ export class BatchPipelineBuilder<TInput, TOutput, CInput, COutput = CInput> {
 
     gather(): BatchPipelineBuilder<TInput, TOutput, CInput, COutput> {
         return new BatchPipelineBuilder(new GatheringBatchPipeline(this.pipeline))
-    }
-
-    filterOk(): FilteredBatchPipelineBuilder<TInput, TOutput, CInput, COutput> {
-        return new FilteredBatchPipelineBuilder(new FilterOkBatchPipeline(this.pipeline))
     }
 
     /**
