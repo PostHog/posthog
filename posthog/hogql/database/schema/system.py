@@ -12,8 +12,10 @@ from posthog.hogql.database.models import (
 )
 from posthog.hogql.database.postgres_table import PostgresTable
 
+from posthog.scopes import APIScopeObject
+
 # Map system table names to ACCESS_CONTROL_RESOURCES
-SYSTEM_TABLE_TO_RESOURCE: dict[str, str] = {
+SYSTEM_TABLE_TO_RESOURCE: dict[str, APIScopeObject] = {
     "dashboards": "dashboard",
     "insights": "insight",
     "experiments": "experiment",

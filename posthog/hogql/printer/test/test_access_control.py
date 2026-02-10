@@ -57,6 +57,17 @@ class TestAccessControlSystemTables(BaseTest):
 class TestAccessControlGuard(BaseTest):
     """Test object-level access control guard generation."""
 
+    def _get_dashboards_table(self, database: Database):
+        from posthog.hogql.database.postgres_table import PostgresTable
+
+        system_node = database.tables.children.get("system")
+        assert system_node is not None
+        dashboards_node = system_node.children.get("dashboards")
+        assert dashboards_node is not None
+        table = dashboards_node.get()
+        assert isinstance(table, PostgresTable)
+        return table
+
     def test_get_blocked_resource_ids_empty_for_admin(self):
         """Org admins should have no blocked IDs."""
         membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
@@ -85,14 +96,10 @@ class TestAccessControlGuard(BaseTest):
         database = Database.create_for(team=self.team, user=self.user)
         context.database = database
 
-        # Get the dashboards table
-        system_node = database.tables.children.get("system")
-        dashboards_table = system_node.children.get("dashboards")
+        table = self._get_dashboards_table(database)
+        table_type = ast.TableType(table=table)
 
-        # Create a mock table type
-        table_type = ast.TableType(table=dashboards_table)
-
-        guard = build_access_control_guard(dashboards_table, table_type, context)
+        guard = build_access_control_guard(table, table_type, context)
         assert guard is None
 
     def test_build_access_control_guard_returns_none_without_user(self):
@@ -101,14 +108,10 @@ class TestAccessControlGuard(BaseTest):
         database = Database.create_for(team=self.team, user=None)
         context.database = database
 
-        # Get the dashboards table
-        system_node = database.tables.children.get("system")
-        dashboards_table = system_node.children.get("dashboards")
+        table = self._get_dashboards_table(database)
+        table_type = ast.TableType(table=table)
 
-        # Create a mock table type
-        table_type = ast.TableType(table=dashboards_table)
-
-        guard = build_access_control_guard(dashboards_table, table_type, context)
+        guard = build_access_control_guard(table, table_type, context)
         assert guard is None
 
 
@@ -244,7 +247,7 @@ class TestObjectLevelAccessControl(BaseTest):
         assert blocked == {"10"}
 
 
-class TestDeniedTableErrorMessage(BaseTest):
+class TestDeniedTableError(BaseTest):
     """Test that denied tables show a helpful error message."""
 
     def test_denied_table_shows_access_error(self):

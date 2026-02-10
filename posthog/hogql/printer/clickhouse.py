@@ -899,9 +899,12 @@ class ClickHousePrinter(HogQLPrinter):
         node_type: ast.TableOrSelectType | None,
     ):
         """Add access control guard for system tables"""
+        from posthog.hogql.database.postgres_table import PostgresTable
         from posthog.hogql.printer.access_control import build_access_control_guard
 
         if node_type is None:
+            return None
+        if not isinstance(table_type.table, PostgresTable):
             return None
 
         # Only apply access control to tables registered under the system namespace

@@ -7,8 +7,10 @@ if TYPE_CHECKING:
     from posthog.hogql.context import HogQLContext
     from posthog.hogql.database.postgres_table import PostgresTable
 
+    from posthog.scopes import APIScopeObject
 
-def get_blocked_resource_ids(resource: str, context: "HogQLContext") -> set[str]:
+
+def get_blocked_resource_ids(resource: "APIScopeObject", context: "HogQLContext") -> set[str]:
     """
     Get the set of resource IDs that should be blocked for this user.
     Highest access level from object default, role, or member entries applies.
