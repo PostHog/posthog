@@ -729,33 +729,33 @@ class TestFullBackfillSensorEarliestDate:
 
 
 class TestGetClusterRetry:
+    @patch("tenacity.nap.time.sleep")
     @patch("posthog.dags.events_backfill_to_duckling.get_cluster")
-    def test_retries_on_timeout_then_succeeds(self, mock_get_cluster):
+    def test_retries_on_timeout_then_succeeds(self, mock_get_cluster, mock_sleep):
         mock_cluster = MagicMock()
         mock_get_cluster.side_effect = [TimeoutError("timed out"), TimeoutError("timed out"), mock_cluster]
 
-        no_wait = _get_cluster.retry_with(wait=None)
-        result = no_wait()
+        result = _get_cluster()
 
         assert result is mock_cluster
         assert mock_get_cluster.call_count == 3
 
+    @patch("tenacity.nap.time.sleep")
     @patch("posthog.dags.events_backfill_to_duckling.get_cluster")
-    def test_raises_non_retryable_exception_immediately(self, mock_get_cluster):
+    def test_raises_non_retryable_exception_immediately(self, mock_get_cluster, mock_sleep):
         mock_get_cluster.side_effect = ValueError("bad config")
 
-        no_wait = _get_cluster.retry_with(wait=None)
         with pytest.raises(ValueError, match="bad config"):
-            no_wait()
+            _get_cluster()
 
         assert mock_get_cluster.call_count == 1
 
+    @patch("tenacity.nap.time.sleep")
     @patch("posthog.dags.events_backfill_to_duckling.get_cluster")
-    def test_raises_after_max_retries_exhausted(self, mock_get_cluster):
+    def test_raises_after_max_retries_exhausted(self, mock_get_cluster, mock_sleep):
         mock_get_cluster.side_effect = TimeoutError("timed out")
 
-        no_wait = _get_cluster.retry_with(wait=None)
         with pytest.raises(TimeoutError):
-            no_wait()
+            _get_cluster()
 
         assert mock_get_cluster.call_count == 3
