@@ -14,7 +14,7 @@ import { addJourneyModalLogic } from './addJourneyModalLogic'
 import { customerJourneysLogic } from './customerJourneysLogic'
 
 export function AddJourneyModal(): JSX.Element {
-    const { isAddJourneyModalOpen, addJourneyLoading } = useValues(customerJourneysLogic)
+    const { isAddJourneyModalOpen } = useValues(customerJourneysLogic)
     const { hideAddJourneyModal, addJourney } = useActions(customerJourneysLogic)
     const { funnels, funnelsLoading, selectedInsight, searchTerm } = useValues(addJourneyModalLogic)
     const { setSearchTerm, setSelectedInsight } = useActions(addJourneyModalLogic)
@@ -47,8 +47,7 @@ export function AddJourneyModal(): JSX.Element {
                     <LemonButton
                         type="primary"
                         onClick={handleAddJourney}
-                        disabled={!selectedInsight || addJourneyLoading}
-                        loading={addJourneyLoading}
+                        disabledReason={!selectedInsight ? 'No insight selected' : null}
                     >
                         Add journey
                     </LemonButton>
