@@ -47,7 +47,7 @@ export const getNuxt37Steps = (ctx: OnboardingComponentsContext): StepDefinition
                         ]}
                     />
                     <Markdown>
-                        Add the module to your \`nuxt.config.ts\` file:
+                        Add the module to your `nuxt.config.ts` file:
                     </Markdown>
                     <CodeBlock
                         blocks={[
@@ -92,7 +92,7 @@ export const getNuxt37Steps = (ctx: OnboardingComponentsContext): StepDefinition
                     />
                     <CalloutBox type="fyi" title="Personal API Key">
                         <Markdown>
-                            Your Personal API Key will require \`organization:read\` and \`error_tracking:write\` scopes.
+                            Your Personal API Key will require `organization:read` and `error_tracking:write` scopes.
                         </Markdown>
                     </CalloutBox>
                     <Markdown>
