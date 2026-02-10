@@ -14,6 +14,7 @@ import {
     createValidateEventPropertiesStep,
     createValidateEventUuidStep,
 } from '../event-preprocessing'
+import { createDropOldEventsStep } from '../event-processing/drop-old-events-step'
 import { createPrefetchHogFunctionsStep } from '../event-processing/prefetch-hog-functions-step'
 import { BatchPipelineBuilder } from '../pipelines/builders/batch-pipeline-builders'
 import { OverflowRedirectService } from '../utils/overflow-redirect/overflow-redirect-service'
@@ -63,6 +64,7 @@ export function createPostTeamPreprocessingSubpipeline<TInput extends PostTeamPr
                     .pipe(createValidateEventPropertiesStep())
                     .pipe(createApplyPersonProcessingRestrictionsStep(eventIngestionRestrictionManager))
                     .pipe(createValidateEventUuidStep())
+                    .pipe(createDropOldEventsStep())
             )
             // We want to call cookieless with the whole batch at once.
             // IMPORTANT: Cookieless processing changes distinct IDs (cookieless events

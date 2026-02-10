@@ -122,7 +122,7 @@ export const SIDE_PANEL_TABS: Record<
         Content: SidePanelHealth,
     },
     [SidePanelTab.Info]: {
-        label: 'Info & actions',
+        label: 'Actions',
         Icon: SidePanelInfoIcon,
         Content: SidePanelInfo,
     },
@@ -191,7 +191,9 @@ export function SidePanel({
         ? 0
         : sidePanelOpenAndAvailable
           ? Math.max(desiredSize ?? DEFAULT_WIDTH, SIDE_PANEL_MIN_WIDTH)
-          : SIDE_PANEL_BAR_WIDTH
+          : isRemovingSidePanelFlag
+            ? 0
+            : SIDE_PANEL_BAR_WIDTH
 
     // Update sidepanel width in panelLayoutLogic
     useEffect(() => {

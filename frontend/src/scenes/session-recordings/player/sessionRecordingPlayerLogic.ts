@@ -1038,6 +1038,15 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             console.log('caughtAssetErrorFromIframe', errorDetails)
         },
         [playerCommentModel.actionTypes.startCommenting]: async ({ comment }) => {
+            const mode = props.mode ?? SessionRecordingPlayerMode.Standard
+            if (!ModesWithInteractions.includes(mode)) {
+                return
+            }
+
+            if (comment?.recordingId && comment.recordingId !== props.sessionRecordingId) {
+                return
+            }
+
             actions.setIsCommenting(true)
             if (comment) {
                 // and we need a short wait until the logic is mounted after calling setIsCommenting

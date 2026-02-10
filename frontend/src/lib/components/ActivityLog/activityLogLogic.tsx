@@ -285,13 +285,13 @@ export const activityLogLogic = kea<activityLogLogicType>([
                 onPageChange(searchParams, hashParams, ActivityScope.INSIGHT),
             [urls.featureFlag(':id')]: (_, searchParams, hashParams) =>
                 onPageChange(searchParams, hashParams, ActivityScope.FEATURE_FLAG, true),
-            [urls.dataPipelines('history')]: (_, searchParams, hashParams) =>
-                onPageChange(searchParams, hashParams, ActivityScope.PLUGIN),
         }
     }),
-    events(({ actions }) => ({
+    events(({ actions, values }) => ({
         afterMount: () => {
-            actions.fetchActivity()
+            if (!values.activity.results.length && !values.activityLoading) {
+                actions.fetchActivity()
+            }
         },
     })),
 ])

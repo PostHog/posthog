@@ -104,6 +104,7 @@ describe('PostgresPersonRepository', () => {
                         is_user_id: createdPerson.is_user_id,
                         version: createdPerson.version,
                         is_identified: createdPerson.is_identified,
+                        last_seen_at: createdPerson.last_seen_at,
                     },
                 ],
                 command: 'SELECT',
@@ -140,6 +141,7 @@ describe('PostgresPersonRepository', () => {
                         is_user_id: createdPerson.is_user_id,
                         version: createdPerson.version,
                         is_identified: createdPerson.is_identified,
+                        last_seen_at: createdPerson.last_seen_at,
                     },
                 ],
                 command: 'SELECT',
@@ -420,6 +422,7 @@ describe('PostgresPersonRepository', () => {
                 is_user_id: null,
                 version: 0,
                 is_identified: false,
+                last_seen_at: null,
             }
 
             const messages = await repository.deletePerson(nonExistentPerson)
@@ -475,6 +478,7 @@ describe('PostgresPersonRepository', () => {
                 is_user_id: null,
                 version: 0,
                 is_identified: false,
+                last_seen_at: null,
             }
 
             const result = await repository.moveDistinctIds(sourcePerson, nonExistentTargetPerson, undefined)
@@ -499,6 +503,7 @@ describe('PostgresPersonRepository', () => {
                 is_user_id: null,
                 version: 0,
                 is_identified: false,
+                last_seen_at: null,
             }
 
             const result = await repository.moveDistinctIds(nonExistentSourcePerson, targetPerson, undefined)
@@ -1335,6 +1340,7 @@ describe('PostgresPersonRepository', () => {
                 is_user_id: null,
                 properties_last_updated_at: {},
                 properties_last_operation: {},
+                last_seen_at: null,
             }
 
             const update = { properties: { name: 'Jane' } }
@@ -1360,6 +1366,7 @@ describe('PostgresPersonRepository', () => {
                 version: person.version,
                 is_identified: person.is_identified,
                 is_user_id: person.is_user_id,
+                last_seen_at: person.last_seen_at,
                 needs_write: true,
                 properties_to_set: { name: 'Jane', age: 30 },
                 properties_to_unset: [],
@@ -1396,6 +1403,7 @@ describe('PostgresPersonRepository', () => {
                 version: person.version - 1, // Outdated version
                 is_identified: person.is_identified,
                 is_user_id: person.is_user_id,
+                last_seen_at: person.last_seen_at,
                 needs_write: true,
                 properties_to_set: { name: 'Jane', age: 30 },
                 properties_to_unset: [],
@@ -1431,6 +1439,7 @@ describe('PostgresPersonRepository', () => {
                 version: 0,
                 is_identified: false,
                 is_user_id: null,
+                last_seen_at: null,
                 needs_write: true,
                 properties_to_set: { name: 'Jane' },
                 properties_to_unset: [],
@@ -1461,6 +1470,7 @@ describe('PostgresPersonRepository', () => {
                 version: person.version,
                 is_identified: person.is_identified,
                 is_user_id: person.is_user_id,
+                last_seen_at: person.last_seen_at,
                 needs_write: true,
                 properties_to_set: { new_prop: 'new_value', to_update: 'new' }, // New properties to merge
                 properties_to_unset: [],
@@ -1500,6 +1510,7 @@ describe('PostgresPersonRepository', () => {
                 version: person.version,
                 is_identified: person.is_identified,
                 is_user_id: person.is_user_id,
+                last_seen_at: person.last_seen_at,
                 needs_write: true,
                 properties_to_set: {},
                 properties_to_unset: ['remove_me'],
@@ -1537,6 +1548,7 @@ describe('PostgresPersonRepository', () => {
                 version: person.version,
                 is_identified: person.is_identified,
                 is_user_id: person.is_user_id,
+                last_seen_at: person.last_seen_at,
                 needs_write: true,
                 properties_to_set: { update: 'new', added: 'fresh' },
                 properties_to_unset: ['remove'],
@@ -2160,6 +2172,7 @@ describe('PostgresPersonRepository', () => {
                     version: person.version,
                     is_identified: person.is_identified,
                     is_user_id: person.is_user_id,
+                    last_seen_at: person.last_seen_at,
                     needs_write: true,
                     properties_to_set: { description: 'x'.repeat(150) },
                     properties_to_unset: [],
@@ -2414,6 +2427,7 @@ describe('PostgresPersonRepository', () => {
                 version: person.version,
                 is_identified: person.is_identified,
                 is_user_id: person.is_user_id,
+                last_seen_at: person.last_seen_at,
                 needs_write: true,
                 properties_to_set: { name: 'Jane', age: 30, data: 'y'.repeat(2500) },
                 properties_to_unset: [],

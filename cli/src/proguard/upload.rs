@@ -5,6 +5,7 @@ use anyhow::{anyhow, Result};
 use crate::{
     api::{self, releases::ReleaseBuilder, symbol_sets::SymbolSetUpload},
     proguard::ProguardFile,
+    sourcemaps::args::ReleaseArgs,
     utils::git::get_git_info,
 };
 
@@ -19,26 +20,27 @@ pub struct Args {
     #[arg(short, long)]
     pub map_id: String,
 
-    /// The project name associated with this build. Required to have the exceptions associated with
-    /// a specific release. We will try to auto-derive this from git information if not provided. Strongly recommended
-    /// to be set explicitly during release CD workflows
-    #[arg(long)]
-    pub project: Option<String>,
+    /// The maximum number of chunks to upload in a single batch
+    #[arg(long, default_value = "50")]
+    pub batch_size: usize,
 
-    /// The version of the project - this can be a version number, semantic version, or a git commit hash. Required
-    /// to have the uploaded chunks associated with a specific release. We will try to auto-derive this from git information
-    /// if not provided.
-    #[arg(long)]
-    pub version: Option<String>,
+    #[clap(flatten)]
+    pub release: ReleaseArgs,
 }
 
 pub fn upload(args: &Args) -> Result<()> {
     let Args {
         path,
         map_id,
+        batch_size,
+        release,
+    } = args;
+
+    let ReleaseArgs {
         project,
         version,
-    } = args;
+        skip_release_on_fail,
+    } = release;
 
     let path = path
         .canonicalize()
@@ -69,7 +71,7 @@ pub fn upload(args: &Args) -> Result<()> {
 
     let to_upload: SymbolSetUpload = file.try_into()?;
 
-    api::symbol_sets::upload(&[to_upload], 50)?;
+    api::symbol_sets::upload_with_retry(vec![to_upload], *batch_size, *skip_release_on_fail)?;
 
     Ok(())
 }

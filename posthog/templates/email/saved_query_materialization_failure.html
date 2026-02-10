@@ -1,0 +1,36 @@
+{% extends "email/base.html" %} {% load posthog_assets %} {% load posthog_filters %}
+{% block preheader %}Your materialized view failed to sync{% endblock %}
+{% block heading %}Materialized view '{{ saved_query_name }}' sync failed{% endblock %}
+{% block section %}
+<p>
+  Your materialized view <b>{{ saved_query_name }}</b> failed to sync. Please review the view in the SQL editor to see the error details and take any necessary action.
+</p>
+
+<div class="mb mt text-center">
+  <a href="{% absolute_uri '/project' %}/{{ team.id }}/sql?open_view={{ saved_query_id }}"
+     target="_blank"><b>Open the view</b></a>
+</div>
+
+<div class="mt">
+  <p>
+    If the button above doesn't work, paste this link into your browser:<br />
+    <a href="{% absolute_uri '/project' %}/{{ team.id }}/sql?open_view={{ saved_query_id }}">{% absolute_uri '/project' %}/{{ team.id }}/sql?open_view={{ saved_query_id }}</a>
+  </p>
+</div>
+
+<p>
+  If you can't diagnose the issue, please contact us for help.
+</p>
+{% endblock %}
+
+{% block footer %}
+Need help?
+<a href="https://posthog.com/questions?{{ utm_tags }}"
+    target="_blank"><b>Visit support</b></a>
+or
+<a href="https://posthog.com/docs/data-warehouse/views?{{ utm_tags }}"
+    target="_blank"><b>read our documentation</b></a>.<br /><br />
+
+<a href="{% absolute_uri '/settings/user-notifications' %}">Manage these notifications in PostHog</a>
+
+{% endblock %}
