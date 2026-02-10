@@ -275,9 +275,7 @@ class HogQLPrinter(Visitor[str]):
         table_type: ast.TableType | ast.LazyTableType,
         node_type: ast.TableOrSelectType | None,
     ):
-        if self.dialect != "hogql":
-            raise NotImplementedError("HogQLPrinter._ensure_access_control_where_clause not overridden")
-        return None  # No access control in HogQL dialect
+        return None  # Overwrite in ClickHousePrinter for filtering out rows based on access control
 
     def _print_table_ref(self, table_type: ast.TableType | ast.LazyTableType, node: ast.JoinExpr) -> str:
         if self.dialect == "hogql":
