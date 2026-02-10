@@ -127,11 +127,9 @@ class GoogleAdsAdapter(MarketingSourceAdapter[GoogleAdsConfig]):
         except (TypeError, AttributeError, KeyError):
             pass
 
+        # No currency column available — return without conversion
         sum = ast.Call(name="SUM", args=[field_as_float])
-        convert_from_usd = ast.Call(
-            name="convertCurrency", args=[ast.Constant(value="USD"), ast.Constant(value=base_currency), sum]
-        )
-        return ast.Call(name="toFloat", args=[convert_from_usd])
+        return ast.Call(name="toFloat", args=[sum])
 
     def _get_cost_field(self) -> ast.Expr:
         stats_table_name = self.config.stats_table.name
@@ -162,12 +160,9 @@ class GoogleAdsAdapter(MarketingSourceAdapter[GoogleAdsConfig]):
         except (TypeError, AttributeError, KeyError):
             pass
 
-        # Currency column doesn't exist, treat as USD because it's google default and convert into base currency
+        # No currency column available — return without conversion
         sum_cost = ast.Call(name="SUM", args=[cost_float])
-        convert_from_usd = ast.Call(
-            name="convertCurrency", args=[ast.Constant(value="USD"), ast.Constant(value=base_currency), sum_cost]
-        )
-        return ast.Call(name="toFloat", args=[convert_from_usd])
+        return ast.Call(name="toFloat", args=[sum_cost])
 
     def _get_from(self) -> ast.JoinExpr:
         """Build FROM and JOIN clauses"""

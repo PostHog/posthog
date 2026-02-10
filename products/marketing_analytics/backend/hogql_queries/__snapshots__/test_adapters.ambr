@@ -43,7 +43,16 @@
 # name: TestMarketingAnalyticsAdapters.test_google_ads_query_generation
   '''
   
-  SELECT toString(google_campaign.campaign_name) AS match_key, toString(google_campaign.campaign_name) AS campaign, toString(google_campaign.campaign_id) AS id, toString('google') AS source, toFloat(SUM(ifNull(toFloat(google_stats.metrics_impressions), 0))) AS impressions, toFloat(SUM(ifNull(toFloat(google_stats.metrics_clicks), 0))) AS clicks, toFloat(convertCurrency('USD', 'USD', SUM(toFloat(divide(google_stats.metrics_cost_micros, 1000000))))) AS cost, toFloat(SUM(ifNull(toFloat(google_stats.metrics_conversions), 0))) AS reported_conversion, toFloat(convertCurrency('USD', 'USD', SUM(ifNull(toFloat(google_stats.metrics_conversions_value), 0)))) AS reported_conversion_value 
+  SELECT toString(google_campaign.campaign_name) AS match_key, toString(google_campaign.campaign_name) AS campaign, toString(google_campaign.campaign_id) AS id, toString('google') AS source, toFloat(SUM(ifNull(toFloat(google_stats.metrics_impressions), 0))) AS impressions, toFloat(SUM(ifNull(toFloat(google_stats.metrics_clicks), 0))) AS clicks, toFloat(SUM(toFloat(divide(google_stats.metrics_cost_micros, 1000000)))) AS cost, toFloat(SUM(ifNull(toFloat(google_stats.metrics_conversions), 0))) AS reported_conversion, toFloat(SUM(ifNull(toFloat(google_stats.metrics_conversions_value), 0))) AS reported_conversion_value 
+  FROM google_campaign LEFT JOIN google_stats ON equals(google_campaign.campaign_id, google_stats.campaign_id) 
+  WHERE and(greaterOrEquals(toDateTime(google_stats.segments_date), toDateTime('2024-01-01 00:00:00')), lessOrEquals(toDateTime(google_stats.segments_date), toDateTime('2024-12-31 23:59:59'))) 
+  GROUP BY toString(google_campaign.campaign_name), toString(google_campaign.campaign_id)
+  '''
+# ---
+# name: TestMarketingAnalyticsAdapters.test_google_ads_query_generation_with_clp_currency
+  '''
+  
+  SELECT toString(google_campaign.campaign_name) AS match_key, toString(google_campaign.campaign_name) AS campaign, toString(google_campaign.campaign_id) AS id, toString('google') AS source, toFloat(SUM(ifNull(toFloat(google_stats.metrics_impressions), 0))) AS impressions, toFloat(SUM(ifNull(toFloat(google_stats.metrics_clicks), 0))) AS clicks, SUM(toFloat(convertCurrency(coalesce(google_stats.customer_currency_code, 'CLP'), 'CLP', toFloat(divide(google_stats.metrics_cost_micros, 1000000))))) AS cost, toFloat(SUM(ifNull(toFloat(google_stats.metrics_conversions), 0))) AS reported_conversion, SUM(toFloat(convertCurrency(coalesce(google_stats.customer_currency_code, 'CLP'), 'CLP', ifNull(toFloat(google_stats.metrics_conversions_value), 0)))) AS reported_conversion_value 
   FROM google_campaign LEFT JOIN google_stats ON equals(google_campaign.campaign_id, google_stats.campaign_id) 
   WHERE and(greaterOrEquals(toDateTime(google_stats.segments_date), toDateTime('2024-01-01 00:00:00')), lessOrEquals(toDateTime(google_stats.segments_date), toDateTime('2024-12-31 23:59:59'))) 
   GROUP BY toString(google_campaign.campaign_name), toString(google_campaign.campaign_id)
