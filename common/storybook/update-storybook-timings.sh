@@ -65,11 +65,10 @@ for xml_file in sorted(tmpdir.rglob('junit.xml')):
         name = suite.get('name', '')
         time_s = float(suite.get('time', 0))
 
-        # Normalize path: strip leading ../../ or absolute prefix down to frontend/...
-        match = re.search(r'(frontend/.+\.stories\.tsx)', name)
-        if not match:
+        # Paths are relative from common/storybook/, e.g. ../../frontend/src/...
+        filepath = re.sub(r'^(\.\./)+', '', name)
+        if not filepath.endswith('.stories.tsx'):
             continue
-        filepath = match.group(1)
 
         if filepath not in timings:
             timings[filepath] = {}
