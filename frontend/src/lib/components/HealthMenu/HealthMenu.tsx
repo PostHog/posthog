@@ -2,7 +2,6 @@ import { Menu } from '@base-ui/react/menu'
 import { useActions, useValues } from 'kea'
 
 import { IconCloud, IconCode, IconDatabase, IconStethoscope, IconWarning } from '@posthog/icons'
-import { LemonTag } from '@posthog/lemon-ui'
 
 import { Link } from 'lib/lemon-ui/Link/Link'
 import { IconWithBadge } from 'lib/lemon-ui/icons'
@@ -76,7 +75,7 @@ export function HealthMenu(): JSX.Element {
                 }
             />
             <Menu.Portal>
-                <Menu.Backdrop className="fixed inset-0 z-[var(--z-modal)] bg-[red]" />
+                <Menu.Backdrop className="fixed inset-0 z-[var(--z-modal)]" />
                 <Menu.Positioner
                     className="z-[var(--z-popover)]"
                     side="top"
@@ -103,9 +102,6 @@ export function HealthMenu(): JSX.Element {
                                             <span className="text-sm font-medium">View health overview</span>
                                             <span className="text-xs text-tertiary text-center text-pretty">
                                                 See at-a-glance view of the health of your project.{' '}
-                                                <LemonTag type="warning" className="my-1" size="small">
-                                                    posthog only
-                                                </LemonTag>
                                             </span>
                                         </Link>
                                     )}

@@ -16,11 +16,12 @@ import {
     IconShieldLock,
     IconSupport,
 } from '@posthog/icons'
+import { LemonTag } from '@posthog/lemon-ui'
 
 import { Logomark } from 'lib/brand/Logomark'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Link } from 'lib/lemon-ui/Link/Link'
-import { IconBlank } from 'lib/lemon-ui/icons'
+import { IconPreview } from 'lib/lemon-ui/icons'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { MenuOpenIndicator } from 'lib/ui/Menus/Menus'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -270,8 +271,8 @@ export function HelpMenu(): JSX.Element {
                                         }}
                                         render={
                                             <ButtonPrimitive menuItem>
-                                                <IconBlank />
-                                                Show tour
+                                                <IconPreview />
+                                                Show tour again <LemonTag size="small">Temporary</LemonTag>
                                             </ButtonPrimitive>
                                         }
                                     />
