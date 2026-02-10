@@ -1,8 +1,11 @@
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import { Meta, StoryObj } from '@storybook/react'
+import { useActions } from 'kea'
+import { useEffect } from 'react'
 
 import { App } from 'scenes/App'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
@@ -99,6 +102,16 @@ export const ProjectHomepage: Story = {}
 
 const teamWithNoPrimaryDashboard = { ...MOCK_DEFAULT_TEAM, primary_dashboard: null }
 
+function NoPrimaryDashboardStory(): JSX.Element {
+    const { loadCurrentTeamSuccess } = useActions(teamLogic)
+
+    useEffect(() => {
+        loadCurrentTeamSuccess(teamWithNoPrimaryDashboard)
+    }, [loadCurrentTeamSuccess])
+
+    return <App />
+}
+
 export const NoPrimaryDashboard: Story = {
     parameters: {
         docs: {
@@ -107,17 +120,5 @@ export const NoPrimaryDashboard: Story = {
             },
         },
     },
-    decorators: [
-        mswDecorator({
-            get: {
-                '/api/environments/@current/': teamWithNoPrimaryDashboard,
-                '/api/projects/@current/': teamWithNoPrimaryDashboard,
-                '/api/environments/:team_id/': teamWithNoPrimaryDashboard,
-            },
-        }),
-        (Story) => {
-            ;(window as any).POSTHOG_APP_CONTEXT.current_team = teamWithNoPrimaryDashboard
-            return <Story />
-        },
-    ],
+    render: () => <NoPrimaryDashboardStory />,
 }
