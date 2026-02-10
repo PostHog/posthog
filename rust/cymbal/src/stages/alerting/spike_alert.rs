@@ -54,18 +54,16 @@ impl Stage for SpikeAlertStage {
             })
             .collect::<Vec<Issue>>();
 
+        let issues_count_by_id: HashMap<Uuid, u32> =
+            issues.iter().fold(HashMap::new(), |mut acc, issue| {
+                *acc.entry(issue.id).or_insert(0) += 1;
+                acc
+            });
+
         let issues_by_id = issues
             .into_iter()
             .map(|issue| (issue.id, issue))
             .collect::<HashMap<_, _>>();
-
-        let issues_count_by_id: HashMap<Uuid, u32> =
-            issues_by_id
-                .iter()
-                .fold(HashMap::new(), |mut acc, (id, _)| {
-                    *acc.entry(*id).or_insert(0) += 1;
-                    acc
-                });
 
         do_spike_detection(self.context, issues_by_id, issues_count_by_id).await;
 
