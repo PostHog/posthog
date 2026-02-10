@@ -1,25 +1,17 @@
+import { Tabs } from '@base-ui/react/tabs'
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
-import { IconArrowLeft, IconArrowRight } from '@posthog/icons'
+import { IconArrowLeft, IconArrowRight, IconEllipsis, IconQuestion, IconStethoscope, IconUser } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { newAccountMenuLogic } from 'lib/components/Account/newAccountMenuLogic'
 import { RenderKeybind } from 'lib/components/AppShortcuts/AppShortcutMenu'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
-import { healthMenuLogic } from 'lib/components/HealthMenu/healthMenuLogic'
-import { helpMenuLogic } from 'lib/components/HelpMenu/helpMenuLogic'
+import { StopSignHog } from 'lib/components/hedgehogs'
+import { IconBlank } from 'lib/lemon-ui/icons'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { DialogPrimitive, DialogPrimitiveTitle } from 'lib/ui/DialogPrimitive/DialogPrimitive'
-import {
-    TabsPrimitive,
-    TabsPrimitiveContent,
-    TabsPrimitiveList,
-    TabsPrimitiveTrigger,
-} from 'lib/ui/TabsPrimitive/TabsPrimitive'
 import { cn } from 'lib/utils/css-classes'
-
-import { SidePanelTab } from '~/types'
 
 import accountMenuImage from './images/sidepanel-account.gif'
 import healthMenuImage from './images/sidepanel-health.gif'
@@ -27,30 +19,25 @@ import helpMenuImage from './images/sidepanel-help.gif'
 import sidepanelNewImage from './images/sidepanel-new.gif'
 import sidepanelOldImage from './images/sidepanel-old.gif'
 import { sidePanelOfframpLogic } from './sidePanelOfframpLogic'
-import { sidePanelStateLogic } from './sidePanelStateLogic'
 
 interface OfframpStep {
     id: string
     title: string
     description: React.ReactNode
     action?: {
-        label: string
-        onClick: () => void
+        label?: string
+        onClick?: () => void
         type?: 'primary' | 'secondary' | 'tertiary'
-        keybind?: string[][]
     }
+    keybind?: string[][]
     image?: string
+    icon?: React.ReactNode
 }
 
 export function SidePanelOfframpModal(): JSX.Element {
     const { shouldShowOfframpModal } = useValues(sidePanelOfframpLogic)
     const { dismissOfframpModal } = useActions(sidePanelOfframpLogic)
-    const { toggleAccountMenu } = useActions(newAccountMenuLogic)
-    const { toggleHelpMenu } = useActions(helpMenuLogic)
-    const { toggleHealthMenu } = useActions(healthMenuLogic)
-    const { openSidePanel, setSidePanelOpen } = useActions(sidePanelStateLogic)
-    const { sidePanelOpen } = useValues(sidePanelStateLogic)
-
+    const contentRef = useRef<HTMLDivElement>(null)
     const steps: OfframpStep[] = [
         {
             id: 'oh-boy',
@@ -61,12 +48,22 @@ export function SidePanelOfframpModal(): JSX.Element {
                 onClick: () => dismissOfframpModal(),
                 type: 'tertiary',
             },
+            icon: (
+                <div aria-hidden="true" className="size-8 opacity-0 p-1">
+                    <IconBlank />
+                </div>
+            ),
         },
         {
             id: 'side-panel',
             title: 'Side panel has moved',
-            description: "But don't worry, it still exists!",
+            description: "We're not removing any features though, so don't worry!",
             image: sidepanelOldImage,
+            icon: (
+                <div aria-hidden="true" className="size-8 opacity-0 p-1">
+                    <IconBlank />
+                </div>
+            ),
         },
         {
             id: 'side-panel-new',
@@ -78,45 +75,50 @@ export function SidePanelOfframpModal(): JSX.Element {
                     <RenderKeybind className="" keybind={[['...']]} /> button on most pages.
                 </>
             ),
-            action: {
-                label: 'Toggle',
-                onClick: () => (sidePanelOpen ? setSidePanelOpen(false) : openSidePanel(SidePanelTab.Max)),
-                keybind: [[']']],
-            },
+            keybind: [[']']],
             image: sidepanelNewImage,
+            icon: (
+                <div className="size-8 flex items-center justify-center text-primary border border-primary rounded-sm p-1">
+                    <IconEllipsis />
+                </div>
+            ),
         },
         {
             id: 'account-menu',
             title: 'Account menu',
-            description: 'Your account settings, project switching, and sign out are now in the account menu.',
-            action: {
-                label: 'Toggle',
-                onClick: () => toggleAccountMenu(),
-                keybind: [keyBinds.newAccountMenu],
-            },
+            description:
+                'Your account settings, project or organization switching, and log out are now in the account menu.',
+            keybind: [keyBinds.newAccountMenu],
             image: accountMenuImage,
+            icon: (
+                <div className="size-8 flex items-center justify-center text-primary border border-primary rounded-sm p-1">
+                    <IconUser />
+                </div>
+            ),
         },
         {
             id: 'help-menu',
             title: 'Help menu',
             description: 'Support, docs, and other resources are now in the help menu.',
-            action: {
-                label: 'Toggle',
-                onClick: () => toggleHelpMenu(),
-                keybind: [keyBinds.helpMenu],
-            },
+            keybind: [keyBinds.helpMenu],
             image: helpMenuImage,
+            icon: (
+                <div className="size-8 flex items-center justify-center text-primary border border-primary rounded-sm p-1">
+                    <IconQuestion />
+                </div>
+            ),
         },
         {
             id: 'health-menu',
             title: 'Health menu',
             description: 'System status and health information are now in the health menu.',
-            action: {
-                label: 'Toggle',
-                onClick: () => toggleHealthMenu(),
-                keybind: [keyBinds.healthMenu],
-            },
+            keybind: [keyBinds.healthMenu],
             image: healthMenuImage,
+            icon: (
+                <div className="size-8 flex items-center justify-center text-primary border border-primary rounded-sm p-1">
+                    <IconStethoscope />
+                </div>
+            ),
         },
     ]
 
@@ -124,6 +126,10 @@ export function SidePanelOfframpModal(): JSX.Element {
     const activeIndex = steps.findIndex((s) => s.id === activeTab)
     const isLastStep = activeIndex === steps.length - 1
     const isFirstStep = activeIndex === 0
+
+    useEffect(() => {
+        contentRef.current?.focus()
+    }, [activeTab])
 
     return (
         <DialogPrimitive
@@ -141,56 +147,70 @@ export function SidePanelOfframpModal(): JSX.Element {
                     dismissOfframpModal()
                 }
             }}
-            className="bg-surface-popover w-[300px] md:w-[640px] max-h-[none]"
+            className="group bg-surface-popover w-[300px] md:w-[640px] max-h-[none] has-[:focus-visible]:outline-2 outline-transparent has-[:focus-visible]:outline-accent outline-inset"
         >
             <DialogPrimitiveTitle>Hey there, we've changed some things!</DialogPrimitiveTitle>
-            <TabsPrimitive value={activeTab} onValueChange={setActiveTab}>
-                <TabsPrimitiveList className="sr-only">
+            <Tabs.Root value={activeTab} onValueChange={setActiveTab}>
+                <Tabs.List className="sr-only">
                     {steps.map((step) => (
-                        <TabsPrimitiveTrigger key={step.id} value={step.id}>
+                        <Tabs.Tab key={step.id} value={step.id}>
                             {step.title}
-                        </TabsPrimitiveTrigger>
+                        </Tabs.Tab>
                     ))}
-                </TabsPrimitiveList>
+                </Tabs.List>
 
                 {steps.map((step) => (
-                    <TabsPrimitiveContent key={step.id} value={step.id} className="focus:outline-none">
+                    <Tabs.Panel
+                        ref={step.id === activeTab ? contentRef : undefined}
+                        key={step.id}
+                        value={step.id}
+                        className="focus:outline-none"
+                        onKeyDown={(e) => {
+                            if (e.key === 'ArrowRight' && !isLastStep) {
+                                setActiveTab(steps[activeIndex + 1].id)
+                            } else if (e.key === 'ArrowLeft' && !isFirstStep) {
+                                setActiveTab(steps[activeIndex - 1].id)
+                            }
+                        }}
+                    >
                         <div className="flex flex-col @md:flex-row">
                             <div
                                 className={cn(
-                                    'overflow-hidden bg-fill-tertiary @md:rounded-bl-lg shrink-0 h-[300px]',
-                                    step.image && 'w-full @md:w-1/2'
+                                    'overflow-hidden bg-fill-tertiary @md:rounded-bl-lg shrink-0 h-[300px] w-full @md:w-1/2'
                                 )}
                             >
-                                {step.image && <img src={step.image} alt={step.title} className="w-full h-full" />}
+                                {!isFirstStep && step.image && (
+                                    <img src={step.image} alt={step.title} className="w-full h-full" />
+                                )}
+                                {isFirstStep && (
+                                    <div className="mx-auto w-32 h-full flex items-center justify-center">
+                                        <StopSignHog />
+                                    </div>
+                                )}
                             </div>
-                            <div
-                                className={cn(
-                                    'flex flex-col gap-3 p-6 flex-1 pt-4 @md:pt-14 text-center justify-center items-center',
-                                    step.image && 'text-left items-start'
-                                )}
-                            >
+                            <div className="flex flex-col gap-3 p-6 flex-1 @md:pt-14 text-left items-start">
+                                {step.icon && step.icon}
                                 <h3 className="text-lg font-semibold m-0">{step.title}</h3>
                                 <p className="text-sm text-secondary m-0">{step.description}</p>
-                                {step.action && (
+                                {isFirstStep && (
                                     <LemonButton
-                                        type={step.action.type || 'secondary'}
+                                        type="secondary"
                                         size="small"
-                                        className={cn('self-center @md:self-center mt-2', step.image && 'self-start')}
-                                        onClick={step.action.onClick}
+                                        className={cn('self-left mt-2', step.image && 'self-start')}
+                                        onClick={dismissOfframpModal}
                                     >
-                                        {step.action.label}
-                                        {step.action.keybind && (
-                                            <RenderKeybind
-                                                className="[&>kbd]:pb-[3px] ml-1"
-                                                keybind={step.action.keybind}
-                                            />
-                                        )}
+                                        Naw, I'll figure it out thanks
                                     </LemonButton>
+                                )}
+                                {step.keybind && (
+                                    <div className="flex gap-1">
+                                        Try it out by pressing:{' '}
+                                        <RenderKeybind className="[&>kbd]:pb-[3px] ml-1" keybind={step.keybind} />
+                                    </div>
                                 )}
                             </div>
                         </div>
-                    </TabsPrimitiveContent>
+                    </Tabs.Panel>
                 ))}
 
                 <div className="grid grid-cols-2 @xl:grid-cols-[140px_auto_140px] items-center justify-between px-4 py-3 border-t border-primary">
@@ -259,7 +279,7 @@ export function SidePanelOfframpModal(): JSX.Element {
                         </>
                     )}
                 </div>
-            </TabsPrimitive>
+            </Tabs.Root>
         </DialogPrimitive>
     )
 }
