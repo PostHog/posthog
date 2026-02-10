@@ -35,7 +35,7 @@ procs:
             E2E_TESTING: '1'
 
     docker-compose:
-        shell: 'docker compose -f docker-compose.dev-minimal.yml up --pull always -d && docker compose -f docker-compose.dev-minimal.yml logs --tail=0 -f'
+        shell: 'docker compose -f docker-compose.dev.yml -f docker-compose.profiles.yml up --pull always -d && docker compose -f docker-compose.dev.yml -f docker-compose.profiles.yml logs --tail=0 -f'
 
     reset-db:
         shell: |-
@@ -64,6 +64,7 @@ procs:
             CLOUD_DEPLOYMENT: 'E2E'
             SECRET_KEY: 'e2e_test'
             DEBUG: '1'
+            E2E_TESTING: '1'
 
 mouse_scroll_speed: 1
 scrollback: 10000
