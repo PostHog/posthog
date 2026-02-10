@@ -338,6 +338,7 @@ class AssistantTool(StrEnum):
     SEARCH_ERROR_TRACKING_ISSUES = "search_error_tracking_issues"
     FIND_ERROR_TRACKING_IMPACTFUL_ISSUE_EVENT_LIST = "find_error_tracking_impactful_issue_event_list"
     EXPERIMENT_RESULTS_SUMMARY = "experiment_results_summary"
+    EXPERIMENT_SESSION_REPLAYS_SUMMARY = "experiment_session_replays_summary"
     CREATE_SURVEY = "create_survey"
     EDIT_SURVEY = "edit_survey"
     ANALYZE_SURVEY_RESPONSES = "analyze_survey_responses"
@@ -2908,6 +2909,8 @@ class ProductIntentContext(StrEnum):
     WORKFLOW_CREATED = "workflow_created"
     DATA_PIPELINE_CREATED = "data_pipeline_created"
     BATCH_EXPORT_CREATED = "batch_export_created"
+    BATCH_EXPORT_UPDATED = "batch_export_updated"
+    BATCH_EXPORT_BACKFILL_CREATED = "batch_export_backfill_created"
     NOTEBOOK_CREATED = "notebook_created"
     PRODUCT_TOUR_CREATED = "product_tour_created"
     TASK_CREATED = "task_created"
@@ -5323,6 +5326,7 @@ class LLMTrace(BaseModel):
     )
     aiSessionId: str | None = None
     createdAt: str
+    distinctId: str
     errorCount: float | None = None
     events: list[LLMTraceEvent]
     id: str
@@ -5333,7 +5337,7 @@ class LLMTrace(BaseModel):
     outputCost: float | None = None
     outputState: Any | None = None
     outputTokens: float | None = None
-    person: LLMTracePerson
+    person: LLMTracePerson | None = None
     totalCost: float | None = None
     totalLatency: float | None = None
     traceName: str | None = None

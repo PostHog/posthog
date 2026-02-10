@@ -16,6 +16,8 @@ import type {
     PersonsActivityRetrieve3Params,
     PersonsActivityRetrieve4Params,
     PersonsActivityRetrieveParams,
+    PersonsBatchByDistinctIdsCreate2Params,
+    PersonsBatchByDistinctIdsCreateParams,
     PersonsBulkDeleteCreate2Params,
     PersonsBulkDeleteCreateParams,
     PersonsCohortsRetrieve2Params,
@@ -411,6 +413,42 @@ export const personsActivityRetrieve = async (
     return apiMutator<void>(getPersonsActivityRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+/**
+ * This endpoint is meant for reading and deleting persons. To create or update persons, we recommend using the [capture API](https://posthog.com/docs/api/capture), the `$set` and `$unset` [properties](https://posthog.com/docs/product-analytics/user-properties), or one of our SDKs.
+ */
+export const getPersonsBatchByDistinctIdsCreateUrl = (
+    projectId: string,
+    params?: PersonsBatchByDistinctIdsCreateParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/environments/${projectId}/persons/batch_by_distinct_ids/?${stringifiedParams}`
+        : `/api/environments/${projectId}/persons/batch_by_distinct_ids/`
+}
+
+export const personsBatchByDistinctIdsCreate = async (
+    projectId: string,
+    personApi: NonReadonly<PersonApi>,
+    params?: PersonsBatchByDistinctIdsCreateParams,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getPersonsBatchByDistinctIdsCreateUrl(projectId, params), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(personApi),
     })
 }
 
@@ -1103,6 +1141,42 @@ export const personsActivityRetrieve3 = async (
     return apiMutator<void>(getPersonsActivityRetrieve3Url(projectId, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+/**
+ * This endpoint is meant for reading and deleting persons. To create or update persons, we recommend using the [capture API](https://posthog.com/docs/api/capture), the `$set` and `$unset` [properties](https://posthog.com/docs/product-analytics/user-properties), or one of our SDKs.
+ */
+export const getPersonsBatchByDistinctIdsCreate2Url = (
+    projectId: string,
+    params?: PersonsBatchByDistinctIdsCreate2Params
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/persons/batch_by_distinct_ids/?${stringifiedParams}`
+        : `/api/projects/${projectId}/persons/batch_by_distinct_ids/`
+}
+
+export const personsBatchByDistinctIdsCreate2 = async (
+    projectId: string,
+    personApi: NonReadonly<PersonApi>,
+    params?: PersonsBatchByDistinctIdsCreate2Params,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getPersonsBatchByDistinctIdsCreate2Url(projectId, params), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(personApi),
     })
 }
 
