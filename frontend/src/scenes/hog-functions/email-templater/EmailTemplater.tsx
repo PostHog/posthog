@@ -2,9 +2,9 @@ import 'products/workflows/frontend/TemplateLibrary/MessageTemplatesGrid.scss'
 
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
-import { Form } from 'kea-forms'
+import { ChildFunctionProps, Form } from 'kea-forms'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import EmailEditor from 'react-email-editor'
+import EmailEditor, { EditorRef } from 'react-email-editor'
 
 import { IconChevronDown, IconChevronLeft, IconChevronRight, IconExternal } from '@posthog/icons'
 import { LemonButton, LemonLabel, LemonModal, LemonSelect, LemonTabs } from '@posthog/lemon-ui'
@@ -76,7 +76,7 @@ function PlainTextEditor(): JSX.Element {
 
     return (
         <LemonField name="text" className="flex flex-col flex-1">
-            {({ value, onChange }) => (
+            {({ value, onChange }: ChildFunctionProps) => (
                 <div className="flex flex-col flex-1 relative group">
                     <span className="absolute top-1 right-2 z-20 p-px opacity-0 transition-opacity group-hover:opacity-100">
                         <CyclotronJobTemplateSuggestionsButton
@@ -130,7 +130,7 @@ function DestinationEmailTemplaterForm({ mode }: { mode: EmailEditorMode }): JSX
                         // We will handle the error display ourselves
                         renderError={() => null}
                     >
-                        {({ value, onChange, error }) => (
+                        {({ value, onChange, error }: ChildFunctionProps) => (
                             <div className="flex gap-2 items-center">
                                 <LemonLabel
                                     className={error ? 'text-danger' : ''}
@@ -171,7 +171,7 @@ function DestinationEmailTemplaterForm({ mode }: { mode: EmailEditorMode }): JSX
                                 )}
                             >
                                 <EmailEditor
-                                    ref={(r) => setEmailEditorRef(r)}
+                                    ref={(r: EditorRef | null) => setEmailEditorRef(r)}
                                     onReady={() => onEmailEditorReady()}
                                     minHeight={20}
                                     options={{
@@ -190,7 +190,7 @@ function DestinationEmailTemplaterForm({ mode }: { mode: EmailEditorMode }): JSX
                     </>
                 ) : (
                     <LemonField name="html" className="flex relative flex-col">
-                        {({ value }) => (
+                        {({ value }: ChildFunctionProps) => (
                             <>
                                 <div className="flex absolute inset-0 justify-center items-end p-2 opacity-0 transition-opacity hover:opacity-100">
                                     <div className="absolute inset-0 opacity-50 bg-surface-primary" />
@@ -451,7 +451,7 @@ function NativeEmailTemplaterForm({
                         renderError={() => null}
                         showOptional={field.optional}
                     >
-                        {({ value, onChange, error }) => (
+                        {({ value, onChange, error }: ChildFunctionProps) => (
                             <div className="flex gap-2 items-center">
                                 <LemonLabel
                                     className={error ? 'text-danger' : ''}
@@ -511,7 +511,7 @@ function NativeEmailTemplaterForm({
                                 )}
                             >
                                 <EmailEditor
-                                    ref={(r) => setEmailEditorRef(r)}
+                                    ref={(r: EditorRef | null) => setEmailEditorRef(r)}
                                     onReady={() => onEmailEditorReady()}
                                     minHeight={20}
                                     options={{
@@ -564,7 +564,7 @@ function NativeEmailTemplaterForm({
                     </>
                 ) : (
                     <LemonField name="html" className="flex relative flex-col">
-                        {({ value }) => (
+                        {({ value }: ChildFunctionProps) => (
                             <>
                                 <div
                                     className={clsx(
