@@ -133,7 +133,8 @@ class RedditAdsAdapter(MarketingSourceAdapter[RedditAdsConfig]):
     def _get_reported_conversion_value_field(self) -> ast.Expr:
         """Get conversion value (monetary value of conversions)"""
         stats_table_name = self.config.stats_table.name
-        # Sum purchase value and signup value for total conversion value
+        base_currency = self.context.base_currency
+
         purchase_field = ast.Call(
             name="ifNull",
             args=[
@@ -141,7 +142,6 @@ class RedditAdsAdapter(MarketingSourceAdapter[RedditAdsConfig]):
                 ast.Constant(value=0),
             ],
         )
-        sum_purchase = ast.Call(name="SUM", args=[purchase_field])
         signup_field = ast.Call(
             name="ifNull",
             args=[
@@ -149,9 +149,45 @@ class RedditAdsAdapter(MarketingSourceAdapter[RedditAdsConfig]):
                 ast.Constant(value=0),
             ],
         )
+
+        # Apply currency conversion if currency column exists
+        try:
+            columns = getattr(self.config.stats_table, "columns", None)
+            if columns and hasattr(columns, "__contains__") and "currency" in columns:
+                currency_field = ast.Field(chain=[stats_table_name, "currency"])
+                currency_with_fallback = ast.Call(
+                    name="coalesce", args=[currency_field, ast.Constant(value=base_currency)]
+                )
+                # Convert each value per row, then sum
+                converted_purchase = ast.Call(
+                    name="toFloat",
+                    args=[
+                        ast.Call(
+                            name="convertCurrency",
+                            args=[currency_with_fallback, ast.Constant(value=base_currency), purchase_field],
+                        )
+                    ],
+                )
+                converted_signup = ast.Call(
+                    name="toFloat",
+                    args=[
+                        ast.Call(
+                            name="convertCurrency",
+                            args=[currency_with_fallback, ast.Constant(value=base_currency), signup_field],
+                        )
+                    ],
+                )
+                sum_purchase = ast.Call(name="SUM", args=[converted_purchase])
+                sum_signup = ast.Call(name="SUM", args=[converted_signup])
+                total = ast.ArithmeticOperation(left=sum_purchase, op=ast.ArithmeticOperationOp.Add, right=sum_signup)
+                return ast.Call(name="toFloat", args=[total])
+        except (TypeError, AttributeError, KeyError):
+            pass
+
+        sum_purchase = ast.Call(name="SUM", args=[purchase_field])
         sum_signup = ast.Call(name="SUM", args=[signup_field])
-        sum = ast.ArithmeticOperation(left=sum_purchase, op=ast.ArithmeticOperationOp.Add, right=sum_signup)
-        return ast.Call(name="toFloat", args=[sum])
+        total = ast.ArithmeticOperation(left=sum_purchase, op=ast.ArithmeticOperationOp.Add, right=sum_signup)
+        return ast.Call(name="toFloat", args=[total])
 
     def _get_from(self) -> ast.JoinExpr:
         """Build FROM and JOIN clauses"""

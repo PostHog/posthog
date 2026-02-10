@@ -228,6 +228,7 @@ class MetaAdsAdapter(MarketingSourceAdapter[MetaAdsConfig]):
 
     def _get_reported_conversion_value_field(self) -> ast.Expr:
         stats_table_name = self.config.stats_table.name
+        base_currency = self.context.base_currency
 
         # Check if conversion_values column exists in the table schema. Similar to conversions,
         # this field may not exist if no conversion values were tracked.
@@ -257,6 +258,19 @@ class MetaAdsAdapter(MarketingSourceAdapter[MetaAdsConfig]):
                         fallback_sum,
                     ],
                 )
+
+                # Apply currency conversion if account_currency column exists
+                if "account_currency" in columns:
+                    currency_field = ast.Field(chain=[stats_table_name, "account_currency"])
+                    currency_with_fallback = ast.Call(
+                        name="coalesce", args=[currency_field, ast.Constant(value=base_currency)]
+                    )
+                    converted = ast.Call(
+                        name="convertCurrency",
+                        args=[currency_with_fallback, ast.Constant(value=base_currency), array_sum],
+                    )
+                    convert_to_float = ast.Call(name="toFloat", args=[converted])
+                    return ast.Call(name="SUM", args=[convert_to_float])
 
                 sum_result = ast.Call(name="SUM", args=[array_sum])
                 return ast.Call(name="toFloat", args=[sum_result])

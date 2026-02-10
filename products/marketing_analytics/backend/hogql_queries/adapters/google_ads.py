@@ -101,6 +101,8 @@ class GoogleAdsAdapter(MarketingSourceAdapter[GoogleAdsConfig]):
 
     def _get_reported_conversion_value_field(self) -> ast.Expr:
         stats_table_name = self.config.stats_table.name
+        base_currency = self.context.base_currency
+
         field_as_float = ast.Call(
             name="ifNull",
             args=[
@@ -108,8 +110,28 @@ class GoogleAdsAdapter(MarketingSourceAdapter[GoogleAdsConfig]):
                 ast.Constant(value=0),
             ],
         )
+
+        try:
+            columns = getattr(self.config.stats_table, "columns", None)
+            if columns and hasattr(columns, "__contains__") and "customer_currency_code" in columns:
+                currency_field = ast.Field(chain=[stats_table_name, "customer_currency_code"])
+                currency_with_fallback = ast.Call(
+                    name="coalesce", args=[currency_field, ast.Constant(value=base_currency)]
+                )
+                convert_currency = ast.Call(
+                    name="convertCurrency",
+                    args=[currency_with_fallback, ast.Constant(value=base_currency), field_as_float],
+                )
+                convert_to_float = ast.Call(name="toFloat", args=[convert_currency])
+                return ast.Call(name="SUM", args=[convert_to_float])
+        except (TypeError, AttributeError, KeyError):
+            pass
+
         sum = ast.Call(name="SUM", args=[field_as_float])
-        return ast.Call(name="toFloat", args=[sum])
+        convert_from_usd = ast.Call(
+            name="convertCurrency", args=[ast.Constant(value="USD"), ast.Constant(value=base_currency), sum]
+        )
+        return ast.Call(name="toFloat", args=[convert_from_usd])
 
     def _get_cost_field(self) -> ast.Expr:
         stats_table_name = self.config.stats_table.name
