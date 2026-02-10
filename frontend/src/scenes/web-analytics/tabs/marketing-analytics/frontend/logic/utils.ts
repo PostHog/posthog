@@ -558,6 +558,26 @@ export function createMarketingTile(
     if (tileConfig.specialConversionLogic) {
         const specialLogic = tileConfig.specialConversionLogic(table, tileColumnSelection)
         if (specialLogic) {
+            let finalMathHogql = specialLogic.math_hogql
+
+            // Apply currency conversion for monetary conversion values
+            if (
+                tileColumnSelection === MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue &&
+                finalMathHogql &&
+                finalMathHogql !== '0'
+            ) {
+                const mappings = tileConfig.columnMappings
+                const currencyColumn = mappings.currencyColumn
+                const fallbackCurrency = mappings.fallbackCurrency
+                const hasCurrencyColumn = currencyColumn && table.fields && currencyColumn in table.fields
+
+                if (hasCurrencyColumn) {
+                    finalMathHogql = `toFloat(convertCurrency(any(coalesce(${currencyColumn}, '${baseCurrency}')), '${baseCurrency}', ${finalMathHogql}))`
+                } else if (fallbackCurrency) {
+                    finalMathHogql = `toFloat(convertCurrency('${fallbackCurrency}', '${baseCurrency}', ${finalMathHogql}))`
+                }
+            }
+
             return {
                 kind: NodeKind.DataWarehouseNode,
                 id: table.id,
@@ -568,6 +588,7 @@ export function createMarketingTile(
                 timestamp_field: tileConfig.timestampField,
                 table_name: table.name,
                 ...specialLogic,
+                math_hogql: finalMathHogql,
             }
         }
     }
@@ -607,7 +628,39 @@ export function createMarketingTile(
         }
     }
 
-    // Default tile configuration for non-cost columns
+    // Apply currency conversion for reported_conversion_value (monetary column)
+    if (tileColumnSelection === MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue) {
+        const mappings = tileConfig.columnMappings
+        const currencyColumn = mappings.currencyColumn
+        const fallbackCurrency = mappings.fallbackCurrency
+        const hasCurrencyColumn = currencyColumn && table.fields && currencyColumn in table.fields
+
+        const valueExpr = `ifNull(toFloat(${column.name}), 0)`
+        let mathHogql: string
+
+        if (hasCurrencyColumn) {
+            mathHogql = `SUM(toFloat(convertCurrency(coalesce(${currencyColumn}, '${baseCurrency}'), '${baseCurrency}', ${valueExpr})))`
+        } else if (fallbackCurrency) {
+            mathHogql = `toFloat(convertCurrency('${fallbackCurrency}', '${baseCurrency}', SUM(${valueExpr})))`
+        } else {
+            mathHogql = `SUM(${valueExpr})`
+        }
+
+        return {
+            kind: NodeKind.DataWarehouseNode,
+            id: table.id,
+            name: displayName,
+            custom_name: `${table.name} ${tileColumnSelection}`,
+            id_field: tileConfig.idField,
+            distinct_id_field: tileConfig.idField,
+            timestamp_field: tileConfig.timestampField,
+            table_name: table.name,
+            math: 'hogql' as any,
+            math_hogql: mathHogql,
+        }
+    }
+
+    // Default tile configuration for non-monetary columns
     return {
         kind: NodeKind.DataWarehouseNode,
         id: table.id,
