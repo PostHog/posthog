@@ -39,6 +39,7 @@ import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -554,11 +555,17 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                 onGenerateName={
                     insightQuery
                         ? async () => {
-                              const response = await api.insights.generateName({
-                                  kind: NodeKind.InsightVizNode,
-                                  source: insightQuery,
-                              })
-                              return response.name
+                              try {
+                                  const response = await api.insights.generateName({
+                                      kind: NodeKind.InsightVizNode,
+                                      source: insightQuery,
+                                  })
+                                  return response.name
+                              } catch (error) {
+                                  console.error('Failed to generate name:', error)
+                                  lemonToast.error('Failed to generate name')
+                                  return ''
+                              }
                           }
                         : undefined
                 }

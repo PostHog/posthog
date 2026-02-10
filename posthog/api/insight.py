@@ -1326,12 +1326,18 @@ When set, the specified dashboard's filters and date range override will be appl
         """Generate an AI-suggested name for an insight based on its query configuration."""
         query_data = request.data.get("query")
         if not query_data:
-            return Response({"name": ""})
+            return Response(
+                {"error": "Missing 'query' field in request body"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         try:
             query = schema.InsightVizNode.model_validate(query_data)
-        except Exception:
-            return Response({"name": ""})
+        except Exception as e:
+            return Response(
+                {"error": f"Invalid query format: {str(e)}"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         name = generate_insight_name(query, self.team)
         return Response({"name": name})
