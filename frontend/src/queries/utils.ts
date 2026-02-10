@@ -156,12 +156,15 @@ export function convertDataTableNodeToDataVisualizationNode(node: Node | null): 
         return node
     }
 
-    const tableSettingsColumns = node.columns?.length ? node.columns.map((column) => ({ column })) : undefined
+    const hiddenColumns = new Set(node.hiddenColumns ?? [])
+    const visibleColumns = node.columns?.filter((column) => !hiddenColumns.has(column))
+    const tableSettingsColumns = visibleColumns?.length ? visibleColumns.map((column) => ({ column })) : undefined
+    const pinnedColumns = node.pinnedColumns?.filter((column) => !hiddenColumns.has(column))
     const tableSettings =
-        tableSettingsColumns || node.pinnedColumns?.length
+        tableSettingsColumns || pinnedColumns?.length
             ? {
                   ...(tableSettingsColumns ? { columns: tableSettingsColumns } : {}),
-                  ...(node.pinnedColumns?.length ? { pinnedColumns: node.pinnedColumns } : {}),
+                  ...(pinnedColumns?.length ? { pinnedColumns } : {}),
               }
             : undefined
 

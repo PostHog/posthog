@@ -4,10 +4,11 @@ import { dayjs } from 'lib/dayjs'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { AppContext, TeamType } from '~/types'
+import { AppContext, ChartDisplayType, TeamType } from '~/types'
 
-import { escapeHogQLString, hogql } from './utils'
+import { convertDataTableNodeToDataVisualizationNode, escapeHogQLString, hogql } from './utils'
 
 window.POSTHOG_APP_CONTEXT = { current_team: { id: MOCK_TEAM_ID } } as unknown as AppContext
 
@@ -90,5 +91,33 @@ describe('escapeHogQLString', () => {
         ['back\\slash', "'back\\\\slash'"],
     ])('escapes %s to %s', (input, expected) => {
         expect(escapeHogQLString(input)).toEqual(expected)
+    })
+})
+
+describe('convertDataTableNodeToDataVisualizationNode', () => {
+    it('preserves visible and pinned columns from legacy HogQL data table nodes', () => {
+        const convertedNode = convertDataTableNodeToDataVisualizationNode({
+            kind: NodeKind.DataTableNode,
+            source: {
+                kind: NodeKind.HogQLQuery,
+                query: 'select * from events',
+            },
+            columns: ['event', 'timestamp', 'person_id'],
+            hiddenColumns: ['person_id'],
+            pinnedColumns: ['event', 'person_id'],
+        })
+
+        expect(convertedNode).toEqual({
+            kind: NodeKind.DataVisualizationNode,
+            source: {
+                kind: NodeKind.HogQLQuery,
+                query: 'select * from events',
+            },
+            display: ChartDisplayType.ActionsTable,
+            tableSettings: {
+                columns: [{ column: 'event' }, { column: 'timestamp' }],
+                pinnedColumns: ['event'],
+            },
+        })
     })
 })
