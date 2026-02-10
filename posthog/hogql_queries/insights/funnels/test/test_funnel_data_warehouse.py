@@ -12,6 +12,7 @@ from posthog.schema import (
     EventsNode,
     FunnelsFilter,
     FunnelsQuery,
+    StepOrderValue,
 )
 
 from posthog.errors import ExposedCHQueryError
@@ -101,6 +102,26 @@ class TestFunnelDataWarehouse(ClickhouseTestMixin, BaseTest):
         )
 
         return lead_table.name, opportunity_table.name
+
+    def setup_salesforce_opportunity_repeated_created_date_data_warehouse(self):
+        opportunity_table, _source, _credential, _df, self.cleanUpOpportunityWarehouse = (
+            create_data_warehouse_table_from_csv(
+                csv_path=Path(__file__).parent / "salesforce_opportunity_repeated_created_date_data.csv",
+                table_name="salesforce_opportunity_repeated_created_date",
+                table_columns={
+                    "id": {"clickhouse": "String", "hogql": "StringDatabaseField"},
+                    "created_date": {
+                        "clickhouse": "DateTime64(3, 'UTC')",
+                        "hogql": "DateTimeDatabaseField",
+                    },
+                    "close_date": {"clickhouse": "Nullable(Date)", "hogql": "DateDatabaseField"},
+                },
+                test_bucket=TEST_BUCKET,
+                team=self.team,
+            )
+        )
+
+        return opportunity_table.name
 
     @snapshot_clickhouse_queries
     def test_funnels_data_warehouse(self):
@@ -314,9 +335,8 @@ class TestFunnelDataWarehouse(ClickhouseTestMixin, BaseTest):
         assert results[1]["count"] == 3
         assert results[2]["count"] == 2
 
-    @snapshot_clickhouse_queries
     def test_funnels_same_data_warehouse_table_different_timestamp_fields(self):
-        _, opportunity_table_name = self.setup_salesforce_data_warehouse()
+        opportunity_table_name = self.setup_salesforce_opportunity_repeated_created_date_data_warehouse()
 
         funnels_query = FunnelsQuery(
             kind="FunnelsQuery",
@@ -337,7 +357,7 @@ class TestFunnelDataWarehouse(ClickhouseTestMixin, BaseTest):
                     timestamp_field="close_date",
                 ),
             ],
-            funnelsFilter=FunnelsFilter(funnelWindowInterval=30),
+            funnelsFilter=FunnelsFilter(funnelWindowInterval=30, funnelOrderType=StepOrderValue.UNORDERED),
         )
 
         with freeze_time("2024-06-30"):
@@ -345,5 +365,5 @@ class TestFunnelDataWarehouse(ClickhouseTestMixin, BaseTest):
             response = runner.calculate()
 
         results = response.results
-        assert results[0]["count"] == 5
-        assert results[1]["count"] == 3
+        assert results[0]["count"] == 2
+        assert results[1]["count"] == 0
