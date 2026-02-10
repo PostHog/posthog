@@ -10,7 +10,7 @@ import { EditorContent } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { IconCode, IconImage } from '@posthog/icons'
 
@@ -256,11 +256,19 @@ export function SupportEditor({
     const [linkUrl, setLinkUrl] = useState('')
     const { objectStorageAvailable } = useValues(preflightLogic)
     const { emojiUsed } = useActions(emojiUsageLogic)
+
+    // Use a ref to hold the latest callback to avoid stale closure in TipTap extension
+    const onPressCmdEnterRef = useRef(onPressCmdEnter)
+    onPressCmdEnterRef.current = onPressCmdEnter
+    const handleCmdEnter = useCallback(() => {
+        onPressCmdEnterRef.current?.()
+    }, [])
+
     const editor = useRichContentEditor({
         extensions: [
             ...SUPPORT_EXTENSIONS,
             Placeholder.configure({ placeholder }),
-            CommandEnterExtension.configure({ onPressCmdEnter }),
+            CommandEnterExtension.configure({ onPressCmdEnter: handleCmdEnter }),
         ],
         disabled,
         initialContent: initialContent ?? DEFAULT_INITIAL_CONTENT,
