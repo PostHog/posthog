@@ -5,8 +5,10 @@ import { Team } from '../../../types'
 import { PromiseScheduler } from '../../../utils/promise-scheduler'
 import { BaseBatchPipeline, BatchProcessingStep } from '../base-batch-pipeline'
 import { BatchPipeline } from '../batch-pipeline.interface'
+import { BufferingBatchPipeline } from '../buffering-batch-pipeline'
 import { ConcurrentBatchProcessingPipeline } from '../concurrent-batch-pipeline'
 import { ConcurrentlyGroupingBatchPipeline, GroupingFunction } from '../concurrently-grouping-batch-pipeline'
+import { FilterMapBatchPipeline, FilterMapMappingFunction } from '../filter-map-batch-pipeline'
 import { FilterOkBatchPipeline } from '../filter-ok-batch-pipeline'
 import { GatheringBatchPipeline } from '../gathering-batch-pipeline'
 import { IngestionWarningHandlingBatchPipeline } from '../ingestion-warning-handling-batch-pipeline'
@@ -107,6 +109,35 @@ export class BatchPipelineBuilder<TInput, TOutput, CInput, COutput = CInput> {
 
     filterOk(): FilteredBatchPipelineBuilder<TInput, TOutput, CInput, COutput> {
         return new FilteredBatchPipelineBuilder(new FilterOkBatchPipeline(this.pipeline))
+    }
+
+    /**
+     * Filters OK results, applies a mapping function, and processes through a subpipeline.
+     * Non-OK results are passed through unchanged.
+     *
+     * @param mappingFn - Function to map OK results (transforms both value and context)
+     * @param subpipelineCallback - Callback that receives a builder and returns the subpipeline
+     */
+    filterMap<TMapped, TSubOutput, CMapped = COutput, CSubOutput = CMapped>(
+        mappingFn: FilterMapMappingFunction<TOutput, TMapped, COutput, CMapped>,
+        subpipelineCallback: (
+            builder: BatchPipelineBuilder<TMapped, TMapped, CMapped, CMapped>
+        ) => BatchPipelineBuilder<TMapped, TSubOutput, CMapped, CSubOutput>
+    ): BatchPipelineBuilder<TInput, TSubOutput, CInput, CSubOutput | COutput> {
+        // Create a start builder for the subpipeline with the mapped types
+        const startBuilder = new BatchPipelineBuilder(new BufferingBatchPipeline<TMapped, CMapped>())
+
+        // Let the callback build the subpipeline
+        const subpipelineBuilder = subpipelineCallback(startBuilder)
+        const subPipeline = subpipelineBuilder.build()
+
+        return new BatchPipelineBuilder(
+            new FilterMapBatchPipeline<TInput, TOutput, TMapped, TSubOutput, CInput, COutput, CMapped, CSubOutput>(
+                this.pipeline,
+                mappingFn,
+                subPipeline
+            )
+        )
     }
 
     groupBy<TKey>(
