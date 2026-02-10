@@ -331,6 +331,8 @@ class TestEncryptedBlockStorageContextManager:
     async def test_creates_client_with_configured_url(self):
         with patch("posthog.storage.recordings.block_storage.settings") as mock_settings:
             mock_settings.RECORDING_API_URL = "http://test-api:8080"
+            mock_settings.INTERNAL_API_SECRET = ""
+            mock_settings.DEBUG = True
 
             with patch("posthog.storage.recordings.block_storage.aiohttp.ClientSession") as mock_client_session:
                 mock_session = AsyncMock()
@@ -346,3 +348,43 @@ class TestEncryptedBlockStorageContextManager:
                 call_kwargs = mock_client_session.call_args[1]
                 assert call_kwargs["timeout"].total == 30
                 assert call_kwargs["timeout"].connect == 5
+                assert call_kwargs["headers"] == {}
+
+    @pytest.mark.asyncio
+    async def test_warns_when_secret_missing_in_production(self):
+        with (
+            patch("posthog.storage.recordings.block_storage.settings") as mock_settings,
+            patch("posthog.storage.recordings.block_storage.logger") as mock_logger,
+            patch("posthog.storage.recordings.block_storage.aiohttp.ClientSession") as mock_client_session,
+        ):
+            mock_settings.RECORDING_API_URL = "http://test-api:8080"
+            mock_settings.INTERNAL_API_SECRET = ""
+            mock_settings.DEBUG = False
+
+            mock_session = AsyncMock()
+            mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+            mock_session.__aexit__ = AsyncMock(return_value=None)
+            mock_client_session.return_value = mock_session
+
+            async with encrypted_block_storage():
+                pass
+
+            mock_logger.warning.assert_called_once_with("encrypted_block_storage.missing_internal_api_secret")
+
+    @pytest.mark.asyncio
+    async def test_passes_internal_api_secret_header(self):
+        with patch("posthog.storage.recordings.block_storage.settings") as mock_settings:
+            mock_settings.RECORDING_API_URL = "http://test-api:8080"
+            mock_settings.INTERNAL_API_SECRET = "test-secret"
+
+            with patch("posthog.storage.recordings.block_storage.aiohttp.ClientSession") as mock_client_session:
+                mock_session = AsyncMock()
+                mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+                mock_session.__aexit__ = AsyncMock(return_value=None)
+                mock_client_session.return_value = mock_session
+
+                async with encrypted_block_storage() as storage:
+                    assert storage.session == mock_session
+
+                call_kwargs = mock_client_session.call_args[1]
+                assert call_kwargs["headers"] == {"X-Internal-Api-Secret": "test-secret"}
