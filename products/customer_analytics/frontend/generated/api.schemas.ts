@@ -14,11 +14,6 @@ export interface CustomerJourneyApi {
     name: string
     /** @nullable */
     description?: string | null
-    /**
-     * @minimum -2147483648
-     * @maximum 2147483647
-     */
-    order?: number
     readonly created_at: string
     /** @nullable */
     readonly created_by: number | null

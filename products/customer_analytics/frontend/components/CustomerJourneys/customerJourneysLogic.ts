@@ -1,44 +1,32 @@
-import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, kea, listeners, path, reducers, selectors } from 'kea'
 import { lazyLoaders } from 'kea-loaders'
 
 import api from 'lib/api'
 import { LemonSelectOptions } from 'lib/lemon-ui/LemonSelect/LemonSelect'
-import { teamLogic } from 'scenes/teamLogic'
 
 import { isInsightVizNode } from '~/queries/utils'
 import { insightsApi } from '~/scenes/insights/utils/api'
 import { QueryBasedInsightModel } from '~/types'
 
-import type { customerJourneysLogicType } from './customerJourneysLogicType'
+import { CustomerJourneyApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
-export interface CustomerJourney {
-    id: string
-    insight: number
-    name: string
-    description: string | null
-    created_at: string
-    created_by: { id: number; uuid: string; distinct_id: string; first_name: string; email: string } | null
-    updated_at: string
-}
+import type { customerJourneysLogicType } from './customerJourneysLogicType'
 
 export const customerJourneysLogic = kea<customerJourneysLogicType>([
     path(['products', 'customer_analytics', 'frontend', 'components', 'CustomerJourneys', 'customerJourneysLogic']),
-    connect(() => ({
-        values: [teamLogic, ['currentTeamId']],
-    })),
     actions({
         showAddJourneyModal: true,
         hideAddJourneyModal: true,
         setActiveJourneyId: (journeyId: string | null) => ({ journeyId }),
-        selectFirstJourneyIfNeeded: (journeys: CustomerJourney[]) => ({ journeys }),
+        selectFirstJourneyIfNeeded: (journeys: CustomerJourneyApi[]) => ({ journeys }),
         deleteJourney: (journeyId: string) => ({ journeyId }),
     }),
     lazyLoaders(({ values }) => ({
         journeys: {
-            __default: [] as CustomerJourney[],
-            loadJourneys: async () => {
-                const response = await api.get(`api/environments/${values.currentTeamId}/customer_journeys/`)
-                return response.results || []
+            __default: [] as CustomerJourneyApi[],
+            loadJourneys: async (): Promise<CustomerJourneyApi[]> => {
+                const response = await api.customerJourneys.list()
+                return response.results
             },
             addJourney: async ({
                 insightId,
@@ -48,14 +36,10 @@ export const customerJourneysLogic = kea<customerJourneysLogicType>([
                 insightId: number
                 name: string
                 description?: string
-            }) => {
-                await api.create(`api/environments/${values.currentTeamId}/customer_journeys/`, {
-                    insight: insightId,
-                    name,
-                    description: description || null,
-                })
-                const response = await api.get(`api/environments/${values.currentTeamId}/customer_journeys/`)
-                return response.results || []
+            }): Promise<CustomerJourneyApi[]> => {
+                await api.customerJourneys.create({ insight: insightId, name, description })
+                const response = await api.customerJourneys.list()
+                return response.results
             },
         },
         activeInsight: {
@@ -87,7 +71,7 @@ export const customerJourneysLogic = kea<customerJourneysLogicType>([
     }),
     listeners(({ actions, values }) => ({
         deleteJourney: async ({ journeyId }) => {
-            await api.delete(`api/environments/${values.currentTeamId}/customer_journeys/${journeyId}/`)
+            await api.customerJourneys.delete(journeyId)
             actions.loadJourneys()
         },
         loadJourneysSuccess: ({ journeys }) => {
@@ -99,7 +83,7 @@ export const customerJourneysLogic = kea<customerJourneysLogicType>([
         selectFirstJourneyIfNeeded: ({ journeys }) => {
             if (journeys.length > 0) {
                 const currentActive = values.activeJourneyId
-                const stillExists = currentActive && journeys.some((j: CustomerJourney) => j.id === currentActive)
+                const stillExists = currentActive && journeys.some((j: CustomerJourneyApi) => j.id === currentActive)
                 if (!stillExists) {
                     actions.setActiveJourneyId(journeys[0].id)
                 }
@@ -122,7 +106,7 @@ export const customerJourneysLogic = kea<customerJourneysLogicType>([
         ],
         activeJourney: [
             (s) => [s.journeys, s.activeJourneyId],
-            (journeys, activeId): CustomerJourney | null => {
+            (journeys, activeId): CustomerJourneyApi | null => {
                 if (!activeId) {
                     return null
                 }
