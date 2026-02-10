@@ -562,7 +562,7 @@ INSERT INTO {database}.{target_table}
 
 
 def RAW_SESSION_TABLE_BACKFILL_RECORDINGS_SQL_V3(
-    where: str, shard_index: int, num_shards: int, target_table: Optional[str]
+    where: str, shard_index: Optional[int] = None, num_shards: Optional[int] = None, target_table: Optional[str] = None
 ):
     """
     Generates SQL to backfill sessions from session replay events.
