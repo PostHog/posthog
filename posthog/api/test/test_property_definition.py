@@ -780,28 +780,25 @@ class TestNotCountingLimitOffsetPaginator(BaseTest):
         obj.full_count = full_count
         return obj
 
+    def _make_request(self, params=None):
+        from rest_framework.request import Request
+        from rest_framework.test import APIRequestFactory
+
+        factory = APIRequestFactory()
+        return Request(factory.get("/", params or {"limit": 100}))
+
     def test_extracts_count_from_first_result(self):
         paginator = NotCountingLimitOffsetPaginator()
         results = [self._make_result(42, f"prop_{i}") for i in range(3)]
 
-        from rest_framework.test import APIRequestFactory
-
-        factory = APIRequestFactory()
-        request = factory.get("/", {"limit": 100})
-
-        page = paginator.paginate_queryset(results, request)
+        page = paginator.paginate_queryset(results, self._make_request())
         assert paginator.count == 42
         assert len(page) == 3
 
     def test_returns_zero_count_for_empty_results(self):
         paginator = NotCountingLimitOffsetPaginator()
 
-        from rest_framework.test import APIRequestFactory
-
-        factory = APIRequestFactory()
-        request = factory.get("/", {"limit": 100})
-
-        page = paginator.paginate_queryset([], request)
+        page = paginator.paginate_queryset([], self._make_request())
         assert paginator.count == 0
         assert page == []
 
@@ -816,10 +813,5 @@ class TestNotCountingLimitOffsetPaginator(BaseTest):
         paginator = NotCountingLimitOffsetPaginator()
         results = [self._make_result(total_count, f"prop_{i}") for i in range(page_size)]
 
-        from rest_framework.test import APIRequestFactory
-
-        factory = APIRequestFactory()
-        request = factory.get("/", {"limit": 100})
-
-        paginator.paginate_queryset(results, request)
+        paginator.paginate_queryset(results, self._make_request())
         assert paginator.count == total_count
