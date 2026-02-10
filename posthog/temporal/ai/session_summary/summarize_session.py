@@ -496,13 +496,29 @@ def _validate_period(
 def calculate_video_segment_specs(
     video_duration: float,
     chunk_duration: float,
+    inputs: SingleSessionSummaryInputs,
     inactivity_periods: list[ReplayInactivityPeriod] | None = None,
 ) -> list[VideoSegmentSpec]:
     # Assume that inactivity data should be successfully collected for any session, so no need to split into random chunks
     if not inactivity_periods:
-        msg = "Inactivity periods are required to calculate video segment specs"
-        logger.error(msg, signals_type="session-summaries")
-        raise ValueError(msg)
+        msg = f"Inactivity periods were not provided to calculate video segment specs"
+        logger.error(
+            msg,
+            session_id=inputs.session_id,
+            team_id=inputs.team_id,
+            user_id=inputs.user_id,
+            signals_type="session-summaries",
+        )
+        err = ValueError(msg)
+        posthoganalytics.capture_exception(
+            err,
+            additional_properties={
+                "session_id": inputs.session_id,
+                "team_id": inputs.team_id,
+                "user_id": inputs.user_id,
+            },
+        )
+        raise err
     # If inactivity data is present - only analyze "active" periods (when user was interacting)
     segments: list[VideoSegmentSpec] = []
     segment_index = 0
@@ -618,6 +634,7 @@ async def ensure_llm_single_session_summary(inputs: SingleSessionSummaryInputs):
     segment_specs = calculate_video_segment_specs(
         video_duration=uploaded_video.duration,
         chunk_duration=SESSION_VIDEO_CHUNK_DURATION_S,
+        inputs=inputs,
         inactivity_periods=inactivity_periods,
     )
 
