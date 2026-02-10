@@ -615,7 +615,10 @@
                                                     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
   WHERE and(equals(events.team_id, 99999), in(events.uuid,
                                                 (SELECT events.uuid AS uuid
-                                                 FROM events
+                                                 FROM
+                                                   (SELECT events.distinct_id AS distinct_id, events.event AS event, events.person_id AS person_id, toTimeZone(events.timestamp, 'UTC') AS timestamp, events.uuid AS uuid
+                                                    FROM events
+                                                    WHERE and(equals(events.team_id, 99999), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS events
                                                  LEFT OUTER JOIN
                                                    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id
                                                     FROM person_distinct_id_overrides
@@ -631,7 +634,7 @@
                                                                                                    WHERE equals(person.team_id, 99999)
                                                                                                    GROUP BY person.id
                                                                                                    HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-                                                 WHERE and(equals(events.team_id, 99999), ifNull(equals(events__person.properties___email, 'tom@posthog.com'), 0), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))
+                                                 WHERE and(ifNull(equals(events__person.properties___email, 'tom@posthog.com'), 0), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))
                                                  ORDER BY events.event ASC
                                                  LIMIT 101)), and(ifNull(equals(events__person.properties___email, 'tom@posthog.com'), 0), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))))
   ORDER BY events.event ASC
@@ -677,7 +680,10 @@
                                                     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
   WHERE and(equals(events.team_id, 99999), in(events.uuid,
                                                 (SELECT events.uuid AS uuid
-                                                 FROM events
+                                                 FROM
+                                                   (SELECT events.distinct_id AS distinct_id, events.event AS event, events.person_id AS person_id, toTimeZone(events.timestamp, 'UTC') AS timestamp, events.uuid AS uuid
+                                                    FROM events
+                                                    WHERE and(equals(events.team_id, 99999), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS events
                                                  LEFT OUTER JOIN
                                                    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id
                                                     FROM person_distinct_id_overrides
@@ -693,7 +699,7 @@
                                                                                                    WHERE equals(person.team_id, 99999)
                                                                                                    GROUP BY person.id
                                                                                                    HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-                                                 WHERE and(equals(events.team_id, 99999), ifNull(equals(events__person.properties___email, 'tom@posthog.com'), 0), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))
+                                                 WHERE and(ifNull(equals(events__person.properties___email, 'tom@posthog.com'), 0), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))
                                                  ORDER BY events.event ASC
                                                  LIMIT 101)), and(ifNull(equals(events__person.properties___email, 'tom@posthog.com'), 0), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))))
   ORDER BY events.event ASC
