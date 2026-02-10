@@ -2,30 +2,18 @@ import '@playwright/test'
 
 import { urls } from 'scenes/urls'
 
-import { LOGIN_PASSWORD, LOGIN_USERNAME, test as coreTest } from './playwright-test-core'
+import { test as coreTest } from './playwright-test-core'
 
 /**
- * Legacy Playwright test base with automatic login
- * This maintains backwards compatibility for existing tests
+ * Playwright test base that navigates to the project root before each test.
+ * Authentication is handled by storageState (see auth.setup.ts + playwright.config.ts).
  */
-export const test = coreTest.extend<{ loginBeforeTests: void }>({
-    // this auto fixture makes sure we log in before every test (maintains legacy behavior)
-    loginBeforeTests: [
+export const test = coreTest.extend<{ navigateToProject: void }>({
+    navigateToProject: [
         async ({ page }, use) => {
-            // Perform authentication via API
-            await page.request.post('/api/login/', {
-                data: {
-                    email: LOGIN_USERNAME,
-                    password: LOGIN_PASSWORD,
-                },
-            })
             await page.goto(urls.projectRoot())
-
-            // Continue with tests
             // eslint-disable-next-line react-hooks/rules-of-hooks
             await use()
-
-            // any teardown would go here
         },
         { auto: true },
     ],

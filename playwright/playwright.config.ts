@@ -11,16 +11,9 @@ import { defineConfig, devices } from '@playwright/test'
  */
 export default defineConfig({
     testDir: '.',
-    /* 
-        Maximum time one test can run for. 
-        Shorter timeout in local dev since it's annoying to wait 90 seconds for a test to run.
-    */
-    timeout: process.env.CI ? 60 * 1000 : 30 * 1000,
+    /* Maximum time one test can run for */
+    timeout: 60 * 1000,
     expect: {
-        /**
-         * Maximum time expect() should wait for the condition to be met.
-         * For example in `await expect(locator).toHaveText();`
-         */
         timeout: process.env.CI ? 40 * 1000 : 10 * 1000,
         toHaveScreenshot: {
             maxDiffPixelRatio: 0.01, // 1% threshold for full-page screenshots
@@ -30,14 +23,9 @@ export default defineConfig({
     fullyParallel: true,
     /* Fail the build on CI if you accidentally left test.only in the source code. */
     forbidOnly: !!process.env.CI,
-    /* Retry on CI only */
-    retries: process.env.CI ? 3 : 2,
-    /* 
-        GitHub Actions has 4 cores so run 3 workers 
-        and leave one core for all the rest
-        For local running, our machines are all M3 or M4 by now so we can afford to run more workers
-    */
-    workers: process.env.CI ? 3 : 6,
+    retries: process.env.CI ? 3 : 0,
+    /* GitHub Actions has 4 cores, use 3 and leave one for infrastructure */
+    workers: process.env.CI ? 3 : 1,
     /* Reporter to use. See https://playwright.dev/docs/test-reporters */
     reporter: [
         ['html', { open: 'never' }],
@@ -62,11 +50,12 @@ export default defineConfig({
     /* Configure centralized screenshot directory */
     snapshotDir: './__snapshots__',
 
-    /* Configure projects for major browsers */
     projects: [
+        { name: 'setup', testMatch: /auth\.setup\.ts/ },
         {
             name: 'chromium',
-            use: { ...devices['Desktop Chrome'] },
+            use: { ...devices['Desktop Chrome'], storageState: 'playwright/.auth/user.json' },
+            dependencies: ['setup'],
         },
         // {
         //     name: 'chromium',
