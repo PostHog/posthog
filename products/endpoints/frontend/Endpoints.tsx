@@ -225,6 +225,9 @@ export const EndpointsTable = ({ tabId }: EndpointsTableProps): JSX.Element => {
                 dataSource={endpoints as EndpointType[]}
                 rowKey="id"
                 rowClassName={(record) => (record._highlight ? 'highlighted' : null)}
+                onRow={(record) => ({
+                    onClick: () => router.actions.push(urls.endpoint(record.name)),
+                })}
                 columns={columns}
                 loading={allEndpointsLoading}
                 defaultSorting={{
