@@ -72,6 +72,8 @@ class Command(BaseCommand):
                     f"Invalid team IDs format: {team_ids_str}. Expected comma-separated integers."
                 ) from e
         global_percentage = options.get("global_percentage")
+        if global_percentage is not None and (global_percentage < 0.0 or global_percentage > 1.0):
+            raise CommandError(f"Invalid global percentage: {global_percentage}. Must be between 0.0 and 1.0.")
         cohort_id = options.get("cohort_id")
 
         logger.info(

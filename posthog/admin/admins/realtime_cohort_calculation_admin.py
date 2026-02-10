@@ -34,6 +34,25 @@ class RealtimeCohortCalculationForm(forms.Form):
         help_text="Comma-separated list of team IDs that should process all cohorts (optional)",
         label="Team IDs",
     )
+
+    def clean_team_ids(self):
+        """Validate team_ids format."""
+        team_ids_str = self.cleaned_data.get("team_ids")
+        if not team_ids_str:
+            return None
+
+        team_ids_str = team_ids_str.strip()
+        if not team_ids_str:
+            return None
+
+        try:
+            team_ids = {int(tid.strip()) for tid in team_ids_str.split(",") if tid.strip()}
+            if not team_ids:
+                raise forms.ValidationError("At least one valid team ID is required.")
+            return team_ids_str
+        except ValueError:
+            raise forms.ValidationError("Team IDs must be comma-separated integers (e.g., '2,42,100').")
+
     global_percentage = forms.FloatField(
         required=False,
         min_value=0.0,

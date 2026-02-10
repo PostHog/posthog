@@ -100,13 +100,15 @@ async def get_realtime_cohort_calculation_count_activity(
         # First, process teams that should include all cohorts
         if inputs.team_ids:
             for team_id in inputs.team_ids:
+                if not isinstance(team_id, int) or team_id <= 0:
+                    continue  # Skip invalid team IDs
                 team_cohorts_count = Cohort.objects.filter(
                     deleted=False, cohort_type=CohortType.REALTIME, team_id=team_id
                 ).count()
                 total_count += team_cohorts_count
 
         # Handle global percentage for all other teams
-        if inputs.global_percentage is not None and inputs.global_percentage > 0.0:
+        if inputs.global_percentage is not None and inputs.global_percentage > 0.0 and inputs.global_percentage <= 1.0:
             # Get cohorts from teams not in the force list
             if inputs.team_ids:
                 other_teams_cohorts_count = (
@@ -150,6 +152,8 @@ async def get_realtime_cohort_selection_activity(
         # Step 1: Add cohort IDs for teams that should process everything
         if inputs.team_ids:
             for team_id in inputs.team_ids:
+                if not isinstance(team_id, int) or team_id <= 0:
+                    continue  # Skip invalid team IDs
                 team_cohort_ids = list(
                     Cohort.objects.filter(deleted=False, cohort_type=CohortType.REALTIME, team_id=team_id)
                     .order_by("id")
@@ -158,7 +162,7 @@ async def get_realtime_cohort_selection_activity(
                 selected_cohort_ids.extend(team_cohort_ids)
 
         # Step 2: Add sampled cohort IDs for global percentage (other teams)
-        if inputs.global_percentage and inputs.global_percentage > 0.0:
+        if inputs.global_percentage and inputs.global_percentage > 0.0 and inputs.global_percentage <= 1.0:
             # Get cohort IDs from teams not in the force list
             if inputs.team_ids:
                 other_teams_cohort_ids = list(
