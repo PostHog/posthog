@@ -1166,7 +1166,29 @@
                                                     "type": "string"
                                                 },
                                                 "value": {
-                                                    "type": ["string", "number", "boolean"]
+                                                    "anyOf": [
+                                                        {
+                                                            "type": "string"
+                                                        },
+                                                        {
+                                                            "type": "number"
+                                                        },
+                                                        {
+                                                            "type": "boolean"
+                                                        },
+                                                        {
+                                                            "type": "array",
+                                                            "items": {
+                                                                "type": "string"
+                                                            }
+                                                        },
+                                                        {
+                                                            "type": "array",
+                                                            "items": {
+                                                                "type": "number"
+                                                            }
+                                                        }
+                                                    ]
                                                 },
                                                 "operator": {
                                                     "type": "string",
@@ -1331,7 +1353,29 @@
                                                             "type": "string"
                                                         },
                                                         "value": {
-                                                            "type": ["string", "number", "boolean"]
+                                                            "anyOf": [
+                                                                {
+                                                                    "type": "string"
+                                                                },
+                                                                {
+                                                                    "type": "number"
+                                                                },
+                                                                {
+                                                                    "type": "boolean"
+                                                                },
+                                                                {
+                                                                    "type": "array",
+                                                                    "items": {
+                                                                        "type": "string"
+                                                                    }
+                                                                },
+                                                                {
+                                                                    "type": "array",
+                                                                    "items": {
+                                                                        "type": "number"
+                                                                    }
+                                                                }
+                                                            ]
                                                         },
                                                         "operator": {
                                                             "type": "string",
@@ -3641,7 +3685,29 @@
                                                     "type": "string"
                                                 },
                                                 "value": {
-                                                    "type": ["string", "number", "boolean"]
+                                                    "anyOf": [
+                                                        {
+                                                            "type": "string"
+                                                        },
+                                                        {
+                                                            "type": "number"
+                                                        },
+                                                        {
+                                                            "type": "boolean"
+                                                        },
+                                                        {
+                                                            "type": "array",
+                                                            "items": {
+                                                                "type": "string"
+                                                            }
+                                                        },
+                                                        {
+                                                            "type": "array",
+                                                            "items": {
+                                                                "type": "number"
+                                                            }
+                                                        }
+                                                    ]
                                                 },
                                                 "operator": {
                                                     "type": "string",
@@ -4506,7 +4572,29 @@
                                                     "type": "string"
                                                 },
                                                 "value": {
-                                                    "type": ["string", "number", "boolean"]
+                                                    "anyOf": [
+                                                        {
+                                                            "type": "string"
+                                                        },
+                                                        {
+                                                            "type": "number"
+                                                        },
+                                                        {
+                                                            "type": "boolean"
+                                                        },
+                                                        {
+                                                            "type": "array",
+                                                            "items": {
+                                                                "type": "string"
+                                                            }
+                                                        },
+                                                        {
+                                                            "type": "array",
+                                                            "items": {
+                                                                "type": "number"
+                                                            }
+                                                        }
+                                                    ]
                                                 },
                                                 "operator": {
                                                     "type": "string",

@@ -120,7 +120,6 @@ def record_and_persist_video_activity(build: dict[str, Any]) -> None:
                 asset.export_context = {}
             asset.export_context["inactivity_periods"] = [x.model_dump() for x in inactivity_periods]
             asset.save(update_fields=["export_context"])
-
         # Check file size first to prevent OOM
         file_size = os.path.getsize(tmp_path)
         MAX_FILE_SIZE = 100 * 1024 * 1024  # 100MB limit

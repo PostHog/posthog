@@ -1165,6 +1165,35 @@ class ExperimentQueryBuilder:
 
         return exposure_query
 
+    def _build_exposure_from_preaggregated(self, job_ids: list[str]) -> ast.SelectQuery:
+        """
+        Builds the exposure CTE by reading from the preaggregated table instead of scanning events.
+
+        Re-aggregates across jobs since the same user can appear in multiple time-window jobs.
+        Returns the same column shape as _build_exposure_select_query().
+        """
+        query = parse_select(
+            """
+                SELECT
+                    t.entity_id AS entity_id,
+                    argMin(t.variant, t.first_exposure_time) AS variant,
+                    min(t.first_exposure_time) AS first_exposure_time,
+                    max(t.last_exposure_time) AS last_exposure_time,
+                    argMin(t.exposure_event_uuid, t.first_exposure_time) AS exposure_event_uuid,
+                    argMin(t.exposure_session_id, t.first_exposure_time) AS exposure_session_id
+                FROM experiment_exposures_preaggregated AS t
+                WHERE t.job_id IN {job_ids}
+                    AND t.team_id = {team_id}
+                GROUP BY t.entity_id
+            """,
+            placeholders={
+                "job_ids": ast.Constant(value=job_ids),
+                "team_id": ast.Constant(value=self.team.id),
+            },
+        )
+        assert isinstance(query, ast.SelectQuery)
+        return query
+
     def get_exposure_query_for_preaggregation(self) -> tuple[str, dict[str, ast.Expr]]:
         """
         Returns the exposure query and placeholders for preaggregation.
