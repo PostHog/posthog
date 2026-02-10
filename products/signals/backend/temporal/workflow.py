@@ -22,7 +22,6 @@ from products.signals.backend.temporal.activities import (
     GenerateEmbeddingInput,
     GenerateEmbeddingOutput,
     GenerateSearchQueriesInput,
-    GenerateSearchQueriesOutput,
     LLMMatchSignalInput,
     MarkReportFailedInput,
     MarkReportInProgressInput,
@@ -75,9 +74,6 @@ class EmitSignalWorkflow(PostHogWorkflow):
     @temporalio.workflow.run
     async def run(self, inputs: EmitSignalInputs) -> str:
         signal_id = str(uuid.uuid4())
-
-        embedding_result: GenerateEmbeddingOutput
-        search_queries_result: GenerateSearchQueriesOutput
 
         embedding_result, search_queries_result = await asyncio.gather(
             workflow.execute_activity(

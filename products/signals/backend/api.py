@@ -2,6 +2,7 @@ from django.conf import settings
 
 import posthoganalytics
 import temporalio.exceptions
+from temporalio.common import WorkflowIDReusePolicy
 
 from posthog.models import Team
 from posthog.temporal.common.client import async_connect
@@ -10,15 +11,25 @@ from products.signals.backend.temporal.types import EmitSignalInputs
 from products.signals.backend.temporal.workflow import EmitSignalWorkflow
 
 
-def is_signals_enabled(team: Team) -> bool:
-    """
-    Check if signals are enabled for a team's organization.
-    """
+def product_autonomy_enabled(team: Team) -> bool:
+    if not team.organization.is_ai_data_processing_approved:
+        return False
+
     return posthoganalytics.feature_enabled(
-        "sig-emit-signal-flow",
-        str(team.organization_id),
-        groups={"organization": str(team.organization_id)},
-        group_properties={"organization": {"id": str(team.organization_id)}},
+        "product-autonomy",
+        str(team.uuid),
+        groups={
+            "organization": str(team.organization_id),
+            "project": str(team.id),
+        },
+        group_properties={
+            "organization": {
+                "id": str(team.organization_id),
+            },
+            "project": {
+                "id": str(team.id),
+            },
+        },
         send_feature_flag_events=False,
     )
 
@@ -55,7 +66,7 @@ async def emit_signal(
             extra={"variant": "B", "p_value": 0.003},
         )
     """
-    if not is_signals_enabled(team):
+    if not product_autonomy_enabled(team):
         return
 
     client = await async_connect()
@@ -78,6 +89,7 @@ async def emit_signal(
             inputs,
             id=workflow_id,
             task_queue=settings.TEMPORAL_TASK_QUEUE,
+            id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
         )
     except temporalio.exceptions.WorkflowAlreadyStartedError:
         pass

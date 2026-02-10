@@ -7,6 +7,8 @@ import structlog
 from openai.types.chat import ChatCompletionMessageParam
 from pydantic import BaseModel, Field
 
+from posthog.llm.gateway_client import get_async_llm_client
+
 from products.signals.backend.temporal.types import (
     ExistingReportMatch,
     MatchResult,
@@ -15,11 +17,9 @@ from products.signals.backend.temporal.types import (
     SignalData,
 )
 
-from ee.hogai.session_summaries.llm.call import get_async_openai_client
-
 logger = structlog.get_logger(__name__)
 
-MATCHING_MODEL = os.getenv("SIGNAL_MATCHING_LLM_MODEL", "gpt-4o-mini")
+MATCHING_MODEL = os.getenv("SIGNAL_MATCHING_LLM_MODEL", "claude-sonnet-4-5")
 MAX_RETRIES = 3
 MAX_QUERY_TOKENS = 2048
 MAX_QUERIES = 3
@@ -50,18 +50,6 @@ Keep queries concise but descriptive. Each query will be embedded and used for s
 Respond with a JSON object containing a "queries" array with 1-3 query strings."""
 
 
-def _build_query_generation_prompt(
-    description: str,
-    source_product: str,
-    source_type: str,
-) -> str:
-    return f"""NEW SIGNAL:
-- Source: {source_product} / {source_type}
-- Description: {description}
-
-Generate 1-3 search queries to find related signals."""
-
-
 def _truncate_query_to_token_limit(query: str, max_tokens: int = MAX_QUERY_TOKENS) -> str:
     """Truncate a query string to fit within token limit for embedding."""
     try:
@@ -87,8 +75,12 @@ async def generate_search_queries(
     Use LLM to generate 1-3 search queries for finding related signals.
     Returns queries truncated to fit within embedding token limits.
     """
-    user_prompt = _build_query_generation_prompt(description, source_product, source_type)
-    client = get_async_openai_client()
+
+    user_prompt = f"""NEW SIGNAL:
+- Source: {source_product} / {source_type}
+- Description: {description}"""
+
+    client = get_async_llm_client()
 
     messages = cast(
         list[ChatCompletionMessageParam],
@@ -262,7 +254,7 @@ async def match_signal_with_llm(
             candidates_by_id[c.signal_id] = c
 
     user_prompt = _build_matching_prompt(description, source_product, source_type, queries, query_results)
-    client = get_async_openai_client()
+    client = get_async_llm_client()
 
     messages = cast(
         list[ChatCompletionMessageParam],
@@ -339,7 +331,7 @@ class SummarizeSignalsResponse(BaseModel):
 SUMMARIZE_SYSTEM_PROMPT = """You are a product analytics assistant. Your job is to summarize a collection of related signals into a concise report.
 
 Signals come from diverse sources: exceptions, experiments, insight alerts, session behaviour analysis, and more.
-They have been grouped together because they share a common underlying cause, feature, or user journey.
+They have been grouped together because they share a common underlying cause.
 
 Given a list of signals, produce:
 1. A short, descriptive title (max 100 characters) that captures the essence of what these signals are about
@@ -381,7 +373,7 @@ async def summarize_signals(signals: list[SignalData]) -> tuple[str, str]:
         Tuple of (title, summary)
     """
     user_prompt = _build_summarize_prompt(signals)
-    client = get_async_openai_client()
+    client = get_async_llm_client()
 
     messages = cast(
         list[ChatCompletionMessageParam],
