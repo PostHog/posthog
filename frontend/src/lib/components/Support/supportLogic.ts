@@ -482,12 +482,11 @@ export const supportLogic = kea<supportLogicType>([
                 target_area: null,
                 message: '',
             } as SupportFormFields,
-            errors: ({ name, email, message, kind, target_area, severity_level }) => {
+            errors: ({ name, email, message, target_area, severity_level }) => {
                 return {
                     name: !values.user ? (!name ? 'Please enter your name' : '') : '',
                     email: !values.user ? (!email ? 'Please enter your email' : '') : '',
                     message: !message ? 'Please enter a message' : '',
-                    kind: !kind ? 'Please choose' : undefined,
                     severity_level: !severity_level ? 'Please choose' : undefined,
                     target_area: !target_area ? 'Please choose' : undefined,
                 }

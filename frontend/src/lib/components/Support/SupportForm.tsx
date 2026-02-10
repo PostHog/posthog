@@ -2,57 +2,18 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { useRef } from 'react'
 
-import { IconBug, IconInfo, IconQuestion } from '@posthog/icons'
-import {
-    LemonBanner,
-    LemonInput,
-    LemonSegmentedButton,
-    LemonSegmentedButtonOption,
-    Link,
-    Tooltip,
-    lemonToast,
-} from '@posthog/lemon-ui'
+import { IconInfo } from '@posthog/icons'
+import { LemonBanner, LemonInput, Link, Tooltip, lemonToast } from '@posthog/lemon-ui'
 
 import { useUploadFiles } from 'lib/hooks/useUploadFiles'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput/LemonFileInput'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect/LemonSelect'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
-import { IconFeedback } from 'lib/lemon-ui/icons'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import {
-    SEVERITY_LEVEL_TO_NAME,
-    SUPPORT_TICKET_TEMPLATES,
-    SupportTicketKind,
-    TARGET_AREA_TO_NAME,
-    supportLogic,
-} from './supportLogic'
-
-const SUPPORT_TICKET_OPTIONS: LemonSegmentedButtonOption<SupportTicketKind>[] = [
-    {
-        value: 'support',
-        label: 'Question',
-        icon: <IconQuestion />,
-    },
-    {
-        value: 'feedback',
-        label: 'Feedback',
-        icon: <IconFeedback />,
-    },
-    {
-        value: 'bug',
-        label: 'Bug',
-        icon: <IconBug />,
-    },
-]
-
-const SUPPORT_TICKET_KIND_TO_PROMPT: Record<SupportTicketKind, string> = {
-    bug: "What's the bug?",
-    feedback: 'What feedback do you have?',
-    support: 'What can we help you with?',
-}
+import { SEVERITY_LEVEL_TO_NAME, SUPPORT_TICKET_TEMPLATES, TARGET_AREA_TO_NAME, supportLogic } from './supportLogic'
 
 export function SupportForm(): JSX.Element | null {
     const { sendSupportRequest } = useValues(supportLogic)
@@ -91,15 +52,6 @@ export function SupportForm(): JSX.Element | null {
         },
     })
 
-    const changeKind = (kind: SupportTicketKind): void => {
-        setSendSupportRequestValue('kind', kind)
-        if (kind === 'bug') {
-            setSendSupportRequestValue('severity_level', 'medium')
-        } else {
-            setSendSupportRequestValue('severity_level', 'low')
-        }
-    }
-
     return (
         <Form
             logic={supportLogic}
@@ -118,9 +70,6 @@ export function SupportForm(): JSX.Element | null {
                     </LemonField>
                 </>
             )}
-            <LemonField name="kind" label="Message type">
-                <LemonSegmentedButton onChange={changeKind} fullWidth options={SUPPORT_TICKET_OPTIONS} />
-            </LemonField>
             <LemonField name="target_area" label="Topic">
                 <LemonSelect
                     disabledReason={
@@ -138,14 +87,13 @@ export function SupportForm(): JSX.Element | null {
                     choose the relevant topic so your submission is sent to the correct team.
                 </LemonBanner>
             )}
-            <LemonField
-                name="message"
-                label={sendSupportRequest.kind ? SUPPORT_TICKET_KIND_TO_PROMPT[sendSupportRequest.kind] : 'Content'}
-            >
+            <LemonField name="message" label="What can we help you with?">
                 {(props) => (
                     <div ref={dropRef} className="flex flex-col gap-2" onPaste={handlePaste}>
                         <LemonTextArea
-                            placeholder={SUPPORT_TICKET_TEMPLATES[sendSupportRequest.kind] ?? 'Type your message here'}
+                            placeholder={
+                                SUPPORT_TICKET_TEMPLATES[sendSupportRequest.kind] ?? SUPPORT_TICKET_TEMPLATES['support']
+                            }
                             data-attr="support-form-content-input"
                             minRows={5}
                             {...props}
