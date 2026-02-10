@@ -55,13 +55,13 @@ Mark as actionable if:
 
 ## Response format
 If actionable: generate task title (5-10 words, starts with "Fix"/"Investigate"/"Improve") and description (1-3 sentences).
-If not actionable: return empty title and description.
+If not actionable: still return a brief title and description, but return actionable=False
 
 Respond in JSON:
 {
   "actionable": true/false,
-  "title": "Your title or empty string",
-  "description": "Your description or empty string"
+  "title": "Your title",
+  "description": "Your description"
 }
 """
 
