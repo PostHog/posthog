@@ -10,7 +10,7 @@ export interface PipelineWarning {
 }
 
 export interface TopHogTracker {
-    increment(metric: string, key: string, value?: number): void
+    increment(metric: string, key: string, value?: number, maxKeys?: number): void
 }
 
 /**

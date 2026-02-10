@@ -48,10 +48,10 @@ export class StepPipeline<TInput, TIntermediate, TOutput, C> implements Pipeline
                     const key = metric.key(previousResult.value)
                     switch (metric.type) {
                         case TopHogMetricType.Count:
-                            topHog.increment(`${name}.count`, key)
+                            topHog.increment(`${name}.count`, key, 1, metric.maxKeys)
                             break
                         case TopHogMetricType.Time:
-                            topHog.increment(`${name}.time_ms`, key, elapsedMs)
+                            topHog.increment(`${name}.time_ms`, key, elapsedMs, metric.maxKeys)
                             break
                     }
                 }

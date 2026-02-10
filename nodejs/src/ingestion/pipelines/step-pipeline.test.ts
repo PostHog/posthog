@@ -431,7 +431,7 @@ describe('StepPipeline', () => {
             const input = createContext(ok({ teamId: 42 }), { message, topHog: mockTopHog })
             await pipeline.process(input)
 
-            expect(mockTopHog.increment).toHaveBeenCalledWith('events.count', '42')
+            expect(mockTopHog.increment).toHaveBeenCalledWith('events.count', '42', 1, undefined)
         })
 
         it('should increment time metric on OK result', async () => {
@@ -449,7 +449,7 @@ describe('StepPipeline', () => {
             const input = createContext(ok({ teamId: 42 }), { message, topHog: mockTopHog })
             await pipeline.process(input)
 
-            expect(mockTopHog.increment).toHaveBeenCalledWith('events.time_ms', '42', expect.any(Number))
+            expect(mockTopHog.increment).toHaveBeenCalledWith('events.time_ms', '42', expect.any(Number), undefined)
         })
 
         it('should track multiple metrics with different keys', async () => {
@@ -468,8 +468,8 @@ describe('StepPipeline', () => {
             const input = createContext(ok({ teamId: 42, userId: 'u_1' }), { message, topHog: mockTopHog })
             await pipeline.process(input)
 
-            expect(mockTopHog.increment).toHaveBeenCalledWith('by_team.count', '42')
-            expect(mockTopHog.increment).toHaveBeenCalledWith('by_user.time_ms', 'u_1', expect.any(Number))
+            expect(mockTopHog.increment).toHaveBeenCalledWith('by_team.count', '42', 1, undefined)
+            expect(mockTopHog.increment).toHaveBeenCalledWith('by_user.time_ms', 'u_1', expect.any(Number), undefined)
         })
 
         it('should use custom metric name when provided', async () => {
@@ -484,7 +484,7 @@ describe('StepPipeline', () => {
             const input = createContext(ok({ teamId: 7 }), { message, topHog: mockTopHog })
             await pipeline.process(input)
 
-            expect(mockTopHog.increment).toHaveBeenCalledWith('heatmap_events.count', '7')
+            expect(mockTopHog.increment).toHaveBeenCalledWith('heatmap_events.count', '7', 1, undefined)
         })
 
         it('should not track on non-OK results', async () => {
