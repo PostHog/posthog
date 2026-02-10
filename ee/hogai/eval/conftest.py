@@ -11,7 +11,11 @@ from posthog.conftest import _django_db_setup  # noqa: F401
 
 def pytest_addoption(parser):
     # Example: pytest ee/hogai/eval/ci/eval_sql.py --eval churn - to only run cases containing "churn" in input
-    parser.addoption("--eval", action="store")
+    # Idempotent: products/signals/backend/eval/conftest re-exports this; running both eval dirs would add twice
+    try:
+        parser.addoption("--eval", action="store")
+    except ValueError:
+        pass
 
 
 _nodeid_to_results_url_map: dict[str, str] = {}
