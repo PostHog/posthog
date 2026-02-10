@@ -1,3 +1,4 @@
+from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.database.models import (
     DateTimeDatabaseField,
     FieldOrTable,
@@ -11,6 +12,8 @@ from posthog.clickhouse.preaggregation.experiment_exposures_sql import DISTRIBUT
 
 
 class ExperimentExposuresPreaggregatedTable(Table):
+    top_level_settings: HogQLQuerySettings | None = HogQLQuerySettings(load_balancing="in_order")
+
     fields: dict[str, FieldOrTable] = {
         "team_id": IntegerDatabaseField(name="team_id"),
         "job_id": StringDatabaseField(name="job_id"),
