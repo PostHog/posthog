@@ -289,6 +289,89 @@ class ExpiringPlaylistSource(SyntheticPlaylistSource):
 
 
 @dataclass
+class FrustrationSignalsPlaylistSource(SyntheticPlaylistSource):
+    """
+    Surfaces sessions with high frustration signals: rage clicks, dead clicks, and exceptions.
+    Results are cached for 1 hour and scored by a composite frustration score.
+    """
+
+    CACHE_KEY_PREFIX = "frustration_signals_synthetic_playlist"
+    CACHE_TTL = 3600  # 1 hour
+    LOOKBACK_DAYS = 7
+
+    @staticmethod
+    def _get_cache_key(team_id: int) -> str:
+        return f"{FrustrationSignalsPlaylistSource.CACHE_KEY_PREFIX}_team_{team_id}"
+
+    @staticmethod
+    def _get_frustrated_session_ids(team: Team) -> list[str]:
+        """
+        Query ClickHouse for sessions with frustration signals in the last 7 days.
+        Returns session_ids ordered by composite frustration score (descending).
+        Cached for 1 hour.
+        """
+        cache_key = FrustrationSignalsPlaylistSource._get_cache_key(team.pk)
+        cached_data = cache.get(cache_key)
+        if cached_data is not None:
+            return cached_data
+
+        now_ts = datetime.now(UTC)
+        date_from = now_ts - timedelta(days=FrustrationSignalsPlaylistSource.LOOKBACK_DAYS)
+
+        query = """
+            SELECT
+                `$session_id` AS session_id,
+                countIf(event = '$rageclick') * 3
+                    + countIf(event = '$exception') * 2
+                    + countIf(event = '$dead_click') AS frustration_score
+            FROM events
+            WHERE
+                team_id = %(team_id)s
+                AND event IN ('$rageclick', '$dead_click', '$exception')
+                AND timestamp >= %(date_from)s
+                AND timestamp <= %(date_to)s
+                AND notEmpty(`$session_id`)
+            GROUP BY `$session_id`
+            HAVING frustration_score > 0
+            ORDER BY frustration_score DESC
+            LIMIT 1000
+        """
+
+        tag_queries(product=Product.REPLAY, team_id=team.pk)
+        result = sync_execute(
+            query,
+            {
+                "team_id": team.pk,
+                "date_from": date_from,
+                "date_to": now_ts,
+            },
+        )
+
+        session_ids = [row[0] for row in result]
+        cache.set(cache_key, session_ids, FrustrationSignalsPlaylistSource.CACHE_TTL)
+        return session_ids
+
+    def get_session_ids(self, team: Team, user: User, limit: int | None = None, offset: int | None = None) -> list[str]:
+        session_ids = self._get_frustrated_session_ids(team)
+        return self._paginate_list(session_ids, limit, offset)
+
+    def count_session_ids(self, team: Team, user: User) -> int:
+        return len(self._get_frustrated_session_ids(team))
+
+    def to_synthetic_playlist(self) -> "SyntheticPlaylistDefinition":
+        return SyntheticPlaylistDefinition(
+            id=-7,
+            short_id="synthetic-frustrated",
+            name="Frustration signals",
+            description="Sessions with rage clicks, dead clicks, or errors in the last 7 days",
+            type="collection",
+            get_session_ids=self.get_session_ids,
+            count_session_ids=self.count_session_ids,
+            metadata={"icon": "IconWarning", "is_user_specific": False},
+        )
+
+
+@dataclass
 class NewUrlsSyntheticPlaylistSource(SyntheticPlaylistSource):
     """
     Dynamic synthetic playlist source that creates one playlist per new URL detected in the last 14 days.
@@ -601,6 +684,7 @@ def _get_static_synthetic_playlists() -> list[SyntheticPlaylistDefinition]:
         SharedPlaylistSource().to_synthetic_playlist(),
         ExportedPlaylistSource().to_synthetic_playlist(),
         ExpiringPlaylistSource().to_synthetic_playlist(),
+        FrustrationSignalsPlaylistSource().to_synthetic_playlist(),
     ]
 
     # Only add summarised playlist if EE is available
