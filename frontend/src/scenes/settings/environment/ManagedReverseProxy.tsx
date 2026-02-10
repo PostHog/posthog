@@ -33,7 +33,8 @@ const statusText = {
 }
 
 export function ManagedReverseProxy(): JSX.Element {
-    const { cloudflareOptInAcknowledged, formState, proxyRecords, proxyRecordsLoading } = useValues(proxyLogic)
+    const { cloudflareOptInAcknowledged, formState, proxyRecords, proxyRecordsLoading, maxProxyRecords } =
+        useValues(proxyLogic)
     const { acknowledgeCloudflareOptIn, deleteRecord, showForm } = useActions(proxyLogic)
     const { preflight } = useValues(preflightLogic)
 
@@ -44,8 +45,7 @@ export function ManagedReverseProxy(): JSX.Element {
         scope: RestrictionScope.Organization,
     })
 
-    // Limiting to 5 records per organization
-    const maxRecordsReached = proxyRecords.length >= 5
+    const maxRecordsReached = proxyRecords.length >= maxProxyRecords
 
     const recordsWithMessages = proxyRecords.filter((record) => !!record.message)
 
@@ -153,7 +153,9 @@ export function ManagedReverseProxy(): JSX.Element {
             />
             {formState === 'collapsed' ? (
                 maxRecordsReached ? (
-                    <LemonBanner type="info">There is a maximum of 5 records allowed per organization.</LemonBanner>
+                    <LemonBanner type="info">
+                        There is a maximum of {maxProxyRecords} records allowed per organization.
+                    </LemonBanner>
                 ) : (
                     <div className="flex">
                         <LemonButton onClick={showForm} type="primary" disabledReason={restrictionReason}>

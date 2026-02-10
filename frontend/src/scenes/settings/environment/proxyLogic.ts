@@ -47,6 +47,7 @@ export const proxyLogic = kea<proxyLogicType>([
         maybeRefreshRecords: true,
         acknowledgeCloudflareOptIn: true,
         setCloudflareOptInChecked: (checked: boolean) => ({ checked }),
+        setMaxProxyRecords: (maxProxyRecords: number) => ({ maxProxyRecords }),
     })),
     reducers(() => ({
         formState: [
@@ -67,12 +68,20 @@ export const proxyLogic = kea<proxyLogicType>([
                 acknowledgeCloudflareOptIn: () => false, // Reset when acknowledged
             },
         ],
+        maxProxyRecords: [
+            0 as number, // default, overridden by backend response
+            {
+                setMaxProxyRecords: (_, { maxProxyRecords }) => maxProxyRecords,
+            },
+        ],
     })),
     loaders(({ values, actions }) => ({
         proxyRecords: {
             __default: [] as ProxyRecord[],
             loadRecords: async () => {
-                return await api.get(`api/organizations/${values.currentOrganization?.id}/proxy_records`)
+                const response = await api.get(`api/organizations/${values.currentOrganization?.id}/proxy_records`)
+                actions.setMaxProxyRecords(response.max_proxy_records)
+                return response.results
             },
             createRecord: async ({ domain }: { domain: string }) => {
                 const response = await api.create(`api/organizations/${values.currentOrganization?.id}/proxy_records`, {
