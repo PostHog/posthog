@@ -5,7 +5,6 @@ from django.contrib.postgres.fields import ArrayField
 from django.core.cache import cache
 from django.db import models
 from django.utils import timezone
-from django.utils.dateparse import parse_datetime
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
@@ -138,9 +137,6 @@ class ProjectSecretAPIKey(ModelActivityMixin, models.Model):
                     mask_value=cached_data["mask_value"],
                     secure_value=cached_data["secure_value"],
                     scopes=cached_data.get("scopes"),
-                    last_used_at=parse_datetime(cached_data["last_used_at"])
-                    if cached_data.get("last_used_at")
-                    else None,
                 )
                 return key, "sha256"
             except Exception:
@@ -158,7 +154,6 @@ class ProjectSecretAPIKey(ModelActivityMixin, models.Model):
                     "mask_value": obj.mask_value,
                     "secure_value": obj.secure_value,
                     "scopes": obj.scopes,
-                    "last_used_at": obj.last_used_at.isoformat() if obj.last_used_at else None,
                 },
             )
 

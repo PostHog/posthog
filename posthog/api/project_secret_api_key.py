@@ -129,6 +129,8 @@ class ProjectSecretAPIKeyViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, vie
             raise ValidationError("Failed to create project secret API key.")
 
     def validate_scopes(self, scopes):
+        if not scopes:
+            raise ValidationError({"scopes": "At least one scope is required."})
         for scope in scopes:
             if scope == "*":
                 raise ValidationError(
@@ -159,7 +161,7 @@ class ProjectSecretAPIKeyViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, vie
     def update(self, request: Request, *args, **kwargs) -> Response:
         instance = self.get_object()
         data = self.get_model(request.data, ProjectSecretAPIKeyRequest)
-        if data.scopes:
+        if data.scopes is not None:
             self.validate_scopes(data.scopes)
             instance.scopes = data.scopes
         if data.label is not None:

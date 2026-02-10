@@ -190,11 +190,9 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication, APIKeyAuth
             if authorization_match:
                 token = authorization_match.group(1).strip()
 
-                if token.startswith(
-                    "pha_"
+                if (
+                    token.startswith("pha_") or token.startswith("phs_")
                 ):  # TRICKY: This returns None to allow the next authentication method to have a go. This should be `if not token.startswith("phx_")`, but we need to support legacy personal api keys that may not have been prefixed with phx_.
-                    return None
-                if token.startswith("phs_"):
                     return None
 
                 return token, "Authorization header"
@@ -306,31 +304,12 @@ class ProjectSecretAPIKeyAuthentication(authentication.BaseAuthentication, APIKe
         """Try to find project secret API key in request and return it"""
         if "authorization" in request.headers:
             raw_header = request.headers["authorization"]
-            # Strip the header value to handle trailing whitespace/CRLF that proxies may add
             header_value = raw_header.strip()
-            had_whitespace = len(raw_header) != len(header_value)
 
             authorization_match = re.match(rf"^{cls.keyword}\s+(phs_[a-zA-Z0-9]+)$", header_value)
             if authorization_match:
                 token = authorization_match.group(1).strip()
-                structlog_logger.debug(
-                    "project_secret_api_key_found_in_header",
-                    token_prefix=token[:8] if len(token) > 8 else "short",
-                    had_trailing_whitespace=had_whitespace,
-                )
                 return token
-
-            # Log when header exists but doesn't match expected format (helps debug auth issues)
-            # Don't log the actual value, just metadata
-            starts_with_bearer = header_value.lower().startswith("bearer ")
-            has_phs_prefix = "phs_" in header_value
-            structlog_logger.debug(
-                "project_secret_api_key_header_no_match",
-                header_length=len(header_value),
-                starts_with_bearer=starts_with_bearer,
-                has_phs_prefix=has_phs_prefix,
-                had_trailing_whitespace=had_whitespace,
-            )
 
         # Wrap HttpRequest in DRF Request if needed
         if not isinstance(request, Request):
@@ -339,10 +318,8 @@ class ProjectSecretAPIKeyAuthentication(authentication.BaseAuthentication, APIKe
         data = request.data
 
         if data and "secret_api_key" in data:
-            structlog_logger.debug("project_secret_api_key_found_in_body", field="secret_api_key")
             return data["secret_api_key"]
         elif data and "project_secret_api_key" in data:
-            structlog_logger.debug("project_secret_api_key_found_in_body", field="project_secret_api_key")
             return data["project_secret_api_key"]
 
         return None
@@ -353,7 +330,6 @@ class ProjectSecretAPIKeyAuthentication(authentication.BaseAuthentication, APIKe
         if not secret_api_token:
             return None
 
-        # Try to find as a managed ProjectSecretAPIKey first
         project_secret_api_key_result = ProjectSecretAPIKey.find_project_secret_api_key(secret_api_token)
 
         if project_secret_api_key_result:
@@ -369,43 +345,20 @@ class ProjectSecretAPIKeyAuthentication(authentication.BaseAuthentication, APIKe
                 api_key_label=project_secret_api_key.label,
             )
 
-            structlog_logger.debug(
-                "project_secret_api_key_auth_success",
-                auth_method="managed_key",
-                team_id=project_secret_api_key.team_id,
-            )
             return (ProjectSecretAPIKeyUser(project_secret_api_key.team, project_secret_api_key), None)
 
         # For backwards compat with feature flags - fallback to team secret_api_token
-        structlog_logger.debug(
-            "project_secret_api_key_fallback_to_team_token",
-            token_prefix=secret_api_token[:8] if len(secret_api_token) > 8 else "short",
-        )
         try:
             Team = apps.get_model(app_label="posthog", model_name="Team")
             team = Team.objects.get_team_from_cache_or_secret_api_token(secret_api_token)
 
             if team is None:
-                structlog_logger.warning(
-                    "project_secret_api_key_auth_failed",
-                    reason="token_not_found_in_db",
-                    token_prefix=secret_api_token[:8] if len(secret_api_token) > 8 else "short",
-                )
-                raise AuthenticationFailed(detail="Project secret API key is invalid.")
+                return None
 
-            structlog_logger.debug(
-                "project_secret_api_key_auth_success",
-                auth_method="legacy_team_token",
-                team_id=team.id,
-            )
             # Team secret token = full access, no project_secret_api_key object
             return (ProjectSecretAPIKeyUser(team, None), None)
         except Team.DoesNotExist:
-            structlog_logger.warning(
-                "project_secret_api_key_auth_failed",
-                reason="team_does_not_exist",
-            )
-            raise AuthenticationFailed(detail="Project secret API key is invalid.")
+            return None
 
     @classmethod
     def authenticate_header(cls, request) -> str:

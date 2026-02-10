@@ -214,16 +214,6 @@ def _is_request_for_project_secret_api_token_secured_endpoint(request: Request) 
     )
 
 
-def _get_action_from_view(view, request: Request | None = None) -> str | None:
-    action = getattr(view, "action", None)
-    if action:
-        return action
-    action_map = getattr(view, "action_map", None)
-    if action_map and request:
-        return action_map.get(request.method.lower())
-    return None
-
-
 class TeamMemberLightManagementPermission(BasePermission):
     """
     Require effective project membership for read AND update access,
@@ -480,6 +470,7 @@ class APIScopePermission(ScopeBasePermission):
                     self.message = "Project secret API key has no scopes and cannot access this resource"
                     return False
             else:
+                # legacy project secret token for feature flags
                 return True
         elif isinstance(request.successful_authenticator, OAuthAccessTokenAuthentication):
             # OAuth tokens store scopes as space-separated string
@@ -741,19 +732,9 @@ class ProjectSecretAPITokenPermission(BasePermission):
         if not isinstance(request.successful_authenticator, ProjectSecretAPIKeyAuthentication):
             return True
 
-        # Allow only specific actions/endpoints for project secret keys
-        action = _get_action_from_view(view, request)
-        allowed_by_view = (
-            action in getattr(view, "project_secret_auth_actions", [])
-            if action and hasattr(view, "project_secret_auth_actions")
-            else False
-        )
-        allowed_by_legacy_names = _is_request_for_project_secret_api_token_secured_endpoint(request)
-        if not (allowed_by_view or allowed_by_legacy_names):
-            return False
-
         # Check that the endpoint is allowed for secret API keys
-        # (kept for backward compatibility with legacy resolver-match based checks)
+        if not _is_request_for_project_secret_api_token_secured_endpoint(request):
+            return False
 
         # Check team consistency: authenticated team must match resolved team
         # This prevents cross-team access when project_api_key is provided in request body
@@ -783,12 +764,11 @@ class ProjectSecretAPIKeyPermission(ScopeBasePermission):
         if not isinstance(request.successful_authenticator, ProjectSecretAPIKeyAuthentication):
             return True
 
-        # If not using ProjectSecretAPIKeyUser, pass through
         if not isinstance(request.user, ProjectSecretAPIKeyUser):
             return True
 
-        # Legacy team secret_api_token: no scopes to check. Endpoint restriction
-        # is enforced by ProjectSecretAPITokenPermission, not here.
+        # Legacy team secret_api_token: no scopes to check.
+        # Let ProjectSecretAPITokenPermission handle it.
         if request.user.project_secret_api_key is None:
             return True
 
@@ -818,7 +798,6 @@ class ProjectSecretAPIKeyPermission(ScopeBasePermission):
         if not isinstance(request.user, ProjectSecretAPIKeyUser):
             return True
 
-        # Validate key's project matches the object's project
         team = request.user.team
         if hasattr(obj, "team") and obj.team is not None:
             return obj.team.id == team.id

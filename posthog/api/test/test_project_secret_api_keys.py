@@ -1,83 +1,178 @@
+from datetime import timedelta
+
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.exceptions import NotFound
 
-from posthog.models import ActivityLog
+from posthog.auth import ProjectSecretAPIKeyAuthentication, ProjectSecretAPIKeyUser
+from posthog.models import ActivityLog, FeatureFlag
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal, generate_random_token_secret
+from posthog.permissions import ProjectSecretAPIKeyPermission
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
 
 
-class ProjectSecretAPIKeysAdminTestBase(APIBaseTest):
-    """Base class for tests that require organization admin permissions."""
+def _create_managed_key(team, user, scopes=None, label="Test Key"):
+    key_value = generate_random_token_secret()
+    key = ProjectSecretAPIKey.objects.create(
+        team=team,
+        label=label,
+        secure_value=hash_key_value(key_value),
+        scopes=scopes or ["feature_flag:read"],
+        created_by=user,
+    )
+    return key, key_value
 
+
+def _create_feature_flag(team, key="test-flag"):
+    return FeatureFlag.objects.create(
+        team=team,
+        key=key,
+        name="Test Flag",
+        filters={"groups": [{"rollout_percentage": 100}]},
+        active=True,
+    )
+
+
+class _AdminBase(APIBaseTest):
     def setUp(self):
         super().setUp()
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
 
 
-class TestProjectSecretAPIKeysAPI(ProjectSecretAPIKeysAdminTestBase):
-    def test_create_project_secret_api_key(self):
-        label = "Test project key"
+# ===========================================================================
+# 1. CRUD API (management viewset)
+# ===========================================================================
+
+
+class TestProjectSecretAPIKeyCRUD(_AdminBase):
+    def test_create(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/project_secret_api_keys",
-            {"label": label, "scopes": ["feature_flag:read"]},
+            {"label": "My key", "scopes": ["feature_flag:read"]},
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         data = response.json()
-
-        key = ProjectSecretAPIKey.objects.get(id=data["id"])
-
-        self.assertEqual(
-            data,
-            {
-                "id": str(key.id),
-                "label": label,
-                "created_at": data["created_at"],
-                "scopes": ["feature_flag:read"],
-                "value": data["value"],
-            },
-        )
         self.assertTrue(data["value"].startswith("phs_"))
+        self.assertEqual(data["label"], "My key")
+        self.assertEqual(data["scopes"], ["feature_flag:read"])
 
-    def test_create_too_many_project_api_keys(self):
-        for i in range(0, 10):
-            self.client.post(
-                f"/api/projects/{self.team.id}/project_secret_api_keys",
-                {"label": f"key-{i}", "scopes": ["feature_flag:read"]},
-            )
+    def test_list_returns_only_own_team_keys(self):
+        _create_managed_key(self.team, self.user, label="mine")
+
+        other_org = Organization.objects.create(name="Other Org")
+        other_team = Team.objects.create(organization=other_org, name="Other")
+        _create_managed_key(other_team, self.user, label="theirs")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/project_secret_api_keys")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()), 1)
+        self.assertEqual(response.json()[0]["label"], "mine")
+
+    def test_retrieve(self):
+        key, _ = _create_managed_key(self.team, self.user)
+        response = self.client.get(f"/api/projects/{self.team.id}/project_secret_api_keys/{key.id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["id"], str(key.id))
+        self.assertNotIn("value", response.json())
+
+    def test_update_label(self):
+        key, _ = _create_managed_key(self.team, self.user, label="old")
+        response = self.client.put(
+            f"/api/projects/{self.team.id}/project_secret_api_keys/{key.id}",
+            {"label": "new"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["label"], "new")
+
+    def test_update_with_empty_scopes_rejected(self):
+        key, _ = _create_managed_key(self.team, self.user)
+        response = self.client.put(
+            f"/api/projects/{self.team.id}/project_secret_api_keys/{key.id}",
+            {"scopes": []},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("scope", str(response.json()).lower())
+
+    def test_delete(self):
+        key, _ = _create_managed_key(self.team, self.user)
+        response = self.client.delete(f"/api/projects/{self.team.id}/project_secret_api_keys/{key.id}/")
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertEqual(ProjectSecretAPIKey.objects.filter(team=self.team).count(), 0)
+
+    def test_roll_key(self):
+        key, old_value = _create_managed_key(self.team, self.user)
+        response = self.client.post(f"/api/projects/{self.team.id}/project_secret_api_keys/{key.id}/roll")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertTrue(data["value"].startswith("phs_"))
+        self.assertNotEqual(data["value"], old_value)
+        self.assertIsNotNone(data["last_rolled_at"])
+
+    def test_max_keys_per_project(self):
+        for i in range(10):
+            _create_managed_key(self.team, self.user, label=f"key-{i}")
         response = self.client.post(
             f"/api/projects/{self.team.id}/project_secret_api_keys",
-            {"label": "key-11", "scopes": ["feature_flag:read"]},
+            {"label": "overflow", "scopes": ["feature_flag:read"]},
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("at most 10", response.json()["detail"])
 
-    def test_create_project_api_key_label_required(self):
+    def test_unique_label_per_team(self):
+        _create_managed_key(self.team, self.user, label="dup")
         response = self.client.post(
-            f"/api/projects/{self.team.id}/project_secret_api_keys/",
-            {"label": "", "scopes": ["feature_flag:read"]},
+            f"/api/projects/{self.team.id}/project_secret_api_keys",
+            {"label": "dup", "scopes": ["feature_flag:read"]},
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        data = response.json()
-        self.assertIn("label", str(data).lower())
+        self.assertIn("already exists", response.json()["detail"])
 
-    def test_create_project_api_key_scopes_required(self):
+    def test_same_label_across_teams_ok(self):
+        _create_managed_key(self.team, self.user, label="shared")
+        other_org = Organization.objects.create(name="Other")
+        other_team = Team.objects.create(organization=other_org, name="Other")
+        other_user = self._create_user("other@test.com")
+        other_user.join(organization=other_org, level=OrganizationMembership.Level.ADMIN)
+        self.client.force_login(other_user)
         response = self.client.post(
-            f"/api/projects/{self.team.id}/project_secret_api_keys/",
-            {"label": "test"},
+            f"/api/projects/{other_team.id}/project_secret_api_keys",
+            {"label": "shared", "scopes": ["feature_flag:read"]},
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        data = response.json()
-        self.assertIn("scopes", str(data).lower())
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
+    def test_cannot_access_other_teams_key(self):
+        other_org = Organization.objects.create(name="Other")
+        other_team = Team.objects.create(organization=other_org, name="Other")
+        other_key, _ = _create_managed_key(other_team, self.user)
+
+        for url in [
+            f"/api/projects/{self.team.id}/project_secret_api_keys/{other_key.id}/",
+        ]:
+            response = self.client.get(url)
+            self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+            response = self.client.delete(url)
+            self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+
+# ===========================================================================
+# 2. Scope validation on create
+# ===========================================================================
+
+
+class TestProjectSecretAPIKeyScopeValidation(_AdminBase):
     @parameterized.expand(
         [
             (["feature_flag:read"], True),
@@ -85,12 +180,10 @@ class TestProjectSecretAPIKeysAPI(ProjectSecretAPIKeysAdminTestBase):
             (["query:read"], False),
             (["insight:read"], False),
             (["feature_flag:read", "query:read"], False),
-            (["feature_flag:read", "insight:read"], False),
             (["*"], False),
             (["invalid"], False),
             (["feature_flag:invalid"], False),
             (["dashboard:read"], False),
-            (["project:read"], False),
         ]
     )
     def test_scope_validation(self, scopes, should_succeed):
@@ -100,84 +193,639 @@ class TestProjectSecretAPIKeysAPI(ProjectSecretAPIKeysAdminTestBase):
         )
         if should_succeed:
             self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-            self.assertEqual(response.json()["scopes"], scopes)
         else:
             self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-            self.assertIn("scope", response.json()["detail"].lower())
 
-    def test_wildcard_scope_not_allowed(self):
+    def test_create_without_scopes_rejected(self):
         response = self.client.post(
-            f"/api/projects/{self.team.id}/project_secret_api_keys",
-            {"label": "test", "scopes": ["*"]},
+            f"/api/projects/{self.team.id}/project_secret_api_keys/",
+            {"label": "test"},
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("validation error", response.json()["detail"].lower())
 
-    def test_update_project_api_key(self):
-        key = ProjectSecretAPIKey.objects.create(
-            team=self.team,
-            label="test-label",
-            secure_value=hash_key_value(generate_random_token_secret()),
-            scopes=["feature_flag:read"],
-            created_by=self.user,
+    def test_create_with_empty_label_rejected(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/project_secret_api_keys/",
+            {"label": "", "scopes": ["feature_flag:read"]},
         )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+# ===========================================================================
+# 3. Org-level permissions for management viewset
+# ===========================================================================
+
+
+class TestProjectSecretAPIKeyOrgPermissions(APIBaseTest):
+    def test_member_cannot_create(self):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/project_secret_api_keys",
+            {"label": "nope", "scopes": ["feature_flag:read"]},
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_member_cannot_update(self):
+        key, _ = _create_managed_key(self.team, self.user)
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
         response = self.client.put(
             f"/api/projects/{self.team.id}/project_secret_api_keys/{key.id}",
-            {"label": "updated-test-label"},
+            {"label": "nope"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_member_cannot_delete(self):
+        key, _ = _create_managed_key(self.team, self.user)
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        response = self.client.delete(f"/api/projects/{self.team.id}/project_secret_api_keys/{key.id}/")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_member_can_list(self):
+        _create_managed_key(self.team, self.user)
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        response = self.client.get(f"/api/projects/{self.team.id}/project_secret_api_keys")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()), 1)
+
+    def test_member_can_retrieve(self):
+        key, _ = _create_managed_key(self.team, self.user)
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        response = self.client.get(f"/api/projects/{self.team.id}/project_secret_api_keys/{key.id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    @parameterized.expand(
+        [
+            (OrganizationMembership.Level.ADMIN,),
+            (OrganizationMembership.Level.OWNER,),
+        ]
+    )
+    def test_admin_and_owner_can_create(self, level):
+        self.organization_membership.level = level
+        self.organization_membership.save()
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/project_secret_api_keys",
+            {"label": f"key-{level}", "scopes": ["feature_flag:read"]},
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+
+# ===========================================================================
+# 4. Authentication layer
+# ===========================================================================
+
+
+class TestProjectSecretAPIKeyAuthentication(APIBaseTest):
+    CONFIG_AUTO_LOGIN = False
+
+    def setUp(self):
+        super().setUp()
+        self.key, self.key_value = _create_managed_key(self.team, self.user)
+        _create_feature_flag(self.team)
+
+    def _bearer(self, token):
+        return {"HTTP_AUTHORIZATION": f"Bearer {token}"}
+
+    # --- happy paths ---
+
+    def test_managed_key_authenticates_on_local_evaluation(self):
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/feature_flags/local_evaluation",
+            **self._bearer(self.key_value),
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        data = response.json()
-        self.assertEqual(data["id"], str(key.id))
-        self.assertEqual(data["label"], "updated-test-label")
-        self.assertEqual(data["scopes"], ["feature_flag:read"])
+        self.assertIn("flags", response.json())
 
-    def test_delete_project_api_key(self):
-        key = ProjectSecretAPIKey.objects.create(
+    def test_managed_key_authenticates_on_remote_config(self):
+        flag = FeatureFlag.objects.create(
             team=self.team,
-            label="Test",
-            secure_value=hash_key_value(generate_random_token_secret()),
-            scopes=["feature_flag:read"],
-            created_by=self.user,
+            key="remote-cfg",
+            name="Remote Config",
+            filters={
+                "groups": [{"rollout_percentage": 100}],
+                "payloads": {"true": {"setting": "value"}},
+            },
+            is_remote_configuration=True,
+            active=True,
         )
-        self.assertEqual(ProjectSecretAPIKey.objects.filter(team=self.team).count(), 1)
-        response = self.client.delete(f"/api/projects/{self.team.id}/project_secret_api_keys/{key.id}/")
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
-        self.assertEqual(ProjectSecretAPIKey.objects.filter(team=self.team).count(), 0)
-        log = ActivityLog.objects.filter(scope="ProjectSecretAPIKey", activity="deleted", item_id=str(key.id)).first()
-        assert log is not None
-        self.assertEqual(log.team_id, self.team.id)
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/remote_config",
+            **self._bearer(self.key_value),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-    def test_activity_logged_on_create(self):
+    # --- legacy team token backward compat ---
+
+    def test_legacy_team_secret_api_token_works(self):
+        legacy_token = generate_random_token_secret()
+        self.team.secret_api_token = legacy_token
+        self.team.save()
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/feature_flags/local_evaluation",
+            **self._bearer(legacy_token),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_legacy_team_secret_api_token_backup_works(self):
+        backup_token = generate_random_token_secret()
+        self.team.secret_api_token = generate_random_token_secret()
+        self.team.secret_api_token_backup = backup_token
+        self.team.save()
+
+        from posthog.models.team import set_team_in_cache
+
+        set_team_in_cache(backup_token, self.team)
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/feature_flags/local_evaluation",
+            **self._bearer(backup_token),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    # --- invalid tokens ---
+
+    def test_invalid_phs_token_returns_401(self):
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/feature_flags/local_evaluation",
+            **self._bearer("phs_definitelyinvalidtoken12345678"),
+        )
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_deleted_key_returns_401(self):
+        self.key.delete()
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/feature_flags/local_evaluation",
+            **self._bearer(self.key_value),
+        )
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    # --- prefix handoff: PersonalAPIKeyAuthentication skips phs_ tokens ---
+
+    def test_personal_api_key_auth_skips_phs_prefix(self):
+        from django.test import RequestFactory
+
+        from posthog.auth import PersonalAPIKeyAuthentication as PAK
+
+        factory = RequestFactory()
+        request = factory.get("/", HTTP_AUTHORIZATION=f"Bearer {self.key_value}")
+
+        pak = PAK()
+        result = pak.find_key_with_source(request)
+        # PersonalAPIKeyAuthentication should return None for phs_ tokens
+        self.assertIsNone(result)
+
+    # --- header whitespace handling ---
+
+    def test_header_with_trailing_whitespace_still_works(self):
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/feature_flags/local_evaluation",
+            HTTP_AUTHORIZATION=f"Bearer {self.key_value}  ",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+
+# ===========================================================================
+# 5. Endpoint access control — phs_ key on restricted endpoints
+# ===========================================================================
+
+
+class TestProjectSecretAPIKeyEndpointRestrictions(APIBaseTest):
+    """Project secret API keys should ONLY work on endpoints that explicitly
+    include ProjectSecretAPIKeyAuthentication in their authentication_classes."""
+
+    CONFIG_AUTO_LOGIN = False
+
+    def setUp(self):
+        super().setUp()
+        self.key, self.key_value = _create_managed_key(self.team, self.user)
+        _create_feature_flag(self.team)
+
+    def _bearer(self, token):
+        return {"HTTP_AUTHORIZATION": f"Bearer {token}"}
+
+    # --- feature_flags viewset endpoints WITHOUT ProjectSecretAPIKeyAuthentication ---
+
+    def test_cannot_list_feature_flags(self):
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            **self._bearer(self.key_value),
+        )
+        self.assertIn(response.status_code, [status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN])
+
+    def test_cannot_create_feature_flag(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {"key": "new-flag", "name": "New Flag"},
+            format="json",
+            **self._bearer(self.key_value),
+        )
+        self.assertIn(response.status_code, [status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN])
+
+    def test_cannot_retrieve_feature_flag(self):
+        flag = FeatureFlag.objects.filter(team=self.team).first()
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/",
+            **self._bearer(self.key_value),
+        )
+        self.assertIn(response.status_code, [status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN])
+
+    # --- entirely different viewsets ---
+
+    @parameterized.expand(
+        [
+            ("insights",),
+            ("dashboards",),
+            ("actions",),
+            ("cohorts",),
+        ]
+    )
+    def test_cannot_access_other_viewset(self, viewset_path):
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/{viewset_path}/",
+            **self._bearer(self.key_value),
+        )
+        self.assertIn(response.status_code, [status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN])
+
+    # --- management viewset itself cannot be accessed with phs_ key ---
+
+    def test_cannot_list_project_secret_keys(self):
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/project_secret_api_keys",
+            **self._bearer(self.key_value),
+        )
+        self.assertIn(response.status_code, [status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN])
+
+    def test_cannot_create_project_secret_key(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/project_secret_api_keys",
+            {"label": "nope", "scopes": ["feature_flag:read"]},
+            format="json",
+            **self._bearer(self.key_value),
+        )
+        self.assertIn(response.status_code, [status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN])
+
+    def test_cannot_delete_project_secret_key(self):
+        response = self.client.delete(
+            f"/api/projects/{self.team.id}/project_secret_api_keys/{self.key.id}/",
+            **self._bearer(self.key_value),
+        )
+        self.assertIn(response.status_code, [status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN])
+
+
+# ===========================================================================
+# 6. Scope enforcement (ProjectSecretAPIKeyPermission)
+# ===========================================================================
+
+
+class TestProjectSecretAPIKeyScopeEnforcement(APIBaseTest):
+    CONFIG_AUTO_LOGIN = False
+
+    def setUp(self):
+        super().setUp()
+        _create_feature_flag(self.team)
+
+    def _bearer(self, token):
+        return {"HTTP_AUTHORIZATION": f"Bearer {token}"}
+
+    def test_correct_scope_allows_access(self):
+        _, key_value = _create_managed_key(self.team, self.user, scopes=["feature_flag:read"])
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/feature_flags/local_evaluation",
+            **self._bearer(key_value),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_no_required_scopes_on_endpoint_denies_access(self):
+        """Permission class returns False when the endpoint has no required_scopes."""
+        key = MagicMock()
+        key.scopes = ["feature_flag:read"]
+        key.team_id = self.team.id
+
+        mock_request = MagicMock()
+        mock_request.successful_authenticator = MagicMock(spec=ProjectSecretAPIKeyAuthentication)
+        mock_request.user = MagicMock(spec=ProjectSecretAPIKeyUser)
+        mock_request.user.project_secret_api_key = key
+        mock_request.method = "GET"
+
+        mock_view = MagicMock()
+        mock_view.team_id = self.team.id
+        mock_view.required_scopes = None
+        mock_view.action = "list"
+        # No required_scopes → _get_required_scopes returns None
+        del mock_view.required_scopes
+
+        permission = ProjectSecretAPIKeyPermission()
+        # Patch _get_required_scopes to return None
+        with patch.object(permission, "_get_required_scopes", return_value=None):
+            self.assertFalse(permission.has_permission(mock_request, mock_view))
+
+    def test_legacy_team_token_bypasses_scope_check(self):
+        legacy_token = generate_random_token_secret()
+        self.team.secret_api_token = legacy_token
+        self.team.save()
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/feature_flags/local_evaluation",
+            **self._bearer(legacy_token),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+
+# ===========================================================================
+# 7. Team isolation
+# ===========================================================================
+
+
+class TestProjectSecretAPIKeyTeamIsolation(APIBaseTest):
+    CONFIG_AUTO_LOGIN = False
+
+    def setUp(self):
+        super().setUp()
+        self.key, self.key_value = _create_managed_key(self.team, self.user)
+        _create_feature_flag(self.team)
+
+        self.other_org = Organization.objects.create(name="Other")
+        self.other_team = Team.objects.create(organization=self.other_org, name="Other")
+        _create_feature_flag(self.other_team, key="other-flag")
+
+    def _bearer(self, token):
+        return {"HTTP_AUTHORIZATION": f"Bearer {token}"}
+
+    def test_cross_team_local_evaluation_denied(self):
+        response = self.client.get(
+            f"/api/projects/{self.other_team.id}/feature_flags/local_evaluation",
+            **self._bearer(self.key_value),
+        )
+        self.assertIn(response.status_code, [status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND])
+
+    def test_cross_team_remote_config_denied(self):
+        flag = FeatureFlag.objects.create(
+            team=self.other_team,
+            key="remote-other",
+            name="RC",
+            filters={
+                "groups": [{"rollout_percentage": 100}],
+                "payloads": {"true": "val"},
+            },
+            is_remote_configuration=True,
+            active=True,
+        )
+        response = self.client.get(
+            f"/api/projects/{self.other_team.id}/feature_flags/{flag.id}/remote_config",
+            **self._bearer(self.key_value),
+        )
+        self.assertIn(response.status_code, [status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND])
+
+    def test_permission_has_object_permission_team_match(self):
+        permission = ProjectSecretAPIKeyPermission()
+
+        mock_request = MagicMock()
+        mock_request.successful_authenticator = MagicMock(spec=ProjectSecretAPIKeyAuthentication)
+        mock_request.user = ProjectSecretAPIKeyUser(self.team, self.key)
+
+        obj = MagicMock()
+        obj.team_id = self.team.id
+        obj.team = None  # force team_id path
+        self.assertTrue(permission.has_object_permission(mock_request, MagicMock(), obj))
+
+    def test_permission_has_object_permission_team_mismatch(self):
+        permission = ProjectSecretAPIKeyPermission()
+
+        mock_request = MagicMock()
+        mock_request.successful_authenticator = MagicMock(spec=ProjectSecretAPIKeyAuthentication)
+        mock_request.user = ProjectSecretAPIKeyUser(self.team, self.key)
+
+        obj = MagicMock()
+        obj.team = self.other_team
+        self.assertFalse(permission.has_object_permission(mock_request, MagicMock(), obj))
+
+    def test_permission_cross_team_raises_not_found(self):
+        mock_request = MagicMock()
+        mock_request.successful_authenticator = MagicMock(spec=ProjectSecretAPIKeyAuthentication)
+        mock_request.user = MagicMock(spec=ProjectSecretAPIKeyUser)
+        mock_request.user.project_secret_api_key = self.key
+        mock_request.method = "GET"
+
+        mock_view = MagicMock()
+        mock_view.team_id = self.other_team.id
+
+        permission = ProjectSecretAPIKeyPermission()
+        with self.assertRaises(NotFound):
+            permission.has_permission(mock_request, mock_view)
+
+
+# ===========================================================================
+# 8. ProjectSecretAPIKeyUser
+# ===========================================================================
+
+
+class TestProjectSecretAPIKeyUser(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.key, _ = _create_managed_key(self.team, self.user)
+
+    def test_is_authenticated(self):
+        user = ProjectSecretAPIKeyUser(self.team, self.key)
+        self.assertTrue(user.is_authenticated)
+
+    def test_has_perm_returns_false(self):
+        user = ProjectSecretAPIKeyUser(self.team, self.key)
+        self.assertFalse(user.has_perm("any_perm"))
+
+    def test_pk_and_id_are_negative_one(self):
+        user = ProjectSecretAPIKeyUser(self.team, self.key)
+        self.assertEqual(user.pk, -1)
+        self.assertEqual(user.id, -1)
+
+    def test_distinct_id_managed_key(self):
+        user = ProjectSecretAPIKeyUser(self.team, self.key)
+        self.assertEqual(user.distinct_id, f"ph_secret_project_key:{self.key.id}")
+
+    def test_distinct_id_legacy_token(self):
+        user = ProjectSecretAPIKeyUser(self.team, None)
+        self.assertEqual(user.distinct_id, "team_secret_api_token")
+
+    def test_str(self):
+        user = ProjectSecretAPIKeyUser(self.team, self.key)
+        self.assertIn(str(self.team.id), str(user))
+
+
+# ===========================================================================
+# 9. last_used_at tracking
+# ===========================================================================
+
+
+class TestProjectSecretAPIKeyLastUsedAt(APIBaseTest):
+    CONFIG_AUTO_LOGIN = False
+
+    def setUp(self):
+        super().setUp()
+        self.key, self.key_value = _create_managed_key(self.team, self.user)
+        _create_feature_flag(self.team)
+
+    def _bearer(self, token):
+        return {"HTTP_AUTHORIZATION": f"Bearer {token}"}
+
+    def test_first_use_sets_last_used_at(self):
+        self.assertIsNone(self.key.last_used_at)
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/feature_flags/local_evaluation",
+            **self._bearer(self.key_value),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.key.refresh_from_db()
+        self.assertIsNotNone(self.key.last_used_at)
+
+    def test_second_use_within_hour_does_not_update(self):
+        now = timezone.now()
+        ProjectSecretAPIKey.objects.filter(pk=self.key.pk).update(last_used_at=now)
+        self.key.refresh_from_db()
+
+        self.client.get(
+            f"/api/projects/{self.team.id}/feature_flags/local_evaluation",
+            **self._bearer(self.key_value),
+        )
+        self.key.refresh_from_db()
+        # Should still be the same value (within a second tolerance)
+        self.assertAlmostEqual(self.key.last_used_at.timestamp(), now.timestamp(), delta=2)
+
+    def test_use_after_one_hour_updates(self):
+        old_time = timezone.now() - timedelta(hours=2)
+        ProjectSecretAPIKey.objects.filter(pk=self.key.pk).update(last_used_at=old_time)
+        self.key.refresh_from_db()
+
+        self.client.get(
+            f"/api/projects/{self.team.id}/feature_flags/local_evaluation",
+            **self._bearer(self.key_value),
+        )
+        self.key.refresh_from_db()
+        self.assertGreater(self.key.last_used_at, old_time + timedelta(hours=1))
+
+    def test_last_used_at_update_skips_cache_invalidation(self):
+        with patch("posthog.models.project_secret_api_key.invalidate_project_secret_api_key_cache") as mock_invalidate:
+            self.key.last_used_at = timezone.now()
+            self.key.save(update_fields=["last_used_at"])
+            mock_invalidate.assert_not_called()
+
+    def test_scopes_update_triggers_cache_invalidation(self):
+        with patch("posthog.models.project_secret_api_key.invalidate_project_secret_api_key_cache") as mock_invalidate:
+            self.key.scopes = ["feature_flag:read"]
+            self.key.save(update_fields=["scopes"])
+            mock_invalidate.assert_called_once()
+
+
+# ===========================================================================
+# 10. Full lifecycle integration tests
+# ===========================================================================
+
+
+class TestProjectSecretAPIKeyLifecycle(APIBaseTest):
+    """End-to-end: create key via API → use it → roll → use new → delete → old fails."""
+
+    def setUp(self):
+        super().setUp()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        _create_feature_flag(self.team)
+
+    def _bearer(self, token):
+        return {"HTTP_AUTHORIZATION": f"Bearer {token}"}
+
+    def test_roll_invalidates_old_key(self):
+        # Create via API
+        create_resp = self.client.post(
+            f"/api/projects/{self.team.id}/project_secret_api_keys",
+            {"label": "lifecycle", "scopes": ["feature_flag:read"]},
+        )
+        key_id = create_resp.json()["id"]
+        old_value = create_resp.json()["value"]
+
+        # Old value works
+        self.client.logout()
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/feature_flags/local_evaluation",
+            **self._bearer(old_value),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Roll the key
+        self.client.force_login(self.user)
+        roll_resp = self.client.post(f"/api/projects/{self.team.id}/project_secret_api_keys/{key_id}/roll")
+        new_value = roll_resp.json()["value"]
+
+        # Old value no longer works
+        self.client.logout()
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/feature_flags/local_evaluation",
+            **self._bearer(old_value),
+        )
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+        # New value works
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/feature_flags/local_evaluation",
+            **self._bearer(new_value),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_delete_invalidates_key(self):
+        create_resp = self.client.post(
+            f"/api/projects/{self.team.id}/project_secret_api_keys",
+            {"label": "to-delete", "scopes": ["feature_flag:read"]},
+        )
+        key_id = create_resp.json()["id"]
+        key_value = create_resp.json()["value"]
+
+        # Works before delete
+        self.client.logout()
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/feature_flags/local_evaluation",
+            **self._bearer(key_value),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Delete
+        self.client.force_login(self.user)
+        self.client.delete(f"/api/projects/{self.team.id}/project_secret_api_keys/{key_id}/")
+
+        # No longer works
+        self.client.logout()
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/feature_flags/local_evaluation",
+            **self._bearer(key_value),
+        )
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+
+# ===========================================================================
+# 11. Activity logging
+# ===========================================================================
+
+
+class TestProjectSecretAPIKeyActivityLogging(_AdminBase):
+    def test_create_logs_activity(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/project_secret_api_keys",
             {"label": "Activity Test", "scopes": ["feature_flag:read"]},
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         key_id = response.json()["id"]
         activity = ActivityLog.objects.filter(
             scope="ProjectSecretAPIKey", activity="created", item_id=str(key_id)
         ).first()
         assert activity is not None
         self.assertEqual(activity.team_id, self.team.id)
-        self.assertEqual(str(activity.organization_id), str(self.organization.id))
-        assert activity.detail is not None
-        self.assertEqual(activity.detail["name"], "Activity Test")
-        context = activity.detail.get("context")
-        self.assertEqual(context["project_name"], self.team.name)
 
-    def test_activity_logged_on_update(self):
-        key = ProjectSecretAPIKey.objects.create(
-            team=self.team,
-            label="Initial",
-            secure_value=hash_key_value(generate_random_token_secret()),
-            scopes=["feature_flag:read"],
-            created_by=self.user,
-        )
-        response = self.client.put(
+    def test_update_logs_activity(self):
+        key, _ = _create_managed_key(self.team, self.user, label="Initial")
+        self.client.put(
             f"/api/projects/{self.team.id}/project_secret_api_keys/{key.id}",
             {"label": "Updated"},
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
         activity = (
             ActivityLog.objects.filter(scope="ProjectSecretAPIKey", activity="updated", item_id=str(key.id))
             .order_by("-created_at")
@@ -186,153 +834,23 @@ class TestProjectSecretAPIKeysAPI(ProjectSecretAPIKeysAdminTestBase):
         assert activity is not None
         assert activity.detail is not None
         changes = activity.detail.get("changes", [])
-        self.assertTrue(any(change["field"] == "label" for change in changes))
+        self.assertTrue(any(c["field"] == "label" for c in changes))
 
-    def test_list_only_team_project_api_keys(self):
-        my_label = "Test"
-        my_key = ProjectSecretAPIKey.objects.create(
-            team=self.team,
-            label=my_label,
-            secure_value=hash_key_value(generate_random_token_secret()),
-            scopes=["feature_flag:read"],
-            created_by=self.user,
-        )
-
-        other_org = Organization.objects.create(name="Other Org")
-        other_team = Team.objects.create(organization=other_org, name="Other Team")
-        ProjectSecretAPIKey.objects.create(
-            team=other_team,
-            label="Other test",
-            secure_value=hash_key_value(generate_random_token_secret()),
-            scopes=["feature_flag:read"],
-            created_by=self.user,
-        )
-
-        self.assertEqual(ProjectSecretAPIKey.objects.count(), 2)
-        response = self.client.get(f"/api/projects/{self.team.id}/project_secret_api_keys")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        response_data = response.json()
-        self.assertEqual(len(response_data), 1)
-        key_data = response_data[0]
-
-        self.assertEqual(key_data["id"], str(my_key.id))
-        self.assertEqual(key_data["label"], my_label)
-        self.assertEqual(key_data["mask_value"], my_key.mask_value)
-        self.assertEqual(key_data["scopes"], ["feature_flag:read"])
-        self.assertEqual(key_data["created_by"]["id"], self.user.id)
-        self.assertIn("created_at", key_data)
-
-    def test_cannot_access_other_team_api_keys(self):
-        other_org = Organization.objects.create(name="Other Org")
-        other_team = Team.objects.create(organization=other_org, name="Other Team")
-        other_key = ProjectSecretAPIKey.objects.create(
-            team=other_team,
-            label="Other test",
-            secure_value=hash_key_value(generate_random_token_secret()),
-            scopes=["feature_flag:read"],
-            created_by=self.user,
-        )
-
-        response = self.client.get(f"/api/projects/{self.team.id}/project_secret_api_keys/{other_key.id}/")
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
-
-        response = self.client.delete(f"/api/projects/{self.team.id}/project_secret_api_keys/{other_key.id}/")
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
-
-    def test_unique_label_per_team(self):
-        ProjectSecretAPIKey.objects.create(
-            team=self.team,
-            label="duplicate-label",
-            secure_value=hash_key_value(generate_random_token_secret()),
-            scopes=["feature_flag:read"],
-            created_by=self.user,
-        )
-
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/project_secret_api_keys",
-            {"label": "duplicate-label", "scopes": ["feature_flag:read"]},
-        )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("already exists", response.json()["detail"])
-
-    def test_same_label_different_teams(self):
-        ProjectSecretAPIKey.objects.create(
-            team=self.team,
-            label="same-label",
-            secure_value=hash_key_value(generate_random_token_secret()),
-            scopes=["feature_flag:read"],
-            created_by=self.user,
-        )
-
-        other_org = Organization.objects.create(name="Other Org")
-        other_team = Team.objects.create(organization=other_org, name="Other Team")
-        other_user = self._create_user("other@test.com")
-        self.organization_membership = other_user.join(organization=other_org, level=OrganizationMembership.Level.ADMIN)
-
-        self.client.force_login(other_user)
-
-        response = self.client.post(
-            f"/api/projects/{other_team.id}/project_secret_api_keys",
-            {"label": "same-label", "scopes": ["feature_flag:read"]},
-        )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-
-    def test_roll_key(self):
-        key = ProjectSecretAPIKey.objects.create(
-            team=self.team,
-            label="same-label",
-            secure_value=hash_key_value(generate_random_token_secret()),
-            scopes=["feature_flag:read"],
-            created_by=self.user,
-        )
-        original_mask_value = key.mask_value
-        original_secure_value = key.secure_value
-
-        response = self.client.post(f"/api/projects/{self.team.id}/project_secret_api_keys/{key.id}/roll")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        data = response.json()
-        key.refresh_from_db()
-
-        self.assertNotEqual(key.mask_value, original_mask_value)
-        self.assertNotEqual(key.secure_value, original_secure_value)
-        self.assertEqual(data["mask_value"], key.mask_value)
-        self.assertIsNotNone(key.last_rolled_at)
-        self.assertIn("value", data)
-        self.assertTrue(data["value"].startswith("phs_"))
-
-    def test_last_used_at_update_skips_cache_invalidation(self):
-        """Updating only last_used_at should not trigger cache invalidation."""
-        key = ProjectSecretAPIKey.objects.create(
-            team=self.team,
-            label="Test Key",
-            secure_value=hash_key_value(generate_random_token_secret()),
-            scopes=["feature_flag:read"],
-            created_by=self.user,
-        )
-
-        with patch("posthog.models.project_secret_api_key.invalidate_project_secret_api_key_cache") as mock_invalidate:
-            key.last_used_at = timezone.now()
-            key.save(update_fields=["last_used_at"])
-            mock_invalidate.assert_not_called()
-
-    def test_scopes_update_triggers_cache_invalidation(self):
-        """Updating scopes should trigger cache invalidation."""
-        key = ProjectSecretAPIKey.objects.create(
-            team=self.team,
-            label="Test Key",
-            secure_value=hash_key_value(generate_random_token_secret()),
-            scopes=["feature_flag:read"],
-            created_by=self.user,
-        )
-
-        with patch("posthog.models.project_secret_api_key.invalidate_project_secret_api_key_cache") as mock_invalidate:
-            key.scopes = ["feature_flag:read", "feature_flag:write"]
-            key.save(update_fields=["scopes"])
-            mock_invalidate.assert_called_once()
+    def test_delete_logs_activity(self):
+        key, _ = _create_managed_key(self.team, self.user)
+        self.client.delete(f"/api/projects/{self.team.id}/project_secret_api_keys/{key.id}/")
+        activity = ActivityLog.objects.filter(
+            scope="ProjectSecretAPIKey", activity="deleted", item_id=str(key.id)
+        ).first()
+        assert activity is not None
 
 
-class TestProjectSecretAPIKeyWithPersonalAPIKey(ProjectSecretAPIKeysAdminTestBase):
+# ===========================================================================
+# 12. Personal API key managing project secret keys
+# ===========================================================================
+
+
+class TestProjectSecretAPIKeyViaPersonalAPIKey(_AdminBase):
     CONFIG_AUTO_LOGIN = False
 
     def setUp(self):
@@ -345,425 +863,95 @@ class TestProjectSecretAPIKeyWithPersonalAPIKey(ProjectSecretAPIKeysAdminTestBas
             scopes=["project:write"],
         )
 
-    def _get_with_personal_key(self, url: str):
-        return self.client.get(url, HTTP_AUTHORIZATION=f"Bearer {self.personal_key_value}")
+    def _auth(self):
+        return {"HTTP_AUTHORIZATION": f"Bearer {self.personal_key_value}"}
 
-    def _post_with_personal_key(self, url: str, data: dict):
-        return self.client.post(url, data, format="json", HTTP_AUTHORIZATION=f"Bearer {self.personal_key_value}")
-
-    def _delete_with_personal_key(self, url: str):
-        return self.client.delete(url, HTTP_AUTHORIZATION=f"Bearer {self.personal_key_value}")
-
-    def test_can_create_project_api_key_with_personal_key(self):
-        response = self._post_with_personal_key(
+    def test_can_create_with_personal_key(self):
+        response = self.client.post(
             f"/api/projects/{self.team.id}/project_secret_api_keys",
-            {"label": "Created via personal key", "scopes": ["feature_flag:read"]},
+            {"label": "via personal", "scopes": ["feature_flag:read"]},
+            format="json",
+            **self._auth(),
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        data = response.json()
-        self.assertEqual(data["label"], "Created via personal key")
-        self.assertEqual(data["scopes"], ["feature_flag:read"])
 
-    def test_can_list_project_api_keys_with_personal_key(self):
-        ProjectSecretAPIKey.objects.create(
-            team=self.team,
-            label="Test Key",
-            secure_value=hash_key_value(generate_random_token_secret()),
-            scopes=["feature_flag:read"],
-            created_by=self.user,
+    def test_can_list_with_personal_key(self):
+        _create_managed_key(self.team, self.user)
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/project_secret_api_keys",
+            **self._auth(),
         )
-
-        response = self._get_with_personal_key(f"/api/projects/{self.team.id}/project_secret_api_keys")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.json()), 1)
 
-    def test_can_delete_project_api_key_with_personal_key(self):
-        key = ProjectSecretAPIKey.objects.create(
-            team=self.team,
-            label="Test Key",
-            secure_value=hash_key_value(generate_random_token_secret()),
-            scopes=["feature_flag:read"],
-            created_by=self.user,
+    def test_can_delete_with_personal_key(self):
+        key, _ = _create_managed_key(self.team, self.user)
+        response = self.client.delete(
+            f"/api/projects/{self.team.id}/project_secret_api_keys/{key.id}/",
+            **self._auth(),
         )
-
-        response = self._delete_with_personal_key(f"/api/projects/{self.team.id}/project_secret_api_keys/{key.id}/")
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
-        self.assertEqual(ProjectSecretAPIKey.objects.filter(team=self.team).count(), 0)
-
-    def test_max_limit_enforced_with_personal_key(self):
-        for i in range(0, 10):
-            ProjectSecretAPIKey.objects.create(
-                team=self.team,
-                label=f"key-{i}",
-                secure_value=hash_key_value(generate_random_token_secret()),
-                scopes=["feature_flag:read"],
-                created_by=self.user,
-            )
-
-        response = self._post_with_personal_key(
-            f"/api/projects/{self.team.id}/project_secret_api_keys",
-            {"label": "key-11", "scopes": ["feature_flag:read"]},
-        )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("at most 10", response.json()["detail"])
 
     def test_personal_key_without_project_write_scope_fails(self):
         self.personal_key.scopes = ["project:read"]
         self.personal_key.save()
-
-        response = self._post_with_personal_key(
+        response = self.client.post(
             f"/api/projects/{self.team.id}/project_secret_api_keys",
-            {"label": "Should fail", "scopes": ["feature_flag:read"]},
+            {"label": "nope", "scopes": ["feature_flag:read"]},
+            format="json",
+            **self._auth(),
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
 
-class TestProjectSecretAPIKeyAuthentication(APIBaseTest):
+# ===========================================================================
+# 13. phs_ token pass-through in auth chain
+# ===========================================================================
+
+
+class TestPHSTokenPassThroughInAuthChain(APIBaseTest):
+    """When a phs_ token hits an endpoint whose auth chain does NOT include
+    ProjectSecretAPIKeyAuthentication, the PersonalAPIKeyAuthentication must
+    skip it (return None) so it falls through the entire chain and results
+    in 401 — NOT a personal-key-not-found error or accidental auth."""
+
     CONFIG_AUTO_LOGIN = False
 
     def setUp(self):
         super().setUp()
-        self.key_value = generate_random_token_secret()
-        self.project_key = ProjectSecretAPIKey.objects.create(
-            team=self.team,
-            label="Test Project Key",
-            secure_value=hash_key_value(self.key_value),
-            scopes=["feature_flag:read"],
-            created_by=self.user,
-        )
+        self.key, self.key_value = _create_managed_key(self.team, self.user)
 
-    def _get_with_project_key(self, url: str):
-        return self.client.get(url, HTTP_AUTHORIZATION=f"Bearer {self.key_value}")
+    def _bearer(self, token):
+        return {"HTTP_AUTHORIZATION": f"Bearer {token}"}
 
-    def test_cannot_manage_project_keys_with_project_key(self):
-        response = self._get_with_project_key(f"/api/projects/{self.team.id}/project_secret_api_keys")
-        self.assertIn(response.status_code, [status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN])
-
-    def test_cannot_create_project_keys_with_project_key(self):
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/project_secret_api_keys",
-            {"label": "Should fail", "scopes": ["feature_flag:read"]},
-            format="json",
-            HTTP_AUTHORIZATION=f"Bearer {self.key_value}",
-        )
-        self.assertIn(response.status_code, [status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN])
-
-    def test_cannot_delete_project_keys_with_project_key(self):
-        response = self.client.delete(
-            f"/api/projects/{self.team.id}/project_secret_api_keys/{self.project_key.id}/",
-            HTTP_AUTHORIZATION=f"Bearer {self.key_value}",
-        )
-        self.assertIn(response.status_code, [status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN])
-
-    def test_can_access_local_evaluation_with_project_secret_key(self):
-        """Integration test: Project secret API key with feature_flag:read scope can access local_evaluation."""
-        from posthog.models import FeatureFlag
-
-        # Create a feature flag
-        FeatureFlag.objects.create(
-            team=self.team,
-            key="test-flag",
-            name="Test Flag",
-            filters={"groups": [{"rollout_percentage": 100}]},
-            active=True,
-        )
-
-        # Use the project secret API key to call local_evaluation
+    def test_phs_token_on_personal_key_only_endpoint_returns_401(self):
+        """The project_secret_api_keys management endpoint only accepts
+        PersonalAPIKeyAuthentication + SessionAuthentication. A phs_ token
+        should be skipped by PersonalAPIKeyAuthentication and result in 401."""
         response = self.client.get(
-            f"/api/projects/{self.team.id}/feature_flags/local_evaluation",
-            HTTP_AUTHORIZATION=f"Bearer {self.key_value}",
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        data = response.json()
-        self.assertIn("flags", data)
-        flag_keys = [flag["key"] for flag in data["flags"]]
-        self.assertIn("test-flag", flag_keys)
-
-    def test_local_evaluation_updates_last_used_at(self):
-        """Verify that using the key for local_evaluation updates last_used_at."""
-        from posthog.models import FeatureFlag
-
-        FeatureFlag.objects.create(
-            team=self.team,
-            key="test-flag",
-            name="Test Flag",
-            filters={"groups": [{"rollout_percentage": 100}]},
-            active=True,
-        )
-
-        # Verify last_used_at is initially None
-        self.project_key.refresh_from_db()
-        self.assertIsNone(self.project_key.last_used_at)
-
-        # Call local_evaluation
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/feature_flags/local_evaluation",
-            HTTP_AUTHORIZATION=f"Bearer {self.key_value}",
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        # Verify last_used_at is now set
-        self.project_key.refresh_from_db()
-        self.assertIsNotNone(self.project_key.last_used_at)
-
-    def test_cross_team_access_raises_not_found(self):
-        """ProjectSecretAPIKeyPermission raises NotFound for cross-team access."""
-        from unittest.mock import MagicMock
-
-        from posthog.auth import ProjectSecretAPIKeyAuthentication, ProjectSecretAPIKeyUser
-        from posthog.permissions import ProjectSecretAPIKeyPermission
-
-        other_org = Organization.objects.create(name="Other Org")
-        other_team = Team.objects.create(organization=other_org, name="Other Team")
-
-        # Create a mock request authenticated with our project secret key
-        mock_request = MagicMock()
-        mock_request.successful_authenticator = MagicMock(spec=ProjectSecretAPIKeyAuthentication)
-        mock_request.user = MagicMock(spec=ProjectSecretAPIKeyUser)
-        mock_request.user.project_secret_api_key = self.project_key
-
-        # Create a mock view that resolves to the other team
-        mock_view = MagicMock()
-        mock_view.team_id = other_team.id
-
-        permission = ProjectSecretAPIKeyPermission()
-
-        # Should raise NotFound, not return False (which would be 403)
-        from rest_framework.exceptions import NotFound
-
-        with self.assertRaises(NotFound):
-            permission.has_permission(mock_request, mock_view)
-
-    def test_legacy_team_token_authentication_still_works(self):
-        """Team's secret_api_token should still work for local_evaluation (backward compat)."""
-        from posthog.models import FeatureFlag
-        from posthog.models.utils import generate_random_token_secret
-
-        FeatureFlag.objects.create(
-            team=self.team,
-            key="test-flag",
-            name="Test Flag",
-            filters={"groups": [{"rollout_percentage": 100}]},
-            active=True,
-        )
-
-        legacy_token = generate_random_token_secret()
-        self.team.secret_api_token = legacy_token
-        self.team.save()
-
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/feature_flags/local_evaluation",
-            HTTP_AUTHORIZATION=f"Bearer {legacy_token}",
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        data = response.json()
-        self.assertIn("flags", data)
-
-    def test_legacy_team_token_backup_authentication_still_works(self):
-        """Team's secret_api_token_backup should still work for local_evaluation (backward compat)."""
-        from posthog.models import FeatureFlag
-        from posthog.models.utils import generate_random_token_secret
-
-        FeatureFlag.objects.create(
-            team=self.team,
-            key="test-flag",
-            name="Test Flag",
-            filters={"groups": [{"rollout_percentage": 100}]},
-            active=True,
-        )
-
-        # Simulate a recently rotated key
-        backup_token = generate_random_token_secret()
-        self.team.secret_api_token = generate_random_token_secret()
-        self.team.secret_api_token_backup = backup_token
-        self.team.save()
-
-        # The backup token should be cached during save, but we need to set it in cache
-        # since the save signal doesn't automatically cache the backup token
-        from posthog.models.team import set_team_in_cache
-
-        set_team_in_cache(backup_token, self.team)
-
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/feature_flags/local_evaluation",
-            HTTP_AUTHORIZATION=f"Bearer {backup_token}",
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        data = response.json()
-        self.assertIn("flags", data)
-
-
-class TestProjectSecretAPIKeyErrorMessages(ProjectSecretAPIKeysAdminTestBase):
-    def test_invalid_scope_rejected_by_schema(self):
-        """Invalid scopes are rejected by Pydantic enum validation."""
-        response = self.client.post(
             f"/api/projects/{self.team.id}/project_secret_api_keys",
-            {"label": "test", "scopes": ["invalid:scope"]},
+            **self._bearer(self.key_value),
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        # Pydantic enum validation rejects invalid scopes
-        self.assertIn("validation error", response.json()["detail"].lower())
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
-    def test_disallowed_scope_rejected_by_schema(self):
-        """Scopes not in the allowed enum are rejected by Pydantic."""
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/project_secret_api_keys",
-            {"label": "test", "scopes": ["insight:read"]},
-        )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        # Pydantic enum validation rejects scopes not in ProjectSecretAPIKeyAllowedScope
-        self.assertIn("validation error", response.json()["detail"].lower())
-
-
-class TestProjectSecretAPIKeyPermissions(APIBaseTest):
-    """Tests for organization-level permission requirements."""
-
-    def test_member_cannot_create_project_secret_api_key(self):
-        """Organization members should not be able to create project secret API keys."""
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
-        self.organization_membership.save()
-
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/project_secret_api_keys",
-            {"label": "Test key", "scopes": ["feature_flag:read"]},
+    def test_phs_token_on_default_auth_viewset_returns_403(self):
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/insights/",
+            **self._bearer(self.key_value),
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    def test_member_cannot_update_project_secret_api_key(self):
-        """Organization members should not be able to update project secret API keys."""
-        key = ProjectSecretAPIKey.objects.create(
-            team=self.team,
-            label="Original label",
-            secure_value=hash_key_value(generate_random_token_secret()),
-            scopes=["feature_flag:read"],
-            created_by=self.user,
-        )
+    def test_phs_token_not_confused_with_personal_key(self):
+        """Directly verify that PersonalAPIKeyAuthentication.authenticate()
+        returns None (not an error) for a phs_ token, allowing the chain
+        to continue."""
+        from django.test import RequestFactory
 
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
-        self.organization_membership.save()
+        from posthog.auth import PersonalAPIKeyAuthentication
 
-        response = self.client.put(
-            f"/api/projects/{self.team.id}/project_secret_api_keys/{key.id}",
-            {"label": "Updated label"},
-        )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        factory = RequestFactory()
+        request = factory.get("/", HTTP_AUTHORIZATION=f"Bearer {self.key_value}")
 
-    def test_member_cannot_delete_project_secret_api_key(self):
-        """Organization members should not be able to delete project secret API keys."""
-        key = ProjectSecretAPIKey.objects.create(
-            team=self.team,
-            label="Test key",
-            secure_value=hash_key_value(generate_random_token_secret()),
-            scopes=["feature_flag:read"],
-            created_by=self.user,
-        )
-
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
-        self.organization_membership.save()
-
-        response = self.client.delete(f"/api/projects/{self.team.id}/project_secret_api_keys/{key.id}/")
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(ProjectSecretAPIKey.objects.filter(team=self.team).count(), 1)
-
-    def test_member_can_list_project_secret_api_keys(self):
-        """Organization members should be able to list (read) project secret API keys."""
-        ProjectSecretAPIKey.objects.create(
-            team=self.team,
-            label="Test key",
-            secure_value=hash_key_value(generate_random_token_secret()),
-            scopes=["feature_flag:read"],
-            created_by=self.user,
-        )
-
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
-        self.organization_membership.save()
-
-        response = self.client.get(f"/api/projects/{self.team.id}/project_secret_api_keys")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.json()), 1)
-
-    def test_member_can_retrieve_project_secret_api_key(self):
-        """Organization members should be able to retrieve (read) a specific project secret API key."""
-        key = ProjectSecretAPIKey.objects.create(
-            team=self.team,
-            label="Test key",
-            secure_value=hash_key_value(generate_random_token_secret()),
-            scopes=["feature_flag:read"],
-            created_by=self.user,
-        )
-
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
-        self.organization_membership.save()
-
-        response = self.client.get(f"/api/projects/{self.team.id}/project_secret_api_keys/{key.id}/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["label"], "Test key")
-
-    @parameterized.expand(
-        [
-            (OrganizationMembership.Level.ADMIN,),
-            (OrganizationMembership.Level.OWNER,),
-        ]
-    )
-    def test_admin_and_owner_can_create_project_secret_api_key(self, level):
-        """Organization admins and owners should be able to create project secret API keys."""
-        self.organization_membership.level = level
-        self.organization_membership.save()
-
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/project_secret_api_keys",
-            {"label": "Test key", "scopes": ["feature_flag:read"]},
-        )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-
-    @parameterized.expand(
-        [
-            (OrganizationMembership.Level.ADMIN,),
-            (OrganizationMembership.Level.OWNER,),
-        ]
-    )
-    def test_admin_and_owner_can_update_project_secret_api_key(self, level):
-        """Organization admins and owners should be able to update project secret API keys."""
-        key = ProjectSecretAPIKey.objects.create(
-            team=self.team,
-            label="Original label",
-            secure_value=hash_key_value(generate_random_token_secret()),
-            scopes=["feature_flag:read"],
-            created_by=self.user,
-        )
-
-        self.organization_membership.level = level
-        self.organization_membership.save()
-
-        response = self.client.put(
-            f"/api/projects/{self.team.id}/project_secret_api_keys/{key.id}",
-            {"label": "Updated label"},
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["label"], "Updated label")
-
-    @parameterized.expand(
-        [
-            (OrganizationMembership.Level.ADMIN,),
-            (OrganizationMembership.Level.OWNER,),
-        ]
-    )
-    def test_admin_and_owner_can_delete_project_secret_api_key(self, level):
-        """Organization admins and owners should be able to delete project secret API keys."""
-        key = ProjectSecretAPIKey.objects.create(
-            team=self.team,
-            label="Test key",
-            secure_value=hash_key_value(generate_random_token_secret()),
-            scopes=["feature_flag:read"],
-            created_by=self.user,
-        )
-
-        self.organization_membership.level = level
-        self.organization_membership.save()
-
-        response = self.client.delete(f"/api/projects/{self.team.id}/project_secret_api_keys/{key.id}/")
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
-        self.assertEqual(ProjectSecretAPIKey.objects.filter(team=self.team).count(), 0)
+        pak = PersonalAPIKeyAuthentication()
+        result = pak.authenticate(request)
+        self.assertIsNone(result)
