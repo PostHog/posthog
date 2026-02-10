@@ -2,6 +2,8 @@
 
 Lazy preaggregation speeds up queries by saving and reusing intermediate aggregated results. Instead of scanning the raw events table on every query, we compute aggregated data once and reuse it for subsequent queries with the same shape.
 
+This is intended to be used for our most important queries by our biggest customers. It runs against our ClickHouse and Postgres databases — some of the largest in the world — and the design takes that into account.
+
 ## How it works
 
 There are two ways that this can work:
@@ -93,7 +95,41 @@ query = parse_select(
         "time_end": ast.Constant(value=datetime(2025, 12, 25)),
     },
 )
+# note that this is using HogQL, which automatically adds a team_id condition
 ```
+
+## Concurrency and race conditions
+
+The executor handles concurrent queries that need the same preaggregated data.
+
+### Waiting for pending jobs
+
+When query B requests data that query A is already computing, query B waits for A to finish rather than creating duplicate work. The executor polls the job status until it becomes READY or FAILED (configurable timeout, default 3 minutes).
+
+### One INSERT per job ID
+
+Each job ID is used for exactly one INSERT statement. This is critical because if a job fails partway through, we can't know what data was or wasn't inserted. Retrying with the same job ID could result in duplicate or inconsistent data.
+
+### Race condition: multiple waiters, job fails
+
+When a job fails, multiple waiters may all try to create a replacement job simultaneously. We use a partial unique index on `(team_id, query_hash, time_range_start, time_range_end) WHERE status = 'pending'` to ensure only one PENDING job can exist per range. The database atomically enforces this:
+
+1. Job A fails
+2. Waiters B and C both try to create a replacement
+3. One succeeds (gets the new job), the other gets an IntegrityError
+4. The loser finds the winner's job and waits for it
+
+### Replacement jobs use the same range
+
+When creating a replacement for a failed job, we use the exact same time range as the failed job (not the original query's range). This ensures all waiters coordinate on the same replacement, even if they originally requested overlapping but different ranges.
+
+### Attempt tracking
+
+Each waiter tracks their own attempt count locally. After a configurable number of failures (default 2), the waiter stops retrying and reports the job as permanently failed. This means new queries get fresh attempt budgets, so newer queries may succeed where older ones gave up.
+
+### Stale pending jobs
+
+If an executor crashes while a job is PENDING, other waiters detect this via the `updated_at` timestamp. When a PENDING job hasn't been updated for longer than the stale threshold (default 10 minutes, DEFAULT_STALE_PENDING_THRESHOLD_SECONDS), waiters mark it as FAILED and trigger the normal replacement flow. This means that we can recover from crashes of the process we were waiting for.
 
 ## Limitations
 
@@ -101,3 +137,13 @@ query = parse_select(
 - Person merges and late-arriving events can cause stale data
 - Running the executor and then reading back the results takes about 30% longer than just reading results
 - Storing intermediate results takes space, we can't just YOLO this
+
+## TODOs
+
+- If we are waiting for another executor to insert a job that we need, right now we poll pg with an exp backoff. We should use a better mechanism like redis pubsub or pgnotify
+- While we are waiting, we block an entire django thread despite not doing any useful work. We should make it easier for people to use e.g. celery with this, this would involve using async queries though.
+- The TTL of an inserted job should be conditional on how recent the data is. Data from the same day might want a very short (e.g. 15 mins!) TTL, or to be skipped entirely and UNION'ed with real data, which we could make a bit easier.
+- Our stale job detection just waits for the default timeout of a clickhouse query. Instead the executor could send a heartbeat, triggered by the `progress` arg, and we could mark a job as stale if it misses N heartbeats
+- If we're generating a lot of updates (e.g. heartbeat timestamps) we might want to move that off of the main pg, either to a redis or other pg instance.
+- The stale enum value isn't used for anything, we just mark stale jobs as errored
+- Add posthog logging for state transitions

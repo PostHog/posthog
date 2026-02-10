@@ -12,7 +12,7 @@
         "@babel/runtime": "^7.24.0",
         "@posthog/frontend": "workspace:*",
         "@storybook/addon-a11y": "^7.6.4",
-        "@storybook/addon-actions": "^7.6.4",
+        "@storybook/addon-actions": "catalog:",
         "@storybook/addon-docs": "^7.6.4",
         "@storybook/addon-essentials": "^7.6.4",
         "@storybook/addon-links": "^7.6.4",
@@ -23,11 +23,11 @@
         "@storybook/components": "^7.6.4",
         "@storybook/core-events": "^7.6.4",
         "@storybook/csf": "^0.1.2",
-        "@storybook/react": "^7.6.4",
+        "@storybook/react": "catalog:",
         "@storybook/react-webpack5": "^7.6.4",
         "@storybook/test-runner": "^0.16.0",
         "@storybook/theming": "^7.6.4",
-        "@storybook/types": "^7.6.4",
+        "@storybook/types": "catalog:",
         "babel-loader": "^8.0.6",
         "babel-preset-nano-react-app": "^0.1.0",
         "buffer": "^6.0.3",
@@ -57,6 +57,6 @@
         "test:visual:update:docker": "pnpm build:products && NODE_OPTIONS=--max-old-space-size=16384 test-storybook -u --browsers chromium webkit --no-index-json"
     },
     "devDependencies": {
-        "@storybook/testing-library": "^0.2.2"
+        "@storybook/testing-library": "catalog:"
     }
 }

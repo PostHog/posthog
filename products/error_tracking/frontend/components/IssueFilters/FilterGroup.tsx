@@ -91,6 +91,7 @@ const UniversalSearch = (): JSX.Element => {
                     onClose={() => onClose()}
                     onChange={onChange}
                     size="small"
+                    autoFocus={false}
                     fullWidth
                     docLink="https://posthog.com/docs/error-tracking/filter-and-search-issues"
                 />

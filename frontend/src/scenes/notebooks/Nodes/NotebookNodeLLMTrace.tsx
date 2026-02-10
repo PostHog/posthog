@@ -19,6 +19,7 @@ import { EventPropertyFilters } from '~/queries/nodes/EventsNode/EventPropertyFi
 import { TracesQuery } from '~/queries/schema/schema-general'
 import { isTracesQuery } from '~/queries/utils'
 
+import { CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS } from 'products/customer_analytics/frontend/constants'
 import { customerProfileLogic } from 'products/customer_analytics/frontend/customerProfileLogic'
 import { LLMAnalyticsSetupPrompt } from 'products/llm_analytics/frontend/LLMAnalyticsSetupPrompt'
 import { useTracesQueryContext } from 'products/llm_analytics/frontend/LLMAnalyticsTracesScene'
@@ -70,6 +71,10 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeLLMTraceAttribu
                     attachTo={notebookLogic}
                     query={{
                         ...tracesQuery,
+                        source: {
+                            ...tracesQuery.source,
+                            tags: CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS,
+                        },
                         embedded: true,
                         showTestAccountFilters: false,
                         showReload: false,
