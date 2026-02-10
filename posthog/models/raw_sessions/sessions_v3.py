@@ -389,7 +389,7 @@ AND {where}
         source_table=source_table,
         where=where,
         PROPERTIES=PROPERTIES,
-        session_timestamp="fromUnixTimestamp64Milli(toUInt64(bitShiftRight(session_id_v7, 80))),"
+        session_timestamp="fromUnixTimestamp64Milli(toUInt64(bitShiftRight(`$session_id_uuid`, 80))) AS session_timestamp,"
         if include_session_timestamp
         else "",
     )
