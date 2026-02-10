@@ -1,4 +1,3 @@
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
@@ -95,6 +94,7 @@ export const EndpointsTable = ({ tabId }: EndpointsTableProps): JSX.Element => {
                 return (
                     <LemonTableLink
                         to={urls.endpoint(record.name)}
+                        className="rounded p-1 -m-1 hover:bg-accent-highlight-secondary"
                         title={
                             <>
                                 {record.name}
@@ -225,9 +225,7 @@ export const EndpointsTable = ({ tabId }: EndpointsTableProps): JSX.Element => {
                 pagination={{ pageSize: 20 }}
                 dataSource={endpoints as EndpointType[]}
                 rowKey="id"
-                rowClassName={(record) =>
-                    clsx('hover:bg-accent-highlight-secondary', record._highlight && 'highlighted')
-                }
+                rowClassName={(record) => (record._highlight ? 'highlighted' : null)}
                 columns={columns}
                 loading={allEndpointsLoading}
                 defaultSorting={{
