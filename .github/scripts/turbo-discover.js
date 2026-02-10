@@ -14,6 +14,12 @@ const fs = require('fs')
 
 const SMALL_THRESHOLD_SECONDS = 2 * 60
 const TARGET_SHARD_SECONDS = 10 * 60
+// Per-product overhead not captured by .test_durations: turbo dispatch, pytest
+// collection, Django init. First product pays ~45s, subsequent ~15s; use 20s
+// as a conservative average. Durations also underpredict by ~2x because
+// pytest-split data was collected under Django Core's shared session.
+const SETUP_OVERHEAD_SECONDS = 20
+const DURATION_SAFETY_FACTOR = 2
 // Tests under these paths need special infrastructure (Temporal server, etc.)
 // and are handled by Django CI's dedicated segments — exclude from duration estimates
 const EXCLUDED_PATH_SEGMENTS = ['/temporal/']
@@ -80,14 +86,14 @@ function packSmallProducts(products, durations) {
     let currentDuration = 0
 
     for (const product of products) {
-        const duration = getProductDuration(product, durations)
-        if (current.length > 0 && currentDuration + duration > TARGET_SHARD_SECONDS) {
+        const effective = getProductDuration(product, durations) * DURATION_SAFETY_FACTOR + SETUP_OVERHEAD_SECONDS
+        if (current.length > 0 && currentDuration + effective > TARGET_SHARD_SECONDS) {
             buckets.push(current)
             current = []
             currentDuration = 0
         }
         current.push(product)
-        currentDuration += duration
+        currentDuration += effective
     }
     if (current.length > 0) {
         buckets.push(current)
@@ -138,4 +144,3 @@ console.error(`Products to test: ${JSON.stringify(products)}`)
 
 const durations = loadTestDurations()
 const matrix = buildMatrix(products, durations)
-console.log(JSON.stringify(matrix))
