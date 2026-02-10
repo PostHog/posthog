@@ -1111,6 +1111,7 @@ describe('ClickHousePersonRepository', () => {
                 is_identified: false,
                 created_at: TIMESTAMP,
                 version: 0,
+                last_seen_at: null,
             }
             await expect(repository.updatePerson(person, {} as any)).rejects.toThrow(
                 'Write operations not supported in ClickHousePersonRepository'
@@ -1129,6 +1130,7 @@ describe('ClickHousePersonRepository', () => {
                 is_identified: false,
                 created_at: TIMESTAMP,
                 version: 0,
+                last_seen_at: null,
             }
             await expect(repository.deletePerson(person)).rejects.toThrow(
                 'Write operations not supported in ClickHousePersonRepository'
@@ -1147,6 +1149,7 @@ describe('ClickHousePersonRepository', () => {
                 is_identified: false,
                 created_at: TIMESTAMP,
                 version: 0,
+                last_seen_at: null,
             }
             await expect(repository.addDistinctId(person, 'new-distinct-id', 0)).rejects.toThrow(
                 'Write operations not supported in ClickHousePersonRepository'
