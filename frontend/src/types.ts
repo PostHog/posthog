@@ -2631,6 +2631,7 @@ export enum FunnelVizType {
     Steps = 'steps',
     TimeToConvert = 'time_to_convert',
     Trends = 'trends',
+    Flow = 'flow',
 }
 
 export type RetentionType =
