@@ -1372,7 +1372,6 @@ describe('PostgresPersonRepository', () => {
                 properties_to_unset: [],
                 original_is_identified: false,
                 original_created_at: DateTime.fromISO('2020-01-01T00:00:00.000Z'),
-                last_seen_at: null,
                 original_last_seen_at: null,
             }
 
@@ -1411,7 +1410,6 @@ describe('PostgresPersonRepository', () => {
                 properties_to_unset: [],
                 original_is_identified: false,
                 original_created_at: DateTime.fromISO('2020-01-01T00:00:00.000Z'),
-                last_seen_at: null,
                 original_last_seen_at: null,
             }
 
@@ -1449,7 +1447,6 @@ describe('PostgresPersonRepository', () => {
                 properties_to_unset: [],
                 original_is_identified: false,
                 original_created_at: DateTime.fromISO('2020-01-01T00:00:00.000Z'),
-                last_seen_at: null,
                 original_last_seen_at: null,
             }
 
@@ -1482,7 +1479,6 @@ describe('PostgresPersonRepository', () => {
                 properties_to_unset: [],
                 original_is_identified: false,
                 original_created_at: DateTime.fromISO('2020-01-01T00:00:00.000Z'),
-                last_seen_at: null,
                 original_last_seen_at: null,
             }
 
@@ -1524,7 +1520,6 @@ describe('PostgresPersonRepository', () => {
                 properties_to_unset: ['remove_me'],
                 original_is_identified: false,
                 original_created_at: DateTime.fromISO('2020-01-01T00:00:00.000Z'),
-                last_seen_at: null,
                 original_last_seen_at: null,
             }
 
@@ -1564,7 +1559,6 @@ describe('PostgresPersonRepository', () => {
                 properties_to_unset: ['remove'],
                 original_is_identified: false,
                 original_created_at: DateTime.fromISO('2020-01-01T00:00:00.000Z'),
-                last_seen_at: null,
                 original_last_seen_at: null,
             }
 
@@ -2190,7 +2184,6 @@ describe('PostgresPersonRepository', () => {
                     properties_to_unset: [],
                     original_is_identified: false,
                     original_created_at: DateTime.fromISO('2020-01-01T00:00:00.000Z'),
-                    last_seen_at: null,
                     original_last_seen_at: null,
                 }
 
@@ -2447,7 +2440,6 @@ describe('PostgresPersonRepository', () => {
                 properties_to_unset: [],
                 original_is_identified: false,
                 original_created_at: DateTime.fromISO('2020-01-01T00:00:00.000Z'),
-                last_seen_at: null,
                 original_last_seen_at: null,
             })
 
