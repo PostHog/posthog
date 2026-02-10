@@ -110,6 +110,47 @@ function getBillingAdminLink(currentOrganization: OrganizationBasicType | null):
     return `\nBilling admin: http://go/billing/${currentOrganization.id}`
 }
 
+interface AIConversationData {
+    link: string
+    tag: string
+}
+
+const AI_CONVERSATION_CACHE_MAX_AGE_MS = 30 * 60 * 1000 // 30 minutes
+
+function getAIConversationData(): AIConversationData | null {
+    // Lazy requires to avoid pulling the entire Max AI module graph into every bundle that imports supportLogic
+    const { maxThreadLogic } = require('scenes/max/maxThreadLogic')
+    const { maxGlobalLogic } = require('scenes/max/maxGlobalLogic')
+    const { wasTicketAISuggested } = require('scenes/max/ticketUtils')
+
+    // Try the mounted thread logic first (most accurate, available when ticket is created from within AI chat)
+    const mountedThreadLogic = maxThreadLogic.findMounted()
+    if (mountedThreadLogic) {
+        const { conversationId, threadGrouped } = mountedThreadLogic.values
+        if (conversationId && threadGrouped.length > 0) {
+            const tag = wasTicketAISuggested(threadGrouped)
+                ? 'ai_suggested_support_ticket'
+                : 'raised_from_posthog_ai_chat'
+            return {
+                link: `\nAI conversation: https://us.posthog.com/project/2/ai?chat=${conversationId}`,
+                tag,
+            }
+        }
+    }
+
+    // Fall back to the global cache (survives tab switches, e.g. AI tab → Support tab)
+    const cached = maxGlobalLogic.findMounted()?.values.lastActiveAIConversation
+    if (cached?.conversationId && Date.now() - cached.timestamp < AI_CONVERSATION_CACHE_MAX_AGE_MS) {
+        const tag = cached.aiSuggested ? 'ai_suggested_support_ticket' : 'raised_from_posthog_ai_chat'
+        return {
+            link: `\nAI conversation: https://us.posthog.com/project/2/ai?chat=${cached.conversationId}`,
+            tag,
+        }
+    }
+
+    return null
+}
+
 const SUPPORT_TICKET_KIND_TO_TITLE: Record<SupportTicketKind, string> = {
     support: 'Contact support',
     feedback: 'Give feedback',
@@ -650,11 +691,13 @@ export const supportLogic = kea<supportLogicType>([
             const ownerName = accountOwner?.name?.toLowerCase().replace(/[^a-z0-9]/g, '_') || 'unassigned'
             const accountOwnerTag = `owner_${ownerName}`
 
+            const aiConversationData = getAIConversationData()
+
             const payload = {
                 request: {
                     requester: { name: name, email: email },
                     subject: subject,
-                    tags: [planLevelTag, accountOwnerTag, ...(tags || [])],
+                    tags: [planLevelTag, accountOwnerTag, ...(tags || []), ...(aiConversationData ? [aiConversationData.tag] : [])],
                     custom_fields: [
                         {
                             id: 22084126888475,
@@ -698,6 +741,7 @@ export const supportLogic = kea<supportLogicType>([
                             `\nReport event: http://go/ticketByUUID/${zendesk_ticket_uuid}` +
                             getSessionReplayLink() +
                             getErrorTrackingLink(exception_event?.uuid) +
+                            (aiConversationData?.link ?? '') +
                             getCurrentLocationLink() +
                             getDjangoAdminLink(
                                 userLogic.values.user,

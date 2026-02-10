@@ -93,6 +93,9 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
         registerTool: (tool: ToolRegistration) => ({ tool }),
         deregisterTool: (key: string) => ({ key }),
         prependOrReplaceConversation: (conversation: ConversationDetail | Conversation) => ({ conversation }),
+        setLastActiveAIConversation: (data: { conversationId: string; aiSuggested: boolean; timestamp: number }) => ({
+            data,
+        }),
         dismissLiabilityNotice: true,
     }),
 
@@ -146,6 +149,13 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
                     delete newState[key]
                     return newState
                 },
+            },
+        ],
+        lastActiveAIConversation: [
+            null as { conversationId: string; aiSuggested: boolean; timestamp: number } | null,
+            { persist: true, storageKey: 'posthog_ai_last_active_conversation' },
+            {
+                setLastActiveAIConversation: (_, { data }) => data,
             },
         ],
         liabilityNoticeDismissed: [

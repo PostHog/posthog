@@ -3,6 +3,7 @@ import {
     BuiltLogic,
     actions,
     afterMount,
+    beforeUnmount,
     connect,
     kea,
     key,
@@ -73,6 +74,7 @@ import { maxLogic } from './maxLogic'
 import type { maxThreadLogicType } from './maxThreadLogicType'
 import { MaxUIContext } from './maxTypes'
 import { MAX_SLASH_COMMANDS, SlashCommand } from './slash-commands'
+import { wasTicketAISuggested } from './ticketUtils'
 import {
     getAgentModeForScene,
     isAssistantMessage,
@@ -1616,6 +1618,16 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             setTimeout(() => {
                 actions.reconnectToStream()
             }, 0)
+        }
+    }),
+
+    beforeUnmount(({ values }) => {
+        if (values.conversationId && values.threadGrouped.length > 0) {
+            maxGlobalLogic.findMounted()?.actions.setLastActiveAIConversation({
+                conversationId: values.conversationId,
+                aiSuggested: wasTicketAISuggested(values.threadGrouped),
+                timestamp: Date.now(),
+            })
         }
     }),
 
