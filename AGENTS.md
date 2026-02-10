@@ -119,84 +119,12 @@ semgrep --test .semgrep/rules/
 docker run --rm -v "${PWD}:/src" semgrep/semgrep semgrep --test /src/.semgrep/rules/
 ```
 
-### Service-to-Service Authentication
+## Architecture guidelines
 
-When Node.js services need to call Django API endpoints, use the `POSTHOG_INTERNAL_SERVICE_TOKEN` authentication pattern:
-
-**Django (API endpoint):**
-
-```python
-from django.http import JsonResponse
-from django.views.decorators.csrf import csrf_exempt
-from rest_framework.request import Request
-from rest_framework.response import Response
-from posthog.settings.access import POSTHOG_INTERNAL_SERVICE_TOKEN
-
-def _validate_internal_service_token(request: Request) -> Optional[Response]:
-    """
-    Validate the internal service token from the Authorization header.
-    Returns None if valid, or an error Response if invalid.
-    """
-    if not POSTHOG_INTERNAL_SERVICE_TOKEN:
-        # If no token is configured, we're in dev/test mode - allow the request
-        return None
-
-    auth_header = request.headers.get("Authorization", "")
-    if not auth_header.startswith("Bearer "):
-        return Response({"error": "Missing or invalid Authorization header"}, status=401)
-
-    token = auth_header[7:]  # Strip "Bearer " prefix
-    if token != POSTHOG_INTERNAL_SERVICE_TOKEN:
-        return Response({"error": "Invalid service token"}, status=401)
-
-    return None
-
-@csrf_exempt
-def internal_api_endpoint(request: Request, team_id: str) -> Response:
-    """Internal endpoint for Node.js services."""
-    # Validate service token
-    auth_error = _validate_internal_service_token(request)
-    if auth_error:
-        return auth_error
-
-    # ... endpoint logic
-```
-
-**Node.js (calling service):**
-
-```typescript
-// In Hub interface (nodejs/src/types.ts)
-export interface PluginsServerConfig {
-  POSTHOG_INTERNAL_SERVICE_TOKEN: string | null
-  // ...
-}
-
-// In service code
-const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-if (this.hub.POSTHOG_INTERNAL_SERVICE_TOKEN) {
-  headers['Authorization'] = `Bearer ${this.hub.POSTHOG_INTERNAL_SERVICE_TOKEN}`
-}
-const response = await fetch(url, { headers })
-```
-
-**Configuration:**
-
-```bash
-# Generate a secure token for production
-openssl rand -base64 32
-
-# Set in both Django and Node.js environments
-export POSTHOG_INTERNAL_SERVICE_TOKEN="<your-secure-token>"
-```
-
-**Key principles:**
-
-- Token is optional in dev/test (gracefully degrades when not set)
-- Token is required in production (warns if not configured)
-- Use Bearer token format: `Authorization: Bearer <token>`
-- Same token value must be set in both Django and Node.js environments
-- Endpoints are at `/api/projects/<team_id>/internal/` to clarify they're authenticated service endpoints
-- Do not rely on "network isolation" for security - always use explicit authentication
+- API views should declare request/response schemas — prefer `@validated_request` from `posthog.api.mixins` or `@extend_schema` from drf-spectacular
+- Django serializers are the source of truth for frontend API types — `hogli build:openapi` generates TypeScript via drf-spectacular + Orval. Generated files (`api.schemas.ts`, `api.ts`) live in `frontend/src/generated/core/` and `products/{product}/frontend/generated/` — don't edit them manually, change serializers and rerun. See `docs/published/type-system.md` for the full pipeline
+- If possible, new features should live in `products/` as Django apps with `backend/` and `frontend/` subdirectories
+- Always filter querysets by `team_id` — in serializers, access the team via `self.context["get_team"]()`
 
 ## Important rules for Code Style
 

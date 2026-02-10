@@ -309,6 +309,12 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
     listeners(({ actions, values }) => ({
         toggleNewJoinModal: ({ join }) => {
             actions.setViewLinkValues(join ?? NEW_VIEW_LINK)
+            if (join?.source_table_name) {
+                actions.loadSourceTablePreview(join.source_table_name)
+            }
+            if (join?.joining_table_name) {
+                actions.loadJoiningTablePreview(join.joining_table_name)
+            }
         },
         toggleEditJoinModal: ({ join }) => {
             actions.setViewLinkValues(join)

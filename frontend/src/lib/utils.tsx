@@ -263,7 +263,9 @@ export const genericOperatorMap: Record<string, string> = {
     regex: '∼ matches regex',
     not_regex: "≁ doesn't match regex",
     gt: '> greater than',
+    gte: '≥ greater than or equal',
     lt: '< less than',
+    lte: '≤ less than or equal',
     is_set: '✓ is set',
     is_not_set: '✕ is not set',
 }
@@ -303,7 +305,9 @@ export const numericOperatorMap: Record<string, string> = {
     regex: '∼ matches regex',
     not_regex: "≁ doesn't match regex",
     gt: '> greater than',
+    gte: '≥ greater than or equal',
     lt: '< less than',
+    lte: '≤ less than or equal',
     is_set: '✓ is set',
     is_not_set: '✕ is not set',
 }
@@ -1154,6 +1158,12 @@ export const formatDateTimeRange = (dateFrom: dayjs.Dayjs, dateTo: dayjs.Dayjs):
     return `${dateFrom.format(fromComponents.join(''))} - ${dateTo.format(toComponents.join(''))}`
 }
 
+/** Returns the start of the current week, respecting the team's week start day (0=Sunday, 1=Monday). */
+function startOfWeek(date: dayjs.Dayjs, weekStartDay?: number | null): dayjs.Dayjs {
+    const start = weekStartDay === 1 ? 1 : 0
+    return date.subtract((date.day() - start + 7) % 7, 'day').startOf('day')
+}
+
 export const dateMapping: DateMappingOption[] = [
     { key: CUSTOM_OPTION_KEY, values: [] },
     {
@@ -1217,9 +1227,14 @@ export const dateMapping: DateMappingOption[] = [
         getFormattedDate: (date: dayjs.Dayjs): string => formatDateRange(date.subtract(180, 'd'), date.endOf('d')),
         defaultInterval: 'month',
     },
+
     {
         key: 'Last week',
         values: ['-1wStart', '-1wEnd'],
+        getFormattedDate: (date: dayjs.Dayjs, _format?: string, weekStartDay?: number): string => {
+            const lastWeekStart = startOfWeek(date, weekStartDay).subtract(7, 'day')
+            return formatDateRange(lastWeekStart, lastWeekStart.add(6, 'day').endOf('d'))
+        },
         defaultInterval: 'day',
     },
     {
@@ -1227,6 +1242,13 @@ export const dateMapping: DateMappingOption[] = [
         values: ['-1mStart', '-1mEnd'],
         getFormattedDate: (date: dayjs.Dayjs): string =>
             formatDateRange(date.subtract(1, 'month').startOf('month'), date.subtract(1, 'month').endOf('month')),
+        defaultInterval: 'day',
+    },
+    {
+        key: 'This week',
+        values: ['wStart'],
+        getFormattedDate: (date: dayjs.Dayjs, _format?: string, weekStartDay?: number): string =>
+            formatDateRange(startOfWeek(date, weekStartDay), date.endOf('d')),
         defaultInterval: 'day',
     },
     {
@@ -1272,7 +1294,8 @@ export function dateFilterToText(
     dateOptions: DateMappingOption[] = dateMapping,
     isDateFormatted: boolean = false,
     dateFormat: string = DATE_FORMAT,
-    startOfRange: boolean = false
+    startOfRange: boolean = false,
+    weekStartDay?: number
 ): string | null {
     if (dayjs.isDayjs(dateFrom) && dayjs.isDayjs(dateTo)) {
         return formatDateRange(dateFrom, dateTo, dateFormat)
@@ -1285,7 +1308,11 @@ export function dateFilterToText(
             return formatDateRange(dayjs(dateFrom, 'YYYY-MM-DD'), dayjs(dateTo, 'YYYY-MM-DD'))
         }
         if (dateFrom?.includes('T') || dateTo?.includes('T')) {
-            return formatDateTimeRange(dayjs(dateFrom, 'YYYY-MM-DD HH:mm'), dayjs(dateTo, 'YYYY-MM-DD HH:mm'))
+            // Parse each date individually - ISO 8601 datetimes (with T) use native parsing
+            // to correctly handle seconds/milliseconds, plain dates use 'YYYY-MM-DD'
+            const parsedFrom = dateFrom?.includes('T') ? dayjs(dateFrom) : dayjs(dateFrom, 'YYYY-MM-DD')
+            const parsedTo = dateTo?.includes('T') ? dayjs(dateTo) : dayjs(dateTo, 'YYYY-MM-DD')
+            return formatDateTimeRange(parsedFrom, parsedTo)
         }
         return `${dateFrom} - ${dateTo}`
     }
@@ -1305,7 +1332,7 @@ export function dateFilterToText(
 
     for (const { key, values, getFormattedDate } of dateOptions) {
         if (values[0] === dateFrom && values[1] === dateTo && key !== CUSTOM_OPTION_KEY) {
-            return isDateFormatted && getFormattedDate ? getFormattedDate(dayjs(), dateFormat) : key
+            return isDateFormatted && getFormattedDate ? getFormattedDate(dayjs(), dateFormat, weekStartDay) : key
         }
     }
 
@@ -1471,7 +1498,12 @@ export const getDefaultInterval = (dateFrom: string | null, dateTo: string | nul
         return 'hour'
     }
 
-    if (parsedDateFrom?.unit === 'day' || parsedDateTo?.unit === 'day' || dateFrom === 'mStart') {
+    if (
+        parsedDateFrom?.unit === 'day' ||
+        parsedDateTo?.unit === 'day' ||
+        dateFrom === 'mStart' ||
+        dateFrom === 'wStart'
+    ) {
         return 'day'
     }
 

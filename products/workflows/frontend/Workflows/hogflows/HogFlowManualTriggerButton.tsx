@@ -31,10 +31,12 @@ const TriggerPopover = ({
         })
     )
 
-    const blastRadiusSuffix = (): string =>
-        workflow?.trigger?.type === 'batch' && blastRadius
-            ? ` for ${humanFriendlyNumber(blastRadius.users_affected)} users`
-            : ' for ...'
+    const blastRadiusSuffix = (): string => {
+        if (workflow?.trigger?.type === 'batch') {
+            return blastRadius ? ` for ${humanFriendlyNumber(blastRadius.users_affected)} users` : ' for ...'
+        }
+        return ''
+    }
 
     const getButtonText = (): string => {
         const action = isScheduleTrigger ? 'Schedule workflow' : 'Run workflow'

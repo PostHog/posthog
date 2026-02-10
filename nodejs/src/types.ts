@@ -191,6 +191,9 @@ export type CdpConfig = {
     CYCLOTRON_SHARD_DEPTH_LIMIT: number
     CYCLOTRON_SHADOW_DATABASE_URL: string
     CDP_CYCLOTRON_SHADOW_WRITE_ENABLED: boolean
+    CDP_CYCLOTRON_TEST_SEEK_LATENCY: boolean // When true, samples consumed messages and seeks back to verify read latency
+    CDP_CYCLOTRON_TEST_SEEK_SAMPLE_RATE: number // Fraction of messages to test (0.0-1.0, e.g. 0.01 = 1%)
+    CDP_CYCLOTRON_TEST_SEEK_MAX_OFFSET: number // Max offsets to seek back (e.g. 50000000 ≈ 14 days at current throughput)
 
     // SES (Workflows email sending)
     SES_ENDPOINT: string
@@ -843,6 +846,7 @@ export interface BasePerson {
     uuid: string
     properties_last_updated_at: PropertiesLastUpdatedAt
     properties_last_operation: PropertiesLastOperation | null
+    last_seen_at: string | null
 }
 
 /** Raw Person row from database. */

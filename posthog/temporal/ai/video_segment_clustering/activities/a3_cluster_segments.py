@@ -6,6 +6,7 @@ Clustering video segments using iterative K-means, with noise handling.
 import json
 import math
 import asyncio
+from dataclasses import dataclass
 
 import numpy as np
 from sklearn.cluster import AgglomerativeClustering, KMeans
@@ -14,6 +15,7 @@ from temporalio import activity
 
 from posthog.models.team import Team
 from posthog.temporal.ai.video_segment_clustering import constants
+from posthog.temporal.ai.video_segment_clustering.centroid_cache import get_workflow_id_from_activity, store_centroids
 from posthog.temporal.ai.video_segment_clustering.models import (
     Cluster,
     ClusteringResult,
@@ -25,6 +27,14 @@ from posthog.temporal.common.logger import get_logger
 from ..data import fetch_video_segment_embedding_rows
 
 logger = get_logger(__name__)
+
+
+@dataclass
+class _ClusteringResultWithCentroids:
+    """Internal result that includes centroids for Redis storage."""
+
+    result: ClusteringResult
+    centroids: dict[int, list[float]]
 
 
 @activity.defn
@@ -51,14 +61,21 @@ async def cluster_segments_activity(inputs: ClusterSegmentsActivityInputs) -> Cl
     4. Tight clusters are finalized, loose cluster segments go back to the pool
     5. Repeat until convergence or max iterations
     6. Remaining segments are marked as noise
+
+    Centroids are stored in Redis (keyed by workflow ID) to avoid large Temporal payloads.
     """
     team = await Team.objects.aget(id=inputs.team_id)
     # We fetch segments here instead of passing via Temporal, to avoid large Temporal payloads (each embedding is 3 KB)
-    # TODO: Make sure NONE of the steps returns embeddings
     segments = await _fetch_embeddings_by_document_ids(team, inputs.document_ids)
 
     # Run in to_thread as clustering is CPU-bound
-    return await asyncio.to_thread(_perform_clustering, segments)
+    clustering_with_centroids = await asyncio.to_thread(_perform_clustering, segments)
+
+    # Store centroids in Redis for downstream activities
+    workflow_id = get_workflow_id_from_activity()
+    await store_centroids(workflow_id, clustering_with_centroids.centroids)
+
+    return clustering_with_centroids.result
 
 
 async def _fetch_embeddings_by_document_ids(
@@ -118,33 +135,41 @@ async def _fetch_embeddings_by_document_ids(
     return segments
 
 
-def _perform_clustering(segments: list[VideoSegment]) -> ClusteringResult:
-    """Run clustering and handle noise. CPU-bound."""
+def _perform_clustering(segments: list[VideoSegment]) -> _ClusteringResultWithCentroids:
+    """Run clustering and handle noise. CPU-bound.
+
+    Returns ClusteringResult with centroids stored separately for Redis caching.
+    """
     n_segments = len(segments)
 
     if n_segments < constants.AGGLOMERATIVE_CLUSTERING_SEGMENT_THRESHOLD:
-        result = _perform_agglomerative_clustering(segments)
+        result_with_centroids = _perform_agglomerative_clustering(segments)
     else:
-        result = _perform_iterative_kmeans_clustering(segments)
+        result_with_centroids = _perform_iterative_kmeans_clustering(segments)
+
+    result = result_with_centroids.result
+    centroids = result_with_centroids.centroids
 
     # For medium-volume teams, convert noise to single-segment clusters
     # For high-volume teams, keep noise as noise
     if n_segments < constants.NOISE_DISCARDING_SEGMENT_THRESHOLD and result.noise_segment_ids:
         # Handle noise segments by creating single-segment clusters
         max_cluster_id = max((c.cluster_id for c in result.clusters), default=-1)
-        noise_clusters = _create_single_segment_clusters(
+        noise_result = _create_single_segment_clusters(
             noise_segment_ids=result.noise_segment_ids,
             all_segments=segments,
             cluster_id_offset=max_cluster_id + 1,
         )
         # Update result in place
-        result.clusters += noise_clusters
+        result.clusters += noise_result.clusters
         result.noise_segment_ids = []
-        for cluster in noise_clusters:
+        for cluster in noise_result.clusters:
             for doc_id in cluster.segment_ids:
                 result.segment_to_cluster[doc_id] = cluster.cluster_id
+        # Merge centroids
+        centroids.update(noise_result.centroids)
 
-    return result
+    return _ClusteringResultWithCentroids(result=result, centroids=centroids)
 
 
 def _estimate_k(n_segments: int, k_multiplier: float = constants.KMEANS_K_MULTIPLIER) -> int:
@@ -164,14 +189,17 @@ def _perform_iterative_kmeans_clustering(
     max_iterations: int = constants.KMEANS_MAX_ITERATIONS,
     min_cluster_size: int = constants.MIN_CLUSTER_SIZE,
     k_multiplier: float = constants.KMEANS_K_MULTIPLIER,
-) -> ClusteringResult:
+) -> _ClusteringResultWithCentroids:
     if len(segments) == 0:
         logger.debug("Iterative K-means clustering: no segments provided, returning empty result")
-        return ClusteringResult(
-            clusters=[],
-            noise_segment_ids=[],
-            labels=[],
-            segment_to_cluster={},
+        return _ClusteringResultWithCentroids(
+            result=ClusteringResult(
+                clusters=[],
+                noise_segment_ids=[],
+                labels=[],
+                segment_to_cluster={},
+            ),
+            centroids={},
         )
 
     n_segments = len(segments)
@@ -193,6 +221,7 @@ def _perform_iterative_kmeans_clustering(
     # Track which segments are still in the pool
     remaining_doc_ids = set(all_document_ids)
     final_clusters: list[Cluster] = []
+    centroids: dict[int, list[float]] = {}  # Stored separately for Redis caching
 
     iteration = 0
     # TODO: Explore progressive threshold relaxation, i.e. larger distance threshold in later
@@ -255,14 +284,15 @@ def _perform_iterative_kmeans_clustering(
 
             if near_max_dist < distance_threshold:
                 # Tight cluster - finalize it
+                cluster_id = len(final_clusters)
                 final_clusters.append(
                     Cluster(
-                        cluster_id=len(final_clusters),
+                        cluster_id=cluster_id,
                         segment_ids=cluster_doc_ids,
-                        centroid=centroid.tolist(),
                         size=len(cluster_doc_ids),
                     )
                 )
+                centroids[cluster_id] = centroid.tolist()
                 # Remove from remaining
                 remaining_doc_ids -= set(cluster_doc_ids)
                 tight_clusters_count += 1
@@ -335,12 +365,23 @@ def _perform_iterative_kmeans_clustering(
         clustering_rate=(n_segments - n_noise) / n_segments if n_segments > 0 else 0.0,
     )
 
-    return ClusteringResult(
-        clusters=final_clusters,
-        noise_segment_ids=list(remaining_doc_ids),
-        labels=labels_list,
-        segment_to_cluster=segment_to_cluster,
+    return _ClusteringResultWithCentroids(
+        result=ClusteringResult(
+            clusters=final_clusters,
+            noise_segment_ids=list(remaining_doc_ids),
+            labels=labels_list,
+            segment_to_cluster=segment_to_cluster,
+        ),
+        centroids=centroids,
     )
+
+
+@dataclass
+class _SingleSegmentClustersResult:
+    """Internal result for noise cluster creation."""
+
+    clusters: list[Cluster]
+    centroids: dict[int, list[float]]
 
 
 def _create_single_segment_clusters(
@@ -348,35 +389,40 @@ def _create_single_segment_clusters(
     noise_segment_ids: list[str],
     all_segments: list[VideoSegment],
     cluster_id_offset: int,
-) -> list[Cluster]:
+) -> _SingleSegmentClustersResult:
     segment_lookup = {s.document_id: s for s in all_segments}
     new_clusters: list[Cluster] = []
+    centroids: dict[int, list[float]] = {}
     for i, doc_id in enumerate(noise_segment_ids):
         segment = segment_lookup.get(doc_id)
         if not segment:
             logger.error(f"Segment not found for document_id: {doc_id}")
             continue
+        cluster_id = cluster_id_offset + i
         new_clusters.append(
             Cluster(
-                cluster_id=cluster_id_offset + i,
+                cluster_id=cluster_id,
                 segment_ids=[doc_id],
-                centroid=segment.embedding,  # Single segment = its embedding is the centroid
                 size=1,
             )
         )
-    return new_clusters
+        centroids[cluster_id] = segment.embedding  # Single segment = its embedding is the centroid
+    return _SingleSegmentClustersResult(clusters=new_clusters, centroids=centroids)
 
 
 def _perform_agglomerative_clustering(
     segments: list[VideoSegment],
     cosine_distance_threshold: float = constants.KMEANS_DISTANCE_THRESHOLD,
-) -> ClusteringResult:
+) -> _ClusteringResultWithCentroids:
     if len(segments) == 0:
-        return ClusteringResult(
-            clusters=[],
-            noise_segment_ids=[],
-            labels=[],
-            segment_to_cluster={},
+        return _ClusteringResultWithCentroids(
+            result=ClusteringResult(
+                clusters=[],
+                noise_segment_ids=[],
+                labels=[],
+                segment_to_cluster={},
+            ),
+            centroids={},
         )
 
     all_embeddings = np.array([s.embedding for s in segments])
@@ -400,6 +446,7 @@ def _perform_agglomerative_clustering(
 
     # Build clusters
     clusters: list[Cluster] = []
+    centroids: dict[int, list[float]] = {}
     segment_to_cluster: dict[str, int] = {}
 
     unique_labels = set(labels)
@@ -411,24 +458,28 @@ def _perform_agglomerative_clustering(
         # Compute centroid
         centroid = np.mean(cluster_embeddings, axis=0)
 
+        cluster_id = int(label)
         clusters.append(
             Cluster(
-                cluster_id=int(label),
+                cluster_id=cluster_id,
                 segment_ids=cluster_doc_ids,
-                centroid=centroid.tolist(),
                 size=len(cluster_doc_ids),
             )
         )
+        centroids[cluster_id] = centroid.tolist()
 
         for doc_id in cluster_doc_ids:
-            segment_to_cluster[doc_id] = int(label)
+            segment_to_cluster[doc_id] = cluster_id
 
     # Build labels list in original order
     labels_list = [int(labels[i]) for i in range(len(all_document_ids))]
 
-    return ClusteringResult(
-        clusters=clusters,
-        noise_segment_ids=[],  # Agglomerative assigns all segments to clusters
-        labels=labels_list,
-        segment_to_cluster=segment_to_cluster,
+    return _ClusteringResultWithCentroids(
+        result=ClusteringResult(
+            clusters=clusters,
+            noise_segment_ids=[],  # Agglomerative assigns all segments to clusters
+            labels=labels_list,
+            segment_to_cluster=segment_to_cluster,
+        ),
+        centroids=centroids,
     )
