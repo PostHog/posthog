@@ -683,7 +683,7 @@ class TestFullBackfillSensorEarliestDate:
     def test_earliest_date_clamped(
         self, _name, earliest_dt, expected_first_month, mock_tz, mock_catalog_cls, mock_get_earliest
     ):
-        from dagster import DagsterInstance, build_sensor_context
+        from dagster import DagsterInstance, SensorResult, build_sensor_context
 
         mock_tz.now.return_value = datetime(2025, 2, 10, 12, 0, 0)
         mock_get_earliest.return_value = earliest_dt
@@ -695,6 +695,7 @@ class TestFullBackfillSensorEarliestDate:
         instance = DagsterInstance.ephemeral()
         context = build_sensor_context(instance=instance)
         result = duckling_events_full_backfill_sensor(context)
+        assert isinstance(result, SensorResult)
 
         assert len(result.run_requests) > 0
         first_key = result.run_requests[0].partition_key
@@ -704,7 +705,7 @@ class TestFullBackfillSensorEarliestDate:
     @patch("posthog.dags.events_backfill_to_duckling.DuckLakeCatalog")
     @patch("posthog.dags.events_backfill_to_duckling.timezone")
     def test_no_events_returns_empty(self, mock_tz, mock_catalog_cls, mock_get_earliest):
-        from dagster import DagsterInstance, build_sensor_context
+        from dagster import DagsterInstance, SensorResult, build_sensor_context
 
         mock_tz.now.return_value = datetime(2025, 2, 10, 12, 0, 0)
         mock_get_earliest.return_value = None
@@ -716,6 +717,7 @@ class TestFullBackfillSensorEarliestDate:
         instance = DagsterInstance.ephemeral()
         context = build_sensor_context(instance=instance)
         result = duckling_events_full_backfill_sensor(context)
+        assert isinstance(result, SensorResult)
 
         assert len(result.run_requests) == 0
 
