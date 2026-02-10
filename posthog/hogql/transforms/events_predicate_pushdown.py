@@ -316,20 +316,25 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
         if not joined_aliases:
             return
 
-        # Extract pushable predicates
-        extractor = EventsPredicatePushdownExtractor(joined_table_aliases=joined_aliases)
-        inner_where, _outer_where = extractor.get_pushdown_predicates(node.where)
-
-        if inner_where is None:
-            return
-
-        # Get the events table type from the outer query
+        # Get the events table type from the outer query (needed for both
+        # predicate extraction and subquery building)
         events_table_type = node.select_from.type
         if events_table_type is None:
             return
 
         # We only apply pushdown to events table which should be TableType or TableAliasType
         if not isinstance(events_table_type, (ast.TableType, ast.TableAliasType)):
+            return
+
+        # Extract pushable predicates using allowlist mode: only predicates that
+        # exclusively reference events table columns are pushed down
+        extractor = EventsPredicatePushdownExtractor(
+            joined_table_aliases=joined_aliases,
+            events_table_type=events_table_type,
+        )
+        inner_where, _outer_where = extractor.get_pushdown_predicates(node.where)
+
+        if inner_where is None:
             return
 
         # Collect all columns the outer query needs from the events table

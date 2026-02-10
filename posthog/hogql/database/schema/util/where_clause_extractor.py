@@ -529,11 +529,29 @@ def is_truthy(value):
 
 
 class JoinedTableReferenceFinder(TraversingVisitor):
-    """Checks if an expression references any of the specified joined table aliases."""
+    """Checks if an expression references fields that should not be pushed down into an events subquery.
 
-    def __init__(self, joined_table_aliases: set[str]):
+    Supports two modes:
+
+    Allowlist mode (when events_table_type is provided):
+        Only fields whose type resolves to the events table are pushable.
+        Untyped fields and fields resolving to non-events types are blocked.
+        This catches SELECT-level aliases like step_0 that expand to expressions
+        referencing the outer scope.
+
+    Blocklist mode (when events_table_type is None):
+        Fields are blocked only if they reference joined table aliases or have
+        lazy join / subquery types. Used in tests with untyped expressions.
+    """
+
+    def __init__(
+        self,
+        joined_table_aliases: set[str],
+        events_table_type: ast.TableType | ast.TableAliasType | None = None,
+    ):
         super().__init__()
         self.joined_table_aliases = joined_table_aliases
+        self.events_table_type = events_table_type
         self.found_joined_reference = False
 
     def visit_field(self, node: ast.Field):
@@ -544,29 +562,87 @@ class JoinedTableReferenceFinder(TraversingVisitor):
                 self.found_joined_reference = True
                 return
 
-        # Check 2: Field type resolves to a lazy join or subquery (handles dynamic aliases)
-        if node.type is not None:
-            if self._type_references_lazy_join(node.type):
+        # Check 2: Type-based check
+        if self.events_table_type is not None:
+            # Allowlist mode: field must resolve to the events table
+            if node.type is None:
+                self.found_joined_reference = True
+                return
+            if not self._is_events_field(node.type):
+                self.found_joined_reference = True
+        else:
+            # Blocklist mode: check for lazy join/subquery types
+            if node.type is not None and self._type_references_lazy_join(node.type):
                 self.found_joined_reference = True
 
+    def _is_events_field(self, type_node: ast.Type) -> bool:
+        """Check if a type resolves to a field on the events table (allowlist check)."""
+        visited: set[int] = set()
+        to_check: list[tuple[ast.Type, str | None]] = [(type_node, None)]
+
+        while to_check:
+            current, alias_name = to_check.pop()
+            if current is None or id(current) in visited:
+                continue
+            visited.add(id(current))
+
+            if isinstance(current, ast.FieldAliasType):
+                to_check.append((current.type, current.alias))
+                continue
+            if isinstance(current, ast.PropertyType):
+                to_check.append((current.field_type, alias_name))
+                continue
+
+            if isinstance(current, ast.FieldType):
+                return self._table_type_matches_events(current.table_type)
+
+            # Non-field type (e.g., CallType from a SELECT alias like
+            # `toTimeZone(timestamp, 'UTC') as timestamp`). The alias is safe
+            # to push down if its name matches an events table column, because
+            # the TypeRewriter will map it to the inner events column.
+            if alias_name is not None and self._is_events_column_name(alias_name):
+                return True
+
+            return False
+
+        return False
+
+    def _is_events_column_name(self, name: str) -> bool:
+        """Check if a name matches a column on the events table."""
+        if self.events_table_type is None:
+            return False
+        target = self.events_table_type
+        if isinstance(target, ast.TableAliasType):
+            target = target.table_type
+        if isinstance(target, ast.TableType) and hasattr(target.table, "fields"):
+            return name in target.table.fields
+        return False
+
+    def _table_type_matches_events(self, table_type: ast.Type | None) -> bool:
+        """Check if a table type matches the events table."""
+        if table_type is None or self.events_table_type is None:
+            return False
+
+        unwrapped: ast.Type = table_type
+        if isinstance(unwrapped, ast.TableAliasType):
+            unwrapped = unwrapped.table_type
+        if isinstance(unwrapped, ast.VirtualTableType):
+            unwrapped = unwrapped.table_type
+        if isinstance(unwrapped, ast.TableAliasType):
+            unwrapped = unwrapped.table_type
+
+        target: ast.Type = self.events_table_type
+        if isinstance(target, ast.TableAliasType):
+            target = target.table_type
+
+        if isinstance(unwrapped, ast.TableType) and isinstance(target, ast.TableType):
+            return unwrapped.table is target.table
+
+        return table_type is self.events_table_type
+
     def _type_references_lazy_join(self, type_node) -> bool:
-        """
-        Recursively check if a type is not a simple, pushable events table field.
-
-        Returns True (don't push down) for:
-        - LazyJoinType: field references a lazy-joined table
-        - SelectQueryAliasType: field references a subquery
-
-        Unwraps (ok to push down if underlying type is pushable):
-        - FieldAliasType: unwrap and check the aliased type
-        - VirtualTableType: unwrap and check the underlying table type
-        - TableAliasType: unwrap and check the underlying table type
-        - PropertyType: unwrap and check the inner field type
-        - FieldType: unwrap and check the table type
-
-        Returns False (ok to push down) when all types resolve to TableType.
-        """
-        visited = set()  # Prevent infinite loops
+        """Blocklist check: returns True if type resolves to a lazy join or subquery."""
+        visited: set[int] = set()
         to_check = [type_node]
 
         while to_check:
@@ -575,13 +651,11 @@ class JoinedTableReferenceFinder(TraversingVisitor):
                 continue
             visited.add(id(current))
 
-            # Found types that should NOT be pushed down
             if isinstance(current, ast.LazyJoinType):
                 return True
             if isinstance(current, ast.SelectQueryAliasType):
                 return True
 
-            # Unwrap alias/wrapper types and continue checking
             if isinstance(current, ast.FieldAliasType):
                 to_check.append(current.type)
                 continue
@@ -592,7 +666,6 @@ class JoinedTableReferenceFinder(TraversingVisitor):
                 to_check.append(current.table_type)
                 continue
 
-            # Unwrap type wrappers and add their inner types to the check list
             if isinstance(current, ast.PropertyType):
                 to_check.append(current.field_type)
             elif isinstance(current, ast.FieldType):
@@ -601,9 +674,13 @@ class JoinedTableReferenceFinder(TraversingVisitor):
         return False
 
 
-def references_joined_table(expr: ast.Expr, joined_table_aliases: set[str]) -> bool:
-    """Check if an expression references any of the joined table aliases."""
-    finder = JoinedTableReferenceFinder(joined_table_aliases)
+def references_joined_table(
+    expr: ast.Expr,
+    joined_table_aliases: set[str],
+    events_table_type: ast.TableType | ast.TableAliasType | None = None,
+) -> bool:
+    """Check if an expression references any field that should not be pushed down."""
+    finder = JoinedTableReferenceFinder(joined_table_aliases, events_table_type)
     finder.visit(expr)
     return finder.found_joined_reference
 
@@ -663,8 +740,13 @@ class EventsPredicatePushdownExtractor:
     we keep it in the outer WHERE (may scan more data but never incorrect).
     """
 
-    def __init__(self, joined_table_aliases: set[str]):
+    def __init__(
+        self,
+        joined_table_aliases: set[str],
+        events_table_type: ast.TableType | ast.TableAliasType | None = None,
+    ):
         self.joined_table_aliases = joined_table_aliases
+        self.events_table_type = events_table_type
 
     def get_pushdown_predicates(self, where: ast.Expr) -> tuple[Optional[ast.Expr], Optional[ast.Expr]]:
         """
@@ -701,14 +783,14 @@ class EventsPredicatePushdownExtractor:
 
         elif isinstance(expr, ast.Or):
             # For OR: if ANY branch references a joined table, the entire OR must stay in outer
-            if references_joined_table(expr, self.joined_table_aliases):
+            if references_joined_table(expr, self.joined_table_aliases, self.events_table_type):
                 return ([], [clone_expr(expr, clear_types=False, clear_locations=True)])
             else:
                 return ([clone_expr(expr, clear_types=False, clear_locations=True)], [])
 
         elif isinstance(expr, ast.Not):
             # For NOT: if inner references joined table, NOT stays outer
-            if references_joined_table(expr, self.joined_table_aliases):
+            if references_joined_table(expr, self.joined_table_aliases, self.events_table_type):
                 return ([], [clone_expr(expr, clear_types=False, clear_locations=True)])
             else:
                 return ([clone_expr(expr, clear_types=False, clear_locations=True)], [])
@@ -721,14 +803,14 @@ class EventsPredicatePushdownExtractor:
                 return self._split_expression(ast.Or(exprs=expr.args))
             else:
                 # Other function calls - check if they reference joined tables
-                if references_joined_table(expr, self.joined_table_aliases):
+                if references_joined_table(expr, self.joined_table_aliases, self.events_table_type):
                     return ([], [clone_expr(expr, clear_types=False, clear_locations=True)])
                 else:
                     return ([clone_expr(expr, clear_types=False, clear_locations=True)], [])
 
         else:
             # For all other expressions (comparisons, etc.)
-            if references_joined_table(expr, self.joined_table_aliases):
+            if references_joined_table(expr, self.joined_table_aliases, self.events_table_type):
                 return ([], [clone_expr(expr, clear_types=False, clear_locations=True)])
             else:
                 return ([clone_expr(expr, clear_types=False, clear_locations=True)], [])
