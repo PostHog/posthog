@@ -92,6 +92,10 @@ pub struct Config {
     // 15 minutes default - minimum staleness (no recent WAL activity) before orphan directories can be deleted
     pub orphan_cleanup_min_staleness_secs: u64,
 
+    #[envconfig(default = "16")]
+    // Max parallel directory deletions during rebalance cleanup (bounded scatter-gather)
+    pub rebalance_cleanup_parallelism: usize,
+
     // Consumer processing configuration
     #[envconfig(default = "100")]
     pub max_in_flight_messages: usize,
@@ -241,7 +245,7 @@ pub struct Config {
     // Limits memory usage by bounding the number of in-flight HTTP connections
     // Critical during rebalance when many partitions are assigned simultaneously
     // Higher values speed up rebalance; streaming bounds memory per download to ~8KB
-    #[envconfig(default = "50")]
+    #[envconfig(default = "25")]
     pub max_concurrent_checkpoint_file_downloads: usize,
 
     // Maximum concurrent S3 file uploads during checkpoint export

@@ -4617,6 +4617,7 @@ export namespace Schemas {
     export type ExternalQueryStatus = 'success' | 'error'
     export type FeatureFlag = {
         id: number
+        updated_at?: string
         name?: string | undefined
         key: string
         filters?: Record<string, unknown> | undefined

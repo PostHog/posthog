@@ -63,7 +63,7 @@ export class InsightPage {
     async save(): Promise<void> {
         await this.saveButton.click()
         await this.page.waitForURL(/^(?!.*\/new$).+$/)
-        await this.page.waitForSelector('[data-attr="insight-edit-button"]', { state: 'visible' })
+        await expect(this.editButton).toBeVisible()
     }
 
     async edit(): Promise<void> {
@@ -72,6 +72,7 @@ export class InsightPage {
 
     async editName(insightName: string = randomString('insight')): Promise<void> {
         const nameField = this.page.getByTestId('scene-title-textarea')
+        await expect(nameField).toBeVisible()
         await nameField.click()
         await nameField.fill(insightName)
         await nameField.blur()
@@ -144,7 +145,8 @@ class TrendsInsight {
     }
 
     async waitForChart(): Promise<void> {
-        await expect(this.chart).toBeVisible()
+        await this.page.getByTestId('insight-loading-waiting-message').waitFor({ state: 'detached', timeout: 30000 })
+        await expect(this.chart).toBeVisible({ timeout: 30000 })
     }
 
     async waitForDetailsTable(): Promise<void> {
@@ -169,7 +171,9 @@ class TrendsInsight {
         const searchField = this.page.getByTestId('taxonomic-filter-searchfield')
         await searchField.waitFor({ state: 'visible' })
         await searchField.fill(property)
-        await this.page.locator('.taxonomic-list-row').first().click()
+        const row = this.page.locator('.taxonomic-list-row').first()
+        await row.waitFor({ state: 'visible', timeout: 15000 })
+        await row.click()
     }
 
     async setFormula(formula: string): Promise<void> {
@@ -191,16 +195,15 @@ class TrendsInsight {
     }
 
     async selectDateRange(text: string): Promise<void> {
-        await this.page.mouse.move(0, 0)
-        await this.dateRangeButton.click()
-        const popover = this.page.locator('.Popover__content').last()
-        await popover.waitFor({ state: 'visible' })
-        // The date filter popover re-renders as floating-ui repositions it,
-        // causing elements to detach before Playwright's stability checks pass.
-        // Using evaluate to click via JS bypasses these checks.
-        const option = popover.getByText(text, { exact: true })
-        await option.waitFor({ state: 'visible' })
-        await option.evaluate((el: HTMLElement) => el.click())
+        await this.page.keyboard.press('Escape')
+        const dataAttr = `date-filter-${text.toLowerCase().replace(/\s+/g, '-')}`
+        // The insight page re-renders a lot, detaching DOM nodes.
+        // Retry the full open+click sequence with force (skips scroll and
+        // stability checks) until both clicks land in a stable window.
+        await expect(async () => {
+            await this.dateRangeButton.click({ force: true, timeout: 500 })
+            await this.page.getByTestId(dataAttr).click({ force: true, timeout: 500 })
+        }).toPass({ timeout: 15000 })
         await this.waitForChart()
     }
 

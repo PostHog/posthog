@@ -165,7 +165,7 @@ pub const REBALANCE_ASYNC_SETUP_CANCELLED: &str = "rebalance_async_setup_cancell
 pub const PARTITION_STORE_SETUP_SKIPPED: &str = "partition_store_setup_skipped_total";
 
 /// Counter for partitions where checkpoint import failed and we fell back to empty store
-/// Labels: checkpoint_failure_reason (import, restore)
+/// Labels: reason (no_importer | import_failed | import_cancelled | unknown)
 /// This is an important metric for alerting - indicates degraded deduplication quality
 pub const PARTITION_STORE_FALLBACK_EMPTY: &str = "partition_store_fallback_empty_total";
 
@@ -189,6 +189,12 @@ pub const REBALANCE_RESUME_SKIPPED_NO_OWNED: &str = "rebalance_resume_skipped_no
 /// when any group membership changes, even if partitions don't move. This tracks
 /// how many of these empty rebalances we short-circuit.
 pub const REBALANCE_EMPTY_SKIPPED: &str = "rebalance_empty_skipped_total";
+
+/// Histogram for partition directory cleanup duration at end of rebalance cycle.
+/// Measures total time for parallel scatter-gather deletion of unowned partition directories.
+/// Use to monitor cleanup performance and detect I/O bottlenecks blocking consumption resume.
+pub const REBALANCE_DIRECTORY_CLEANUP_DURATION_HISTOGRAM: &str =
+    "rebalance_directory_cleanup_duration_seconds";
 
 // ==== Partition Batch Processing Diagnostics ====
 /// Histogram for partition batch processing duration (in milliseconds)

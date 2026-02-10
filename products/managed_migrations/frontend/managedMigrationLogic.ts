@@ -15,7 +15,7 @@ import type { managedMigrationLogicType } from './managedMigrationLogicType'
 import { ManagedMigration } from './types'
 
 export interface ManagedMigrationForm {
-    source_type: 's3' | 'mixpanel' | 'amplitude'
+    source_type: 's3' | 's3_gzip' | 'mixpanel' | 'amplitude'
     access_key: string
     secret_key: string
     content_type: 'captured' | 'mixpanel' | 'amplitude'
@@ -98,7 +98,7 @@ export const managedMigrationLogic = kea<managedMigrationLogicType>([
                     secret_key: !secret_key ? 'Secret key is required' : null,
                 }
 
-                if (source_type === 's3') {
+                if (source_type === 's3' || source_type === 's3_gzip') {
                     errors.s3_region = !s3_region ? 'S3 region is required' : null
                     errors.s3_bucket = !s3_bucket ? 'S3 bucket is required' : null
                 } else if (source_type === 'mixpanel' || source_type === 'amplitude') {
@@ -135,7 +135,7 @@ export const managedMigrationLogic = kea<managedMigrationLogicType>([
                     secret_key: values.secret_key,
                     content_type: values.content_type,
                 }
-                if (values.source_type === 's3') {
+                if (values.source_type === 's3' || values.source_type === 's3_gzip') {
                     payload = {
                         ...payload,
                         s3_region: values.s3_region,
