@@ -22787,7 +22787,9 @@
                 "semver_lte",
                 "semver_tilde",
                 "semver_caret",
-                "semver_wildcard"
+                "semver_wildcard",
+                "icontains_multi",
+                "not_icontains_multi"
             ],
             "type": "string"
         },

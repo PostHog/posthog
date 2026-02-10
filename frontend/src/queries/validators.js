@@ -92,6 +92,8 @@ const schema14 = {
         'semver_tilde',
         'semver_caret',
         'semver_wildcard',
+        'icontains_multi',
+        'not_icontains_multi',
     ],
     type: 'string',
 }
@@ -360,7 +362,9 @@ function validate12(data, { instancePath = '', parentData, parentDataProperty, r
                                         data2 === 'semver_lte' ||
                                         data2 === 'semver_tilde' ||
                                         data2 === 'semver_caret' ||
-                                        data2 === 'semver_wildcard'
+                                        data2 === 'semver_wildcard' ||
+                                        data2 === 'icontains_multi' ||
+                                        data2 === 'not_icontains_multi'
                                     )
                                 ) {
                                     validate12.errors = [
@@ -597,7 +601,9 @@ function validate16(data, { instancePath = '', parentData, parentDataProperty, r
                                         data2 === 'semver_lte' ||
                                         data2 === 'semver_tilde' ||
                                         data2 === 'semver_caret' ||
-                                        data2 === 'semver_wildcard'
+                                        data2 === 'semver_wildcard' ||
+                                        data2 === 'icontains_multi' ||
+                                        data2 === 'not_icontains_multi'
                                     )
                                 ) {
                                     validate16.errors = [
@@ -847,7 +853,9 @@ function validate19(data, { instancePath = '', parentData, parentDataProperty, r
                                         data2 === 'semver_lte' ||
                                         data2 === 'semver_tilde' ||
                                         data2 === 'semver_caret' ||
-                                        data2 === 'semver_wildcard'
+                                        data2 === 'semver_wildcard' ||
+                                        data2 === 'icontains_multi' ||
+                                        data2 === 'not_icontains_multi'
                                     )
                                 ) {
                                     validate19.errors = [
@@ -1083,7 +1091,9 @@ function validate22(data, { instancePath = '', parentData, parentDataProperty, r
                                         data2 === 'semver_lte' ||
                                         data2 === 'semver_tilde' ||
                                         data2 === 'semver_caret' ||
-                                        data2 === 'semver_wildcard'
+                                        data2 === 'semver_wildcard' ||
+                                        data2 === 'icontains_multi' ||
+                                        data2 === 'not_icontains_multi'
                                     )
                                 ) {
                                     validate22.errors = [
@@ -1319,7 +1329,9 @@ function validate25(data, { instancePath = '', parentData, parentDataProperty, r
                                         data2 === 'semver_lte' ||
                                         data2 === 'semver_tilde' ||
                                         data2 === 'semver_caret' ||
-                                        data2 === 'semver_wildcard'
+                                        data2 === 'semver_wildcard' ||
+                                        data2 === 'icontains_multi' ||
+                                        data2 === 'not_icontains_multi'
                                     )
                                 ) {
                                     validate25.errors = [
@@ -1591,7 +1603,9 @@ function validate28(data, { instancePath = '', parentData, parentDataProperty, r
                                             data3 === 'semver_lte' ||
                                             data3 === 'semver_tilde' ||
                                             data3 === 'semver_caret' ||
-                                            data3 === 'semver_wildcard'
+                                            data3 === 'semver_wildcard' ||
+                                            data3 === 'icontains_multi' ||
+                                            data3 === 'not_icontains_multi'
                                         )
                                     ) {
                                         validate28.errors = [
@@ -1999,7 +2013,9 @@ function validate30(data, { instancePath = '', parentData, parentDataProperty, r
                                         data2 === 'semver_lte' ||
                                         data2 === 'semver_tilde' ||
                                         data2 === 'semver_caret' ||
-                                        data2 === 'semver_wildcard'
+                                        data2 === 'semver_wildcard' ||
+                                        data2 === 'icontains_multi' ||
+                                        data2 === 'not_icontains_multi'
                                     )
                                 ) {
                                     validate30.errors = [
@@ -2235,7 +2251,9 @@ function validate33(data, { instancePath = '', parentData, parentDataProperty, r
                                         data2 === 'semver_lte' ||
                                         data2 === 'semver_tilde' ||
                                         data2 === 'semver_caret' ||
-                                        data2 === 'semver_wildcard'
+                                        data2 === 'semver_wildcard' ||
+                                        data2 === 'icontains_multi' ||
+                                        data2 === 'not_icontains_multi'
                                     )
                                 ) {
                                     validate33.errors = [
@@ -2547,7 +2565,9 @@ function validate36(data, { instancePath = '', parentData, parentDataProperty, r
                                             data3 === 'semver_lte' ||
                                             data3 === 'semver_tilde' ||
                                             data3 === 'semver_caret' ||
-                                            data3 === 'semver_wildcard'
+                                            data3 === 'semver_wildcard' ||
+                                            data3 === 'icontains_multi' ||
+                                            data3 === 'not_icontains_multi'
                                         )
                                     ) {
                                         validate36.errors = [
@@ -2786,7 +2806,9 @@ function validate39(data, { instancePath = '', parentData, parentDataProperty, r
                                         data2 === 'semver_lte' ||
                                         data2 === 'semver_tilde' ||
                                         data2 === 'semver_caret' ||
-                                        data2 === 'semver_wildcard'
+                                        data2 === 'semver_wildcard' ||
+                                        data2 === 'icontains_multi' ||
+                                        data2 === 'not_icontains_multi'
                                     )
                                 ) {
                                     validate39.errors = [
@@ -3177,7 +3199,9 @@ function validate45(data, { instancePath = '', parentData, parentDataProperty, r
                                         data2 === 'semver_lte' ||
                                         data2 === 'semver_tilde' ||
                                         data2 === 'semver_caret' ||
-                                        data2 === 'semver_wildcard'
+                                        data2 === 'semver_wildcard' ||
+                                        data2 === 'icontains_multi' ||
+                                        data2 === 'not_icontains_multi'
                                     )
                                 ) {
                                     validate45.errors = [
@@ -3413,7 +3437,9 @@ function validate48(data, { instancePath = '', parentData, parentDataProperty, r
                                         data2 === 'semver_lte' ||
                                         data2 === 'semver_tilde' ||
                                         data2 === 'semver_caret' ||
-                                        data2 === 'semver_wildcard'
+                                        data2 === 'semver_wildcard' ||
+                                        data2 === 'icontains_multi' ||
+                                        data2 === 'not_icontains_multi'
                                     )
                                 ) {
                                     validate48.errors = [
@@ -3649,7 +3675,9 @@ function validate51(data, { instancePath = '', parentData, parentDataProperty, r
                                         data2 === 'semver_lte' ||
                                         data2 === 'semver_tilde' ||
                                         data2 === 'semver_caret' ||
-                                        data2 === 'semver_wildcard'
+                                        data2 === 'semver_wildcard' ||
+                                        data2 === 'icontains_multi' ||
+                                        data2 === 'not_icontains_multi'
                                     )
                                 ) {
                                     validate51.errors = [
@@ -3886,7 +3914,9 @@ function validate54(data, { instancePath = '', parentData, parentDataProperty, r
                                         data2 === 'semver_lte' ||
                                         data2 === 'semver_tilde' ||
                                         data2 === 'semver_caret' ||
-                                        data2 === 'semver_wildcard'
+                                        data2 === 'semver_wildcard' ||
+                                        data2 === 'icontains_multi' ||
+                                        data2 === 'not_icontains_multi'
                                     )
                                 ) {
                                     validate54.errors = [
@@ -4128,7 +4158,9 @@ function validate57(data, { instancePath = '', parentData, parentDataProperty, r
                                         data2 === 'semver_lte' ||
                                         data2 === 'semver_tilde' ||
                                         data2 === 'semver_caret' ||
-                                        data2 === 'semver_wildcard'
+                                        data2 === 'semver_wildcard' ||
+                                        data2 === 'icontains_multi' ||
+                                        data2 === 'not_icontains_multi'
                                     )
                                 ) {
                                     validate57.errors = [
@@ -5075,7 +5107,9 @@ function validate68(data, { instancePath = '', parentData, parentDataProperty, r
                                         data2 === 'semver_lte' ||
                                         data2 === 'semver_tilde' ||
                                         data2 === 'semver_caret' ||
-                                        data2 === 'semver_wildcard'
+                                        data2 === 'semver_wildcard' ||
+                                        data2 === 'icontains_multi' ||
+                                        data2 === 'not_icontains_multi'
                                     )
                                 ) {
                                     validate68.errors = [

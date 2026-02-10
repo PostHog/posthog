@@ -419,8 +419,8 @@ export function isOperatorMulti(operator: PropertyOperator): boolean {
     return [
         PropertyOperator.Exact,
         PropertyOperator.IsNot,
-        PropertyOperator.IContains,
-        PropertyOperator.NotIContains,
+        PropertyOperator.IContainsMulti,
+        PropertyOperator.NotIContainsMulti,
     ].includes(operator)
 }
 

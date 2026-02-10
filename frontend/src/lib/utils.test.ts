@@ -1511,11 +1511,13 @@ describe('lib/utils', () => {
         it('returns true for operators that support multiple values', () => {
             expect(isOperatorMulti(PropertyOperator.Exact)).toBe(true)
             expect(isOperatorMulti(PropertyOperator.IsNot)).toBe(true)
-            expect(isOperatorMulti(PropertyOperator.IContains)).toBe(true)
-            expect(isOperatorMulti(PropertyOperator.NotIContains)).toBe(true)
+            expect(isOperatorMulti(PropertyOperator.IContainsMulti)).toBe(true)
+            expect(isOperatorMulti(PropertyOperator.NotIContainsMulti)).toBe(true)
         })
 
         it('returns false for operators that do not support multiple values', () => {
+            expect(isOperatorMulti(PropertyOperator.IContains)).toBe(false)
+            expect(isOperatorMulti(PropertyOperator.NotIContains)).toBe(false)
             expect(isOperatorMulti(PropertyOperator.GreaterThan)).toBe(false)
             expect(isOperatorMulti(PropertyOperator.LessThan)).toBe(false)
             expect(isOperatorMulti(PropertyOperator.IsSet)).toBe(false)

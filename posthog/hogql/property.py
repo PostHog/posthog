@@ -365,6 +365,16 @@ def _expr_to_compare_op(
                 left=ast.Call(name="toString", args=[expr]),
                 right=ast.Constant(value=f"%{single_value}%"),
             )
+    elif operator == PropertyOperator.ICONTAINS_MULTI:
+        # Always expect multiple values for multi-contains operator
+        if not isinstance(value, list):
+            value = [value]
+        return _multi_search_found(_create_multi_search_call(expr, value))
+    elif operator == PropertyOperator.NOT_ICONTAINS_MULTI:
+        # Always expect multiple values for multi-not-contains operator
+        if not isinstance(value, list):
+            value = [value]
+        return _multi_search_not_found(_create_multi_search_call(expr, value))
     elif operator == PropertyOperator.REGEX:
         return ast.Call(
             name="ifNull",
@@ -1184,6 +1194,7 @@ def operator_is_negative(operator: PropertyOperator) -> bool:
     return operator in [
         PropertyOperator.IS_NOT,
         PropertyOperator.NOT_ICONTAINS,
+        PropertyOperator.NOT_ICONTAINS_MULTI,
         PropertyOperator.NOT_REGEX,
         PropertyOperator.IS_NOT_SET,
         PropertyOperator.NOT_BETWEEN,
