@@ -2537,6 +2537,16 @@
                   "table": null,
                   "type": "json"
               },
+              "groups": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "groups",
+                  "id": null,
+                  "name": "groups",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
               "query": {
                   "chain": null,
                   "fields": null,
@@ -5449,6 +5459,16 @@
                   "hogql_value": "filters",
                   "id": null,
                   "name": "filters",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "groups": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "groups",
+                  "id": null,
+                  "name": "groups",
                   "schema_valid": true,
                   "table": null,
                   "type": "json"
