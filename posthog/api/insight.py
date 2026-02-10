@@ -1385,9 +1385,9 @@ When set, the specified dashboard's filters and date range override will be appl
 
         try:
             query = schema.InsightVizNode.model_validate(query_data)
-        except Exception as e:
+        except Exception:
             return Response(
-                {"error": f"Invalid query format: {str(e)}"},
+                {"error": "Invalid query format"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
