@@ -578,29 +578,39 @@ class JoinedTableReferenceFinder(TraversingVisitor):
     def _is_events_field(self, type_node: ast.Type) -> bool:
         """Check if a type resolves to a field on the events table (allowlist check)."""
         visited: set[int] = set()
-        to_check: list[tuple[ast.Type, str | None]] = [(type_node, None)]
+        alias_names: list[str] = []
+        to_check: list[ast.Type] = [type_node]
 
         while to_check:
-            current, alias_name = to_check.pop()
+            current = to_check.pop()
             if current is None or id(current) in visited:
                 continue
             visited.add(id(current))
 
             if isinstance(current, ast.FieldAliasType):
-                to_check.append((current.type, current.alias))
+                alias_names.append(current.alias)
+                to_check.append(current.type)
                 continue
             if isinstance(current, ast.PropertyType):
-                to_check.append((current.field_type, alias_name))
+                to_check.append(current.field_type)
                 continue
 
             if isinstance(current, ast.FieldType):
-                return self._table_type_matches_events(current.table_type)
+                if not self._table_type_matches_events(current.table_type):
+                    return False
+                # If we reached FieldType through any FieldAliasType whose alias is not
+                # an events column name, the predicate references a SELECT-level alias
+                # (e.g., `aggregation_target` for `events.$group_0 AS aggregation_target`)
+                # that won't exist in the pushdown subquery.
+                if any(not self._is_events_column_name(a) for a in alias_names):
+                    return False
+                return True
 
             # Non-field type (e.g., CallType from a SELECT alias like
             # `toTimeZone(timestamp, 'UTC') as timestamp`). The alias is safe
-            # to push down if its name matches an events table column, because
-            # the TypeRewriter will map it to the inner events column.
-            if alias_name is not None and self._is_events_column_name(alias_name):
+            # to push down if its outermost name matches an events table column,
+            # because the TypeRewriter will map it to the inner events column.
+            if alias_names and self._is_events_column_name(alias_names[0]):
                 return True
 
             return False

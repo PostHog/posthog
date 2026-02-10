@@ -35,7 +35,17 @@
                events.`$session_id` AS session_id,
                lagInFrame(events.`$session_id`, 1) OVER (PARTITION BY person_id
                                                          ORDER BY timestamp ASC) AS prev_session_id
-        FROM events
+        FROM
+          (SELECT events.`$session_id` AS `$session_id`,
+                  events.distinct_id AS distinct_id,
+                  events.elements_chain AS elements_chain,
+                  events.event AS event,
+                  events.person_id AS person_id,
+                  events.properties AS properties,
+                  toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                  events.uuid AS uuid
+           FROM events
+           WHERE and(equals(events.team_id, 99999), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS events
         LEFT OUTER JOIN
           (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
@@ -43,7 +53,7 @@
            WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
            HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-        WHERE and(equals(events.team_id, 99999), greater(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))
+        WHERE and(greater(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))
         ORDER BY timestamp DESC
         LIMIT 1001)) AS e
   LEFT JOIN
@@ -107,7 +117,17 @@
                events.`$session_id` AS session_id,
                lagInFrame(events.`$session_id`, 1) OVER (PARTITION BY person_id
                                                          ORDER BY timestamp ASC) AS prev_session_id
-        FROM events
+        FROM
+          (SELECT events.`$session_id` AS `$session_id`,
+                  events.distinct_id AS distinct_id,
+                  events.elements_chain AS elements_chain,
+                  events.event AS event,
+                  events.person_id AS person_id,
+                  events.properties AS properties,
+                  toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                  events.uuid AS uuid
+           FROM events
+           WHERE and(equals(events.team_id, 99999), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS events
         LEFT OUTER JOIN
           (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
@@ -115,7 +135,7 @@
            WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
            HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-        WHERE and(equals(events.team_id, 99999), greater(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))
+        WHERE and(greater(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))
         ORDER BY timestamp DESC
         LIMIT 1001)) AS e
   LEFT JOIN
@@ -179,7 +199,17 @@
                events.`$session_id` AS session_id,
                lagInFrame(events.`$session_id`, 1) OVER (PARTITION BY person_id
                                                          ORDER BY timestamp ASC) AS prev_session_id
-        FROM events
+        FROM
+          (SELECT events.`$session_id` AS `$session_id`,
+                  events.distinct_id AS distinct_id,
+                  events.elements_chain AS elements_chain,
+                  events.event AS event,
+                  events.person_id AS person_id,
+                  events.properties AS properties,
+                  toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                  events.uuid AS uuid
+           FROM events
+           WHERE and(equals(events.team_id, 99999), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS events
         LEFT OUTER JOIN
           (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
@@ -187,7 +217,7 @@
            WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
            HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-        WHERE and(equals(events.team_id, 99999), greater(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))
+        WHERE and(greater(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))
         ORDER BY timestamp DESC
         LIMIT 3)) AS e
   LEFT JOIN
@@ -251,7 +281,17 @@
                events.`$session_id` AS session_id,
                lagInFrame(events.`$session_id`, 1) OVER (PARTITION BY person_id
                                                          ORDER BY timestamp ASC) AS prev_session_id
-        FROM events
+        FROM
+          (SELECT events.`$session_id` AS `$session_id`,
+                  events.distinct_id AS distinct_id,
+                  events.elements_chain AS elements_chain,
+                  events.event AS event,
+                  events.person_id AS person_id,
+                  events.properties AS properties,
+                  toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                  events.uuid AS uuid
+           FROM events
+           WHERE and(equals(events.team_id, 99999), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS events
         LEFT OUTER JOIN
           (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
@@ -259,7 +299,7 @@
            WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
            HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-        WHERE and(equals(events.team_id, 99999), greater(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))
+        WHERE and(greater(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))
         ORDER BY timestamp DESC
         LIMIT 1001)) AS e
   LEFT JOIN
@@ -323,7 +363,17 @@
                events.`$session_id` AS session_id,
                lagInFrame(events.`$session_id`, 1) OVER (PARTITION BY person_id
                                                          ORDER BY timestamp ASC) AS prev_session_id
-        FROM events
+        FROM
+          (SELECT events.`$session_id` AS `$session_id`,
+                  events.distinct_id AS distinct_id,
+                  events.elements_chain AS elements_chain,
+                  events.event AS event,
+                  events.person_id AS person_id,
+                  events.properties AS properties,
+                  toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                  events.uuid AS uuid
+           FROM events
+           WHERE and(equals(events.team_id, 99999), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS events
         LEFT OUTER JOIN
           (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
@@ -331,7 +381,7 @@
            WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
            HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-        WHERE and(equals(events.team_id, 99999), greater(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))
+        WHERE and(greater(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))
         ORDER BY timestamp DESC
         LIMIT 1001)) AS e
   LEFT JOIN
@@ -395,7 +445,17 @@
                events.`$session_id` AS session_id,
                lagInFrame(events.`$session_id`, 1) OVER (PARTITION BY person_id
                                                          ORDER BY timestamp ASC) AS prev_session_id
-        FROM events
+        FROM
+          (SELECT events.`$session_id` AS `$session_id`,
+                  events.distinct_id AS distinct_id,
+                  events.elements_chain AS elements_chain,
+                  events.event AS event,
+                  events.person_id AS person_id,
+                  events.properties AS properties,
+                  toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                  events.uuid AS uuid
+           FROM events
+           WHERE and(equals(events.team_id, 99999), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), equals(events.person_id, '00000000-0000-0000-0000-000000000000'))) AS events
         LEFT OUTER JOIN
           (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
@@ -403,7 +463,7 @@
            WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
            HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-        WHERE and(equals(events.team_id, 99999), greater(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), ifNull(equals(person_id, '00000000-0000-0000-0000-000000000000'), 0))
+        WHERE and(greater(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), ifNull(equals(person_id, '00000000-0000-0000-0000-000000000000'), 0))
         ORDER BY timestamp DESC
         LIMIT 1001)) AS e
   LEFT JOIN
@@ -467,7 +527,17 @@
                events.`$session_id` AS session_id,
                lagInFrame(events.`$session_id`, 1) OVER (PARTITION BY person_id
                                                          ORDER BY timestamp ASC) AS prev_session_id
-        FROM events
+        FROM
+          (SELECT events.`$session_id` AS `$session_id`,
+                  events.distinct_id AS distinct_id,
+                  events.elements_chain AS elements_chain,
+                  events.event AS event,
+                  events.person_id AS person_id,
+                  events.properties AS properties,
+                  toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                  events.uuid AS uuid
+           FROM events
+           WHERE and(equals(events.team_id, 99999), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS events
         LEFT OUTER JOIN
           (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
@@ -475,7 +545,7 @@
            WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
            HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-        WHERE and(equals(events.team_id, 99999), greater(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))
+        WHERE and(greater(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))
         ORDER BY timestamp DESC
         LIMIT 1001)) AS e
   LEFT JOIN
