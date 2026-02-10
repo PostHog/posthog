@@ -84,6 +84,7 @@ def signal_eval_data(team_with_user, django_db_blocker):
 
     with django_db_blocker.unblock():
         SignalReport.objects.filter(team=team).delete()
+        # nosemgrep: semgrep.rules.clickhouse-fstring-param-audit - CH_SHARDED_TABLE is a constant derived from trusted enum EmbeddingModelName
         sync_execute(f"TRUNCATE TABLE IF EXISTS {CH_SHARDED_TABLE}", team_id=team.pk)
 
         report_id_map: dict[str, str] = {}
@@ -132,6 +133,7 @@ def signal_eval_data(team_with_user, django_db_blocker):
                 )
 
         if ch_rows:
+            # nosemgrep: semgrep.rules.clickhouse-fstring-param-audit - CH_DISTRIBUTED_TABLE is a constant derived from trusted enum EmbeddingModelName
             sync_execute(
                 f"""
                 INSERT INTO {CH_DISTRIBUTED_TABLE} (
