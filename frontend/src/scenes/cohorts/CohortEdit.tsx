@@ -369,7 +369,24 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
                                             </span>
                                         </div>
                                     )}
-                                    {/* TODO: @adamleithp Allow users to download a template CSV file */}
+                                    <div className="mb-4">
+                                        <Link
+                                            to="#"
+                                            onClick={(e) => {
+                                                e.preventDefault()
+                                                const csvContent = 'distinct_id,email\nuser_123,user@example.com'
+                                                const blob = new Blob([csvContent], { type: 'text/csv' })
+                                                const url = URL.createObjectURL(blob)
+                                                const a = document.createElement('a')
+                                                a.href = url
+                                                a.download = 'posthog_cohort_template.csv'
+                                                a.click()
+                                                URL.revokeObjectURL(url)
+                                            }}
+                                        >
+                                            Download template CSV
+                                        </Link>
+                                    </div>
                                     {/* TODO: @adamleithp Tell users that adding ANOTHER file will NOT(?) replace the current one */}
                                     {/* TODO: @adamleithp Render the csv file and validate it */}
                                     {/* TODO: @adamleithp Adding a csv file doesn't show up with cohort.csv... */}
