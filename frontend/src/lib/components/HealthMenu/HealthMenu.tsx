@@ -13,6 +13,7 @@ import { sidePanelSdkDoctorLogic } from '~/layout/navigation-3000/sidepanel/pane
 
 import { RenderKeybind } from '../AppShortcuts/AppShortcutMenu'
 import { keyBinds } from '../AppShortcuts/shortcuts'
+import { ScrollableShadows } from '../ScrollableShadows/ScrollableShadows'
 import { healthMenuLogic } from './healthMenuLogic'
 
 export function HealthMenu(): JSX.Element {
@@ -83,9 +84,14 @@ export function HealthMenu(): JSX.Element {
                     sideOffset={8}
                     collisionPadding={{ left: 0, top: 50, bottom: 50 }}
                 >
-                    <Menu.Popup className="primitive-menu-content min-w-[250px]">
-                        <div className="primitive-menu-content-inner flex flex-col gap-1">
-                            <div className="pt-2 px-2 flex flex-col gap-px p-1">
+                    <Menu.Popup className="primitive-menu-content max-h-[calc(var(--available-height)-4px)] min-w-[250px]">
+                        <ScrollableShadows
+                            direction="vertical"
+                            styledScrollbars
+                            className="flex flex-col gap-px overflow-x-hidden"
+                            innerClassName="primitive-menu-content-inner p-1 "
+                        >
+                            <div className="flex flex-col gap-px">
                                 <Menu.Item
                                     render={(props) => (
                                         <Link
@@ -107,7 +113,7 @@ export function HealthMenu(): JSX.Element {
                                     )}
                                 />
                             </div>
-                            <div className="flex flex-col gap-px p-1 pt-0">
+                            <div className="flex flex-col gap-px pt-1">
                                 <Menu.Item
                                     render={(props) => (
                                         <Link
@@ -184,7 +190,7 @@ export function HealthMenu(): JSX.Element {
                                     )}
                                 />
                             </div>
-                        </div>
+                        </ScrollableShadows>
                     </Menu.Popup>
                 </Menu.Positioner>
             </Menu.Portal>

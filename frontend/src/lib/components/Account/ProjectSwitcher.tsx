@@ -183,7 +183,42 @@ export function ProjectSwitcher(): JSX.Element | null {
                     styledScrollbars
                     className="flex-1 overflow-y-auto max-h-[400px]"
                 >
-                    <Combobox.List className="flex flex-col gap-px p-2" tabIndex={-1}>
+                    <Combobox.List className="flex flex-col gap-px p-2 bg-surface-primary" tabIndex={-1}>
+                        {/* Create New Project */}
+                        {createItem && (
+                            <Combobox.Group items={[createItem]}>
+                                <Combobox.Collection>
+                                    {(item: CreateProjectItem) => (
+                                        <Combobox.Item
+                                            key={item.id}
+                                            value={item}
+                                            onClick={() => handleItemClick(item)}
+                                            render={(props) => (
+                                                <ButtonPrimitive
+                                                    {...props}
+                                                    menuItem
+                                                    fullWidth
+                                                    tabIndex={-1}
+                                                    disabled={!canCreateProject}
+                                                    variant="panel"
+                                                    tooltip={
+                                                        !canCreateProject
+                                                            ? projectCreationForbiddenReason ||
+                                                              'You do not have permission to create a project'
+                                                            : undefined
+                                                    }
+                                                    tooltipPlacement="right"
+                                                >
+                                                    <IconPlusSmall className="text-tertiary" />
+                                                    <span className="truncate">{item.label}</span>
+                                                </ButtonPrimitive>
+                                            )}
+                                        />
+                                    )}
+                                </Combobox.Collection>
+                            </Combobox.Group>
+                        )}
+
                         {/* Current Project */}
                         {currentProject && (
                             <Combobox.Group items={[currentProject]}>
@@ -233,40 +268,6 @@ export function ProjectSwitcher(): JSX.Element | null {
                                                 >
                                                     <IconBlank />
                                                     <ProjectName team={item.team} />
-                                                </ButtonPrimitive>
-                                            )}
-                                        />
-                                    )}
-                                </Combobox.Collection>
-                            </Combobox.Group>
-                        )}
-
-                        {/* Create New Project */}
-                        {createItem && (
-                            <Combobox.Group items={[createItem]}>
-                                <Combobox.Collection>
-                                    {(item: CreateProjectItem) => (
-                                        <Combobox.Item
-                                            key={item.id}
-                                            value={item}
-                                            onClick={() => handleItemClick(item)}
-                                            render={(props) => (
-                                                <ButtonPrimitive
-                                                    {...props}
-                                                    menuItem
-                                                    fullWidth
-                                                    tabIndex={-1}
-                                                    disabled={!canCreateProject}
-                                                    tooltip={
-                                                        !canCreateProject
-                                                            ? projectCreationForbiddenReason ||
-                                                              'You do not have permission to create a project'
-                                                            : undefined
-                                                    }
-                                                    tooltipPlacement="right"
-                                                >
-                                                    <IconPlusSmall className="text-tertiary" />
-                                                    <span className="truncate">{item.label}</span>
                                                 </ButtonPrimitive>
                                             )}
                                         />

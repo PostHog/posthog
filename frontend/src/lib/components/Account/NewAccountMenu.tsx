@@ -69,6 +69,12 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                             })}
                             variant="panel"
                             data-attr="menu-item-me"
+                            tooltip={
+                                <>
+                                    Account menu
+                                    <RenderKeybind keybind={[keyBinds.newAccountMenu]} className="ml-1" />
+                                </>
+                            }
                         >
                             {isAuthenticatedTeam(currentTeam) && (
                                 <>

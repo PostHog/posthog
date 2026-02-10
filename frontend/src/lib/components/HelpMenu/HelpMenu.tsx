@@ -39,6 +39,7 @@ import { appShortcutLogic } from '../AppShortcuts/appShortcutLogic'
 import { keyBinds } from '../AppShortcuts/shortcuts'
 import { openCHQueriesDebugModal } from '../AppShortcuts/utils/DebugCHQueries'
 import { ThemeMenu } from '../Menus/ThemeMenu'
+import { ScrollableShadows } from '../ScrollableShadows/ScrollableShadows'
 import { helpMenuLogic } from './helpMenuLogic'
 
 export function HelpMenu(): JSX.Element {
@@ -83,9 +84,14 @@ export function HelpMenu(): JSX.Element {
                     sideOffset={8}
                     collisionPadding={{ left: 0, top: 50, bottom: 50 }}
                 >
-                    <Menu.Popup className="primitive-menu-content min-w-[250px]">
-                        <div className="primitive-menu-content-inner flex flex-col gap-1">
-                            <div className="pt-2 px-2 flex flex-col gap-px p-1">
+                    <Menu.Popup className="primitive-menu-content max-h-[calc(var(--available-height)-4px)] min-w-[250px]">
+                        <ScrollableShadows
+                            direction="vertical"
+                            styledScrollbars
+                            className="flex flex-col gap-px overflow-x-hidden"
+                            innerClassName="primitive-menu-content-inner p-1 "
+                        >
+                            <div className="flex flex-col gap-px">
                                 <Menu.Item
                                     render={(props) => (
                                         <Link
@@ -109,7 +115,7 @@ export function HelpMenu(): JSX.Element {
                                     )}
                                 />
                             </div>
-                            <div className="flex flex-col gap-px p-1 pt-0">
+                            <div className="flex flex-col gap-px pt-1">
                                 <Menu.Item
                                     onClick={() => openSidePanel(SidePanelTab.Support)}
                                     render={
@@ -129,7 +135,7 @@ export function HelpMenu(): JSX.Element {
                                             target="_blank"
                                             targetBlankIcon
                                             disableDocsPanel
-                                            tooltip="Open docs in new tab"
+                                            tooltip="Open docs in new browser tab"
                                             tooltipPlacement="right"
                                         >
                                             <IconBook />
@@ -164,7 +170,7 @@ export function HelpMenu(): JSX.Element {
                                     render={(props) => (
                                         <Link
                                             {...props}
-                                            tooltip="View our changelog"
+                                            tooltip="View our changelog in new browser tab"
                                             tooltipPlacement="right"
                                             targetBlankIcon
                                             target="_blank"
@@ -201,8 +207,13 @@ export function HelpMenu(): JSX.Element {
                                                 className="z-[var(--z-popover)]"
                                                 collisionPadding={{ top: 50, bottom: 50 }}
                                             >
-                                                <Menu.Popup className="primitive-menu-content min-w-[250px]">
-                                                    <div className="primitive-menu-content-inner flex flex-col gap-px p-1">
+                                                <Menu.Popup className="primitive-menu-content max-h-[calc(var(--available-height)-4px)] min-w-[250px]">
+                                                    <ScrollableShadows
+                                                        direction="vertical"
+                                                        styledScrollbars
+                                                        className="flex flex-col gap-px overflow-x-hidden"
+                                                        innerClassName="primitive-menu-content-inner p-1 "
+                                                    >
                                                         <Menu.Item
                                                             render={(props) => (
                                                                 <Link
@@ -257,7 +268,7 @@ export function HelpMenu(): JSX.Element {
                                                                 }
                                                             />
                                                         ) : null}
-                                                    </div>
+                                                    </ScrollableShadows>
                                                 </Menu.Popup>
                                             </Menu.Positioner>
                                         </Menu.Portal>
@@ -289,12 +300,14 @@ export function HelpMenu(): JSX.Element {
                                         }
                                     />
                                     <Menu.Portal>
-                                        <Menu.Positioner
-                                            className="z-[var(--z-popover)]"
-                                            collisionPadding={{ top: 50, bottom: 50 }}
-                                        >
-                                            <Menu.Popup className="primitive-menu-content min-w-[250px]">
-                                                <div className="primitive-menu-content-inner flex flex-col gap-px p-1">
+                                        <Menu.Positioner className="z-[var(--z-popover)]">
+                                            <Menu.Popup className="primitive-menu-content max-h-[calc(var(--available-height)-4px)] min-w-[250px]">
+                                                <ScrollableShadows
+                                                    direction="vertical"
+                                                    styledScrollbars
+                                                    className="flex flex-col gap-px overflow-x-hidden"
+                                                    innerClassName="primitive-menu-content-inner p-1 "
+                                                >
                                                     <Menu.Item
                                                         onClick={() => setAppShortcutMenuOpen(true)}
                                                         render={
@@ -325,13 +338,13 @@ export function HelpMenu(): JSX.Element {
                                                         }
                                                     />
                                                     <ThemeMenu />
-                                                </div>
+                                                </ScrollableShadows>
                                             </Menu.Popup>
                                         </Menu.Positioner>
                                     </Menu.Portal>
                                 </Menu.SubmenuRoot>
                             </div>
-                        </div>
+                        </ScrollableShadows>
                     </Menu.Popup>
                 </Menu.Positioner>
             </Menu.Portal>
