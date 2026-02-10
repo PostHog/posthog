@@ -1,4 +1,5 @@
 import re
+import socket
 from ipaddress import IPv6Address, ip_address
 from typing import TYPE_CHECKING, Union
 from urllib.parse import urlparse
@@ -188,24 +189,6 @@ def _is_safe_public_ip(host: str) -> bool:
     )
 
 
-def _extract_ipv4_from_hostname_prefix(hostname: str) -> str | None:
-    """
-    Extract leading dotted-quad IPv4 from hostnames like:
-    - xxx.xxx.xxx.xxx.nip.io
-    - xxx.xxx.xxx.xxx.sslip.io
-    """
-    labels = hostname.split(".")
-    if len(labels) < 4:
-        return None
-
-    ipv4_candidate = ".".join(labels[:4])
-    try:
-        # Canonicalize and validate dotted-quad.
-        return str(ip_address(ipv4_candidate))
-    except ValueError:
-        return None
-
-
 def validate_warehouse_table_url_pattern(url_pattern: str | None) -> tuple[bool, str]:
     if not url_pattern:
         return True, ""
@@ -226,12 +209,16 @@ def validate_warehouse_table_url_pattern(url_pattern: str | None) -> tuple[bool,
         if not _is_safe_public_ip(parsed.hostname):
             return False, "URL pattern hostname must not resolve to internal IP ranges."
     except ValueError:
-        # Not an IP literal: avoid DNS/network calls in request validation path.
         pass
 
-    # Block hosts that encode IPs in their leading labels (e.g. nip.io/sslip style DNS rebinding).
-    extracted_ipv4 = _extract_ipv4_from_hostname_prefix(normalized_hostname)
-    if extracted_ipv4 and not _is_safe_public_ip(extracted_ipv4):
-        return False, "URL pattern hostname must not resolve to internal IP ranges."
+    # Resolve the hostname and block if any resolved IP is internal (catches DNS rebinding services).
+    try:
+        addrinfo = socket.getaddrinfo(normalized_hostname, None, proto=socket.IPPROTO_TCP)
+        for _family, _type, _proto, _canonname, sockaddr in addrinfo:
+            resolved_ip = sockaddr[0]
+            if not _is_safe_public_ip(resolved_ip):
+                return False, "URL pattern hostname must not resolve to internal IP ranges."
+    except socket.gaierror:
+        return False, "URL pattern hostname could not be resolved."
 
     return True, ""
