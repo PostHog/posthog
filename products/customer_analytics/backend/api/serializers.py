@@ -69,6 +69,13 @@ class CustomerJourneySerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "created_at", "created_by", "updated_at"]
 
     def create(self, validated_data):
+        from django.db import IntegrityError
+
+        from posthog.exceptions import Conflict
+
         validated_data["created_by"] = self.context["request"].user
         validated_data["team_id"] = self.context["team_id"]
-        return super().create(validated_data)
+        try:
+            return super().create(validated_data)
+        except IntegrityError:
+            raise Conflict("A customer journey already exists for this insight.")
