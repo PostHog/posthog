@@ -216,7 +216,7 @@ def validate_warehouse_table_url_pattern(url_pattern: str | None) -> tuple[bool,
         addrinfo = socket.getaddrinfo(normalized_hostname, None, proto=socket.IPPROTO_TCP)
         for _family, _type, _proto, _canonname, sockaddr in addrinfo:
             resolved_ip = sockaddr[0]
-            if not _is_safe_public_ip(resolved_ip):
+            if not _is_safe_public_ip(str(resolved_ip)):
                 return False, "URL pattern hostname must not resolve to internal IP ranges."
     except socket.gaierror:
         return False, "URL pattern hostname could not be resolved."
