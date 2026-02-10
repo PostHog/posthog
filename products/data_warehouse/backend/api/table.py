@@ -115,7 +115,7 @@ class TableSerializer(serializers.ModelSerializer):
         access_secret = credential["access_secret"]
 
         if not access_key or not access_secret:
-            raise serializers.ValidationError("Access key and secret is required")
+            raise serializers.ValidationError("Access key and secret are required")
 
         validated_data["credential"] = DataWarehouseCredential.objects.create(
             team_id=team_id,
