@@ -119,7 +119,7 @@ export const LemonField = ({
                 labelClassName={labelClassName}
                 premiumFeature={premiumFeature}
             >
-                {kids}
+                {kids as React.ReactNode}
             </LemonPureField>
         )
     }

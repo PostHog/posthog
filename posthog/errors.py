@@ -116,6 +116,8 @@ def wrap_clickhouse_query_error(err: Exception) -> Exception:
         return CHQueryErrorCannotParseUuid(err.message, code=err.code, code_name="cannot_parse_uuid")
     elif name == "UNSUPPORTED_METHOD":
         return CHQueryErrorUnsupportedMethod(err.message, code=err.code, code_name="unsupported_method")
+    elif name == "INVALID_JOIN_ON_EXPRESSION":
+        return CHQueryErrorInvalidJoinOnExpression(err.message, code=err.code, code_name="invalid_join_on_expression")
 
     # all other errors
     else:
@@ -188,6 +190,10 @@ class CHQueryErrorCannotParseUuid(InternalCHQueryError):
 
 
 class CHQueryErrorUnsupportedMethod(InternalCHQueryError):
+    pass
+
+
+class CHQueryErrorInvalidJoinOnExpression(InternalCHQueryError):
     pass
 
 

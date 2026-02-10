@@ -9,6 +9,7 @@ import { getPluginServerCapabilities } from './capabilities'
 import { CdpApi } from './cdp/cdp-api'
 import { CdpBatchHogFlowRequestsConsumer } from './cdp/consumers/cdp-batch-hogflow.consumer'
 import { CdpCohortMembershipConsumer } from './cdp/consumers/cdp-cohort-membership.consumer'
+import { CdpCyclotronShadowWorker } from './cdp/consumers/cdp-cyclotron-shadow-worker.consumer'
 import { CdpCyclotronWorkerHogFlow } from './cdp/consumers/cdp-cyclotron-worker-hogflow.consumer'
 import { CdpCyclotronWorker } from './cdp/consumers/cdp-cyclotron-worker.consumer'
 import { CdpDatawarehouseEventsConsumer } from './cdp/consumers/cdp-data-warehouse-events.consumer'
@@ -25,6 +26,7 @@ import {
 } from './config/kafka-topics'
 import { startEvaluationScheduler } from './evaluation-scheduler/evaluation-scheduler'
 import { IngestionConsumer } from './ingestion/ingestion-consumer'
+import { KafkaProducerWrapper } from './kafka/producer'
 import { onShutdown } from './lifecycle'
 import { LogsIngestionConsumer } from './logs-ingestion/logs-ingestion-consumer'
 import { SessionRecordingIngester } from './session-recording/consumer'
@@ -141,9 +143,19 @@ export class PluginServer {
                 serviceLoaders.push(async () => {
                     const actualHub = hub ?? (await createHub(this.config))
                     const postgres = actualHub.postgres
-                    const producer = actualHub.kafkaProducer
+                    const kafkaMetadataProducer = actualHub.kafkaProducer
+                    const kafkaMessageProducer = await KafkaProducerWrapper.create(
+                        actualHub.KAFKA_CLIENT_RACK,
+                        'WARPSTREAM_PRODUCER'
+                    )
 
-                    const ingester = new SessionRecordingIngester(actualHub, false, postgres, producer)
+                    const ingester = new SessionRecordingIngester(
+                        actualHub,
+                        false,
+                        postgres,
+                        kafkaMetadataProducer,
+                        kafkaMessageProducer
+                    )
                     await ingester.start()
                     return ingester.service
                 })
@@ -153,9 +165,19 @@ export class PluginServer {
                 serviceLoaders.push(async () => {
                     const actualHub = hub ?? (await createHub(this.config))
                     const postgres = actualHub.postgres
-                    const producer = actualHub.kafkaProducer
+                    const kafkaMetadataProducer = actualHub.kafkaProducer
+                    const kafkaMessageProducer = await KafkaProducerWrapper.create(
+                        actualHub.KAFKA_CLIENT_RACK,
+                        'WARPSTREAM_PRODUCER'
+                    )
 
-                    const ingester = new SessionRecordingIngester(actualHub, true, postgres, producer)
+                    const ingester = new SessionRecordingIngester(
+                        actualHub,
+                        true,
+                        postgres,
+                        kafkaMetadataProducer,
+                        kafkaMessageProducer
+                    )
                     await ingester.start()
                     return ingester.service
                 })
@@ -216,6 +238,24 @@ export class PluginServer {
                     await worker.start()
                     return worker.service
                 })
+            }
+
+            if (capabilities.cdpCyclotronShadowWorker) {
+                // Only start the shadow worker if CYCLOTRON_SHADOW_DATABASE_URL is explicitly configured
+                // (not just using the default value). This prevents crashes in hobby/dev deployments
+                // that don't have the shadow database set up.
+                if (process.env.CYCLOTRON_SHADOW_DATABASE_URL) {
+                    serviceLoaders.push(async () => {
+                        const worker = new CdpCyclotronShadowWorker(hub)
+                        await worker.start()
+                        return worker.service
+                    })
+                } else {
+                    logger.info(
+                        '⏭️',
+                        'Skipping CdpCyclotronShadowWorker - CYCLOTRON_SHADOW_DATABASE_URL not configured'
+                    )
+                }
             }
 
             if (capabilities.cdpCyclotronWorkerHogFlow) {

@@ -58,6 +58,7 @@ let counter = 0
 const SHORTCUT_DISMISSAL_LOCAL_STORAGE_KEY = 'shortcut-dismissal'
 const CUSTOM_PRODUCT_DISMISSAL_LOCAL_STORAGE_KEY = 'custom-product-dismissal'
 const SEEN_CUSTOM_PRODUCTS_LOCAL_STORAGE_KEY = 'seen-custom-products'
+const DATA_PIPELINES_CLICKED_LOCAL_STORAGE_KEY = 'data-pipelines-clicked'
 
 const USER_PRODUCT_LIST_REASON_DEFAULTS: { [key in UserProductListReason]?: string } = {
     [UserProductListReason.USED_BY_COLLEAGUES]:
@@ -167,12 +168,22 @@ export function ProjectTree({
         `${currentTeamId ?? '*'}-${SEEN_CUSTOM_PRODUCTS_LOCAL_STORAGE_KEY}`,
         []
     )
+    const [dataPipelinesClicked, setDataPipelinesClicked] = useLocalStorage<boolean>(
+        `${currentTeamId ?? '*'}-${DATA_PIPELINES_CLICKED_LOCAL_STORAGE_KEY}`,
+        false
+    )
 
     const isCustomProductsExperiment = useFeatureFlag('CUSTOM_PRODUCTS_SIDEBAR', 'test')
     const showFilterDropdown = root === 'project://'
     const showSortDropdown = root === 'project://'
 
-    const treeData: TreeDataItem[] = [...fullFileSystemFiltered]
+    let treeData: TreeDataItem[] = [...fullFileSystemFiltered]
+
+    // Filter out Data pipelines item if it's been clicked
+    if (dataPipelinesClicked) {
+        treeData = treeData.filter((item) => item.record?.path !== 'Data pipelines')
+    }
+
     if (fullFileSystemFiltered.length <= 5) {
         if (root === 'shortcuts://' && (fullFileSystemFiltered.length === 0 || !shortcutHelperDismissed)) {
             treeData.push({
@@ -292,6 +303,12 @@ export function ProjectTree({
                 if (item?.type === 'empty-folder' || item?.type === 'loading-indicator') {
                     return
                 }
+
+                // Track when Data pipelines button is clicked
+                if (item?.record?.path === 'Data pipelines' && !dataPipelinesClicked) {
+                    setDataPipelinesClicked(true)
+                }
+
                 if (item?.record?.href) {
                     router.actions.push(
                         typeof item.record.href === 'function' ? item.record.href(item.record.ref) : item.record.href
@@ -467,6 +484,11 @@ export function ProjectTree({
 
                     return (
                         <>
+                            {root === 'products://' && treeSize === 'narrow' && (
+                                <>
+                                    <p className="mb-1 font-semibold">{item.displayName}</p>
+                                </>
+                            )}
                             {tooltipText}
                             {sceneConfigurations[key]?.description || item.name}
 

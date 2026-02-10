@@ -127,6 +127,48 @@ def sync_execute(
     sync_client: Optional[SyncClient] = None,
     ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
 ):
+    """
+    Executes a synchronous query on the ClickHouse database based on predefined workloads and tags.
+
+    IF THE QUERY IS EXECUTED FOR ONE TEAM, YOU SHOULD SPECIFY team_id.
+
+    This function determines the appropriate workload and user for the query execution based on its
+    tags, including whether it is from a personal API key or if it pertains to specific tasks, such as
+    Celery. Depending on the workload, it adjusts query settings and logging attributes before
+    executing the query. A variety of pre- and post-query logic is performed, including metrics
+    tracking, tag updates, and potential error wrapping.
+
+    Attributes added or modified, such as tags and settings, are used to fine-tune query
+    behavior. For offline workloads, certain settings may also be altered to improve performance under
+    high load scenarios.
+
+    Various counters are incremented to monitor the number of queries started, completed, and failed.
+    Execution timings and metrics specific to the workload are tracked for analytics purposes.
+
+    Raises a specific error by wrapping the original exception, which allows for better error
+    management and debugging of failed queries.
+
+    Arguments:
+    query (str): The SQL query string to be executed.
+    args (Optional[Union[Tuple, Dict]]): Arguments referenced in the query, if any.
+    settings (Optional[Dict]): Custom ClickHouse settings for this query.
+    with_column_types (bool): Whether to include column types in the query result.
+    flush (bool): Whether to flush data (like persons and events) in testing environments.
+    workload (Workload): The workload type defining where the query should be executed. Defaults
+        to Workload.DEFAULT.
+    team_id (Optional[int]): Optional team ID used to customize query behavior.
+    readonly (bool): Specifies whether the query intends to modify data. Default is False.
+    sync_client (Optional[SyncClient]): A specific ClickHouse client to use for the query.
+    ch_user (ClickHouseUser): The user context for the query execution. Defaults to
+        ClickHouseUser.DEFAULT.
+
+    Returns:
+    Union[List[Tuple], int, None]: The result of the query. For select queries, it returns a list of
+        tuples. For insert queries, it may return the number of rows written.
+
+    Raises:
+    ClickHouseError: Custom wrapped ClickHouse error generated in case of query execution failure.
+    """
     if not workload:
         workload = Workload.DEFAULT
         # TODO replace this by assert, sorry, no messing with ClickHouse should be possible
@@ -199,6 +241,8 @@ def sync_execute(
         # more variable latency and a higher likelihood of query failures - but offline workloads should be tolerant to
         # these disruptions
         settings["use_hedged_requests"] = "0"
+    elif workload == Workload.ONLINE and ch_user == ClickHouseUser.APP:
+        settings["use_hedged_requests"] = "1"
     start_time = perf_counter()
 
     try:

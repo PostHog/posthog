@@ -342,11 +342,10 @@ impl RebalanceHandler for RoutingRebalanceHandler {
 
     async fn async_setup_assigned_partitions(
         &self,
-        partitions: &TopicPartitionList,
         consumer_command_tx: &ConsumerCommandSender,
     ) -> Result<()> {
         self.inner
-            .async_setup_assigned_partitions(partitions, consumer_command_tx)
+            .async_setup_assigned_partitions(consumer_command_tx)
             .await
     }
 

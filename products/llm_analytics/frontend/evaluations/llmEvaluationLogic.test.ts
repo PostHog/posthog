@@ -4,6 +4,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { LLMProviderKey, llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
+import { EVALUATION_SUMMARY_MAX_RUNS } from './constants'
 import { llmEvaluationLogic } from './llmEvaluationLogic'
 import { EvaluationConfig, EvaluationRun } from './types'
 
@@ -27,6 +28,17 @@ const mockProviderKeys: LLMProviderKey[] = [
         error_message: null,
         api_key_masked: 'sk-ant-...5678',
         created_at: '2024-01-02T00:00:00Z',
+        created_by: null,
+        last_used_at: null,
+    },
+    {
+        id: 'key-3',
+        provider: 'openrouter',
+        name: 'OpenRouter Key',
+        state: 'ok',
+        error_message: null,
+        api_key_masked: 'sk-or-...9012',
+        created_at: '2024-01-03T00:00:00Z',
         created_by: null,
         last_used_at: null,
     },
@@ -260,6 +272,8 @@ describe('llmEvaluationLogic', () => {
                 expect(byProvider.anthropic).toHaveLength(1)
                 expect(byProvider.anthropic[0].id).toBe('key-2')
                 expect(byProvider.gemini).toHaveLength(0)
+                expect(byProvider.openrouter).toHaveLength(1)
+                expect(byProvider.openrouter[0].id).toBe('key-3')
             })
         })
 
@@ -457,8 +471,8 @@ describe('llmEvaluationLogic', () => {
                 })
             })
 
-            it('caps count at 100', async () => {
-                const manyRuns = Array.from({ length: 150 }, (_, i) => ({
+            it(`caps count at ${EVALUATION_SUMMARY_MAX_RUNS}`, async () => {
+                const manyRuns = Array.from({ length: EVALUATION_SUMMARY_MAX_RUNS + 50 }, (_, i) => ({
                     ...mockRuns[0],
                     id: `run-${i}`,
                     generation_id: `gen-${i}`,
@@ -466,7 +480,7 @@ describe('llmEvaluationLogic', () => {
                 logic.actions.loadEvaluationRunsSuccess(manyRuns)
 
                 await expectLogic(logic).toMatchValues({
-                    runsToSummarizeCount: 100,
+                    runsToSummarizeCount: EVALUATION_SUMMARY_MAX_RUNS,
                 })
             })
         })

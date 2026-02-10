@@ -459,7 +459,10 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                 person_mode="full",
             )
 
-            _setup_replay_data(team_id=self.org_1_team_2.id, include_mobile_replay=include_mobile_replay)
+            _setup_replay_data(
+                team_id=self.org_1_team_2.id,
+                include_mobile_replay=include_mobile_replay,
+            )
 
             _create_event(
                 distinct_id=distinct_id,
@@ -583,6 +586,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "dotnet_events_count_in_period": 1,
                     "elixir_events_count_in_period": 1,
                     "unity_events_count_in_period": 1,
+                    "rust_events_count_in_period": 0,
                     "recording_bytes_in_period": 50,
                     "recording_count_in_period": 5,
                     "mobile_recording_bytes_in_period": 6,
@@ -651,6 +655,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "dotnet_events_count_in_period": 1,
                             "elixir_events_count_in_period": 1,
                             "unity_events_count_in_period": 1,
+                            "rust_events_count_in_period": 0,
                             "recording_bytes_in_period": 0,
                             "recording_count_in_period": 0,
                             "mobile_recording_bytes_in_period": 0,
@@ -713,6 +718,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "dotnet_events_count_in_period": 0,
                             "elixir_events_count_in_period": 0,
                             "unity_events_count_in_period": 0,
+                            "rust_events_count_in_period": 0,
                             "recording_bytes_in_period": 50,
                             "recording_count_in_period": 5,
                             "mobile_recording_bytes_in_period": 6,
@@ -798,6 +804,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "dotnet_events_count_in_period": 0,
                     "elixir_events_count_in_period": 0,
                     "unity_events_count_in_period": 0,
+                    "rust_events_count_in_period": 0,
                     "recording_bytes_in_period": 0,
                     "recording_count_in_period": 0,
                     "mobile_recording_bytes_in_period": 0,
@@ -866,6 +873,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "dotnet_events_count_in_period": 0,
                             "elixir_events_count_in_period": 0,
                             "unity_events_count_in_period": 0,
+                            "rust_events_count_in_period": 0,
                             "recording_bytes_in_period": 0,
                             "recording_count_in_period": 0,
                             "mobile_recording_bytes_in_period": 0,
@@ -1371,27 +1379,55 @@ class TestFeatureFlagsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickh
 
         # Team 1: 2 active destinations, 1 active transformation
         HogFunction.objects.create(
-            team=self.org_1_team_1, type=HogFunctionType.DESTINATION, enabled=True, deleted=False, name="Dest 1"
+            team=self.org_1_team_1,
+            type=HogFunctionType.DESTINATION,
+            enabled=True,
+            deleted=False,
+            name="Dest 1",
         )
         HogFunction.objects.create(
-            team=self.org_1_team_1, type=HogFunctionType.DESTINATION, enabled=True, deleted=False, name="Dest 2"
+            team=self.org_1_team_1,
+            type=HogFunctionType.DESTINATION,
+            enabled=True,
+            deleted=False,
+            name="Dest 2",
         )
         HogFunction.objects.create(
-            team=self.org_1_team_1, type=HogFunctionType.TRANSFORMATION, enabled=True, deleted=False, name="Trans 1"
+            team=self.org_1_team_1,
+            type=HogFunctionType.TRANSFORMATION,
+            enabled=True,
+            deleted=False,
+            name="Trans 1",
         )
         # Team 2: 1 active destination, 2 active transformations
         HogFunction.objects.create(
-            team=self.org_1_team_2, type=HogFunctionType.DESTINATION, enabled=True, deleted=False, name="Dest 3"
+            team=self.org_1_team_2,
+            type=HogFunctionType.DESTINATION,
+            enabled=True,
+            deleted=False,
+            name="Dest 3",
         )
         HogFunction.objects.create(
-            team=self.org_1_team_2, type=HogFunctionType.TRANSFORMATION, enabled=True, deleted=False, name="Trans 2"
+            team=self.org_1_team_2,
+            type=HogFunctionType.TRANSFORMATION,
+            enabled=True,
+            deleted=False,
+            name="Trans 2",
         )
         HogFunction.objects.create(
-            team=self.org_1_team_2, type=HogFunctionType.TRANSFORMATION, enabled=True, deleted=False, name="Trans 3"
+            team=self.org_1_team_2,
+            type=HogFunctionType.TRANSFORMATION,
+            enabled=True,
+            deleted=False,
+            name="Trans 3",
         )
         # Add some inactive/deleted ones (should not be counted)
         HogFunction.objects.create(
-            team=self.org_1_team_1, type=HogFunctionType.DESTINATION, enabled=False, deleted=False, name="Inactive Dest"
+            team=self.org_1_team_1,
+            type=HogFunctionType.DESTINATION,
+            enabled=False,
+            deleted=False,
+            name="Inactive Dest",
         )
         HogFunction.objects.create(
             team=self.org_1_team_2,
@@ -1949,12 +1985,21 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
         self._setup_teams()
 
         batch_export_destination = BatchExportDestination.objects.create(
-            type=BatchExportDestination.Destination.S3, config={"bucket_name": "my_production_s3_bucket"}
+            type=BatchExportDestination.Destination.S3,
+            config={"bucket_name": "my_production_s3_bucket"},
         )
-        BatchExport.objects.create(team_id=3, name="A batch export", destination=batch_export_destination, paused=False)
+        BatchExport.objects.create(
+            team_id=3,
+            name="A batch export",
+            destination=batch_export_destination,
+            paused=False,
+        )
 
         BatchExport.objects.create(
-            team=self.analytics_team, name="A batch export", destination=batch_export_destination, paused=False
+            team=self.analytics_team,
+            name="A batch export",
+            destination=batch_export_destination,
+            paused=False,
         )
 
         period = get_previous_day(at=now() + relativedelta(days=1))
@@ -1985,7 +2030,8 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
         self._setup_teams()
 
         batch_export_destination = BatchExportDestination.objects.create(
-            type=BatchExportDestination.Destination.S3, config={"bucket_name": "test_bucket"}
+            type=BatchExportDestination.Destination.S3,
+            config={"bucket_name": "test_bucket"},
         )
         batch_export = BatchExport.objects.create(
             team_id=3,
@@ -2299,7 +2345,11 @@ class TestDWHStorageUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhou
                 size_in_s3_mib=1,
             )
             DataWarehouseSavedQuery.objects.create(
-                team_id=3, name=f"{i}_view", table=table, deleted=False, status=DataWarehouseSavedQuery.Status.COMPLETED
+                team_id=3,
+                name=f"{i}_view",
+                table=table,
+                deleted=False,
+                status=DataWarehouseSavedQuery.Status.COMPLETED,
             )
 
         period = get_previous_day(at=now() + relativedelta(days=1))
@@ -2346,15 +2396,41 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
     def test_hog_function_usage_metrics(self, billing_task_mock: MagicMock, posthog_capture_mock: MagicMock) -> None:
         self._setup_teams()
 
-        create_app_metric2(team_id=self.org_1_team_1.id, app_source="hog_function", metric_name="succeeded", count=2)
-        create_app_metric2(team_id=self.org_1_team_2.id, app_source="hog_function", metric_name="failed", count=3)
-        create_app_metric2(team_id=self.org_1_team_1.id, app_source="hog_function", metric_name="fetch", count=1)
-        create_app_metric2(team_id=self.org_1_team_2.id, app_source="hog_function", metric_name="fetch", count=2)
         create_app_metric2(
-            team_id=self.org_1_team_1.id, app_source="hog_function", metric_name="billable_invocation", count=5
+            team_id=self.org_1_team_1.id,
+            app_source="hog_function",
+            metric_name="succeeded",
+            count=2,
         )
         create_app_metric2(
-            team_id=self.org_1_team_2.id, app_source="hog_function", metric_name="billable_invocation", count=3
+            team_id=self.org_1_team_2.id,
+            app_source="hog_function",
+            metric_name="failed",
+            count=3,
+        )
+        create_app_metric2(
+            team_id=self.org_1_team_1.id,
+            app_source="hog_function",
+            metric_name="fetch",
+            count=1,
+        )
+        create_app_metric2(
+            team_id=self.org_1_team_2.id,
+            app_source="hog_function",
+            metric_name="fetch",
+            count=2,
+        )
+        create_app_metric2(
+            team_id=self.org_1_team_1.id,
+            app_source="hog_function",
+            metric_name="billable_invocation",
+            count=5,
+        )
+        create_app_metric2(
+            team_id=self.org_1_team_2.id,
+            app_source="hog_function",
+            metric_name="billable_invocation",
+            count=3,
         )
 
         period = get_previous_day(at=now() + relativedelta(days=1))
@@ -2861,7 +2937,10 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
                     "messages": [
                         {
                             "tool_calls": [
-                                {"name": "summarize_sessions", "args": {"session_ids": ["abc123"]}},
+                                {
+                                    "name": "summarize_sessions",
+                                    "args": {"session_ids": ["abc123"]},
+                                },
                             ]
                         }
                     ]
@@ -2917,7 +2996,10 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
                     "messages": [
                         {
                             "tool_calls": [
-                                {"name": "summarize_sessions", "args": {"session_ids": ["abc123"]}},
+                                {
+                                    "name": "summarize_sessions",
+                                    "args": {"session_ids": ["abc123"]},
+                                },
                                 {"name": "search", "args": {"kind": "docs"}},
                             ]
                         }
@@ -2973,8 +3055,14 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
                     "messages": [
                         {
                             "tool_calls": [
-                                {"name": "summarize_sessions", "args": {"session_ids": ["abc123"]}},
-                                {"name": "create_trends_insight", "args": {"query": "pageviews"}},
+                                {
+                                    "name": "summarize_sessions",
+                                    "args": {"session_ids": ["abc123"]},
+                                },
+                                {
+                                    "name": "create_trends_insight",
+                                    "args": {"query": "pageviews"},
+                                },
                             ]
                         }
                     ]
@@ -3573,7 +3661,11 @@ class TestSendUsage(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
             _get_full_org_usage_report(all_reports[str(self.organization.id)], get_instance_metadata(period))
         )
         json_data = json.dumps(
-            {"organization_id": str(self.organization.id), "usage_report": full_report_as_dict}, separators=(",", ":")
+            {
+                "organization_id": str(self.organization.id),
+                "usage_report": full_report_as_dict,
+            },
+            separators=(",", ":"),
         )
         compressed_bytes = gzip.compress(json_data.encode("utf-8"))
         compressed_b64 = base64.b64encode(compressed_bytes).decode("ascii")
@@ -3617,10 +3709,16 @@ class TestSendUsage(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
             all_reports = _get_all_org_reports(period_start, period_end)
 
             full_report_as_dict = _get_full_org_usage_report_as_dict(
-                _get_full_org_usage_report(all_reports[str(self.organization.id)], get_instance_metadata(period))
+                _get_full_org_usage_report(
+                    all_reports[str(self.organization.id)],
+                    get_instance_metadata(period),
+                )
             )
             json_data = json.dumps(
-                {"organization_id": str(self.organization.id), "usage_report": full_report_as_dict},
+                {
+                    "organization_id": str(self.organization.id),
+                    "usage_report": full_report_as_dict,
+                },
                 separators=(",", ":"),
             )
             compressed_bytes = gzip.compress(json_data.encode("utf-8"))
@@ -3684,6 +3782,40 @@ class TestSendUsage(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
             timestamp="2021-10-10T23:01:00.00Z",
         )
         assert mock_client.capture.call_args[1]["timestamp"] == datetime(2021, 10, 10, 23, 1, tzinfo=tzutc())
+
+    @patch("posthog.tasks.report_utils.is_cloud", return_value=True)
+    def test_capture_event_calls_group_identify_with_group_properties(self, mock_is_cloud: MagicMock) -> None:
+        organization = Organization.objects.create()
+        mock_client = MagicMock()
+        group_props = {"org_name": "Test Org", "plan": "enterprise"}
+
+        capture_event(
+            pha_client=mock_client,
+            name="test event",
+            organization_id=str(organization.id),
+            properties={"prop1": "val1"},
+            group_properties=group_props,
+        )
+
+        mock_client.group_identify.assert_called_once_with(
+            "organization",
+            str(organization.id),
+            properties=group_props,
+        )
+
+    @patch("posthog.tasks.report_utils.is_cloud", return_value=True)
+    def test_capture_event_skips_group_identify_without_group_properties(self, mock_is_cloud: MagicMock) -> None:
+        organization = Organization.objects.create()
+        mock_client = MagicMock()
+
+        capture_event(
+            pha_client=mock_client,
+            name="test event",
+            organization_id=str(organization.id),
+            properties={"prop1": "val1"},
+        )
+
+        mock_client.group_identify.assert_not_called()
 
 
 class TestSendNoUsage(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest):
@@ -3906,7 +4038,12 @@ class TestOrganizationFiltering(LicensedTestMixin, ClickhouseDestroyTablesMixin,
 
         fake_org_id1 = str(uuid4())
         fake_org_id2 = str(uuid4())
-        org_ids = [str(self.organization.id), fake_org_id1, str(self.org2.id), fake_org_id2]
+        org_ids = [
+            str(self.organization.id),
+            fake_org_id1,
+            str(self.org2.id),
+            fake_org_id2,
+        ]
 
         send_all_org_usage_reports(dry_run=False, organization_ids=org_ids)
 
@@ -4127,7 +4264,11 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
         from posthog.tasks.usage_report import _execute_split_query
 
         result = _execute_split_query(
-            begin=self.begin, end=self.end, query_template=query_template, params={}, num_splits=2
+            begin=self.begin,
+            end=self.end,
+            query_template=query_template,
+            params={},
+            num_splits=2,
         )
 
         # Verify sync_execute was called twice with different time ranges
@@ -4153,7 +4294,10 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
         # Mock the sync_execute to return test data for event metrics
         mock_sync_execute.side_effect = [
             [(self.team.id, "web_events", 3)],  # First split
-            [(self.team.id, "web_events", 2), (self.team.id, "mobile_events", 1)],  # Second split
+            [
+                (self.team.id, "web_events", 2),
+                (self.team.id, "mobile_events", 1),
+            ],  # Second split
         ]
 
         # Define a custom combiner function similar to what we use in get_all_event_metrics_in_period
@@ -4214,7 +4358,9 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
         # Should still be 15 since we created 15 distinct billable events (excluding AI events)
         self.assertEqual(result_distinct[0][1], 15)
 
-    def test_get_teams_with_billable_enhanced_persons_event_count_in_period(self) -> None:
+    def test_get_teams_with_billable_enhanced_persons_event_count_in_period(
+        self,
+    ) -> None:
         """Test that get_teams_with_billable_enhanced_persons_event_count_in_period returns correct results after splitting."""
         from posthog.tasks.usage_report import get_teams_with_billable_enhanced_persons_event_count_in_period
 
@@ -4318,5 +4464,8 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
         # Verify the data
         self.assertIn("teams_with_event_count_in_period", all_data)
         self.assertEqual(len(all_data["teams_with_event_count_in_period"]), 1)
-        self.assertEqual(next(iter(all_data["teams_with_event_count_in_period"].keys())), self.team.id)
+        self.assertEqual(
+            next(iter(all_data["teams_with_event_count_in_period"].keys())),
+            self.team.id,
+        )
         self.assertEqual(all_data["teams_with_event_count_in_period"][self.team.id], 20)
