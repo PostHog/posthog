@@ -772,7 +772,7 @@ def record_replay_to_file(
         with posthoganalytics.new_context():
             posthoganalytics.tag("url_to_render", opts.url_to_render)
             posthoganalytics.tag("video_target_path", opts.image_path)
-            capture_exception(e)
+            posthoganalytics.capture_exception(e)
         raise
     finally:
         if temp_dir_ctx:

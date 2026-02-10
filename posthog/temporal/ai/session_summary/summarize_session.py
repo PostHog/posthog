@@ -20,6 +20,7 @@ from temporalio.exceptions import ApplicationError, WorkflowAlreadyStartedError
 
 from posthog.schema import ReplayInactivityPeriod
 
+from posthog.exceptions_capture import capture_exception
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.redis import get_client
@@ -522,7 +523,7 @@ def calculate_video_segment_specs(
             signals_type="session-summaries",
         )
         err = ValueError(msg)
-        posthoganalytics.capture_exception(
+        capture_exception(
             err,
             additional_properties={
                 "session_id": inputs.session_id,
