@@ -23,7 +23,7 @@
         backdrop-filter: blur(0);
     }
 
-    @each $i in (1161, 1162, 1163, 1166, 1167, 1168, 1169) {
+    @each $i in (1161, 1162, 1166, 1167, 1168, 1169) {
         &.LemonModal__overlay--z-#{$i} {
             z-index: #{$i};
         }

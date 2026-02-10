@@ -52,7 +52,7 @@ export interface LemonModalProps {
      * some components need more fine control of the z-index
      * they can push a specific value to control their position in the stacking order
      */
-    zIndex?: '1161' | '1162' | '1163' | '1166' | '1167' | '1168' | '1169'
+    zIndex?: '1161' | '1162' | '1166' | '1167' | '1168' | '1169'
     className?: string
     overlayClassName?: string
 }
