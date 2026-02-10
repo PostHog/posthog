@@ -47,7 +47,7 @@ Given a new signal, generate 1-3 search queries that would help find related sig
 
 Keep queries concise but descriptive. Each query will be embedded and used for semantic similarity search.
 
-Respond with a JSON object containing a "queries" array with 1-3 query strings."""
+Respond with an unformatted JSON object containing a "queries" array with 1-3 query strings."""
 
 
 def _truncate_query_to_token_limit(query: str, max_tokens: int = MAX_QUERY_TOKENS) -> str:
@@ -96,15 +96,16 @@ async def generate_search_queries(
             completion = await client.chat.completions.create(
                 model=MATCHING_MODEL,
                 messages=messages,
-                response_format={"type": "json_object"},
                 temperature=0.7,
             )
 
             last_response_content = completion.choices[0].message.content
             if last_response_content is None:
                 raise ValueError("LLM returned empty content")
-
-            data = json.loads(last_response_content)
+            try:
+                data = json.loads(last_response_content)
+            except Exception as e:
+                raise ValueError(f"Failed to parse LLM response as JSON: {last_response_content}") from e
             result = QueryGenerationResponse.model_validate(data)
 
             if len(result.queries) == 0:
@@ -193,7 +194,7 @@ If a candidate signal from ANY query is related to the new signal, respond with 
 If no candidate is related (or all queries returned no results), respond with:
 {"match_type": "new", "title": "<short title for a new report>", "summary": "<1-2 sentence summary of what this signal group is about>"}
 
-You must respond with valid JSON only."""
+You must respond with unformatted valid JSON only."""
 
 
 def _build_matching_prompt(
@@ -270,7 +271,6 @@ async def match_signal_with_llm(
             completion = await client.chat.completions.create(
                 model=MATCHING_MODEL,
                 messages=messages,
-                response_format={"type": "json_object"},
                 temperature=0.2,
             )
 
@@ -278,7 +278,10 @@ async def match_signal_with_llm(
             if last_response_content is None:
                 raise ValueError("LLM returned empty content")
 
-            data = json.loads(last_response_content)
+            try:
+                data = json.loads(last_response_content)
+            except Exception as e:
+                raise ValueError(f"Failed to parse LLM response as JSON: {last_response_content}") from e
             result = _parse_match_response(data)
 
             if isinstance(result, LLMMatchFound):
@@ -342,7 +345,7 @@ Given a list of signals, produce:
 
 Be specific and actionable. Avoid generic phrases like "various issues detected".
 
-Respond with a JSON object containing "title" and "summary" fields."""
+Respond with an unformatted JSON object containing "title" and "summary" fields."""
 
 
 def _build_summarize_prompt(signals: list[SignalData]) -> str:
@@ -389,7 +392,6 @@ async def summarize_signals(signals: list[SignalData]) -> tuple[str, str]:
             completion = await client.chat.completions.create(
                 model=MATCHING_MODEL,
                 messages=messages,
-                response_format={"type": "json_object"},
                 temperature=0.3,
             )
 
@@ -397,7 +399,10 @@ async def summarize_signals(signals: list[SignalData]) -> tuple[str, str]:
             if last_response_content is None:
                 raise ValueError("LLM returned empty content")
 
-            data = json.loads(last_response_content)
+            try:
+                data = json.loads(last_response_content)
+            except Exception as e:
+                raise ValueError(f"Failed to parse LLM response as JSON: {last_response_content}") from e
             result = SummarizeSignalsResponse.model_validate(data)
 
             # Enforce title length limit
