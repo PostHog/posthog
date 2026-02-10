@@ -179,8 +179,8 @@ test.describe('Trends insights', () => {
         await test.step('use custom fixed date range', async () => {
             await insight.trends.dateRangeButton.click()
             await page.getByText('Custom fixed date range').click()
+            // In LemonCalendarRange, click start date then end date directly (no Start:/End: buttons)
             await page.locator('.LemonCalendar').getByRole('button', { name: '1', exact: true }).first().click()
-            await page.getByRole('button', { name: /End:/ }).click()
             await page.locator('.LemonCalendar').getByRole('button', { name: '15', exact: true }).first().click()
             await page.getByRole('button', { name: 'Apply' }).click()
             await insight.trends.waitForChart()
