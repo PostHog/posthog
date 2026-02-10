@@ -72,7 +72,13 @@ class TestGetLlmaWorkflowConfig:
             ("string_ids", {"guaranteed_team_ids": "not a list"}, "guaranteed_team_ids"),
             ("mixed_ids", {"guaranteed_team_ids": [1, "two", 3]}, "guaranteed_team_ids"),
             ("string_pct", {"sample_percentage": "high"}, "sample_percentage"),
+            ("negative_pct", {"sample_percentage": -0.1}, "sample_percentage"),
+            ("pct_above_one", {"sample_percentage": 1.5}, "sample_percentage"),
+            ("nan_pct", {"sample_percentage": float("nan")}, "sample_percentage"),
+            ("inf_pct", {"sample_percentage": float("inf")}, "sample_percentage"),
             ("float_lookback", {"discovery_lookback_days": 7.5}, "discovery_lookback_days"),
+            ("zero_lookback", {"discovery_lookback_days": 0}, "discovery_lookback_days"),
+            ("negative_lookback", {"discovery_lookback_days": -5}, "discovery_lookback_days"),
         ]
     )
     @patch(FF_PAYLOAD_PATH)

@@ -86,11 +86,11 @@ def _get_llma_workflow_config() -> LLMAWorkflowConfig:
             guaranteed = DEFAULT_GUARANTEED_TEAM_IDS
 
         sample_pct = payload.get("sample_percentage", DEFAULT_SAMPLE_PERCENTAGE)
-        if not isinstance(sample_pct, (int, float)):
+        if not isinstance(sample_pct, (int, float)) or not (0.0 <= float(sample_pct) <= 1.0):
             sample_pct = DEFAULT_SAMPLE_PERCENTAGE
 
         lookback = payload.get("discovery_lookback_days", DEFAULT_DISCOVERY_LOOKBACK_DAYS)
-        if not isinstance(lookback, int):
+        if not isinstance(lookback, int) or lookback <= 0:
             lookback = DEFAULT_DISCOVERY_LOOKBACK_DAYS
 
         logger.info(
@@ -139,7 +139,10 @@ async def get_team_ids_for_llm_analytics(inputs: TeamDiscoveryInput) -> list[int
         config = _get_llma_workflow_config()
         guaranteed = set(config.guaranteed_team_ids)
 
-        # FF payload overrides input defaults
+        # FF payload is the source of truth, intentionally overriding
+        # TeamDiscoveryInput so config can be tuned from the PostHog UI
+        # without a deploy. TeamDiscoveryInput is kept for Temporal's
+        # serialization contract but its values are not used at runtime.
         sample_percentage = config.sample_percentage
         lookback_days = config.discovery_lookback_days
 
