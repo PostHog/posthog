@@ -658,10 +658,20 @@ class Database(BaseModel):
         with timings.measure("database"):
             database = Database(timezone=team.timezone, week_start_day=team.week_start_day)
 
-        # Filter system tables based on user access control
-        if user is not None and team is not None:
-            with timings.measure("filter_system_tables_for_user"):
-                database._filter_system_tables_for_user(user, team)
+        with timings.measure("filter_system_tables_for_user"):
+            if user is not None and team is not None:
+                is_hogql_access_control_enabled = posthoganalytics.feature_enabled(
+                    "hogql-access-control",
+                    str(team.uuid),
+                    groups={"organization": str(team.organization_id), "project": str(team.id)},
+                    group_properties={
+                        "organization": {"id": str(team.organization_id)},
+                        "project": {"id": str(team.id)},
+                    },
+                    send_feature_flag_events=False,
+                )
+                if is_hogql_access_control_enabled:
+                    database._filter_system_tables_for_user(user, team)
 
         with timings.measure("modifiers"):
             modifiers = create_default_modifiers_for_team(team, modifiers)
