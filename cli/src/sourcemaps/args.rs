@@ -61,6 +61,11 @@ pub struct ReleaseArgs {
     /// if not provided.
     #[arg(long)]
     pub version: Option<String>,
+
+    /// If the server returns a release_id_mismatch error (symbol set already exists with a different release),
+    /// retry the upload without associating a release instead of failing.
+    #[arg(long, default_value = "true")]
+    pub skip_release_on_fail: bool,
 }
 
 impl From<ReleaseArgs> for ReleaseBuilder {
