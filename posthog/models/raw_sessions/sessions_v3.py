@@ -1,3 +1,5 @@
+from typing import Optional
+
 from django.conf import settings
 
 from posthog.clickhouse.table_engines import AggregatingMergeTree, Distributed, ReplicationScheme
@@ -529,22 +531,29 @@ AS
     )
 
 
-def RAW_SESSION_TABLE_BACKFILL_SQL_V3(where: str, shard_index: int, num_shards: int):
+def RAW_SESSION_TABLE_BACKFILL_SQL_V3(
+    where: str, shard_index: Optional[int] = None, num_shards: Optional[int] = None, target_table: Optional[str] = None
+):
     """
     Generates SQL to backfill sessions from events.
 
     Each shard should call this with its own shard_index to only SELECT events
     that will end up on that shard, then INSERT directly to the local sharded table.
     """
-    shard_filter = f"modulo(cityHash64(`$session_id_uuid`), {num_shards}) = {shard_index}"
-    combined_where = f"({where}) AND {shard_filter}"
+    if not target_table:
+        target_table = SHARDED_RAW_SESSIONS_TABLE_V3()
+    if shard_index is not None and num_shards is not None:
+        shard_filter = f"modulo(cityHash64(`$session_id_uuid`), {num_shards}) = {shard_index}"
+        combined_where = f"({where}) AND {shard_filter}"
+    else:
+        combined_where = where
 
     return """
 INSERT INTO {database}.{target_table}
 {select_sql}
 """.format(
         database=settings.CLICKHOUSE_DATABASE,
-        target_table=SHARDED_RAW_SESSIONS_TABLE_V3(),
+        target_table=target_table,
         select_sql=RAW_SESSION_TABLE_MV_SELECT_SQL_V3(
             where=combined_where,
             source_table=f"{settings.CLICKHOUSE_DATABASE}.events",
@@ -552,22 +561,29 @@ INSERT INTO {database}.{target_table}
     )
 
 
-def RAW_SESSION_TABLE_BACKFILL_RECORDINGS_SQL_V3(where: str, shard_index: int, num_shards: int):
+def RAW_SESSION_TABLE_BACKFILL_RECORDINGS_SQL_V3(
+    where: str, shard_index: Optional[int] = None, num_shards: Optional[int] = None, target_table: Optional[str] = None
+):
     """
     Generates SQL to backfill sessions from session replay events.
 
     Each shard should call this with its own shard_index to only SELECT recordings
     that will end up on that shard, then INSERT directly to the local sharded table.
     """
-    shard_filter = f"modulo(cityHash64(toUInt128(accurateCast(session_id, 'UUID'))), {num_shards}) = {shard_index}"
-    combined_where = f"({where}) AND {shard_filter}"
+    if not target_table:
+        target_table = SHARDED_RAW_SESSIONS_TABLE_V3()
+    if shard_index is not None and num_shards is not None:
+        shard_filter = f"modulo(cityHash64(toUInt128(accurateCast(session_id, 'UUID'))), {num_shards}) = {shard_index}"
+        combined_where = f"({where}) AND {shard_filter}"
+    else:
+        combined_where = where
 
     return """
 INSERT INTO {database}.{target_table}
 {select_sql}
 """.format(
         database=settings.CLICKHOUSE_DATABASE,
-        target_table=SHARDED_RAW_SESSIONS_TABLE_V3(),
+        target_table=target_table,
         select_sql=RAW_SESSION_TABLE_MV_RECORDINGS_SELECT_SQL_V3(
             where=combined_where,
             source_table=f"{settings.CLICKHOUSE_DATABASE}.session_replay_events",

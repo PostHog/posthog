@@ -31,7 +31,7 @@ from posthog.clickhouse.query_tagging import (
     get_query_tag_value,
     get_query_tags,
 )
-from posthog.errors import ch_error_type, wrap_query_error
+from posthog.errors import clickhouse_error_type, wrap_clickhouse_query_error
 from posthog.settings import CLICKHOUSE_PER_TEAM_QUERY_SETTINGS, TEST
 from posthog.temporal.common.clickhouse import update_query_tags_with_temporal_info
 from posthog.utils import generate_short_id, patchable
@@ -262,14 +262,14 @@ def sync_execute(
             if "INSERT INTO" in prepared_sql and client.last_query.progress.written_rows > 0:
                 result = client.last_query.progress.written_rows
     except Exception as e:
-        exception_type = ch_error_type(e)
+        exception_type = clickhouse_error_type(e)
         QUERY_ERROR_COUNTER.labels(
             exception_type=exception_type,
             query_type=query_type,
             workload=workload.value if workload else "None",
             chargeable=str(tags.chargeable or "0"),
         ).inc()
-        err = wrap_query_error(e)
+        err = wrap_clickhouse_query_error(e)
         raise err from e
     finally:
         execution_time = perf_counter() - start_time
@@ -304,7 +304,12 @@ def query_with_columns(
     if columns_to_rename is None:
         columns_to_rename = {}
     metrics, types = sync_execute(
-        query, args, settings=settings, with_column_types=True, workload=workload, team_id=team_id
+        query,
+        args,
+        settings=settings,
+        with_column_types=True,
+        workload=workload,
+        team_id=team_id,
     )
     type_names = [key for key, _type in types]
 

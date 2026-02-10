@@ -41,6 +41,7 @@ from products.conversations.backend.cache import (
     set_cached_messages,
     set_cached_tickets,
 )
+from products.conversations.backend.events import capture_ticket_created
 from products.conversations.backend.models import Ticket
 
 logger = logging.getLogger(__name__)
@@ -154,6 +155,7 @@ class WidgetMessageView(APIView):
             )
             # Invalidate unread count cache - new ticket with unread message
             invalidate_unread_count_cache(team.id)
+            capture_ticket_created(ticket)
 
         # Create message
         comment = Comment.objects.create(
