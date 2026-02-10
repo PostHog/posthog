@@ -137,6 +137,7 @@ from products.revenue_analytics.backend.views.orchestrator import build_all_reve
 
 if TYPE_CHECKING:
     from posthog.models import Team, User
+    from posthog.rbac.user_access_control import UserAccessControl
 
 tracer = trace.get_tracer(__name__)
 
@@ -259,7 +260,7 @@ class Database(BaseModel):
     _warehouse_self_managed_table_names: list[str] = []
     _view_table_names: list[str] = []
     _denied_tables: set[str] = set()  # Tables user doesn't have permission to access
-    _user_access_control: Any = None  # Shared UserAccessControl instance, reused in printer phase
+    _user_access_control: Optional["UserAccessControl"] = None
 
     _timezone: str | None
     _week_start_day: WeekStartDay | None

@@ -1,8 +1,5 @@
 import dataclasses
-from typing import TYPE_CHECKING, ClassVar, Optional, Union, cast
-
-if TYPE_CHECKING:
-    from posthog.models import User
+from typing import ClassVar, Optional, Union, cast
 
 from opentelemetry import trace
 
@@ -36,6 +33,7 @@ from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.errors import ExposedCHQueryError
 from posthog.models.team import Team
+from posthog.models.user import User
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 
 tracer = trace.get_tracer(__name__)
@@ -60,7 +58,7 @@ class HogQLQueryExecutor:
     hogql_context: Optional[HogQLContext] = None
     clickhouse_prepared_ast: Optional[ast.AST] = None
     clickhouse_sql: Optional[str] = None
-    user: Optional["User"] = None
+    user: Optional[User] = None
 
     __uninitialized_context: ClassVar[HogQLContext] = HogQLContext()
 
