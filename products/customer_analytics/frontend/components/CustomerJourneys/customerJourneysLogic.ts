@@ -6,6 +6,7 @@ import api from 'lib/api'
 import { LemonSelectOptions } from 'lib/lemon-ui/LemonSelect/LemonSelect'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
+import { InsightVizNode } from '~/queries/schema/schema-general'
 import { isInsightVizNode } from '~/queries/utils'
 import { insightsApi } from '~/scenes/insights/utils/api'
 import { QueryBasedInsightModel } from '~/types'
@@ -129,9 +130,9 @@ export const customerJourneysLogic = kea<customerJourneysLogicType>([
         ],
         activeJourneyFullQuery: [
             (s) => [s.activeInsight],
-            (activeInsight) => {
+            (activeInsight): InsightVizNode | null => {
                 const query = activeInsight?.query
-                return query && isInsightVizNode(query) ? { ...query, full: true } : query
+                return query && isInsightVizNode(query) && query.source ? { ...query, full: true } : null
             },
         ],
     }),
