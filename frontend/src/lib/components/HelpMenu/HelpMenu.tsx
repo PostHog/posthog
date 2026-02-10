@@ -14,11 +14,11 @@ import {
     IconQuestion,
     IconServer,
     IconShieldLock,
+    IconSparkles,
     IconSupport,
 } from '@posthog/icons'
 import { LemonTag } from '@posthog/lemon-ui'
 
-import { Logomark } from 'lib/brand/Logomark'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Link } from 'lib/lemon-ui/Link/Link'
 import { IconPreview } from 'lib/lemon-ui/icons'
@@ -104,8 +104,8 @@ export function HelpMenu(): JSX.Element {
                                                     'flex flex-col gap-1 p-2 border border-primary rounded h-32 items-center justify-center',
                                             }}
                                         >
-                                            <span className="size-3 [&>svg]:size-4">
-                                                <Logomark />
+                                            <span className="size-3 [&>svg]:size-4 mb-3">
+                                                <IconSparkles className="text-ai" />
                                             </span>
                                             <span className="text-sm font-medium">Ask PostHog AI</span>
                                             <span className="text-xs text-tertiary text-center text-pretty">
