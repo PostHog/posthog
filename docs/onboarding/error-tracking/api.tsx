@@ -2,6 +2,8 @@ import { OnboardingComponentsContext, createInstallation } from 'scenes/onboardi
 
 import { StepDefinition } from '../steps'
 
+const propertyColumnStyle = { minWidth: '200px', maxWidth: '250px' }
+
 export const getAPISteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
     const { CodeBlock, Markdown, dedent } = ctx
 
@@ -10,20 +12,45 @@ export const getAPISteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
             title: 'Learn the API schema',
             badge: 'required',
             content: (
-                <Markdown>
-                    {dedent`
-                        Error tracking enables you to track, investigate, and resolve exceptions your customers face.
-                
-                        If a platform you use is not supported by error tracking, we recommend that you reach out to us or contribute to our open-source SDKs before attempting to manually send exceptions.
-                
-                        If you'd rather roll your own exception capturing (or if you're using a platform we don't have an SDK for), you can use the [capture API](/docs/api/capture.md) or \`capture\` method to capture an \`$exception\` event with the following properties:
-                
-                        | Property | Description |
-                        | --- | --- |
-                        | $exception_list | A list of exception objects with detailed information about each error. Each exception can include a type, value, mechanism, module, and a stacktrace with frames and type. You can find the expected schema as types for both exception and stack frames in our Rust repo |
-                        | $exception_fingerprint | (Optional) The identifier used to group issues. If not set, a unique hash based on the exception pattern will be generated during ingestion |
-                    `}
-                </Markdown>
+                <>
+                    <Markdown>
+                        {dedent`
+                            Error tracking enables you to track, investigate, and resolve exceptions your customers face.
+                    
+                            If a platform you use is not supported by error tracking, we recommend that you reach out to us or contribute to our open-source SDKs before attempting to manually send exceptions.
+                    
+                            If you'd rather roll your own exception capturing (or if you're using a platform we don't have an SDK for), you can use the [capture API](/docs/api/capture.md) or \`capture\` method to capture an \`$exception\` event with the following properties:
+                        `}
+                    </Markdown>
+                    <div className="LemonMarkdown">
+                        <table className="my-4">
+                            <thead>
+                                <tr>
+                                    <th style={propertyColumnStyle}>Property</th>
+                                    <th>Description</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td style={propertyColumnStyle}>
+                                        <code>$exception_list</code>
+                                    </td>
+                                    <td>
+                                        A list of exception objects with detailed information about each error. Each exception can include a type, value, mechanism, module, and a stacktrace with frames and type. You can find the expected schema as types for both exception and stack frames in our Rust repo
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td style={propertyColumnStyle}>
+                                        <code>$exception_fingerprint</code>
+                                    </td>
+                                    <td>
+                                        (Optional) The identifier used to group issues. If not set, a unique hash based on the exception pattern will be generated during ingestion
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </>
             ),
         },
         {

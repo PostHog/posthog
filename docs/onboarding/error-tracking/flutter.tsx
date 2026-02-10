@@ -47,11 +47,13 @@ export const getFlutterSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                     {dedent`
                         **Configuration options:**
 
-                        - **\`captureFlutterErrors\`**: Captures Flutter framework errors (FlutterError.onError)
-                        - **\`capturePlatformDispatcherErrors\`**: Captures Dart runtime errors (PlatformDispatcher.onError) // Web not supported
-                        - **\`captureIsolateErrors\`**: Captures errors from main isolate // Web not supported
-                        - **\`captureNativeExceptions\`**: Captures native exceptions (Java/Kotlin exceptions) // Android only
-                        - **\`captureSilentFlutterErrors\`**: Captures Flutter errors that are marked as silent (default: false)
+                        | Option | Description |
+                        | --- | --- |
+                        | \`captureFlutterErrors\` | Captures Flutter framework errors (FlutterError.onError) |
+                        | \`capturePlatformDispatcherErrors\` | Captures Dart runtime errors (PlatformDispatcher.onError) // Web not supported |
+                        | \`captureIsolateErrors\` | Captures errors from main isolate // Web not supported |
+                        | \`captureNativeExceptions\` | Captures native exceptions (Java/Kotlin exceptions) // Android only |
+                        | \`captureSilentFlutterErrors\` | Captures Flutter errors that are marked as silent (default: false) |
                     `}
                 </Markdown>
             </>
@@ -130,9 +132,11 @@ export const getFlutterSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                     {dedent`
                         **Configuration options:**
 
-                        - **\`inAppIncludes\`**: List of package names to be considered inApp frames (takes precedence over excludes)
-                        - **\`inAppExcludes\`**: List of package names to be excluded from inApp frames
-                        - **\`inAppByDefault\`**: Whether frames are considered inApp by default when their origin cannot be determined
+                        | Option | Description |
+                        | --- | --- |
+                        | \`inAppIncludes\` | List of package names to be considered inApp frames (takes precedence over excludes) |
+                        | \`inAppExcludes\` | List of package names to be excluded from inApp frames |
+                        | \`inAppByDefault\` | Whether frames are considered inApp by default when their origin cannot be determined |
 
                         \`inApp\` frames are stack trace frames that belong to your application code (as opposed to third-party libraries or system code). These are highlighted in the PostHog error tracking interface to help you focus on the relevant parts of the stack trace.
                     `}

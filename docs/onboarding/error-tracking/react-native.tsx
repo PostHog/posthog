@@ -48,9 +48,11 @@ export const getReactNativeSteps = (ctx: OnboardingComponentsContext): StepDefin
                     {dedent`
                         **Configuration options:**
 
-                        - **\`uncaughtExceptions\`**: Captures Uncaught exceptions (ReactNativeGlobal.ErrorUtils.setGlobalHandler)
-                        - **\`unhandledRejections\`**: Captures Unhandled rejections (ReactNativeGlobal.onunhandledrejection)
-                        - **\`console\`**: Captures console logs as errors according to the reported \`LogLevel.\`
+                        | Option | Description |
+                        | --- | --- |
+                        | \`uncaughtExceptions\` | Captures Uncaught exceptions (ReactNativeGlobal.ErrorUtils.setGlobalHandler) |
+                        | \`unhandledRejections\` | Captures Unhandled rejections (ReactNativeGlobal.onunhandledrejection) |
+                        | \`console\` | Captures console logs as errors according to the reported \`LogLevel.\` |
                     `}
                 </Markdown>
             </>
