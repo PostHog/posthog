@@ -179,7 +179,7 @@ class PuppeteerRecorder(_ReplayVideoRecorder):
                 msg = "Puppeteer recorder produced no inactivity periods when recording the session."
                 err = RuntimeError(msg)
                 logger.exception(msg, output=output, options=options, signals_type="video_export")
-                posthoganalytics.capture_exception(err, additional_properties={"options": options, "output": output})
+                capture_exception(err, additional_properties={"options": options, "output": output})
                 raise err
             inactivity_periods = [
                 ReplayInactivityPeriod.model_validate(period) for period in output["inactivity_periods"]
