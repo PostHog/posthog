@@ -8,6 +8,7 @@ use uuid::Uuid;
 use crate::{
     error::{EventError, UnhandledError},
     metric_consts::PRE_PROCESSING_STAGE,
+    pipeline::exception::MAX_EXCEPTION_VALUE_LENGTH,
     recursively_sanitize_properties,
     stages::pipeline::{ExceptionEventHandledError, ExceptionEventPipelineItem},
     types::{
@@ -58,6 +59,20 @@ impl PreProcessingStage {
 
         if evt.exception_list.is_empty() {
             return Err(EventError::EmptyExceptionList(event.uuid));
+        }
+
+        for exception in evt.exception_list.iter_mut() {
+            if exception.exception_message.len() > MAX_EXCEPTION_VALUE_LENGTH {
+                let truncate_at = exception
+                    .exception_message
+                    .char_indices()
+                    .take_while(|(i, _)| *i < MAX_EXCEPTION_VALUE_LENGTH)
+                    .last()
+                    .map(|(i, c)| i + c.len_utf8())
+                    .unwrap_or(0);
+                exception.exception_message.truncate(truncate_at);
+                exception.exception_message.push_str("...");
+            }
         }
 
         // Set metadata fields that are skipped during deserialization
