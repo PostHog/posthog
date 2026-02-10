@@ -308,6 +308,7 @@ class TestAccessControlIntegration(BaseTest):
 
         node = parse_select(query)
         prepared = prepare_ast_for_printing(node, context=context, dialect="clickhouse")
+        assert prepared is not None
         return print_prepared_ast(prepared, context=context, dialect="clickhouse")
 
     def test_admin_can_query_system_dashboards(self):
