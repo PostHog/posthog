@@ -215,23 +215,40 @@ describe('savedInsightsLogic', () => {
         )
     })
 
-    it('handles rapid filter changes correctly (race condition)', async () => {
-        // This tests the scenario where a user changes a filter while a previous request is in flight.
-        // The breakpoint() after the API call ensures stale responses are discarded.
-        // Rapidly change filters multiple times
-        logic.actions.setSavedInsightsFilters({ search: 'first' }, true, false)
-        logic.actions.setSavedInsightsFilters({ search: 'second' }, true, false)
-        logic.actions.setSavedInsightsFilters({ search: 'third' }, true, false)
+    it('discards stale API responses when a newer request is in flight', async () => {
+        const pendingRequests: Array<{
+            resolve: (value: [number, any]) => void
+            search: string
+        }> = []
 
-        // Wait for all actions to complete
+        useMocks({
+            get: {
+                '/api/environments/:team_id/insights/': (req) => {
+                    const search = req.url.searchParams.get('search') ?? ''
+                    return new Promise<[number, any]>((resolve) => {
+                        pendingRequests.push({ resolve, search })
+                    })
+                },
+            },
+        })
+
+        // Fire two loads — both go in-flight concurrently
+        logic.actions.loadInsights(false)
+        logic.actions.loadInsights(false)
+        await new Promise((r) => setTimeout(r, 50))
+        expect(pendingRequests).toHaveLength(2)
+
+        // Resolve out of order: second (fresh) first, then first (stale)
+        pendingRequests[1].resolve([200, createSavedInsights('fresh', 0)])
+        await new Promise((r) => setTimeout(r, 50))
+
+        pendingRequests[0].resolve([200, createSavedInsights('stale', 0)])
         await expectLogic(logic).toFinishAllListeners()
 
-        // The final state should match the last filter applied
+        // The stale response that arrived last must NOT overwrite the fresh one
         await expectLogic(logic).toMatchValues({
-            filters: partial({ search: 'third' }),
             insights: partial({
-                filters: partial({ search: 'third' }),
-                results: partial([partial({ name: 'third 1' })]),
+                results: partial([partial({ name: 'fresh 1' })]),
             }),
         })
     })
