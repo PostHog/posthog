@@ -5,6 +5,7 @@ import { LemonButton, LemonCheckbox, LemonModal, LemonTabs } from '@posthog/lemo
 
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { TZLabel } from 'lib/components/TZLabel'
+import ViewRecordingButton, { RecordingPlayerType } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { IconLink } from 'lib/lemon-ui/icons'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
@@ -115,26 +116,36 @@ export function LogDetailsModal({ timezone }: LogDetailsModalProps): JSX.Element
                             />
                         </div>
                     </div>
-                    <div className="flex items-center gap-6">
-                        <div className="flex items-center gap-2">
-                            <span className="text-muted text-xs font-semibold uppercase">Timestamp</span>
-                            <span className="text-xs font-mono">
-                                <TZLabel
-                                    time={selectedLog.timestamp}
-                                    formatDate="YYYY-MM-DD"
-                                    formatTime="HH:mm:ss.SSS"
-                                    displayTimezone={timezone}
-                                    timestampStyle="absolute"
-                                />
-                            </span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                            <span className="text-muted text-xs font-semibold uppercase">Severity</span>
-                            <div className="flex items-center gap-1.5">
-                                <div className={`w-2 h-2 rounded-full ${severityColor}`} />
-                                <span className="font-mono text-xs">{selectedLog.severity_text.toUpperCase()}</span>
+                    <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-6">
+                            <div className="flex items-center gap-2">
+                                <span className="text-muted text-xs font-semibold uppercase">Timestamp</span>
+                                <span className="text-xs font-mono">
+                                    <TZLabel
+                                        time={selectedLog.timestamp}
+                                        formatDate="YYYY-MM-DD"
+                                        formatTime="HH:mm:ss.SSS"
+                                        displayTimezone={timezone}
+                                        timestampStyle="absolute"
+                                    />
+                                </span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <span className="text-muted text-xs font-semibold uppercase">Severity</span>
+                                <div className="flex items-center gap-1.5">
+                                    <div className={`w-2 h-2 rounded-full ${severityColor}`} />
+                                    <span className="font-mono text-xs">{selectedLog.severity_text.toUpperCase()}</span>
+                                </div>
                             </div>
                         </div>
+                        {sessionId && (
+                            <ViewRecordingButton
+                                sessionId={sessionId}
+                                timestamp={selectedLog.timestamp}
+                                size="xsmall"
+                                openPlayerIn={RecordingPlayerType.Modal}
+                            />
+                        )}
                     </div>
                 </LemonModal.Header>
                 <LemonModal.Content>
