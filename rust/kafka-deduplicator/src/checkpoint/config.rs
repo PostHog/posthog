@@ -58,6 +58,9 @@ pub struct CheckpointConfig {
     /// Timeout for a single S3 operation attempt
     pub s3_attempt_timeout: Duration,
 
+    /// Maximum number of retries for S3 operations before giving up
+    pub s3_max_retries: usize,
+
     /// Number of recent historical checkpoint attempts to try to import,
     /// starting from most recent, when attempting to import from remote
     /// storage. A failed download or corrupt files will result in fallback
@@ -101,8 +104,9 @@ impl Default for CheckpointConfig {
             checkpoint_import_window_hours: 24,
             s3_operation_timeout: Duration::from_secs(120),
             s3_attempt_timeout: Duration::from_secs(20),
+            s3_max_retries: 3,
             checkpoint_import_attempt_depth: 10,
-            max_concurrent_checkpoint_file_downloads: 50,
+            max_concurrent_checkpoint_file_downloads: 25,
             max_concurrent_checkpoint_file_uploads: 25,
             checkpoint_partition_import_timeout: Duration::from_secs(240),
         }

@@ -557,6 +557,24 @@ export const llmAnalyticsProviderKeysDestroy = async (
     })
 }
 
+/**
+ * Get evaluations using this key and alternative keys for replacement.
+ */
+export const getLlmAnalyticsProviderKeysDependentConfigsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/llm_analytics/provider_keys/${id}/dependent_configs/`
+}
+
+export const llmAnalyticsProviderKeysDependentConfigsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<LLMProviderKeyApi> => {
+    return apiMutator<LLMProviderKeyApi>(getLlmAnalyticsProviderKeysDependentConfigsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getLlmAnalyticsProviderKeysValidateCreateUrl = (projectId: string, id: string) => {
     return `/api/environments/${projectId}/llm_analytics/provider_keys/${id}/validate/`
 }

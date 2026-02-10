@@ -6008,6 +6008,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "personhog-router"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "axum 0.7.5",
+ "common-alloc",
+ "common-metrics",
+ "envconfig",
+ "health",
+ "http 1.4.0",
+ "metrics",
+ "personhog-proto",
+ "pin-project",
+ "tokio",
+ "tokio-stream",
+ "tonic 0.12.3",
+ "tower 0.4.13",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "pest"
 version = "2.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9657,6 +9679,7 @@ dependencies = [
  "getrandom 0.3.1",
  "js-sys",
  "serde_core",
+ "sha1_smol",
  "wasm-bindgen",
 ]
 

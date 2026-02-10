@@ -134,6 +134,7 @@ export interface PaginatedExternalDataSchemaListApi {
  * `TikTokAds` - TikTokAds
  * `BingAds` - BingAds
  * `Shopify` - Shopify
+ * `Attio` - Attio
  * `SnapchatAds` - SnapchatAds
  */
 export type SourceTypeEnumApi = (typeof SourceTypeEnumApi)[keyof typeof SourceTypeEnumApi]
@@ -173,6 +174,7 @@ export const SourceTypeEnumApi = {
     TikTokAds: 'TikTokAds',
     BingAds: 'BingAds',
     Shopify: 'Shopify',
+    Attio: 'Attio',
     SnapchatAds: 'SnapchatAds',
 } as const
 

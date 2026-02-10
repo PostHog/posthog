@@ -31,6 +31,7 @@ const esmModules = [
     'space-separated-tokens',
     'comma-separated-tokens',
     'zwitch',
+    '@posthog/hogql-parser',
 ]
 function rootDirectories(): string[] {
     return ['<rootDir>/src', '<rootDir>/../products']

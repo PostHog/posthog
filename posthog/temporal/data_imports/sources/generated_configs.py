@@ -63,6 +63,11 @@ class AshbySourceConfig(config.Config):
 
 
 @config.config
+class AttioSourceConfig(config.Config):
+    api_key: str
+
+
+@config.config
 class BigQuerySourceConfig(config.Config):
     key_file: BigQueryKeyFileConfig
     dataset_id: str
@@ -107,7 +112,8 @@ class DoItSourceConfig(config.Config):
 
 @config.config
 class GithubSourceConfig(config.Config):
-    pass
+    personal_access_token: str
+    repository: str
 
 
 @config.config
@@ -151,7 +157,7 @@ class MSSQLSourceConfig(config.Config):
 
 @config.config
 class MailchimpSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -208,7 +214,14 @@ class RedditAdsSourceConfig(config.Config):
 
 @config.config
 class RedshiftSourceConfig(config.Config):
-    pass
+    host: str
+    database: str
+    user: str
+    password: str
+    schema: str
+    port: int = config.value(converter=int)
+    connection_string: str | None = None
+    ssh_tunnel: SSHTunnelConfig | None = None
 
 
 @config.config
@@ -226,6 +239,12 @@ class ShopifySourceConfig(config.Config):
     shopify_store_id: str
     shopify_client_id: str
     shopify_client_secret: str
+
+
+@config.config
+class SnapchatAdsSourceConfig(config.Config):
+    ad_account_id: str
+    snapchat_integration_id: int = config.value(converter=config.str_to_int)
 
 
 @config.config
@@ -274,11 +293,6 @@ class TikTokAdsSourceConfig(config.Config):
 
 
 @config.config
-class SnapchatAdsSourceConfig(config.Config):
-    pass
-
-
-@config.config
 class VitallySourceConfig(config.Config):
     secret_token: str
     region: VitallyRegionConfig
@@ -294,6 +308,7 @@ class ZendeskSourceConfig(config.Config):
 def get_config_for_source(source: ExternalDataSourceType):
     return {
         ExternalDataSourceType.ASHBY: AshbySourceConfig,
+        ExternalDataSourceType.ATTIO: AttioSourceConfig,
         ExternalDataSourceType.BIGQUERY: BigQuerySourceConfig,
         ExternalDataSourceType.BINGADS: BingAdsSourceConfig,
         ExternalDataSourceType.BRAZE: BrazeSourceConfig,
@@ -320,12 +335,12 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.REVENUECAT: RevenueCatSourceConfig,
         ExternalDataSourceType.SALESFORCE: SalesforceSourceConfig,
         ExternalDataSourceType.SHOPIFY: ShopifySourceConfig,
+        ExternalDataSourceType.SNAPCHATADS: SnapchatAdsSourceConfig,
         ExternalDataSourceType.SNOWFLAKE: SnowflakeSourceConfig,
         ExternalDataSourceType.STRIPE: StripeSourceConfig,
         ExternalDataSourceType.SUPABASE: SupabaseSourceConfig,
         ExternalDataSourceType.TEMPORALIO: TemporalIOSourceConfig,
         ExternalDataSourceType.TIKTOKADS: TikTokAdsSourceConfig,
-        ExternalDataSourceType.SNAPCHATADS: SnapchatAdsSourceConfig,
         ExternalDataSourceType.VITALLY: VitallySourceConfig,
         ExternalDataSourceType.ZENDESK: ZendeskSourceConfig,
     }[source]

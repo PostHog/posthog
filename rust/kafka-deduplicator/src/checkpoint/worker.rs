@@ -2,7 +2,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
 
-use super::{plan_checkpoint, CheckpointExporter, CheckpointInfo, CheckpointMetadata};
+use super::{
+    plan_checkpoint, CheckpointExporter, CheckpointInfo, CheckpointMetadata, UploadCancelledError,
+};
 use crate::kafka::offset_tracker::OffsetTracker;
 use crate::kafka::types::Partition;
 use crate::metrics_const::{
@@ -14,6 +16,7 @@ use crate::store::{DeduplicationStore, LocalCheckpointInfo};
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use metrics;
+use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
 
 /// Worker that handles checkpoint processing for individual partitions
@@ -85,19 +88,39 @@ impl CheckpointWorker {
         }
     }
 
-    /// Perform a complete checkpoint operation: create, export, and cleanup
-    /// Returns (remote_path, metadata) on success
+    /// Perform a complete checkpoint operation: create, export, and cleanup.
+    /// Returns checkpoint info on success, None if export was skipped.
     pub async fn checkpoint_partition(
         &self,
         store: &DeduplicationStore,
         previous_metadata: Option<&CheckpointMetadata>,
     ) -> Result<Option<CheckpointInfo>> {
+        self.checkpoint_partition_cancellable(store, previous_metadata, None, None)
+            .await
+    }
+
+    /// Perform a complete checkpoint operation with cancellation support.
+    /// If cancel_token is provided and cancelled during export, returns an error early.
+    ///
+    /// The optional `cancel_cause` is used for metrics when cancelled (e.g., "rebalance" or "shutdown").
+    pub async fn checkpoint_partition_cancellable(
+        &self,
+        store: &DeduplicationStore,
+        previous_metadata: Option<&CheckpointMetadata>,
+        cancel_token: Option<&CancellationToken>,
+        cancel_cause: Option<&str>,
+    ) -> Result<Option<CheckpointInfo>> {
         // Create the local checkpoint
         let rocks_metadata = self.create_checkpoint(store).await?;
 
-        // Export checkpoint
+        // Export checkpoint with cancellation support
         let result = self
-            .export_checkpoint(&rocks_metadata, previous_metadata)
+            .export_checkpoint_cancellable(
+                &rocks_metadata,
+                previous_metadata,
+                cancel_token,
+                cancel_cause,
+            )
             .await;
 
         // Clean up temp checkpoint directory (skip in test mode to allow verification)
@@ -239,10 +262,12 @@ impl CheckpointWorker {
         }
     }
 
-    async fn export_checkpoint(
+    async fn export_checkpoint_cancellable(
         &self,
         rocks_metadata: &LocalCheckpointInfo,
         previous_metadata: Option<&CheckpointMetadata>,
+        cancel_token: Option<&CancellationToken>,
+        cancel_cause: Option<&str>,
     ) -> Result<Option<CheckpointInfo>> {
         let local_attempt_path_tag = self.get_local_attempt_path().to_string_lossy().to_string();
         let attempt_type = if previous_metadata.is_some() {
@@ -297,8 +322,11 @@ impl CheckpointWorker {
                     "Checkpoint worker: plan created"
                 );
 
-                // Export checkpoint using the plan
-                match exporter.export_checkpoint_with_plan(&plan).await {
+                // Export checkpoint using the plan with cancellation support
+                match exporter
+                    .export_checkpoint_with_plan_cancellable(&plan, cancel_token, cancel_cause)
+                    .await
+                {
                     Ok(()) => {
                         let tags = [("result", "success"), ("export", "success")];
                         metrics::counter!(CHECKPOINT_WORKER_STATUS_COUNTER, &tags).increment(1);
@@ -314,15 +342,21 @@ impl CheckpointWorker {
                     }
 
                     Err(e) => {
-                        let tags = [("result", "error"), ("cause", "export")];
-                        metrics::counter!(CHECKPOINT_WORKER_STATUS_COUNTER, &tags).increment(1);
-                        error!(
-                            self.worker_id,
-                            local_attempt_path = local_attempt_path_tag,
-                            attempt_type,
-                            "Checkpoint worker: export failed: {}",
-                            e
-                        );
+                        // Cancellation is NOT an error - metrics only (s3_uploader already logged the detail)
+                        if e.downcast_ref::<UploadCancelledError>().is_some() {
+                            let tags = [("result", "skipped"), ("cause", "cancelled")];
+                            metrics::counter!(CHECKPOINT_WORKER_STATUS_COUNTER, &tags).increment(1);
+                        } else {
+                            let tags = [("result", "error"), ("cause", "export")];
+                            metrics::counter!(CHECKPOINT_WORKER_STATUS_COUNTER, &tags).increment(1);
+                            error!(
+                                self.worker_id,
+                                local_attempt_path = local_attempt_path_tag,
+                                attempt_type,
+                                "Checkpoint worker: export failed: {}",
+                                e
+                            );
+                        }
 
                         Err(e)
                     }
