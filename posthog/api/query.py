@@ -186,24 +186,6 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             capture_exception(e)
             raise
 
-    @action(methods=["POST"], detail=False, url_path=r"(?P<query_kind>[A-Za-z]+)")
-    def create_with_kind(self, request: Request, *args, **kwargs) -> Response:
-        return self.create(request, *args, **kwargs)
-
-    def _validate_query_kind(self, request: Request, query_kind: str | None) -> None:
-        if not query_kind:
-            return
-        if not isinstance(request.data, dict):
-            raise ValidationError("Query body must be a JSON object.")
-        query_payload = request.data.get("query")
-        if query_payload is not None and not isinstance(query_payload, dict):
-            raise ValidationError("Query must be a JSON object.")
-        body_kind = query_payload.get("kind") if isinstance(query_payload, dict) else None
-        if query_kind != body_kind:
-            raise ValidationError(
-                f'Query kind mismatch: path kind "{query_kind}" does not match body kind "{body_kind}".'
-            )
-
     @extend_schema(
         description="(Experimental)",
         responses={200: QueryStatusResponse},
@@ -316,6 +298,24 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             return
 
         tag_queries(client_query_id=query_id)
+
+    @action(methods=["POST"], detail=False, url_path=r"(?P<query_kind>[A-Za-z]+)")
+    def create_with_kind(self, request: Request, *args, **kwargs) -> Response:
+        return self.create(request, *args, **kwargs)
+
+    def _validate_query_kind(self, request: Request, query_kind: str | None) -> None:
+        if not query_kind:
+            return
+        if not isinstance(request.data, dict):
+            raise ValidationError("Query body must be a JSON object.")
+        query_payload = request.data.get("query")
+        if query_payload is not None and not isinstance(query_payload, dict):
+            raise ValidationError("Query must be a JSON object.")
+        body_kind = query_payload.get("kind") if isinstance(query_payload, dict) else None
+        if query_kind != body_kind:
+            raise ValidationError(
+                f'Query kind mismatch: path kind "{query_kind}" does not match body kind "{body_kind}".'
+            )
 
 
 MAX_QUERY_TIMEOUT = 600
