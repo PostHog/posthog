@@ -1,13 +1,15 @@
 import os
 import json
-from typing import Literal, cast
+from typing import Literal
+
+from django.conf import settings
 
 import tiktoken
 import structlog
-from openai.types.chat import ChatCompletionMessageParam
+import posthoganalytics
+from anthropic.types import MessageParam
+from posthoganalytics.ai.anthropic import AsyncAnthropic
 from pydantic import BaseModel, Field
-
-from posthog.llm.gateway_client import get_async_llm_client
 
 from products.signals.backend.temporal.types import (
     ExistingReportMatch,
@@ -23,6 +25,24 @@ MATCHING_MODEL = os.getenv("SIGNAL_MATCHING_LLM_MODEL", "claude-sonnet-4-5")
 MAX_RETRIES = 3
 MAX_QUERY_TOKENS = 2048
 MAX_QUERIES = 3
+TIMEOUT = 300.0
+
+
+def get_async_anthropic_client() -> AsyncAnthropic:
+    """Get configured AsyncAnthropic client with PostHog analytics."""
+    posthog_client = posthoganalytics.default_client
+    if not posthog_client:
+        raise ValueError("PostHog analytics client not configured")
+
+    api_key = settings.ANTHROPIC_API_KEY
+    if not api_key:
+        raise ValueError("ANTHROPIC_API_KEY is not configured")
+
+    return AsyncAnthropic(
+        api_key=api_key,
+        posthog_client=posthog_client,
+        timeout=TIMEOUT,
+    )
 
 
 # ============================================================================
@@ -34,7 +54,7 @@ class QueryGenerationResponse(BaseModel):
     queries: list[str] = Field(min_length=1, max_length=3)
 
 
-QUERY_GENERATION_SYSTEM_PROMPT = """You are a signal grouping assistant. Your job is to generate search queries that will help find related signals in an embedding database.
+QUERY_GENERATION_SYSTEM_PROMPT = f"""You are a signal grouping assistant. Your job is to generate search queries that will help find related signals in an embedding database.
 
 Signals come from diverse sources: exceptions, experiments, insight alerts, session behaviour analysis, and more.
 Related signals may be different types but connected by the same underlying cause, feature, or user journey. Note that "related" does not just mean "semantically similar", but "likely to share a common root cause or impact".
@@ -45,9 +65,9 @@ Given a new signal, generate 1-3 search queries that would help find related sig
 2. The type of user behavior or technical issue
 3. The broader category or business impact
 
-Keep queries concise but descriptive. Each query will be embedded and used for semantic similarity search.
+Keep queries concise but descriptive - they have a maximum length of {MAX_QUERY_TOKENS} tokens. Each query will be embedded and used for semantic similarity search.
 
-Respond with a JSON object containing a "queries" array with 1-3 query strings."""
+Respond with a JSON object containing a "queries" array with 1-3 query strings. Return ONLY valid JSON, no other text."""
 
 
 def _truncate_query_to_token_limit(query: str, max_tokens: int = MAX_QUERY_TOKENS) -> str:
@@ -66,6 +86,14 @@ def _truncate_query_to_token_limit(query: str, max_tokens: int = MAX_QUERY_TOKEN
         return query[:char_limit]
 
 
+def _extract_text_content(response) -> str:
+    """Extract text content from Anthropic response."""
+    for block in response.content:
+        if hasattr(block, "text"):
+            return block.text
+    raise ValueError("No text content in response")
+
+
 async def generate_search_queries(
     description: str,
     source_product: str,
@@ -80,29 +108,25 @@ async def generate_search_queries(
 - Source: {source_product} / {source_type}
 - Description: {description}"""
 
-    client = get_async_llm_client()
+    client = get_async_anthropic_client()
 
-    messages = cast(
-        list[ChatCompletionMessageParam],
-        [
-            {"role": "system", "content": QUERY_GENERATION_SYSTEM_PROMPT},
-            {"role": "user", "content": user_prompt},
-        ],
-    )
+    messages: list[MessageParam] = [
+        {"role": "user", "content": user_prompt},
+    ]
 
+    last_exception = None
     for attempt in range(MAX_RETRIES):
         last_response_content: str | None = None
         try:
-            completion = await client.chat.completions.create(
+            response = await client.messages.create(
                 model=MATCHING_MODEL,
+                system=QUERY_GENERATION_SYSTEM_PROMPT,
                 messages=messages,
-                response_format={"type": "json_object"},
+                max_tokens=1024,
                 temperature=0.7,
             )
 
-            last_response_content = completion.choices[0].message.content
-            if last_response_content is None:
-                raise ValueError("LLM returned empty content")
+            last_response_content = _extract_text_content(response)
 
             data = json.loads(last_response_content)
             result = QueryGenerationResponse.model_validate(data)
@@ -132,12 +156,16 @@ async def generate_search_queries(
             messages.append(
                 {
                     "role": "user",
-                    "content": f"Your previous response failed validation. Error: {e}\n\nPlease try again with a valid response.",
+                    "content": f"Your previous response failed validation. Error: {e}\n\nPlease try again with a valid JSON response.",
                 }
             )
+            last_exception = e
             continue
 
-    raise ValueError(f"Failed to generate search queries after {MAX_RETRIES} attempts")
+    if not last_exception:
+        raise ValueError(f"Failed to generate search queries after {MAX_RETRIES} attempts")
+    else:
+        raise last_exception
 
 
 # ============================================================================
@@ -170,9 +198,8 @@ def _parse_match_response(data: dict) -> LLMMatchResponse:
         raise ValueError(f"Invalid match_type: {match_type}")
 
 
-MATCHING_SYSTEM_PROMPT = """
-You are a signal grouping assistant. Your job is to determine if a new signal is related to an existing group of signals,
-or if it should start a new group. Respond with JSON.
+MATCHING_SYSTEM_PROMPT = """You are a signal grouping assistant. Your job is to determine if a new signal is related to an existing group of signals,
+or if it should start a new group.
 
 Signals come from diverse sources: exceptions, experiments, insight alerts, session behaviour analysis, and more.
 Your task is to identify signals that are RELATED - they may be different signal types but connected by the same underlying cause, feature, or user journey.
@@ -193,7 +220,7 @@ If a candidate signal from ANY query is related to the new signal, respond with 
 If no candidate is related (or all queries returned no results), respond with:
 {"match_type": "new", "title": "<short title for a new report>", "summary": "<1-2 sentence summary of what this signal group is about>"}
 
-You must respond with valid JSON only."""
+You must respond with valid JSON only, no other text."""
 
 
 def _build_matching_prompt(
@@ -254,29 +281,25 @@ async def match_signal_with_llm(
             candidates_by_id[c.signal_id] = c
 
     user_prompt = _build_matching_prompt(description, source_product, source_type, queries, query_results)
-    client = get_async_llm_client()
+    client = get_async_anthropic_client()
 
-    messages = cast(
-        list[ChatCompletionMessageParam],
-        [
-            {"role": "system", "content": MATCHING_SYSTEM_PROMPT},
-            {"role": "user", "content": user_prompt},
-        ],
-    )
+    messages: list[MessageParam] = [
+        {"role": "user", "content": user_prompt},
+    ]
 
+    last_exception = None
     for attempt in range(MAX_RETRIES):
         last_response_content: str | None = None
         try:
-            completion = await client.chat.completions.create(
+            response = await client.messages.create(
                 model=MATCHING_MODEL,
+                system=MATCHING_SYSTEM_PROMPT,
                 messages=messages,
-                response_format={"type": "json_object"},
+                max_tokens=1024,
                 temperature=0.2,
             )
 
-            last_response_content = completion.choices[0].message.content
-            if last_response_content is None:
-                raise ValueError("LLM returned empty content")
+            last_response_content = _extract_text_content(response)
 
             data = json.loads(last_response_content)
             result = _parse_match_response(data)
@@ -310,12 +333,16 @@ async def match_signal_with_llm(
             messages.append(
                 {
                     "role": "user",
-                    "content": f"Your previous response failed validation. Error: {e}\n\nPlease try again with a valid response.",
+                    "content": f"Your previous response failed validation. Error: {e}\n\nPlease try again with a valid JSON response.",
                 }
             )
+            last_exception = e
             continue
 
-    raise ValueError(f"Failed to get valid LLM response after {MAX_RETRIES} attempts")
+    if not last_exception:
+        raise ValueError(f"Failed to get valid LLM response after {MAX_RETRIES} attempts")
+    else:
+        raise last_exception
 
 
 # ============================================================================
@@ -340,9 +367,13 @@ Given a list of signals, produce:
    - The potential impact or significance
    - Any patterns or trends observed
 
+Signals have a weight - this is a number, between 0 and 1, representing how important the signal is. Signals with higher weights are more important.
+
+Signal groups have a weight equal to the sum of all their signals' weights, and when the group has a weight of 1, you're asked to produce a report about them.
+
 Be specific and actionable. Avoid generic phrases like "various issues detected".
 
-Respond with a JSON object containing "title" and "summary" fields."""
+Respond with a JSON object containing "title" and "summary" fields. Return ONLY valid JSON, no other text."""
 
 
 def _build_summarize_prompt(signals: list[SignalData]) -> str:
@@ -373,42 +404,37 @@ async def summarize_signals(signals: list[SignalData]) -> tuple[str, str]:
         Tuple of (title, summary)
     """
     user_prompt = _build_summarize_prompt(signals)
-    client = get_async_llm_client()
+    client = get_async_anthropic_client()
 
-    messages = cast(
-        list[ChatCompletionMessageParam],
-        [
-            {"role": "system", "content": SUMMARIZE_SYSTEM_PROMPT},
-            {"role": "user", "content": user_prompt},
-        ],
-    )
+    messages: list[MessageParam] = [
+        {"role": "user", "content": user_prompt},
+    ]
 
     for attempt in range(MAX_RETRIES):
         last_response_content: str | None = None
         try:
-            completion = await client.chat.completions.create(
+            response = await client.messages.create(
                 model=MATCHING_MODEL,
+                system=SUMMARIZE_SYSTEM_PROMPT,
                 messages=messages,
-                response_format={"type": "json_object"},
+                max_tokens=1024,
                 temperature=0.3,
             )
 
-            last_response_content = completion.choices[0].message.content
-            if last_response_content is None:
-                raise ValueError("LLM returned empty content")
+            last_response_content = _extract_text_content(response)
 
             data = json.loads(last_response_content)
             result = SummarizeSignalsResponse.model_validate(data)
 
-            # Enforce title length limit
-            title = result.title[:100] if len(result.title) > 100 else result.title
+            if len(result.title) > 100:
+                raise ValueError("Title exceeds maximum length")
 
             logger.debug(
                 "Summarized signals",
                 signal_count=len(signals),
-                title=title,
+                title=result.title,
             )
-            return title, result.summary
+            return result.title, result.summary
 
         except Exception as e:
             logger.warning(
@@ -421,7 +447,7 @@ async def summarize_signals(signals: list[SignalData]) -> tuple[str, str]:
             messages.append(
                 {
                     "role": "user",
-                    "content": f"Your previous response failed validation. Error: {e}\n\nPlease try again with a valid response.",
+                    "content": f"Your previous response failed validation. Error: {e}\n\nPlease try again with a valid JSON response.",
                 }
             )
             continue

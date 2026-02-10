@@ -1,7 +1,10 @@
+from datetime import timedelta
+
 from django.conf import settings
 
 import posthoganalytics
 import temporalio.exceptions
+from asgiref.sync import sync_to_async
 from temporalio.common import WorkflowIDReusePolicy
 
 from posthog.models import Team
@@ -11,8 +14,9 @@ from products.signals.backend.temporal.types import EmitSignalInputs
 from products.signals.backend.temporal.workflow import EmitSignalWorkflow
 
 
-def product_autonomy_enabled(team: Team) -> bool:
-    if not team.organization.is_ai_data_processing_approved:
+async def product_autonomy_enabled(team: Team) -> bool:
+    organization = await sync_to_async(lambda: team.organization)()
+    if not organization.is_ai_data_processing_approved:
         return False
 
     return posthoganalytics.feature_enabled(
@@ -66,7 +70,7 @@ async def emit_signal(
             extra={"variant": "B", "p_value": 0.003},
         )
     """
-    if not product_autonomy_enabled(team):
+    if not await product_autonomy_enabled(team):
         return
 
     client = await async_connect()
@@ -88,8 +92,9 @@ async def emit_signal(
             EmitSignalWorkflow.run,
             inputs,
             id=workflow_id,
-            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
             id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
+            execution_timeout=timedelta(minutes=30),
         )
     except temporalio.exceptions.WorkflowAlreadyStartedError:
         pass

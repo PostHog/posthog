@@ -8,7 +8,7 @@ from products.signals.backend.temporal.activities import (
     mark_report_failed_activity,
     mark_report_in_progress_activity,
     mark_report_ready_activity,
-    run_embedding_query_activity,
+    run_signal_semantic_search_activity,
     summarize_signals_activity,
 )
 from products.signals.backend.temporal.workflow import EmitSignalWorkflow, SignalResearchWorkflow
@@ -28,6 +28,6 @@ ACTIVITIES = [
     mark_report_failed_activity,
     mark_report_in_progress_activity,
     mark_report_ready_activity,
-    run_embedding_query_activity,
+    run_signal_semantic_search_activity,
     summarize_signals_activity,
 ]

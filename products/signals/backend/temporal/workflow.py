@@ -26,8 +26,8 @@ from products.signals.backend.temporal.activities import (
     MarkReportFailedInput,
     MarkReportInProgressInput,
     MarkReportReadyInput,
-    RunEmbeddingQueryInput,
-    RunEmbeddingQueryOutput,
+    RunSignalSemanticSearchInput,
+    RunSignalSemanticSearchOutput,
     SummarizeSignalsInput,
     SummarizeSignalsOutput,
     assign_signal_to_report_activity,
@@ -39,7 +39,7 @@ from products.signals.backend.temporal.activities import (
     mark_report_failed_activity,
     mark_report_in_progress_activity,
     mark_report_ready_activity,
-    run_embedding_query_activity,
+    run_signal_semantic_search_activity,
     summarize_signals_activity,
 )
 from products.signals.backend.temporal.types import EmitSignalInputs, SignalResearchWorkflowInputs
@@ -108,11 +108,11 @@ class EmitSignalWorkflow(PostHogWorkflow):
             ]
         )
 
-        query_results: list[RunEmbeddingQueryOutput] = await asyncio.gather(
+        query_results: list[RunSignalSemanticSearchOutput] = await asyncio.gather(
             *[
                 workflow.execute_activity(
-                    run_embedding_query_activity,
-                    RunEmbeddingQueryInput(
+                    run_signal_semantic_search_activity,
+                    RunSignalSemanticSearchInput(
                         team_id=inputs.team_id,
                         embedding=emb_result.embedding,
                         limit=10,
@@ -178,8 +178,9 @@ class EmitSignalWorkflow(PostHogWorkflow):
                 SignalResearchWorkflow.run,
                 SignalResearchWorkflowInputs(team_id=inputs.team_id, report_id=assign_result.report_id),
                 id=SignalResearchWorkflow.workflow_id_for(inputs.team_id, assign_result.report_id),
-                task_queue=settings.TEMPORAL_TASK_QUEUE,
+                task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
                 parent_close_policy=ParentClosePolicy.ABANDON,
+                execution_timeout=timedelta(minutes=30),
             )
 
         return signal_id
@@ -224,7 +225,14 @@ class SignalResearchWorkflow(PostHogWorkflow):
         )
 
         if not fetch_result.signals:
-            workflow.logger.warning(f"No signals found for report {inputs.report_id}, skipping")
+            # mark the report as failed, and log an error
+            workflow.logger.error(f"No signals found for report {inputs.report_id}, marking as failed")
+            await workflow.execute_activity(
+                mark_report_failed_activity,
+                MarkReportFailedInput(report_id=inputs.report_id, error="No signals found"),
+                start_to_close_timeout=timedelta(minutes=1),
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
             return
 
         await workflow.execute_activity(

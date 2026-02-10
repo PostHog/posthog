@@ -106,19 +106,19 @@ async def generate_search_queries_activity(input: GenerateSearchQueriesInput) ->
 
 
 @dataclass
-class RunEmbeddingQueryInput:
+class RunSignalSemanticSearchInput:
     team_id: int
     embedding: list[float]
     limit: int = 10
 
 
 @dataclass
-class RunEmbeddingQueryOutput:
+class RunSignalSemanticSearchOutput:
     candidates: list[SignalCandidate]
 
 
 @temporalio.activity.defn
-async def run_embedding_query_activity(input: RunEmbeddingQueryInput) -> RunEmbeddingQueryOutput:
+async def run_signal_semantic_search_activity(input: RunSignalSemanticSearchInput) -> RunSignalSemanticSearchOutput:
     """Run a nearest neighbor query against the signal embeddings in ClickHouse."""
     try:
         team = await Team.objects.aget(pk=input.team_id)
@@ -180,7 +180,7 @@ async def run_embedding_query_activity(input: RunEmbeddingQueryInput) -> RunEmbe
             team_id=input.team_id,
             candidate_count=len(candidates),
         )
-        return RunEmbeddingQueryOutput(candidates=candidates)
+        return RunSignalSemanticSearchOutput(candidates=candidates)
     except Exception as e:
         logger.exception(
             f"Failed to run embedding query for team {input.team_id}: {e}",
@@ -369,7 +369,10 @@ class FetchSignalsForReportOutput:
 
 @temporalio.activity.defn
 async def fetch_signals_for_report_activity(input: FetchSignalsForReportInput) -> FetchSignalsForReportOutput:
-    """Fetch all signals associated with a report from ClickHouse."""
+    """
+    Fetch all signals associated with a report from ClickHouse.
+    Note: fetches 100 signals at most. This may exceed useful LLM input size - we should consider limiting it in the future.
+    """
     try:
         team = await Team.objects.aget(pk=input.team_id)
 
@@ -408,10 +411,9 @@ async def fetch_signals_for_report_activity(input: FetchSignalsForReportInput) -
         signals = []
         for row in result.results or []:
             document_id, content, metadata_str, timestamp = row
-            try:
-                metadata = json.loads(metadata_str) if isinstance(metadata_str, str) else metadata_str or {}
-            except json.JSONDecodeError:
-                metadata = {}
+            # Purposefully throw here if we fail - we rely on metadata being correct, and it's not llm generated, so
+            # no defensive parsing, we want to fail loudly.
+            metadata = json.loads(metadata_str) if isinstance(metadata_str, str) else metadata_str or {}
             signals.append(
                 SignalData(
                     signal_id=document_id,
