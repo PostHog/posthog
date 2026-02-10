@@ -321,7 +321,7 @@ export function HogFlowEditorPanelBuild(): JSX.Element {
             {showConversationNodes && (
                 <>
                     <span className="flex gap-2 text-sm font-semibold mt-2 items-center">
-                        Conversations <LemonDivider className="flex-1" />
+                        Support <LemonDivider className="flex-1" />
                     </span>
                     {CONVERSATION_NODES.map((action, index) => (
                         <HogFlowEditorToolbarNode key={`${action.type}-${index}`} action={action} />
