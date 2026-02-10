@@ -1,3 +1,4 @@
+import socket
 from typing import Any
 
 from posthog.test.base import APIBaseTest
@@ -7,6 +8,7 @@ from django.test import override_settings
 
 import boto3
 from clickhouse_driver.errors import ServerException
+from parameterized import parameterized
 
 from posthog.settings import settings
 
@@ -15,6 +17,122 @@ from products.data_warehouse.backend.models.external_data_source import External
 
 
 class TestTable(APIBaseTest):
+    @parameterized.expand(
+        [
+            ("http_scheme", "http://example.com/path/*.csv", "URL pattern must use https."),
+            ("s3_scheme", "s3://bucket/path/*.parquet", "URL pattern must use https."),
+            ("localhost", "https://localhost/path/*.csv", "hostname is not allowed"),
+            ("literal_ipv4_loopback", "https://127.0.0.1/path/*.csv", "internal IP ranges"),
+            ("literal_ipv4_linklocal", "https://169.254.169.254/path/*.csv", "internal IP ranges"),
+            ("literal_ipv6_mapped_loopback", "https://[::ffff:127.0.0.1]/path/*.csv", "internal IP ranges"),
+            ("literal_ipv6_6to4_loopback", "https://[2002:7f00:1::]/path/*.csv", "internal IP ranges"),
+        ]
+    )
+    def test_create_columns_blocks_unsafe_url_patterns(self, _: str, url_pattern: str, expected_error: str):
+        with patch.object(DataWarehouseTable, "get_columns") as patch_get_columns:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/warehouse_tables/",
+                {
+                    "name": "unsafe_table",
+                    "url_pattern": url_pattern,
+                    "credential": {
+                        "access_key": "_accesskey",
+                        "access_secret": "_accesssecret",
+                    },
+                    "format": "Parquet",
+                },
+            )
+
+        assert response.status_code == 400
+        assert expected_error in str(response.json())
+        patch_get_columns.assert_not_called()
+
+    @parameterized.expand(
+        [
+            (
+                "nip_io_loopback",
+                "https://127.0.0.1.nip.io/latest/meta-data/",
+                [(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("127.0.0.1", 0))],
+                "internal IP ranges",
+            ),
+            (
+                "sslip_io_linklocal",
+                "https://169.254.169.254.sslip.io/latest/meta-data/",
+                [(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("169.254.169.254", 0))],
+                "internal IP ranges",
+            ),
+            (
+                "custom_dns_rebinding",
+                "https://evil.attacker.com/path/*.csv",
+                [(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("10.0.0.1", 0))],
+                "internal IP ranges",
+            ),
+            (
+                "mixed_results_one_internal",
+                "https://sneaky.example.com/path/*.csv",
+                [
+                    (socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("93.184.216.34", 0)),
+                    (socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("192.168.1.1", 0)),
+                ],
+                "internal IP ranges",
+            ),
+            (
+                "unresolvable_hostname",
+                "https://does-not-exist.invalid/path/*.csv",
+                socket.gaierror("Name or service not known"),
+                "could not be resolved",
+            ),
+        ]
+    )
+    def test_create_columns_blocks_dns_resolved_internal_ips(
+        self, _: str, url_pattern: str, getaddrinfo_result: Any, expected_error: str
+    ):
+        side_effect = getaddrinfo_result if isinstance(getaddrinfo_result, Exception) else None
+        return_value = None if isinstance(getaddrinfo_result, Exception) else getaddrinfo_result
+
+        with (
+            patch(
+                "products.data_warehouse.backend.models.util.socket.getaddrinfo",
+                side_effect=side_effect,
+                return_value=return_value,
+            ),
+            patch.object(DataWarehouseTable, "get_columns") as patch_get_columns,
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/warehouse_tables/",
+                {
+                    "name": "unsafe_table",
+                    "url_pattern": url_pattern,
+                    "credential": {
+                        "access_key": "_accesskey",
+                        "access_secret": "_accesssecret",
+                    },
+                    "format": "Parquet",
+                },
+            )
+
+        assert response.status_code == 400
+        assert expected_error in str(response.json())
+        patch_get_columns.assert_not_called()
+
+    def test_update_table_blocks_unsafe_url_patterns(self):
+        table = DataWarehouseTable.objects.create(
+            name="test_table",
+            format="Parquet",
+            team=self.team,
+            team_id=self.team.pk,
+            url_pattern="https://your-org.s3.amazonaws.com/bucket/whatever.pqt",
+            columns={},
+        )
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/warehouse_tables/{table.id}",
+            {
+                "url_pattern": "https://127.0.0.1/latest/meta-data/",
+            },
+        )
+        assert response.status_code == 400
+        assert "internal IP ranges" in str(response.json())
+
     @patch(
         "products.data_warehouse.backend.models.table.DataWarehouseTable.get_columns",
         return_value={
