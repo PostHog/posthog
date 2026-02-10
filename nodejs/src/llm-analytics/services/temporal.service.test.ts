@@ -163,4 +163,43 @@ describe('TemporalService', () => {
             )
         })
     })
+
+    describe('sentiment batch workflow', () => {
+        it('starts batch workflow with events array', async () => {
+            const events = [createMockEvent({ uuid: 'evt-1' }), createMockEvent({ uuid: 'evt-2' })]
+
+            await service.startSentimentClassificationWorkflow(events)
+
+            expect(mockClient.workflow.start).toHaveBeenCalledWith(
+                'llma-run-sentiment-classification',
+                expect.objectContaining({
+                    workflowIdConflictPolicy: 'USE_EXISTING',
+                    args: [{ events }],
+                })
+            )
+        })
+
+        it('generates deterministic workflow ID from sorted event UUIDs', async () => {
+            const events1 = [createMockEvent({ uuid: 'evt-b' }), createMockEvent({ uuid: 'evt-a' })]
+            const events2 = [createMockEvent({ uuid: 'evt-a' }), createMockEvent({ uuid: 'evt-b' })]
+
+            await service.startSentimentClassificationWorkflow(events1)
+            await service.startSentimentClassificationWorkflow(events2)
+
+            const calls = (mockClient.workflow.start as jest.Mock).mock.calls
+            expect(calls[0][1].workflowId).toEqual(calls[1][1].workflowId)
+            expect(calls[0][1].workflowId).toMatch(/^llma-sentiment-batch-[a-f0-9]{32}$/)
+        })
+
+        it('generates different workflow IDs for different event sets', async () => {
+            const batch1 = [createMockEvent({ uuid: 'evt-1' })]
+            const batch2 = [createMockEvent({ uuid: 'evt-2' })]
+
+            await service.startSentimentClassificationWorkflow(batch1)
+            await service.startSentimentClassificationWorkflow(batch2)
+
+            const calls = (mockClient.workflow.start as jest.Mock).mock.calls
+            expect(calls[0][1].workflowId).not.toEqual(calls[1][1].workflowId)
+        })
+    })
 })

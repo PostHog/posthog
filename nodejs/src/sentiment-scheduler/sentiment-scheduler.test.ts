@@ -2,9 +2,11 @@ import { Message } from 'node-rdkafka'
 
 import { createAiGenerationEvent } from '~/llm-analytics/_tests/fixtures'
 
+import { TemporalService } from '../llm-analytics/services/temporal.service'
 import {
     SampleRateProvider,
     checkSampleRate,
+    eachBatchSentimentScheduler,
     filterAndParseMessages,
     parseSampleRatePayload,
 } from './sentiment-scheduler'
@@ -163,6 +165,97 @@ describe('Sentiment Scheduler', () => {
             expect(provider.getSampleRate()).toBe(0.05)
 
             await provider.stop()
+        })
+    })
+
+    describe('eachBatchSentimentScheduler', () => {
+        let mockTemporalService: jest.Mocked<TemporalService>
+        let sampleRateProvider: SampleRateProvider
+
+        beforeEach(async () => {
+            mockTemporalService = {
+                startSentimentClassificationWorkflow: jest.fn().mockResolvedValue({ workflowId: 'test' }),
+                disconnect: jest.fn(),
+            } as any
+
+            sampleRateProvider = new SampleRateProvider(1.0)
+            await sampleRateProvider.start()
+        })
+
+        afterEach(async () => {
+            await sampleRateProvider.stop()
+        })
+
+        it('starts one batch workflow with all sampled events', async () => {
+            const messages: Message[] = [
+                {
+                    headers: [{ productTrack: Buffer.from('llma') }],
+                    value: Buffer.from(JSON.stringify(createAiGenerationEvent(teamId))),
+                } as any,
+                {
+                    headers: [{ productTrack: Buffer.from('llma') }],
+                    value: Buffer.from(JSON.stringify(createAiGenerationEvent(teamId))),
+                } as any,
+                {
+                    headers: [{ productTrack: Buffer.from('llma') }],
+                    value: Buffer.from(JSON.stringify(createAiGenerationEvent(teamId))),
+                } as any,
+            ]
+
+            await eachBatchSentimentScheduler(messages, mockTemporalService, sampleRateProvider)
+
+            expect(mockTemporalService.startSentimentClassificationWorkflow).toHaveBeenCalledTimes(1)
+            const callArgs = mockTemporalService.startSentimentClassificationWorkflow.mock.calls[0][0]
+            expect(callArgs).toHaveLength(3)
+        })
+
+        it('does not start workflow when no events pass sampling', async () => {
+            const zeroRateProvider = new SampleRateProvider(0)
+            await zeroRateProvider.start()
+
+            const messages: Message[] = [
+                {
+                    headers: [{ productTrack: Buffer.from('llma') }],
+                    value: Buffer.from(JSON.stringify(createAiGenerationEvent(teamId))),
+                } as any,
+            ]
+
+            await eachBatchSentimentScheduler(messages, mockTemporalService, zeroRateProvider)
+
+            expect(mockTemporalService.startSentimentClassificationWorkflow).not.toHaveBeenCalled()
+
+            await zeroRateProvider.stop()
+        })
+
+        it('does not start workflow when no llma events in batch', async () => {
+            const messages: Message[] = [
+                {
+                    headers: [{ productTrack: Buffer.from('general') }],
+                    value: Buffer.from(JSON.stringify({ event: '$pageview' })),
+                } as any,
+            ]
+
+            await eachBatchSentimentScheduler(messages, mockTemporalService, sampleRateProvider)
+
+            expect(mockTemporalService.startSentimentClassificationWorkflow).not.toHaveBeenCalled()
+        })
+
+        it('handles workflow start failure gracefully', async () => {
+            mockTemporalService.startSentimentClassificationWorkflow.mockRejectedValue(
+                new Error('Temporal unavailable')
+            )
+
+            const messages: Message[] = [
+                {
+                    headers: [{ productTrack: Buffer.from('llma') }],
+                    value: Buffer.from(JSON.stringify(createAiGenerationEvent(teamId))),
+                } as any,
+            ]
+
+            // Should not throw
+            await eachBatchSentimentScheduler(messages, mockTemporalService, sampleRateProvider)
+
+            expect(mockTemporalService.startSentimentClassificationWorkflow).toHaveBeenCalledTimes(1)
         })
     })
 })

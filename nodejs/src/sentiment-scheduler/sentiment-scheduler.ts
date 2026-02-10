@@ -49,6 +49,12 @@ const sentimentSchedulerEventsProcessed = new Counter({
     labelNames: ['status'], // sampled_in, sampled_out, success, error
 })
 
+const sentimentSchedulerBatchesStarted = new Counter({
+    name: 'llma_sentiment_scheduler_batches_started',
+    help: 'Number of batch workflows started by sentiment scheduler',
+    labelNames: ['status'], // success, error
+})
+
 const sentimentSchedulerSampleRate = new Gauge({
     name: 'llma_sentiment_scheduler_sample_rate',
     help: 'Current sample rate used by the sentiment scheduler',
@@ -222,7 +228,7 @@ export const startSentimentScheduler = async (hub: SentimentSchedulerHub): Promi
     }
 }
 
-async function eachBatchSentimentScheduler(
+export async function eachBatchSentimentScheduler(
     messages: Message[],
     temporalService: TemporalService,
     sampleRateProvider: SampleRateProvider
@@ -239,7 +245,7 @@ async function eachBatchSentimentScheduler(
     }
 
     const sampleRate = sampleRateProvider.getSampleRate()
-    const tasks: Promise<void>[] = []
+    const sampledEvents: RawKafkaEvent[] = []
 
     for (const event of aiGenerationEvents) {
         if (!checkSampleRate(event.uuid, sampleRate)) {
@@ -248,22 +254,23 @@ async function eachBatchSentimentScheduler(
         }
 
         sentimentSchedulerEventsProcessed.labels({ status: 'sampled_in' }).inc()
-
-        const task = temporalService
-            .startSentimentClassificationWorkflow(event)
-            .then(() => {
-                sentimentSchedulerEventsProcessed.labels({ status: 'success' }).inc()
-            })
-            .catch((error: unknown) => {
-                logger.error('Error starting sentiment workflow', {
-                    eventUuid: event.uuid,
-                    error: error instanceof Error ? error.message : String(error),
-                })
-                sentimentSchedulerEventsProcessed.labels({ status: 'error' }).inc()
-            })
-
-        tasks.push(task)
+        sampledEvents.push(event)
     }
 
-    await Promise.allSettled(tasks)
+    if (sampledEvents.length === 0) {
+        return
+    }
+
+    try {
+        await temporalService.startSentimentClassificationWorkflow(sampledEvents)
+        sentimentSchedulerBatchesStarted.labels({ status: 'success' }).inc()
+        sentimentSchedulerEventsProcessed.labels({ status: 'success' }).inc(sampledEvents.length)
+    } catch (error: unknown) {
+        logger.error('Error starting sentiment batch workflow', {
+            eventCount: sampledEvents.length,
+            error: error instanceof Error ? error.message : String(error),
+        })
+        sentimentSchedulerBatchesStarted.labels({ status: 'error' }).inc()
+        sentimentSchedulerEventsProcessed.labels({ status: 'error' }).inc(sampledEvents.length)
+    }
 }

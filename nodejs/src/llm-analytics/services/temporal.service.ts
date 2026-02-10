@@ -1,4 +1,5 @@
 import { Client, Connection, TLSConfig, WorkflowHandle } from '@temporalio/client'
+import * as crypto from 'crypto'
 import fs from 'fs/promises'
 import { Counter } from 'prom-client'
 
@@ -141,15 +142,20 @@ export class TemporalService {
         return handle
     }
 
-    async startSentimentClassificationWorkflow(event: RawKafkaEvent): Promise<WorkflowHandle> {
+    async startSentimentClassificationWorkflow(events: RawKafkaEvent[]): Promise<WorkflowHandle> {
         const client = await this.ensureConnected()
 
-        const workflowId = `llma-sentiment-${event.uuid}`
+        const sortedUuids = events
+            .map((e) => e.uuid)
+            .sort()
+            .join(',')
+        const hash = crypto.createHash('md5').update(sortedUuids).digest('hex')
+        const workflowId = `llma-sentiment-batch-${hash}`
 
         const handle = await client.workflow.start('llma-run-sentiment-classification', {
             args: [
                 {
-                    event_data: event,
+                    events: events,
                 },
             ],
             taskQueue: SENTIMENT_TASK_QUEUE,
@@ -161,10 +167,9 @@ export class TemporalService {
 
         sentimentWorkflowsStarted.labels({ status: 'success' }).inc()
 
-        logger.debug('Started sentiment classification workflow', {
+        logger.debug('Started sentiment batch workflow', {
             workflowId,
-            targetEventId: event.uuid,
-            timestamp: event.timestamp,
+            eventCount: events.length,
         })
 
         return handle
