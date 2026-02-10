@@ -160,6 +160,11 @@ export const DEFAULT_RECORDING_FILTERS_ORDER_BY = 'start_time'
 export const MAX_SELECTED_RECORDINGS = 20
 export const DELETE_CONFIRMATION_TEXT = 'delete'
 
+const getDefaultFilterTestAccounts = (): boolean => {
+    const stored = localStorage.getItem('default_filter_test_accounts')
+    return stored === 'true'
+}
+
 export const DEFAULT_RECORDING_FILTERS: RecordingUniversalFilters = {
     filter_test_accounts: false,
     date_from: '-3d',
@@ -170,13 +175,13 @@ export const DEFAULT_RECORDING_FILTERS: RecordingUniversalFilters = {
     order_direction: 'DESC',
 }
 
-const DEFAULT_PERSON_RECORDING_FILTERS: RecordingUniversalFilters = {
-    ...DEFAULT_RECORDING_FILTERS,
-    date_from: '-30d',
-}
-
 export const getDefaultFilters = (personUUID?: PersonUUID): RecordingUniversalFilters => {
-    return personUUID ? DEFAULT_PERSON_RECORDING_FILTERS : DEFAULT_RECORDING_FILTERS
+    const filterTestAccounts = getDefaultFilterTestAccounts()
+    return {
+        ...DEFAULT_RECORDING_FILTERS,
+        filter_test_accounts: filterTestAccounts,
+        date_from: personUUID ? '-30d' : '-3d',
+    }
 }
 
 /**
