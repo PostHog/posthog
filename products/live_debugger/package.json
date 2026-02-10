@@ -12,9 +12,9 @@
         "react-dom": "*"
     },
     "dependencies": {
-        "fuse.js": "^6.6.2"
+        "fuse.js": "catalog:"
     },
     "devDependencies": {
-        "kea-test-utils": "^0.2.4"
+        "kea-test-utils": "catalog:"
     }
 }

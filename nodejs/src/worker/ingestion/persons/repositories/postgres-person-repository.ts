@@ -234,7 +234,8 @@ export class PostgresPersonRepository
                 posthog_person.properties_last_operation,
                 posthog_person.is_user_id,
                 posthog_person.version,
-                posthog_person.is_identified
+                posthog_person.is_identified,
+                posthog_person.last_seen_at
             FROM posthog_person
             JOIN posthog_persondistinctid ON (
                 posthog_persondistinctid.person_id = posthog_person.id
@@ -298,6 +299,7 @@ export class PostgresPersonRepository
                 posthog_person.is_user_id,
                 posthog_person.version,
                 posthog_person.is_identified,
+                posthog_person.last_seen_at,
                 posthog_persondistinctid.distinct_id
             FROM posthog_person
             JOIN posthog_persondistinctid ON (
@@ -494,6 +496,7 @@ export class PostgresPersonRepository
                 posthog_person.properties_last_operation,
                 posthog_person.is_user_id,
                 posthog_person.is_identified,
+                posthog_person.last_seen_at,
                 posthog_persondistinctid.distinct_id
             FROM posthog_person
             JOIN posthog_persondistinctid ON (

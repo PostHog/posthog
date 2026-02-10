@@ -6,7 +6,7 @@ from temporalio.common import RetryPolicy
 
 # Clustering parameters
 DEFAULT_LOOKBACK_DAYS = 7
-DEFAULT_MAX_SAMPLES = 2500
+DEFAULT_MAX_SAMPLES = 1500
 DEFAULT_MIN_K = 2
 DEFAULT_MAX_K = 10
 
@@ -14,7 +14,7 @@ DEFAULT_MAX_K = 10
 MIN_TRACES_FOR_CLUSTERING = 20
 
 # Coordinator concurrency settings
-DEFAULT_MAX_CONCURRENT_TEAMS = 3  # Max teams to process in parallel
+DEFAULT_MAX_CONCURRENT_TEAMS = 4  # Max teams to process in parallel
 
 # Workflow timeouts
 WORKFLOW_EXECUTION_TIMEOUT = timedelta(minutes=30)

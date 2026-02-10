@@ -1,0 +1,22 @@
+.AddPersonToCohortModalBody {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    min-width: 40rem;
+
+    &__list {
+        height: 28rem;
+    }
+
+    &__row {
+        display: flex;
+        gap: 0.75rem;
+        align-items: center;
+        padding: 0 0.75rem;
+        border-radius: var(--radius);
+
+        &:hover {
+            background-color: var(--color-bg-light);
+        }
+    }
+}
