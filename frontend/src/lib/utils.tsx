@@ -416,7 +416,12 @@ export function chooseOperatorMap(propertyType: PropertyType | undefined): Recor
 }
 
 export function isOperatorMulti(operator: PropertyOperator): boolean {
-    return [PropertyOperator.Exact, PropertyOperator.IsNot].includes(operator)
+    return [
+        PropertyOperator.Exact,
+        PropertyOperator.IsNot,
+        PropertyOperator.IContains,
+        PropertyOperator.NotIContains,
+    ].includes(operator)
 }
 
 export function isOperatorFlag(operator: PropertyOperator): boolean {
@@ -1159,8 +1164,9 @@ export const formatDateTimeRange = (dateFrom: dayjs.Dayjs, dateTo: dayjs.Dayjs):
 }
 
 /** Returns the start of the current week, respecting the team's week start day (0=Sunday, 1=Monday). */
-function startOfWeek(date: dayjs.Dayjs, weekStartDay: number = 0): dayjs.Dayjs {
-    return date.subtract((date.day() - weekStartDay + 7) % 7, 'day').startOf('day')
+function startOfWeek(date: dayjs.Dayjs, weekStartDay?: number | null): dayjs.Dayjs {
+    const start = weekStartDay === 1 ? 1 : 0
+    return date.subtract((date.day() - start + 7) % 7, 'day').startOf('day')
 }
 
 export const dateMapping: DateMappingOption[] = [
