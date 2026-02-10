@@ -1,3 +1,5 @@
+from typing import Any
+
 from posthog.test.base import BaseTest
 
 from parameterized import parameterized
@@ -72,7 +74,7 @@ class TestBuildResourceDuplicationGraph(BaseTest):
 
     def test_exclude_set_prevents_revisiting_resources(self) -> None:
         insight = Insight.objects.create(team=self.team, name="My insight")
-        exclude = {(Insight, insight.pk)}
+        exclude: set[tuple[type, Any]] = {(Insight, insight.pk)}
 
         graph = list(build_resource_duplication_graph(insight, exclude))
         assert len(graph) == 0

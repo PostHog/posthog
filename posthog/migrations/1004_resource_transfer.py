@@ -49,4 +49,11 @@ class Migration(migrations.Migration):
                 "abstract": False,
             },
         ),
+        migrations.AddIndex(
+            model_name="resourcetransfer",
+            index=models.Index(
+                fields=["resource_kind", "resource_id", "-last_transferred_at"],
+                name="idx_restransfer_kind_id_time",
+            ),
+        ),
     ]
