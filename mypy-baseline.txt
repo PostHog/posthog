@@ -276,7 +276,6 @@ posthog/api/test/test_team.py:0: error: "HttpResponse" has no attribute "json"  
 posthog/api/test/test_team.py:0: error: "HttpResponse" has no attribute "json"  [attr-defined]
 posthog/api/test/test_utils.py:0: error: Incompatible types in assignment (expression has type "dict[str, str]", variable has type "QueryDict")  [assignment]
 posthog/api/uploaded_media.py:0: error: Argument 1 to "read_bytes" has incompatible type "str | None"; expected "str"  [arg-type]
-posthog/api/uploaded_media.py:0: error: Argument 1 to "read_bytes" has incompatible type "str | None"; expected "str"  [arg-type]
 posthog/api/uploaded_media.py:0: error: Module has no attribute "FLIP_LEFT_RIGHT"  [attr-defined]
 posthog/api/user.py:0: error: "User" has no attribute "social_auth"  [attr-defined]
 posthog/api/utils.py:0: error: "_validate_conn" undefined in superclass  [misc]
