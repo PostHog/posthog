@@ -188,6 +188,24 @@ const ACTIVE_SOURCES = [
     IncrementalSource.Drag,
 ]
 
+/** Find events in allSnapshots that aren't already in currentEvents, using timestamp-count matching. */
+export function findNewEvents(allSnapshots: eventWithTime[], currentEvents: eventWithTime[]): eventWithTime[] {
+    const existingCounts = new Map<number, number>()
+    for (const event of currentEvents) {
+        existingCounts.set(event.timestamp, (existingCounts.get(event.timestamp) || 0) + 1)
+    }
+    const newEvents: eventWithTime[] = []
+    for (const snapshot of allSnapshots) {
+        const remaining = existingCounts.get(snapshot.timestamp) || 0
+        if (remaining > 0) {
+            existingCounts.set(snapshot.timestamp, remaining - 1)
+        } else {
+            newEvents.push(snapshot)
+        }
+    }
+    return newEvents
+}
+
 function isUserActivity(snapshot: eventWithTime): boolean {
     return (
         snapshot.type === INCREMENTAL_SNAPSHOT_EVENT_TYPE &&
@@ -1401,11 +1419,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 const allSnapshots = values.sessionPlayerData.snapshotsByWindowId[values.currentSegment?.windowId] ?? []
 
                 const isTimestampBased = values.featureFlags[FEATURE_FLAGS.REPLAY_TIMESTAMP_BASED_LOADING] === 'test'
-                if (isTimestampBased) {
-                    // Timestamp-based comparison handles out-of-order blob loading correctly
-                    const lastAddedTimestamp =
-                        currentEvents.length > 0 ? currentEvents[currentEvents.length - 1].timestamp : 0
-                    eventsToAdd.push(...allSnapshots.filter((e) => e.timestamp > lastAddedTimestamp))
+                if (isTimestampBased && allSnapshots.length > currentEvents.length) {
+                    eventsToAdd.push(...findNewEvents(allSnapshots, currentEvents))
                 } else {
                     eventsToAdd.push(...allSnapshots.slice(currentEvents.length))
                 }
