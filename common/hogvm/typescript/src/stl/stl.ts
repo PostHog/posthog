@@ -645,9 +645,7 @@ export const STL: Record<string, STLFunction> = {
     },
     lower: {
         fn: (args) => {
-            if (args[0] === null || args[0] === undefined) {
-                return null
-            }
+            if (args[0] === null || args[0] === undefined) return null
             return args[0].toLowerCase()
         },
         description: 'Converts a string to lowercase',
@@ -774,7 +772,7 @@ export const STL: Record<string, STLFunction> = {
                 if (typeof current === 'string') {
                     try {
                         currentParsed = JSON.parse(current)
-                    } catch {
+                    } catch (e) {
                         return false
                     }
                 }
@@ -821,7 +819,7 @@ export const STL: Record<string, STLFunction> = {
             try {
                 JSON.parse(str)
                 return true
-            } catch {
+            } catch (e) {
                 return false
             }
         },
@@ -836,7 +834,7 @@ export const STL: Record<string, STLFunction> = {
                 if (typeof obj === 'string') {
                     obj = JSON.parse(obj)
                 }
-            } catch {
+            } catch (e) {
                 return 0
             }
             if (typeof obj === 'object') {
@@ -861,7 +859,7 @@ export const STL: Record<string, STLFunction> = {
                 if (typeof obj === 'string') {
                     obj = JSON.parse(obj)
                 }
-            } catch {
+            } catch (e) {
                 return false
             }
             if (path.length > 0) {
@@ -898,7 +896,7 @@ export const STL: Record<string, STLFunction> = {
         fn: (args) => {
             try {
                 return Buffer.from(args[0], 'base64').toString()
-            } catch {
+            } catch (e) {
                 return ''
             }
         },
@@ -1693,22 +1691,6 @@ export const STL: Record<string, STLFunction> = {
         example: 'today()',
         minArgs: 0,
         maxArgs: 0,
-    },
-    multiSearchAnyCaseInsensitive: {
-        fn: (args) => {
-            if (args[0] == null || args[1] == null) {
-                return 0
-            }
-            if (!Array.isArray(args[1])) {
-                return 0
-            }
-            const haystack = String(args[0]).toLowerCase()
-            return args[1].some((needle) => haystack.includes(String(needle).toLowerCase())) ? 1 : 0
-        },
-        description: 'Searches for any of the provided needles in the haystack (case insensitive)',
-        example: 'multiSearchAnyCaseInsensitive($1, $2)',
-        minArgs: 2,
-        maxArgs: 2,
     },
 }
 
