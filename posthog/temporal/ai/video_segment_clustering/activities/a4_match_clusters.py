@@ -9,6 +9,7 @@ from temporalio import activity
 
 from posthog.models.team import Team
 from posthog.temporal.ai.video_segment_clustering import constants
+from posthog.temporal.ai.video_segment_clustering.centroid_cache import get_centroids, get_workflow_id_from_activity
 from posthog.temporal.ai.video_segment_clustering.models import (
     Cluster,
     MatchClustersActivityInputs,
@@ -25,7 +26,15 @@ async def match_clusters_activity(inputs: MatchClustersActivityInputs) -> Matchi
 
     Compares cluster centroids to existing report centroids using cosine distance.
     Clusters within threshold are matched, others become new reports.
+
+    Centroids are fetched from Redis (stored by the clustering activity).
     """
+    # Fetch cluster centroids from Redis
+    workflow_id = get_workflow_id_from_activity()
+    cached_centroids = await get_centroids(workflow_id)
+    if cached_centroids is None:
+        raise ValueError("Centroids not found in cache - clustering activity may not have run")
+
     team = await Team.objects.aget(id=inputs.team_id)
     existing_report_centroids = await _fetch_existing_report_centroids(team)
 
@@ -44,7 +53,12 @@ async def match_clusters_activity(inputs: MatchClustersActivityInputs) -> Matchi
     report_centroids = np.array(list(existing_report_centroids.values()))
 
     for cluster in inputs.clusters:
-        cluster_centroid = np.array(cluster.centroid).reshape(1, -1)
+        centroid = cached_centroids.get(cluster.cluster_id)
+        if centroid is None:
+            # Should not happen, but be defensive
+            new_clusters.append(cluster)
+            continue
+        cluster_centroid = np.array(centroid).reshape(1, -1)
         # Calculate cosine distances to all report centroids
         distances = cosine_distances(cluster_centroid, report_centroids)[0]
         # Find best match
