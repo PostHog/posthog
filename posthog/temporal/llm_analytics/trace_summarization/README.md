@@ -156,7 +156,9 @@ Retry policies: `SAMPLE_RETRY_POLICY` (3 attempts), `FETCH_AND_FORMAT_RETRY_POLI
 
 ## Redis Intermediate Storage
 
-Text representations (up to 2 MB) are stored in Redis between the two activities to keep Temporal workflow history small (~100 bytes per reference). Key pattern: `llma:summarization:{trace|generation}:{team_id}:{item_id}:text_repr`. Keys have a 200-minute TTL (exceeds the 180-minute workflow timeout) and are cleaned up after use. See `state.py`.
+
+Text representations (up to 2 MB) are stored in Redis between the two activities to keep Temporal workflow history small (~100 bytes per reference). Key pattern: `llma:summarization:{trace|generation}:{team_id}:{item_id}:text_repr`. Keys have a 200-minute TTL (exceeds the 30-minute workflow timeout) and are cleaned up after use. See `state.py`.
+
 
 ## Error Handling
 
