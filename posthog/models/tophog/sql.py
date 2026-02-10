@@ -79,6 +79,7 @@ CREATE TABLE IF NOT EXISTS {table_name}
     lane LowCardinality(String),
     labels Map(LowCardinality(String), String)
 ) ENGINE = {engine}
+SETTINGS date_time_input_format = 'best_effort', kafka_skip_broken_messages = 100
 """
 
 
