@@ -117,4 +117,118 @@ describe('propertyFilterLogic', () => {
             expect(cb).not.toHaveBeenCalled()
         })
     })
+
+    describe('filter IDs are stable across mutations', () => {
+        describe('remove', () => {
+            it('preserves IDs of filters that were not removed', () => {
+                const logic = mountLogic({
+                    propertyFilters: [
+                        eventFilter('$browser', 'Chrome', PropertyOperator.Exact),
+                        eventFilter('$os', 'Mac', PropertyOperator.Exact),
+                        eventFilter('$device', 'Mobile', PropertyOperator.Exact),
+                    ],
+                })
+                const [_, osId, deviceId] = logic.values.filterIds
+
+                logic.actions.remove(0)
+
+                expect(logic.values.filterIds[0]).toBe(osId)
+                expect(logic.values.filterIds[1]).toBe(deviceId)
+            })
+        })
+
+        describe('setFilter', () => {
+            it('keeps the same ID when updating an existing position', () => {
+                const logic = mountLogic({
+                    propertyFilters: [
+                        eventFilter('$browser', 'Chrome', PropertyOperator.Exact),
+                        eventFilter('$os', 'Mac', PropertyOperator.Exact),
+                    ],
+                })
+                const idsBefore = [...logic.values.filterIds]
+
+                logic.actions.setFilter(0, eventFilter('$country', 'US', PropertyOperator.Exact))
+
+                expect(logic.values.filterIds).toEqual(idsBefore)
+            })
+
+            it('assigns a new ID when appending beyond current length', () => {
+                const logic = mountLogic({
+                    propertyFilters: [eventFilter('$browser', 'Chrome', PropertyOperator.Exact)],
+                })
+                const [browserId] = logic.values.filterIds
+
+                logic.actions.setFilter(1, eventFilter('$os', 'Mac', PropertyOperator.Exact))
+
+                expect(logic.values.filterIds[0]).toBe(browserId)
+                expect(logic.values.filterIds).toHaveLength(2)
+                expect(logic.values.filterIds[1]).not.toBe(browserId)
+            })
+        })
+
+        describe('setFilters', () => {
+            it('preserves IDs at positions that overlap with current items', () => {
+                const logic = mountLogic({
+                    propertyFilters: [
+                        eventFilter('$browser', 'Chrome', PropertyOperator.Exact),
+                        eventFilter('$os', 'Mac', PropertyOperator.Exact),
+                    ],
+                })
+                const [browserId, osId] = logic.values.filterIds
+
+                logic.actions.setFilters([
+                    eventFilter('$country', 'US', PropertyOperator.Exact),
+                    eventFilter('$city', 'SF', PropertyOperator.Exact),
+                    eventFilter('$region', 'CA', PropertyOperator.Exact),
+                ])
+
+                expect(logic.values.filterIds[0]).toBe(browserId)
+                expect(logic.values.filterIds[1]).toBe(osId)
+                expect(logic.values.filterIds[2]).not.toBe(browserId)
+                expect(logic.values.filterIds[2]).not.toBe(osId)
+            })
+
+            it('returns the same state reference when content is equal', () => {
+                const logic = mountLogic({
+                    propertyFilters: [eventFilter('$browser', 'Chrome', PropertyOperator.Exact)],
+                })
+                const stateBefore = logic.values._filtersState
+
+                logic.actions.setFilters([eventFilter('$browser', 'Chrome', PropertyOperator.Exact)])
+
+                expect(logic.values._filtersState).toBe(stateBefore)
+            })
+        })
+
+        describe('filterIdsWithNew', () => {
+            it('has the same length as filtersWithNew after each mutation', () => {
+                const logic = mountLogic({
+                    propertyFilters: [eventFilter('$browser', 'Chrome', PropertyOperator.Exact)],
+                })
+                expect(logic.values.filterIdsWithNew).toHaveLength(logic.values.filtersWithNew.length)
+
+                logic.actions.remove(0)
+                expect(logic.values.filterIdsWithNew).toHaveLength(logic.values.filtersWithNew.length)
+
+                logic.actions.setFilter(0, eventFilter('$os', 'Mac', PropertyOperator.Exact))
+                expect(logic.values.filterIdsWithNew).toHaveLength(logic.values.filtersWithNew.length)
+            })
+        })
+    })
+
+    describe('onChange receives cleaned filters', () => {
+        it('strips empty/invalid filters before calling onChange', async () => {
+            const logic = mountLogic({
+                propertyFilters: [eventFilter('$browser', 'Chrome', PropertyOperator.Exact), {} as AnyPropertyFilter],
+                sendAllKeyUpdates: true,
+            })
+
+            logic.actions.setFilter(0, eventFilter('$browser', 'Firefox', PropertyOperator.Exact))
+
+            await expectLogic(logic).toFinishAllListeners()
+            const calledWith = onChange.mock.calls[0][0]
+            expect(calledWith).toHaveLength(1)
+            expect(calledWith[0]).toMatchObject({ key: '$browser', value: 'Firefox' })
+        })
+    })
 })
