@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { BindLogic } from 'kea'
 import posthog from 'posthog-js'
 
-import { IconFunnels, IconPlus, IconRetention, IconTrends } from '@posthog/icons'
+import { IconFunnels, IconRetention, IconTrends } from '@posthog/icons'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
@@ -57,7 +57,6 @@ export function AddInsightToDashboardModalNew(): JSX.Element {
             >
                 <div className="space-y-4">
                     <div className="flex items-center gap-3 p-4 bg-surface-secondary rounded-lg">
-                        <IconPlus className="text-2xl text-secondary shrink-0" />
                         <div className="flex-1">
                             <div className="font-semibold text-base">Create a new insight</div>
                             <div className="text-sm text-secondary">

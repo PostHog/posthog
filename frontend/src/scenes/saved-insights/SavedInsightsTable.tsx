@@ -4,7 +4,7 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useEffect } from 'react'
 
-import { IconCheck } from '@posthog/icons'
+import { IconCheck, IconPlus, IconX } from '@posthog/icons'
 
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -157,8 +157,13 @@ export function SavedInsightsTable({ renderActionColumn, dashboard }: SavedInsig
                       width: 32,
                       render: function renderStatus(_: unknown, insight: QueryBasedInsightModel) {
                           return isInsightInDashboard(insight, dashboard?.tiles) ? (
-                              <IconCheck className="text-success text-xl" />
-                          ) : null
+                              <div className="group/status relative flex items-center justify-center">
+                                  <IconCheck className="text-success text-xl transition-opacity duration-150 group-hover/status:opacity-0" />
+                                  <IconX className="text-danger text-xl absolute inset-0 opacity-0 transition-opacity duration-150 group-hover/status:opacity-100" />
+                              </div>
+                          ) : (
+                              <IconPlus className="text-muted text-xl opacity-40 group-hover:opacity-100 group-hover:text-success transition-all" />
+                          )
                       },
                   },
               ]
@@ -223,17 +228,14 @@ export function SavedInsightsTable({ renderActionColumn, dashboard }: SavedInsig
                             isExperimentEnabled
                                 ? (insight) =>
                                       isInsightInDashboard(insight, dashboard?.tiles)
-                                          ? 'bg-success-highlight border-l-2 border-l-success cursor-pointer hover:bg-success-highlight/70'
-                                          : 'cursor-pointer hover:bg-success-highlight/30 border-l-2 border-l-transparent hover:border-l-success/50'
+                                          ? 'group bg-success-highlight border-l-2 border-l-success cursor-pointer hover:bg-success-highlight/70'
+                                          : 'group cursor-pointer hover:bg-success-highlight/30 border-l-2 border-l-transparent hover:border-l-success/50'
                                 : undefined
                         }
                         onRow={
                             isExperimentEnabled
                                 ? (insight) => ({
                                       onClick: () => handleRowClick(insight),
-                                      title: isInsightInDashboard(insight, dashboard?.tiles)
-                                          ? 'Click to remove from dashboard'
-                                          : 'Click to add to dashboard',
                                   })
                                 : undefined
                         }
