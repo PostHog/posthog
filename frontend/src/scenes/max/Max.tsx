@@ -18,6 +18,7 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { cn } from 'lib/utils/css-classes'
 import { appLogic } from 'scenes/appLogic'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -132,7 +133,7 @@ export const MaxInstance = React.memo(function MaxInstance({
                             !sidePanel && 'min-h-[calc(100vh-var(--scene-layout-header-height)-120px)]'
                         )}
                     >
-                        <div className="flex-1 items-center justify-center flex flex-col gap-3 relative z-50">
+                        <div className="grow items-center justify-center flex flex-col gap-3 relative z-50">
                             <Intro />
                             <SidebarQuestionInputWithSuggestions />
                         </div>
@@ -184,7 +185,13 @@ export const MaxInstance = React.memo(function MaxInstance({
                     </AnimatedBackButton>
 
                     <Tooltip title={chatTitle || undefined} placement="bottom">
-                        <h3 className="flex-1 font-semibold mb-0 truncate text-sm ml-1">{chatTitle || 'PostHog AI'}</h3>
+                        <h3
+                            className={cn('flex-1 font-semibold mb-0 truncate text-sm ml-1', {
+                                'ml-0': isRemovingSidePanelFlag,
+                            })}
+                        >
+                            {chatTitle || 'PostHog AI'}
+                        </h3>
                     </Tooltip>
                 </div>
                 {conversationId && !conversationHistoryVisible && !threadVisible && !isAIOnlyMode && (
@@ -306,7 +313,7 @@ export const MaxInstance = React.memo(function MaxInstance({
                                 sideIcon={<IconOpenSidebar />}
                                 onClick={() => {
                                     openSidePanelMax(conversationId ?? undefined)
-                                    closeTabId(tabId)
+                                    closeTabId(tabId, { source: 'open_in_side_panel' })
                                 }}
                             >
                                 Open in side panel

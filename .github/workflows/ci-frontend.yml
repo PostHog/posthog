@@ -43,6 +43,7 @@ jobs:
                         - 'frontend/**'
                         - 'ee/frontend/**'
                         - 'common/esbuilder/**'
+                        - 'common/hogql_parser/**'
                         - 'products/**/*.ts'
                         - 'products/**/*.tsx'
                         - 'playwright/**'
@@ -76,11 +77,20 @@ jobs:
             - name: Install pnpm
               uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.2.0
 
+            - name: Fix node-gyp permissions
+              run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
+
             - name: Set up Node.js
               uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
               with:
                   node-version: 24.13.0
                   cache: 'pnpm'
+
+            - name: Setup Emscripten for WASM build
+              uses: ./.github/actions/setup-emsdk
+
+            - name: Install Ninja
+              run: sudo apt-get install -y ninja-build
 
             - name: Install package.json dependencies with pnpm
               run: |
@@ -115,11 +125,20 @@ jobs:
             - name: Install pnpm
               uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.2.0
 
+            - name: Fix node-gyp permissions
+              run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
+
             - name: Set up Node.js
               uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
               with:
                   node-version: 24.13.0
                   cache: 'pnpm'
+
+            - name: Setup Emscripten for WASM build
+              uses: ./.github/actions/setup-emsdk
+
+            - name: Install Ninja
+              run: sudo apt-get install -y ninja-build
 
             - name: Install package.json dependencies with pnpm
               run: |
@@ -136,11 +155,11 @@ jobs:
                   install-script: 'pnpm --filter=@posthog/frontend... install'
                   compression: 'none'
                   # Check all JS bundles in the dist folder
-                  pattern: 'frontend/dist/*.js'
+                  pattern: 'frontend/dist/**/*.js'
                   # Exclude source maps and chunk files (chunk hashes change every build)
                   exclude: |
-                      frontend/dist/*.js.map
-                      frontend/dist/chunk*.js
+                      **/*.js.map
+                      **/chunk*.js
                   # Only show large changes
                   minimum-change-threshold: 1000
                   order-by: 'Size:desc'
@@ -184,19 +203,28 @@ jobs:
             - name: Install pnpm
               uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.2.0
 
+            - name: Fix node-gyp permissions
+              run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
+
             - name: Set up Node.js
               uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
               with:
                   node-version: 24.13.0
                   cache: 'pnpm'
 
+            - name: Setup Emscripten for WASM build
+              uses: ./.github/actions/setup-emsdk
+
+            - name: Install Ninja
+              run: sudo apt-get install -y ninja-build
+
             - name: Install package.json dependencies with pnpm
               run: |
                   pnpm --filter=@posthog/playwright... install --frozen-lockfile
                   bin/turbo --filter=@posthog/frontend prepare
 
-            - name: Cache .typegen
-              uses: actions/cache@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
+            - name: Restore .typegen cache
+              uses: actions/cache/restore@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
               with:
                   path: .typegen
                   key: ${{ runner.os }}-typegen-${{ hashFiles('pnpm-lock.yaml') }}
@@ -210,6 +238,13 @@ jobs:
 
             - name: Kea typegen
               run: pnpm --filter=@posthog/frontend typegen:write
+
+            - name: Save .typegen cache
+              if: github.ref == 'refs/heads/master'
+              uses: actions/cache/save@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
+              with:
+                  path: .typegen
+                  key: ${{ runner.os }}-typegen-${{ hashFiles('pnpm-lock.yaml') }}
 
             - name: Run typescript with strict
               run: pnpm --filter=@posthog/frontend typescript:check
@@ -248,11 +283,20 @@ jobs:
             - name: Install pnpm
               uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.2.0
 
+            - name: Fix node-gyp permissions
+              run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
+
             - name: Set up Node.js
               uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
               with:
                   node-version: 24.13.0
                   cache: pnpm
+
+            - name: Setup Emscripten for WASM build
+              uses: ./.github/actions/setup-emsdk
+
+            - name: Install Ninja
+              run: sudo apt-get install -y ninja-build
 
             - name: Install package.json dependencies with pnpm
               run: pnpm --filter=@posthog/frontend... install --frozen-lockfile
@@ -269,6 +313,7 @@ jobs:
         needs: [jest, frontend-typescript-checks, frontend-format, frontend-bundle-size, changes]
         runs-on: ubuntu-latest
         if: # Run on pull requests to PostHog/posthog + on PostHog/posthog outside of PRs - but never on forks
+            always() &&
             needs.changes.outputs.frontend == 'true' && (
             (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog') ||
             (github.event_name != 'pull_request' && github.repository == 'PostHog/posthog'))

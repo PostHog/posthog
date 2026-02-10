@@ -106,6 +106,64 @@ describe('PersonsManager', () => {
         ])
     })
 
+    it('returns the persons requested when distinct IDs contain colons', async () => {
+        const TIMESTAMP = DateTime.fromISO('2000-10-14T11:42:06.502Z').toUTC()
+        const result1 = await personRepository.createPerson(
+            TIMESTAMP,
+            { foo: '1' },
+            {},
+            {},
+            team.id,
+            null,
+            true,
+            new UUIDT().toString(),
+            { distinctId: 'foo:distinct_id_A_1' }
+        )
+        if (!result1.success) {
+            throw new Error('Failed to create person')
+        }
+        const person1 = result1.person
+        const result2 = await personRepository.createPerson(
+            TIMESTAMP,
+            { foo: '2' },
+            {},
+            {},
+            team.id,
+            null,
+            true,
+            new UUIDT().toString(),
+            { distinctId: 'foo:bar:distinct_id_B_1' }
+        )
+        if (!result2.success) {
+            throw new Error('Failed to create person')
+        }
+        const person2 = result2.person
+
+        const res = await Promise.all([
+            manager.get({ teamId: team.id, distinctId: 'foo:distinct_id_A_1' }),
+            manager.get({ teamId: team.id, distinctId: 'foo:bar:distinct_id_B_1' }),
+        ])
+
+        expect(res).toEqual([
+            {
+                distinct_id: 'foo:distinct_id_A_1',
+                id: person1.uuid,
+                properties: {
+                    foo: '1',
+                },
+                team_id: team.id,
+            },
+            {
+                distinct_id: 'foo:bar:distinct_id_B_1',
+                id: person2.uuid,
+                properties: {
+                    foo: '2',
+                },
+                team_id: team.id,
+            },
+        ])
+    })
+
     it('returns the different persons for different teams', async () => {
         const res = await Promise.all([
             manager.get({ teamId: team.id, distinctId: 'distinct_id_A_1' }),
@@ -174,6 +232,7 @@ describe('PersonsManager', () => {
                     properties_last_operation: {},
                     created_at: TIMESTAMP,
                     version: 0,
+                    last_seen_at: null,
                 },
                 {
                     id: '2',
@@ -187,6 +246,7 @@ describe('PersonsManager', () => {
                     properties_last_operation: {},
                     created_at: TIMESTAMP,
                     version: 0,
+                    last_seen_at: null,
                 },
                 {
                     id: '3',
@@ -200,6 +260,7 @@ describe('PersonsManager', () => {
                     properties_last_operation: {},
                     created_at: TIMESTAMP,
                     version: 0,
+                    last_seen_at: null,
                 },
             ]
 
@@ -244,6 +305,7 @@ describe('PersonsManager', () => {
                 properties_last_operation: {},
                 created_at: TIMESTAMP,
                 version: 0,
+                last_seen_at: null,
             }))
             const batch2 = Array.from({ length: 300 }, (_, i) => ({
                 id: `${i + 500}`,
@@ -257,6 +319,7 @@ describe('PersonsManager', () => {
                 properties_last_operation: {},
                 created_at: TIMESTAMP,
                 version: 0,
+                last_seen_at: null,
             }))
 
             let callCount = 0
@@ -302,6 +365,7 @@ describe('PersonsManager', () => {
                 properties_last_operation: {},
                 created_at: TIMESTAMP,
                 version: 0,
+                last_seen_at: null,
             }))
 
             const fetchSpy = jest.spyOn(hub.personRepository, 'fetchPersonsByProperties').mockResolvedValueOnce(batch)
@@ -342,6 +406,7 @@ describe('PersonsManager', () => {
                 properties_last_operation: {},
                 created_at: TIMESTAMP,
                 version: 0,
+                last_seen_at: null,
             }))
             const batch2 = Array.from({ length: 50 }, (_, i) => ({
                 id: `${i + 100}`,
@@ -355,6 +420,7 @@ describe('PersonsManager', () => {
                 properties_last_operation: {},
                 created_at: TIMESTAMP,
                 version: 0,
+                last_seen_at: null,
             }))
 
             let callCount = 0

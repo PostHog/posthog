@@ -1,5 +1,6 @@
 import { pickBy } from 'lodash'
 import { DateTime } from 'luxon'
+import { AsyncLocalStorage } from 'node:async_hooks'
 import { Counter, Histogram } from 'prom-client'
 
 import { ExecResult, convertHogToJS } from '@posthog/hogvm'
@@ -64,6 +65,8 @@ const cdpHttpRequestTiming = new Histogram({
     buckets: [0, 10, 20, 50, 100, 200, 500, 1000, 2000, 3000, 5000, 10000],
 })
 
+export const shadowFetchContext = new AsyncLocalStorage<boolean>()
+
 export async function cdpTrackedFetch({
     url,
     fetchParams,
@@ -73,6 +76,20 @@ export async function cdpTrackedFetch({
     fetchParams: FetchOptions
     templateId: string
 }): Promise<{ fetchError: Error | null; fetchResponse: FetchResponse | null; fetchDuration: number }> {
+    if (shadowFetchContext.getStore()) {
+        return {
+            fetchError: null,
+            fetchResponse: {
+                status: 200,
+                headers: {},
+                text: () => Promise.resolve(''),
+                json: () => Promise.resolve(null),
+                dump: () => Promise.resolve(),
+            },
+            fetchDuration: 0,
+        }
+    }
+
     const start = performance.now()
     const [fetchError, fetchResponse] = await tryCatch(async () => await fetch(url, fetchParams))
     const fetchDuration = performance.now() - start

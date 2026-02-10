@@ -55,6 +55,7 @@ export interface SavedInsightFilters {
     dashboardId: number | undefined | null
     events: string[] | undefined | null
     hideFeatureFlagInsights: boolean | undefined | null
+    favorited: boolean | undefined | null
 }
 
 export function cleanFilters(values: Partial<SavedInsightFilters>): SavedInsightFilters {
@@ -63,7 +64,7 @@ export function cleanFilters(values: Partial<SavedInsightFilters>): SavedInsight
         tab: values.tab || SavedInsightsTabs.All,
         search: String(values.search || ''),
         insightType: values.insightType || 'All types',
-        createdBy: (values.tab !== SavedInsightsTabs.Yours && values.createdBy) || 'All users',
+        createdBy: values.createdBy || 'All users',
         tags: values.tags || undefined,
         dateFrom: values.dateFrom || 'all',
         dateTo: values.dateTo || undefined,
@@ -75,6 +76,7 @@ export function cleanFilters(values: Partial<SavedInsightFilters>): SavedInsight
         dashboardId: values.dashboardId,
         events: values.events,
         hideFeatureFlagInsights: values.hideFeatureFlagInsights || false,
+        favorited: values.favorited || false,
     }
 }
 
@@ -121,6 +123,10 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                 const legacyResponse: CountedPaginatedResponse<InsightModel> = await api.get(
                     `api/environments/${teamLogic.values.currentTeamId}/insights/?${toParams(params)}`
                 )
+
+                // Cancel if a newer request came in while this one was in flight
+                await breakpoint()
+
                 const response = {
                     ...legacyResponse,
                     results: legacyResponse.results.map((legacyInsight) => getQueryBasedInsightModel(legacyInsight)),
@@ -129,6 +135,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                 if (filters.search && String(filters.search).match(/^[0-9]+$/)) {
                     try {
                         const insight = await insightsApi.getByNumericId(Number(filters.search))
+                        await breakpoint()
                         return {
                             ...response,
                             count: response.count + 1,
@@ -242,8 +249,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                 limit: INSIGHTS_PER_PAGE,
                 offset: Math.max(0, (filters.page - 1) * INSIGHTS_PER_PAGE),
                 saved: true,
-                ...(filters.tab === SavedInsightsTabs.Yours && { user: true }),
-                ...(filters.tab === SavedInsightsTabs.Favorites && { favorited: true }),
+                ...(filters.favorited && { favorited: true }),
                 ...(filters.search && { search: filters.search }),
                 ...(filters.insightType?.toLowerCase() !== 'all types' && {
                     insight: filters.insightType?.toUpperCase(),

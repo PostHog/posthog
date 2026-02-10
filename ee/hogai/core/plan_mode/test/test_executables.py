@@ -162,7 +162,7 @@ class TestPlanModeToolsExecutable(BaseTest):
 
             self.assertIsInstance(result, PartialAssistantState)
             self.assertEqual(result.supermode, CLEAR_SUPERMODE)  # ChatAgent uses CLEAR_SUPERMODE to exit plan mode
-            self.assertEqual(result.agent_mode, AgentMode.PRODUCT_ANALYTICS)
+            self.assertEqual(result.agent_mode, AgentMode.PRODUCT_ANALYTICS)  # Default when exiting plan mode
 
     @pytest.mark.asyncio
     async def test_no_transition_when_should_transition_false(self):
@@ -274,7 +274,7 @@ class TestPlanModeToolsExecutable(BaseTest):
             result = await executable.arun(state, config)
             self.assertIsInstance(result, PartialAssistantState)
             self.assertEqual(result.supermode, CLEAR_SUPERMODE)
-            self.assertEqual(result.agent_mode, AgentMode.PRODUCT_ANALYTICS)
+            self.assertEqual(result.agent_mode, AgentMode.PRODUCT_ANALYTICS)  # Default when exiting plan mode
 
 
 class TestChatAgentPlanToolsExecutableProperties(BaseTest):

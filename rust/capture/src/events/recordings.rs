@@ -223,16 +223,17 @@ pub async fn process_replay_events<'a>(
 
     // Apply event restrictions
     let applied = if let Some(ref service) = restriction_service {
+        let uuid_str = uuid.to_string();
         let event_ctx = RestrictionEventContext {
-            distinct_id: Some(distinct_id.clone()),
-            session_id: Some(session_id_str.to_string()),
-            event_name: Some("$snapshot_items".to_string()),
-            event_uuid: Some(uuid.to_string()),
+            distinct_id: Some(&distinct_id),
+            session_id: Some(session_id_str),
+            event_name: Some("$snapshot_items"),
+            event_uuid: Some(&uuid_str),
+            now_ts: context.now.timestamp(),
         };
 
         let restrictions = service.get_restrictions(&context.token, &event_ctx).await;
-        let applied =
-            AppliedRestrictions::from_restrictions(&restrictions, CaptureMode::Recordings);
+        let applied = AppliedRestrictions::from_restrictions(restrictions, CaptureMode::Recordings);
 
         if applied.should_drop {
             report_dropped_events("event_restriction_drop", 1);

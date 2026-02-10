@@ -12,6 +12,7 @@ from rest_framework.request import Request
 
 from posthog.api.feature_flag import FeatureFlagSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.survey import nh3_clean_with_allow_list
 from posthog.api.utils import get_token
 from posthog.auth import TemporaryTokenAuthentication
 from posthog.exceptions import generate_exception_response
@@ -131,6 +132,12 @@ class WebExperimentsAPISerializer(serializers.ModelSerializer):
                             f"Experiment transform [${idx}] variant '{name}' does not have a valid selector"
                         )
 
+                    # Sanitize text and html fields to prevent XSS attacks
+                    if "text" in transform and isinstance(transform["text"], str):
+                        transform["text"] = nh3_clean_with_allow_list(transform["text"])
+                    if "html" in transform and isinstance(transform["html"], str):
+                        transform["html"] = nh3_clean_with_allow_list(transform["html"])
+
         return attrs
 
     def create(self, validated_data: dict[str, Any]) -> WebExperiment:
@@ -164,9 +171,9 @@ class WebExperimentsAPISerializer(serializers.ModelSerializer):
         feature_flag_serializer.is_valid(raise_exception=True)
         feature_flag = feature_flag_serializer.save()
 
-        # Get organization's default stats method setting
+        # Get team's default stats method setting
         team = Team.objects.get(id=self.context["team_id"])
-        default_method = team.organization.default_experiment_stats_method
+        default_method = team.default_experiment_stats_method or "bayesian"
         stats_config = {
             "method": default_method,
         }

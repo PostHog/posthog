@@ -192,6 +192,7 @@ export const OutputTypeEnumApi = {
  * * `openai` - Openai
  * `anthropic` - Anthropic
  * `gemini` - Gemini
+ * `openrouter` - Openrouter
  */
 export type Provider53dEnumApi = (typeof Provider53dEnumApi)[keyof typeof Provider53dEnumApi]
 
@@ -199,6 +200,7 @@ export const Provider53dEnumApi = {
     openai: 'openai',
     anthropic: 'anthropic',
     gemini: 'gemini',
+    openrouter: 'openrouter',
 } as const
 
 /**
@@ -399,8 +401,8 @@ export interface EvaluationSummaryRequestApi {
 * `na` - na */
     filter?: FilterEnumApi
     /**
-     * Optional: specific generation IDs to include in summary (max 100)
-     * @maxItems 100
+     * Optional: specific generation IDs to include in summary (max 250)
+     * @maxItems 250
      */
     generation_ids?: string[]
     /** If true, bypass cache and generate a fresh summary */

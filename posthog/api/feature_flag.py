@@ -17,6 +17,7 @@ from drf_spectacular.utils import OpenApiExample, OpenApiParameter, OpenApiRespo
 from prometheus_client import Counter
 from rest_framework import exceptions, request, serializers, status, viewsets
 from rest_framework.permissions import BasePermission
+from rest_framework.relations import ManyRelatedField
 from rest_framework.response import Response
 
 from posthog.schema import ProductKey, PropertyOperator
@@ -33,7 +34,12 @@ from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSet
 from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, action
 from posthog.approvals.decorators import approval_gate
 from posthog.approvals.mixins import ApprovalHandlingMixin
-from posthog.auth import PersonalAPIKeyAuthentication, ProjectSecretAPIKeyAuthentication, TemporaryTokenAuthentication
+from posthog.auth import (
+    PersonalAPIKeyAuthentication,
+    ProjectSecretAPIKeyAuthentication,
+    SessionAuthentication,
+    TemporaryTokenAuthentication,
+)
 from posthog.constants import PRODUCT_TOUR_TARGETING_FLAG_PREFIX, SURVEY_TARGETING_FLAG_PREFIX, FlagRequestType
 from posthog.date_util import thirty_days_ago
 from posthog.event_usage import report_user_action
@@ -45,11 +51,10 @@ from posthog.helpers.encrypted_flag_payloads import (
     encrypt_flag_payloads,
     get_decrypted_flag_payloads_protected,
 )
-from posthog.metrics import TOMBSTONE_COUNTER
 from posthog.models import FeatureFlag, Tag
 from posthog.models.activity_logging.activity_log import Detail, changes_between, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import ActivityLogPaginatedResponseSerializer, activity_page_response
-from posthog.models.activity_logging.model_activity import ImpersonatedContext
+from posthog.models.activity_logging.model_activity import ImpersonatedContext, is_impersonated_session
 from posthog.models.cohort import Cohort
 from posthog.models.cohort.util import get_all_cohort_dependencies
 from posthog.models.experiment import Experiment
@@ -95,6 +100,107 @@ LOCAL_EVALUATION_ETAG_COUNTER = Counter(
     "Local evaluation ETag cache results",
     labelnames=["result"],  # "hit" (304), "miss" (200), "none" (no client etag)
 )
+
+
+def find_dependent_flags(flag_to_check: FeatureFlag) -> list[FeatureFlag]:
+    """Find all active flags that depend on the given flag via flag-type filter properties."""
+    return list(
+        # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
+        FeatureFlag.objects.filter(team=flag_to_check.team, deleted=False, active=True)
+        .exclude(id=flag_to_check.id)
+        .extra(
+            where=[
+                """
+                    EXISTS (
+                        SELECT 1 FROM jsonb_array_elements(filters->'groups') AS grp
+                        CROSS JOIN jsonb_array_elements(grp->'properties') AS prop
+                        WHERE prop->>'type' = 'flag'
+                        AND prop->>'key' = %s
+                    )
+                    """
+            ],
+            params=[str(flag_to_check.id)],
+        )
+        .order_by("key")
+    )
+
+
+def find_dependent_flags_batch(flags_to_check: list[FeatureFlag]) -> dict[int, list[FeatureFlag]]:
+    """Find all active flags that depend on any of the given flags via flag-type filter properties.
+
+    Returns a dict mapping each flag ID to its list of dependent flags.
+    This is more efficient than calling find_dependent_flags for each flag individually.
+    """
+    if not flags_to_check:
+        return {}
+
+    # All flags should be from the same team
+    team = flags_to_check[0].team
+    flag_ids = [f.id for f in flags_to_check]
+
+    # Build OR conditions for each flag ID we're checking
+    # We need to find any flag that depends on ANY of these flags
+    or_conditions = " OR ".join(["prop->>'key' = %s" for _ in flag_ids])
+
+    dependent_flags = list(
+        # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
+        FeatureFlag.objects.filter(team=team, deleted=False, active=True)
+        .exclude(id__in=flag_ids)
+        .extra(
+            where=[
+                f"""
+                    EXISTS (
+                        SELECT 1 FROM jsonb_array_elements(filters->'groups') AS grp
+                        CROSS JOIN jsonb_array_elements(grp->'properties') AS prop
+                        WHERE prop->>'type' = 'flag'
+                        AND ({or_conditions})
+                    )
+                    """
+            ],
+            params=[str(fid) for fid in flag_ids],
+        )
+        .order_by("key")
+    )
+
+    # Build the result mapping by checking which flags each dependent flag depends on
+    result: dict[int, list[FeatureFlag]] = {fid: [] for fid in flag_ids}
+    flag_id_strs = {str(fid) for fid in flag_ids}
+
+    for dep_flag in dependent_flags:
+        groups = dep_flag.filters.get("groups", [])
+        for group in groups:
+            properties = group.get("properties", [])
+            for prop in properties:
+                if prop.get("type") == "flag" and prop.get("key") in flag_id_strs:
+                    dep_flag_id = int(prop["key"])
+                    if dep_flag_id in result and dep_flag not in result[dep_flag_id]:
+                        result[dep_flag_id].append(dep_flag)
+
+    return result
+
+
+def _get_flag_rollout_info(flag: FeatureFlag, checker: FeatureFlagStatusChecker) -> dict[str, Any]:
+    """Compute rollout state for a flag to include in bulk delete response.
+
+    Returns a dict with:
+      - rollout_state: "fully_rolled_out", "not_rolled_out", or "partial"
+      - active_variant: variant key if a multivariate flag is fully rolled out to one variant
+    """
+    multivariate = flag.filters.get("multivariate", None)
+
+    if multivariate:
+        is_fully_rolled_out, variant_key = checker.is_multivariate_flag_fully_rolled_out(flag)
+        if is_fully_rolled_out:
+            return {"rollout_state": "fully_rolled_out", "active_variant": variant_key}
+    elif checker.is_boolean_flag_fully_rolled_out(flag):
+        return {"rollout_state": "fully_rolled_out", "active_variant": None}
+
+    # Check if flag is effectively at 0%: all groups have rollout_percentage == 0
+    groups = flag.filters.get("groups", [])
+    if groups and all(g.get("rollout_percentage", None) == 0 for g in groups):
+        return {"rollout_state": "not_rolled_out", "active_variant": None}
+
+    return {"rollout_state": "partial", "active_variant": None}
 
 
 def extract_etag_from_header(header_value: str | None) -> str | None:
@@ -422,6 +528,16 @@ class FeatureFlagSerializer(
             "_should_create_usage_dashboard",
         ]
 
+    def get_fields(self):
+        fields = super().get_fields()
+        analytics_dashboards_field = cast(ManyRelatedField, fields["analytics_dashboards"])
+        if team_id := self.context.get("team_id"):
+            analytics_dashboards_field.child_relation.queryset = Dashboard.objects.filter(team_id=team_id)
+        else:
+            # Fail safe: if no team context, allow no dashboards to prevent IDOR
+            analytics_dashboards_field.child_relation.queryset = Dashboard.objects.none()
+        return fields
+
     def get_can_edit(self, feature_flag: FeatureFlag) -> bool:
         from typing import cast
 
@@ -654,6 +770,12 @@ class FeatureFlagSerializer(
                         code="invalid_value",
                     )
 
+                if prop.operator in (PropertyOperator.IN_, PropertyOperator.NOT_IN) and prop.type != "cohort":
+                    raise serializers.ValidationError(
+                        detail=f"The '{prop.operator}' operator is only valid for cohort properties, not '{prop.type}' properties.",
+                        code="invalid_operator",
+                    )
+
         payloads = filters.get("payloads", {})
 
         if not isinstance(payloads, dict):
@@ -692,6 +814,14 @@ class FeatureFlagSerializer(
 
         try:
             flag = FeatureFlag.objects.get(id=flag_id, team__project_id=self.context["project_id"], deleted=False)
+
+            # Check if the referenced flag is active
+            if not flag.active:
+                raise serializers.ValidationError(
+                    f"Cannot create dependency on disabled flag '{flag.key}' (ID: {flag_id}). "
+                    f"Flag dependencies must reference active flags only."
+                )
+
             return flag.key
         except FeatureFlag.DoesNotExist:
             raise serializers.ValidationError(f"Flag dependency references non-existent flag with ID {flag_id}")
@@ -825,10 +955,16 @@ class FeatureFlagSerializer(
 
         if analytics_dashboards is not None:
             for dashboard in analytics_dashboards:
+                # nosemgrep: idor-lookup-without-team -- dashboard objects validated via get_fields() queryset restriction
                 FeatureFlagDashboards.objects.get_or_create(dashboard=dashboard, feature_flag=instance)
 
         analytics_metadata = instance.get_analytics_metadata()
         analytics_metadata["creation_context"] = creation_context
+        # SessionAuthentication is used for standard browser-based web UI requests.
+        # All other authentication methods (API keys, OAuth tokens, toolbar tokens, etc.)
+        # are classified as "api" for analytics purposes.
+        is_web_auth = isinstance(request.successful_authenticator, SessionAuthentication)
+        analytics_metadata["source"] = "web" if is_web_auth else "api"
         report_user_action(request.user, "feature flag created", analytics_metadata)
 
         return instance
@@ -960,6 +1096,7 @@ class FeatureFlagSerializer(
 
         if analytics_dashboards is not None:
             for dashboard in analytics_dashboards:
+                # nosemgrep: idor-lookup-without-team -- dashboard objects validated via get_fields() queryset restriction
                 FeatureFlagDashboards.objects.get_or_create(dashboard=dashboard, feature_flag=instance)
 
         # Propagate the new variants and aggregation group type index to the linked experiments
@@ -1033,25 +1170,7 @@ class FeatureFlagSerializer(
 
     def _find_dependent_flags(self, flag_to_check: FeatureFlag) -> list[FeatureFlag]:
         """Find all active flags that depend on the given flag."""
-        return list(
-            # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
-            FeatureFlag.objects.filter(team=flag_to_check.team, deleted=False, active=True)
-            .exclude(id=flag_to_check.id)
-            .extra(
-                where=[
-                    """
-                    EXISTS (
-                        SELECT 1 FROM jsonb_array_elements(filters->'groups') AS grp
-                        CROSS JOIN jsonb_array_elements(grp->'properties') AS prop
-                        WHERE prop->>'type' = 'flag'
-                        AND prop->>'key' = %s
-                    )
-                    """
-                ],
-                params=[str(flag_to_check.id)],
-            )
-            .order_by("key")
-        )
+        return find_dependent_flags(flag_to_check)
 
     def _find_disabled_dependencies(self, flag_to_check: FeatureFlag) -> list[FeatureFlag]:
         """Find all disabled flags that the given flag depends on."""
@@ -1298,6 +1417,10 @@ class MyFlagsResponseSerializer(serializers.Serializer):
     value = serializers.JSONField()
 
 
+class MyFlagsResponseListSerializer(serializers.ListSerializer):
+    child = MyFlagsResponseSerializer()
+
+
 class LocalEvaluationResponseSerializer(serializers.Serializer):
     flags: serializers.ListSerializer = serializers.ListSerializer(child=MinimalFeatureFlagSerializer())
     group_type_mapping = serializers.DictField(child=serializers.CharField())
@@ -1335,10 +1458,26 @@ class FeatureFlagViewSet(
         for key in filters:
             if key == "active":
                 if filters[key] == "STALE":
-                    # Get flags that are at least 30 days old and active
-                    # This is an approximation - the serializer will compute the exact status
+                    # Get stale flags using the best available signal:
+                    # 1. If last_called_at exists: flag hasn't been called in 30+ days
+                    # 2. If last_called_at is NULL: flag is 100% rolled out and 30+ days old
+                    stale_threshold = thirty_days_ago()
+
+                    # Usage-based staleness (has last_called_at but not called recently)
+                    # Only active flags can be stale - disabled flags should not be marked as stale
+                    # Note: We don't check created_at here because if we have usage data,
+                    # the flag's age doesn't matter - only when it was last called.
+                    usage_based_stale = Q(last_called_at__lt=stale_threshold, active=True)
+
+                    # Config-based staleness (no last_called_at, so fall back to rollout config)
+                    # We require created_at < 30 days to give flags time to accumulate usage data.
+                    # This uses raw SQL for the complex JSON filter
                     # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (static SQL, no user input)
-                    queryset = queryset.filter(active=True, created_at__lt=thirty_days_ago()).extra(
+                    config_based_queryset = queryset.filter(
+                        last_called_at__isnull=True,
+                        active=True,
+                        created_at__lt=stale_threshold,
+                    ).extra(
                         # This needs to be in sync with the implementation in `FeatureFlagStatusChecker`, flag_status.py
                         # Note: Must use fully qualified table name (posthog_featureflag.filters) to avoid
                         # ambiguity when Django joins other tables that also have a 'filters' column (e.g. Experiment)
@@ -1381,6 +1520,11 @@ class FeatureFlagViewSet(
                             """
                         ]
                     )
+
+                    # Combine both: usage-based OR config-based (for flags without usage data)
+                    # No distinct() needed since conditions are mutually exclusive
+                    # (last_called_at < threshold vs last_called_at IS NULL)
+                    queryset = queryset.filter(usage_based_stale) | config_based_queryset
                 else:
                     queryset = queryset.filter(active=filters[key] == "true")
             elif key == "created_by_id":
@@ -1685,8 +1829,7 @@ class FeatureFlagViewSet(
     def dependent_flags(self, request: request.Request, **kwargs):
         """Get other active flags that depend on this flag."""
         feature_flag: FeatureFlag = self.get_object()
-        serializer = self.serializer_class()
-        dependent_flags = serializer._find_dependent_flags(feature_flag)
+        dependent_flags = find_dependent_flags(feature_flag)
         return Response(
             [
                 {
@@ -1699,41 +1842,10 @@ class FeatureFlagViewSet(
             status=200,
         )
 
-    @action(methods=["POST"], detail=True)
-    def has_active_dependents(self, request: request.Request, **kwargs):
-        """
-        Deprecated: Use GET /dependent_flags instead.
-        Safe to delete after usage falls to zero, expected by Jan 22, 2026.
-        """
-        response = self.dependent_flags(request, **kwargs)
-        dependent_flags = response.data
-        TOMBSTONE_COUNTER.labels(
-            namespace="feature_flags",
-            operation="has_active_dependents",
-            component="api",
-        ).inc()
-        return Response(
-            {
-                "has_active_dependents": len(dependent_flags) > 0,
-                "dependent_flags": dependent_flags,
-                "warning": (
-                    (
-                        f"This feature flag is used by {len(dependent_flags)} other active "
-                        f"{'flag' if len(dependent_flags) == 1 else 'flags'}. "
-                        f"Disabling it will cause {'that flag' if len(dependent_flags) == 1 else 'those flags'} "
-                        f"to evaluate this condition as false."
-                    )
-                    if dependent_flags
-                    else None
-                ),
-            },
-            status=200,
-        )
-
     @validated_request(
         query_serializer=MyFlagsQuerySerializer,
         responses={
-            200: OpenApiResponse(response=MyFlagsResponseSerializer(many=True)),
+            200: OpenApiResponse(response=MyFlagsResponseListSerializer),
         },
     )
     @action(methods=["GET"], detail=False, pagination_class=None)
@@ -1798,11 +1910,10 @@ class FeatureFlagViewSet(
         validated_ids = []
         invalid_ids = []
         for flag_id in flag_ids:
-            if str(flag_id).isdigit():
-                try:
-                    validated_ids.append(int(flag_id))
-                except (ValueError, TypeError):
-                    invalid_ids.append(flag_id)
+            if isinstance(flag_id, int):
+                validated_ids.append(flag_id)
+            elif isinstance(flag_id, str) and flag_id.isdigit():
+                validated_ids.append(int(flag_id))
             else:
                 invalid_ids.append(flag_id)
 
@@ -1835,6 +1946,151 @@ class FeatureFlagViewSet(
         response_data["keys"] = keys_mapping
 
         return Response(response_data)
+
+    @action(methods=["POST"], detail=False, required_scopes=["feature_flag:write"])
+    def bulk_delete(self, request: request.Request, **kwargs):
+        """
+        Bulk delete feature flags by IDs.
+        Accepts a list of feature flag IDs and soft-deletes them.
+        Returns success/error per flag.
+        """
+        flag_ids = request.data.get("ids", [])
+
+        if not flag_ids:
+            return Response(
+                {"error": "No flag IDs provided"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Limit to 100 flags per request
+        if len(flag_ids) > 100:
+            return Response(
+                {"error": "Cannot delete more than 100 flags at once"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Convert to integers and track invalid IDs
+        validated_ids = []
+        invalid_ids = []
+        for flag_id in flag_ids:
+            if isinstance(flag_id, int):
+                validated_ids.append(flag_id)
+            elif isinstance(flag_id, str) and flag_id.isdigit():
+                validated_ids.append(int(flag_id))
+            else:
+                invalid_ids.append(flag_id)
+
+        if not validated_ids:
+            return Response(
+                {"error": "No valid flag IDs provided"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Fetch all flags that exist and belong to this project
+        flags = FeatureFlag.objects.filter(
+            id__in=validated_ids, team__project_id=self.project_id, deleted=False
+        ).prefetch_related("features", "experiment_set")
+
+        flags_by_id = {flag.id: flag for flag in flags}
+        flags_list = list(flags)
+
+        # Batch query for dependent flags (avoids N+1 queries)
+        dependent_flags_map = find_dependent_flags_batch(flags_list)
+
+        deleted = []
+        errors = []
+
+        # Add errors for invalid IDs
+        for invalid_id in invalid_ids:
+            errors.append({"id": invalid_id, "reason": "Invalid flag ID format"})
+
+        # Process each flag in request order
+        for flag_id in validated_ids:
+            flag = flags_by_id.get(flag_id)
+            if flag is None:
+                errors.append({"id": flag_id, "reason": "Flag not found"})
+                continue
+            # Check for linked early access features
+            # Use list() to leverage the prefetched data instead of causing another query
+            if len(list(flag.features.all())) > 0:
+                errors.append(
+                    {
+                        "id": flag_id,
+                        "key": flag.key,
+                        "reason": "Cannot delete a feature flag that is in use with early access features",
+                    }
+                )
+                continue
+
+            # Check for linked active experiments
+            # Filter in Python to leverage the prefetched experiment_set
+            active_experiments = [exp for exp in flag.experiment_set.all() if not exp.deleted]
+            if active_experiments:
+                experiment_ids = [exp.id for exp in active_experiments]
+                errors.append(
+                    {
+                        "id": flag_id,
+                        "key": flag.key,
+                        "reason": f"Cannot delete a feature flag linked to active experiment(s): {', '.join(map(str, experiment_ids))}",
+                    }
+                )
+                continue
+
+            # Check for other flags that depend on this flag (using batch-fetched data)
+            dependent_flags = dependent_flags_map.get(flag_id, [])
+            if dependent_flags:
+                dependent_flag_names = [f"{f.key} (ID: {f.id})" for f in dependent_flags[:3]]
+                if len(dependent_flags) > 3:
+                    dependent_flag_names.append(f"and {len(dependent_flags) - 3} more")
+                errors.append(
+                    {
+                        "id": flag_id,
+                        "key": flag.key,
+                        "reason": f"Cannot delete because other flags depend on it: {', '.join(dependent_flag_names)}",
+                    }
+                )
+                continue
+
+            # Capture rollout state before deletion for cleanup prompt context
+            checker = FeatureFlagStatusChecker(feature_flag=flag)
+            rollout_info = _get_flag_rollout_info(flag, checker)
+
+            # All checks passed - soft delete the flag
+            old_key = flag.key
+
+            # If all experiments are soft-deleted, rename the key to free it up
+            # Use the already-fetched prefetched data
+            has_deleted_experiments = any(exp.deleted for exp in flag.experiment_set.all())
+            if has_deleted_experiments:
+                flag.key = f"{flag.key}:deleted:{flag.id}"
+
+            flag.deleted = True
+            flag.last_modified_by = request.user
+            flag.save()
+
+            # Log activity
+            log_activity(
+                organization_id=flag.team.organization_id,
+                team_id=flag.team_id,
+                user=request.user if request.user.is_authenticated else None,
+                was_impersonated=is_impersonated_session(request),
+                item_id=flag.id,
+                scope="FeatureFlag",
+                activity="deleted",
+                detail=Detail(
+                    changes=[],
+                    name=old_key,
+                ),
+            )
+
+            deleted.append({"id": flag_id, "key": old_key, **rollout_info})
+
+        return Response(
+            {
+                "deleted": deleted,
+                "errors": errors,
+            }
+        )
 
     @validated_request(
         query_serializer=LocalEvaluationQuerySerializer,
@@ -2175,7 +2431,7 @@ class FeatureFlagViewSet(
 
         try:
             feature_flag = (
-                FeatureFlag.objects.get(pk=kwargs["pk"])
+                FeatureFlag.objects.get(pk=kwargs["pk"], team__project_id=self.project_id)
                 if is_flag_id_provided
                 else FeatureFlag.objects.get(key=kwargs["pk"], team__project_id=self.project_id)
             )

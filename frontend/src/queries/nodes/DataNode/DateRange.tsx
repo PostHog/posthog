@@ -37,6 +37,7 @@ export function DateRange<
                     }
                     setQuery?.(newQuery)
                 }}
+                allowFixedRangeWithTime
             />
         )
     }
@@ -59,6 +60,7 @@ export function DateRange<
                     }
                     setQuery?.(newQuery)
                 }}
+                allowFixedRangeWithTime
             />
         )
     }
@@ -78,6 +80,7 @@ export function DateRange<
                     }
                     setQuery?.(newQuery)
                 }}
+                allowFixedRangeWithTime
             />
         )
     }

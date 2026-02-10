@@ -54,14 +54,14 @@ IMPORTANT GUIDELINES:
 - Limit to 0-4 patterns per category
 - Recommendations should be specific and actionable (2-4 total)
 - If there are no patterns for a category, return an empty array
-- For each pattern, include 1-3 generation_ids that exemplify the pattern
+- For each pattern, include 1-5 generation_ids that exemplify the pattern
 
 PATTERN IDENTIFICATION:
 - Look for repeated phrases, similar concerns, or common themes
 - A pattern should appear in multiple evaluations to be worth noting
 - For each pattern, provide a concrete example from the input reasoning
 - Use frequency terms: "common" (majority), "occasional" (several), "rare" (few)
-- Include the generation_ids of runs that match this pattern (pick 1-3 representative examples)
+- Include the generation_ids of runs that match this pattern (pick 1-5 representative examples)
 
 STRUCTURED OUTPUT:
 You must return valid JSON matching this schema:

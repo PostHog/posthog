@@ -22,9 +22,7 @@ class PlanModeExecutable(AgentExecutable):
         should_set_plan_mode = not state.supermode or (state.messages and isinstance(state.messages[-1], HumanMessage))
 
         if should_set_plan_mode:
-            new_state = state.model_copy(
-                update={"agent_mode": AgentMode.PRODUCT_ANALYTICS, "supermode": AgentMode.PLAN}
-            )
+            new_state = state.model_copy(update={"agent_mode": AgentMode.SQL, "supermode": AgentMode.PLAN})
         else:
             new_state = state
 
@@ -36,7 +34,7 @@ class PlanModeExecutable(AgentExecutable):
 
         # Ensure supermode and agent_mode are persisted to the checkpoint on first turn
         if should_set_plan_mode:
-            result = result.model_copy(update={"supermode": AgentMode.PLAN, "agent_mode": AgentMode.PRODUCT_ANALYTICS})
+            result = result.model_copy(update={"supermode": AgentMode.PLAN, "agent_mode": AgentMode.SQL})
 
         return result
 

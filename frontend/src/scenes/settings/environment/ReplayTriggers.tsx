@@ -81,6 +81,7 @@ function UrlTriggerOptions(): JSX.Element | null {
     return (
         <IngestionControls.UrlConfig
             logic={replayTriggersLogic}
+            logicProps={{}}
             formKey="proposedUrlTrigger"
             addUrl={addUrlTrigger}
             validationWarning={urlTriggerInputValidationWarning}
@@ -123,6 +124,7 @@ function UrlBlocklistOptions(): JSX.Element | null {
     return (
         <IngestionControls.UrlConfig
             logic={replayTriggersLogic}
+            logicProps={{}}
             formKey="proposedUrlBlocklist"
             addUrl={addUrlBlocklist}
             validationWarning={urlBlocklistInputValidationWarning}
@@ -302,7 +304,16 @@ const RecordingTriggersSummary = ({
         )
     }
 
-    return <IngestionControlsSummary triggers={triggers} />
+    return (
+        <IngestionControlsSummary
+            triggers={triggers}
+            controlDescription="sessions recorded"
+            docsLink={{
+                to: 'https://posthog.com/docs/session-replay/how-to-control-which-sessions-you-record',
+                label: 'Read about how to start and stop sessions in our docs.',
+            }}
+        />
+    )
 }
 
 const useTriggers = (currentTeam: TeamType | TeamPublicType, selectedPlatform: 'web' | 'mobile'): Trigger[] => {
@@ -341,7 +352,7 @@ const useTriggers = (currentTeam: TeamType | TeamPublicType, selectedPlatform: '
             {
                 type: TriggerType.SAMPLING,
                 enabled: hasSampling,
-                sampleRate: numericSampleRate,
+                sampleRate: sampleRate ? parseFloat(sampleRate) : null,
             },
             {
                 type: TriggerType.MIN_DURATION,

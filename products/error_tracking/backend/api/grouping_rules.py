@@ -57,6 +57,7 @@ class ErrorTrackingGroupingRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelVie
         if description:
             grouping_rule.description = description
 
+        grouping_rule.disabled_data = None
         grouping_rule.save()
 
         return Response({"ok": True}, status=status.HTTP_204_NO_CONTENT)

@@ -2,7 +2,6 @@ import { actions, connect, kea, key, listeners, path, props } from 'kea'
 import { forms } from 'kea-forms'
 
 import api from 'lib/api'
-import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 
@@ -133,12 +132,21 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     payload.threshold.configuration.type = InsightThresholdType.ABSOLUTE
                 }
 
+                const upsertToParent = (updatedAlert: AlertType): void => {
+                    if (props.insightVizDataLogicProps) {
+                        insightAlertsLogic({
+                            insightId: props.insightId,
+                            insightLogicProps: props.insightVizDataLogicProps,
+                        }).actions.upsertAlert(updatedAlert)
+                    }
+                }
+
                 try {
                     if (alert.id === undefined) {
                         const updatedAlert: AlertType = await api.alerts.create(payload)
 
                         lemonToast.success(`Alert created.`)
-                        globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.SetUpLogAlerts)
+                        upsertToParent(updatedAlert)
                         props.onEditSuccess(updatedAlert.id)
 
                         return updatedAlert
@@ -147,6 +155,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     const updatedAlert: AlertType = await api.alerts.update(alert.id, payload)
 
                     lemonToast.success(`Alert saved.`)
+                    upsertToParent(updatedAlert)
                     props.onEditSuccess(updatedAlert.id)
 
                     return updatedAlert
@@ -160,14 +169,14 @@ export const alertFormLogic = kea<alertFormLogicType>([
     })),
 
     listeners(({ props, values }) => {
-        // Helper to refresh alerts in the parent logic if available
-        const refreshParentAlerts = (): void => {
+        const getParentLogic = (): ReturnType<typeof insightAlertsLogic.build> | undefined => {
             if (props.insightVizDataLogicProps) {
-                insightAlertsLogic({
+                return insightAlertsLogic({
                     insightId: props.insightId,
                     insightLogicProps: props.insightVizDataLogicProps,
-                }).actions.loadAlerts()
+                })
             }
+            return undefined
         }
 
         return {
@@ -178,7 +187,11 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 }
                 await api.alerts.delete(values.alertForm.id)
                 lemonToast.success('Alert deleted.')
-                refreshParentAlerts()
+                const parent = getParentLogic()
+                if (parent) {
+                    parent.actions.removeAlert(values.alertForm.id)
+                    parent.actions.loadAlerts()
+                }
                 props.onEditSuccess(undefined)
             },
             snoozeAlert: async ({ snoozeUntil }) => {
@@ -186,8 +199,14 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 if (!values.alertForm.id) {
                     throw new Error("Cannot snooze alert that doesn't exist")
                 }
-                await api.alerts.update(values.alertForm.id, { snoozed_until: snoozeUntil })
-                refreshParentAlerts()
+                const updatedAlert: AlertType = await api.alerts.update(values.alertForm.id, {
+                    snoozed_until: snoozeUntil,
+                })
+                const parent = getParentLogic()
+                if (parent) {
+                    parent.actions.upsertAlert(updatedAlert)
+                    parent.actions.loadAlerts()
+                }
                 props.onEditSuccess(values.alertForm.id)
             },
             clearSnooze: async () => {
@@ -195,12 +214,19 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 if (!values.alertForm.id) {
                     throw new Error("Cannot resolve alert that doesn't exist")
                 }
-                await api.alerts.update(values.alertForm.id, { snoozed_until: null })
-                refreshParentAlerts()
+                const updatedAlert: AlertType = await api.alerts.update(values.alertForm.id, {
+                    snoozed_until: null,
+                })
+                const parent = getParentLogic()
+                if (parent) {
+                    parent.actions.upsertAlert(updatedAlert)
+                    parent.actions.loadAlerts()
+                }
                 props.onEditSuccess(values.alertForm.id)
             },
             submitAlertFormSuccess: async () => {
-                refreshParentAlerts()
+                // Background sync to pick up any server-side changes
+                getParentLogic()?.actions.loadAlerts()
             },
         }
     }),

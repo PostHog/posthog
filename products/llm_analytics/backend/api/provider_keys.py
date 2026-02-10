@@ -1,5 +1,6 @@
 from typing import cast
 
+from django.db import transaction
 from django.db.models import QuerySet
 
 from rest_framework import serializers, status, viewsets
@@ -13,9 +14,13 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
 from posthog.models import User
+from posthog.permissions import AccessControlPermission
+from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 
 from ..llm.client import Client
 from ..models.evaluation_config import EvaluationConfig
+from ..models.evaluations import Evaluation
+from ..models.model_configuration import LLMModelConfiguration
 from ..models.provider_keys import LLMProvider, LLMProviderKey
 
 
@@ -64,7 +69,7 @@ class LLMProviderKeySerializer(serializers.ModelSerializer):
         elif provider == LLMProvider.ANTHROPIC:
             if not value.startswith("sk-ant-"):
                 raise serializers.ValidationError("Invalid Anthropic API key format. Key should start with 'sk-ant-'.")
-        # Gemini keys have no standard prefix, so no format validation needed
+        # Gemini and OpenRouter keys have no standard prefix, so no format validation needed
 
         return value
 
@@ -112,9 +117,9 @@ class LLMProviderKeySerializer(serializers.ModelSerializer):
         return super().update(instance, validated_data)
 
 
-class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     scope_object = "llm_provider_key"
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, AccessControlPermission]
     serializer_class = LLMProviderKeySerializer
     queryset = LLMProviderKey.objects.all()
 
@@ -217,16 +222,79 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def partial_update(self, request, *args, **kwargs):
         return super().partial_update(request, *args, **kwargs)
 
+    @action(detail=True, methods=["get"])
+    @monitor(feature=None, endpoint="llma_provider_keys_dependent_configs", method="GET")
+    def dependent_configs(self, request: Request, **_kwargs) -> Response:
+        """Get evaluations using this key and alternative keys for replacement."""
+        instance = self.get_object()
+
+        model_configs = LLMModelConfiguration.objects.filter(provider_key=instance).prefetch_related("evaluations")
+
+        evaluations = []
+        for config in model_configs:
+            for evaluation in config.evaluations.filter(deleted=False):
+                evaluations.append(
+                    {
+                        "id": str(evaluation.id),
+                        "name": evaluation.name,
+                        "model_configuration_id": str(config.id),
+                    }
+                )
+
+        alternative_keys = LLMProviderKey.objects.filter(
+            team_id=self.team_id,
+            provider=instance.provider,
+            state=LLMProviderKey.State.OK,
+        ).exclude(id=instance.id)
+
+        return Response(
+            {
+                "evaluations": evaluations,
+                "alternative_keys": [
+                    {"id": str(key.id), "name": key.name, "provider": key.provider} for key in alternative_keys
+                ],
+            }
+        )
+
     @monitor(feature=None, endpoint="llma_provider_keys_destroy", method="DELETE")
     def destroy(self, request, *args, **kwargs):
-        return super().destroy(request, *args, **kwargs)
+        instance = self.get_object()
+        replacement_key_id = request.query_params.get("replacement_key_id")
+
+        if replacement_key_id:
+            try:
+                replacement_key = LLMProviderKey.objects.get(id=replacement_key_id, team_id=self.team_id)
+            except LLMProviderKey.DoesNotExist:
+                return Response({"detail": "Replacement key not found"}, status=status.HTTP_400_BAD_REQUEST)
+
+            if replacement_key.provider != instance.provider:
+                return Response(
+                    {"detail": "Replacement key must be from the same provider"}, status=status.HTTP_400_BAD_REQUEST
+                )
+
+            with transaction.atomic():
+                LLMModelConfiguration.objects.filter(provider_key=instance, team_id=self.team_id).update(
+                    provider_key=replacement_key
+                )
+                return super().destroy(request, *args, **kwargs)
+        else:
+            model_config_ids = list(
+                LLMModelConfiguration.objects.filter(provider_key=instance, team_id=self.team_id).values_list(
+                    "id", flat=True
+                )
+            )
+            with transaction.atomic():
+                Evaluation.objects.filter(
+                    model_configuration_id__in=model_config_ids, team_id=self.team_id, deleted=False
+                ).update(enabled=False)
+                return super().destroy(request, *args, **kwargs)
 
 
 class LLMProviderKeyValidationViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     """Validate LLM provider API keys without persisting them"""
 
     scope_object = "llm_provider_key"
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, AccessControlPermission]
 
     @monitor(feature=None, endpoint="llma_provider_key_validations_create", method="POST")
     def create(self, request: Request, **_kwargs) -> Response:

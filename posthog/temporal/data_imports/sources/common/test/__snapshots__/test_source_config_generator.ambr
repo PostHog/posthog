@@ -44,6 +44,7 @@
   def get_config_for_source(source: ExternalDataSourceType):
       return {
           ExternalDataSourceType.ASHBY: AshbySourceConfig,
+          ExternalDataSourceType.ATTIO: AttioSourceConfig,
           ExternalDataSourceType.BIGQUERY: BigQuerySourceConfig,
           ExternalDataSourceType.BINGADS: BingAdsSourceConfig,
           ExternalDataSourceType.BRAZE: BrazeSourceConfig,
