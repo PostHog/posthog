@@ -42,6 +42,14 @@ from posthog.temporal.llm_analytics.trace_summarization.constants import (
     WORKFLOW_NAME,
 )
 from posthog.temporal.llm_analytics.trace_summarization.fetch_and_format import fetch_and_format_activity
+from posthog.temporal.llm_analytics.trace_summarization.metrics import (
+    increment_embedding_result,
+    increment_item_result,
+    increment_skip,
+    increment_workflow_finished,
+    increment_workflow_started,
+    record_items_sampled,
+)
 from posthog.temporal.llm_analytics.trace_summarization.models import (
     BatchSummarizationInputs,
     BatchSummarizationMetrics,
@@ -168,6 +176,8 @@ class BatchTraceSummarizationWorkflow(PostHogWorkflow):
         batch_run_id = f"{inputs.team_id}_{start_time.isoformat()}"
         metrics = BatchSummarizationMetrics()
 
+        increment_workflow_started(inputs.analysis_level)
+
         # Compute window dates for queries using workflow time for determinism
         if inputs.window_start and inputs.window_end:
             window_start = inputs.window_start
@@ -203,6 +213,7 @@ class BatchTraceSummarizationWorkflow(PostHogWorkflow):
             retry_policy=constants.SAMPLE_RETRY_POLICY,
         )
         metrics.items_queried = len(items)
+        record_items_sampled(len(items), inputs.analysis_level)
 
         # Process all items
         tasks: list[Coroutine[Any, Any, SummarizationActivityResult]] = [
@@ -233,19 +244,30 @@ class BatchTraceSummarizationWorkflow(PostHogWorkflow):
                     error=str(result),
                 )
                 metrics.summaries_failed += 1
+                increment_item_result("failed", inputs.analysis_level)
             elif result.success:
                 metrics.summaries_generated += 1
+                increment_item_result("generated", inputs.analysis_level)
                 if result.embedding_requested:
                     metrics.embedding_requests_succeeded += 1
+                    increment_embedding_result("succeeded")
                 else:
                     metrics.embedding_requests_failed += 1
+                    increment_embedding_result("failed")
             elif result.skipped:
                 metrics.summaries_skipped += 1
+                increment_item_result("skipped", inputs.analysis_level)
+                if result.skip_reason:
+                    increment_skip(result.skip_reason, inputs.analysis_level)
             else:
                 metrics.summaries_failed += 1
+                increment_item_result("failed", inputs.analysis_level)
 
         end_time = temporalio.workflow.now()
         metrics.duration_seconds = (end_time - start_time).total_seconds()
+
+        status = "completed" if metrics.summaries_failed == 0 else "completed_with_errors"
+        increment_workflow_finished(status, inputs.analysis_level)
 
         return BatchSummarizationResult(
             batch_run_id=batch_run_id,

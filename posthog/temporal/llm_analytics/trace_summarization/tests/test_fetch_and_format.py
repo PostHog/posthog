@@ -145,7 +145,9 @@ class TestFetchAndFormatActivity:
             mock_person = LLMTracePerson(
                 uuid=str(uuid.uuid4()), distinct_id="test", created_at=datetime.now(UTC).isoformat(), properties={}
             )
-            mock_trace = LLMTrace(id=trace_id, createdAt=datetime.now(UTC).isoformat(), events=[], person=mock_person)
+            mock_trace = LLMTrace(
+                id=trace_id, createdAt=datetime.now(UTC).isoformat(), distinctId="test", events=[], person=mock_person
+            )
             mock_fetch.return_value = mock_trace
             mock_to_format.return_value = ({"id": trace_id}, [{"event": "e1"}, {"event": "e2"}])
             mock_format.return_value = ("L1: text\nL2: more text", False)
@@ -227,7 +229,11 @@ class TestFetchAndFormatActivity:
                 properties={"data": "x" * 100},
             )
             mock_trace = LLMTrace(
-                id=trace_id, createdAt=datetime.now(UTC).isoformat(), events=[big_event], person=mock_person
+                id=trace_id,
+                createdAt=datetime.now(UTC).isoformat(),
+                distinctId="test",
+                events=[big_event],
+                person=mock_person,
             )
             mock_fetch.return_value = mock_trace
             mock_to_format.return_value = ({}, [{"event": "e1"}])
