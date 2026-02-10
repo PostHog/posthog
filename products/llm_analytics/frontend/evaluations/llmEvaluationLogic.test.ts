@@ -4,6 +4,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { LLMProviderKey, llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
+import { EVALUATION_SUMMARY_MAX_RUNS } from './constants'
 import { llmEvaluationLogic } from './llmEvaluationLogic'
 import { EvaluationConfig, EvaluationRun } from './types'
 
@@ -27,6 +28,17 @@ const mockProviderKeys: LLMProviderKey[] = [
         error_message: null,
         api_key_masked: 'sk-ant-...5678',
         created_at: '2024-01-02T00:00:00Z',
+        created_by: null,
+        last_used_at: null,
+    },
+    {
+        id: 'key-3',
+        provider: 'openrouter',
+        name: 'OpenRouter Key',
+        state: 'ok',
+        error_message: null,
+        api_key_masked: 'sk-or-...9012',
+        created_at: '2024-01-03T00:00:00Z',
         created_by: null,
         last_used_at: null,
     },
@@ -260,6 +272,8 @@ describe('llmEvaluationLogic', () => {
                 expect(byProvider.anthropic).toHaveLength(1)
                 expect(byProvider.anthropic[0].id).toBe('key-2')
                 expect(byProvider.gemini).toHaveLength(0)
+                expect(byProvider.openrouter).toHaveLength(1)
+                expect(byProvider.openrouter[0].id).toBe('key-3')
             })
         })
 
@@ -370,6 +384,156 @@ describe('llmEvaluationLogic', () => {
                 await expectLogic(logic).toMatchValues({
                     evaluation: expect.objectContaining({ name: 'Test Evaluation' }),
                     hasUnsavedChanges: false,
+                })
+            })
+        })
+    })
+
+    describe('evaluation summary', () => {
+        beforeEach(() => {
+            logic = llmEvaluationLogic({ evaluationId: 'eval-123' })
+            logic.mount()
+        })
+
+        describe('evaluationSummaryFilter', () => {
+            it('defaults to all', async () => {
+                expect(logic.values.evaluationSummaryFilter).toBe('all')
+            })
+
+            it('updates when setEvaluationSummaryFilter is called', async () => {
+                logic.actions.setEvaluationSummaryFilter('pass', 'all')
+
+                await expectLogic(logic).toMatchValues({
+                    evaluationSummaryFilter: 'pass',
+                })
+            })
+
+            it('clears evaluationSummary when filter changes', async () => {
+                // Simulate having a summary
+                logic.actions.generateEvaluationSummarySuccess({
+                    overall_assessment: 'Test',
+                    pass_patterns: [],
+                    fail_patterns: [],
+                    na_patterns: [],
+                    recommendations: [],
+                    statistics: { total_analyzed: 10, pass_count: 5, fail_count: 3, na_count: 2 },
+                })
+
+                await expectLogic(logic).toMatchValues({
+                    evaluationSummary: expect.objectContaining({ overall_assessment: 'Test' }),
+                })
+
+                logic.actions.setEvaluationSummaryFilter('fail', 'all')
+
+                await expectLogic(logic).toMatchValues({
+                    evaluationSummary: null,
+                })
+            })
+        })
+
+        describe('runsToSummarizeCount', () => {
+            it('returns 0 when no runs', async () => {
+                expect(logic.values.runsToSummarizeCount).toBe(0)
+            })
+
+            it('counts all completed runs when filter is all', async () => {
+                logic.actions.loadEvaluationRunsSuccess(mockRuns)
+
+                await expectLogic(logic).toMatchValues({
+                    runsToSummarizeCount: 3,
+                })
+            })
+
+            it('counts only passing runs when filter is pass', async () => {
+                logic.actions.loadEvaluationRunsSuccess(mockRuns)
+                logic.actions.setEvaluationSummaryFilter('pass', 'all')
+
+                await expectLogic(logic).toMatchValues({
+                    runsToSummarizeCount: 1,
+                })
+            })
+
+            it('counts only failing runs when filter is fail', async () => {
+                logic.actions.loadEvaluationRunsSuccess(mockRuns)
+                logic.actions.setEvaluationSummaryFilter('fail', 'all')
+
+                await expectLogic(logic).toMatchValues({
+                    runsToSummarizeCount: 1,
+                })
+            })
+
+            it('counts only N/A runs when filter is na', async () => {
+                logic.actions.loadEvaluationRunsSuccess(mockRuns)
+                logic.actions.setEvaluationSummaryFilter('na', 'all')
+
+                await expectLogic(logic).toMatchValues({
+                    runsToSummarizeCount: 1,
+                })
+            })
+
+            it(`caps count at ${EVALUATION_SUMMARY_MAX_RUNS}`, async () => {
+                const manyRuns = Array.from({ length: EVALUATION_SUMMARY_MAX_RUNS + 50 }, (_, i) => ({
+                    ...mockRuns[0],
+                    id: `run-${i}`,
+                    generation_id: `gen-${i}`,
+                }))
+                logic.actions.loadEvaluationRunsSuccess(manyRuns)
+
+                await expectLogic(logic).toMatchValues({
+                    runsToSummarizeCount: EVALUATION_SUMMARY_MAX_RUNS,
+                })
+            })
+        })
+
+        describe('summaryExpanded', () => {
+            it('defaults to true', async () => {
+                expect(logic.values.summaryExpanded).toBe(true)
+            })
+
+            it('toggles on toggleSummaryExpanded', async () => {
+                logic.actions.toggleSummaryExpanded()
+
+                await expectLogic(logic).toMatchValues({
+                    summaryExpanded: false,
+                })
+
+                logic.actions.toggleSummaryExpanded()
+
+                await expectLogic(logic).toMatchValues({
+                    summaryExpanded: true,
+                })
+            })
+
+            it('expands on generateEvaluationSummarySuccess', async () => {
+                logic.actions.toggleSummaryExpanded() // collapse
+
+                await expectLogic(logic).toMatchValues({ summaryExpanded: false })
+
+                logic.actions.generateEvaluationSummarySuccess({
+                    overall_assessment: 'Test',
+                    pass_patterns: [],
+                    fail_patterns: [],
+                    na_patterns: [],
+                    recommendations: [],
+                    statistics: { total_analyzed: 10, pass_count: 5, fail_count: 3, na_count: 2 },
+                })
+
+                await expectLogic(logic).toMatchValues({
+                    summaryExpanded: true,
+                })
+            })
+        })
+
+        describe('runsLookup', () => {
+            it('creates lookup by generation_id', async () => {
+                logic.actions.loadEvaluationRunsSuccess(mockRuns)
+
+                await expectLogic(logic).toMatchValues({
+                    runsLookup: {
+                        'gen-1': expect.objectContaining({ id: 'run-1' }),
+                        'gen-2': expect.objectContaining({ id: 'run-2' }),
+                        'gen-3': expect.objectContaining({ id: 'run-3' }),
+                    },
                 })
             })
         })

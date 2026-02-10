@@ -1,1 +1,1 @@
-0994_user_requested_2fa_reset_at
+1000_create_healthissue_table

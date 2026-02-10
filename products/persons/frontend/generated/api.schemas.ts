@@ -359,6 +359,18 @@ export const PersonsActivityRetrieveFormat = {
     json: 'json',
 } as const
 
+export type PersonsBatchByDistinctIdsCreateParams = {
+    format?: PersonsBatchByDistinctIdsCreateFormat
+}
+
+export type PersonsBatchByDistinctIdsCreateFormat =
+    (typeof PersonsBatchByDistinctIdsCreateFormat)[keyof typeof PersonsBatchByDistinctIdsCreateFormat]
+
+export const PersonsBatchByDistinctIdsCreateFormat = {
+    csv: 'csv',
+    json: 'json',
+} as const
+
 export type PersonsBulkDeleteCreateParams = {
     /**
      * If true, a task to delete all events associated with this person will be created and queued. The task does not run immediately and instead is batched together and at 5AM UTC every Sunday
@@ -654,6 +666,18 @@ export type PersonsActivityRetrieve3Format =
     (typeof PersonsActivityRetrieve3Format)[keyof typeof PersonsActivityRetrieve3Format]
 
 export const PersonsActivityRetrieve3Format = {
+    csv: 'csv',
+    json: 'json',
+} as const
+
+export type PersonsBatchByDistinctIdsCreate2Params = {
+    format?: PersonsBatchByDistinctIdsCreate2Format
+}
+
+export type PersonsBatchByDistinctIdsCreate2Format =
+    (typeof PersonsBatchByDistinctIdsCreate2Format)[keyof typeof PersonsBatchByDistinctIdsCreate2Format]
+
+export const PersonsBatchByDistinctIdsCreate2Format = {
     csv: 'csv',
     json: 'json',
 } as const

@@ -33,6 +33,7 @@ class Notifications(TypedDict, total=False):
         float  # Failure rate threshold (0.0 to 1.0) - only notify if failure rate exceeds this
     )
     project_api_key_exposed: bool
+    materialized_view_sync_failed: bool
 
 
 NOTIFICATION_DEFAULTS: Notifications = {
@@ -41,12 +42,12 @@ NOTIFICATION_DEFAULTS: Notifications = {
     "discussions_mentioned": True,  # Mentions in comments enabled by default
     "project_weekly_digest_disabled": {},  # Empty dict by default - no projects disabled
     "all_weekly_digest_disabled": False,  # Weekly digests enabled by default
-    "data_pipeline_error_threshold": 0.0,  # Default: notify on any failure (0% threshold)
+    "data_pipeline_error_threshold": 0.01,  # Default: notify when failure rate exceeds 1%
     "project_api_key_exposed": True,  # Project API key exposure alerts enabled by default
+    "materialized_view_sync_failed": False,  # Materialized view failure disabled by default
 }
 
 # We don't need the following attributes in most cases, so we defer them by default
-# TODO: add requested_2fa_reset_at after migration completed
 DEFERED_ATTRS = ["requested_password_reset_at"]
 
 ROLE_CHOICES = (

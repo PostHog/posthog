@@ -69,13 +69,22 @@ pub const CHECKPOINT_DURATION_HISTOGRAM: &str = "checkpoint_duration_seconds";
 pub const CHECKPOINT_WORKER_STATUS_COUNTER: &str = "checkpoint_worker_status";
 
 /// Histogram for checkpoint upload duration
+/// Tags: result=success|error|cancelled
+/// When result=cancelled, additional tag: cause=rebalance|shutdown|unknown
 pub const CHECKPOINT_UPLOAD_DURATION_HISTOGRAM: &str = "checkpoint_upload_duration_seconds";
 
 /// Counter for checkpoint upload outcome status
+/// Tags: result=success|error|cancelled|unavailable
+/// When result=cancelled, additional tag: cause=rebalance|shutdown|unknown
 pub const CHECKPOINT_UPLOADS_COUNTER: &str = "checkpoint_upload_status";
 
 /// Counter for checkpoint file downloads outcome status
+/// Tags: status=success|error|cancelled
 pub const CHECKPOINT_FILE_DOWNLOADS_COUNTER: &str = "checkpoint_file_downloads_status";
+
+/// Counter for checkpoint file uploads outcome status
+/// Tags: status=success|error|cancelled
+pub const CHECKPOINT_FILE_UPLOADS_COUNTER: &str = "checkpoint_file_uploads_status";
 
 /// Counter for checkpoint files tracked in each attempt plan tagged by action taken
 pub const CHECKPOINT_PLAN_FILE_TRACKED_COUNTER: &str = "checkpoint_plan_file_tracked";
@@ -94,9 +103,27 @@ pub const CHECKPOINT_FILE_FETCH_STORE_HISTOGRAM: &str = "checkpoint_file_fetch_a
 /// Histogram for checkpoint metadata file list duration; only measured on success
 pub const CHECKPOINT_LIST_METADATA_HISTOGRAM: &str = "checkpoint_list_metadata_seconds";
 
+/// Histogram for total checkpoint import duration from start to completion
+/// This measures the end-to-end time for import_checkpoint_for_topic_partition_cancellable,
+/// including listing checkpoints, downloading metadata files, downloading all SST files,
+/// and any fallback attempts. Tags: result=success|failed|cancelled|timeout
+pub const CHECKPOINT_IMPORT_DURATION_HISTOGRAM: &str = "checkpoint_import_duration_seconds";
+
+/// Histogram for per-checkpoint-attempt duration during import
+/// This measures the time for each individual checkpoint attempt (downloading one checkpoint's files).
+/// Multiple attempts may occur if earlier checkpoints fail. Tags: result=success|failed
+pub const CHECKPOINT_IMPORT_ATTEMPT_DURATION_HISTOGRAM: &str =
+    "checkpoint_import_attempt_duration_seconds";
+
 /// Record outcomes for attempts to restore checkpoints
 /// when local store is missing after Kafka rebalances
 pub const REBALANCE_CHECKPOINT_IMPORT_COUNTER: &str = "rebalance_checkpoint_import_total";
+
+/// Counter for immediate cleanup of checkpoint imports after cancellation or ownership loss.
+/// This counts directories cleaned up immediately rather than waiting for orphan cleaner.
+/// Tags: result=success|failed
+pub const CHECKPOINT_IMPORT_CANCELLED_CLEANUP_COUNTER: &str =
+    "checkpoint_import_cancelled_cleanup_total";
 
 // ==== Store Manager Diagnostics ====
 /// Histogram for store creation duration (in milliseconds)
@@ -138,7 +165,7 @@ pub const REBALANCE_ASYNC_SETUP_CANCELLED: &str = "rebalance_async_setup_cancell
 pub const PARTITION_STORE_SETUP_SKIPPED: &str = "partition_store_setup_skipped_total";
 
 /// Counter for partitions where checkpoint import failed and we fell back to empty store
-/// Labels: checkpoint_failure_reason (import, restore)
+/// Labels: reason (no_importer | import_failed | import_cancelled | unknown)
 /// This is an important metric for alerting - indicates degraded deduplication quality
 pub const PARTITION_STORE_FALLBACK_EMPTY: &str = "partition_store_fallback_empty_total";
 
@@ -155,6 +182,19 @@ pub const BATCH_PROCESSING_ERROR: &str = "batch_processing_error_total";
 
 /// Counter for Resume commands skipped entirely (no owned partitions)
 pub const REBALANCE_RESUME_SKIPPED_NO_OWNED: &str = "rebalance_resume_skipped_no_owned_total";
+
+/// Counter for empty rebalances skipped (cooperative-sticky no-ops)
+/// Labels: event_type (assign|revoke)
+/// With cooperative-sticky protocol, the broker triggers rebalances for all consumers
+/// when any group membership changes, even if partitions don't move. This tracks
+/// how many of these empty rebalances we short-circuit.
+pub const REBALANCE_EMPTY_SKIPPED: &str = "rebalance_empty_skipped_total";
+
+/// Histogram for partition directory cleanup duration at end of rebalance cycle.
+/// Measures total time for parallel scatter-gather deletion of unowned partition directories.
+/// Use to monitor cleanup performance and detect I/O bottlenecks blocking consumption resume.
+pub const REBALANCE_DIRECTORY_CLEANUP_DURATION_HISTOGRAM: &str =
+    "rebalance_directory_cleanup_duration_seconds";
 
 // ==== Partition Batch Processing Diagnostics ====
 /// Histogram for partition batch processing duration (in milliseconds)

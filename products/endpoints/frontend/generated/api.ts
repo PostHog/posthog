@@ -110,7 +110,7 @@ export const endpointsDestroy = async (projectId: string, name: string, options?
 }
 
 /**
- * Get materialization status for an endpoint.
+ * Get materialization status for an endpoint. Supports ?version=N query param.
  */
 export const getEndpointsMaterializationStatusRetrieveUrl = (projectId: string, name: string) => {
     return `/api/environments/${projectId}/endpoints/${name}/materialization_status/`
@@ -317,7 +317,7 @@ export const endpointsDestroy2 = async (projectId: string, name: string, options
 }
 
 /**
- * Get materialization status for an endpoint.
+ * Get materialization status for an endpoint. Supports ?version=N query param.
  */
 export const getEndpointsMaterializationStatusRetrieve2Url = (projectId: string, name: string) => {
     return `/api/projects/${projectId}/endpoints/${name}/materialization_status/`

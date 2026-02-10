@@ -13,7 +13,11 @@ import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { FilterBar } from 'lib/components/FilterBar'
 import { LiveUserCount } from 'lib/components/LiveUserCount'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { isWebAnalyticsPropertyFilter } from 'lib/components/PropertyFilters/utils'
+import {
+    convertPropertyGroupToProperties,
+    isEventPersonOrSessionPropertyFilter,
+    isWebAnalyticsPropertyFilter,
+} from 'lib/components/PropertyFilters/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonSegmentedSelect } from 'lib/lemon-ui/LemonSegmentedSelect'
@@ -37,6 +41,7 @@ import {
     getWebAnalyticsTaxonomicGroupTypes,
 } from './WebPropertyFilters'
 import { ProductTab, faviconUrl } from './common'
+import { webAnalyticsDateMapping } from './constants'
 import { webAnalyticsFilterPresetsLogic } from './webAnalyticsFilterPresetsLogic'
 import { webAnalyticsLogic } from './webAnalyticsLogic'
 
@@ -57,7 +62,13 @@ const CondensedWebAnalyticsFilterBar = ({ tabs }: { tabs: JSX.Element }): JSX.El
                 left={
                     <>
                         <ReloadAll iconOnly />
-                        <DateFilter allowTimePrecision dateFrom={dateFrom} dateTo={dateTo} onChange={setDates} />
+                        <DateFilter
+                            dateOptions={webAnalyticsDateMapping}
+                            allowTimePrecision
+                            dateFrom={dateFrom}
+                            dateTo={dateTo}
+                            onChange={setDates}
+                        />
                         <WebAnalyticsCompareFilter />
                     </>
                 }
@@ -100,7 +111,13 @@ export const WebAnalyticsFilters = ({ tabs }: { tabs: JSX.Element }): JSX.Elemen
                     left={
                         <>
                             <ReloadAll iconOnly />
-                            <DateFilter allowTimePrecision dateFrom={dateFrom} dateTo={dateTo} onChange={setDates} />
+                            <DateFilter
+                                dateOptions={webAnalyticsDateMapping}
+                                allowTimePrecision
+                                dateFrom={dateFrom}
+                                dateTo={dateTo}
+                                onChange={setDates}
+                            />
 
                             <WebAnalyticsDomainSelector />
                             <WebAnalyticsDeviceToggle />
@@ -159,7 +176,8 @@ const WebAnalyticsAIFilters = ({ children }: { children: JSX.Element }): JSX.Ele
             }}
             callback={(toolOutput: Record<string, any>) => {
                 if (toolOutput.properties !== undefined) {
-                    setWebAnalyticsFilters(toolOutput.properties)
+                    const flattenedProperties = convertPropertyGroupToProperties(toolOutput.properties)
+                    setWebAnalyticsFilters(flattenedProperties?.filter(isEventPersonOrSessionPropertyFilter) ?? [])
                 }
                 if (toolOutput.date_from !== undefined && toolOutput.date_to !== undefined) {
                     setDates(toolOutput.date_from, toolOutput.date_to)
@@ -552,18 +570,17 @@ const IncompatibleFiltersWarning = (): JSX.Element | null => {
         .join(', ')
 
     return (
-        <LemonBanner type="warning" className="mb-2">
-            <div className="flex items-center justify-between w-full">
-                <div>
-                    <div className="font-semibold">Some filters are slowing down your queries</div>
-                    <div className="text-sm mt-0.5">
-                        The following filters are not supported by the new query engine and are causing your queries to
-                        slow down: <strong>{filterNames}</strong>
-                    </div>
+        <LemonBanner
+            type="warning"
+            className="mb-2"
+            action={{ children: 'Remove unsupported filters', onClick: removeIncompatibleFilters }}
+        >
+            <div>
+                <div className="font-semibold">Some filters are slowing down your queries</div>
+                <div className="text-sm mt-0.5">
+                    The following filters are not supported by the new query engine and are causing your queries to slow
+                    down: <strong>{filterNames}</strong>
                 </div>
-                <LemonButton type="primary" size="small" onClick={removeIncompatibleFilters}>
-                    Remove unsupported filters
-                </LemonButton>
             </div>
         </LemonBanner>
     )

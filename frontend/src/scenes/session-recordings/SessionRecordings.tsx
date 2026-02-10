@@ -8,15 +8,12 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { LiveRecordingsCount } from 'lib/components/LiveUserCount'
-import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
-import { FilmCameraHog, WarningHog } from 'lib/components/hedgehogs'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { WarningHog } from 'lib/components/hedgehogs'
 import { useAsyncHandler } from 'lib/hooks/useAsyncHandler'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { cn } from 'lib/utils/css-classes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
@@ -130,10 +127,6 @@ function Warnings(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const recordingsDisabled = currentTeam && !currentTeam?.session_recording_opt_in
 
-    const { featureFlags } = useValues(featureFlagLogic)
-
-    const settingLevel = featureFlags[FEATURE_FLAGS.ENVIRONMENTS] ? 'environment' : 'project'
-
     return (
         <>
             {recordingsDisabled ? (
@@ -144,7 +137,7 @@ function Warnings(): JSX.Element {
                         </div>
                         <div className="flex flex-col gap-2 flex-shrink max-w-180">
                             <h2 className="text-lg font-semibold">
-                                Session recordings are not yet enabled for this {settingLevel}
+                                Session recordings are not yet enabled for this project
                             </h2>
                             <p className="font-normal">Enabling session recordings will help you:</p>
                             <ul className="list-disc list-inside font-normal">
@@ -191,16 +184,7 @@ function Warnings(): JSX.Element {
                         </div>
                     </div>
                 </LemonBanner>
-            ) : (
-                <ProductIntroduction
-                    productName="session replay"
-                    productKey={ProductKey.SESSION_REPLAY}
-                    thingName="playlist"
-                    description="Use session replay playlists to easily group and analyze user sessions. Curate playlists based on events or user segments, spot patterns, diagnose issues, and share insights with your team."
-                    docsURL="https://posthog.com/docs/session-replay/manual"
-                    customHog={FilmCameraHog}
-                />
-            )}
+            ) : null}
         </>
     )
 }

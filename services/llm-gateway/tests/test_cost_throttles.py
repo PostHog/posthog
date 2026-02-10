@@ -36,8 +36,8 @@ class TestProductCostLimitConfig:
         get_settings.cache_clear()
         settings = get_settings()
         assert "llm_gateway" in settings.product_cost_limits
-        assert settings.product_cost_limits["llm_gateway"].limit_usd == 500.0
-        assert settings.product_cost_limits["llm_gateway"].window_seconds == 3600
+        assert settings.product_cost_limits["llm_gateway"].limit_usd == 1000.0
+        assert settings.product_cost_limits["llm_gateway"].window_seconds == 86400
 
     def test_parses_json_string(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv(
@@ -77,7 +77,7 @@ class TestProductCostThrottle:
         throttle = ProductCostThrottle(redis=None)
         context = make_context(product="llm_gateway")
 
-        await throttle.record_cost(context, 500.0)
+        await throttle.record_cost(context, 1000.0)
 
         result = await throttle.allow_request(context)
         assert result.allowed is False
@@ -93,7 +93,7 @@ class TestProductCostThrottle:
         ctx_wizard = make_context(product="wizard")
         ctx_twig = make_context(product="twig")
 
-        await throttle.record_cost(ctx_wizard, 500.0)
+        await throttle.record_cost(ctx_wizard, 2000.0)
 
         result_wizard = await throttle.allow_request(ctx_wizard)
         result_twig = await throttle.allow_request(ctx_twig)

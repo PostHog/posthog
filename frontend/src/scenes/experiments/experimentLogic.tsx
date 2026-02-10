@@ -187,6 +187,7 @@ const loadMetrics = async ({
 
     return await Promise.all(
         metrics.map(async (metric, index) => {
+            let response: any = null
             try {
                 let queryWithExperimentId
                 if (metric.kind === NodeKind.ExperimentMetric) {
@@ -201,7 +202,7 @@ const loadMetrics = async ({
                         experiment_id: experimentId,
                     }
                 }
-                const response = await performQuery(
+                response = await performQuery(
                     setLatestVersionsOnQuery(queryWithExperimentId),
                     undefined,
                     refresh ? 'force_async' : 'async'
@@ -242,6 +243,8 @@ const loadMetrics = async ({
                     detail: errorDetail,
                     statusCode: error.status,
                     hasDiagnostics: !!errorDetailMatch,
+                    queryId: response?.query_status?.id || error.queryId || null,
+                    timestamp: Date.now(),
                 }
                 onSetErrors(currentErrors)
 
@@ -343,8 +346,11 @@ export const experimentLogic = kea<experimentLogicType>([
                 'reportExperimentTimeseriesViewed',
                 'reportExperimentTimeseriesRecalculated',
                 'reportExperimentAiSummaryRequested',
+                'reportExperimentSessionReplaySummaryRequested',
                 'reportExperimentMetricsRefreshed',
                 'reportExperimentAutoRefreshToggled',
+                'reportExperimentMetricBreakdownAdded',
+                'reportExperimentMetricBreakdownRemoved',
             ],
             teamLogic,
             ['addProductIntent'],
@@ -491,7 +497,7 @@ export const experimentLogic = kea<experimentLogicType>([
             newUuid,
         }),
         updateMetricBreakdown: (uuid: string, breakdown: Breakdown) => ({ uuid, breakdown }),
-        removeMetricBreakdown: (uuid: string, index: number) => ({ uuid, index }),
+        removeMetricBreakdown: (uuid: string, index: number, breakdown: Breakdown) => ({ uuid, index, breakdown }),
         // METRICS RESULTS
         setLegacyPrimaryMetricsResults: (
             results: (
@@ -505,9 +511,11 @@ export const experimentLogic = kea<experimentLogicType>([
         setPrimaryMetricsResultsLoading: (loading: boolean) => ({ loading }),
         loadPrimaryMetricsResults: (refresh?: boolean) => ({ refresh }),
         setPrimaryMetricsResultsErrors: (errors: any[]) => ({ errors }),
+        retryPrimaryMetric: (index: number) => ({ index }),
         setSecondaryMetricsResults: (results: CachedNewExperimentQueryResponse[]) => ({ results }),
         loadSecondaryMetricsResults: (refresh?: boolean) => ({ refresh }),
         setSecondaryMetricsResultsErrors: (errors: any[]) => ({ errors }),
+        retrySecondaryMetric: (index: number) => ({ index }),
         setSecondaryMetricsResultsLoading: (loading: boolean) => ({ loading }),
         setLegacySecondaryMetricsResults: (
             results: (
@@ -1530,6 +1538,96 @@ export const experimentLogic = kea<experimentLogicType>([
 
             actions.setSecondaryMetricsResultsLoading(false)
         },
+        retryPrimaryMetric: async ({ index }: { index: number }) => {
+            // Clear the error for this metric
+            const currentErrors = [...values.primaryMetricsResultsErrors]
+            currentErrors[index] = null
+            actions.setPrimaryMetricsResultsErrors(currentErrors)
+
+            // Get the metric to retry
+            let metrics = values.experiment?.metrics || []
+            const sharedMetrics = values.experiment?.saved_metrics
+                .filter((sharedMetric) => sharedMetric.metadata.type === 'primary')
+                .map((sharedMetric) => sharedMetric.query)
+            if (sharedMetrics) {
+                metrics = [...metrics, ...sharedMetrics]
+            }
+
+            const metricToRetry = metrics[index]
+            if (!metricToRetry) {
+                return
+            }
+
+            // Create single-item arrays for this metric
+            const singleMetricArray = [metricToRetry]
+            const currentLegacyResults = [...values.legacyPrimaryMetricsResults]
+            const currentResults = [...values.primaryMetricsResults]
+
+            // Load just this one metric
+            await loadMetrics({
+                metrics: singleMetricArray,
+                experimentId: values.experimentId,
+                refresh: true,
+                onSetLegacyResults: (results) => {
+                    currentLegacyResults[index] = results[0]
+                    actions.setLegacyPrimaryMetricsResults(currentLegacyResults)
+                },
+                onSetResults: (results) => {
+                    currentResults[index] = results[0]
+                    actions.setPrimaryMetricsResults(currentResults)
+                },
+                onSetErrors: (errors) => {
+                    currentErrors[index] = errors[0]
+                    actions.setPrimaryMetricsResultsErrors(currentErrors)
+                },
+                onTimeout: actions.reportExperimentMetricTimeout,
+            })
+        },
+        retrySecondaryMetric: async ({ index }: { index: number }) => {
+            // Clear the error for this metric
+            const currentErrors = [...values.secondaryMetricsResultsErrors]
+            currentErrors[index] = null
+            actions.setSecondaryMetricsResultsErrors(currentErrors)
+
+            // Get the metric to retry
+            let secondaryMetrics = values.experiment?.metrics_secondary || []
+            const sharedMetrics = values.experiment?.saved_metrics
+                .filter((sharedMetric) => sharedMetric.metadata.type === 'secondary')
+                .map((sharedMetric) => sharedMetric.query)
+            if (sharedMetrics) {
+                secondaryMetrics = [...secondaryMetrics, ...sharedMetrics]
+            }
+
+            const metricToRetry = secondaryMetrics[index]
+            if (!metricToRetry) {
+                return
+            }
+
+            // Create single-item arrays for this metric
+            const singleMetricArray = [metricToRetry]
+            const currentLegacyResults = [...values.legacySecondaryMetricsResults]
+            const currentResults = [...values.secondaryMetricsResults]
+
+            // Load just this one metric
+            await loadMetrics({
+                metrics: singleMetricArray,
+                experimentId: values.experimentId,
+                refresh: true,
+                onSetLegacyResults: (results) => {
+                    currentLegacyResults[index] = results[0]
+                    actions.setLegacySecondaryMetricsResults(currentLegacyResults)
+                },
+                onSetResults: (results) => {
+                    currentResults[index] = results[0]
+                    actions.setSecondaryMetricsResults(currentResults)
+                },
+                onSetErrors: (errors) => {
+                    currentErrors[index] = errors[0]
+                    actions.setSecondaryMetricsResultsErrors(currentErrors)
+                },
+                onTimeout: actions.reportExperimentMetricTimeout,
+            })
+        },
         openReleaseConditionsModal: () => {
             const numericFlagId = values.experiment.feature_flag?.id
             if (numericFlagId) {
@@ -1539,8 +1637,10 @@ export const experimentLogic = kea<experimentLogicType>([
                 }
             }
         },
-        updateMetricBreakdown: async ({ uuid }) => {
+        updateMetricBreakdown: async ({ uuid, breakdown }) => {
             const isPrimary = values.experiment.metrics.some((m) => m.uuid === uuid)
+
+            actions.reportExperimentMetricBreakdownAdded(values.experiment, uuid, breakdown, isPrimary)
 
             actions.updateExperiment({
                 metrics: values.experiment.metrics,
@@ -1553,8 +1653,10 @@ export const experimentLogic = kea<experimentLogicType>([
                 actions.loadSecondaryMetricsResults(true)
             }
         },
-        removeMetricBreakdown: async ({ uuid }) => {
+        removeMetricBreakdown: async ({ uuid, index, breakdown }) => {
             const isPrimary = values.experiment.metrics.some((m) => m.uuid === uuid)
+
+            actions.reportExperimentMetricBreakdownRemoved(values.experiment, uuid, breakdown, index, isPrimary)
 
             actions.updateExperiment({
                 metrics: values.experiment.metrics,

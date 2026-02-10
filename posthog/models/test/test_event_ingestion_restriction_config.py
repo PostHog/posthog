@@ -767,3 +767,44 @@ class TestEventIngestionRestrictionConfig(BaseTest):
                 }
             ],
         )
+
+    def test_changing_restriction_type_clears_old_redis_key(self):
+        """
+        Regression test: when changing restriction_type, the old type's Redis key
+        should be regenerated (cleared) so the old restriction doesn't remain active.
+        """
+        config = EventIngestionRestrictionConfig.objects.create(
+            token="test_token",
+            restriction_type=RestrictionType.SKIP_PERSON_PROCESSING,
+            distinct_ids=["user1"],
+            pipelines=["analytics"],
+        )
+
+        old_redis_key = f"{DYNAMIC_CONFIG_REDIS_KEY_PREFIX}:{RestrictionType.SKIP_PERSON_PROCESSING}"
+        new_redis_key = f"{DYNAMIC_CONFIG_REDIS_KEY_PREFIX}:{RestrictionType.DROP_EVENT_FROM_INGESTION}"
+
+        # Verify the old key has data
+        old_redis_data = self.redis_client.get(old_redis_key)
+        self.assertIsNotNone(old_redis_data)
+        data = json.loads(old_redis_data if old_redis_data is not None else b"[]")
+        self.assertEqual(len(data), 1)
+        self.assertEqual(data[0]["token"], "test_token")
+
+        # Verify the new key has no data yet
+        new_redis_data = self.redis_client.get(new_redis_key)
+        self.assertIsNone(new_redis_data)
+
+        # Change the restriction type
+        config.restriction_type = RestrictionType.DROP_EVENT_FROM_INGESTION
+        config.save()
+
+        # The new key should now have the config
+        new_redis_data = self.redis_client.get(new_redis_key)
+        self.assertIsNotNone(new_redis_data)
+        data = json.loads(new_redis_data if new_redis_data is not None else b"[]")
+        self.assertEqual(len(data), 1)
+        self.assertEqual(data[0]["token"], "test_token")
+
+        # The old key should be cleared (no configs left for that type)
+        old_redis_data = self.redis_client.get(old_redis_key)
+        self.assertIsNone(old_redis_data)

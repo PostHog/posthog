@@ -21,6 +21,7 @@ interface QueryPaneProps {
     sourceQuery: HogQLQuery
     originalValue?: string
     onRun?: () => void
+    editorVimModeEnabled?: boolean
 }
 
 export function QueryPane(props: QueryPaneProps): JSX.Element {
@@ -43,8 +44,8 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
                 }}
                 ref={queryPaneResizerProps.containerRef}
             >
-                <div className="relative flex flex-col w-full">
-                    <div className="flex-1" data-attr="hogql-query-editor">
+                <div className="relative flex flex-col w-full min-h-0">
+                    <div className="flex-1 min-h-0" data-attr="hogql-query-editor">
                         <AutoSizer
                             renderProp={({ height, width }) =>
                                 height && width ? (
@@ -55,7 +56,9 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
                                         height={height}
                                         width={width}
                                         originalValue={props.originalValue}
+                                        enableVimMode={props.editorVimModeEnabled}
                                         {...props.codeEditorProps}
+                                        autoFocus={true}
                                         options={{
                                             minimap: {
                                                 enabled: false,
@@ -74,7 +77,7 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
                             }
                         />
                     </div>
-                    <div className="absolute bottom-6 right-4">
+                    <div className={`absolute right-4 ${props.editorVimModeEnabled ? 'bottom-12' : 'bottom-6'}`}>
                         <MaxTool
                             identifier="execute_sql"
                             context={{

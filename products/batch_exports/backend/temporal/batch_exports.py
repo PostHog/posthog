@@ -336,6 +336,8 @@ def get_data_interval(interval: str, data_interval_end: str | None) -> tuple[dt.
         data_interval_start_dt = data_interval_end_dt - dt.timedelta(hours=1)
     elif interval == "day":
         data_interval_start_dt = data_interval_end_dt - dt.timedelta(days=1)
+    elif interval == "week":
+        data_interval_start_dt = data_interval_end_dt - dt.timedelta(weeks=1)
     elif interval.startswith("every"):
         _, value, unit = interval.split(" ")
         kwargs = {unit: int(value)}
@@ -915,6 +917,8 @@ async def execute_batch_export_insert_activity(
         start_to_close_timeout = dt.timedelta(hours=2)
     elif interval == "day":
         start_to_close_timeout = dt.timedelta(days=1)
+    elif interval == "week":
+        start_to_close_timeout = dt.timedelta(days=3)
     elif interval.startswith("every"):
         _, value, unit = interval.split(" ")
         kwargs = {unit: int(value)}

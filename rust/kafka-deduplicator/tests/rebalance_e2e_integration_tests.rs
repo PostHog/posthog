@@ -314,6 +314,7 @@ async fn test_rebalance_with_checkpoint_import() -> Result<()> {
         Box::new(downloader),
         tmp_consumer_store_dir.path().to_path_buf(),
         import_config.checkpoint_import_attempt_depth,
+        import_config.checkpoint_partition_import_timeout,
     ));
 
     // Create router and rebalance handler with checkpoint import
@@ -330,6 +331,7 @@ async fn test_rebalance_with_checkpoint_import() -> Result<()> {
             router.clone(),
             offset_tracker.clone(),
             Some(importer),
+            16, // rebalance_cleanup_parallelism
         ));
 
     // Create routing processor
@@ -455,6 +457,7 @@ async fn test_messages_dropped_for_revoked_partition() -> Result<()> {
             coordinator,
             offset_tracker.clone(),
             None,
+            16, // rebalance_cleanup_parallelism
         );
 
     // Assign partition 0
@@ -468,9 +471,7 @@ async fn test_messages_dropped_for_revoked_partition() -> Result<()> {
     let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
 
     // Async setup (creates stores, sends resume)
-    handler
-        .async_setup_assigned_partitions(&partitions, &tx)
-        .await?;
+    handler.async_setup_assigned_partitions(&tx).await?;
 
     // Verify store exists
     assert!(
@@ -543,6 +544,7 @@ async fn test_rapid_revoke_assign_preserves_new_store() -> Result<()> {
             coordinator,
             offset_tracker.clone(),
             None,
+            16, // rebalance_cleanup_parallelism
         );
 
     let mut partitions = TopicPartitionList::new();
@@ -553,9 +555,7 @@ async fn test_rapid_revoke_assign_preserves_new_store() -> Result<()> {
     handler.setup_assigned_partitions(&partitions);
 
     let (tx1, _rx1) = tokio::sync::mpsc::unbounded_channel();
-    handler
-        .async_setup_assigned_partitions(&partitions, &tx1)
-        .await?;
+    handler.async_setup_assigned_partitions(&tx1).await?;
 
     assert!(
         store_manager.get(&test_topic, 0).is_some(),
@@ -576,9 +576,7 @@ async fn test_rapid_revoke_assign_preserves_new_store() -> Result<()> {
     handler.setup_assigned_partitions(&partitions);
 
     let (tx2, mut rx2) = tokio::sync::mpsc::unbounded_channel();
-    handler
-        .async_setup_assigned_partitions(&partitions, &tx2)
-        .await?;
+    handler.async_setup_assigned_partitions(&tx2).await?;
 
     // Step 4: Now run the stale cleanup from Step 2
     info!("Step 4: Run stale cleanup (should be no-op for re-assigned partition)");

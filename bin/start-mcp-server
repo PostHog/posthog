@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-cd "$(dirname "$0")/../services/mcp/typescript"
+cd "$(dirname "$0")/../services/mcp"
 
 if [ ! -f .dev.vars ]; then
     cp .dev.vars.example .dev.vars

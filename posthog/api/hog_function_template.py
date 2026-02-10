@@ -46,15 +46,12 @@ class HogFunctionTemplateSerializer(serializers.ModelSerializer):
 class PublicHogFunctionTemplateViewSet(
     mixins.ListModelMixin,
     mixins.RetrieveModelMixin,
-    mixins.UpdateModelMixin,
     viewsets.GenericViewSet,
 ):
     permission_classes = [permissions.AllowAny]
     serializer_class = HogFunctionTemplateSerializer
     queryset = HogFunctionTemplate.objects.all()
     lookup_field = "template_id"
-
-    # TODO
 
     def filter_queryset(self, queryset: QuerySet) -> QuerySet:
         if self.action == "list":

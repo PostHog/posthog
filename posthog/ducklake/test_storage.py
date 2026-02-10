@@ -279,3 +279,66 @@ class TestDuckLakeStorageConfigEdgeCases:
         assert config.access_key == "override_key"
         assert config.secret_key == "override_secret"
         assert config.is_local is True
+
+
+class TestCrossAccountDestination:
+    def test_destination_attributes(self):
+        from posthog.ducklake.storage import CrossAccountDestination
+
+        dest = CrossAccountDestination(
+            role_arn="arn:aws:iam::123456789012:role/MyRole",
+            external_id="ext-id-123",
+            bucket_name="my-customer-bucket",
+            region="us-west-2",
+        )
+        assert dest.role_arn == "arn:aws:iam::123456789012:role/MyRole"
+        assert dest.external_id == "ext-id-123"
+        assert dest.bucket_name == "my-customer-bucket"
+        assert dest.region == "us-west-2"
+
+    def test_optional_fields_default_to_none(self):
+        from posthog.ducklake.storage import CrossAccountDestination
+
+        dest = CrossAccountDestination(
+            role_arn="arn:aws:iam::123456789012:role/MyRole",
+            bucket_name="bucket",
+        )
+        assert dest.external_id is None
+        assert dest.region is None
+
+
+class TestDuckLakeCatalogToCrossAccountDestination:
+    def test_converts_to_cross_account_destination(self):
+        from unittest.mock import MagicMock
+
+        from posthog.ducklake.models import DuckLakeCatalog
+
+        # Create a mock catalog with the required attributes
+        catalog = MagicMock(spec=DuckLakeCatalog)
+        catalog.cross_account_role_arn = "arn:aws:iam::222222222222:role/CustomerRole"
+        catalog.cross_account_external_id = "external-id-456"
+        catalog.bucket = "customer-bucket"
+        catalog.bucket_region = "eu-west-1"
+
+        # Call the real method on the mock
+        dest = DuckLakeCatalog.to_cross_account_destination(catalog)
+
+        assert dest.role_arn == "arn:aws:iam::222222222222:role/CustomerRole"
+        assert dest.external_id == "external-id-456"
+        assert dest.bucket_name == "customer-bucket"
+        assert dest.region == "eu-west-1"
+
+    def test_none_region_handled(self):
+        from unittest.mock import MagicMock
+
+        from posthog.ducklake.models import DuckLakeCatalog
+
+        catalog = MagicMock(spec=DuckLakeCatalog)
+        catalog.cross_account_role_arn = "arn:aws:iam::111:role/Role"
+        catalog.cross_account_external_id = "ext-id"
+        catalog.bucket = "bucket"
+        catalog.bucket_region = ""  # Empty string should become None
+
+        dest = DuckLakeCatalog.to_cross_account_destination(catalog)
+
+        assert dest.region is None

@@ -12,7 +12,7 @@ from products.data_warehouse.backend.models import DataWarehouseSavedQuery
 class TestNodeViewSet(APIBaseTest):
     def setUp(self):
         super().setUp()
-        self.dag_id = "test_dag"
+        self.dag_id = f"posthog_{self.team.id}"
 
         self.saved_query = DataWarehouseSavedQuery.objects.create(
             name="test_view",
@@ -178,7 +178,7 @@ class TestNodeViewSet(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         call_args = mock_client.start_workflow.call_args
-        self.assertEqual(call_args[0][0], "execute-dag")
+        self.assertEqual(call_args[0][0], "data-modeling-execute-dag")
 
     @patch("products.data_modeling.backend.api.node.posthoganalytics.feature_enabled", return_value=False)
     @patch("products.data_modeling.backend.api.node.sync_connect")
@@ -207,7 +207,7 @@ class TestNodeViewSet(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         call_args = mock_client.start_workflow.call_args
-        self.assertEqual(call_args[0][0], "materialize-view")
+        self.assertEqual(call_args[0][0], "data-modeling-materialize-view")
 
     @patch("products.data_modeling.backend.api.node.posthoganalytics.feature_enabled", return_value=False)
     @patch("products.data_modeling.backend.api.node.sync_connect")
@@ -227,7 +227,7 @@ class TestNodeViewSet(APIBaseTest):
 class TestEdgeViewSet(APIBaseTest):
     def setUp(self):
         super().setUp()
-        self.dag_id = "test_dag"
+        self.dag_id = f"posthog_{self.team.id}"
 
         self.source_node = Node.objects.create(
             team=self.team,
