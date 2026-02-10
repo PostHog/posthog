@@ -1547,8 +1547,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
             // If next time is greater than last buffered time, set to buffering
             // Also buffer if we're doing timestamp-based loading and don't have a playable FullSnapshot
-            const needsBuffering = segment?.kind === 'buffer' || values.isWaitingForPlayableFullSnapshot
-            if (needsBuffering) {
+            else if (segment?.kind === 'buffer' || values.isWaitingForPlayableFullSnapshot) {
                 const isPastEnd = values.sessionPlayerData.end && timestamp >= values.sessionPlayerData.end.valueOf()
                 if (isPastEnd) {
                     actions.setEndReached(true)

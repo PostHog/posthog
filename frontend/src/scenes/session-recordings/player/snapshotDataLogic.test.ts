@@ -241,6 +241,13 @@ describe('snapshotDataLogic', () => {
     })
 
     describe('timestamp-based loading', () => {
+        const enableTimestampBasedLoading = (): void => {
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.REPLAY_TIMESTAMP_BASED_LOADING]: 'test',
+            })
+        }
+
         const createBlobSources = (count: number): SessionRecordingSnapshotSource[] => {
             return Array.from({ length: count }, (_, i) => ({
                 source: 'blob_v2' as const,
@@ -410,6 +417,7 @@ describe('snapshotDataLogic', () => {
                 // because blobs 13-24 are not loaded
                 const sources = createBlobSources(40)
                 setupSessionRecordingTest({ snapshotSources: sources })
+                enableTimestampBasedLoading()
 
                 const testLogic = snapshotDataLogic({
                     sessionRecordingId: '2',
@@ -444,6 +452,7 @@ describe('snapshotDataLogic', () => {
             it('returns true when FullSnapshot blob has continuous coverage to target', async () => {
                 const sources = createBlobSources(10)
                 setupSessionRecordingTest({ snapshotSources: sources })
+                enableTimestampBasedLoading()
 
                 const testLogic = snapshotDataLogic({
                     sessionRecordingId: '2',
@@ -466,13 +475,6 @@ describe('snapshotDataLogic', () => {
         })
 
         describe('with feature flag enabled', () => {
-            const enableTimestampBasedLoading = (): void => {
-                featureFlagLogic.mount()
-                featureFlagLogic.actions.setFeatureFlags([], {
-                    [FEATURE_FLAGS.REPLAY_TIMESTAMP_BASED_LOADING]: 'test',
-                })
-            }
-
             it('transitions to sequential after finding playable FullSnapshot', async () => {
                 const sources = createBlobSources(10)
                 setupSessionRecordingTest({ snapshotSources: sources })
@@ -641,6 +643,49 @@ describe('snapshotDataLogic', () => {
                 // But loading state is reset
                 expect(testLogic.values.targetTimestamp).toBe(null)
                 expect(testLogic.values.loadingPhase).toBe('sequential')
+            })
+
+            it('fills gaps backward from target toward FullSnapshot blob', async () => {
+                const sources = createBlobSources(10)
+                setupSessionRecordingTest({ snapshotSources: sources })
+                enableTimestampBasedLoading()
+
+                const testLogic = snapshotDataLogic({
+                    sessionRecordingId: '2',
+                    blobV2PollingDisabled: true,
+                })
+                testLogic.mount()
+
+                const targetTime = new Date(Date.UTC(2023, 7, 11, 12, 5, 30)).getTime()
+                testLogic.actions.setTargetTimestamp(targetTime)
+                testLogic.actions.setLoadingPhase('find_target')
+
+                await expectLogic(testLogic, () => {
+                    testLogic.actions.loadSnapshots()
+                }).toDispatchActions([
+                    'loadSnapshotSourcesSuccess',
+                    // 1. Initial window around target (target-2 to target+7): blobs 3-9
+                    (action) =>
+                        action.type === testLogic.actionTypes.loadSnapshotsForSource &&
+                        action.payload.sources[0]?.blob_key === '3' &&
+                        action.payload.sources.length === 7,
+                    'loadSnapshotsForSourceSuccess',
+                    // 2. Gap fill between FullSnapshot blob (0) and loaded range start (3): blobs 1-2
+                    (action) =>
+                        action.type === testLogic.actionTypes.loadSnapshotsForSource &&
+                        action.payload.sources[0]?.blob_key === '1' &&
+                        action.payload.sources.length === 2,
+                    'loadSnapshotsForSourceSuccess',
+                    // 3. Backward search for remaining blob before gap: blob 0
+                    (action) =>
+                        action.type === testLogic.actionTypes.loadSnapshotsForSource &&
+                        action.payload.sources[0]?.blob_key === '0' &&
+                        action.payload.sources.length === 1,
+                    'loadSnapshotsForSourceSuccess',
+                    // FullSnapshot now has continuous coverage → sequential
+                    (action) =>
+                        action.type === testLogic.actionTypes.setLoadingPhase && action.payload.phase === 'sequential',
+                ])
             })
 
             it('isWaitingForPlayableFullSnapshot reflects target and playability state', async () => {

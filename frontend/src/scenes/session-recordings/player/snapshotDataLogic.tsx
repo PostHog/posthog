@@ -374,7 +374,8 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
 
             // Extract playability markers BEFORE coordinator's processing clears snapshots
             // This must happen synchronously before any async processing
-            if (snapshots.length > 0) {
+            const isTimestampBased = values.featureFlags[FEATURE_FLAGS.REPLAY_TIMESTAMP_BASED_LOADING] === 'test'
+            if (isTimestampBased && snapshots.length > 0) {
                 const fullSnapshotTs = snapshots
                     .filter((s: RecordingSnapshot) => s.type === EventType.FullSnapshot)
                     .map((s: RecordingSnapshot) => s.timestamp)
@@ -715,13 +716,13 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
 
         // Find the nearest FullSnapshot before target timestamp (used for gap filling)
         findNearestFullSnapshot: [
-            (s) => [s.playabilityMarkers, s.snapshotSources, s.targetTimestamp],
+            (s) => [s.playabilityMarkers, s.blobIndexForTimestamp, s.targetTimestamp],
             (
                 playabilityMarkers: { fullSnapshots: number[]; metas: number[] },
-                snapshotSources: SessionRecordingSnapshotSource[] | null,
+                blobIndexForTimestamp: (timestamp: number) => number | null,
                 targetTimestamp: number | null
             ): { blobIndex: number; timestamp: number } | null => {
-                if (!targetTimestamp || !snapshotSources?.length) {
+                if (!targetTimestamp) {
                     return null
                 }
 
@@ -735,11 +736,12 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
 
                 // Get the nearest (latest) FullSnapshot before target
                 const nearestFullSnapshotTs = validFullSnapshots[validFullSnapshots.length - 1]
-
-                return {
-                    blobIndex: getBlobIndexForTimestamp(snapshotSources, nearestFullSnapshotTs),
-                    timestamp: nearestFullSnapshotTs,
+                const blobIndex = blobIndexForTimestamp(nearestFullSnapshotTs)
+                if (blobIndex === null) {
+                    return null
                 }
+
+                return { blobIndex, timestamp: nearestFullSnapshotTs }
             },
         ],
 
@@ -845,5 +847,6 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
         cache.timestampLoadingRange = undefined
         cache.timestampLoadingBlobCount = undefined
         cache.timestampLoadingStartTime = undefined
+        cache.lastTargetTimestamp = undefined
     }),
 ])
