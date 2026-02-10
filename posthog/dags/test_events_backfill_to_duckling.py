@@ -16,6 +16,7 @@ from posthog.dags.events_backfill_to_duckling import (
     PERSONS_COLUMNS,
     PERSONS_TABLE_DDL,
     _connect_duckdb,
+    _get_cluster,
     _is_transaction_conflict,
     _set_table_partitioning,
     _validate_identifier,
@@ -725,3 +726,36 @@ class TestFullBackfillSensorEarliestDate:
 
     def test_earliest_backfill_date_is_2015(self):
         assert EARLIEST_BACKFILL_DATE == datetime(2015, 1, 1)
+
+
+class TestGetClusterRetry:
+    @patch("posthog.dags.events_backfill_to_duckling.get_cluster")
+    def test_retries_on_timeout_then_succeeds(self, mock_get_cluster):
+        mock_cluster = MagicMock()
+        mock_get_cluster.side_effect = [TimeoutError("timed out"), TimeoutError("timed out"), mock_cluster]
+
+        no_wait = _get_cluster.retry_with(wait=None)
+        result = no_wait()
+
+        assert result is mock_cluster
+        assert mock_get_cluster.call_count == 3
+
+    @patch("posthog.dags.events_backfill_to_duckling.get_cluster")
+    def test_raises_non_retryable_exception_immediately(self, mock_get_cluster):
+        mock_get_cluster.side_effect = ValueError("bad config")
+
+        no_wait = _get_cluster.retry_with(wait=None)
+        with pytest.raises(ValueError, match="bad config"):
+            no_wait()
+
+        assert mock_get_cluster.call_count == 1
+
+    @patch("posthog.dags.events_backfill_to_duckling.get_cluster")
+    def test_raises_after_max_retries_exhausted(self, mock_get_cluster):
+        mock_get_cluster.side_effect = TimeoutError("timed out")
+
+        no_wait = _get_cluster.retry_with(wait=None)
+        with pytest.raises(TimeoutError):
+            no_wait()
+
+        assert mock_get_cluster.call_count == 3
