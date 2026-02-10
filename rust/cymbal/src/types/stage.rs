@@ -2,8 +2,9 @@ use std::future::Future;
 
 use crate::types::batch::Batch;
 
-// Stages are shared context between operators
-// They also control how operators are executed and how errors are handled.
+/// Stages are the building blocks of a pipeline.
+/// Each stage takes a batch of items as input and produces a batch of items as output.
+/// They control how operators are executed and how errors are handled.
 pub trait Stage {
     type Input;
     type Output;

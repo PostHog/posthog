@@ -2,6 +2,7 @@ use std::future::Future;
 
 pub type TeamId = i32;
 
+/// An Operator is a stateless function that can be applied in parallel to items in a batch.
 pub trait Operator {
     type Context: Clone + Send;
     type Input: Send;
@@ -16,6 +17,9 @@ pub trait Operator {
     ) -> impl Future<Output = Result<Self::Output, Self::Error>> + Send;
 }
 
+/// A Value Operator is a specific type of Operator that can be applied to a batch of results.
+/// Handled errors will wrap the output and allow the processing of the batch to continue
+/// Unhandled errors stop the processing of the whole batch
 pub trait ValueOperator {
     type Context: Clone + Send;
     type Item: Send;
