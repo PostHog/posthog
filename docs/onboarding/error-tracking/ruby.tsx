@@ -4,7 +4,7 @@ import { getRubySteps as getRubyStepsPA } from '../product-analytics/ruby'
 import { StepDefinition } from '../steps'
 
 export const getRubySteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
-    const { CodeBlock, Markdown, dedent } = ctx
+    const { CodeBlock, Markdown, Blockquote, dedent } = ctx
 
     const installSteps = getRubyStepsPA(ctx)
 
@@ -13,10 +13,15 @@ export const getRubySteps = (ctx: OnboardingComponentsContext): StepDefinition[]
         badge: 'required',
         content: (
             <>
+                <Blockquote>
+                    <Markdown>
+                        {dedent`
+                            **Note:** The Ruby SDK currently only supports manual exception capture. Automatic exception capture is not yet available.
+                        `}
+                    </Markdown>
+                </Blockquote>
                 <Markdown>
                     {dedent`
-                        > **Note:** The Ruby SDK currently only supports manual exception capture. Automatic exception capture is not yet available.
-
                         To capture exceptions in your Ruby application, use the \`capture_exception\` method:
                     `}
                 </Markdown>

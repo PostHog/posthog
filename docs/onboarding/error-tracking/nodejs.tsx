@@ -4,7 +4,7 @@ import { getNodeJSSteps as getNodeJSStepsPA } from '../product-analytics/nodejs'
 import { StepDefinition } from '../steps'
 
 export const getNodeJSSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
-    const { CodeBlock, Markdown, dedent } = ctx
+    const { CodeBlock, Markdown, Blockquote, dedent } = ctx
 
     const installSteps = getNodeJSStepsPA(ctx)
 
@@ -53,11 +53,13 @@ export const getNodeJSSteps = (ctx: OnboardingComponentsContext): StepDefinition
                         },
                     ]}
                 />
-                <Markdown>
-                    {dedent`
-                        > **Note:** Error tracking requires access the file system to process stack traces. Some providers, like Cloudflare Workers, do not support Node.js runtime APIs by default and need to be [included as per their documentation](https://developers.cloudflare.com/workers/runtime-apis/nodejs/#nodejs-compatibility).
-                    `}
-                </Markdown>
+                <Blockquote>
+                    <Markdown>
+                        {dedent`
+                            **Note:** Error tracking requires access the file system to process stack traces. Some providers, like Cloudflare Workers, do not support Node.js runtime APIs by default and need to be [included as per their documentation](https://developers.cloudflare.com/workers/runtime-apis/nodejs/#nodejs-compatibility).
+                        `}
+                    </Markdown>
+                </Blockquote>
             </>
         ),
     }
