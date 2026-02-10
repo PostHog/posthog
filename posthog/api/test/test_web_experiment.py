@@ -326,6 +326,7 @@ class TestWebExperiment(APIBaseTest):
         web_experiment = WebExperiment.objects.get(id=experiment_id)
 
         # Check that the script tags and event handlers were removed
+        assert web_experiment.variants is not None
         test_variant = web_experiment.variants["test"]
         transforms = test_variant["transforms"][0]
 
