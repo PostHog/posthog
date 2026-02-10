@@ -28,15 +28,15 @@ def fix_person_property_in_operators(apps, schema_editor):
         modified = False
 
         # Check groups
-        for group in filters.get("groups", []):
-            for prop in group.get("properties", []):
+        for group in filters.get("groups") or []:
+            for prop in group.get("properties") or []:
                 if prop.get("type") == "person" and prop.get("operator") in ("in", "not_in"):
                     prop["operator"] = "exact" if prop["operator"] == "in" else "is_not"
                     modified = True
 
         # Also check super_groups if present
-        for group in filters.get("super_groups", []):
-            for prop in group.get("properties", []):
+        for group in filters.get("super_groups") or []:
+            for prop in group.get("properties") or []:
                 if prop.get("type") == "person" and prop.get("operator") in ("in", "not_in"):
                     prop["operator"] = "exact" if prop["operator"] == "in" else "is_not"
                     modified = True
