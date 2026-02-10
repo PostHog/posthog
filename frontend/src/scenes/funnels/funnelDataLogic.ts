@@ -395,7 +395,11 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                     return false
                 }
 
-                if (funnelsFilter?.funnelVizType === FunnelVizType.Steps || !funnelsFilter?.funnelVizType) {
+                if (
+                    funnelsFilter?.funnelVizType === FunnelVizType.Steps ||
+                    funnelsFilter?.funnelVizType === FunnelVizType.Flow ||
+                    !funnelsFilter?.funnelVizType
+                ) {
                     return !!(steps && steps[0] && steps[0].count > -1)
                 } else if (funnelsFilter.funnelVizType === FunnelVizType.TimeToConvert) {
                     return (histogramGraphData?.length ?? 0) > 0

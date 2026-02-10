@@ -2193,6 +2193,7 @@ export const FunnelVizTypeApi = {
     steps: 'steps',
     time_to_convert: 'time_to_convert',
     trends: 'trends',
+    flow: 'flow',
 } as const
 
 export type FunnelConversionWindowTimeUnitApi =
