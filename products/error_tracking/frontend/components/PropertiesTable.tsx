@@ -58,9 +58,14 @@ export function PropertiesTable({ entries, alternatingColors = true }: Propertie
     )
 }
 
+const SENTINELS = {
+    Redacted: '$$_posthog_redacted_based_on_masking_rules_$$',
+    ValueTooLong: '$$_posthog_value_too_long_$$',
+}
+
 const SENTINEL_REPLACEMENTS: Record<string, string> = {
-    $$_posthog_redacted_based_on_masking_rules_$$: '***',
-    $$_posthog_value_too_long_$$: '<value too long>',
+    [SENTINELS.Redacted]: '***',
+    [SENTINELS.ValueTooLong]: '<value too long>',
 }
 
 function normalizeSentinels(str: string): string {
@@ -91,7 +96,7 @@ function renderValue(value: unknown): React.ReactNode {
             '}'
         )
     } else if (typeof value === 'string') {
-        if (value === '$$_posthog_redacted_based_on_masking_rules_$$') {
+        if (value === SENTINELS.Redacted) {
             return (
                 <MaskedValue
                     value="***"
@@ -99,7 +104,7 @@ function renderValue(value: unknown): React.ReactNode {
                 />
             )
         }
-        if (value.includes('$$_posthog_redacted_based_on_masking_rules_$$')) {
+        if (value.includes(SENTINELS.Redacted)) {
             return (
                 <MaskedValue
                     value={normalizeSentinels(value)}
@@ -107,7 +112,7 @@ function renderValue(value: unknown): React.ReactNode {
                 />
             )
         }
-        if (value === '$$_posthog_value_too_long_$$') {
+        if (value === SENTINELS.ValueTooLong) {
             return (
                 <MaskedValue
                     value="<value too long>"
@@ -115,7 +120,7 @@ function renderValue(value: unknown): React.ReactNode {
                 />
             )
         }
-        if (value.includes('$$_posthog_value_too_long_$$')) {
+        if (value.includes(SENTINELS.ValueTooLong)) {
             return (
                 <MaskedValue
                     value={normalizeSentinels(value)}
