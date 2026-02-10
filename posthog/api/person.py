@@ -53,7 +53,7 @@ from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.person.deletion import reset_deleted_person_distinct_ids
 from posthog.models.person.missing_person import MissingPerson
 from posthog.models.person.person import PersonDistinctId
-from posthog.models.person.util import delete_person
+from posthog.models.person.util import delete_person, get_persons_by_distinct_ids
 from posthog.queries.actor_base_query import ActorBaseQuery, get_serialized_people
 from posthog.queries.funnels import ClickhouseFunnelActors, ClickhouseFunnelTrendsActors
 from posthog.queries.funnels.funnel_strict_persons import ClickhouseFunnelStrictActors
@@ -1005,6 +1005,34 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         reset_deleted_person_distinct_ids(self.team_id, distinct_id)
 
         return response.Response(status=202)
+
+    @action(methods=["POST"], detail=False, url_path="batch_by_distinct_ids")
+    def batch_by_distinct_ids(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        distinct_ids = request.data.get("distinct_ids", [])
+
+        if not isinstance(distinct_ids, list) or len(distinct_ids) == 0:
+            return response.Response({"results": {}})
+
+        MAX_BATCH_SIZE = 200
+        distinct_ids = distinct_ids[:MAX_BATCH_SIZE]
+
+        persons = get_persons_by_distinct_ids(self.team_id, distinct_ids).prefetch_related(
+            Prefetch(
+                "persondistinctid_set",
+                queryset=PersonDistinctId.objects.filter(team_id=self.team_id).order_by("id"),
+                to_attr="distinct_ids_cache",
+            )
+        )
+
+        results: dict[str, Any] = {}
+        for person in persons:
+            person_data = MinimalPersonSerializer(person, context={"get_team": lambda: self.team}).data
+
+            for did in getattr(person, "distinct_ids_cache", []):
+                if did.distinct_id in distinct_ids:
+                    results[did.distinct_id] = person_data
+
+        return response.Response({"results": results})
 
     def _queue_event_deletion(self, persons: builtins.list[Person]) -> None:
         """Helper to queue deletion of all events for a person."""
