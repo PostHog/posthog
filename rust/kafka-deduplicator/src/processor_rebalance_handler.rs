@@ -544,7 +544,9 @@ where
                 let (result, reason): (&str, &str) = match peeked {
                     None => ("cancelled", "revoked_incomplete"),
                     Some(Ok(PartitionImportOutcome::Completed(_))) => ("success", "not_owned"),
-                    Some(Ok(PartitionImportOutcome::Cancelled)) => ("cancelled", "import_cancelled"),
+                    Some(Ok(PartitionImportOutcome::Cancelled)) => {
+                        ("cancelled", "import_cancelled")
+                    }
                     Some(Ok(PartitionImportOutcome::Failed(_))) => ("failed", "import"),
                     Some(Ok(PartitionImportOutcome::TimedOut)) => ("failed", "timeout"),
                     Some(Err(_)) => ("failed", "panic"),
