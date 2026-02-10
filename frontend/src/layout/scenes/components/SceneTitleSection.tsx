@@ -31,7 +31,7 @@ export function SceneTitlePanelButton({ inPanel = false }: { inPanel?: boolean }
     const { scenePanelOpenManual, scenePanelIsPresent } = useValues(sceneLayoutLogic)
     const { setScenePanelOpen } = useActions(sceneLayoutLogic)
     const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
-    const { openSidePanel, closeSidePanel } = useActions(sidePanelStateLogic)
+    const { openSidePanel } = useActions(sidePanelStateLogic)
     const { sidePanelOpen } = useValues(sidePanelStateLogic)
 
     if (isRemovingSidePanelFlag) {
@@ -49,11 +49,7 @@ export function SceneTitlePanelButton({ inPanel = false }: { inPanel?: boolean }
                     onClick={(e) => {
                         e.stopPropagation()
                         e.preventDefault()
-                        if (sidePanelOpen) {
-                            closeSidePanel()
-                        } else {
-                            openSidePanel(SidePanelTab.Max)
-                        }
+                        openSidePanel(SidePanelTab.Max)
                     }}
                     tooltip="Open PostHog AI"
                     tooltipPlacement="bottom-end"
