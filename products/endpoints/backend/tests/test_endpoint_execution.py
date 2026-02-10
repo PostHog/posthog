@@ -100,7 +100,6 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
     # =========================================================================
 
     def test_hogql_endpoint_executes_with_default_variable(self):
-        """HogQL endpoint uses default variable value when none provided."""
         endpoint = create_endpoint_with_version(
             name="hogql_with_default",
             team=self.team,
@@ -128,7 +127,6 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.json()["results"][0][0], 10)
 
     def test_hogql_endpoint_executes_with_variable_override(self):
-        """HogQL endpoint uses provided variable value."""
         endpoint = create_endpoint_with_version(
             name="hogql_var_override",
             team=self.team,
@@ -158,7 +156,6 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.json()["results"][0][0], 10)
 
     def test_hogql_endpoint_rejects_unknown_variable(self):
-        """HogQL endpoint returns error for unknown variable."""
         endpoint = create_endpoint_with_version(
             name="hogql_unknown_var",
             team=self.team,
@@ -187,7 +184,6 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("nonexistent_var", response.json()["detail"])
 
     def test_hogql_endpoint_rejects_query_override(self):
-        """HogQL endpoint returns error when query_override is provided."""
         endpoint = create_endpoint_with_version(
             name="hogql_no_override",
             team=self.team,
@@ -206,7 +202,6 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("query_override", response.json()["detail"])
 
     def test_hogql_endpoint_rejects_filters_override(self):
-        """HogQL endpoint returns error when filters_override is provided."""
         endpoint = create_endpoint_with_version(
             name="hogql_no_filters",
             team=self.team,
@@ -229,7 +224,6 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
     # =========================================================================
 
     def test_insight_endpoint_executes_with_defaults(self):
-        """Insight endpoint executes with default date range."""
         endpoint = create_endpoint_with_version(
             name="trends_default",
             team=self.team,
@@ -246,7 +240,6 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("results", response.json())
 
     def test_insight_endpoint_accepts_date_from_variable(self):
-        """Insight endpoint accepts date_from as a magic variable and actually filters results."""
         endpoint = create_endpoint_with_version(
             name="trends_date_from",
             team=self.team,
@@ -288,7 +281,6 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         self.assertLess(filtered_data, baseline_data, "date_from filter should reduce result count")
 
     def test_insight_endpoint_accepts_date_to_variable(self):
-        """Insight endpoint accepts date_to as a magic variable and actually filters results."""
         endpoint = create_endpoint_with_version(
             name="trends_date_to",
             team=self.team,
@@ -318,7 +310,6 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         self.assertGreater(filtered_data, 0, "Should have results for dates 1-5")
 
     def test_insight_endpoint_rejects_unknown_variable(self):
-        """Insight endpoint returns error for unknown variable."""
         endpoint = create_endpoint_with_version(
             name="trends_unknown_var",
             team=self.team,
@@ -337,7 +328,6 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("unknown_var", response.json()["detail"])
 
     def test_insight_endpoint_rejects_query_override(self):
-        """Insight endpoint returns error when query_override is provided."""
         endpoint = create_endpoint_with_version(
             name="trends_no_override",
             team=self.team,
@@ -356,7 +346,6 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("query_override", response.json()["detail"])
 
     def test_insight_endpoint_accepts_filters_override_for_backwards_compat(self):
-        """Insight endpoint accepts filters_override for backwards compatibility."""
         endpoint = create_endpoint_with_version(
             name="trends_filters_override",
             team=self.team,
@@ -392,7 +381,6 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         self.assertLess(filtered_total, baseline_total)
 
     def test_insight_endpoint_filters_override_returns_deprecation_header(self):
-        """Insight endpoint returns deprecation warning header when filters_override is used."""
         endpoint = create_endpoint_with_version(
             name="trends_deprecation_header",
             team=self.team,
@@ -412,7 +400,6 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("filters_override is deprecated", response.headers["X-PostHog-Warn"])
 
     def test_insight_endpoint_filters_override_takes_precedence_over_variables(self):
-        """When both filters_override and variables are provided, filters_override wins."""
         endpoint = create_endpoint_with_version(
             name="trends_precedence",
             team=self.team,
@@ -455,7 +442,6 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
     # =========================================================================
 
     def test_materialized_hogql_endpoint_filters_by_variable(self):
-        """Materialized HogQL endpoint filters results by variable value."""
         endpoint = create_endpoint_with_version(
             name="mat_hogql_var",
             team=self.team,
@@ -491,8 +477,41 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             self.assertIn("event_name", query_sql)
             self.assertIn("$pageleave", query_sql)
 
+    def test_materialized_hogql_endpoint_selects_only_original_columns(self):
+        endpoint = create_endpoint_with_version(
+            name="mat_hogql_cols",
+            team=self.team,
+            query={
+                "kind": "HogQLQuery",
+                "query": "SELECT count() FROM events WHERE event = {variables.event_name}",
+                "variables": {
+                    str(self.event_name_var.id): {
+                        "variableId": str(self.event_name_var.id),
+                        "code_name": "event_name",
+                        "value": "$pageview",
+                    }
+                },
+            },
+            created_by=self.user,
+            is_active=True,
+        )
+        self._materialize_endpoint(endpoint)
+
+        with mock.patch.object(EndpointViewSet, "_execute_query_and_respond", return_value=Response({})) as mock_exec:
+            self.client.post(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/",
+                {"variables": {"event_name": "$pageview"}},
+                format="json",
+            )
+
+            mock_exec.assert_called()
+            query_sql = mock_exec.call_args[0][0]["query"]["query"]
+            # Should select the original column (count()), not * or event_name
+            select_part = query_sql.split("FROM")[0]
+            self.assertNotIn("*", select_part)
+            self.assertNotIn("event_name", select_part.lower())
+
     def test_materialized_hogql_endpoint_rejects_unknown_variable(self):
-        """Materialized HogQL endpoint returns error for variable not in materialization."""
         endpoint = create_endpoint_with_version(
             name="mat_hogql_unknown",
             team=self.team,
@@ -523,12 +542,6 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("not_materialized", response.json()["detail"])
 
     def test_materialized_hogql_endpoint_requires_variable(self):
-        """SECURITY: Materialized HogQL endpoint MUST require its variable to prevent data leakage.
-
-        If a materialized endpoint has a variable (e.g., event = {variables.event_name}),
-        omitting the variable would return ALL data instead of filtered data.
-        This is a data leak vulnerability - the variable must be required.
-        """
         endpoint = create_endpoint_with_version(
             name="mat_hogql_required_var",
             team=self.team,
@@ -559,8 +572,97 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("event_name", response.json()["detail"])
         self.assertIn("required", response.json()["detail"].lower())
 
+    def test_materialized_endpoint_requires_all_variables(self):
+        var2 = InsightVariable.objects.create(
+            team=self.team,
+            name="Browser",
+            code_name="browser",
+            type=InsightVariable.Type.STRING,
+            default_value="Chrome",
+        )
+
+        endpoint = create_endpoint_with_version(
+            name="mat_hogql_partial_var",
+            team=self.team,
+            query={
+                "kind": "HogQLQuery",
+                "query": "SELECT count() FROM events WHERE event = {variables.event_name} AND properties.$browser = {variables.browser}",
+                "variables": {
+                    str(self.event_name_var.id): {
+                        "variableId": str(self.event_name_var.id),
+                        "code_name": "event_name",
+                        "value": "$pageview",
+                    },
+                    str(var2.id): {
+                        "variableId": str(var2.id),
+                        "code_name": "browser",
+                        "value": "Chrome",
+                    },
+                },
+            },
+            created_by=self.user,
+            is_active=True,
+        )
+        self._materialize_endpoint(endpoint)
+
+        # Provide only one variable — should fail listing the missing one
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/",
+            {"variables": {"event_name": "$pageview"}},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("browser", response.json()["detail"])
+        self.assertIn("required", response.json()["detail"].lower())
+
+    def test_materialized_endpoint_requires_all_variables_none_provided(self):
+        var2 = InsightVariable.objects.create(
+            team=self.team,
+            name="Browser2",
+            code_name="browser2",
+            type=InsightVariable.Type.STRING,
+            default_value="Chrome",
+        )
+
+        endpoint = create_endpoint_with_version(
+            name="mat_hogql_no_vars",
+            team=self.team,
+            query={
+                "kind": "HogQLQuery",
+                "query": "SELECT count() FROM events WHERE event = {variables.event_name} AND properties.$browser = {variables.browser2}",
+                "variables": {
+                    str(self.event_name_var.id): {
+                        "variableId": str(self.event_name_var.id),
+                        "code_name": "event_name",
+                        "value": "$pageview",
+                    },
+                    str(var2.id): {
+                        "variableId": str(var2.id),
+                        "code_name": "browser2",
+                        "value": "Chrome",
+                    },
+                },
+            },
+            created_by=self.user,
+            is_active=True,
+        )
+        self._materialize_endpoint(endpoint)
+
+        # No variables at all — should fail listing all required
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/",
+            {},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        detail = response.json()["detail"]
+        self.assertIn("event_name", detail)
+        self.assertIn("browser2", detail)
+        self.assertIn("required", detail.lower())
+
     def test_materialized_hogql_endpoint_direct_refresh_bypasses_materialization(self):
-        """refresh: direct bypasses materialized table and runs query inline."""
         endpoint = create_endpoint_with_version(
             name="mat_hogql_direct",
             team=self.team,
@@ -597,16 +699,115 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             mock_inline.assert_called_once()
             mock_materialized.assert_not_called()
 
+    def test_materialized_hogql_endpoint_filters_by_multiple_variables(self):
+        var2 = InsightVariable.objects.create(
+            team=self.team,
+            name="Browser",
+            code_name="browser",
+            type=InsightVariable.Type.STRING,
+            default_value="Chrome",
+        )
+
+        endpoint = create_endpoint_with_version(
+            name="mat_hogql_multi",
+            team=self.team,
+            query={
+                "kind": "HogQLQuery",
+                "query": "SELECT count() FROM events WHERE event = {variables.event_name} AND properties.$browser = {variables.browser}",
+                "variables": {
+                    str(self.event_name_var.id): {
+                        "variableId": str(self.event_name_var.id),
+                        "code_name": "event_name",
+                        "value": "$pageview",
+                    },
+                    str(var2.id): {
+                        "variableId": str(var2.id),
+                        "code_name": "browser",
+                        "value": "Chrome",
+                    },
+                },
+            },
+            created_by=self.user,
+            is_active=True,
+        )
+        self._materialize_endpoint(endpoint)
+
+        with mock.patch.object(EndpointViewSet, "_execute_query_and_respond", return_value=Response({})) as mock_exec:
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/",
+                {"variables": {"event_name": "$pageleave", "browser": "Safari"}},
+                format="json",
+            )
+
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            mock_exec.assert_called()
+            query_sql = mock_exec.call_args[0][0]["query"]["query"].lower()
+            self.assertIn("event_name", query_sql)
+            self.assertIn("$pageleave", query_sql)
+            self.assertIn("browser", query_sql)
+            self.assertIn("safari", query_sql)
+
+    def test_materialized_hogql_endpoint_filters_by_range_variables(self):
+        start_var = InsightVariable.objects.create(
+            team=self.team,
+            name="Start Date",
+            code_name="start_date",
+            type=InsightVariable.Type.STRING,
+            default_value="2026-01-01",
+        )
+        end_var = InsightVariable.objects.create(
+            team=self.team,
+            name="End Date",
+            code_name="end_date",
+            type=InsightVariable.Type.STRING,
+            default_value="2026-01-10",
+        )
+
+        endpoint = create_endpoint_with_version(
+            name="mat_hogql_range",
+            team=self.team,
+            query={
+                "kind": "HogQLQuery",
+                "query": "SELECT count() FROM events WHERE timestamp >= {variables.start_date} AND timestamp < {variables.end_date}",
+                "variables": {
+                    str(start_var.id): {
+                        "variableId": str(start_var.id),
+                        "code_name": "start_date",
+                        "value": "2026-01-01",
+                    },
+                    str(end_var.id): {
+                        "variableId": str(end_var.id),
+                        "code_name": "end_date",
+                        "value": "2026-01-10",
+                    },
+                },
+            },
+            created_by=self.user,
+            is_active=True,
+        )
+        self._materialize_endpoint(endpoint)
+
+        with mock.patch.object(EndpointViewSet, "_execute_query_and_respond", return_value=Response({})) as mock_exec:
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/",
+                {"variables": {"start_date": "2026-01-05", "end_date": "2026-01-08"}},
+                format="json",
+            )
+
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            mock_exec.assert_called()
+            query_sql = mock_exec.call_args[0][0]["query"]["query"].lower()
+            self.assertIn("start_date", query_sql)
+            self.assertIn("end_date", query_sql)
+            # HogQL prints >= as greaterorequals() and < as less()
+            self.assertIn("greaterorequals", query_sql)
+            self.assertIn("less(", query_sql)
+
     # =========================================================================
     # MATERIALIZED INSIGHT ENDPOINTS
     # =========================================================================
 
     def test_materialized_insight_endpoint_filters_by_breakdown(self):
-        """Materialized insight endpoint filters by breakdown using has() for array column.
-
-        The breakdown_value column is an Array(Nullable(String)), so we must use
-        has(breakdown_value, 'value') rather than breakdown_value = 'value'.
-        """
         endpoint = create_endpoint_with_version(
             name="mat_trends_breakdown",
             team=self.team,
@@ -636,7 +837,6 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             self.assertIn("chrome", query_sql)
 
     def test_materialized_insight_endpoint_rejects_date_variables(self):
-        """Materialized insight endpoint rejects date_from/date_to (array columns can't be date-filtered)."""
         endpoint = create_endpoint_with_version(
             name="mat_trends_dates",
             team=self.team,
@@ -656,7 +856,6 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("date_from", response.json()["detail"])
 
     def test_materialized_insight_endpoint_rejects_unknown_breakdown(self):
-        """Materialized insight endpoint returns error for non-materialized breakdown."""
         endpoint = create_endpoint_with_version(
             name="mat_trends_unknown_bd",
             team=self.team,
@@ -680,12 +879,6 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("$os", response.json()["detail"])
 
     def test_materialized_insight_endpoint_requires_breakdown_variable(self):
-        """SECURITY: Materialized insight endpoint with breakdown MUST require the breakdown variable.
-
-        If a materialized insight endpoint has a breakdown (e.g., by $browser),
-        omitting the breakdown variable would return ALL breakdown values instead of filtered data.
-        This is a data leak vulnerability - the breakdown variable must be required.
-        """
         endpoint = create_endpoint_with_version(
             name="mat_trends_required_breakdown",
             team=self.team,
@@ -709,8 +902,31 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("$browser", response.json()["detail"])
         self.assertIn("required", response.json()["detail"].lower())
 
+    def test_materialized_insight_endpoint_accepts_filters_override_instead_of_variable(self):
+        endpoint = create_endpoint_with_version(
+            name="mat_trends_filters_fallback",
+            team=self.team,
+            query=TrendsQuery(
+                series=[EventsNode(event="$pageview")],
+                breakdownFilter={"breakdowns": [{"property": "$browser", "type": "event"}]},
+            ).model_dump(),
+            created_by=self.user,
+            is_active=True,
+        )
+        self._materialize_endpoint(endpoint)
+
+        # Using filters_override instead of variables should work (backwards compat)
+        with mock.patch.object(EndpointViewSet, "_execute_query_and_respond", return_value=Response({})) as mock_exec:
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/",
+                {"filters_override": {"properties": [{"key": "$browser", "value": "Chrome", "type": "event"}]}},
+                format="json",
+            )
+
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            mock_exec.assert_called()
+
     def test_materialized_insight_endpoint_direct_refresh_bypasses_materialization(self):
-        """refresh: direct bypasses materialized table for insight endpoints."""
         endpoint = create_endpoint_with_version(
             name="mat_trends_direct",
             team=self.team,
@@ -740,8 +956,7 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
     # MATERIALIZATION CONSTRAINTS
     # =========================================================================
 
-    def test_endpoint_with_multiple_variables_cannot_be_materialized(self):
-        """Endpoint with multiple variables returns error on materialization attempt."""
+    def test_endpoint_with_multiple_variables_can_be_materialized(self):
         var2 = InsightVariable.objects.create(
             team=self.team,
             name="Browser",
@@ -773,21 +988,19 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             is_active=True,
         )
 
-        # Endpoint creation should succeed
         self.assertIsNotNone(endpoint.id)
 
-        # But enabling materialization should fail
+        # Enabling materialization should succeed for multiple equality variables
         response = self.client.patch(
             f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
             {"is_materialized": True, "sync_frequency": DataWarehouseSyncInterval.FIELD_24HOUR},
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("multiple variables", response.json()["detail"].lower())
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.json()["is_materialized"])
 
     def test_endpoint_with_multiple_breakdowns_cannot_be_materialized(self):
-        """Insight endpoint with multiple breakdowns returns error on materialization."""
         endpoint = create_endpoint_with_version(
             name="multi_breakdown",
             team=self.team,
@@ -822,7 +1035,6 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
     # =========================================================================
 
     def test_hogql_endpoint_without_variables_executes(self):
-        """Simple HogQL endpoint without variables executes normally."""
         endpoint = create_endpoint_with_version(
             name="simple_hogql",
             team=self.team,
@@ -839,7 +1051,6 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.json()["results"][0][0], 42)
 
     def test_insight_endpoint_without_breakdown_executes(self):
-        """Simple insight endpoint without breakdown executes normally."""
         endpoint = create_endpoint_with_version(
             name="simple_trends",
             team=self.team,
@@ -860,7 +1071,6 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
     # =========================================================================
 
     def test_non_materialized_insight_endpoint_accepts_breakdown_variable(self):
-        """Non-materialized insight endpoint accepts breakdown property as variable."""
         from posthog.schema import Breakdown, BreakdownFilter, BreakdownType
 
         endpoint = create_endpoint_with_version(
@@ -895,7 +1105,6 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             )
 
     def test_non_materialized_insight_endpoint_accepts_breakdown_and_date_variables(self):
-        """Non-materialized insight endpoint accepts both breakdown and date variables together."""
         from posthog.schema import Breakdown, BreakdownFilter, BreakdownType
 
         endpoint = create_endpoint_with_version(
