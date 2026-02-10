@@ -73,6 +73,7 @@ impl PreProcessingStage {
                 exception.exception_message.truncate(truncate_at);
                 exception.exception_message.push_str("...");
             }
+            exception.exception_id = Some(Uuid::now_v7().to_string());
         }
 
         // Set metadata fields that are skipped during deserialization
