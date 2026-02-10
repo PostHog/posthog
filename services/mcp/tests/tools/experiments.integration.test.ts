@@ -918,8 +918,6 @@ describe('Experiments', { concurrent: false }, () => {
             expect(updatedExperiment.description).toBe('Updated description with new hypothesis')
             expect(updatedExperiment.url).toContain('/experiments/')
             expect(updatedExperiment.start_date).toBeNull() // Draft experiments have no start date
-
-            trackExperiment(experiment)
         })
 
         it('should launch a draft experiment (draft → running)', async () => {
@@ -951,8 +949,6 @@ describe('Experiments', { concurrent: false }, () => {
 
             expect(launchedExperiment.start_date).toBeTruthy() // Running experiments have start date
             expect(launchedExperiment.end_date).toBeNull() // But no end date yet
-
-            trackExperiment(experiment)
         })
 
         it('should stop a running experiment', async () => {
@@ -984,8 +980,6 @@ describe('Experiments', { concurrent: false }, () => {
             expect(stoppedExperiment.end_date).toBeTruthy()
             expect(stoppedExperiment.conclusion).toBe('stopped_early')
             // The end_date is automatically set when conclude is provided
-
-            trackExperiment(experiment)
         })
 
         it('should restart a concluded experiment', async () => {
@@ -1031,8 +1025,6 @@ describe('Experiments', { concurrent: false }, () => {
             expect(restartedExperiment.conclusion_comment).toBeNull()
             expect(restartedExperiment.start_date).toBeTruthy() // Restarted experiments have start date
             expect(restartedExperiment.end_date).toBeNull() // But no end date
-
-            trackExperiment(experiment)
         })
 
         it('should restart experiment as draft', async () => {
@@ -1073,8 +1065,6 @@ describe('Experiments', { concurrent: false }, () => {
             expect(restartedExperiment.end_date).toBeNull()
             expect(restartedExperiment.conclusion).toBeNull()
             expect(restartedExperiment.start_date).toBeNull() // Draft experiments have no start date
-
-            trackExperiment(experiment)
         })
 
         it('should archive and unarchive experiment', async () => {
@@ -1116,8 +1106,6 @@ describe('Experiments', { concurrent: false }, () => {
             const unarchivedExperiment = parseToolResponse(unarchiveResult)
 
             expect(unarchivedExperiment.archived).toBe(false)
-
-            trackExperiment(experiment)
         })
 
         it('should update experiment variants', async () => {
@@ -1150,8 +1138,6 @@ describe('Experiments', { concurrent: false }, () => {
             const updatedExperiment = parseToolResponse(updateResult)
 
             expect(updatedExperiment.parameters?.minimum_detectable_effect).toBe(25)
-
-            trackExperiment(experiment)
         })
 
         it('should handle invalid experiment ID', async () => {
@@ -1211,8 +1197,6 @@ describe('Experiments', { concurrent: false }, () => {
             expect(updatedExperiment.name).toBe('Updated Name Only')
             // Description should remain unchanged
             expect(updatedExperiment.description).toBe('Original description')
-
-            trackExperiment(experiment)
         })
     })
 
