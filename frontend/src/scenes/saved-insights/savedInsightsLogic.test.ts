@@ -220,6 +220,11 @@ describe('savedInsightsLogic', () => {
             resolve: (value: [number, any]) => void
             search: string
         }> = []
+        let onRequestArrived: (() => void) | null = null
+        const waitForNextRequest = (): Promise<void> =>
+            new Promise<void>((r) => {
+                onRequestArrived = r
+            })
 
         useMocks({
             get: {
@@ -227,21 +232,26 @@ describe('savedInsightsLogic', () => {
                     const search = req.url.searchParams.get('search') ?? ''
                     return new Promise<[number, any]>((resolve) => {
                         pendingRequests.push({ resolve, search })
+                        onRequestArrived?.()
+                        onRequestArrived = null
                     })
                 },
             },
         })
 
         // Fire two loads — both go in-flight concurrently
+        const req1 = waitForNextRequest()
         logic.actions.loadInsights(false)
+        await req1
+
+        const req2 = waitForNextRequest()
         logic.actions.loadInsights(false)
-        await new Promise((r) => setTimeout(r, 50))
+        await req2
+
         expect(pendingRequests).toHaveLength(2)
 
         // Resolve out of order: second (fresh) first, then first (stale)
         pendingRequests[1].resolve([200, createSavedInsights('fresh', 0)])
-        await new Promise((r) => setTimeout(r, 50))
-
         pendingRequests[0].resolve([200, createSavedInsights('stale', 0)])
         await expectLogic(logic).toFinishAllListeners()
 
