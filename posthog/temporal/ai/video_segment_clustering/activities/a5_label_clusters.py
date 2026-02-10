@@ -207,9 +207,9 @@ async def _call_llm_to_label_cluster(
                 raise ValueError("Empty response from LLM")
             result = json.loads(content)
             return ClusterLabel(
-                actionable=result.get("actionable", False),
-                title=result.get("title", ""),
-                description=result.get("description", ""),
+                actionable=result["actionable"],
+                title=result["title"],
+                description=result["description"],
             )
         except Exception as e:
             if attempt == 2:
