@@ -1,5 +1,6 @@
 import { HogFunctionTemplate } from '~/cdp/types'
 
+// push_subscription input gets resolved to FCM token in hog-inputs.service.ts
 export const template: HogFunctionTemplate = {
     free: false,
     status: 'hidden',
@@ -11,14 +12,16 @@ export const template: HogFunctionTemplate = {
     category: ['Communication'],
     code_language: 'hog',
     code: `
-let fcmToken := inputs.fcm_token
+let fcmToken := inputs.push_subscription
+
+if (not fcmToken) {
+    print(f'No push subscription found for the targeted person. Skipping push notification for event: {event.uuid}')
+    return
+}
+
 let title := inputs.title
 let body := inputs.body
 let projectId := inputs.firebase_account.project_id
-
-if (not fcmToken) {
-    throw Error('FCM token is required')
-}
 
 if (not title) {
     throw Error('Notification title is required')
@@ -46,14 +49,15 @@ let payload := {
         'Authorization': f'Bearer {inputs.firebase_account.access_token}',
         'Content-Type': 'application/json'
     },
-    'body': message
+    'body': message,
+    'timeoutMs': 10000
 }
 
 if (inputs.debug) {
     print('Sending push notification', url, payload)
 }
 
-let res := fetch(url, payload)
+let res := sendPushNotification(url, payload)
 
 if (res.status < 200 or res.status >= 300) {
     throw Error(f'Failed to send push notification via FCM: {res.status} {res.body}')
@@ -75,14 +79,15 @@ if (inputs.debug) {
             required: true,
         },
         {
-            key: 'fcm_token',
-            type: 'string',
-            label: 'FCM device token',
-            secret: true,
+            key: 'push_subscription',
+            type: 'push_subscription',
+            label: 'Distinct ID',
+            secret: false,
             required: true,
             description:
-                'The Firebase Cloud Messaging token for the target device. In a future version, this will be automatically looked up from registered devices.',
-            default: '',
+                'Distinct ID of the person to send to (used to look up the device FCM token). Use {{ event.distinct_id }} for the person associated with the event.',
+            platform: 'android',
+            default: '{{ event.distinct_id }}',
             templating: 'liquid',
         },
         {

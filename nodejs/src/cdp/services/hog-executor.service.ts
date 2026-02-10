@@ -10,6 +10,7 @@ import { ACCESS_TOKEN_PLACEHOLDER } from '~/config/constants'
 import {
     CyclotronInvocationQueueParametersEmailSchema,
     CyclotronInvocationQueueParametersFetchSchema,
+    CyclotronInvocationQueueParametersSendPushNotificationSchema,
 } from '~/schema/cyclotron'
 import { FetchOptions, FetchResponse, InvalidRequestError, SecureRequestError, fetch } from '~/utils/request'
 import { tryCatch } from '~/utils/try-catch'
@@ -29,13 +30,18 @@ import {
     MinimalAppMetric,
     MinimalLogEntry,
 } from '../types'
-import { destinationE2eLagMsSummary } from '../utils'
-import { createAddLogFunction, sanitizeLogMessage } from '../utils'
+import { createAddLogFunction, destinationE2eLagMsSummary, sanitizeLogMessage } from '../utils'
 import { execHog } from '../utils/hog-exec'
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../utils/hog-function-filtering'
 import { createInvocation, createInvocationResult } from '../utils/invocation-utils'
 import { HogInputsService, HogInputsServiceHub } from './hog-inputs.service'
+import { PushSubscriptionsManagerService } from './managers/push-subscriptions-manager.service'
 import { EmailService, EmailServiceHub } from './messaging/email.service'
+import {
+    PushNotificationFetchUtils,
+    PushNotificationService,
+    PushNotificationServiceHub,
+} from './messaging/push-notification.service'
 import { RecipientTokensService } from './messaging/recipient-tokens.service'
 
 /** Narrowed config type for CDP fetch retry settings, used by destination executors */
@@ -44,6 +50,7 @@ export type CdpFetchConfig = Pick<Hub, 'CDP_FETCH_RETRIES' | 'CDP_FETCH_BACKOFF_
 export type HogExecutorServiceHub = CdpFetchConfig &
     HogInputsServiceHub &
     EmailServiceHub &
+    PushNotificationServiceHub &
     Pick<Hub, 'CDP_WATCHER_HOG_COST_TIMING_UPPER_MS' | 'CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN'>
 
 const cdpHttpRequests = new Counter({
@@ -131,6 +138,7 @@ export const getNextRetryTime = (backoffBaseMs: number, backoffMaxMs: number, tr
 export const MAX_ASYNC_STEPS = 5
 export const MAX_HOG_LOGS = 25
 export const EXTEND_OBJECT_KEY = '$$_extend_object'
+export const MAX_FETCH_TIMEOUT_MS = 10000
 
 const hogExecutionDuration = new Histogram({
     name: 'cdp_hog_function_execution_duration_ms',
@@ -147,7 +155,7 @@ const hogFunctionStateMemory = new Histogram({
 
 export type HogExecutorExecuteOptions = {
     functions?: Record<string, (args: unknown[]) => unknown>
-    asyncFunctionsNames?: ('fetch' | 'sendEmail')[]
+    asyncFunctionsNames?: ('fetch' | 'sendPushNotification' | 'sendEmail')[]
 }
 
 export type HogExecutorExecuteAsyncOptions = HogExecutorExecuteOptions & {
@@ -157,12 +165,26 @@ export type HogExecutorExecuteAsyncOptions = HogExecutorExecuteOptions & {
 export class HogExecutorService {
     private hogInputsService: HogInputsService
     private emailService: EmailService
+    private pushNotificationService: PushNotificationService
     private recipientTokensService: RecipientTokensService
+    private pushSubscriptionsManager: PushSubscriptionsManagerService
 
     constructor(private hub: HogExecutorServiceHub) {
         this.recipientTokensService = new RecipientTokensService(hub)
         this.hogInputsService = new HogInputsService(hub)
         this.emailService = new EmailService(hub)
+        this.pushSubscriptionsManager = new PushSubscriptionsManagerService(hub.postgres, hub.encryptedFields)
+        const fetchUtils: PushNotificationFetchUtils = {
+            trackedFetch: cdpTrackedFetch,
+            isFetchResponseRetriable,
+            maxFetchTimeoutMs: MAX_FETCH_TIMEOUT_MS,
+        }
+        this.pushNotificationService = new PushNotificationService(
+            hub,
+            this.hogInputsService,
+            this.pushSubscriptionsManager,
+            fetchUtils
+        )
     }
 
     async buildInputsWithGlobals(
@@ -307,7 +329,7 @@ export class HogExecutorService {
             const nextInvocation: CyclotronJobInvocationHogFunction = result?.invocation ?? invocation
 
             const queueParamsType = nextInvocation.queueParameters?.type
-            if (['fetch', 'email'].includes(queueParamsType ?? '')) {
+            if (['fetch', 'sendPushNotification', 'email'].includes(queueParamsType ?? '')) {
                 asyncFunctionCount++
 
                 if (result && asyncFunctionCount > maxAsyncFunctions) {
@@ -318,6 +340,8 @@ export class HogExecutorService {
 
                 if (queueParamsType === 'fetch') {
                     result = await this.executeFetch(nextInvocation)
+                } else if (queueParamsType === 'sendPushNotification') {
+                    result = await this.pushNotificationService.executeSendPushNotification(nextInvocation)
                 } else if (queueParamsType === 'email') {
                     result = await this.emailService.executeSendEmail(nextInvocation)
                 } else {
@@ -402,7 +426,11 @@ export class HogExecutorService {
             try {
                 let hogLogs = 0
 
-                const asyncFunctionsNames = options.asyncFunctionsNames ?? ['fetch', 'sendEmail']
+                const asyncFunctionsNames = options.asyncFunctionsNames ?? [
+                    'fetch',
+                    'sendPushNotification',
+                    'sendEmail',
+                ]
                 const asyncFunctions = asyncFunctionsNames.reduce(
                     (acc, fn) => {
                         acc[fn] = async () => Promise.resolve()
@@ -544,18 +572,44 @@ export class HogExecutorService {
                                     : JSON.stringify(fetchOptions.body)
                                 : fetchOptions?.body
 
+                            const timeoutMs = fetchOptions?.timeoutMs ?? undefined
+
                             const fetchQueueParameters = CyclotronInvocationQueueParametersFetchSchema.parse({
                                 type: 'fetch',
                                 url,
                                 method,
                                 body,
                                 headers: pickBy(headers, (v) => typeof v == 'string'),
+                                timeoutMs,
                             })
 
                             result.invocation.queueParameters = fetchQueueParameters
                             break
                         }
 
+                        case 'sendPushNotification': {
+                            const [url, fetchOptions] = args as [string | undefined, Record<string, any> | undefined]
+                            const method = fetchOptions?.method || 'POST'
+                            const headers = fetchOptions?.headers || {
+                                'Content-Type': 'application/json',
+                            }
+                            const body: string | undefined = fetchOptions?.body
+                                ? typeof fetchOptions.body === 'string'
+                                    ? fetchOptions.body
+                                    : JSON.stringify(fetchOptions.body)
+                                : fetchOptions?.body
+                            const timeoutMs = fetchOptions?.timeoutMs ?? undefined
+                            result.invocation.queueParameters =
+                                CyclotronInvocationQueueParametersSendPushNotificationSchema.parse({
+                                    type: 'sendPushNotification',
+                                    url,
+                                    method,
+                                    body,
+                                    headers: pickBy(headers, (v) => typeof v == 'string'),
+                                    timeoutMs,
+                                })
+                            break
+                        }
                         case 'sendEmail': {
                             result.invocation.queueParameters = CyclotronInvocationQueueParametersEmailSchema.parse({
                                 ...args[0],
@@ -663,6 +717,10 @@ export class HogExecutorService {
             fetchParams.body = params.body
         }
 
+        if (params.timeoutMs !== undefined) {
+            fetchParams.timeoutMs = Math.min(params.timeoutMs, MAX_FETCH_TIMEOUT_MS)
+        }
+
         const { fetchError, fetchResponse, fetchDuration } = await cdpTrackedFetch({
             url: params.url,
             fetchParams,
@@ -758,12 +816,14 @@ export class HogExecutorService {
         const values: string[] = []
 
         hogFunction.inputs_schema?.forEach((schema) => {
-            if (schema.secret || schema.type === 'integration') {
+            if (schema.secret || schema.type === 'integration' || schema.type === 'push_subscription') {
                 const value = inputs[schema.key]
                 if (typeof value === 'string') {
                     values.push(value)
                 } else if (
-                    (schema.type === 'dictionary' || schema.type === 'integration') &&
+                    (schema.type === 'dictionary' ||
+                        schema.type === 'integration' ||
+                        schema.type === 'push_subscription') &&
                     typeof value === 'object'
                 ) {
                     // Assume the values are the sensitive parts

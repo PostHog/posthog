@@ -65,6 +65,7 @@ describe('snapchat template', () => {
                 "Content-Type": "application/json",
               },
               "method": "POST",
+              "timeoutMs": undefined,
               "type": "fetch",
               "url": "https://tr.snapchat.com/v3/pixel-id/events?access_token=access-token",
             }
@@ -147,6 +148,7 @@ describe('snapchat template', () => {
                 "Content-Type": "application/json",
               },
               "method": "POST",
+              "timeoutMs": undefined,
               "type": "fetch",
               "url": "https://tr.snapchat.com/v3/pixel-id/events?access_token=access-token",
             }
@@ -182,6 +184,7 @@ describe('snapchat template', () => {
                 "Content-Type": "application/json",
               },
               "method": "POST",
+              "timeoutMs": undefined,
               "type": "fetch",
               "url": "https://tr.snapchat.com/v3/pixel-id/events?access_token=access-token",
             }
@@ -217,6 +220,7 @@ describe('snapchat template', () => {
                 "Content-Type": "application/json",
               },
               "method": "POST",
+              "timeoutMs": undefined,
               "type": "fetch",
               "url": "https://tr.snapchat.com/v3/pixel-id/events?access_token=access-token",
             }
@@ -255,6 +259,7 @@ describe('snapchat template', () => {
                 "Content-Type": "application/json",
               },
               "method": "POST",
+              "timeoutMs": undefined,
               "type": "fetch",
               "url": "https://tr.snapchat.com/v3/pixel-id/events/validate?access_token=access-token",
             }
@@ -312,6 +317,7 @@ describe('snapchat template', () => {
                 "Content-Type": "application/json",
               },
               "method": "POST",
+              "timeoutMs": undefined,
               "type": "fetch",
               "url": "https://tr.snapchat.com/v3/pixel-id/events?access_token=access-token",
             }

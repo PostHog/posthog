@@ -30,7 +30,12 @@ raw_site_url = os.getenv("SITE_URL")
 CSRF_TRUSTED_ORIGINS = (
     [raw_site_url.rstrip("/")]
     if raw_site_url
-    else ["http://localhost:8000", "http://localhost:8010"]  # 8000 is just Django, 8010 is Django + Capture via Caddy
+    else [
+        "http://localhost:8000",
+        "http://localhost:8010",  # 8000 is just Django, 8010 is Django + Capture via Caddy
+        "http://10.0.2.2:8000",  # Android emulator host mapping
+        "http://10.0.2.2:8010",  # Android emulator host mapping
+    ]
 )
 
 # Proxy settings

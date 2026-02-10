@@ -9,7 +9,38 @@ import { closeHub, createHub } from '~/utils/db/hub'
 import { createHogExecutionGlobals, createHogFunction, insertIntegration } from '../_tests/fixtures'
 import { compileHog } from '../templates/compiler'
 import { HogFunctionInvocationGlobals, HogFunctionType } from '../types'
-import { HogInputsService, formatHogInput } from './hog-inputs.service'
+import { HogInputsService, formatHogInput, getFcmProjectIdForPush } from './hog-inputs.service'
+
+describe('getFcmProjectIdForPush', () => {
+    it('throws when firebase_account or value is missing', () => {
+        expect(() => getFcmProjectIdForPush({})).toThrow(
+            /firebase_account integration is required for push subscription inputs but was not found/
+        )
+        expect(() => getFcmProjectIdForPush({ firebase_account: { value: null } })).toThrow(
+            /firebase_account integration is required for push subscription inputs but was not found/
+        )
+    })
+
+    it('throws when project_id is missing in firebase_account', () => {
+        expect(() =>
+            getFcmProjectIdForPush({
+                firebase_account: { value: {} },
+            })
+        ).toThrow(/FCM project ID \(project_id\) not found in firebase_account integration/)
+        expect(() =>
+            getFcmProjectIdForPush({
+                firebase_account: { value: { key_info: {} } },
+            })
+        ).toThrow(/FCM project ID \(project_id\) not found in firebase_account integration/)
+    })
+
+    it('returns project_id when firebase_account has key_info.project_id', () => {
+        const result = getFcmProjectIdForPush({
+            firebase_account: { value: { key_info: { project_id: 'my-project' } } },
+        })
+        expect(result).toBe('my-project')
+    })
+})
 
 describe('Hog Inputs', () => {
     let hub: Hub
@@ -159,7 +190,21 @@ describe('Hog Inputs', () => {
             expect(inputs.liquid_templated).toMatchInlineSnapshot(`"event: "test""`)
         })
 
-        it('should loads inputs with integration inputs', async () => {
+        it('should load integration inputs and replace access tokens with placeholders', async () => {
+            hogFunction = createHogFunction({
+                ...hogFunction,
+                inputs: {
+                    hog_templated: hogFunction.inputs!.hog_templated,
+                    liquid_templated: hogFunction.inputs!.liquid_templated,
+                    oauth: { value: 1 },
+                    auth: { value: 2 },
+                },
+                inputs_schema: [
+                    { key: 'hog_templated', type: 'string', required: true },
+                    { key: 'oauth', type: 'integration', required: true },
+                    { key: 'auth', type: 'integration', required: true },
+                ],
+            })
             const inputs = await hogInputsService.buildInputs(hogFunction, globals)
 
             expect(inputs.oauth).toMatchInlineSnapshot(`
@@ -170,35 +215,6 @@ describe('Hog Inputs', () => {
                   "team": "foobar",
                 }
             `)
-        })
-
-        it('access token should be replaced with placeholder', async () => {
-            hogFunction = createHogFunction({
-                id: 'hog-function-1',
-                team_id: team.id,
-                name: 'Hog Function 1',
-                enabled: true,
-                type: 'destination',
-                inputs: {
-                    hog_templated: {
-                        value: 'event: "{event.event}"',
-                        templating: 'hog',
-                        bytecode: await compileHog('return f\'event: "{event.event}"\''),
-                    },
-                    liquid_templated: {
-                        value: 'event: "{{ event.event }}"',
-                        templating: 'liquid',
-                    },
-                    auth: { value: 2 },
-                },
-                inputs_schema: [
-                    { key: 'hog_templated', type: 'string', required: true },
-                    { key: 'auth', type: 'integration', required: true },
-                ],
-            })
-
-            const inputs = await hogInputsService.buildInputs(hogFunction, globals)
-
             expect(inputs.auth).toMatchInlineSnapshot(`
                 {
                   "access_token": "$$_access_token_placeholder_2",
@@ -234,6 +250,35 @@ describe('Hog Inputs', () => {
             expect(inputs.email.to.email).toEqual('test@posthog.com')
             expect(inputs.email.html).toEqual(
                 `<div>Manage subscription preferences here <a href="http://localhost:8000/messaging-preferences/eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0ZWFtX2lkIjoyLCJpZGVudGlmaWVyIjoidGVzdEBwb3N0aG9nLmNvbSIsImlhdCI6MTczNTY4OTYwMCwiZXhwIjoxNzM2Mjk0NDAwLCJhdWQiOiJwb3N0aG9nOm1lc3NhZ2luZzpzdWJzY3JpcHRpb25fcHJlZmVyZW5jZXMifQ.pBh-COzTEyApuxe8J5sViPanp1lV1IClepOTVFZNhIs/">here</a>Or, click <a href="http://localhost:8000/messaging-preferences/eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0ZWFtX2lkIjoyLCJpZGVudGlmaWVyIjoidGVzdEBwb3N0aG9nLmNvbSIsImlhdCI6MTczNTY4OTYwMCwiZXhwIjoxNzM2Mjk0NDAwLCJhdWQiOiJwb3N0aG9nOm1lc3NhZ2luZzpzdWJzY3JpcHRpb25fcHJlZmVyZW5jZXMifQ.pBh-COzTEyApuxe8J5sViPanp1lV1IClepOTVFZNhIs/?one_click_unsubscribe=1">here</a> to immediately unsubscribe from all marketing emails</div>`
+            )
+        })
+
+        it('throws when push subscription input exists but firebase_account integration is missing', async () => {
+            const hogFunction = createHogFunction({
+                id: 'hog-function-1',
+                team_id: team.id,
+                name: 'Hog Function 1',
+                enabled: true,
+                type: 'destination',
+                inputs: {
+                    firebase_account: { value: 999 },
+                    push_subscription: { value: 'user-123' },
+                },
+                inputs_schema: [
+                    {
+                        key: 'firebase_account',
+                        type: 'integration',
+                    },
+                    {
+                        key: 'push_subscription',
+                        type: 'push_subscription',
+                        platform: 'android',
+                    },
+                ],
+            })
+
+            await expect(hogInputsService.buildInputs(hogFunction, globals)).rejects.toThrow(
+                /firebase_account integration is required for push subscription inputs but was not found/
             )
         })
     })

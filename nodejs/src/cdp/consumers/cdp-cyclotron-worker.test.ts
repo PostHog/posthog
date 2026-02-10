@@ -209,6 +209,7 @@ describe('CdpCyclotronWorker', () => {
                     "Content-Type": "application/json",
                   },
                   "method": "POST",
+                  "timeoutMs": undefined,
                   "type": "fetch",
                   "url": "https://posthog.com",
                 }

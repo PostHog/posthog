@@ -716,6 +716,23 @@ const buildHogExecutorAsyncOptions = (
                           success: true,
                       }
                   },
+                  sendPushNotification: (...args: any[]) => {
+                      logs.push({
+                          level: 'info',
+                          timestamp: DateTime.now(),
+                          message: `Async function 'sendPushNotification' was mocked with arguments:`,
+                      })
+                      logs.push({
+                          level: 'info',
+                          timestamp: DateTime.now(),
+                          message: `sendPushNotification('${args[0]}', ${JSON.stringify(args[1], null, 2)})`,
+                      })
+
+                      return {
+                          status: 200,
+                          body: {},
+                      }
+                  },
               }
             : undefined,
     }

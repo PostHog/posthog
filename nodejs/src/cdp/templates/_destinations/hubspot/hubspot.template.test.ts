@@ -44,6 +44,7 @@ describe('hubspot template', () => {
                 "Content-Type": "application/json",
               },
               "method": "PATCH",
+              "timeoutMs": undefined,
               "type": "fetch",
               "url": "https://api.hubapi.com/crm/v3/objects/companies/company-123?idProperty=posthog_group_id",
             }
@@ -83,6 +84,7 @@ describe('hubspot template', () => {
                 "Content-Type": "application/json",
               },
               "method": "PATCH",
+              "timeoutMs": undefined,
               "type": "fetch",
               "url": "https://api.hubapi.com/crm/v3/objects/companies/company-123?idProperty=posthog_group_id",
             }
@@ -102,6 +104,7 @@ describe('hubspot template', () => {
                 "Content-Type": "application/json",
               },
               "method": "POST",
+              "timeoutMs": undefined,
               "type": "fetch",
               "url": "https://api.hubapi.com/crm/v3/properties/companies",
             }
@@ -121,6 +124,7 @@ describe('hubspot template', () => {
                 "Content-Type": "application/json",
               },
               "method": "POST",
+              "timeoutMs": undefined,
               "type": "fetch",
               "url": "https://api.hubapi.com/crm/v3/objects/companies",
             }
@@ -166,6 +170,7 @@ describe('hubspot template', () => {
                 "Content-Type": "application/json",
               },
               "method": "POST",
+              "timeoutMs": undefined,
               "type": "fetch",
               "url": "https://api.hubapi.com/crm/v3/properties/companies",
             }
@@ -185,6 +190,7 @@ describe('hubspot template', () => {
                 "Content-Type": "application/json",
               },
               "method": "POST",
+              "timeoutMs": undefined,
               "type": "fetch",
               "url": "https://api.hubapi.com/crm/v3/objects/companies",
             }
