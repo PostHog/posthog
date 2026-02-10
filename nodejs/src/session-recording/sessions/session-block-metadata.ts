@@ -1,5 +1,40 @@
 import { DateTime } from 'luxon'
 
+/**
+ * Creates a no-op metadata block with all counters set to zero.
+ * Used as a base for special events like deletion markers.
+ */
+export function createNoopBlockMetadata(sessionId: string, teamId: number): SessionBlockMetadata {
+    const now = DateTime.utc()
+
+    return {
+        sessionId,
+        teamId,
+        distinctId: '',
+        batchId: '',
+        blockLength: 0,
+        startDateTime: now,
+        endDateTime: now,
+        blockUrl: null,
+        firstUrl: null,
+        urls: [],
+        eventCount: 0,
+        clickCount: 0,
+        keypressCount: 0,
+        mouseActivityCount: 0,
+        activeMilliseconds: 0,
+        consoleLogCount: 0,
+        consoleWarnCount: 0,
+        consoleErrorCount: 0,
+        size: 0,
+        messageCount: 0,
+        snapshotSource: null,
+        snapshotLibrary: null,
+        retentionPeriodDays: null,
+        isDeleted: false,
+    }
+}
+
 export interface SessionBlockMetadata {
     /** Unique identifier for the session */
     sessionId: string
@@ -47,4 +82,6 @@ export interface SessionBlockMetadata {
     snapshotLibrary: string | null
     /** Retention period for this session block */
     retentionPeriodDays: number | null
+    /** Whether this recording has been deleted */
+    isDeleted: boolean
 }

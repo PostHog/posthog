@@ -1,5 +1,6 @@
 import { S3Client } from '@aws-sdk/client-s3'
 
+import { SessionMetadataStore } from '../session-recording/sessions/session-metadata-store'
 import { RecordingService } from './recording-service'
 import { KeyStore, RecordingDecryptor, SessionKeyDeletedError } from './types'
 
@@ -9,6 +10,7 @@ describe('RecordingService', () => {
     let mockS3Client: S3Client
     let mockKeyStore: jest.Mocked<KeyStore>
     let mockDecryptor: jest.Mocked<RecordingDecryptor>
+    let mockMetadataStore: jest.Mocked<SessionMetadataStore>
 
     beforeEach(() => {
         mockS3Send = jest.fn()
@@ -30,7 +32,18 @@ describe('RecordingService', () => {
             decryptBlockWithKey: jest.fn(),
         } as unknown as jest.Mocked<RecordingDecryptor>
 
-        service = new RecordingService(mockS3Client, 'test-bucket', 'session_recordings', mockKeyStore, mockDecryptor)
+        mockMetadataStore = {
+            storeSessionBlocks: jest.fn().mockResolvedValue(undefined),
+        } as unknown as jest.Mocked<SessionMetadataStore>
+
+        service = new RecordingService(
+            mockS3Client,
+            'test-bucket',
+            'session_recordings',
+            mockKeyStore,
+            mockDecryptor,
+            mockMetadataStore
+        )
     })
 
     afterEach(() => {
@@ -160,24 +173,32 @@ describe('RecordingService', () => {
     })
 
     describe('deleteRecording', () => {
-        it('returns ok when key is deleted successfully', async () => {
+        it('returns ok and emits deletion event when key is deleted successfully', async () => {
             mockKeyStore.deleteKey.mockResolvedValue({ deleted: true })
 
             const result = await service.deleteRecording('session-123', 1)
 
             expect(result).toEqual({ ok: true })
             expect(mockKeyStore.deleteKey).toHaveBeenCalledWith('session-123', 1)
+            expect(mockMetadataStore.storeSessionBlocks).toHaveBeenCalledWith([
+                expect.objectContaining({
+                    sessionId: 'session-123',
+                    teamId: 1,
+                    isDeleted: true,
+                }),
+            ])
         })
 
-        it('returns not_found when key does not exist', async () => {
+        it('does not emit deletion event when key is not found', async () => {
             mockKeyStore.deleteKey.mockResolvedValue({ deleted: false, reason: 'not_found' })
 
             const result = await service.deleteRecording('session-123', 1)
 
             expect(result).toEqual({ ok: false, error: 'not_found' })
+            expect(mockMetadataStore.storeSessionBlocks).not.toHaveBeenCalled()
         })
 
-        it('returns already_deleted with timestamp when key was already deleted', async () => {
+        it('does not emit deletion event when key was already deleted', async () => {
             mockKeyStore.deleteKey.mockResolvedValue({
                 deleted: false,
                 reason: 'already_deleted',
@@ -187,6 +208,7 @@ describe('RecordingService', () => {
             const result = await service.deleteRecording('session-123', 1)
 
             expect(result).toEqual({ ok: false, error: 'already_deleted', deletedAt: 1700000000 })
+            expect(mockMetadataStore.storeSessionBlocks).not.toHaveBeenCalled()
         })
 
         it('returns already_deleted with undefined timestamp when not available', async () => {
@@ -213,6 +235,21 @@ describe('RecordingService', () => {
             mockKeyStore.deleteKey.mockRejectedValue(new Error('Database error'))
 
             await expect(service.deleteRecording('session-123', 1)).rejects.toThrow('Database error')
+        })
+
+        it('works without metadata store configured', async () => {
+            const serviceWithoutMetadata = new RecordingService(
+                mockS3Client,
+                'test-bucket',
+                'session_recordings',
+                mockKeyStore,
+                mockDecryptor
+            )
+            mockKeyStore.deleteKey.mockResolvedValue(true)
+
+            const result = await serviceWithoutMetadata.deleteRecording('session-123', 1)
+
+            expect(result).toEqual({ ok: true })
         })
     })
 })

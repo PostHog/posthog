@@ -43,6 +43,7 @@ describe('SessionMetadataStore', () => {
                 snapshotSource: 'web',
                 snapshotLibrary: 'rrweb@1.0.0',
                 retentionPeriodDays: 30,
+                isDeleted: false,
             },
             {
                 sessionId: 'different456',
@@ -68,6 +69,7 @@ describe('SessionMetadataStore', () => {
                 snapshotSource: 'web',
                 snapshotLibrary: 'rrweb@1.0.0',
                 retentionPeriodDays: 30,
+                isDeleted: false,
             },
             {
                 sessionId: 'session123',
@@ -93,6 +95,7 @@ describe('SessionMetadataStore', () => {
                 snapshotSource: 'web',
                 snapshotLibrary: 'rrweb@1.0.0',
                 retentionPeriodDays: 30,
+                isDeleted: false,
             },
         ]
 
@@ -129,6 +132,7 @@ describe('SessionMetadataStore', () => {
                 snapshot_library: 'rrweb@1.0.0',
                 event_count: 25,
                 retention_period_days: 30,
+                is_deleted: 0,
             },
             {
                 uuid: expect.any(String),
@@ -232,6 +236,7 @@ describe('SessionMetadataStore', () => {
                 snapshotSource: 'web',
                 snapshotLibrary: 'rrweb@1.0.0',
                 retentionPeriodDays: 30,
+                isDeleted: false,
             },
         ]
 
@@ -264,6 +269,7 @@ describe('SessionMetadataStore', () => {
                 snapshotSource: 'web',
                 snapshotLibrary: 'rrweb@1.0.0',
                 retentionPeriodDays: 30,
+                isDeleted: false,
             },
         ]
 
@@ -316,6 +322,7 @@ describe('SessionMetadataStore', () => {
                 snapshotSource: 'web',
                 snapshotLibrary: 'rrweb@1.0.0',
                 retentionPeriodDays: 30,
+                isDeleted: false,
             },
             {
                 sessionId: 'session2',
@@ -341,6 +348,7 @@ describe('SessionMetadataStore', () => {
                 snapshotSource: 'web',
                 snapshotLibrary: 'rrweb@1.0.0',
                 retentionPeriodDays: 30,
+                isDeleted: false,
             },
         ]
 
@@ -417,6 +425,7 @@ describe('SessionMetadataStore', () => {
                 snapshotSource: 'web',
                 snapshotLibrary: 'rrweb@1.0.0',
                 retentionPeriodDays: 30,
+                isDeleted: false,
             },
         ]
 
@@ -454,6 +463,7 @@ describe('SessionMetadataStore', () => {
                 snapshotSource: 'web',
                 snapshotLibrary: 'rrweb@1.0.0',
                 retentionPeriodDays: 30,
+                isDeleted: false,
             },
         ]
 

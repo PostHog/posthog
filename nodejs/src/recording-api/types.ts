@@ -13,6 +13,7 @@ import { Hub } from '../types'
 export type RecordingApiHub = Pick<
     Hub,
     | 'postgres'
+    | 'KAFKA_CLIENT_RACK'
     | 'REDIS_POOL_MIN_SIZE'
     | 'REDIS_POOL_MAX_SIZE'
     | 'SESSION_RECORDING_API_REDIS_HOST'

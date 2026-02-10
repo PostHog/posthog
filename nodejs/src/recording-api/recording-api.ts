@@ -1,7 +1,10 @@
 import { S3Client, S3ClientConfig } from '@aws-sdk/client-s3'
 import express from 'ultimate-express'
 
+import { KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS } from '../config/kafka-topics'
+import { KafkaProducerWrapper } from '../kafka/producer'
 import { RetentionService } from '../session-recording/retention/retention-service'
+import { SessionMetadataStore } from '../session-recording/sessions/session-metadata-store'
 import { TeamService } from '../session-recording/teams/team-service'
 import {
     HealthCheckResult,
@@ -26,6 +29,7 @@ export class RecordingApi {
     private keyStore: KeyStore | null = null
     private decryptor: RecordingDecryptor | null = null
     private redisPool: RedisPool | null = null
+    private kafkaProducer: KafkaProducerWrapper | null = null
     private recordingService: RecordingService | null = null
 
     constructor(private hub: RecordingApiHub) {}
@@ -101,13 +105,18 @@ export class RecordingApi {
         this.decryptor = getBlockDecryptor(this.keyStore)
         await this.decryptor.start()
 
+        // Initialize Kafka producer for emitting deletion events
+        this.kafkaProducer = await KafkaProducerWrapper.create(this.hub.KAFKA_CLIENT_RACK)
+        const metadataStore = new SessionMetadataStore(this.kafkaProducer, KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS)
+
         // Create the service layer
         this.recordingService = new RecordingService(
             this.s3Client,
             this.s3Bucket!,
             this.s3Prefix!,
             this.keyStore,
-            this.decryptor
+            this.decryptor,
+            metadataStore
         )
 
         logger.info('[RecordingApi] Started successfully')
@@ -119,6 +128,9 @@ export class RecordingApi {
         if (this.redisPool) {
             await this.redisPool.drain()
             await this.redisPool.clear()
+        }
+        if (this.kafkaProducer) {
+            await this.kafkaProducer.disconnect()
         }
     }
 

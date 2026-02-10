@@ -1,6 +1,8 @@
 import { GetObjectCommand, S3Client } from '@aws-sdk/client-s3'
 
 import { ValidRetentionPeriods } from '../session-recording/constants'
+import { createNoopBlockMetadata } from '../session-recording/sessions/session-block-metadata'
+import { SessionMetadataStore } from '../session-recording/sessions/session-metadata-store'
 import { logger } from '../utils/logger'
 import { KeyStore, RecordingDecryptor, SessionKeyDeletedError } from './types'
 
@@ -29,7 +31,8 @@ export class RecordingService {
         private s3Bucket: string,
         private s3Prefix: string,
         private keyStore: KeyStore,
-        private decryptor: RecordingDecryptor
+        private decryptor: RecordingDecryptor,
+        private metadataStore?: SessionMetadataStore
     ) {}
 
     validateS3Key(key: string): boolean {
@@ -109,6 +112,7 @@ export class RecordingService {
         logger.debug('[RecordingService] deleteKey result', { teamId, sessionId, result })
 
         if (result.deleted) {
+            await this.emitDeletionEvent(sessionId, teamId)
             return { ok: true }
         }
 
@@ -126,5 +130,20 @@ export class RecordingService {
         }
 
         return { ok: false, error: 'not_found' }
+    }
+
+    private async emitDeletionEvent(sessionId: string, teamId: number): Promise<void> {
+        if (!this.metadataStore) {
+            logger.warn('[RecordingService] No metadata store configured, skipping deletion event', {
+                sessionId,
+                teamId,
+            })
+            return
+        }
+
+        const deletionMetadata = { ...createNoopBlockMetadata(sessionId, teamId), isDeleted: true }
+        await this.metadataStore.storeSessionBlocks([deletionMetadata])
+
+        logger.info('[RecordingService] Deletion event emitted', { sessionId, teamId })
     }
 }
