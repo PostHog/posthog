@@ -7,7 +7,7 @@ import { IconCode2, IconInfo, IconPencil, IconPeople, IconShare, IconTrash } fro
 import api from 'lib/api'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AddToDashboardModal } from 'lib/components/AddToDashboard/AddToDashboardModal'
-import { areAlertsSupportedForInsight, insightAlertsLogic } from 'lib/components/Alerts/insightAlertsLogic'
+import { areAlertsSupportedForInsight } from 'lib/components/Alerts/insightAlertsLogic'
 import { EditAlertModal } from 'lib/components/Alerts/views/EditAlertModal'
 import { ManageAlertsModal } from 'lib/components/Alerts/views/ManageAlertsModal'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
@@ -107,14 +107,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
     } = useValues(insightLogic(insightLogicProps))
     const { setInsightMetadata, saveAs, saveInsight, duplicateInsight, reloadSavedInsights } = useActions(
         insightLogic(insightLogicProps)
-    )
-
-    // insightAlertsLogic
-    const { loadAlerts } = useActions(
-        insightAlertsLogic({
-            insightLogicProps,
-            insightId: insight.id as number,
-        })
     )
 
     // insightDataLogic
@@ -221,7 +213,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                             insightShortId={insight.short_id as InsightShortId}
                             insightId={insight.id}
                             onEditSuccess={() => {
-                                loadAlerts()
                                 push(urls.insightAlerts(insight.short_id as InsightShortId))
                             }}
                             insightLogicProps={insightLogicProps}

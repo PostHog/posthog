@@ -126,3 +126,28 @@ class TestSessionsRecordBatchModel:
         # check that we have a log_comment set (we pass this in as a query parameter)
         assert "log_comment={log_comment}" in printed_query
         assert "log_comment" in query_parameters
+
+    async def test_as_insert_into_s3_query_with_parameters_keyless_auth(
+        self, ateam, data_interval_start, data_interval_end
+    ):
+        """Test that keyless S3 auth generates the correct s3() function call without credentials."""
+        model = SessionsRecordBatchModel(
+            team_id=ateam.id,
+        )
+        printed_query, _ = await model.as_insert_into_s3_query_with_parameters(
+            data_interval_start=data_interval_start,
+            data_interval_end=data_interval_end,
+            s3_folder="https://test-bucket.s3.amazonaws.com/test-prefix",
+            s3_key=None,
+            s3_secret=None,
+            num_partitions=5,
+        )
+
+        assert "INSERT INTO FUNCTION" in printed_query
+        assert "https://test-bucket.s3.amazonaws.com/test-prefix/export_{{_partition_id}}.arrow" in printed_query
+        # For keyless auth, the s3() call should only have 2 parameters (url, format), not 4
+        assert (
+            "s3('https://test-bucket.s3.amazonaws.com/test-prefix/export_{{_partition_id}}.arrow', 'ArrowStream')"
+            in printed_query
+        )
+        assert "PARTITION BY rand() %% 5" in printed_query

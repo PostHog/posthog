@@ -27,7 +27,7 @@ export function setupExpressApp(): express.Application {
 
     app.use(
         express.json({
-            limit: '500kb',
+            limit: '20mb',
             verify: (req, res, buf) => {
                 ;(req as any).rawBody = buf.toString('utf8')
             },

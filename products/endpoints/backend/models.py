@@ -39,7 +39,12 @@ class EndpointVersion(models.Model):
     query = models.JSONField(help_text="Immutable query snapshot")
     description = models.TextField(blank=True, default="", help_text="Optional description for this endpoint version")
     created_at = models.DateTimeField(auto_now_add=True)
-    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name="endpoint_versions_created")
+    created_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name="endpoint_versions_created",
+    )
 
     cache_age_seconds = models.IntegerField(
         null=True,
@@ -107,8 +112,20 @@ class EndpointVersion(models.Model):
                 f"Query type '{query_kind}' cannot be materialized. Supported types: {supported}",
             )
 
+        # Check for multiple breakdowns in insight queries
+        if query_kind != "HogQLQuery":
+            breakdown_filter = self.query.get("breakdownFilter") or {}
+            breakdowns = breakdown_filter.get("breakdowns") or []
+            if len(breakdowns) > 1:
+                return False, "Multiple breakdowns not supported for materialization"
+
         if self.query.get("variables"):
-            return False, "Queries with variables cannot be materialized."
+            from products.endpoints.backend.materialization import analyze_variables_for_materialization
+
+            can_materialize, reason, _ = analyze_variables_for_materialization(self.query)
+
+            if not can_materialize:
+                return False, f"Variables not supported: {reason}"
 
         if query_kind == "HogQLQuery":
             hogql_query = self.query.get("query")
@@ -129,7 +146,9 @@ class Endpoint(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
     """
 
     name = models.CharField(
-        max_length=128, validators=[validate_endpoint_name], help_text="URL-safe name for the endpoint"
+        max_length=128,
+        validators=[validate_endpoint_name],
+        help_text="URL-safe name for the endpoint",
     )
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
 

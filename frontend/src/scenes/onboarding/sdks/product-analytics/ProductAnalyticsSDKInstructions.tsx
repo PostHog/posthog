@@ -45,7 +45,7 @@ import {
     ZapierInstallation,
 } from '@posthog/shared-onboarding/product-analytics'
 
-import { SDKInstructionsMap, SDKKey } from '~/types'
+import { SDKInstructionsMap, SDKKey, SDKTag, SDKTagOverrides } from '~/types'
 
 import { withMobileReplay, withOnboardingDocsWrapper } from '../shared/onboardingWrappers'
 
@@ -196,6 +196,10 @@ const ProductAnalyticsMoEngageInstructionsWrapper = withOnboardingDocsWrapper({ 
 const ProductAnalyticsHeliconeInstructionsWrapper = withOnboardingDocsWrapper({ Installation: HeliconeInstallation })
 const ProductAnalyticsLangfuseInstructionsWrapper = withOnboardingDocsWrapper({ Installation: LangfuseInstallation })
 const ProductAnalyticsTraceloopInstructionsWrapper = withOnboardingDocsWrapper({ Installation: TraceloopInstallation })
+
+export const ProductAnalyticsSDKTagOverrides: SDKTagOverrides = {
+    [SDKKey.HELICONE]: [SDKTag.LLM],
+}
 
 export const ProductAnalyticsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.JS_WEB]: ProductAnalyticsJSWebInstructionsWrapper,

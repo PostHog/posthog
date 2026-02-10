@@ -25,15 +25,22 @@ export class DashboardPage {
         await this.dismissQuickStartIfVisible()
 
         if (dashboardName) {
-            await this.page.locator('.scene-title-section').click()
-            await this.page.locator('.scene-title-section textarea').fill(dashboardName)
-            await this.page.keyboard.press('Enter')
+            const textarea = this.page.locator('.scene-title-section textarea')
+            await textarea.or(this.page.locator('.scene-title-section')).first().click()
+            await textarea.fill(dashboardName)
         }
 
         return this
     }
 
     async addInsightToNewDashboard(): Promise<void> {
+        const addButton = this.page.getByRole('button', { name: 'Add insight' }).first()
+        await addButton.click()
+        await this.page.getByTestId('dashboard-insight-action-button').first().click()
+        await this.page.getByRole('button', { name: 'Close' }).click()
+    }
+
+    async addToNewDashboardFromInsightPage(): Promise<void> {
         await this.page.getByTestId('info-actions-panel').click()
         const addButton = this.page.getByTestId('insight-add-to-dashboard-button')
         await expect(addButton).toBeVisible()
@@ -41,12 +48,9 @@ export class DashboardPage {
 
         const modal = this.page.locator('.LemonModal').filter({ hasText: 'Add to dashboard' })
         await expect(modal).toBeVisible()
-        await modal.getByText('Add to a new dashboard').click()
 
+        await modal.getByRole('button', { name: 'Add to a new dashboard' }).click()
         await this.page.getByTestId('create-dashboard-blank').click()
-
-        await expect(this.page.locator('.InsightCard')).toBeVisible({ timeout: 30000 })
-        await this.closeSidePanels()
     }
 
     async closeSidePanels(): Promise<void> {
@@ -75,6 +79,26 @@ export class DashboardPage {
         await this.topBarName.getByRole('button').getByText('Save').click()
     }
 
+    async findCardByTitle(title: string): Promise<Locator> {
+        const cards = this.page.locator('.InsightCard')
+        const count = await cards.count()
+
+        for (let i = 0; i < count; i++) {
+            const card = cards.nth(i)
+            await card.scrollIntoViewIfNeeded()
+            const titleText = await card
+                .locator('[data-attr="insight-card-title"]')
+                .textContent({ timeout: 5000 })
+                .catch(() => null)
+
+            if (titleText?.includes(title)) {
+                return card
+            }
+        }
+
+        throw new Error(`Could not find InsightCard with title "${title}"`)
+    }
+
     async openFirstTileMenu(): Promise<void> {
         const card = this.page.locator('.InsightCard').first()
         await card.scrollIntoViewIfNeeded()
@@ -82,26 +106,10 @@ export class DashboardPage {
         await card.getByTestId('more-button').click()
     }
 
-    async renameFirstTile(newTileName: string): Promise<void> {
-        await this.openFirstTileMenu()
-        await this.page.locator('.Popover').getByText('Rename').click()
-
-        const renameModal = this.page.locator('.LemonModal').filter({ has: this.page.getByTestId('insight-name') })
-        await renameModal.getByTestId('insight-name').fill(newTileName)
-        await renameModal.getByText('Submit').click()
-
-        await expect(this.page.locator('.InsightCard').first().getByText(newTileName)).toBeVisible()
-
-        await this.page.keyboard.press('Escape')
-    }
-
-    async removeFirstTile(): Promise<void> {
-        await this.openFirstTileMenu()
-        await this.page.locator('.Popover').getByText('Remove from dashboard').click()
-    }
-
-    async duplicateFirstTile(): Promise<void> {
-        await this.openFirstTileMenu()
-        await this.page.locator('.Popover').getByText('Duplicate').click()
+    async selectTileMenuOption(option: string): Promise<void> {
+        const editLink = this.page
+            .locator('.Popover')
+            .getByRole(option === 'Edit' ? 'link' : 'button', { name: option })
+        await editLink.click()
     }
 }

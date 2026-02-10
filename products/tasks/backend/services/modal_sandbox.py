@@ -1,5 +1,6 @@
 import os
 import uuid
+import shlex
 import logging
 from collections.abc import Iterable
 from functools import lru_cache
@@ -316,6 +317,35 @@ class ModalSandbox:
                 )
 
         return _ModalExecutionStream(process)
+
+    def write_file(self, path: str, payload: bytes) -> ExecutionResult:
+        if not self.is_running():
+            raise SandboxExecutionError(
+                "Sandbox not in running state.",
+                {"sandbox_id": self.id},
+                cause=RuntimeError(f"Sandbox {self.id} is not running"),
+            )
+
+        temp_path = f"{path}.tmp-{uuid.uuid4().hex}"
+        try:
+            with self._sandbox.open(temp_path, "wb") as file_handle:
+                file_handle.write(payload)
+            mv_command = f"mv {shlex.quote(temp_path)} {shlex.quote(path)}"
+            result = self.execute(mv_command, timeout_seconds=self.config.default_execution_timeout_seconds)
+            if result.exit_code != 0:
+                logger.warning(
+                    "sandbox_write_failed",
+                    extra={"stdout": result.stdout, "stderr": result.stderr, "sandbox_id": self.id},
+                )
+            return result
+        except Exception as e:
+            capture_exception(e)
+            logger.exception(f"Failed to write file to sandbox: {e}")
+            raise SandboxExecutionError(
+                "Failed to write file",
+                {"sandbox_id": self.id, "path": path, "error": str(e)},
+                cause=e,
+            )
 
     def clone_repository(self, repository: str, github_token: str | None = "") -> ExecutionResult:
         if not self.is_running():
