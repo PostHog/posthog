@@ -28,7 +28,7 @@ async def delete_property_definitions_from_postgres(
     """Delete up to batch_size property definitions matching the pattern from PostgreSQL.
 
     Selects a batch of matching property names, then deletes from both
-    PropertyDefinition and EventProperty (for event type) using those names
+    PropertyDefinition and EventProperty using those names
     in a single transaction. The workflow calls this in a loop until
     property_definitions_deleted < batch_size.
     """
@@ -59,12 +59,10 @@ async def delete_property_definitions_from_postgres(
                 name__in=batch_names,
             ).delete()
 
-            event_properties_deleted = 0
-            if input.property_type == PropertyDefinition.Type.EVENT:
-                event_properties_deleted, _ = EventProperty.objects.filter(
-                    team_id=input.team_id,
-                    property__in=batch_names,
-                ).delete()
+            event_properties_deleted, _ = EventProperty.objects.filter(
+                team_id=input.team_id,
+                property__in=batch_names,
+            ).delete()
 
         return {
             "property_definitions_deleted": property_definitions_deleted,

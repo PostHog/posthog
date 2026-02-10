@@ -294,7 +294,7 @@ class TestDeleteEventPropertiesFromPostgres:
         assert await verify_deleted() == 0
 
     @pytest.mark.asyncio
-    async def test_does_not_delete_event_properties_for_person_type(self):
+    async def test_deletes_event_properties_for_person_type(self):
         prop_name = f"{self.prefix}_person_prop"
 
         @sync_to_async
@@ -314,13 +314,13 @@ class TestDeleteEventPropertiesFromPostgres:
         )
 
         assert result["property_definitions_deleted"] == 1
-        assert result["event_properties_deleted"] == 0
+        assert result["event_properties_deleted"] == 1
 
         @sync_to_async
-        def verify_event_property_remains():
+        def verify_event_property_deleted():
             return EventProperty.objects.filter(team=self.team, property=prop_name).exists()
 
-        assert await verify_event_property_remains()
+        assert not await verify_event_property_deleted()
 
     @pytest.mark.asyncio
     async def test_deletes_in_batches_with_corresponding_event_properties(self):
