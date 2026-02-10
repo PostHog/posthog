@@ -301,6 +301,7 @@ export function SidePanelSupport(): JSX.Element {
 
     const SupportFormBlock = ({ onCancel }: { onCancel: () => void }): JSX.Element => {
         const { featureFlags } = useValues(featureFlagLogic)
+        const { sendSupportRequestSubmitting } = useValues(supportLogic)
 
         return (
             <Section title="Email an engineer">
@@ -313,6 +314,8 @@ export function SidePanelSupport(): JSX.Element {
                     fullWidth
                     center
                     className="mt-4"
+                    loading={sendSupportRequestSubmitting}
+                    disabledReason={sendSupportRequestSubmitting ? 'Classifying your ticket...' : undefined}
                 >
                     Submit
                 </LemonButton>

@@ -578,6 +578,23 @@ export const supportLogic = kea<supportLogicType>([
             exception_event,
             tags,
         }: SupportFormFields) => {
+            // Classify ticket via AI before submission
+
+            try {
+                const classifyResponse = await api.create('api/support/classify/', {
+                    message,
+                    url: window.location.href,
+                })
+
+                if (classifyResponse) {
+                    kind = classifyResponse.kind ?? kind ?? 'support'
+                    target_area = classifyResponse.target_area ?? target_area
+                    severity_level = classifyResponse.severity_level ?? severity_level
+                }
+            } catch (e) {
+                console.warn('[Support] Classification failed, using defaults:', e)
+            }
+
             const zendesk_ticket_uuid = uuid()
             const subject =
                 SUPPORT_KIND_TO_SUBJECT[kind ?? 'support'] +

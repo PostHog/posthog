@@ -17,6 +17,7 @@ from ee.admin.oauth_views import admin_auth_check, admin_oauth_success
 from ee.api import integration
 from ee.api.vercel import vercel_sso, vercel_webhooks
 from ee.middleware import admin_oauth2_callback
+from ee.support_sidebar_max.classify import classify_ticket
 from ee.support_sidebar_max.views import MaxChatViewSet
 
 from .api import (
@@ -150,6 +151,7 @@ urlpatterns: list[Any] = [
     path("api/saml/metadata/", authentication.saml_metadata_view),
     path("api/sentry_stats/", sentry_stats.sentry_stats),
     path("max/chat/", csrf_exempt(MaxChatViewSet.as_view({"post": "create"})), name="max_chat"),
+    path("api/support/classify/", classify_ticket, name="classify_ticket"),
     re_path(r"^login/vercel/?$", vercel_sso.VercelSSOViewSet.as_view({"get": "sso_redirect"})),
     re_path(r"^login/vercel/continue/?$", vercel_sso.VercelSSOViewSet.as_view({"get": "sso_continue"})),
     path("webhooks/vercel", csrf_exempt(vercel_webhooks.vercel_webhook), name="vercel_webhooks"),
