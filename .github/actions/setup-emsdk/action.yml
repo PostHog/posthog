@@ -1,18 +1,58 @@
 name: Setup Emscripten SDK
 description: |
     Installs and activates the Emscripten SDK for WASM builds.
-    Replaces mymindstorm/setup-emsdk to avoid its truthy-string bug
-    that causes unnecessary emsdk update downloads (HTTP 502/429 failures).
+    Uses actions/cache to avoid repeated downloads from GitHub's archive service.
+    The emsdk bootstrap repo is pinned to a specific tag for reproducibility.
 
 inputs:
     version:
         description: 'Emscripten SDK version to install'
         required: false
         default: '4.0.23'
+    emsdk-sha:
+        description: 'Pinned emsdk repository commit SHA (must match emsdk-tag)'
+        required: false
+        default: 'c0bb220cb6e6f4e0fabb6f6db9efd53390ef5e56'
+    emsdk-tag:
+        description: 'Pinned emsdk repository tag (used for tarball download URL)'
+        required: false
+        default: '4.0.23'
 
 runs:
     using: composite
     steps:
+        - name: Restore emsdk tarball from cache
+          id: cache-emsdk
+          uses: actions/cache/restore@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
+          with:
+              path: ${{ runner.temp }}/emsdk-pinned.tar.gz
+              key: emsdk-tarball-${{ inputs.emsdk-sha }}
+
+        - name: Download emsdk tarball on cache miss
+          if: steps.cache-emsdk.outputs.cache-hit != 'true'
+          shell: bash
+          env:
+              EMSDK_TAG: ${{ inputs.emsdk-tag }}
+          run: |
+              set -euo pipefail
+              echo "Cache miss — downloading emsdk tarball for tag $EMSDK_TAG"
+              curl -fsSL --retry 10 --retry-delay 30 --retry-all-errors \
+                "https://github.com/emscripten-core/emsdk/archive/refs/tags/${EMSDK_TAG}.tar.gz" \
+                -o "$RUNNER_TEMP/emsdk-pinned.tar.gz"
+
+              if [ ! -s "$RUNNER_TEMP/emsdk-pinned.tar.gz" ]; then
+                echo "::error::Downloaded tarball is empty"
+                exit 1
+              fi
+              echo "Downloaded $(du -h "$RUNNER_TEMP/emsdk-pinned.tar.gz" | cut -f1) tarball"
+
+        - name: Save emsdk tarball to cache
+          if: steps.cache-emsdk.outputs.cache-hit != 'true' && github.ref == 'refs/heads/master'
+          uses: actions/cache/save@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
+          with:
+              path: ${{ runner.temp }}/emsdk-pinned.tar.gz
+              key: emsdk-tarball-${{ inputs.emsdk-sha }}
+
         - name: Install and activate Emscripten SDK ${{ inputs.version }}
           shell: bash
           env:
@@ -23,21 +63,15 @@ runs:
               VERSION="$EMSDK_VERSION"
               EMSDK_DIR="$RUNNER_TEMP/emsdk"
 
-              # Download emsdk with retry logic to handle transient GitHub errors (502/429)
-              curl -fsSL --retry 5 --retry-delay 10 --retry-all-errors \
-                "https://github.com/emscripten-core/emsdk/archive/main.tar.gz" \
-                -o "$RUNNER_TEMP/emsdk.tar.gz"
-
               mkdir -p "$EMSDK_DIR"
-              tar -xzf "$RUNNER_TEMP/emsdk.tar.gz" -C "$EMSDK_DIR" --strip-components=1
-              rm "$RUNNER_TEMP/emsdk.tar.gz"
+              tar -xzf "$RUNNER_TEMP/emsdk-pinned.tar.gz" -C "$EMSDK_DIR" --strip-components=1
+              rm "$RUNNER_TEMP/emsdk-pinned.tar.gz"
 
               # Install and activate the pinned version — no emsdk update needed
               "$EMSDK_DIR/emsdk" install "$VERSION"
               "$EMSDK_DIR/emsdk" activate "$VERSION"
 
               # Source emsdk_env.sh to get canonical env vars, then propagate to subsequent steps
-              # Note: emsdk_env.sh may unset/overwrite env vars, so we save VERSION above
               source "$EMSDK_DIR/emsdk_env.sh" 2>/dev/null || true
 
               echo "EMSDK=$EMSDK_DIR" >> "$GITHUB_ENV"
