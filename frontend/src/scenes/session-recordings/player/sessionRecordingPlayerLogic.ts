@@ -1400,13 +1400,15 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             if (values.currentSegment?.windowId !== undefined) {
                 const allSnapshots = values.sessionPlayerData.snapshotsByWindowId[values.currentSegment?.windowId] ?? []
 
-                // Use timestamp-based comparison instead of index-based slicing
-                // This handles out-of-order blob loading correctly after initial load
-                const lastAddedTimestamp =
-                    currentEvents.length > 0 ? currentEvents[currentEvents.length - 1].timestamp : 0
-                const newSnapshots = allSnapshots.filter((e) => e.timestamp > lastAddedTimestamp)
-
-                eventsToAdd.push(...newSnapshots)
+                const isTimestampBased = values.featureFlags[FEATURE_FLAGS.REPLAY_TIMESTAMP_BASED_LOADING] === 'test'
+                if (isTimestampBased) {
+                    // Timestamp-based comparison handles out-of-order blob loading correctly
+                    const lastAddedTimestamp =
+                        currentEvents.length > 0 ? currentEvents[currentEvents.length - 1].timestamp : 0
+                    eventsToAdd.push(...allSnapshots.filter((e) => e.timestamp > lastAddedTimestamp))
+                } else {
+                    eventsToAdd.push(...allSnapshots.slice(currentEvents.length))
+                }
             }
 
             // If replayer isn't initialized, it will be initialized with the already loaded snapshots
