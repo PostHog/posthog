@@ -106,10 +106,12 @@ class TestExperimentExposurePreaggregation(ExperimentQueryRunnerBaseTest):
         assert direct_result.variant_results is not None
         assert preagg_result.variant_results is not None
         assert len(direct_result.variant_results) == len(preagg_result.variant_results)
-        for direct_v, preagg_v in zip(direct_result.variant_results, preagg_result.variant_results):
-            assert direct_v.key == preagg_v.key
-            assert direct_v.number_of_samples == preagg_v.number_of_samples
-            assert direct_v.sum == preagg_v.sum
+        for i in range(len(direct_result.variant_results)):
+            assert direct_result.variant_results[i].key == preagg_result.variant_results[i].key
+            assert (
+                direct_result.variant_results[i].number_of_samples == preagg_result.variant_results[i].number_of_samples
+            )
+            assert direct_result.variant_results[i].sum == preagg_result.variant_results[i].sum
 
         return direct_result, preagg_result
 
@@ -265,9 +267,11 @@ class TestExperimentExposurePreaggregation(ExperimentQueryRunnerBaseTest):
 
         assert direct_result.variant_results is not None
         assert preagg_result.variant_results is not None
-        for direct_v, preagg_v in zip(direct_result.variant_results, preagg_result.variant_results):
-            assert direct_v.number_of_samples == preagg_v.number_of_samples
-            assert direct_v.sum == preagg_v.sum
+        for i in range(len(direct_result.variant_results)):
+            assert (
+                direct_result.variant_results[i].number_of_samples == preagg_result.variant_results[i].number_of_samples
+            )
+            assert direct_result.variant_results[i].sum == preagg_result.variant_results[i].sum
 
         # 4 control (3 + 1 both_days) and 3 test
         assert direct_result.baseline.number_of_samples == 4
