@@ -81,14 +81,13 @@ describe('Experiments', { concurrent: false }, () => {
 
             const result = await createTool.handler(context, params as any)
             const experiment = parseToolResponse(result)
+            trackExperiment(experiment)
 
             expect(experiment.id).toBeTruthy()
             expect(experiment.name).toBe(params.name)
             expect(experiment.feature_flag_key).toBe(params.feature_flag_key)
             expect(experiment.start_date).toBeNull() // Draft experiments have no start date
             expect(experiment.url).toContain('/experiments/')
-
-            trackExperiment(experiment)
         })
 
         it('should create an experiment with description and type', async () => {
@@ -104,12 +103,11 @@ describe('Experiments', { concurrent: false }, () => {
 
             const result = await createTool.handler(context, params as any)
             const experiment = parseToolResponse(result)
+            trackExperiment(experiment)
 
             expect(experiment.id).toBeTruthy()
             expect(experiment.name).toBe(params.name)
             expect(experiment.feature_flag_key).toBe(params.feature_flag_key)
-
-            trackExperiment(experiment)
         })
 
         it('should create an experiment with custom variants', async () => {
@@ -128,13 +126,12 @@ describe('Experiments', { concurrent: false }, () => {
 
             const result = await createTool.handler(context, params as any)
             const experiment = parseToolResponse(result)
+            trackExperiment(experiment)
 
             expect(experiment.id).toBeTruthy()
             expect(experiment.parameters?.feature_flag_variants).toHaveLength(3)
             expect(experiment.parameters?.feature_flag_variants?.[0]?.key).toBe('control')
             expect(experiment.parameters?.feature_flag_variants?.[0]?.rollout_percentage).toBe(33)
-
-            trackExperiment(experiment)
         })
 
         it('should create an experiment with mean metric', async () => {
@@ -157,11 +154,10 @@ describe('Experiments', { concurrent: false }, () => {
 
             const result = await createTool.handler(context, params as any)
             const experiment = parseToolResponse(result)
+            trackExperiment(experiment)
 
             expect(experiment.id).toBeTruthy()
             expect(experiment.metrics).toHaveLength(1)
-
-            trackExperiment(experiment)
         })
 
         it('should create an experiment with funnel metric', async () => {
@@ -184,11 +180,10 @@ describe('Experiments', { concurrent: false }, () => {
 
             const result = await createTool.handler(context, params as any)
             const experiment = parseToolResponse(result)
+            trackExperiment(experiment)
 
             expect(experiment.id).toBeTruthy()
             expect(experiment.metrics).toHaveLength(1)
-
-            trackExperiment(experiment)
         })
 
         it('should create an experiment with ratio metric', async () => {
@@ -210,11 +205,10 @@ describe('Experiments', { concurrent: false }, () => {
 
             const result = await createTool.handler(context, params as any)
             const experiment = parseToolResponse(result)
+            trackExperiment(experiment)
 
             expect(experiment.id).toBeTruthy()
             expect(experiment.metrics).toHaveLength(1)
-
-            trackExperiment(experiment)
         })
 
         it('should create an experiment with multiple metrics', async () => {
@@ -253,12 +247,11 @@ describe('Experiments', { concurrent: false }, () => {
 
             const result = await createTool.handler(context, params as any)
             const experiment = parseToolResponse(result)
+            trackExperiment(experiment)
 
             expect(experiment.id).toBeTruthy()
             expect(experiment.metrics).toHaveLength(2)
             expect(experiment.metrics_secondary).toHaveLength(2)
-
-            trackExperiment(experiment)
         })
 
         it('should create an experiment with minimum detectable effect', async () => {
@@ -273,10 +266,9 @@ describe('Experiments', { concurrent: false }, () => {
 
             const result = await createTool.handler(context, params as any)
             const experiment = parseToolResponse(result)
+            trackExperiment(experiment)
 
             expect(experiment.id).toBeTruthy()
-
-            trackExperiment(experiment)
         })
 
         it('should create an experiment with filter test accounts enabled', async () => {
@@ -291,10 +283,9 @@ describe('Experiments', { concurrent: false }, () => {
 
             const result = await createTool.handler(context, params as any)
             const experiment = parseToolResponse(result)
+            trackExperiment(experiment)
 
             expect(experiment.id).toBeTruthy()
-
-            trackExperiment(experiment)
         })
 
         it("should create experiment when feature flag doesn't exist (API creates it)", async () => {
@@ -331,8 +322,8 @@ describe('Experiments', { concurrent: false }, () => {
 
                 const result = await createTool.handler(context, params as any)
                 const experiment = parseToolResponse(result)
-                testExperiments.push(experiment)
                 trackExperiment(experiment)
+                testExperiments.push(experiment)
             }
 
             // Get all experiments
@@ -602,12 +593,11 @@ describe('Experiments', { concurrent: false }, () => {
 
             const result = await createTool.handler(context, params as any)
             const experiment = parseToolResponse(result)
+            trackExperiment(experiment)
 
             expect(experiment.id).toBeTruthy()
             expect(experiment.metrics).toHaveLength(1)
             expect(experiment.metrics_secondary).toHaveLength(1)
-
-            trackExperiment(experiment)
         })
 
         it('should create experiment with target properties', async () => {
@@ -626,10 +616,9 @@ describe('Experiments', { concurrent: false }, () => {
 
             const result = await createTool.handler(context, params as any)
             const experiment = parseToolResponse(result)
+            trackExperiment(experiment)
 
             expect(experiment.id).toBeTruthy()
-
-            trackExperiment(experiment)
         })
 
         it('should create experiment without holdout group', async () => {
@@ -644,10 +633,9 @@ describe('Experiments', { concurrent: false }, () => {
 
             const result = await createTool.handler(context, params as any)
             const experiment = parseToolResponse(result)
+            trackExperiment(experiment)
 
             expect(experiment.id).toBeTruthy()
-
-            trackExperiment(experiment)
         })
     })
 
@@ -667,12 +655,11 @@ describe('Experiments', { concurrent: false }, () => {
 
             const result = await createTool.handler(context, params as any)
             const experiment = parseToolResponse(result)
+            trackExperiment(experiment)
 
             expect(experiment.id).toBeTruthy()
             expect(experiment.metrics || []).toHaveLength(0)
             expect(experiment.metrics_secondary || []).toHaveLength(0)
-
-            trackExperiment(experiment)
         })
 
         it('should handle invalid experiment ID in get operations', async () => {
@@ -733,11 +720,10 @@ describe('Experiments', { concurrent: false }, () => {
 
             const result = await createTool.handler(context, params as any)
             const experiment = parseToolResponse(result)
+            trackExperiment(experiment)
 
             expect(experiment.id).toBeTruthy()
             expect(experiment.metrics).toHaveLength(1)
-
-            trackExperiment(experiment)
         })
 
         it('should handle empty funnel steps array', async () => {
@@ -759,10 +745,9 @@ describe('Experiments', { concurrent: false }, () => {
 
             const result = await createTool.handler(context, params as any)
             const experiment = parseToolResponse(result)
+            trackExperiment(experiment)
 
             expect(experiment.id).toBeTruthy()
-
-            trackExperiment(experiment)
         })
 
         it('should handle very long experiment names', async () => {
@@ -778,8 +763,8 @@ describe('Experiments', { concurrent: false }, () => {
             try {
                 const result = await createTool.handler(context, params as any)
                 const experiment = parseToolResponse(result)
-                expect(experiment.id).toBeTruthy()
                 trackExperiment(experiment)
+                expect(experiment.id).toBeTruthy()
             } catch (error) {
                 // Some APIs might reject very long names
                 expect(error).toBeTruthy()
@@ -803,8 +788,9 @@ describe('Experiments', { concurrent: false }, () => {
 
             const createResult = await createTool.handler(context, createParams as any)
             const experiment = parseToolResponse(createResult)
-            expect(experiment.id).toBeTruthy()
             trackExperiment(experiment)
+
+            expect(experiment.id).toBeTruthy()
 
             // Delete the experiment
             const deleteParams = { experimentId: experiment.id }
@@ -912,8 +898,9 @@ describe('Experiments', { concurrent: false }, () => {
 
             const createResult = await createTool.handler(context, createParams as any)
             const experiment = parseToolResponse(createResult)
-            expect(experiment.id).toBeTruthy()
             trackExperiment(experiment)
+
+            expect(experiment.id).toBeTruthy()
 
             // Update basic fields
             const updateParams = {
@@ -947,8 +934,9 @@ describe('Experiments', { concurrent: false }, () => {
 
             const createResult = await createTool.handler(context, createParams as any)
             const experiment = parseToolResponse(createResult)
-            expect(experiment.start_date).toBeNull() // Draft experiments have no start date
             trackExperiment(experiment)
+
+            expect(experiment.start_date).toBeNull() // Draft experiments have no start date
 
             // Launch the experiment
             const launchParams = {
@@ -1242,10 +1230,9 @@ describe('Experiments', { concurrent: false }, () => {
 
             const result = await createTool.handler(context, params as any)
             const experiment = parseToolResponse(result)
+            trackExperiment(experiment)
 
             expect(experiment.start_date).toBeNull() // Draft experiments have no start date
-
-            trackExperiment(experiment)
         })
 
         it('should handle immediate launch (non-draft) experiments', async () => {
@@ -1260,11 +1247,10 @@ describe('Experiments', { concurrent: false }, () => {
             try {
                 const result = await createTool.handler(context, params as any)
                 const experiment = parseToolResponse(result)
+                trackExperiment(experiment)
 
                 // Check actual date fields instead of computed status
                 expect(experiment.start_date).toBeTruthy() // Should have start date if launched
-
-                trackExperiment(experiment)
             } catch (error) {
                 // Some environments might not allow immediate launch
                 expect(error).toBeTruthy()
