@@ -216,7 +216,7 @@ where
                         }
                     }
                 } else {
-                    // Task still running (handle None = not spawned yet, or peek None = pending)
+                    // Task still running (handle None = not spawned yet, or peek None = pending). Don't replace; we'll await this handle in finalize_rebalance_cycle.
                     debug!(
                         topic = partition.topic(),
                         partition = partition.partition_number(),
@@ -737,13 +737,13 @@ where
             "Async setup starting - spawning tasks for owned partitions"
         );
 
-        // Re-attach revoked tasks for owned partitions when still running or Completed(path).
-        // If cancellation took (Cancelled, Failed, TimedOut, or panic), drop and let spawn loop create a fresh task.
+        // Re-attach revoked tasks only when they already completed successfully (Completed(path)).
+        // Still running (peeked None) or bad outcome (Cancelled, Failed, TimedOut, panic): drop and let spawn loop create a fresh task.
         for partition in &owned_partitions {
             if let Some((_, task)) = self.revoked_setup_tasks.remove(partition) {
                 let peeked = task.handle.as_ref().and_then(|h| h.peek());
                 let re_attach = match peeked {
-                    None => false,
+                    None => false, // still running; we cancelled it on revoke so it will complete as Cancelled—drop and spawn fresh
                     Some(Ok(PartitionImportOutcome::Completed(_))) => true,
                     Some(Ok(PartitionImportOutcome::Cancelled))
                     | Some(Ok(PartitionImportOutcome::Failed(_)))
