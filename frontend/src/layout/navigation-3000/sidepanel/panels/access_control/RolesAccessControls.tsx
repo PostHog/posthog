@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+import { combineUrl } from 'kea-router'
 import { useMemo, useState } from 'react'
 
 import { IconInfo, IconPlus } from '@posthog/icons'
@@ -27,6 +28,7 @@ import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { fullName } from 'lib/utils'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature, RoleType } from '~/types'
@@ -92,6 +94,29 @@ export function RolesAccessControls(): JSX.Element {
                     )
                 ) : (
                     'All members'
+                )
+            },
+        },
+        {
+            key: 'manage_access',
+            width: 0,
+            render: (_, role) => {
+                if (!role) {
+                    return null
+                }
+                return (
+                    <LemonButton
+                        type="tertiary"
+                        size="small"
+                        to={
+                            combineUrl(urls.settings('environment-access-control'), {
+                                access_tab: 'roles',
+                                access_role_id: role.id,
+                            }).url
+                        }
+                    >
+                        Manage access
+                    </LemonButton>
                 )
             },
         },
