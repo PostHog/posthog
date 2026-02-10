@@ -95,6 +95,23 @@ function renderValue(value: unknown): React.ReactNode {
                 />
             )
         }
+        if (value === '$$_posthog_value_too_long_$$') {
+            return (
+                <MaskedValue
+                    value="<value too long>"
+                    tooltip="This value was truncated because it exceeded the maximum allowed length"
+                />
+            )
+        }
+        if (value.includes('$$_posthog_value_too_long_$$')) {
+            const masked = value.replaceAll('$$_posthog_value_too_long_$$', '[value too long]')
+            return (
+                <MaskedValue
+                    value={masked}
+                    tooltip="Some values inside were truncated because they exceeded the maximum allowed length"
+                />
+            )
+        }
         if (/^https?:\/\/.+/.test(value)) {
             return (
                 <Link to={value as string} target="_blank">
