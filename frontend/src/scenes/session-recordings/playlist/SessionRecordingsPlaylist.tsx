@@ -27,6 +27,7 @@ export function SessionRecordingsPlaylist({
     const logicProps: SessionRecordingPlaylistLogicProps = {
         ...props,
         autoPlay: props.autoPlay ?? true,
+        onlyPinned: props.type === 'collection',
     }
 
     const { isWindowLessThan } = useWindowSize()

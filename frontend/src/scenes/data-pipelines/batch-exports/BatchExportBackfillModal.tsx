@@ -5,6 +5,7 @@ import { IconInfo } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
@@ -23,6 +24,7 @@ import { formatHourString } from './utils'
 
 export function BatchExportBackfillModal({ id }: BatchExportBackfillModalLogicProps): JSX.Element {
     const logic = batchExportBackfillModalLogic({ id })
+    const earliestBackfillEnabled = useFeatureFlag('BATCH_EXPORT_EARLIEST_BACKFILL')
 
     const {
         batchExportConfig,
@@ -119,7 +121,8 @@ export function BatchExportBackfillModal({ id }: BatchExportBackfillModalLogicPr
                     }
                 </LemonField>
 
-                {batchExportConfig?.model == 'persons' ? (
+                {/* Note: This is behind a feature flag while we improve backfilling behavior. */}
+                {earliestBackfillEnabled && batchExportConfig?.model == 'persons' ? (
                     <LemonField name="earliest_backfill">
                         {({ onChange }) => (
                             <LemonCheckbox
