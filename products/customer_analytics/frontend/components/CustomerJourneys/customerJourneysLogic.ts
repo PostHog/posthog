@@ -1,8 +1,10 @@
 import { actions, kea, listeners, path, reducers, selectors } from 'kea'
 import { lazyLoaders } from 'kea-loaders'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { LemonSelectOptions } from 'lib/lemon-ui/LemonSelect/LemonSelect'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { isInsightVizNode } from '~/queries/utils'
 import { insightsApi } from '~/scenes/insights/utils/api'
@@ -19,7 +21,6 @@ export const customerJourneysLogic = kea<customerJourneysLogicType>([
         hideAddJourneyModal: true,
         setActiveJourneyId: (journeyId: string | null) => ({ journeyId }),
         selectFirstJourneyIfNeeded: (journeys: CustomerJourneyApi[]) => ({ journeys }),
-        deleteJourney: (journeyId: string) => ({ journeyId }),
     }),
     lazyLoaders(({ values }) => ({
         journeys: {
@@ -40,6 +41,10 @@ export const customerJourneysLogic = kea<customerJourneysLogicType>([
                 await api.customerJourneys.create({ insight: insightId, name, description })
                 const response = await api.customerJourneys.list()
                 return response.results
+            },
+            deleteJourney: async (journeyId: string): Promise<CustomerJourneyApi[]> => {
+                await api.customerJourneys.delete(journeyId)
+                return values.journeys.filter((j) => j.id !== journeyId)
             },
         },
         activeInsight: {
@@ -70,15 +75,24 @@ export const customerJourneysLogic = kea<customerJourneysLogicType>([
         ],
     }),
     listeners(({ actions, values }) => ({
-        deleteJourney: async ({ journeyId }) => {
-            await api.customerJourneys.delete(journeyId)
-            actions.loadJourneys()
-        },
         loadJourneysSuccess: ({ journeys }) => {
             actions.selectFirstJourneyIfNeeded(journeys)
         },
         addJourneySuccess: ({ journeys }) => {
+            lemonToast.success('Customer journey created')
             actions.selectFirstJourneyIfNeeded(journeys)
+        },
+        addJourneyFailure: ({ error }) => {
+            posthog.captureException(error)
+            lemonToast.error(error.detail || 'Failed to create customer journey')
+        },
+        deleteJourneySuccess: ({ journeys }) => {
+            lemonToast.success('Customer journey deleted')
+            actions.selectFirstJourneyIfNeeded(journeys)
+        },
+        deleteJourneyFailure: ({ error }) => {
+            posthog.captureException(error)
+            lemonToast.error('Failed to delete customer journey')
         },
         selectFirstJourneyIfNeeded: ({ journeys }) => {
             if (journeys.length > 0) {
