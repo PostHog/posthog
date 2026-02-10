@@ -117,7 +117,7 @@ EVENT_NAME_GENERATION_SUMMARY = "$ai_generation_summary"  # For generation-level
 GENERATION_DOCUMENT_TYPE = "llm-generation-summary-detailed"  # For generation-level embeddings
 
 # Generation-level configuration
-DEFAULT_MAX_GENERATIONS_PER_WINDOW = 50  # Higher than traces - generations are simpler units
+DEFAULT_MAX_GENERATIONS_PER_WINDOW = 20  # Higher than traces - generations are simpler units
 
 # Temporal configuration
 WORKFLOW_NAME = "llma-trace-summarization"
