@@ -112,6 +112,138 @@ class TestAccessControlGuard(BaseTest):
         assert guard is None
 
 
+class TestObjectLevelAccessControl(BaseTest):
+    """Test object-level access control (get_blocked_resource_ids)."""
+
+    def _setup_permissions(self):
+        from posthog.constants import AvailableFeature
+
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS},
+        ]
+        self.organization.save()
+
+        self.membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        self.membership.level = OrganizationMembership.Level.MEMBER
+        self.membership.save()
+
+        self.database = Database.create_for(team=self.team, user=self.user)
+        self.context = HogQLContext(team_id=self.team.pk, team=self.team, user=self.user)
+        self.context.database = self.database
+
+    def test_no_object_overrides_means_no_blocked_ids(self):
+        """If there are no object-level AC entries, nothing is blocked (resource-level already passed)."""
+        self._setup_permissions()
+
+        blocked = get_blocked_resource_ids("dashboard", self.context)
+        assert blocked == set()
+
+    def test_object_default_none_blocks_object(self):
+        """Object-level default 'none' with no member/role override blocks the object."""
+        from ee.models import AccessControl
+
+        self._setup_permissions()
+
+        AccessControl.objects.create(
+            team=self.team,
+            resource="dashboard",
+            resource_id="42",
+            access_level="none",
+        )
+
+        blocked = get_blocked_resource_ids("dashboard", self.context)
+        assert "42" in blocked
+
+    def test_object_default_editor_allows_object(self):
+        """Object-level default 'editor' means the object is accessible."""
+        from ee.models import AccessControl
+
+        self._setup_permissions()
+
+        AccessControl.objects.create(
+            team=self.team,
+            resource="dashboard",
+            resource_id="42",
+            access_level="editor",
+        )
+
+        blocked = get_blocked_resource_ids("dashboard", self.context)
+        assert "42" not in blocked
+
+    def test_object_default_none_with_member_editor_override_allows(self):
+        """Object default 'none' but member-specific 'editor' override → allowed (highest wins)."""
+        from ee.models import AccessControl
+
+        self._setup_permissions()
+
+        # Team-wide default: no access
+        AccessControl.objects.create(
+            team=self.team,
+            resource="dashboard",
+            resource_id="42",
+            access_level="none",
+        )
+        # Member-specific override: editor access
+        AccessControl.objects.create(
+            team=self.team,
+            resource="dashboard",
+            resource_id="42",
+            access_level="editor",
+            organization_member=self.membership,
+        )
+
+        blocked = get_blocked_resource_ids("dashboard", self.context)
+        assert "42" not in blocked
+
+    def test_object_default_editor_with_member_none_still_allows(self):
+        """Object default 'editor' + member 'none' can't happen in app, but if it does, highest wins."""
+        from ee.models import AccessControl
+
+        self._setup_permissions()
+
+        # Team-wide default: editor access
+        AccessControl.objects.create(
+            team=self.team,
+            resource="dashboard",
+            resource_id="42",
+            access_level="editor",
+        )
+        # Member-specific override: none (shouldn't happen in app, but test anyway)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="dashboard",
+            resource_id="42",
+            access_level="none",
+            organization_member=self.membership,
+        )
+
+        blocked = get_blocked_resource_ids("dashboard", self.context)
+        assert "42" not in blocked
+
+    def test_multiple_objects_mixed_access(self):
+        """Multiple objects: some blocked, some allowed."""
+        from ee.models import AccessControl
+
+        self._setup_permissions()
+
+        # Dashboard 10: blocked (default none, no overrides)
+        AccessControl.objects.create(team=self.team, resource="dashboard", resource_id="10", access_level="none")
+        # Dashboard 20: allowed (default editor)
+        AccessControl.objects.create(team=self.team, resource="dashboard", resource_id="20", access_level="editor")
+        # Dashboard 30: allowed (default none + member editor)
+        AccessControl.objects.create(team=self.team, resource="dashboard", resource_id="30", access_level="none")
+        AccessControl.objects.create(
+            team=self.team,
+            resource="dashboard",
+            resource_id="30",
+            access_level="editor",
+            organization_member=self.membership,
+        )
+
+        blocked = get_blocked_resource_ids("dashboard", self.context)
+        assert blocked == {"10"}
+
+
 class TestDeniedTableErrorMessage(BaseTest):
     """Test that denied tables show a helpful error message."""
 
