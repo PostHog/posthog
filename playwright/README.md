@@ -19,7 +19,28 @@ LOGIN_USERNAME='my@email.address' LOGIN_PASSWORD="the-password" BASE_URL='http:/
 
 You might need to install Playwright first: `pnpm --filter=@posthog/playwright exec playwright install`
 
+## Authentication
+
+Tests use Playwright's [storageState](https://playwright.dev/docs/auth) pattern:
+
+1. `auth.setup.ts` logs in once via API and saves cookies to `playwright/.auth/user.json`
+2. All test projects depend on this setup and reuse the saved auth state
+3. Tests that need to start unauthenticated (like `auth.spec.ts`) clear it with
+   `test.use({ storageState: { cookies: [], origins: [] } })`
+
 ## Writing tests
+
+Import from `playwright-test-base` for normal tests (auto-navigates to project root, pre-authenticated):
+
+```ts
+import { expect, test } from '../utils/playwright-test-base'
+```
+
+Import from `playwright-test-core` if you need to manage auth yourself:
+
+```ts
+import { expect, test } from '../utils/playwright-test-core'
+```
 
 ### Flaky tests are almost always due to not waiting for the right thing
 
