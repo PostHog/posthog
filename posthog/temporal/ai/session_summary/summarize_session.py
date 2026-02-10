@@ -82,6 +82,8 @@ logger = structlog.get_logger(__name__)
 SESSION_SUMMARIES_STREAM_INTERVAL = 0.1  # 100ms
 # How large the chunks should be when analyzing videos
 SESSION_VIDEO_CHUNK_DURATION_S = 60
+# How large should the active period be, so we still analyze it (or skip it, if it's smaller)
+MIN_SESSION_PERIOD_DURATION_S = 1
 
 
 @temporalio.activity.defn
@@ -467,6 +469,16 @@ def _validate_period(
     session_period_end = period.ts_to_s
     recording_period_start = period.recording_ts_from_s
     recording_period_end = period.recording_ts_to_s
+    # Skip periods that are too short, as they won't bring any value to the summary
+    # Checking for >= 0 to still fail on negative durations
+    recording_period_duration = recording_period_end - recording_period_start
+    if recording_period_duration >= 0 and recording_period_duration < MIN_SESSION_PERIOD_DURATION_S:
+        logger.warning(
+            f"Skipping period {index} of {inactivity_periods_count - 1} because it's too short: {recording_period_end - recording_period_start}s < {MIN_SESSION_PERIOD_DURATION_S}s",
+            signals_type="session-summaries",
+        )
+        return None
+    # Incorrect time ranges
     if round(recording_period_end, 2) <= round(recording_period_start, 2):
         msg = f"Invalid recording period time range: recording_ts_from_s={recording_period_start}, recording_ts_to_s={recording_period_end}"
         logger.error(msg, signals_type="session-summaries")
@@ -510,6 +522,7 @@ def calculate_video_segment_specs(
     for i, period in enumerate(inactivity_periods):
         validation = _validate_period(period, video_duration, i, len(inactivity_periods))
         if validation is None:
+            # Skip the periods that are too short or failed validation
             continue
         session_period_start, session_period_end, recording_period_start, recording_period_end = validation
         # Start either after the rendering delay, or at the previous chunk end
@@ -780,7 +793,7 @@ def _prepare_execution(
         video_validation_enabled=video_validation_enabled,
     )
     workflow_id = (
-        f"session-summary:single:{'stream' if stream else 'direct'}:{session_id}:{user.id}:{shared_id}:{uuid.uuid4()}"
+        f"session-summary:single:{'stream' if stream else 'direct'}:{team.id}:{session_id}:{shared_id}:{uuid.uuid4()}"
     )
     return redis_client, redis_input_key, redis_output_key, session_input, workflow_id
 

@@ -1,5 +1,6 @@
 import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -149,12 +150,19 @@ export const addSavedInsightsModalLogic = kea<addSavedInsightsModalLogicType>([
         setModalPage: async ({ page }) => {
             actions.setModalFilters({ page }, true)
         },
-        setModalFilters: async (_, _breakpoint, __, previousState) => {
+        setModalFilters: async (_, breakpoint, __, previousState) => {
             const oldFilters = selectors.filters(previousState)
             const newFilters = values.filters
 
             if (!objectsEqual(oldFilters, newFilters)) {
                 actions.loadInsights()
+            }
+
+            if (newFilters.search !== undefined && newFilters.search !== oldFilters.search) {
+                await breakpoint(1000)
+                posthog.capture('insight dashboard modal searched', {
+                    search_term: newFilters.search,
+                })
             }
         },
 

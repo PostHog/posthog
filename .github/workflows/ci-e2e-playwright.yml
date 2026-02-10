@@ -237,6 +237,9 @@ jobs:
             - name: Install pnpm
               uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.2.0
 
+            - name: Fix node-gyp permissions
+              run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
+
             - name: Set up Node.js
               uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
               with:
@@ -296,9 +299,7 @@ jobs:
                   ./bin/download-mmdb
 
             - name: Setup Emscripten for WASM build
-              uses: mymindstorm/setup-emsdk@6ab9eb1bda2574c4ddb79809fc9247783eaf9021 # v14
-              with:
-                  version: '4.0.23'
+              uses: ./.github/actions/setup-emsdk
 
             - name: Install Ninja
               run: sudo apt-get install -y ninja-build
@@ -352,7 +353,6 @@ jobs:
                   sqlx database create -D "$PERSONS_DATABASE_URL"
                   sqlx migrate run -D "$PERSONS_DATABASE_URL" --source rust/persons_migrations/
 
-                  export CLICKHOUSE_LOGS_ENABLE_STORAGE_POLICY=false
                   python manage.py migrate_clickhouse 2>&1
                   python manage.py setup_dev
 

@@ -15,13 +15,12 @@ import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/column
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { pluralize } from 'lib/utils'
-import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { SavedInsightsEmptyState } from 'scenes/insights/EmptyStates'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
 import { SavedInsightsFilters } from 'scenes/saved-insights/SavedInsightsFilters'
 import { urls } from 'scenes/urls'
 
-import { QueryBasedInsightModel } from '~/types'
+import { DashboardType, QueryBasedInsightModel } from '~/types'
 
 import { InsightIcon } from './SavedInsights'
 import { addSavedInsightsModalLogic } from './addSavedInsightsModalLogic'
@@ -29,16 +28,16 @@ import { insightDashboardModalLogic } from './insightDashboardModalLogic'
 
 interface SavedInsightsTableProps {
     renderActionColumn?: (insight: QueryBasedInsightModel) => JSX.Element
+    dashboard?: DashboardType<QueryBasedInsightModel> | null
 }
 
-export function SavedInsightsTable({ renderActionColumn }: SavedInsightsTableProps): JSX.Element {
+export function SavedInsightsTable({ renderActionColumn, dashboard }: SavedInsightsTableProps): JSX.Element {
     const isExperimentEnabled = useFeatureFlag('PRODUCT_ANALYTICS_ADD_INSIGHT_TO_DASHBOARD_MODAL', 'test')
     const { modalPage, insights, count, insightsLoading, filters, sorting, insightsPerPage } =
         useValues(addSavedInsightsModalLogic)
     const { setModalPage, setModalFilters } = useActions(addSavedInsightsModalLogic)
     const { dashboardUpdatesInProgress, isInsightInDashboard } = useValues(insightDashboardModalLogic)
     const { toggleInsightOnDashboard, syncOptimisticStateWithDashboard } = useActions(insightDashboardModalLogic)
-    const { dashboard } = useValues(dashboardLogic)
     const summarizeInsight = useSummarizeInsight()
 
     const startCount = (modalPage - 1) * insightsPerPage + 1

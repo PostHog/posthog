@@ -234,6 +234,15 @@ class PrimeSessionEmbeddingsResult:
 
 
 @dataclass
+class GetSessionsToPrimeResult:
+    """Result from the activity that identifies sessions needing summarization."""
+
+    session_ids_to_summarize: list[str]
+    user_id: int | None
+    user_distinct_id: str | None
+
+
+@dataclass
 class PersistReportsActivityInputs:
     team_id: int
     new_clusters: list[Cluster]
