@@ -8,7 +8,12 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import ActivityLog, EventDefinition, EventProperty, Organization, PropertyDefinition, Team
-from posthog.taxonomy.property_definition_api import PropertyDefinitionQuerySerializer, PropertyDefinitionViewSet
+from posthog.taxonomy.property_definition_api import (
+    NotCountingLimitOffsetPaginator,
+    PropertyDefinitionQuerySerializer,
+    PropertyDefinitionViewSet,
+    QueryContext,
+)
 
 
 class TestPropertyDefinitionAPI(APIBaseTest):
@@ -765,3 +770,163 @@ class TestPropertyDefinitionQuerySerializer(BaseTest):
         assert not PropertyDefinitionQuerySerializer(data={"type": "group", "group_type_index": 77}).is_valid()
         assert not PropertyDefinitionQuerySerializer(data={"type": "group", "group_type_index": -1}).is_valid()
         assert not PropertyDefinitionQuerySerializer(data={"type": "event", "group_type_index": 3}).is_valid()
+
+
+class TestQueryContext(BaseTest):
+    def _base_context(self, **overrides) -> QueryContext:
+        defaults = {
+            "project_id": 1,
+            "table": "posthog_propertydefinition",
+            "property_definition_fields": 'posthog_propertydefinition."id", posthog_propertydefinition."name"',
+            "property_definition_table": "posthog_propertydefinition",
+            "limit": 100,
+            "offset": 0,
+        }
+        defaults.update(overrides)
+        return QueryContext(**defaults)
+
+    def test_as_sql_includes_window_count(self):
+        ctx = self._base_context().with_type_filter("event", None)
+        sql = ctx.as_sql(order_by_verified=False)
+        assert "COUNT(*) OVER() as full_count" in sql
+
+    @parameterized.expand(
+        [
+            ("event type", "event", None, True),
+            ("person type skips join", "person", None, False),
+            ("group type skips join", "group", 1, False),
+            ("session type skips join", "session", None, False),
+        ]
+    )
+    def test_event_property_join_presence(self, _name, prop_type, group_idx, expect_join):
+        ctx = self._base_context().with_type_filter(prop_type, group_idx)
+        sql = ctx.as_sql(order_by_verified=False)
+        if expect_join:
+            assert "posthog_eventproperty" in sql
+        else:
+            assert "posthog_eventproperty" not in sql
+
+    @parameterized.expand(
+        [
+            ("inner join when filtering by event names", True, "INNER JOIN"),
+            ("left join when not filtering by event names", False, "LEFT JOIN"),
+            ("left join when filter_by_event_names is None", None, "LEFT JOIN"),
+        ]
+    )
+    def test_event_property_join_type(self, _name, filter_by_event_names, expected_join):
+        ctx = (
+            self._base_context()
+            .with_type_filter("event", None)
+            .with_event_property_filter(
+                event_names='["$pageview"]',
+                filter_by_event_names=filter_by_event_names,
+            )
+        )
+        sql = ctx.as_sql(order_by_verified=False)
+        assert expected_join in sql
+
+    @parameterized.expand(
+        [
+            ("with verified ordering", True, "verified DESC NULLS LAST,"),
+            ("without verified ordering", False, "verified DESC NULLS LAST,"),
+        ]
+    )
+    def test_verified_ordering_in_sql(self, _name, order_by_verified, verified_fragment):
+        ctx = self._base_context().with_type_filter("event", None)
+        sql = ctx.as_sql(order_by_verified=order_by_verified)
+        if order_by_verified:
+            assert verified_fragment in sql
+        else:
+            assert verified_fragment not in sql
+
+    @parameterized.expand(
+        [
+            ("feature flag only", True, "name LIKE", "name NOT LIKE"),
+            ("non-feature flag only", False, "name NOT LIKE", "name LIKE %(is_feature_flag_like)s)"),
+            ("no filter", None, None, None),
+        ]
+    )
+    def test_feature_flag_filter_in_sql(self, _name, is_feature_flag, should_contain, should_not_contain):
+        ctx = self._base_context().with_type_filter("event", None).with_feature_flags(is_feature_flag)
+        sql = ctx.as_sql(order_by_verified=False)
+        if is_feature_flag is None:
+            assert "is_feature_flag_like" not in sql
+        elif is_feature_flag:
+            assert "name LIKE" in sql
+            assert "name NOT LIKE" not in sql
+        else:
+            assert "name NOT LIKE" in sql
+
+    def test_search_filter_in_sql(self):
+        ctx = (
+            self._base_context()
+            .with_type_filter("event", None)
+            .with_search("AND ((name ilike %(search_0)s))", {"search_0": "%test%"})
+        )
+        sql = ctx.as_sql(order_by_verified=False)
+        assert "name ilike %(search_0)s" in sql
+        assert ctx.params["search_0"] == "%test%"
+
+    def test_excluded_properties_in_sql(self):
+        ctx = self._base_context().with_type_filter("event", None).with_excluded_properties('["prop_a","prop_b"]')
+        sql = ctx.as_sql(order_by_verified=False)
+        assert "excluded_properties" in sql
+        assert ctx.params["excluded_properties"] == ["prop_a", "prop_b"]
+
+    def test_sql_always_has_limit_offset(self):
+        ctx = self._base_context().with_type_filter("event", None)
+        sql = ctx.as_sql(order_by_verified=False)
+        assert "LIMIT %(limit)s OFFSET %(offset)s" in sql
+        assert ctx.params["limit"] == 100
+        assert ctx.params["offset"] == 0
+
+
+class TestNotCountingLimitOffsetPaginator(BaseTest):
+    def _make_result(self, full_count, name="test"):
+        obj = PropertyDefinition(name=name)
+        obj.full_count = full_count
+        return obj
+
+    def test_extracts_count_from_first_result(self):
+        paginator = NotCountingLimitOffsetPaginator()
+        results = [self._make_result(42, f"prop_{i}") for i in range(3)]
+
+        from rest_framework.test import APIRequestFactory
+
+        factory = APIRequestFactory()
+        request = factory.get("/", {"limit": 100})
+
+        page = paginator.paginate_queryset(results, request)
+        assert paginator.count == 42
+        assert len(page) == 3
+
+    def test_returns_zero_count_for_empty_results(self):
+        paginator = NotCountingLimitOffsetPaginator()
+
+        from rest_framework.test import APIRequestFactory
+
+        factory = APIRequestFactory()
+        request = factory.get("/", {"limit": 100})
+
+        page = paginator.paginate_queryset([], request)
+        assert paginator.count == 0
+        assert page == []
+
+    @parameterized.expand(
+        [
+            ("single result", 1, 1),
+            ("full page", 100, 250),
+            ("partial page", 3, 3),
+        ]
+    )
+    def test_count_matches_full_count_not_page_size(self, _name, page_size, total_count):
+        paginator = NotCountingLimitOffsetPaginator()
+        results = [self._make_result(total_count, f"prop_{i}") for i in range(page_size)]
+
+        from rest_framework.test import APIRequestFactory
+
+        factory = APIRequestFactory()
+        request = factory.get("/", {"limit": 100})
+
+        paginator.paginate_queryset(results, request)
+        assert paginator.count == total_count

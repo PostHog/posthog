@@ -2,7 +2,7 @@ import json
 import dataclasses
 from typing import Any, Optional, Self, Union, cast
 
-from django.db import connection, models
+from django.db import models
 from django.db.models import Manager, QuerySet
 from django.db.models.functions import Coalesce
 from django.shortcuts import get_object_or_404
@@ -321,7 +321,7 @@ class QueryContext:
     def as_sql(self, order_by_verified: bool):
         verified_ordering = "verified DESC NULLS LAST," if order_by_verified else ""
         query = f"""
-            SELECT {self.property_definition_fields}, {self.event_property_field} AS is_seen_on_filtered_events
+            SELECT {self.property_definition_fields}, {self.event_property_field} AS is_seen_on_filtered_events, COUNT(*) OVER() as full_count
             FROM {self.table}
             {self._join_on_event_property()}
             WHERE coalesce({self.property_definition_table}.project_id, {self.property_definition_table}.team_id) = %(project_id)s
@@ -332,20 +332,6 @@ class QueryContext:
              {self.event_name_filter}
             ORDER BY is_seen_on_filtered_events DESC, {verified_ordering} {self.property_definition_table}.name ASC
             LIMIT %(limit)s OFFSET %(offset)s
-            """
-
-        return query
-
-    def as_count_sql(self):
-        query = f"""
-            SELECT count(*) as full_count
-            FROM {self.table}
-            {self._join_on_event_property()}
-            WHERE coalesce({self.property_definition_table}.project_id, {self.property_definition_table}.team_id) = %(project_id)s
-              AND type = %(type)s
-              AND coalesce(group_type_index, -1) = %(group_type_index)s
-             {self.excluded_properties_filter} {self.name_filter} {self.numerical_filter} {self.search_query} {self.event_property_filter} {self.is_feature_flag_filter}
-             {self.event_name_filter}
             """
 
         return query
@@ -476,30 +462,12 @@ class PropertyDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelS
 
 class NotCountingLimitOffsetPaginator(LimitOffsetPagination):
     """
-    The standard LimitOffsetPagination was expensive because there are very many PropertyDefinition models
-    And we query them using a RawQuerySet that meant for each page of results we loaded all models twice
-    Once to count them and a second time because we would slice them in memory
-
-    This paginator expects the caller to have counted and paged the queryset
+    The raw query includes COUNT(*) OVER() as full_count so that total count
+    and page data are fetched in a single round-trip. This paginator
+    materializes the queryset and reads full_count from the first row.
     """
 
-    def set_count(self, count: int) -> None:
-        self.count = count
-
-    def get_count(self, queryset) -> int:
-        """
-        Determine an object count, supporting either querysets or regular lists.
-        """
-        if self.count is None:
-            raise Exception("count must be manually set before paginating")
-
-        return self.count
-
     def paginate_queryset(self, queryset, request, view=None) -> Optional[list[Any]]:
-        """
-        Assumes the queryset has already had pagination applied
-        """
-        self.count = self.get_count(queryset)
         self.limit = self.get_limit(request)
         if self.limit is None:
             return None
@@ -507,10 +475,10 @@ class NotCountingLimitOffsetPaginator(LimitOffsetPagination):
         self.offset = self.get_offset(request)
         self.request = request
 
-        if self.count == 0 or self.offset > self.count:
-            return []
+        results = list(queryset)
+        self.count = results[0].full_count if results else 0
 
-        return list(queryset)
+        return results
 
 
 @extend_schema(tags=["core"])
@@ -625,7 +593,7 @@ class PropertyDefinitionViewSet(
                 QueryContext(
                     project_id=self.project_id,
                     table=(
-                        "ee_enterprisepropertydefinition FULL OUTER JOIN posthog_propertydefinition ON posthog_propertydefinition.id=ee_enterprisepropertydefinition.propertydefinition_ptr_id"
+                        "posthog_propertydefinition LEFT JOIN ee_enterprisepropertydefinition ON posthog_propertydefinition.id=ee_enterprisepropertydefinition.propertydefinition_ptr_id"
                         if EE_AVAILABLE
                         else "posthog_propertydefinition"
                     ),
@@ -657,15 +625,6 @@ class PropertyDefinitionViewSet(
             )
 
             span.set_attribute("joins_event_property", query_context.should_join_event_property)
-
-            with tracer.start_as_current_span("property_definitions_count_query") as count_span:
-                with connection.cursor() as cursor:
-                    cursor.execute(query_context.as_count_sql(), query_context.params)
-                    full_count = cursor.fetchone()[0]
-                count_span.set_attribute("full_count", full_count)
-
-            self.paginator.set_count(full_count)
-            span.set_attribute("full_count", full_count)
 
             # nosemgrep: python.django.security.audit.custom-expression-as-sql.custom-expression-as-sql (all user input goes through query_context.params)
             return queryset.raw(query_context.as_sql(order_by_verified), params=query_context.params)
