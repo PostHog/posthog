@@ -382,6 +382,10 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                 DataColorTheme.objects.filter(team_id__isnull=True).values_list("id", flat=True).first()
             )
 
+        conversations_settings = representation.get("conversations_settings")
+        if isinstance(conversations_settings, dict) and "slack_bot_token" in conversations_settings:
+            conversations_settings.pop("slack_bot_token")
+
         return representation
 
     def get_effective_membership_level(self, team: Team) -> OrganizationMembership.Level | None:
@@ -618,6 +622,10 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         # Strip widget_public_token from user input - it's auto-generated only
         if "widget_public_token" in value:
             value.pop("widget_public_token")
+        # Strip support Slack bot token from direct team updates.
+        # This token is managed only by the dedicated SupportHog OAuth callback.
+        if "slack_bot_token" in value:
+            value.pop("slack_bot_token")
         return value
 
     def validate_slack_incoming_webhook(self, value: str | None) -> str | None:

@@ -884,6 +884,55 @@ class Team(UUIDTClassicModel):
             ),
         )
 
+    def save_supporthog_slack_token_and_save(
+        self,
+        *,
+        user: "User",
+        is_impersonated_session: bool,
+        bot_token: str,
+        slack_team_id: str,
+    ) -> None:
+        from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
+
+        settings = self.conversations_settings or {}
+        old_token = settings.get("slack_bot_token")
+        old_slack_team_id = settings.get("slack_team_id")
+
+        settings["slack_bot_token"] = bot_token
+        settings["slack_team_id"] = slack_team_id
+        settings["slack_enabled"] = True
+        self.conversations_settings = settings
+        self.save()
+
+        log_activity(
+            organization_id=self.organization_id,
+            team_id=self.pk,
+            user=cast("User", user),
+            was_impersonated=is_impersonated_session,
+            scope="Team",
+            item_id=self.pk,
+            activity="updated",
+            detail=Detail(
+                name=str(self.name),
+                changes=[
+                    Change(
+                        type="Team",
+                        action="created" if old_token is None else "changed",
+                        field="conversations_settings.slack_bot_token",
+                        before=mask_key_value(old_token) if old_token else None,
+                        after=mask_key_value(bot_token),
+                    ),
+                    Change(
+                        type="Team",
+                        action="created" if old_slack_team_id is None else "changed",
+                        field="conversations_settings.slack_team_id",
+                        before=old_slack_team_id,
+                        after=slack_team_id,
+                    ),
+                ],
+            ),
+        )
+
     def delete_secret_token_backup_and_save(self, *, user: "User", is_impersonated_session: bool):
         from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
         from posthog.models.utils import mask_key_value

@@ -55,6 +55,7 @@ export interface Ticket {
     }
     slack_channel_id?: string | null
     slack_thread_ts?: string | null
+    slack_team_id?: string | null
     person?: TicketPerson | null
 }
 

@@ -14,19 +14,20 @@ from urllib.parse import urljoin, urlparse
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from django.conf import settings
+from django.db.models import F
 
 import structlog
 from PIL import Image
 from slack_sdk import WebClient
 
 from posthog.models.comment import Comment
-from posthog.models.integration import Integration, SlackIntegration
 from posthog.models.team.team import Team
 from posthog.models.uploaded_media import UploadedMedia, save_content_to_object_storage
 
 from .formatting import slack_to_content_and_rich_content
 from .models import Ticket
 from .models.constants import Channel, Status
+from .support_slack import get_support_slack_bot_token
 
 logger = structlog.get_logger(__name__)
 MAX_IMAGE_BYTES = 4 * 1024 * 1024
@@ -40,24 +41,16 @@ class _NoRedirectHandler(HTTPRedirectHandler):
         return None
 
 
-def get_slack_client(team: Team, integration: Integration | None = None) -> WebClient:
+def get_slack_client(team: Team) -> WebClient:
     """
     Get a Slack WebClient for the team.
 
-    Tries to use the bot token from conversations_settings first (SupportHog),
-    falls back to Integration model (legacy PostHog Slack app).
+    Uses the team-scoped SupportHog bot token when configured.
     """
-    settings_dict = team.conversations_settings or {}
-    bot_token = settings_dict.get("slack_bot_token")
-
+    bot_token = get_support_slack_bot_token(team)
     if bot_token:
         return WebClient(token=bot_token)
-
-    if integration:
-        slack = SlackIntegration(integration)
-        return slack.client
-
-    raise ValueError("No Slack credentials available for this team")
+    raise ValueError("Support Slack bot token is not configured")
 
 
 def resolve_slack_user(client: WebClient, slack_user_id: str) -> dict:
@@ -251,7 +244,6 @@ def extract_slack_files(files: list[dict] | None, team: Team, client: WebClient 
 def create_or_update_slack_ticket(
     *,
     team: Team,
-    integration: Integration,
     slack_channel_id: str,
     thread_ts: str,
     slack_user_id: str,
@@ -259,6 +251,7 @@ def create_or_update_slack_ticket(
     blocks: list[dict] | None = None,
     files: list[dict] | None = None,
     is_thread_reply: bool = False,
+    slack_team_id: str | None = None,
 ) -> Ticket | None:
     """
     Core function: create a new ticket or add a message to an existing one.
@@ -271,7 +264,7 @@ def create_or_update_slack_ticket(
       - Finds existing Ticket by slack_channel_id + slack_thread_ts
       - Creates a new Comment on that ticket
     """
-    client = get_slack_client(team, integration)
+    client = get_slack_client(team)
     logger.info(
         "🧵 slack_support_ticket_ingest_started",
         team_id=team.id,
@@ -299,6 +292,8 @@ def create_or_update_slack_ticket(
                 thread_ts=thread_ts,
             )
             return None
+        if slack_team_id and not ticket.slack_team_id:
+            Ticket.objects.filter(id=ticket.id).update(slack_team_id=slack_team_id)
 
         cleaned_text, rich_content = slack_to_content_and_rich_content(text, blocks)
         # Allow messages with only images (no text)
@@ -350,7 +345,7 @@ def create_or_update_slack_ticket(
 
         # Increment unread_team_count
         Ticket.objects.filter(id=ticket.id).update(
-            unread_team_count=ticket.unread_team_count + 1,
+            unread_team_count=F("unread_team_count") + 1,
         )
 
         return ticket
@@ -397,6 +392,7 @@ def create_or_update_slack_ticket(
         },
         slack_channel_id=slack_channel_id,
         slack_thread_ts=thread_ts,
+        slack_team_id=slack_team_id,
         unread_team_count=1,
     )
 
@@ -450,7 +446,7 @@ def create_or_update_slack_ticket(
     return ticket
 
 
-def handle_support_message(event: dict, integration: Integration) -> None:
+def handle_support_message(event: dict, team: Team, slack_team_id: str) -> None:
     """
     Handle a Slack 'message' event for the dedicated support channel.
 
@@ -474,7 +470,6 @@ def handle_support_message(event: dict, integration: Integration) -> None:
     if not slack_user_id or (not text.strip() and not files):
         return
 
-    team = integration.team
     settings_dict = team.conversations_settings or {}
     configured_channel = settings_dict.get("slack_channel_id")
 
@@ -488,7 +483,6 @@ def handle_support_message(event: dict, integration: Integration) -> None:
         # Thread reply -> add message to existing ticket
         create_or_update_slack_ticket(
             team=team,
-            integration=integration,
             slack_channel_id=channel,
             thread_ts=thread_ts,
             slack_user_id=slack_user_id,
@@ -496,12 +490,12 @@ def handle_support_message(event: dict, integration: Integration) -> None:
             blocks=blocks,
             files=files,
             is_thread_reply=True,
+            slack_team_id=slack_team_id,
         )
     else:
         # Top-level message -> create new ticket, use message ts as thread_ts
         create_or_update_slack_ticket(
             team=team,
-            integration=integration,
             slack_channel_id=channel,
             thread_ts=message_ts or "",
             slack_user_id=slack_user_id,
@@ -509,10 +503,11 @@ def handle_support_message(event: dict, integration: Integration) -> None:
             blocks=blocks,
             files=files,
             is_thread_reply=False,
+            slack_team_id=slack_team_id,
         )
 
 
-def handle_support_mention(event: dict, integration: Integration) -> None:
+def handle_support_mention(event: dict, team: Team, slack_team_id: str) -> None:
     """
     Handle a Slack 'app_mention' event to create a support ticket.
 
@@ -531,11 +526,10 @@ def handle_support_mention(event: dict, integration: Integration) -> None:
     if not thread_ts:
         return
 
-    team = integration.team
     settings_dict = team.conversations_settings or {}
 
     # Only handle if Slack support is configured
-    if not settings_dict.get("slack_integration_id"):
+    if not settings_dict.get("slack_enabled"):
         return
 
     # Check if a ticket already exists for this thread
@@ -549,7 +543,6 @@ def handle_support_mention(event: dict, integration: Integration) -> None:
         # Add as a reply to the existing ticket
         create_or_update_slack_ticket(
             team=team,
-            integration=integration,
             slack_channel_id=channel,
             thread_ts=thread_ts,
             slack_user_id=slack_user_id,
@@ -557,11 +550,11 @@ def handle_support_mention(event: dict, integration: Integration) -> None:
             blocks=blocks,
             files=files,
             is_thread_reply=True,
+            slack_team_id=slack_team_id,
         )
     else:
         create_or_update_slack_ticket(
             team=team,
-            integration=integration,
             slack_channel_id=channel,
             thread_ts=thread_ts,
             slack_user_id=slack_user_id,
@@ -569,10 +562,11 @@ def handle_support_mention(event: dict, integration: Integration) -> None:
             blocks=blocks,
             files=files,
             is_thread_reply=False,
+            slack_team_id=slack_team_id,
         )
 
 
-def handle_support_reaction(event: dict, integration: Integration) -> None:
+def handle_support_reaction(event: dict, team: Team, slack_team_id: str) -> None:
     """
     Handle a Slack 'reaction_added' event to create a ticket from a reacted message.
 
@@ -587,7 +581,6 @@ def handle_support_reaction(event: dict, integration: Integration) -> None:
     if not channel or not message_ts:
         return
 
-    team = integration.team
     settings_dict = team.conversations_settings or {}
     configured_emoji = settings_dict.get("slack_ticket_emoji", "ticket")
 
@@ -595,7 +588,7 @@ def handle_support_reaction(event: dict, integration: Integration) -> None:
         return
 
     # Only handle if Slack support is configured
-    if not settings_dict.get("slack_integration_id"):
+    if not settings_dict.get("slack_enabled"):
         return
 
     # Check if a ticket already exists for this message thread
@@ -610,7 +603,7 @@ def handle_support_reaction(event: dict, integration: Integration) -> None:
         return
 
     # Fetch the reacted-to message to get its content and author
-    client = get_slack_client(team, integration)
+    client = get_slack_client(team)
     try:
         result = client.conversations_history(
             channel=channel,
@@ -637,7 +630,6 @@ def handle_support_reaction(event: dict, integration: Integration) -> None:
 
     create_or_update_slack_ticket(
         team=team,
-        integration=integration,
         slack_channel_id=channel,
         thread_ts=message_ts,
         slack_user_id=original_user,
@@ -645,4 +637,5 @@ def handle_support_reaction(event: dict, integration: Integration) -> None:
         blocks=original_blocks,
         files=original_files,
         is_thread_reply=False,
+        slack_team_id=slack_team_id,
     )

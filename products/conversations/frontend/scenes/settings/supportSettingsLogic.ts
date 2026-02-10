@@ -2,25 +2,17 @@ import { actions, afterMount, connect, kea, listeners, path, reducers, selectors
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
-import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { IntegrationType, SlackChannelType, UserBasicType } from '~/types'
-
-// Note: IntegrationType and SlackChannelType kept for legacy integration-based flow
+import { SlackChannelType, UserBasicType } from '~/types'
 
 import type { supportSettingsLogicType } from './supportSettingsLogicType'
 
 export const supportSettingsLogic = kea<supportSettingsLogicType>([
     path(['products', 'conversations', 'frontend', 'scenes', 'settings', 'supportSettingsLogic']),
     connect(() => ({
-        values: [
-            teamLogic,
-            ['currentTeam'],
-            integrationsLogic,
-            ['slackIntegrations', 'slackAvailable', 'integrations'],
-        ],
+        values: [teamLogic, ['currentTeam']],
         actions: [teamLogic, ['updateCurrentTeam', 'updateCurrentTeamSuccess']],
     })),
     actions({
@@ -47,16 +39,12 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         // Notification recipients
         setNotificationRecipients: (users: UserBasicType[]) => ({ users }),
         // Slack channel settings (SupportHog)
-        setSlackBotTokenValue: (value: string | null) => ({ value }),
-        saveSlackBotToken: true,
+        connectSlack: (nextPath: string) => ({ nextPath }),
         setSlackChannel: (channelId: string | null, channelName: string | null) => ({ channelId, channelName }),
         loadSlackChannelsWithToken: true,
         setSlackTicketEmojiValue: (value: string | null) => ({ value }),
         saveSlackTicketEmoji: true,
         disconnectSlack: true,
-        // Legacy integration-based settings (kept for compatibility)
-        setSlackIntegration: (integration: IntegrationType | null) => ({ integration }),
-        loadSlackChannels: (integrationId: number) => ({ integrationId }),
     }),
     reducers({
         conversationsEnabledLoading: [
@@ -130,35 +118,14 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                 setSlackTicketEmojiValue: (_, { value }) => value,
             },
         ],
-        slackBotTokenValue: [
-            null as string | null,
-            {
-                setSlackBotTokenValue: (_, { value }) => value,
-            },
-        ],
     }),
     loaders(({ values }) => ({
         slackChannels: [
             [] as SlackChannelType[],
             {
-                loadSlackChannels: async ({ integrationId }) => {
-                    try {
-                        const response = await api.integrations.slackChannels(integrationId, false)
-                        return response.channels
-                    } catch {
-                        lemonToast.error('Failed to load Slack channels')
-                        return values.slackChannels
-                    }
-                },
                 loadSlackChannelsWithToken: async () => {
-                    const token = values.slackBotToken
-                    if (!token) {
-                        return []
-                    }
                     try {
-                        const response = await api.create(`api/conversations/v1/slack/channels`, {
-                            bot_token: token,
-                        })
+                        const response = await api.create(`api/conversations/v1/slack/channels`, {})
                         return response.channels || []
                     } catch {
                         lemonToast.error('Failed to load Slack channels')
@@ -177,15 +144,9 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             (s) => [s.currentTeam],
             (currentTeam): number[] => currentTeam?.conversations_settings?.notification_recipients || [],
         ],
-        selectedSlackIntegration: [
-            (s) => [s.currentTeam, s.slackIntegrations],
-            (currentTeam, slackIntegrations): IntegrationType | null => {
-                const integrationId = currentTeam?.conversations_settings?.slack_integration_id
-                if (!integrationId || !slackIntegrations) {
-                    return null
-                }
-                return slackIntegrations.find((i) => i.id === integrationId) ?? null
-            },
+        slackEnabled: [
+            (s) => [s.currentTeam],
+            (currentTeam): boolean => !!currentTeam?.conversations_settings?.slack_enabled,
         ],
         slackChannelId: [
             (s) => [s.currentTeam],
@@ -199,23 +160,16 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             (s) => [s.currentTeam],
             (currentTeam): string => currentTeam?.conversations_settings?.slack_ticket_emoji ?? 'ticket',
         ],
-        slackBotToken: [
+        slackConnected: [
             (s) => [s.currentTeam],
-            (currentTeam): string | null => currentTeam?.conversations_settings?.slack_bot_token ?? null,
-        ],
-        slackNeedsReauth: [
-            (s) => [s.selectedSlackIntegration],
-            (selectedIntegration): boolean => {
-                if (!selectedIntegration) {
-                    return false
-                }
-                const grantedScopes: string = selectedIntegration.config?.scope || ''
-                const requiredScopes = ['channels:history', 'reactions:read', 'users:read']
-                return requiredScopes.some((scope) => !grantedScopes.includes(scope))
-            },
+            (currentTeam): boolean => !!currentTeam?.conversations_settings?.slack_enabled,
         ],
     }),
     listeners(({ values, actions }) => ({
+        connectSlack: ({ nextPath }) => {
+            const query = encodeURIComponent(nextPath)
+            window.location.href = `/api/conversations/v1/slack/authorize?next=${query}`
+        },
         generateNewToken: async () => {
             const response = await api.projects.generateConversationsPublicToken(values.currentTeam?.id)
             actions.updateCurrentTeam(response)
@@ -310,44 +264,15 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                 },
             })
         },
-        setSlackIntegration: ({ integration }) => {
-            actions.updateCurrentTeam({
-                conversations_settings: {
-                    ...values.currentTeam?.conversations_settings,
-                    slack_integration_id: integration?.id ?? null,
-                    // Clear channel when changing integration
-                    slack_channel_id: null,
-                    slack_channel_name: null,
-                },
-            })
-            if (integration) {
-                actions.loadSlackChannels(integration.id)
-            }
-        },
         setSlackChannel: ({ channelId, channelName }) => {
             actions.updateCurrentTeam({
                 conversations_settings: {
                     ...values.currentTeam?.conversations_settings,
+                    slack_enabled: true,
                     slack_channel_id: channelId,
                     slack_channel_name: channelName,
                 },
             })
-        },
-        saveSlackBotToken: async () => {
-            const token = values.slackBotTokenValue?.trim()
-            if (token) {
-                await actions.updateCurrentTeam({
-                    conversations_settings: {
-                        ...values.currentTeam?.conversations_settings,
-                        slack_bot_token: token,
-                        // Also set integration_id to a placeholder so handlers know Slack is configured
-                        slack_integration_id: -1,
-                    },
-                })
-                lemonToast.success('Slack bot token saved')
-                // Load channels after saving token
-                actions.loadSlackChannelsWithToken()
-            }
         },
         saveSlackTicketEmoji: () => {
             const emoji = values.slackTicketEmojiValue
@@ -355,6 +280,7 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                 actions.updateCurrentTeam({
                     conversations_settings: {
                         ...values.currentTeam?.conversations_settings,
+                        slack_enabled: true,
                         slack_ticket_emoji: emoji,
                     },
                 })
@@ -365,11 +291,11 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             actions.updateCurrentTeam({
                 conversations_settings: {
                     ...values.currentTeam?.conversations_settings,
-                    slack_integration_id: null,
+                    slack_enabled: false,
+                    slack_team_id: null,
                     slack_channel_id: null,
                     slack_channel_name: null,
                     slack_ticket_emoji: null,
-                    slack_bot_token: null,
                 },
             })
             lemonToast.success('Slack disconnected')
@@ -380,19 +306,11 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             actions.setIdentificationFormDescriptionValue(null)
             actions.setPlaceholderTextValue(null)
             actions.setSlackTicketEmojiValue(null)
-            actions.setSlackBotTokenValue(null)
         },
     })),
     afterMount(({ values, actions }) => {
-        // Load channels if bot token is already configured
-        if (values.slackBotToken) {
+        if (values.slackConnected) {
             actions.loadSlackChannelsWithToken()
-        } else {
-            // Fallback for legacy integration-based setup
-            const integrationId = values.currentTeam?.conversations_settings?.slack_integration_id
-            if (integrationId && integrationId > 0) {
-                actions.loadSlackChannels(integrationId)
-            }
         }
     }),
 ])

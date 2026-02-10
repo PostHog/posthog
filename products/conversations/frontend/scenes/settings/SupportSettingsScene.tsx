@@ -148,8 +148,7 @@ function SlackSection(): JSX.Element | null {
 
 function SlackChannelSection(): JSX.Element {
     const {
-        slackBotToken,
-        slackBotTokenValue,
+        slackConnected,
         slackChannelId,
         slackChannels,
         slackChannelsLoading,
@@ -157,8 +156,7 @@ function SlackChannelSection(): JSX.Element {
         slackTicketEmojiValue,
     } = useValues(supportSettingsLogic)
     const {
-        setSlackBotTokenValue,
-        saveSlackBotToken,
+        connectSlack,
         setSlackChannel,
         loadSlackChannelsWithToken,
         setSlackTicketEmojiValue,
@@ -166,41 +164,29 @@ function SlackChannelSection(): JSX.Element {
         disconnectSlack,
     } = useActions(supportSettingsLogic)
 
-    const isConfigured = !!slackBotToken
-
     return (
         <div className="flex flex-col gap-y-2">
-            <div className="flex items-center gap-4 justify-between">
-                <div>
-                    <label className="font-medium">Bot token</label>
-                    <p className="text-xs text-muted-alt">
-                        Enter your Slack bot token (starts with xoxb-). Get it from your Slack app's OAuth & Permissions
-                        page.
-                    </p>
-                </div>
-                <div className="flex gap-2 items-center">
-                    <LemonInput
-                        value={slackBotTokenValue ?? (slackBotToken ? '••••••••' : '')}
-                        onChange={setSlackBotTokenValue}
-                        placeholder="xoxb-..."
-                        type="password"
-                        className="w-[300px]"
-                    />
+            <div>
+                <label className="font-medium">Connection</label>
+                <p className="text-xs text-muted-alt">
+                    Connect your SupportHog Slack app to enable support ticket creation from channels, mentions, and
+                    emoji reactions.
+                </p>
+                {!slackConnected && (
                     <LemonButton
+                        className="mt-2"
                         type="primary"
                         size="small"
-                        onClick={saveSlackBotToken}
-                        disabledReason={!slackBotTokenValue ? 'Enter a bot token' : undefined}
+                        onClick={() => connectSlack(window.location.pathname)}
                     >
-                        Save
+                        Connect Slack
                     </LemonButton>
-                </div>
+                )}
             </div>
-
-            {isConfigured && (
+            {slackConnected && (
                 <>
                     <LemonDivider />
-                    <div className=" gap-4">
+                    <div className="gap-4">
                         <div>
                             <label className="font-medium">Support channel</label>
                             <p className="text-xs text-muted-alt">
@@ -265,8 +251,7 @@ function SlackChannelSection(): JSX.Element {
                         <div>
                             <label className="font-medium">Bot mention</label>
                             <p className="text-xs text-muted-alt">
-                                Users can @mention the bot in any channel to create a support ticket. This works
-                                automatically when the bot token is configured.
+                                Users can @mention the bot in any channel to create a support ticket.
                             </p>
                         </div>
                         <LemonTag type="success">Active</LemonTag>

@@ -207,8 +207,7 @@ def post_slack_reply_on_team_message(sender, instance: Comment, created: bool, *
 
             team = ticket.team
             settings_dict = team.conversations_settings or {}
-            integration_id = settings_dict.get("slack_integration_id")
-            if not integration_id:
+            if not settings_dict.get("slack_enabled"):
                 return
 
             author_name = ""
@@ -228,7 +227,6 @@ def post_slack_reply_on_team_message(sender, instance: Comment, created: bool, *
                 author_email=author_email,
                 slack_channel_id=ticket.slack_channel_id,
                 slack_thread_ts=ticket.slack_thread_ts,
-                integration_id=integration_id,
             )
         except Exception:
             logger.exception("slack_reply_signal_failed", item_id=item_id)

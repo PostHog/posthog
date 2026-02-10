@@ -9,20 +9,24 @@ from rest_framework.views import APIView
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 
+from products.conversations.backend.support_slack import get_support_slack_bot_token
+
 logger = structlog.get_logger(__name__)
+MAX_CHANNEL_PAGES = 100
 
 
 class SlackChannelsView(APIView):
-    """Fetch Slack channels using a bot token."""
+    """Fetch Slack channels using the support bot token from env settings."""
 
     permission_classes = [IsAuthenticated]
 
     def post(self, request: Request, *args, **kwargs) -> Response:
-        bot_token = request.data.get("bot_token")
+        team = request.user.current_team
+        bot_token = get_support_slack_bot_token(team)
         if not bot_token:
             return Response(
-                {"error": "bot_token is required"},
-                status=status.HTTP_400_BAD_REQUEST,
+                {"error": "Support Slack bot token is not configured"},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
 
         try:
@@ -31,7 +35,7 @@ class SlackChannelsView(APIView):
             cursor = None
 
             # Paginate through all channels
-            while True:
+            for _ in range(MAX_CHANNEL_PAGES):
                 result = client.conversations_list(
                     types="public_channel,private_channel",
                     exclude_archived=True,
@@ -43,6 +47,12 @@ class SlackChannelsView(APIView):
                 cursor = result.get("response_metadata", {}).get("next_cursor")
                 if not cursor:
                     break
+            else:
+                logger.warning("slack_channels_fetch_too_many_pages", max_pages=MAX_CHANNEL_PAGES)
+                return Response(
+                    {"error": "Too many channel pages returned by Slack"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
             # Sort by name for easier selection
             channels.sort(key=lambda c: c["name"].lower())

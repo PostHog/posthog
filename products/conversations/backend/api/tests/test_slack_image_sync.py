@@ -96,7 +96,6 @@ class TestSlackImageOutbound(SimpleTestCase):
         payload = _read_image_bytes_for_slack_upload(1, "https://example.com/test.png")
         assert payload is None
 
-    @patch("products.conversations.backend.tasks.Integration.objects.get")
     @patch("products.conversations.backend.tasks.Team.objects.get")
     @patch("products.conversations.backend.tasks._upload_image_to_slack_thread")
     @patch("products.conversations.backend.tasks._read_image_bytes_for_slack_upload")
@@ -107,7 +106,6 @@ class TestSlackImageOutbound(SimpleTestCase):
         mock_read_bytes: MagicMock,
         mock_upload_image: MagicMock,
         mock_team_get: MagicMock,
-        mock_integration_get: MagicMock,
     ) -> None:
         fake_client = MagicMock()
         mock_get_client.return_value = fake_client
@@ -115,7 +113,6 @@ class TestSlackImageOutbound(SimpleTestCase):
         fake_team = MagicMock()
         fake_team.id = 1
         mock_team_get.return_value = fake_team
-        mock_integration_get.return_value = MagicMock()
 
         rich_content = {
             "type": "doc",
@@ -139,13 +136,11 @@ class TestSlackImageOutbound(SimpleTestCase):
             author_email=None,
             slack_channel_id="C123",
             slack_thread_ts="1700000000.000100",
-            integration_id=99,
         )
 
         fake_client.chat_postMessage.assert_called_once()
         mock_upload_image.assert_called_once()
 
-    @patch("products.conversations.backend.tasks.Integration.objects.get")
     @patch("products.conversations.backend.tasks.Team.objects.get")
     @patch("products.conversations.backend.tasks._upload_image_to_slack_thread")
     @patch("products.conversations.backend.tasks._read_image_bytes_for_slack_upload")
@@ -156,7 +151,6 @@ class TestSlackImageOutbound(SimpleTestCase):
         mock_read_bytes: MagicMock,
         mock_upload_image: MagicMock,
         mock_team_get: MagicMock,
-        mock_integration_get: MagicMock,
     ) -> None:
         fake_client = MagicMock()
         mock_get_client.return_value = fake_client
@@ -165,7 +159,6 @@ class TestSlackImageOutbound(SimpleTestCase):
         fake_team = MagicMock()
         fake_team.id = 1
         mock_team_get.return_value = fake_team
-        mock_integration_get.return_value = MagicMock()
 
         rich_content = {
             "type": "doc",
@@ -186,7 +179,6 @@ class TestSlackImageOutbound(SimpleTestCase):
             author_email=None,
             slack_channel_id="C123",
             slack_thread_ts="1700000000.000100",
-            integration_id=99,
         )
 
         mock_upload_image.assert_called_once()

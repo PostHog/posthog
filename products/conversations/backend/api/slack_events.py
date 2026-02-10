@@ -2,17 +2,23 @@
 
 import json
 
+from django.core.cache import cache
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 
 import structlog
 
-from posthog.models.integration import Integration, SlackIntegration, SlackIntegrationError
+from posthog.models.integration import SlackIntegrationError
+from posthog.models.team import Team
+
+from products.conversations.backend.support_slack import validate_support_request
 
 logger = structlog.get_logger(__name__)
 
 # Event types we handle for support tickets
 SUPPORT_EVENT_TYPES = ["app_mention", "message", "reaction_added"]
+EVENT_IDEMPOTENCY_TTL_SECONDS = 15 * 60
+EVENT_IDEMPOTENCY_KEY_PREFIX = "supporthog:slack:event:"
 
 
 @csrf_exempt
@@ -29,16 +35,10 @@ def supporthog_event_handler(request: HttpRequest) -> HttpResponse:
 
     # Validate the request signature
     try:
-        SlackIntegration.validate_request(request)
+        validate_support_request(request)
     except SlackIntegrationError as e:
         logger.warning("supporthog_event_invalid_request", error=str(e))
         return HttpResponse("Invalid request", status=403)
-
-    # Check for retry to avoid duplicate processing
-    retry_num = request.headers.get("X-Slack-Retry-Num")
-    if retry_num:
-        logger.info("supporthog_event_retry_skipped", retry_num=retry_num)
-        return HttpResponse(status=200)
 
     try:
         data = json.loads(request.body)
@@ -57,6 +57,11 @@ def supporthog_event_handler(request: HttpRequest) -> HttpResponse:
 
     # Handle event callbacks
     if event_type == "event_callback":
+        event_id = data.get("event_id")
+        if isinstance(event_id, str) and event_id and _is_duplicate_event(event_id):
+            logger.info("supporthog_event_duplicate_skipped", event_id=event_id)
+            return HttpResponse(status=200)
+
         event = data.get("event", {})
         slack_team_id = data.get("team_id", "")
         inner_event_type = event.get("type")
@@ -76,6 +81,11 @@ def supporthog_event_handler(request: HttpRequest) -> HttpResponse:
     return HttpResponse(status=200)
 
 
+def _is_duplicate_event(event_id: str) -> bool:
+    key = f"{EVENT_IDEMPOTENCY_KEY_PREFIX}{event_id}"
+    return not cache.add(key, True, timeout=EVENT_IDEMPOTENCY_TTL_SECONDS)
+
+
 def _handle_support_event(event: dict, slack_team_id: str) -> None:
     """Route event to appropriate support handler."""
     from products.conversations.backend.slack import (
@@ -84,18 +94,16 @@ def _handle_support_event(event: dict, slack_team_id: str) -> None:
         handle_support_reaction,
     )
 
-    # Find the Slack integration for this workspace
-    integration = Integration.objects.filter(kind="slack", integration_id=slack_team_id).select_related("team").first()
-
-    if not integration:
-        logger.warning("supporthog_no_integration", slack_team_id=slack_team_id)
+    # Find team with SupportHog configured for this Slack workspace
+    team = Team.objects.filter(conversations_settings__slack_team_id=slack_team_id).first()
+    if not team:
+        logger.warning("supporthog_no_team", slack_team_id=slack_team_id)
         return
 
     # Check if support is configured for this team
-    team = integration.team
     support_settings = team.conversations_settings or {}
 
-    if not support_settings.get("slack_integration_id"):
+    if not support_settings.get("slack_enabled"):
         logger.info(
             "supporthog_support_not_configured",
             team_id=team.id,
@@ -107,11 +115,11 @@ def _handle_support_event(event: dict, slack_team_id: str) -> None:
 
     try:
         if event_type == "message":
-            handle_support_message(event, integration)
+            handle_support_message(event, team, slack_team_id)
         elif event_type == "app_mention":
-            handle_support_mention(event, integration)
+            handle_support_mention(event, team, slack_team_id)
         elif event_type == "reaction_added":
-            handle_support_reaction(event, integration)
+            handle_support_reaction(event, team, slack_team_id)
     except Exception as e:
         logger.exception(
             "supporthog_event_handler_failed",
