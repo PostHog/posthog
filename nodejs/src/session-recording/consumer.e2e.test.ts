@@ -13,16 +13,17 @@ import { Clickhouse } from '../../tests/helpers/clickhouse'
 import { waitForExpect } from '../../tests/helpers/expectations'
 import { resetKafka } from '../../tests/helpers/kafka'
 import { forSnapshot } from '../../tests/helpers/snapshots'
-import { getFirstTeam, resetTestDatabase } from '../../tests/helpers/sql'
+import { createOrganization, createTeam, getFirstTeam, resetTestDatabase } from '../../tests/helpers/sql'
 import { defaultConfig, overrideWithEnv } from '../config/config'
 import { KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS } from '../config/kafka-topics'
 import { KafkaProducerWrapper } from '../kafka/producer'
 import { Hub, Team } from '../types'
 import { closeHub, createHub } from '../utils/db/hub'
 import { PostgresRouter, PostgresUse } from '../utils/db/postgres'
+import { REDIS_KEY_PREFIX, RedisRestrictionType } from '../utils/event-ingestion-restrictions/redis-schema'
 import { parseJSON } from '../utils/json-parse'
 import { SessionRecordingIngester } from './consumer'
-import { RRWebEventType } from './rrweb-types'
+import { MouseInteractions, RRWebEventSource, RRWebEventType } from './rrweb-types'
 
 // Test configuration - matches local dev environment (MinIO API on port 19000)
 const TEST_CONFIG = {
@@ -37,6 +38,10 @@ const TEST_CONFIG = {
 
 // Reduced wait time for partition assignments (1 second is usually enough locally)
 const PARTITION_ASSIGNMENT_WAIT_MS = 1000
+
+// Token for a team that has DROP_EVENT restriction applied
+// This team is created in beforeAll and the restriction is set in Redis
+const RESTRICTED_TEAM_TOKEN = 'restricted-team-token-for-e2e-tests'
 
 /**
  * Payload configuration for test cases.
@@ -637,6 +642,184 @@ const testCases: TestCase[] = [
         },
         expectedOutcome: 'written',
     },
+    {
+        name: 'session continuity across batches',
+        description: 'Events arriving in separate batches for the same session should be combined',
+        createPayloads: (team, testRunId) => {
+            const sessionId = `continuous-session-${testRunId}`
+            const baseTimestamp = Date.now()
+            return [
+                {
+                    sessionId,
+                    distinctId: `user-${testRunId}`,
+                    token: team.api_token,
+                    events: [
+                        {
+                            type: RRWebEventType.Meta,
+                            data: { href: 'https://example.com/page1', width: 1024, height: 768 },
+                            timestamp: baseTimestamp,
+                        },
+                        {
+                            type: RRWebEventType.FullSnapshot,
+                            data: { source: 1, snapshot: { html: '<div>First batch</div>' } },
+                            timestamp: baseTimestamp + 1000,
+                        },
+                    ],
+                },
+                {
+                    sessionId,
+                    distinctId: `user-${testRunId}`,
+                    token: team.api_token,
+                    events: [
+                        {
+                            type: RRWebEventType.IncrementalSnapshot,
+                            data: { source: 2, mutations: [{ type: 'characterData', id: 1 }] },
+                            timestamp: baseTimestamp + 2000,
+                        },
+                        {
+                            type: RRWebEventType.IncrementalSnapshot,
+                            data: { source: 2, mutations: [{ type: 'characterData', id: 2 }] },
+                            timestamp: baseTimestamp + 3000,
+                        },
+                    ],
+                },
+            ]
+        },
+        expectedOutcome: 'written',
+    },
+    {
+        name: 'out of order events',
+        description: 'Events with timestamps out of chronological order should still be processed',
+        createPayloads: (team, testRunId) => {
+            const baseTimestamp = Date.now()
+            return [
+                {
+                    sessionId: `out-of-order-${testRunId}`,
+                    distinctId: `user-${testRunId}`,
+                    token: team.api_token,
+                    events: [
+                        {
+                            type: RRWebEventType.Meta,
+                            data: { href: 'https://example.com', width: 1024, height: 768 },
+                            timestamp: baseTimestamp + 2000, // Second event sent first
+                        },
+                        {
+                            type: RRWebEventType.FullSnapshot,
+                            data: { source: 1, snapshot: { html: '<div>First</div>' } },
+                            timestamp: baseTimestamp, // First event sent second
+                        },
+                        {
+                            type: RRWebEventType.IncrementalSnapshot,
+                            data: { source: 2, mutations: [] },
+                            timestamp: baseTimestamp + 1000, // Middle event sent last
+                        },
+                    ],
+                },
+            ]
+        },
+        expectedOutcome: 'written',
+    },
+    {
+        name: 'empty events array',
+        description: 'Messages with no events should be handled gracefully',
+        createPayloads: (team, testRunId) => [
+            {
+                sessionId: `empty-events-${testRunId}`,
+                distinctId: `user-${testRunId}`,
+                token: team.api_token,
+                events: [],
+            },
+        ],
+        expectedOutcome: 'dropped',
+    },
+    {
+        name: 'console log events',
+        description: 'Console log, warn, and error events should be counted in metadata',
+        createPayloads: (team, testRunId) => [
+            {
+                sessionId: `console-logs-${testRunId}`,
+                distinctId: `user-${testRunId}`,
+                token: team.api_token,
+                events: [
+                    { type: RRWebEventType.Meta, data: { href: 'https://example.com', width: 1024, height: 768 } },
+                    {
+                        type: RRWebEventType.Plugin,
+                        data: { plugin: 'rrweb/console@1', payload: { level: 'log', payload: ['Hello world'] } },
+                    },
+                    {
+                        type: RRWebEventType.Plugin,
+                        data: { plugin: 'rrweb/console@1', payload: { level: 'info', payload: ['Info message'] } },
+                    },
+                    {
+                        type: RRWebEventType.Plugin,
+                        data: { plugin: 'rrweb/console@1', payload: { level: 'warn', payload: ['Warning!'] } },
+                    },
+                    {
+                        type: RRWebEventType.Plugin,
+                        data: { plugin: 'rrweb/console@1', payload: { level: 'error', payload: ['Error occurred'] } },
+                    },
+                    {
+                        type: RRWebEventType.Plugin,
+                        data: { plugin: 'rrweb/console@1', payload: { level: 'error', payload: ['Another error'] } },
+                    },
+                ],
+            },
+        ],
+        expectedOutcome: 'written',
+    },
+    {
+        name: 'click and keypress events',
+        description: 'Click and keypress events should be counted in metadata',
+        createPayloads: (team, testRunId) => [
+            {
+                sessionId: `clicks-keypresses-${testRunId}`,
+                distinctId: `user-${testRunId}`,
+                token: team.api_token,
+                events: [
+                    { type: RRWebEventType.Meta, data: { href: 'https://example.com', width: 1024, height: 768 } },
+                    // Click events
+                    {
+                        type: RRWebEventType.IncrementalSnapshot,
+                        data: { source: RRWebEventSource.MouseInteraction, type: MouseInteractions.Click, id: 1 },
+                    },
+                    {
+                        type: RRWebEventType.IncrementalSnapshot,
+                        data: { source: RRWebEventSource.MouseInteraction, type: MouseInteractions.DblClick, id: 2 },
+                    },
+                    {
+                        type: RRWebEventType.IncrementalSnapshot,
+                        data: { source: RRWebEventSource.MouseInteraction, type: MouseInteractions.Click, id: 3 },
+                    },
+                    // Keypress events (Input source)
+                    {
+                        type: RRWebEventType.IncrementalSnapshot,
+                        data: { source: RRWebEventSource.Input, id: 10, text: 'hello' },
+                    },
+                    {
+                        type: RRWebEventType.IncrementalSnapshot,
+                        data: { source: RRWebEventSource.Input, id: 11, text: 'world' },
+                    },
+                ],
+            },
+        ],
+        expectedOutcome: 'written',
+    },
+    {
+        name: 'token with DROP_EVENT restriction',
+        description: 'Messages from a token with DROP_EVENT restriction should be dropped',
+        createPayloads: (_team, testRunId) => [
+            {
+                sessionId: `restricted-session-${testRunId}`,
+                distinctId: `user-${testRunId}`,
+                token: RESTRICTED_TEAM_TOKEN,
+                events: [
+                    { type: RRWebEventType.Meta, data: { href: 'https://example.com', width: 1024, height: 768 } },
+                    { type: RRWebEventType.FullSnapshot, data: { source: 1, snapshot: { html: '<div>Test</div>' } } },
+                ],
+            },
+        ],
+        expectedOutcome: 'dropped',
+    },
 ]
 
 describe('Session Recording Consumer Integration', () => {
@@ -724,9 +907,49 @@ describe('Session Recording Consumer Integration', () => {
         })
 
         team = await getFirstTeam(hub)
+
+        // Enable console log capture for the primary team so console log tests work
+        await hub.postgres.query(
+            PostgresUse.COMMON_WRITE,
+            'UPDATE posthog_team SET capture_console_log_opt_in = true WHERE id = $1',
+            [team.id],
+            'enable-console-log-capture'
+        )
+
+        // Create a second team with a known token that will have DROP_EVENT restriction
+        const restrictedOrgId = await createOrganization(hub.postgres)
+        await createTeam(hub.postgres, restrictedOrgId, RESTRICTED_TEAM_TOKEN)
+
+        // Set up DROP_EVENT restriction in Redis for the restricted team
+        // The ingester's restriction manager will read this when it starts
+        const redisClient = await hub.redisPool.acquire()
+        try {
+            const key = `${REDIS_KEY_PREFIX}:${RedisRestrictionType.DROP_EVENT_FROM_INGESTION}`
+            const restriction = [
+                {
+                    version: 2,
+                    token: RESTRICTED_TEAM_TOKEN,
+                    pipelines: ['session_recordings'],
+                },
+            ]
+            await redisClient.set(key, JSON.stringify(restriction))
+        } finally {
+            await hub.redisPool.release(redisClient)
+        }
     })
 
     afterAll(async () => {
+        // Clean up the DROP_EVENT restriction from Redis
+        if (hub?.redisPool) {
+            const redisClient = await hub.redisPool.acquire()
+            try {
+                const key = `${REDIS_KEY_PREFIX}:${RedisRestrictionType.DROP_EVENT_FROM_INGESTION}`
+                await redisClient.del(key)
+            } finally {
+                await hub.redisPool.release(redisClient)
+            }
+        }
+
         if (hub) {
             await closeHub(hub)
         }
