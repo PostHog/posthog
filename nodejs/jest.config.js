@@ -14,9 +14,6 @@ module.exports = {
     testMatch: ['<rootDir>/tests/**/*.test.ts', '<rootDir>/src/**/*.test.ts'],
     testTimeout: 60000,
     modulePathIgnorePatterns: ['<rootDir>/.tmp/'],
-    // Force exit after tests complete - needed for native modules like snappy
-    // that keep garbage collector handles open
-    forceExit: true,
 
     // NOTE: This should be kept in sync with tsconfig.json
     moduleNameMapper: {
