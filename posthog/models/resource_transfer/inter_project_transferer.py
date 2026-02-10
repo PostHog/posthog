@@ -101,7 +101,6 @@ def duplicate_resources_from_dag(dag: Iterable[ResourceTransferVertex], source_t
 
                 payload[edge.name] = related_vertex.duplicated_resource
 
-        # yolo
         vertex.duplicated_resource = visitor.get_model().objects.create(**payload)
         consumed_vertices[vertex.key] = vertex
 
@@ -181,18 +180,12 @@ def build_resource_duplication_graph(
 
         if visitor.is_many_to_many_relation(attribute_name):
             # need to recurse on the through relation, because the through relation contains the foreign keys we need for the dependency graph
-            descriptor = getattr(resource, attribute_name)
-            for related_resource in descriptor.all():
-                through_model = attribute_value.through
-                through_filter = {
-                    descriptor.source_field.attname: resource.pk,
-                    descriptor.target_field.attname: related_resource.pk,
-                }
-                through_resource = through_model.objects.filter(**through_filter).first()
+            manager = getattr(resource, attribute_name)
 
-                if through_resource is None:
-                    continue
+            through_filter = {manager.source_field.attname: resource.pk}
+            through_resources = attribute_value.through.objects.filter(**through_filter).all()
 
+            for through_resource in through_resources:
                 yield from build_resource_duplication_graph(through_resource, exclude_set, depth + 1)
         else:
             related_model = attribute_value.field.related_model

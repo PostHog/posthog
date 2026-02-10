@@ -8,6 +8,8 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { TeamBasicType } from '~/types'
 
+import type { interProjectDuplicationLogicType } from './interProjectDuplicationLogicType'
+
 export interface InterProjectDuplicationRequest {
     resourceKind: string
     resourceId: string | number
@@ -25,7 +27,7 @@ export interface InterProjectDuplicationResponse {
     count: number
 }
 
-export const interProjectDuplicationLogic = kea([
+export const interProjectDuplicationLogic = kea<interProjectDuplicationLogicType>([
     path(['lib', 'components', 'InterProjectDuplication', 'interProjectDuplicationLogic']),
     connect(() => ({
         values: [organizationLogic, ['currentOrganization'], teamLogic, ['currentTeamId']],
@@ -103,7 +105,7 @@ export const interProjectDuplicationLogic = kea([
             actions.closeModal()
         },
         submitDuplicationFailure: ({ error }) => {
-            lemonToast.error(`Failed to copy resource: ${error?.message || 'Unknown error'}`)
+            lemonToast.error(`Failed to copy resource: ${error}`)
         },
     })),
 ])

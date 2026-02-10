@@ -48,12 +48,7 @@ class TestBuildResourceDuplicationGraph(BaseTest):
         assert DashboardTile in model_types
         assert Team in model_types
 
-    def test_dashboard_text_tiles_not_reachable_via_m2m(self) -> None:
-        """
-        Dashboard.insights is M2M through DashboardTile, but text-only tiles have
-        insight=None so they are not reachable through the M2M traversal. This is a
-        known limitation documented in the code (line 164 of inter_project_transferer.py).
-        """
+    def test_dashboard_text_tiles_reachable_via_m2m(self) -> None:
         dashboard = Dashboard.objects.create(team=self.team, name="My dashboard")
         text = Text.objects.create(team=self.team, body="Hello world")
         DashboardTile.objects.create(dashboard=dashboard, text=text)
@@ -62,8 +57,8 @@ class TestBuildResourceDuplicationGraph(BaseTest):
         model_types = {v.model for v in graph}
 
         assert Dashboard in model_types
-        assert Text not in model_types
-        assert DashboardTile not in model_types
+        assert Text in model_types
+        assert DashboardTile in model_types
 
     def test_immutable_resources_have_no_edges(self) -> None:
         insight = Insight.objects.create(team=self.team, name="My insight")

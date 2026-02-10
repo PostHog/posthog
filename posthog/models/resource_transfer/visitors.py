@@ -52,7 +52,6 @@ class ResourceTransferVisitor:
 
     @classmethod
     def should_touch_field(cls, field_name: str) -> bool:
-        # FIXME: uuids?
         # ignore private fields
         if field_name.startswith("_"):
             return False
@@ -118,11 +117,6 @@ class ResourceTransferVisitor:
         )
 
     @classmethod
-    def get_through_visitor(cls, field_name: str) -> "ResourceTransferVisitor":
-        descriptor = getattr(cls, field_name)
-        return ResourceTransferVisitor.get_through_visitor(descriptor.through)
-
-    @classmethod
     def is_primary_key(cls, field_name: str) -> bool:
         class_attr = getattr(cls.get_model(), field_name)
 
@@ -173,7 +167,15 @@ All the other visitors for resources we want to copy.
 class DashboardVisitor(
     ResourceTransferVisitor,
     kind="Dashboard",
-    excluded_fields=["data_color_theme_id", "data_color_theme", "analytics_dashboards"],
+    excluded_fields=[
+        "data_color_theme_id",
+        "data_color_theme",
+        "analytics_dashboards",
+        "last_refresh",
+        "last_accessed_at",
+        "share_token",
+        "is_shared",
+    ],
 ):
     @classmethod
     def get_model(cls) -> type[models.Model]:
@@ -183,7 +185,19 @@ class DashboardVisitor(
 
 
 class InsightVisitor(
-    ResourceTransferVisitor, kind="Insight", excluded_fields=["dive_dashboard", "dashboard", "dashboards", "short_id"]
+    ResourceTransferVisitor,
+    kind="Insight",
+    excluded_fields=[
+        "dive_dashboard",
+        "dashboard",
+        "dashboards",
+        "short_id",
+        "filters_hash",
+        "refreshing",
+        "refresh_attempt",
+        "last_refresh",
+        "last_modified_at",
+    ],
 ):
     @classmethod
     def get_model(cls) -> type[models.Model]:
@@ -192,7 +206,16 @@ class InsightVisitor(
         return Insight
 
 
-class DashboardTileVisitor(ResourceTransferVisitor, kind="DashboardTile"):
+class DashboardTileVisitor(
+    ResourceTransferVisitor,
+    kind="DashboardTile",
+    excluded_fields=[
+        "filters_hash",
+        "last_refresh",
+        "refreshing",
+        "refresh_attempt",
+    ],
+):
     @classmethod
     def get_model(cls) -> type[models.Model]:
         from posthog.models import DashboardTile
@@ -200,7 +223,7 @@ class DashboardTileVisitor(ResourceTransferVisitor, kind="DashboardTile"):
         return DashboardTile
 
 
-class TextVisitor(ResourceTransferVisitor, kind="Text"):
+class TextVisitor(ResourceTransferVisitor, kind="Text", excluded_fields=["last_modified_at"]):
     @classmethod
     def get_model(cls) -> type[models.Model]:
         from posthog.models import Text
