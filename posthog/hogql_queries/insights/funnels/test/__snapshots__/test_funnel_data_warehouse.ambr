@@ -388,7 +388,7 @@
                                NULL AS `$window_id`,
                                0 AS step_0,
                                if(1, 1, 0) AS step_1,
-                               if(1, 1, 0) AS step_2
+                               0 AS step_2
               FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql_queries.insights.funnels.funnel_data_warehouse/posthog_test_salesforce_opportunity/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `close_date` Nullable(Date), `created_date` DateTime64(3, \'UTC\')') AS e
               WHERE and(and(greaterOrEquals(timestamp, toDateTime64('2024-05-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(timestamp, toDateTime64('2024-06-30 23:59:59.999999', 6, 'UTC'))), ifNull(equals(step_1, 1), 0))
               UNION ALL SELECT e.close_date AS timestamp,
@@ -397,7 +397,7 @@
                                NULL AS `$session_id`,
                                NULL AS `$window_id`,
                                0 AS step_0,
-                               if(1, 1, 0) AS step_1,
+                               0 AS step_1,
                                if(1, 1, 0) AS step_2
               FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql_queries.insights.funnels.funnel_data_warehouse/posthog_test_salesforce_opportunity/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `close_date` Nullable(Date), `created_date` DateTime64(3, \'UTC\')') AS e
               WHERE and(and(ifNull(greaterOrEquals(timestamp, toDateTime64('2024-05-01 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(timestamp, toDateTime64('2024-06-30 23:59:59.999999', 6, 'UTC')), 0)), ifNull(equals(step_2, 1), 0))) AS e)
