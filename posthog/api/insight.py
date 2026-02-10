@@ -1321,7 +1321,7 @@ When set, the specified dashboard's filters and date range override will be appl
 
         return Response([s.model_dump() for s in suggestions])
 
-    @action(methods=["POST"], detail=False)
+    @action(methods=["POST"], detail=False, required_scopes=["insight:write"])
     def generate_name(self, request: Request, **kwargs) -> Response:
         """Generate an AI-suggested name for an insight based on its query configuration."""
         query_data = request.data.get("query")
