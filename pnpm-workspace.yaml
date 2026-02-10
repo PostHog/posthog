@@ -17,7 +17,7 @@ packages:
 
 catalog:
     # Kea ecosystem - state management
-    kea: ^3.1.7
+    kea: ^4.0.0-pre.2
     kea-forms: ^3.2.0
     kea-loaders: ^3.1.1
     kea-localstorage: ^3.1.0
