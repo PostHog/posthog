@@ -157,8 +157,8 @@ class ExperimentToSavedMetric(models.Model):
     saved_metric = models.ForeignKey("ExperimentSavedMetric", on_delete=models.CASCADE)
 
     # Metadata for the saved metric at the time of the experiment creation
-    # has stuff like whether this metric is primary, and any other information
-    # we need for the metric, other than the query.
+    # has stuff like whether this metric is primary, it has breakdowns,
+    # and any other information we need for the metric, other than the query.
     metadata = models.JSONField(default=dict)
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
