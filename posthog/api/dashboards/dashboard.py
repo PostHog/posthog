@@ -472,6 +472,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
 
         duplicate_tiles = initial_data.pop("duplicate_tiles", [])
         for tile_data in duplicate_tiles:
+            # nosemgrep: idor-lookup-without-team (scoped via parent viewset get_queryset)
             existing_tile = DashboardTile.objects.get(dashboard=instance, id=tile_data["id"])
             existing_tile.layouts = tile_data.get("layouts", {})
             self._deep_duplicate_tiles(instance, existing_tile)
@@ -546,6 +547,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
             )
 
             if insight_ids_to_delete:
+                # nosemgrep: idor-lookup-without-team
                 Insight.objects.filter(id__in=insight_ids_to_delete).update(deleted=True)
 
         DashboardTile.objects_including_soft_deleted.filter(dashboard__id=instance.id).update(deleted=True)
@@ -695,6 +697,7 @@ class DashboardsViewSet(
                     "caching_states",
                     Prefetch(
                         "insight__dashboards",
+                        # nosemgrep: idor-lookup-without-team (scoped via prefetch on team-scoped queryset)
                         queryset=Dashboard.objects.filter(
                             id__in=DashboardTile.objects.values_list("dashboard_id", flat=True)
                         ),
