@@ -26,8 +26,8 @@ from posthog.temporal.common.client import async_connect
 from posthog.temporal.exports_video.workflow import VideoExportInputs, VideoExportWorkflow
 
 from ee.hogai.session_summaries.constants import (
-    DEFAULT_VIDEO_EXPORT_MIME_TYPE,
     EXPIRES_AFTER_DAYS,
+    FULL_VIDEO_EXPORT_FORMAT,
     MIN_SESSION_DURATION_FOR_VIDEO_SUMMARY_S,
 )
 from ee.hogai.session_summaries.tracking import capture_session_summary_timing
@@ -50,7 +50,7 @@ async def export_session_video_activity(inputs: VideoSummarySingleSessionInputs)
         existing_asset = (
             await ExportedAsset.objects.filter(
                 team_id=inputs.team_id,
-                export_format=DEFAULT_VIDEO_EXPORT_MIME_TYPE,
+                export_format=FULL_VIDEO_EXPORT_FORMAT,
                 export_context__session_recording_id=inputs.session_id,
             )
             .exclude(content_location__isnull=True, content__isnull=True)
@@ -105,8 +105,7 @@ async def export_session_video_activity(inputs: VideoSummarySingleSessionInputs)
         created_at = now()
         exported_asset = await ExportedAsset.objects.acreate(
             team_id=inputs.team_id,
-            # TODO: Use constant
-            export_format="video/mp4",
+            export_format=FULL_VIDEO_EXPORT_FORMAT,
             export_context={
                 "session_recording_id": inputs.session_id,
                 "timestamp": 0,  # Start from beginning

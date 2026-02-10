@@ -1,6 +1,7 @@
 """Tests for batch trace summarization workflow."""
 
 import uuid
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 
 import pytest
@@ -10,6 +11,11 @@ from posthog.temporal.llm_analytics.trace_summarization.models import BatchSumma
 from posthog.temporal.llm_analytics.trace_summarization.sampling import sample_items_in_window_activity
 from posthog.temporal.llm_analytics.trace_summarization.summarization import generate_and_save_summary_activity
 from posthog.temporal.llm_analytics.trace_summarization.workflow import BatchTraceSummarizationWorkflow
+
+
+@asynccontextmanager
+async def _noop_heartbeater(*args, **kwargs):
+    yield
 
 
 @pytest.fixture
@@ -70,9 +76,11 @@ def sample_trace_hierarchy(sample_trace_data):
     }
 
 
+@patch(
+    "posthog.temporal.llm_analytics.trace_summarization.sampling.Heartbeater",
+    _noop_heartbeater,
+)
 class TestSampleItemsInWindowActivity:
-    """Tests for sample_items_in_window_activity."""
-
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.asyncio
     async def test_sample_traces_success(self, mock_team):
@@ -96,6 +104,31 @@ class TestSampleItemsInWindowActivity:
             assert result[0].trace_id == "trace_0"
             assert result[0].generation_id is None
             assert result[49].trace_id == "trace_49"
+
+    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.asyncio
+    async def test_sample_traces_passes_size_filter(self, mock_team):
+        from posthog.temporal.llm_analytics.trace_summarization.constants import (
+            MAX_TRACE_EVENTS_LIMIT,
+            MAX_TRACE_PROPERTIES_SIZE,
+        )
+
+        inputs = BatchSummarizationInputs(
+            team_id=mock_team.id,
+            max_items=10,
+            window_minutes=60,
+            window_start="2025-01-15T11:00:00",
+            window_end="2025-01-15T12:00:00",
+        )
+
+        with patch("posthog.temporal.llm_analytics.trace_summarization.sampling.execute_hogql_query") as mock_execute:
+            mock_execute.return_value.results = []
+
+            await sample_items_in_window_activity(inputs)
+
+            placeholders = mock_execute.call_args.kwargs["placeholders"]
+            assert placeholders["max_events"].value == MAX_TRACE_EVENTS_LIMIT
+            assert placeholders["max_properties_size"].value == MAX_TRACE_PROPERTIES_SIZE
 
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.asyncio
@@ -123,6 +156,32 @@ class TestSampleItemsInWindowActivity:
 
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.asyncio
+    async def test_sample_generations_passes_size_filter(self, mock_team):
+        from posthog.temporal.llm_analytics.trace_summarization.constants import (
+            MAX_TRACE_EVENTS_LIMIT,
+            MAX_TRACE_PROPERTIES_SIZE,
+        )
+
+        inputs = BatchSummarizationInputs(
+            team_id=mock_team.id,
+            max_items=50,
+            analysis_level="generation",
+            window_minutes=60,
+            window_start="2025-01-15T11:00:00",
+            window_end="2025-01-15T12:00:00",
+        )
+
+        with patch("posthog.temporal.llm_analytics.trace_summarization.sampling.execute_hogql_query") as mock_execute:
+            mock_execute.return_value.results = []
+
+            await sample_items_in_window_activity(inputs)
+
+            placeholders = mock_execute.call_args.kwargs["placeholders"]
+            assert placeholders["max_events"].value == MAX_TRACE_EVENTS_LIMIT
+            assert placeholders["max_properties_size"].value == MAX_TRACE_PROPERTIES_SIZE
+
+    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.asyncio
     async def test_sample_items_empty(self, mock_team):
         inputs = BatchSummarizationInputs(
             team_id=mock_team.id,
@@ -140,13 +199,14 @@ class TestSampleItemsInWindowActivity:
             assert len(result) == 0
 
 
+@patch(
+    "posthog.temporal.llm_analytics.trace_summarization.summarization.Heartbeater",
+    _noop_heartbeater,
+)
 class TestGenerateSummaryActivity:
-    """Tests for generate_and_save_summary_activity."""
-
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.asyncio
     async def test_generate_and_save_summary_success(self, sample_trace_data, mock_team):
-        """Test successful summary generation and saving."""
         from posthog.schema import LLMTrace, LLMTracePerson
 
         from products.llm_analytics.backend.summarization.llm.schema import (
@@ -170,9 +230,7 @@ class TestGenerateSummaryActivity:
             patch(
                 "posthog.temporal.llm_analytics.trace_summarization.summarization.format_trace_text_repr"
             ) as mock_format,
-            patch(
-                "posthog.temporal.llm_analytics.trace_summarization.summarization.TraceQueryRunner"
-            ) as mock_runner_class,
+            patch("posthog.temporal.llm_analytics.trace_summarization.summarization.fetch_trace") as mock_fetch_trace,
             patch("posthog.temporal.llm_analytics.trace_summarization.summarization.create_event") as mock_create_event,
         ):
             mock_person = LLMTracePerson(
@@ -184,11 +242,11 @@ class TestGenerateSummaryActivity:
             mock_trace = LLMTrace(
                 id=sample_trace_data["trace_id"],
                 createdAt=sample_trace_data["trace_timestamp"],
+                distinctId="test_user",
                 events=[],
                 person=mock_person,
             )
-            mock_runner = mock_runner_class.return_value
-            mock_runner.calculate.return_value.results = [mock_trace]
+            mock_fetch_trace.return_value = mock_trace
 
             mock_to_format.return_value = ({"id": sample_trace_data["trace_id"], "properties": {}}, [])
             mock_format.return_value = ("L1: Test trace\nL2: Content", False)
@@ -232,9 +290,7 @@ class TestGenerateSummaryActivity:
             patch(
                 "posthog.temporal.llm_analytics.trace_summarization.summarization.format_trace_text_repr"
             ) as mock_format,
-            patch(
-                "posthog.temporal.llm_analytics.trace_summarization.summarization.TraceQueryRunner"
-            ) as mock_runner_class,
+            patch("posthog.temporal.llm_analytics.trace_summarization.summarization.fetch_trace") as mock_fetch_trace,
             patch("posthog.temporal.llm_analytics.trace_summarization.summarization.create_event"),
             patch(
                 "posthog.temporal.llm_analytics.trace_summarization.summarization.LLMTracesSummarizerEmbedder"
@@ -246,10 +302,11 @@ class TestGenerateSummaryActivity:
             mock_trace = LLMTrace(
                 id=sample_trace_data["trace_id"],
                 createdAt=sample_trace_data["trace_timestamp"],
+                distinctId="test",
                 events=[],
                 person=mock_person,
             )
-            mock_runner_class.return_value.calculate.return_value.results = [mock_trace]
+            mock_fetch_trace.return_value = mock_trace
             mock_to_format.return_value = ({}, [])
             mock_format.return_value = ("test", False)
             mock_summarize.return_value = mock_summary
@@ -286,9 +343,7 @@ class TestGenerateSummaryActivity:
             patch(
                 "posthog.temporal.llm_analytics.trace_summarization.summarization.format_trace_text_repr"
             ) as mock_format,
-            patch(
-                "posthog.temporal.llm_analytics.trace_summarization.summarization.TraceQueryRunner"
-            ) as mock_runner_class,
+            patch("posthog.temporal.llm_analytics.trace_summarization.summarization.fetch_trace") as mock_fetch_trace,
             patch("posthog.temporal.llm_analytics.trace_summarization.summarization.create_event"),
             patch(
                 "posthog.temporal.llm_analytics.trace_summarization.summarization.LLMTracesSummarizerEmbedder"
@@ -300,10 +355,11 @@ class TestGenerateSummaryActivity:
             mock_trace = LLMTrace(
                 id=sample_trace_data["trace_id"],
                 createdAt=sample_trace_data["trace_timestamp"],
+                distinctId="test",
                 events=[],
                 person=mock_person,
             )
-            mock_runner_class.return_value.calculate.return_value.results = [mock_trace]
+            mock_fetch_trace.return_value = mock_trace
             mock_to_format.return_value = ({}, [])
             mock_format.return_value = ("test", False)
             mock_summarize.return_value = mock_summary
@@ -335,7 +391,7 @@ class TestBatchTraceSummarizationWorkflow:
         assert inputs.team_id == 123
         assert inputs.analysis_level == "trace"
         assert inputs.max_items == 15
-        assert inputs.batch_size == 3
+        assert inputs.batch_size == 5
         assert inputs.mode == "detailed"
         assert inputs.window_minutes == 60
 

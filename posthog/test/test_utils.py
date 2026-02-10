@@ -279,6 +279,22 @@ class TestRelativeDateParse(TestCase):
             "2019-01-01",
         )
 
+    @parameterized.expand(
+        [
+            # 2020-01-31 is a Friday
+            # Sunday week start (default): week started on Sunday Jan 26
+            ("sunday_start", 0, "2020-01-26"),
+            # Monday week start: week started on Monday Jan 27
+            ("monday_start", 1, "2020-01-27"),
+        ]
+    )
+    @freeze_time("2020-01-31")
+    def test_week_start(self, _name, week_start_day, expected_date):
+        self.assertEqual(
+            relative_date_parse("wStart", ZoneInfo("UTC"), team_week_start_day=week_start_day).strftime("%Y-%m-%d"),
+            expected_date,
+        )
+
     @freeze_time("2020-01-31")
     def test_normal_date(self):
         self.assertEqual(

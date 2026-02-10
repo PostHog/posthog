@@ -58,12 +58,16 @@ from .sync_vectors import (
 from .video_segment_clustering.activities import (
     cluster_segments_activity,
     fetch_segments_activity,
+    get_sessions_to_prime_activity,
     label_clusters_activity,
     match_clusters_activity,
     persist_reports_activity,
-    prime_session_embeddings_activity,
 )
-from .video_segment_clustering.workflow import VideoSegmentClusteringWorkflow
+from .video_segment_clustering.clustering_workflow import VideoSegmentClusteringWorkflow
+from .video_segment_clustering.coordinator_workflow import (
+    VideoSegmentClusteringCoordinatorWorkflow,
+    get_proactive_tasks_enabled_team_ids_activity,
+)
 
 WORKFLOWS = [
     SyncVectorsWorkflow,
@@ -75,8 +79,9 @@ WORKFLOWS = [
     ResearchAgentWorkflow,
     SummarizeLLMTracesWorkflow,
     SlackConversationRunnerWorkflow,
-    # Video segment clustering workflow
+    # Video segment clustering workflows
     VideoSegmentClusteringWorkflow,
+    VideoSegmentClusteringCoordinatorWorkflow,
 ]
 
 ACTIVITIES = [
@@ -106,12 +111,13 @@ ACTIVITIES = [
     consolidate_video_segments_activity,
     capture_timing_activity,
     # Video segment clustering activities
-    prime_session_embeddings_activity,
+    get_sessions_to_prime_activity,
     fetch_segments_activity,
     cluster_segments_activity,
     match_clusters_activity,
     label_clusters_activity,
     persist_reports_activity,
+    get_proactive_tasks_enabled_team_ids_activity,
 ]
 
 __all__ = [

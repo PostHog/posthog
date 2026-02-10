@@ -34,7 +34,12 @@ from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSet
 from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, action
 from posthog.approvals.decorators import approval_gate
 from posthog.approvals.mixins import ApprovalHandlingMixin
-from posthog.auth import PersonalAPIKeyAuthentication, ProjectSecretAPIKeyAuthentication, TemporaryTokenAuthentication
+from posthog.auth import (
+    PersonalAPIKeyAuthentication,
+    ProjectSecretAPIKeyAuthentication,
+    SessionAuthentication,
+    TemporaryTokenAuthentication,
+)
 from posthog.constants import PRODUCT_TOUR_TARGETING_FLAG_PREFIX, SURVEY_TARGETING_FLAG_PREFIX, FlagRequestType
 from posthog.date_util import thirty_days_ago
 from posthog.event_usage import report_user_action
@@ -664,6 +669,12 @@ class FeatureFlagSerializer(
                         code="invalid_value",
                     )
 
+                if prop.operator in (PropertyOperator.IN_, PropertyOperator.NOT_IN) and prop.type != "cohort":
+                    raise serializers.ValidationError(
+                        detail=f"The '{prop.operator}' operator is only valid for cohort properties, not '{prop.type}' properties.",
+                        code="invalid_operator",
+                    )
+
         payloads = filters.get("payloads", {})
 
         if not isinstance(payloads, dict):
@@ -848,6 +859,11 @@ class FeatureFlagSerializer(
 
         analytics_metadata = instance.get_analytics_metadata()
         analytics_metadata["creation_context"] = creation_context
+        # SessionAuthentication is used for standard browser-based web UI requests.
+        # All other authentication methods (API keys, OAuth tokens, toolbar tokens, etc.)
+        # are classified as "api" for analytics purposes.
+        is_web_auth = isinstance(request.successful_authenticator, SessionAuthentication)
+        analytics_metadata["source"] = "web" if is_web_auth else "api"
         report_user_action(request.user, "feature flag created", analytics_metadata)
 
         return instance
@@ -1318,6 +1334,10 @@ class MyFlagsResponseSerializer(serializers.Serializer):
     value = serializers.JSONField()
 
 
+class MyFlagsResponseListSerializer(serializers.ListSerializer):
+    child = MyFlagsResponseSerializer()
+
+
 class LocalEvaluationResponseSerializer(serializers.Serializer):
     flags: serializers.ListSerializer = serializers.ListSerializer(child=MinimalFeatureFlagSerializer())
     group_type_mapping = serializers.DictField(child=serializers.CharField())
@@ -1743,7 +1763,7 @@ class FeatureFlagViewSet(
     @validated_request(
         query_serializer=MyFlagsQuerySerializer,
         responses={
-            200: OpenApiResponse(response=MyFlagsResponseSerializer(many=True)),
+            200: OpenApiResponse(response=MyFlagsResponseListSerializer),
         },
     )
     @action(methods=["GET"], detail=False, pagination_class=None)
