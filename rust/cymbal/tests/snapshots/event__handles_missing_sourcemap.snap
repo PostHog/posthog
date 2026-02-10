@@ -4,6 +4,7 @@ expression: exception_list.0
 ---
 [
   {
+    "id": "REDACTED",
     "type": "CustomError",
     "value": "Custom error message",
     "stacktrace": {
