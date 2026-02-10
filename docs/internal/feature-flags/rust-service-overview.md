@@ -1,6 +1,6 @@
 # Rust feature flags service
 
-The Rust feature flags service (`rust/feature-flags/`) handles all runtime feature flag evaluation. It serves the `/flags`, `/decide`, and `/flags/definitions` endpoints that SDKs call. Django remains the admin API for flag CRUD operations (`/api/projects/{id}/feature_flags/`).
+The Rust feature flags service (`rust/feature-flags/`) handles all runtime feature flag evaluation. It serves the `/flags` and `/decide` endpoints that SDKs call. Django remains the admin API for flag CRUD operations (`/api/projects/{id}/feature_flags/`) and serves the local evaluation endpoint (`/api/feature_flag/local_evaluation`).
 
 ## Infrastructure routing
 
@@ -17,7 +17,6 @@ Contour / Envoy (path-based routing)
   │
   ├── /decide/*              ──▶ posthog-feature-flags:3001  (Rust)
   ├── /flags/?               ──▶ posthog-feature-flags:3001  (Rust)
-  ├── /flags/definitions/?   ──▶ posthog-feature-flags:3001  (Rust)
   ├── /api/feature_flag/local_evaluation ──▶ posthog-local-evaluation:8000 (Django, dedicated deployment)
   ├── /api/*                 ──▶ posthog-web-django:8000     (Django, catch-all)
   └── /*                     ──▶ posthog-web-django:8000     (Django, final catch-all)
@@ -79,17 +78,17 @@ Routing config lives in the `charts` repo: `argocd/contour-ingress/values/values
 
 All routes are defined in `rust/feature-flags/src/router.rs`.
 
-| Route                | Method | Handler                               | Purpose                                                                                   |
-| -------------------- | ------ | ------------------------------------- | ----------------------------------------------------------------------------------------- |
-| `/flags`             | POST   | `endpoint::flags`                     | Feature flag evaluation (primary endpoint)                                                |
-| `/flags`             | GET    | `endpoint::flags`                     | Returns minimal response with empty flags                                                 |
-| `/decide`            | POST   | `endpoint::flags`                     | Same handler as `/flags`, response format varies via `X-Original-Endpoint: decide` header |
-| `/flags/definitions` | GET    | `flag_definitions::flags_definitions` | Flag definitions for local SDK evaluation (requires secret token or personal API key)     |
-| `/`                  | GET    | `index`                               | Returns `"feature flags"` (basic health check)                                            |
-| `/_readiness`        | GET    | `readiness`                           | Kubernetes readiness probe, tests all 4 DB pool connections                               |
-| `/_liveness`         | GET    | `liveness`                            | Kubernetes liveness probe, heartbeat-based                                                |
-| `/_startup`          | GET    | `startup`                             | Kubernetes startup probe, warms DB pools                                                  |
-| `/metrics`           | GET    | Prometheus                            | Metrics scrape endpoint (when `ENABLE_METRICS=true`)                                      |
+| Route                | Method | Handler                               | Purpose                                                                                                                  |
+| -------------------- | ------ | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `/flags`             | POST   | `endpoint::flags`                     | Feature flag evaluation (primary endpoint)                                                                               |
+| `/flags`             | GET    | `endpoint::flags`                     | Returns minimal response with empty flags                                                                                |
+| `/decide`            | POST   | `endpoint::flags`                     | Same handler as `/flags`, response format varies via `X-Original-Endpoint: decide` header                                |
+| `/flags/definitions` | GET    | `flag_definitions::flags_definitions` | **WIP, not routed in production.** Flag definitions for local SDK evaluation (requires secret token or personal API key) |
+| `/`                  | GET    | `index`                               | Returns `"feature flags"` (basic health check)                                                                           |
+| `/_readiness`        | GET    | `readiness`                           | Kubernetes readiness probe, tests all 4 DB pool connections                                                              |
+| `/_liveness`         | GET    | `liveness`                            | Kubernetes liveness probe, heartbeat-based                                                                               |
+| `/_startup`          | GET    | `startup`                             | Kubernetes startup probe, warms DB pools                                                                                 |
+| `/metrics`           | GET    | Prometheus                            | Metrics scrape endpoint (when `ENABLE_METRICS=true`)                                                                     |
 
 All flag routes accept trailing slashes.
 
@@ -118,9 +117,11 @@ The response format depends on the `v` query parameter and the endpoint:
 | `v=1`     | `/decide` | `DecideV1Response`: list of active flag keys                                                 |
 | `v=2`     | `/decide` | `DecideV2Response`: flat `feature_flags: { key: value }` map                                 |
 
-### `/flags/definitions` endpoint
+### `/flags/definitions` endpoint (WIP)
 
-Serves flag definitions for SDKs that evaluate flags locally (server-side SDKs). Requires authentication via:
+**Not live in production.** This endpoint is work in progress and is not routed by Contour. Local evaluation is currently served by Django at `/api/feature_flag/local_evaluation` (see [Django API endpoints](django-api-endpoints.md)).
+
+Once live, it will serve flag definitions for SDKs that evaluate flags locally (server-side SDKs). Requires authentication via:
 
 - Team secret API token (`Authorization: Bearer phx_...`), or
 - Personal API key with `feature_flag:read` scope
