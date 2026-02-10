@@ -11,7 +11,7 @@ if TYPE_CHECKING:
 def get_blocked_resource_ids(resource: str, context: "HogQLContext") -> set[str]:
     """
     Get the set of resource IDs that should be blocked for this user.
-    Uses the existing UserAccessControl logic to determine access.
+    Highest access level from object default, role, or member entries applies.
     """
     from posthog.models import OrganizationMembership
     from posthog.rbac.user_access_control import NO_ACCESS_LEVEL
@@ -19,46 +19,26 @@ def get_blocked_resource_ids(resource: str, context: "HogQLContext") -> set[str]
     if not context.database or not context.database._user_access_control:
         return set()
 
-    user_access_control = context.database._user_access_control
+    uac = context.database._user_access_control
 
-    org_membership = user_access_control._organization_membership
+    # Org admins see everything
+    org_membership = uac._organization_membership
     if org_membership and org_membership.level >= OrganizationMembership.Level.ADMIN:
         return set()
 
-    # Get the access controls filters for this resource
-    filters = user_access_control._access_controls_filters_for_queryset(resource)
-    access_controls = user_access_control._get_access_controls(filters)
+    # Get object-level access control entries
+    filters = uac._access_controls_filters_for_queryset(resource)
+    access_controls = uac._get_access_controls(filters)
 
-    blocked_resource_ids: set[str] = set()
-    resource_id_access_levels: dict[str, list[str]] = {}
+    # Block resource_ids where the highest access is "none"
+    access_by_id: dict[str, list[str]] = {}
+    for ac in access_controls:
+        if ac.resource_id:
+            access_by_id.setdefault(ac.resource_id, []).append(ac.access_level)
 
-    for access_control in access_controls:
-        if access_control.resource_id:
-            resource_id_access_levels.setdefault(access_control.resource_id, []).append(access_control.access_level)
-
-    for resource_id, access_levels in resource_id_access_levels.items():
-        # Get the access controls for this specific resource_id to check role/member
-        resource_access_controls = [ac for ac in access_controls if ac.resource_id == resource_id]
-
-        # Only consider access controls that have explicit role or member (not defaults)
-        explicit_access_controls = [
-            ac for ac in resource_access_controls if ac.role is not None or ac.organization_member is not None
-        ]
-
-        if not explicit_access_controls:
-            if all(access_level == NO_ACCESS_LEVEL for access_level in access_levels):
-                blocked_resource_ids.add(resource_id)
-            # No explicit controls for this object - don't block it
-            continue
-
-        # Check if user has any non-"none" access to this specific object
-        has_specific_access = any(ac.access_level != NO_ACCESS_LEVEL for ac in explicit_access_controls)
-
-        if not has_specific_access:
-            # All explicit access levels are "none" - block this object
-            blocked_resource_ids.add(resource_id)
-
-    return blocked_resource_ids
+    return {
+        resource_id for resource_id, levels in access_by_id.items() if all(level == NO_ACCESS_LEVEL for level in levels)
+    }
 
 
 def build_access_control_guard(
@@ -72,16 +52,14 @@ def build_access_control_guard(
     """
     resource = SYSTEM_TABLE_TO_RESOURCE.get(table.name)
     if not resource:
-        return None  # Not access-controlled
+        return None
 
-    # Get blocked IDs for this resource
     blocked_ids = get_blocked_resource_ids(resource, context)
 
     if not blocked_ids:
-        return None  # No blocked IDs, no filtering needed
+        return None
 
-    # Build: toString(id) NOT IN (blocked_ids)
-    # We convert id to string because AccessControl stores resource_id as string
+    # Example: `toString(id) NOT IN (id_1, id_2, ...)`
     return ast.CompareOperation(
         op=ast.CompareOperationOp.NotIn,
         left=ast.Call(
