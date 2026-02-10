@@ -44,10 +44,7 @@ describe('ticketUtils', () => {
             },
             {
                 description: 'returns true when AI mentions "support ticket"',
-                thread: [
-                    createHumanMessage('I need help'),
-                    createAIMessage('I can help you create a support ticket'),
-                ],
+                thread: [createHumanMessage('I need help'), createAIMessage('I can help you create a support ticket')],
                 expected: true,
             },
             {
@@ -60,10 +57,7 @@ describe('ticketUtils', () => {
             },
             {
                 description: 'returns true when AI mentions "support team"',
-                thread: [
-                    createHumanMessage('help'),
-                    createAIMessage('I recommend reaching out to the support team'),
-                ],
+                thread: [createHumanMessage('help'), createAIMessage('I recommend reaching out to the support team')],
                 expected: true,
             },
             {
@@ -85,10 +79,7 @@ describe('ticketUtils', () => {
             },
             {
                 description: 'matches case-insensitively',
-                thread: [
-                    createHumanMessage('help'),
-                    createAIMessage('You should Contact Support about this'),
-                ],
+                thread: [createHumanMessage('help'), createAIMessage('You should Contact Support about this')],
                 expected: true,
             },
             {

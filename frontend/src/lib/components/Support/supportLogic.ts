@@ -701,7 +701,12 @@ export const supportLogic = kea<supportLogicType>([
                 request: {
                     requester: { name: name, email: email },
                     subject: subject,
-                    tags: [planLevelTag, accountOwnerTag, ...(tags || []), ...(aiConversationData ? [aiConversationData.tag] : [])],
+                    tags: [
+                        planLevelTag,
+                        accountOwnerTag,
+                        ...(tags || []),
+                        ...(aiConversationData ? [aiConversationData.tag] : []),
+                    ],
                     custom_fields: [
                         {
                             id: 22084126888475,
