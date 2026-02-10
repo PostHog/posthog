@@ -336,6 +336,11 @@ class TestFunnelDataWarehouse(ClickhouseTestMixin, BaseTest):
         assert results[2]["count"] == 2
 
     def test_funnels_same_data_warehouse_table_different_timestamp_fields(self):
+        """
+        Steps with the same table but different configurations (in this example, a different timestamp
+        field) must not cross-match. Repeated created_date rows with null close_date should never count
+        as completing step 2.
+        """
         opportunity_table_name = self.setup_salesforce_opportunity_repeated_created_date_data_warehouse()
 
         funnels_query = FunnelsQuery(
