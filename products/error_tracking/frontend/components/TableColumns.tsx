@@ -6,6 +6,7 @@ import { LemonCheckbox, LemonSkeleton, Link } from '@posthog/lemon-ui'
 
 import { getRuntimeFromLib } from 'lib/components/Errors/utils'
 import { TZLabel } from 'lib/components/TZLabel'
+import { Params } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { ErrorTrackingCorrelatedIssue, ErrorTrackingIssue } from '~/queries/schema/schema-general'
@@ -75,7 +76,7 @@ export const IssueListTitleColumn = <T extends ErrorTrackingIssue | ErrorTrackin
     }
 
     const issueUrl = useMemo(() => {
-        const params = {}
+        const params: Params = {}
         // We want to keep params in sync between listing and details views
         updateFilterSearchParams(params, { dateRange, filterGroup, filterTestAccounts, searchQuery })
         return urls.errorTrackingIssue(record.id, {
