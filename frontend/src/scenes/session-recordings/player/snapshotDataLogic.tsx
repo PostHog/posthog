@@ -41,7 +41,7 @@ function getBlobIndexForTimestamp(snapshotSources: SessionRecordingSnapshotSourc
         const source = snapshotSources[i]
         const startTs = source.start_timestamp ? new Date(source.start_timestamp).getTime() : null
         const endTs = source.end_timestamp ? new Date(source.end_timestamp).getTime() : null
-        if (startTs && endTs && timestamp >= startTs && timestamp <= endTs) {
+        if (startTs !== null && endTs !== null && timestamp >= startTs && timestamp <= endTs) {
             return i
         }
     }
