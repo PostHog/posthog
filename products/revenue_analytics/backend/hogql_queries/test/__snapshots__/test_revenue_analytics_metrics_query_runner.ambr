@@ -100,7 +100,9 @@
      GROUP BY revenue_analytics_subscription.customer_id,
               breakdown_by,
               period_start
-     ORDER BY revenue_analytics_subscription.customer_id ASC, breakdown_by ASC, period_start ASC) AS subquery
+     ORDER BY revenue_analytics_subscription.customer_id ASC,
+              breakdown_by ASC,
+              period_start ASC) AS subquery
   GROUP BY subquery.breakdown_by,
            subquery.period_start
   ORDER BY subquery.breakdown_by ASC,
@@ -175,7 +177,9 @@
      GROUP BY revenue_analytics_subscription.customer_id,
               breakdown_by,
               period_start
-     ORDER BY revenue_analytics_subscription.customer_id ASC, breakdown_by ASC, period_start ASC) AS subquery
+     ORDER BY revenue_analytics_subscription.customer_id ASC,
+              breakdown_by ASC,
+              period_start ASC) AS subquery
   GROUP BY subquery.breakdown_by,
            subquery.period_start
   ORDER BY subquery.breakdown_by ASC,
@@ -297,7 +301,9 @@
      GROUP BY revenue_analytics_subscription.customer_id,
               breakdown_by,
               period_start
-     ORDER BY revenue_analytics_subscription.customer_id ASC, breakdown_by ASC, period_start ASC) AS subquery
+     ORDER BY revenue_analytics_subscription.customer_id ASC,
+              breakdown_by ASC,
+              period_start ASC) AS subquery
   GROUP BY subquery.breakdown_by,
            subquery.period_start
   ORDER BY subquery.breakdown_by ASC,
@@ -423,7 +429,9 @@
      GROUP BY revenue_analytics_subscription.customer_id,
               breakdown_by,
               period_start
-     ORDER BY revenue_analytics_subscription.customer_id ASC, breakdown_by ASC, period_start ASC) AS subquery
+     ORDER BY revenue_analytics_subscription.customer_id ASC,
+              breakdown_by ASC,
+              period_start ASC) AS subquery
   GROUP BY subquery.breakdown_by,
            subquery.period_start
   ORDER BY subquery.breakdown_by ASC,
@@ -597,7 +605,9 @@
      GROUP BY revenue_analytics_subscription.customer_id,
               breakdown_by,
               period_start
-     ORDER BY revenue_analytics_subscription.customer_id ASC, breakdown_by ASC, period_start ASC) AS subquery
+     ORDER BY revenue_analytics_subscription.customer_id ASC,
+              breakdown_by ASC,
+              period_start ASC) AS subquery
   GROUP BY subquery.breakdown_by,
            subquery.period_start
   ORDER BY subquery.breakdown_by ASC,
@@ -746,7 +756,9 @@
      GROUP BY revenue_analytics_subscription.customer_id,
               breakdown_by,
               period_start
-     ORDER BY revenue_analytics_subscription.customer_id ASC, breakdown_by ASC, period_start ASC) AS subquery
+     ORDER BY revenue_analytics_subscription.customer_id ASC,
+              breakdown_by ASC,
+              period_start ASC) AS subquery
   GROUP BY subquery.breakdown_by,
            subquery.period_start
   ORDER BY subquery.breakdown_by ASC,
@@ -867,7 +879,9 @@
      GROUP BY revenue_analytics_subscription.customer_id,
               breakdown_by,
               period_start
-     ORDER BY revenue_analytics_subscription.customer_id ASC, breakdown_by ASC, period_start ASC) AS subquery
+     ORDER BY revenue_analytics_subscription.customer_id ASC,
+              breakdown_by ASC,
+              period_start ASC) AS subquery
   GROUP BY subquery.breakdown_by,
            subquery.period_start
   ORDER BY subquery.breakdown_by ASC,
@@ -992,7 +1006,9 @@
      GROUP BY revenue_analytics_subscription.customer_id,
               breakdown_by,
               period_start
-     ORDER BY revenue_analytics_subscription.customer_id ASC, breakdown_by ASC, period_start ASC) AS subquery
+     ORDER BY revenue_analytics_subscription.customer_id ASC,
+              breakdown_by ASC,
+              period_start ASC) AS subquery
   GROUP BY subquery.breakdown_by,
            subquery.period_start
   ORDER BY subquery.breakdown_by ASC,
@@ -1113,7 +1129,9 @@
      GROUP BY revenue_analytics_subscription.customer_id,
               breakdown_by,
               period_start
-     ORDER BY revenue_analytics_subscription.customer_id ASC, breakdown_by ASC, period_start ASC) AS subquery
+     ORDER BY revenue_analytics_subscription.customer_id ASC,
+              breakdown_by ASC,
+              period_start ASC) AS subquery
   GROUP BY subquery.breakdown_by,
            subquery.period_start
   ORDER BY subquery.breakdown_by ASC,
@@ -1238,7 +1256,9 @@
      GROUP BY revenue_analytics_subscription.customer_id,
               breakdown_by,
               period_start
-     ORDER BY revenue_analytics_subscription.customer_id ASC, breakdown_by ASC, period_start ASC) AS subquery
+     ORDER BY revenue_analytics_subscription.customer_id ASC,
+              breakdown_by ASC,
+              period_start ASC) AS subquery
   GROUP BY subquery.breakdown_by,
            subquery.period_start
   ORDER BY subquery.breakdown_by ASC,
@@ -1368,7 +1388,9 @@
      GROUP BY revenue_analytics_subscription.customer_id,
               breakdown_by,
               period_start
-     ORDER BY revenue_analytics_subscription.customer_id ASC, breakdown_by ASC, period_start ASC) AS subquery
+     ORDER BY revenue_analytics_subscription.customer_id ASC,
+              breakdown_by ASC,
+              period_start ASC) AS subquery
   GROUP BY subquery.breakdown_by,
            subquery.period_start
   ORDER BY subquery.breakdown_by ASC,
@@ -1498,7 +1520,9 @@
      GROUP BY revenue_analytics_subscription.customer_id,
               breakdown_by,
               period_start
-     ORDER BY revenue_analytics_subscription.customer_id ASC, breakdown_by ASC, period_start ASC) AS subquery
+     ORDER BY revenue_analytics_subscription.customer_id ASC,
+              breakdown_by ASC,
+              period_start ASC) AS subquery
   GROUP BY subquery.breakdown_by,
            subquery.period_start
   ORDER BY subquery.breakdown_by ASC,
@@ -1619,7 +1643,9 @@
      GROUP BY revenue_analytics_subscription.customer_id,
               breakdown_by,
               period_start
-     ORDER BY revenue_analytics_subscription.customer_id ASC, breakdown_by ASC, period_start ASC) AS subquery
+     ORDER BY revenue_analytics_subscription.customer_id ASC,
+              breakdown_by ASC,
+              period_start ASC) AS subquery
   GROUP BY subquery.breakdown_by,
            subquery.period_start
   ORDER BY subquery.breakdown_by ASC,
@@ -1744,7 +1770,9 @@
      GROUP BY revenue_analytics_subscription.customer_id,
               breakdown_by,
               period_start
-     ORDER BY revenue_analytics_subscription.customer_id ASC, breakdown_by ASC, period_start ASC) AS subquery
+     ORDER BY revenue_analytics_subscription.customer_id ASC,
+              breakdown_by ASC,
+              period_start ASC) AS subquery
   GROUP BY subquery.breakdown_by,
            subquery.period_start
   ORDER BY subquery.breakdown_by ASC,
@@ -1865,7 +1893,9 @@
      GROUP BY revenue_analytics_subscription.customer_id,
               breakdown_by,
               period_start
-     ORDER BY revenue_analytics_subscription.customer_id ASC, breakdown_by ASC, period_start ASC) AS subquery
+     ORDER BY revenue_analytics_subscription.customer_id ASC,
+              breakdown_by ASC,
+              period_start ASC) AS subquery
   GROUP BY subquery.breakdown_by,
            subquery.period_start
   ORDER BY subquery.breakdown_by ASC,
@@ -1990,7 +2020,9 @@
      GROUP BY revenue_analytics_subscription.customer_id,
               breakdown_by,
               period_start
-     ORDER BY revenue_analytics_subscription.customer_id ASC, breakdown_by ASC, period_start ASC) AS subquery
+     ORDER BY revenue_analytics_subscription.customer_id ASC,
+              breakdown_by ASC,
+              period_start ASC) AS subquery
   GROUP BY subquery.breakdown_by,
            subquery.period_start
   ORDER BY subquery.breakdown_by ASC,
@@ -2112,7 +2144,9 @@
      GROUP BY revenue_analytics_subscription.customer_id,
               breakdown_by,
               period_start
-     ORDER BY revenue_analytics_subscription.customer_id ASC, breakdown_by ASC, period_start ASC) AS subquery
+     ORDER BY revenue_analytics_subscription.customer_id ASC,
+              breakdown_by ASC,
+              period_start ASC) AS subquery
   GROUP BY subquery.breakdown_by,
            subquery.period_start
   ORDER BY subquery.breakdown_by ASC,
@@ -2238,7 +2272,9 @@
      GROUP BY revenue_analytics_subscription.customer_id,
               breakdown_by,
               period_start
-     ORDER BY revenue_analytics_subscription.customer_id ASC, breakdown_by ASC, period_start ASC) AS subquery
+     ORDER BY revenue_analytics_subscription.customer_id ASC,
+              breakdown_by ASC,
+              period_start ASC) AS subquery
   GROUP BY subquery.breakdown_by,
            subquery.period_start
   ORDER BY subquery.breakdown_by ASC,
@@ -2360,7 +2396,9 @@
      GROUP BY revenue_analytics_subscription.customer_id,
               breakdown_by,
               period_start
-     ORDER BY revenue_analytics_subscription.customer_id ASC, breakdown_by ASC, period_start ASC) AS subquery
+     ORDER BY revenue_analytics_subscription.customer_id ASC,
+              breakdown_by ASC,
+              period_start ASC) AS subquery
   GROUP BY subquery.breakdown_by,
            subquery.period_start
   ORDER BY subquery.breakdown_by ASC,
@@ -2486,7 +2524,9 @@
      GROUP BY revenue_analytics_subscription.customer_id,
               breakdown_by,
               period_start
-     ORDER BY revenue_analytics_subscription.customer_id ASC, breakdown_by ASC, period_start ASC) AS subquery
+     ORDER BY revenue_analytics_subscription.customer_id ASC,
+              breakdown_by ASC,
+              period_start ASC) AS subquery
   GROUP BY subquery.breakdown_by,
            subquery.period_start
   ORDER BY subquery.breakdown_by ASC,
@@ -2608,7 +2648,9 @@
      GROUP BY revenue_analytics_subscription.customer_id,
               breakdown_by,
               period_start
-     ORDER BY revenue_analytics_subscription.customer_id ASC, breakdown_by ASC, period_start ASC) AS subquery
+     ORDER BY revenue_analytics_subscription.customer_id ASC,
+              breakdown_by ASC,
+              period_start ASC) AS subquery
   GROUP BY subquery.breakdown_by,
            subquery.period_start
   ORDER BY subquery.breakdown_by ASC,
@@ -2734,7 +2776,9 @@
      GROUP BY revenue_analytics_subscription.customer_id,
               breakdown_by,
               period_start
-     ORDER BY revenue_analytics_subscription.customer_id ASC, breakdown_by ASC, period_start ASC) AS subquery
+     ORDER BY revenue_analytics_subscription.customer_id ASC,
+              breakdown_by ASC,
+              period_start ASC) AS subquery
   GROUP BY subquery.breakdown_by,
            subquery.period_start
   ORDER BY subquery.breakdown_by ASC,
@@ -2856,7 +2900,9 @@
      GROUP BY revenue_analytics_subscription.customer_id,
               breakdown_by,
               period_start
-     ORDER BY revenue_analytics_subscription.customer_id ASC, breakdown_by ASC, period_start ASC) AS subquery
+     ORDER BY revenue_analytics_subscription.customer_id ASC,
+              breakdown_by ASC,
+              period_start ASC) AS subquery
   GROUP BY subquery.breakdown_by,
            subquery.period_start
   ORDER BY subquery.breakdown_by ASC,
@@ -2982,7 +3028,9 @@
      GROUP BY revenue_analytics_subscription.customer_id,
               breakdown_by,
               period_start
-     ORDER BY revenue_analytics_subscription.customer_id ASC, breakdown_by ASC, period_start ASC) AS subquery
+     ORDER BY revenue_analytics_subscription.customer_id ASC,
+              breakdown_by ASC,
+              period_start ASC) AS subquery
   GROUP BY subquery.breakdown_by,
            subquery.period_start
   ORDER BY subquery.breakdown_by ASC,
@@ -3114,7 +3162,9 @@
      GROUP BY revenue_analytics_subscription.customer_id,
               breakdown_by,
               period_start
-     ORDER BY revenue_analytics_subscription.customer_id ASC, breakdown_by ASC, period_start ASC) AS subquery
+     ORDER BY revenue_analytics_subscription.customer_id ASC,
+              breakdown_by ASC,
+              period_start ASC) AS subquery
   GROUP BY subquery.breakdown_by,
            subquery.period_start
   ORDER BY subquery.breakdown_by ASC,
@@ -3246,7 +3296,9 @@
      GROUP BY revenue_analytics_subscription.customer_id,
               breakdown_by,
               period_start
-     ORDER BY revenue_analytics_subscription.customer_id ASC, breakdown_by ASC, period_start ASC) AS subquery
+     ORDER BY revenue_analytics_subscription.customer_id ASC,
+              breakdown_by ASC,
+              period_start ASC) AS subquery
   GROUP BY subquery.breakdown_by,
            subquery.period_start
   ORDER BY subquery.breakdown_by ASC,
@@ -3377,7 +3429,9 @@
      GROUP BY revenue_analytics_subscription.customer_id,
               breakdown_by,
               period_start
-     ORDER BY revenue_analytics_subscription.customer_id ASC, breakdown_by ASC, period_start ASC) AS subquery
+     ORDER BY revenue_analytics_subscription.customer_id ASC,
+              breakdown_by ASC,
+              period_start ASC) AS subquery
   GROUP BY subquery.breakdown_by,
            subquery.period_start
   ORDER BY subquery.breakdown_by ASC,
@@ -3508,7 +3562,9 @@
      GROUP BY revenue_analytics_subscription.customer_id,
               breakdown_by,
               period_start
-     ORDER BY revenue_analytics_subscription.customer_id ASC, breakdown_by ASC, period_start ASC) AS subquery
+     ORDER BY revenue_analytics_subscription.customer_id ASC,
+              breakdown_by ASC,
+              period_start ASC) AS subquery
   GROUP BY subquery.breakdown_by,
            subquery.period_start
   ORDER BY subquery.breakdown_by ASC,
@@ -3639,7 +3695,9 @@
      GROUP BY revenue_analytics_subscription.customer_id,
               breakdown_by,
               period_start
-     ORDER BY revenue_analytics_subscription.customer_id ASC, breakdown_by ASC, period_start ASC) AS subquery
+     ORDER BY revenue_analytics_subscription.customer_id ASC,
+              breakdown_by ASC,
+              period_start ASC) AS subquery
   GROUP BY subquery.breakdown_by,
            subquery.period_start
   ORDER BY subquery.breakdown_by ASC,
@@ -3770,7 +3828,9 @@
      GROUP BY revenue_analytics_subscription.customer_id,
               breakdown_by,
               period_start
-     ORDER BY revenue_analytics_subscription.customer_id ASC, breakdown_by ASC, period_start ASC) AS subquery
+     ORDER BY revenue_analytics_subscription.customer_id ASC,
+              breakdown_by ASC,
+              period_start ASC) AS subquery
   GROUP BY subquery.breakdown_by,
            subquery.period_start
   ORDER BY subquery.breakdown_by ASC,

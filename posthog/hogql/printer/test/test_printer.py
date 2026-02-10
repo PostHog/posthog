@@ -55,6 +55,7 @@ from posthog.clickhouse.client.execute import sync_execute
 from posthog.models import PropertyDefinition
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DICTIONARY_NAME
+from posthog.models.property_definition import PropertyType
 from posthog.models.team.team import WeekStartDay
 from posthog.settings.data_stores import CLICKHOUSE_DATABASE
 
@@ -2571,34 +2572,72 @@ class TestPrinter(BaseTest):
 
     def test_get_survey_response(self):
         # Test with just question index (0) - dynamic key
-        printed = self._print(
-            "select getSurveyResponse(0) from events",
-            settings=HogQLGlobalSettings(max_execution_time=10),
+        result = execute_hogql_query(
+            team=self.team,
+            query="SELECT getSurveyResponse(0) FROM events",
         )
+        assert result.clickhouse is not None
         # Dynamic key (no question_id) uses concat for key construction
-        self.assertIn("coalesce", printed)
-        self.assertIn("nullIf", printed)
-        self.assertIn("concat", printed)
+        self.assertIn("coalesce", result.clickhouse)
+        self.assertIn("nullIf", result.clickhouse)
+        self.assertIn("concat", result.clickhouse)
+        # Always uses JSONExtractString for consistent String return type
+        self.assertIn("JSONExtractString", result.clickhouse)
 
-        # Test with question index and specific ID - static key uses ast.Field
-        printed = self._print(
-            "select getSurveyResponse(1, 'question123') from events",
-            settings=HogQLGlobalSettings(max_execution_time=10),
+        # Test with question index and specific ID - static key
+        result = execute_hogql_query(
+            team=self.team,
+            query="SELECT getSurveyResponse(1, 'question123') FROM events",
         )
-        # Static key uses ast.Field which resolves to JSONExtractRaw (enables materialization)
-        self.assertIn("coalesce", printed)
-        self.assertIn("nullIf", printed)
-        self.assertIn("JSONExtractRaw", printed)
+        assert result.clickhouse is not None
+        # Static key also uses JSONExtractString for type consistency
+        self.assertIn("coalesce", result.clickhouse)
+        self.assertIn("nullIf", result.clickhouse)
+        self.assertIn("JSONExtractString", result.clickhouse)
 
         # Test with multiple choice question
-        printed = self._print(
-            "select getSurveyResponse(2, 'abc123', true) from events",
-            settings=HogQLGlobalSettings(max_execution_time=10),
+        result = execute_hogql_query(
+            team=self.team,
+            query="SELECT getSurveyResponse(2, 'abc123', true) FROM events",
         )
+        assert result.clickhouse is not None
         # Multiple choice uses if() with JSONHas and JSONExtractArrayRaw
-        self.assertIn("JSONHas", printed)
-        self.assertIn("JSONExtractArrayRaw", printed)
-        self.assertIn("if(", printed)
+        self.assertIn("JSONHas", result.clickhouse)
+        self.assertIn("JSONExtractArrayRaw", result.clickhouse)
+        self.assertIn("if(", result.clickhouse)
+
+    def test_get_survey_response_with_numeric_property_type(self):
+        """Test that getSurveyResponse returns consistent types even when property has Numeric type.
+
+        Regression test for a bug where PropertySwapper would wrap the index-based
+        property access with toFloat() when $survey_response had type=Numeric in
+        PropertyDefinition, causing a ClickHouse type mismatch error:
+        "There is no supertype for types String, Float64"
+        """
+        PropertyDefinition.objects.create(
+            team=self.team,
+            project_id=self.team.project_id,
+            name="$survey_response",
+            property_type=PropertyType.Numeric,
+            type=PropertyDefinition.Type.EVENT,
+        )
+
+        # This should NOT raise a ClickHouse error about type mismatch
+        # Before the fix, this would fail with:
+        # "There is no supertype for types String, Float64 because some of them
+        # are String/FixedString/Enum and some of them are not"
+        result = execute_hogql_query(
+            team=self.team,
+            query="SELECT getSurveyResponse(0) FROM events",
+        )
+
+        # Query should execute successfully (even with no results)
+        assert result.clickhouse is not None
+        # Both branches of coalesce should return String type (via JSONExtractString)
+        self.assertIn("JSONExtractString", result.clickhouse)
+        # Should NOT contain Float64 casting which would cause type mismatch
+        self.assertNotIn("accurateCastOrNull", result.clickhouse)
+        self.assertNotIn("Float64", result.clickhouse)
 
     def test_unique_survey_submissions_filter(self):
         printed = self._print(

@@ -204,14 +204,19 @@ export const filterNotAuthorizedUrls = (
     const suggestedDomains: SuggestedDomain[] = []
 
     suggestions.forEach(({ url, count }) => {
-        const parsedUrl = sanitizePossibleWildCardedURL(url)
-        const urlWithoutPath = parsedUrl.protocol + '//' + parsedUrl.host
+        let urlWithoutPath: string
+        try {
+            const parsedUrl = sanitizePossibleWildCardedURL(url)
+            urlWithoutPath = parsedUrl.protocol + '//' + parsedUrl.host
+        } catch {
+            urlWithoutPath = url
+        }
         // Have we already added this domain?
         if (suggestedDomains.some((sd) => sd.url === urlWithoutPath)) {
             return
         }
 
-        if (!checkUrlIsAuthorized(parsedUrl, authorizedUrls)) {
+        if (!checkUrlIsAuthorized(urlWithoutPath, authorizedUrls)) {
             suggestedDomains.push({ url: urlWithoutPath, count })
         }
     })

@@ -31,6 +31,17 @@ const mockProviderKeys: LLMProviderKey[] = [
         created_by: null,
         last_used_at: null,
     },
+    {
+        id: 'key-3',
+        provider: 'openrouter',
+        name: 'OpenRouter Key',
+        state: 'ok',
+        error_message: null,
+        api_key_masked: 'sk-or-...9012',
+        created_at: '2024-01-03T00:00:00Z',
+        created_by: null,
+        last_used_at: null,
+    },
 ]
 
 const mockEvaluation: EvaluationConfig = {
@@ -261,6 +272,8 @@ describe('llmEvaluationLogic', () => {
                 expect(byProvider.anthropic).toHaveLength(1)
                 expect(byProvider.anthropic[0].id).toBe('key-2')
                 expect(byProvider.gemini).toHaveLength(0)
+                expect(byProvider.openrouter).toHaveLength(1)
+                expect(byProvider.openrouter[0].id).toBe('key-3')
             })
         })
 

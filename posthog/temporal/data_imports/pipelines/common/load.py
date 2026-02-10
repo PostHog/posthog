@@ -6,6 +6,7 @@ import pyarrow as pa
 import pyarrow.compute as pc
 from structlog.types import FilteringBoundLogger
 
+from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.data_imports.pipelines.pipeline.utils import normalize_column_name
 
 from products.data_warehouse.backend.models.external_data_job import ExternalDataJob
@@ -13,9 +14,11 @@ from products.data_warehouse.backend.models.external_data_schema import External
 from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
-def update_job_row_count(job_id: str, count: int, logger: FilteringBoundLogger) -> None:
-    logger.debug(f"Updating rows_synced with +{count}")
-    ExternalDataJob.objects.filter(id=job_id).update(rows_synced=F("rows_synced") + count)
+async def update_job_row_count(job_id: str, count: int, logger: FilteringBoundLogger) -> None:
+    await logger.adebug(f"Updating rows_synced with +{count}")
+    await database_sync_to_async_pool(
+        lambda: ExternalDataJob.objects.filter(id=job_id).update(rows_synced=F("rows_synced") + count)
+    )()
 
 
 def get_incremental_field_value(

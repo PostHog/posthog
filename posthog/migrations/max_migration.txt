@@ -1,1 +1,1 @@
-0998_team_proactive_tasks_enabled
+1001_fix_person_property_in_operator

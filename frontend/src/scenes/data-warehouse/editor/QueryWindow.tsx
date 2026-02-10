@@ -11,9 +11,11 @@ import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { Link } from 'lib/lemon-ui/Link'
 import { IconCancel } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -25,6 +27,7 @@ import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogi
 import { OutputPane } from './OutputPane'
 import { QueryHistoryModal } from './QueryHistoryModal'
 import { QueryPane } from './QueryPane'
+import { QueryVariablesMenu } from './QueryVariablesMenu'
 import { FixErrorButton } from './components/FixErrorButton'
 import { draftsLogic } from './draftsLogic'
 import { multitabEditorLogic } from './multitabEditorLogic'
@@ -60,6 +63,9 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
     const { updatingDataWarehouseSavedQuery } = useValues(dataWarehouseViewsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
+    const vimModeFeatureEnabled = useFeatureFlag('SQL_EDITOR_VIM_MODE')
+    const { editorVimModeEnabled } = useValues(userPreferencesLogic)
+    const { setEditorVimModeEnabled } = useActions(userPreferencesLogic)
     const [editingViewDisabledReason, EditingViewButtonIcon] = useMemo(() => {
         if (updatingDataWarehouseSavedQuery) {
             return ['Saving...', Spinner]
@@ -242,11 +248,21 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
                     </>
                 )}
                 <FixErrorButton type="tertiary" size="xsmall" source="action-bar" />
-                {isRemovingSidePanelFlag && (
-                    <div className="ml-auto -mr-2">
-                        <SceneTitlePanelButton />
-                    </div>
-                )}
+                <div className="ml-auto flex items-center gap-1">
+                    <QueryVariablesMenu
+                        disabledReason={editingView ? 'Variables are not allowed in views.' : undefined}
+                    />
+                    {vimModeFeatureEnabled && (
+                        <LemonSwitch
+                            checked={editorVimModeEnabled}
+                            onChange={setEditorVimModeEnabled}
+                            label="Vim"
+                            size="small"
+                            data-attr="sql-editor-vim-toggle"
+                        />
+                    )}
+                    {isRemovingSidePanelFlag && <SceneTitlePanelButton />}
+                </div>
             </div>
             <QueryPane
                 originalValue={originalQueryInput ?? ''}
@@ -254,6 +270,7 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
                 sourceQuery={sourceQuery.source}
                 promptError={null}
                 onRun={runQuery}
+                editorVimModeEnabled={vimModeFeatureEnabled && editorVimModeEnabled}
                 codeEditorProps={{
                     queryKey: codeEditorKey,
                     onChange: (v) => {

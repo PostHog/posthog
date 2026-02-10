@@ -1,12 +1,14 @@
 """
 Coordinator workflow for batch trace summarization.
 
-This workflow processes traces for teams in the ALLOWED_TEAM_IDS list
+This workflow discovers teams dynamically via the team discovery activity
 and spawns child workflows to process traces for each team.
 
-Team discovery uses a simple allowlist approach to avoid cross-team
-ClickHouse queries. The per-team child workflows handle the case where
-a team has no traces gracefully (returning empty results).
+Per-team child workflows handle the case where a team has no traces
+gracefully (returning empty results).
+
+Teams are processed in parallel batches (default 3 at a time) using
+start_child_workflow + await pattern for controlled concurrency.
 """
 
 import dataclasses
@@ -14,14 +16,15 @@ from datetime import timedelta
 
 import structlog
 import temporalio
+from temporalio.workflow import ChildWorkflowHandle
 
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.llm_analytics.trace_summarization import constants
 from posthog.temporal.llm_analytics.trace_summarization.constants import (
-    ALLOWED_TEAM_IDS,
     CHILD_WORKFLOW_ID_PREFIX,
     COORDINATOR_WORKFLOW_NAME,
     DEFAULT_BATCH_SIZE,
+    DEFAULT_MAX_CONCURRENT_TEAMS,
     DEFAULT_MAX_ITEMS_PER_WINDOW,
     DEFAULT_MODE,
     DEFAULT_MODEL,
@@ -32,11 +35,22 @@ from posthog.temporal.llm_analytics.trace_summarization.constants import (
 from posthog.temporal.llm_analytics.trace_summarization.models import (
     AnalysisLevel,
     BatchSummarizationInputs,
+    BatchSummarizationResult,
     CoordinatorResult,
 )
 from posthog.temporal.llm_analytics.trace_summarization.workflow import BatchTraceSummarizationWorkflow
 
 from products.llm_analytics.backend.summarization.models import SummarizationMode
+
+with temporalio.workflow.unsafe.imports_passed_through():
+    from posthog.temporal.llm_analytics.team_discovery import (
+        DISCOVERY_ACTIVITY_RETRY_POLICY,
+        DISCOVERY_ACTIVITY_TIMEOUT,
+        GUARANTEED_TEAM_IDS,
+        SAMPLE_PERCENTAGE,
+        TeamDiscoveryInput,
+        get_team_ids_for_llm_analytics,
+    )
 
 logger = structlog.get_logger(__name__)
 
@@ -51,29 +65,19 @@ class BatchTraceSummarizationCoordinatorInputs:
     mode: SummarizationMode = DEFAULT_MODE
     window_minutes: int = DEFAULT_WINDOW_MINUTES
     model: str = DEFAULT_MODEL
-
-
-def get_allowed_team_ids() -> list[int]:
-    """
-    Get the list of team IDs that should be processed for trace summarization.
-
-    Uses a simple allowlist approach to avoid cross-team ClickHouse queries.
-    Per-team child workflows handle the case where a team has no traces gracefully.
-
-    Returns:
-        List of team IDs from ALLOWED_TEAM_IDS constant
-    """
-    return ALLOWED_TEAM_IDS.copy()
+    max_concurrent_teams: int = DEFAULT_MAX_CONCURRENT_TEAMS
 
 
 @temporalio.workflow.defn(name=COORDINATOR_WORKFLOW_NAME)
 class BatchTraceSummarizationCoordinatorWorkflow(PostHogWorkflow):
     """
-    Coordinator workflow that processes traces for teams in ALLOWED_TEAM_IDS.
+    Coordinator workflow that discovers teams dynamically and spawns child
+    workflows for each team. Teams with no traces will complete quickly
+    with empty results.
 
-    This runs on a schedule (e.g., hourly) and spawns child workflows for each
-    team in the allowlist. Teams with no traces will complete quickly with
-    empty results.
+    Teams are processed in parallel batches for controlled concurrency,
+    using start_child_workflow + await to start all workflows in a batch
+    before waiting for results.
     """
 
     @staticmethod
@@ -98,32 +102,43 @@ class BatchTraceSummarizationCoordinatorWorkflow(PostHogWorkflow):
             window_minutes=inputs.window_minutes,
         )
 
-        # Get teams from allowlist (no cross-team ClickHouse query needed)
-        team_ids = get_allowed_team_ids()
-
-        if not team_ids:
-            logger.info("No teams in allowlist")
-            return CoordinatorResult(
-                teams_processed=0,
-                teams_failed=0,
-                failed_team_ids=[],
-                total_items=0,
-                total_summaries=0,
+        # Discover teams dynamically via activity, falling back to guaranteed
+        # teams if the activity fails (e.g. ClickHouse timeout).
+        try:
+            team_ids = await temporalio.workflow.execute_activity(
+                get_team_ids_for_llm_analytics,
+                TeamDiscoveryInput(sample_percentage=SAMPLE_PERCENTAGE),
+                start_to_close_timeout=DISCOVERY_ACTIVITY_TIMEOUT,
+                retry_policy=DISCOVERY_ACTIVITY_RETRY_POLICY,
             )
+        except Exception:
+            logger.warning("Team discovery activity failed, falling back to guaranteed teams", exc_info=True)
+            team_ids = sorted(GUARANTEED_TEAM_IDS)
 
-        logger.info("Processing teams from allowlist", team_count=len(team_ids), team_ids=team_ids)
+        logger.info("Processing discovered teams", team_count=len(team_ids), team_ids=team_ids)
 
-        # Spawn child workflows for each team
+        # Spawn child workflows for each team with concurrency limit.
+        # Uses start_child_workflow + await pattern: start all workflows in a
+        # batch first, then await results. This runs teams in parallel within
+        # each batch instead of sequentially.
         total_items = 0
         total_summaries = 0
-        failed_teams = []
+        failed_teams: list[int] = []
+        successful_teams: list[int] = []
         child_id_prefix = (
             GENERATION_CHILD_WORKFLOW_ID_PREFIX if inputs.analysis_level == "generation" else CHILD_WORKFLOW_ID_PREFIX
         )
 
-        for team_id in team_ids:
-            try:
-                workflow_result = await temporalio.workflow.execute_child_workflow(
+        max_concurrent = inputs.max_concurrent_teams
+        for batch_start in range(0, len(team_ids), max_concurrent):
+            batch = team_ids[batch_start : batch_start + max_concurrent]
+
+            # Start all workflows in batch concurrently
+            workflow_handles: list[
+                tuple[int, ChildWorkflowHandle[BatchTraceSummarizationWorkflow, BatchSummarizationResult]]
+            ] = []
+            for team_id in batch:
+                handle = await temporalio.workflow.start_child_workflow(
                     BatchTraceSummarizationWorkflow.run,
                     BatchSummarizationInputs(
                         team_id=team_id,
@@ -137,15 +152,30 @@ class BatchTraceSummarizationCoordinatorWorkflow(PostHogWorkflow):
                     id=f"{child_id_prefix}-{team_id}-{temporalio.workflow.now().isoformat()}",
                     execution_timeout=timedelta(minutes=WORKFLOW_EXECUTION_TIMEOUT_MINUTES),
                     retry_policy=constants.COORDINATOR_CHILD_WORKFLOW_RETRY_POLICY,
+                    parent_close_policy=temporalio.workflow.ParentClosePolicy.TERMINATE,
                 )
+                workflow_handles.append((team_id, handle))
 
-                total_items += workflow_result.metrics.items_queried
-                total_summaries += workflow_result.metrics.summaries_generated
+            # Wait for all workflows in batch to complete
+            for team_id, handle in workflow_handles:
+                try:
+                    workflow_result: BatchSummarizationResult = await handle
+                    total_items += workflow_result.metrics.items_queried
+                    total_summaries += workflow_result.metrics.summaries_generated
+                    successful_teams.append(team_id)
 
-            except Exception as e:
-                logger.exception("Failed to process team", team_id=team_id, error=str(e))
-                failed_teams.append(team_id)
-                # Continue with other teams
+                except Exception:
+                    logger.exception("Failed to process team", team_id=team_id)
+                    failed_teams.append(team_id)
+
+        logger.info(
+            "Batch trace summarization coordinator completed",
+            teams_processed=len(team_ids),
+            teams_succeeded=len(successful_teams),
+            teams_failed=len(failed_teams),
+            total_items=total_items,
+            total_summaries=total_summaries,
+        )
 
         return CoordinatorResult(
             teams_processed=len(team_ids),

@@ -8,7 +8,6 @@ import DataGrid, { DataGridProps, RenderHeaderCellProps, SortColumn } from 'reac
 
 import {
     IconBolt,
-    IconBrackets,
     IconCode,
     IconCode2,
     IconCopy,
@@ -61,7 +60,6 @@ import { FixErrorButton } from './components/FixErrorButton'
 import { multitabEditorLogic } from './multitabEditorLogic'
 import { Endpoint } from './output-pane-tabs/Endpoint'
 import { QueryInfo } from './output-pane-tabs/QueryInfo'
-import { QueryVariables } from './output-pane-tabs/QueryVariables'
 import { OutputTab, outputPaneLogic } from './outputPaneLogic'
 
 interface RowDetailsModalProps {
@@ -292,7 +290,6 @@ function RowDetailsModal({ isOpen, onClose, row, columns, columnKeys }: RowDetai
 export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
     const { activeTab } = useValues(outputPaneLogic)
     const { setActiveTab } = useActions(outputPaneLogic)
-    const { editingView } = useValues(multitabEditorLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     const { sourceQuery, exportContext, editingInsight, updateInsightButtonEnabled, showLegacyFilters, queryInput } =
@@ -474,16 +471,6 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
                             icon: <IconGraph />,
                         },
                         {
-                            key: OutputTab.Variables,
-                            label: (
-                                <Tooltip title={editingView ? 'Variables are not allowed in views.' : undefined}>
-                                    Variables
-                                </Tooltip>
-                            ),
-                            disabled: editingView,
-                            icon: <IconBrackets />,
-                        },
-                        {
                             key: OutputTab.Materialization,
                             label: 'Materialization',
                             icon: <IconBolt />,
@@ -504,10 +491,9 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
                                     {
                                         'font-semibold !border-brand-yellow': tab.key === activeTab,
                                         'border-transparent': tab.key !== activeTab,
-                                        'opacity-50 cursor-not-allowed': tab.disabled,
                                     }
                                 )}
-                                onClick={() => !tab.disabled && setActiveTab(tab.key)}
+                                onClick={() => setActiveTab(tab.key)}
                             >
                                 <span className="mr-1">{tab.icon}</span>
                                 {tab.label}
@@ -819,8 +805,6 @@ const Content = ({
     progress,
 }: any): JSX.Element | null => {
     const [sortColumns, setSortColumns] = useState<SortColumn[]>([])
-    const { editingView } = useValues(multitabEditorLogic)
-
     const { featureFlags } = useValues(featureFlagLogic)
 
     const sortedRows = useMemo(() => {
@@ -859,22 +843,6 @@ const Content = ({
         )
     }
 
-    if (activeTab === OutputTab.Variables) {
-        if (editingView) {
-            return (
-                <TabScroller>
-                    <div className="px-6 py-4 border-t text-secondary">Variables are not allowed in views.</div>
-                </TabScroller>
-            )
-        }
-        return (
-            <TabScroller>
-                <div className="px-6 py-4 border-t">
-                    <QueryVariables />
-                </div>
-            </TabScroller>
-        )
-    }
     if (featureFlags[FEATURE_FLAGS.ENDPOINTS] && activeTab === OutputTab.Endpoint) {
         return (
             <TabScroller>
