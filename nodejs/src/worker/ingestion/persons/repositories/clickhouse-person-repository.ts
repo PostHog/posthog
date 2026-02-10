@@ -125,15 +125,15 @@ export class ClickHousePersonRepository implements PersonRepository {
                 ORDER BY id
                 LIMIT ${Math.min(Math.max(1, parseInt(String(limit))), 10000)}
             ) p
-            LEFT JOIN (
+            INNER JOIN (
                 SELECT
                     team_id,
                     person_id,
                     argMax(distinct_id, version) as distinct_id
                 FROM person_distinct_id2
                 WHERE team_id = ${parseInt(String(teamId))}
-                  AND is_deleted = 0
                 GROUP BY team_id, person_id
+                HAVING argMax(is_deleted, version) = 0
             ) pd ON p.team_id = pd.team_id AND p.id = pd.person_id
             SETTINGS optimize_aggregation_in_order = 1
         `
@@ -173,11 +173,14 @@ export class ClickHousePersonRepository implements PersonRepository {
             switch (operator) {
                 case 'exact': {
                     if (Array.isArray(value)) {
-                        const values = value
-                            .map(normalizeValue)
-                            .filter((v) => v !== null)
-                            .map((v) => `'${escapeClickHouseString(v!)}'`)
-                            .join(', ')
+                        const normalizedValues = value.map(normalizeValue).filter((v) => v !== null)
+
+                        // Handle empty array case - property can't match empty set
+                        if (normalizedValues.length === 0) {
+                            return '1=0'
+                        }
+
+                        const values = normalizedValues.map((v) => `'${escapeClickHouseString(v!)}'`).join(', ')
                         return `toString(${argMaxProp(`JSONExtractString(properties, '${escapedKey}')`)}) IN (${values})`
                     } else {
                         const normalizedValue = normalizeValue(value)
@@ -190,11 +193,14 @@ export class ClickHousePersonRepository implements PersonRepository {
 
                 case 'is_not': {
                     if (Array.isArray(value)) {
-                        const values = value
-                            .map(normalizeValue)
-                            .filter((v) => v !== null)
-                            .map((v) => `'${escapeClickHouseString(v!)}'`)
-                            .join(', ')
+                        const normalizedValues = value.map(normalizeValue).filter((v) => v !== null)
+
+                        // Handle empty array case - property is always not in empty set
+                        if (normalizedValues.length === 0) {
+                            return '1=1'
+                        }
+
+                        const values = normalizedValues.map((v) => `'${escapeClickHouseString(v!)}'`).join(', ')
                         return `toString(${argMaxProp(`JSONExtractString(properties, '${escapedKey}')`)}) NOT IN (${values})`
                     } else {
                         const normalizedValue = normalizeValue(value)
@@ -363,11 +369,6 @@ export class ClickHousePersonRepository implements PersonRepository {
         return relative ? relative.toFormat('yyyy-MM-dd HH:mm:ss') : null
     }
 
-    private buildDatePropertyExpr(escapedKey: string): string {
-        const propertyExpr = `JSONExtractString(properties, '${escapedKey}')`
-        return `coalesce(parseDateTimeBestEffortOrNull(${propertyExpr}), parseDateTimeBestEffortOrNull(substring(${propertyExpr}, 1, 10)))`
-    }
-
     private buildDatePropertyExprWithArgMax(escapedKey: string): string {
         const propertyExpr = `argMax(JSONExtractString(properties, '${escapedKey}'), version)`
         return `coalesce(parseDateTimeBestEffortOrNull(${propertyExpr}), parseDateTimeBestEffortOrNull(substring(${propertyExpr}, 1, 10)))`
@@ -377,27 +378,10 @@ export class ClickHousePersonRepository implements PersonRepository {
         return this.parseRelativeDate(value) ?? value
     }
 
-    private buildDateBeforeExpr(escapedKey: string, value: string): string {
-        const parsedExpr = this.buildDatePropertyExpr(escapedKey)
-        const dateValue = escapeClickHouseString(this.normalizeDateValue(value))
-        return `${parsedExpr} < parseDateTimeBestEffortOrNull('${dateValue}')`
-    }
-
     private buildDateBeforeExprWithArgMax(escapedKey: string, value: string): string {
         const parsedExpr = this.buildDatePropertyExprWithArgMax(escapedKey)
         const dateValue = escapeClickHouseString(this.normalizeDateValue(value))
         return `${parsedExpr} < parseDateTimeBestEffortOrNull('${dateValue}')`
-    }
-
-    private buildDateAfterExpr(escapedKey: string, value: string): string {
-        const parsedExpr = this.buildDatePropertyExpr(escapedKey)
-        const dateValue = this.normalizeDateValue(value)
-        const escapedDateValue = escapeClickHouseString(dateValue)
-        const isDateOnly = /^\d{4}-\d{2}-\d{2}$/.test(dateValue)
-        const compareValue = isDateOnly
-            ? `subtractSeconds(addDays(toDate('${escapedDateValue}'), 1), 1)`
-            : `parseDateTimeBestEffortOrNull('${escapedDateValue}')`
-        return `${parsedExpr} > ${compareValue}`
     }
 
     private buildDateAfterExprWithArgMax(escapedKey: string, value: string): string {

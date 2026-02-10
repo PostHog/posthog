@@ -1045,6 +1045,37 @@ describe('ClickHousePersonRepository', () => {
             expect(persons[0].id).toBe(personId1)
         })
 
+        it('should not return persons with deleted distinct_id', async () => {
+            const personId1 = new UUIDT().toString()
+            const personId2 = new UUIDT().toString()
+            const timestamp = TIMESTAMP.toFormat('yyyy-MM-dd HH:mm:ss')
+
+            // Insert person 1 with a distinct_id that will be deleted
+            await executeClickHouseTestQuery(
+                `INSERT INTO person (id, team_id, properties, is_identified, is_deleted, created_at, _timestamp, _offset, version) VALUES ('${personId1}', ${team.id}, '${JSON.stringify({ role: 'admin' })}', 1, 0, '${timestamp}', '${timestamp}', 0, 0)`
+            )
+            await executeClickHouseTestQuery(
+                `INSERT INTO person_distinct_id2 (team_id, distinct_id, person_id, is_deleted, version, _timestamp, _offset) VALUES (${team.id}, 'distinct1', '${personId1}', 0, 0, '${timestamp}', 0)`
+            )
+            // Mark the distinct_id as deleted with a higher version
+            await executeClickHouseTestQuery(
+                `INSERT INTO person_distinct_id2 (team_id, distinct_id, person_id, is_deleted, version, _timestamp, _offset) VALUES (${team.id}, 'distinct1', '${personId1}', 1, 1, '${timestamp}', 0)`
+            )
+
+            // Insert person 2 with a non-deleted distinct_id for comparison
+            await insertPersonIntoClickHouse(team.id, personId2, { role: 'admin' }, 1, 'distinct2')
+
+            const persons = await repository.fetchPersonsByProperties({
+                teamId: team.id,
+                properties: [{ key: 'role', value: 'admin', operator: PropertyOperator.Exact, type: 'person' }],
+            })
+
+            // Should only return person2 since person1's distinct_id is deleted
+            expect(persons).toHaveLength(1)
+            expect(persons[0].id).toBe(personId2)
+            expect(persons[0].distinct_id).toBe('distinct2')
+        })
+
         it('should return persons ordered by id for consistent pagination', async () => {
             // Create 3 persons - don't pre-sort the IDs, let ClickHouse order them
             const personId1 = new UUIDT().toString()
