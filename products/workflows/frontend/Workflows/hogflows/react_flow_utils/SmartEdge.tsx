@@ -251,8 +251,9 @@ export function SmartEdge({
     })
 
     useEffect(() => {
+        let animation: Animation | null = null
         if (isAnimating && animPathRef.current) {
-            animPathRef.current.animate(
+            animation = animPathRef.current.animate(
                 [
                     { strokeDashoffset: '1', opacity: 0.8 },
                     { strokeDashoffset: '0', opacity: 0.8, offset: 0.7 },
@@ -261,6 +262,7 @@ export function SmartEdge({
                 { duration: ANIMATION_DURATION_S * 1000, easing: 'ease-out', fill: 'forwards' }
             )
         }
+        return () => animation?.cancel()
     }, [isAnimating, edgePath])
 
     const labelPoint = getPointAtYValue(edgePath, 20, sourceY + 20)
