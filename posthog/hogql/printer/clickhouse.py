@@ -68,8 +68,7 @@ class ClickHousePrinter(HogQLPrinter):
             if not isinstance(node, ast.SelectQuery) and not isinstance(node, ast.SelectSetQuery):
                 raise QueryError("Settings can only be applied to SELECT queries")
             merged = self._merge_table_top_level_settings(self.settings)
-            to_print = merged.items() if merged is not None else self.settings
-            printed = self._print_settings(to_print)
+            printed = self._print_settings(merged if merged is not None else self.settings)
             if printed is not None:
                 response += " " + printed
 
@@ -957,14 +956,13 @@ class ClickHousePrinter(HogQLPrinter):
 
         # At top level, merge table-level settings into a copy of node.settings.
         # self.settings (global) is handled separately in visit().
-        settings_to_print = node.settings
-        if is_top_level_query:
-            merged = self._merge_table_top_level_settings(node.settings)
-            if merged is not None:
-                settings_to_print = merged.items()
-
-        if settings_to_print is not None:
-            printed = self._print_settings(settings_to_print)
+        merged = self._merge_table_top_level_settings(node.settings) if is_top_level_query else None
+        if merged is not None:
+            printed = self._print_settings(merged)
+            if printed is not None:
+                clauses.append(printed)
+        elif node.settings is not None:
+            printed = self._print_settings(node.settings)
             if printed is not None:
                 clauses.append(printed)
 

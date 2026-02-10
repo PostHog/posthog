@@ -12,7 +12,13 @@ from posthog.schema import MaterializationMode, PersonsOnEventsMode, PropertyGro
 from posthog.hogql import ast
 from posthog.hogql.ast import Constant, StringType
 from posthog.hogql.base import AST
-from posthog.hogql.constants import HogQLDialect, HogQLGlobalSettings, LimitContext, get_max_limit_for_context
+from posthog.hogql.constants import (
+    HogQLDialect,
+    HogQLGlobalSettings,
+    HogQLQuerySettings,
+    LimitContext,
+    get_max_limit_for_context,
+)
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import FunctionCallTable, Table
 from posthog.hogql.errors import ImpossibleASTError, QueryError, ResolutionError
@@ -1342,7 +1348,7 @@ class HogQLPrinter(Visitor[str]):
                 )
             self._table_top_level_settings[key] = value
 
-    def _merge_table_top_level_settings(self, settings) -> dict | None:
+    def _merge_table_top_level_settings(self, settings: HogQLQuerySettings | None) -> dict | None:
         """Copy settings and merge in collected table-level settings with conflict detection.
 
         Returns a merged {key: value} dict, or None if there are no table settings to merge.
@@ -1359,9 +1365,10 @@ class HogQLPrinter(Visitor[str]):
             merged[key] = value
         return merged
 
-    def _print_settings(self, settings):
+    def _print_settings(self, settings: HogQLQuerySettings | dict[str, Any]) -> str | None:
         pairs = []
-        for key, value in settings:
+        items = settings.items() if isinstance(settings, dict) else settings
+        for key, value in items:
             if value is None:
                 continue
             if not re.match(r"^[a-zA-Z0-9_]+$", key):
