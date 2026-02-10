@@ -1,5 +1,4 @@
 import time
-import random
 import asyncio
 import datetime as dt
 import dataclasses
@@ -60,24 +59,30 @@ def get_membership_changed_metric(status: str):
 class RealtimeCohortCalculationWorkflowInputs:
     """Inputs for the realtime cohort calculation workflow."""
 
-    limit: Optional[int] = None
-    offset: int = 0
+    # Range-based approach: coordinator provides cohort ID range to process
+    min_cohort_id: Optional[int] = None
+    max_cohort_id: Optional[int] = None
+
+    # Keep cohort_id for backward compatibility with single cohort processing
     cohort_id: Optional[int] = None
-    # Dictionary mapping team_id to percentage (0.0 to 1.0)
-    # Special key 0 means "default behavior" (PostHog team only when no specific teams)
-    # Simple structure: specific team IDs that process all cohorts, and global percentage for others
-    team_ids: set[int] = dataclasses.field(default_factory=set)  # Teams that process all cohorts
-    global_percentage: float = 0.0  # Percentage for all other teams
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
-        return {
-            "limit": self.limit,
-            "offset": self.offset,
-            "cohort_id": self.cohort_id,
-            "team_ids": list(self.team_ids),
-            "global_percentage": self.global_percentage,
-        }
+        if self.cohort_id is not None:
+            return {
+                "cohort_id": self.cohort_id,
+                "num_cohorts": 1,
+            }
+        elif self.min_cohort_id is not None and self.max_cohort_id is not None:
+            return {
+                "min_cohort_id": self.min_cohort_id,
+                "max_cohort_id": self.max_cohort_id,
+                "range_size": self.max_cohort_id - self.min_cohort_id + 1,
+            }
+        else:
+            return {
+                "num_cohorts": 0,
+            }
 
 
 async def flush_kafka_batch(
@@ -142,77 +147,45 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
     bind_contextvars()
     logger = LOGGER.bind()
 
-    logger.info(f"Starting realtime cohort calculation workflow for range offset={inputs.offset}, limit={inputs.limit}")
+    if inputs.cohort_id is not None:
+        num_cohorts_desc = "1 cohort"
+    elif inputs.min_cohort_id is not None and inputs.max_cohort_id is not None:
+        range_size = inputs.max_cohort_id - inputs.min_cohort_id + 1
+        num_cohorts_desc = f"cohort range {inputs.min_cohort_id}-{inputs.max_cohort_id} (up to {range_size} cohorts)"
+    else:
+        num_cohorts_desc = "0 cohorts"
 
-    async with Heartbeater(details=(f"Starting to process cohorts (offset={inputs.offset})",)) as heartbeater:
+    logger.info(f"Starting realtime cohort calculation workflow for {num_cohorts_desc}")
+
+    async with Heartbeater(details=(f"Starting to process {num_cohorts_desc}",)) as heartbeater:
         start_time = time.time()
 
         @database_sync_to_async
         def get_cohorts():
-            # If cohort_id is specified, just get that specific cohort
+            # Handle backward compatibility: single cohort_id
             if inputs.cohort_id is not None:
                 queryset = Cohort.objects.filter(
                     deleted=False, cohort_type=CohortType.REALTIME, id=inputs.cohort_id
                 ).select_related("team")
                 return list(queryset)
 
-            selected_cohorts = []
-
-            # First, get all cohorts for teams that should process everything
-            for team_id in inputs.team_ids:
-                team_cohorts = list(
-                    Cohort.objects.filter(deleted=False, cohort_type=CohortType.REALTIME, team_id=team_id)
+            # Handle new approach: cohort ID range provided by coordinator
+            if inputs.min_cohort_id is not None and inputs.max_cohort_id is not None:
+                # Filter within the assigned range, maintaining order for consistent processing
+                queryset = (
+                    Cohort.objects.filter(
+                        deleted=False,
+                        cohort_type=CohortType.REALTIME,
+                        id__gte=inputs.min_cohort_id,
+                        id__lte=inputs.max_cohort_id,
+                    )
                     .select_related("team")
-                    .order_by("id")
+                    .order_by("id")  # Critical: ordered by ID for consistent processing
                 )
-                selected_cohorts.extend(team_cohorts)
+                return list(queryset)
 
-            # Handle global percentage for all other teams
-            if inputs.global_percentage > 0.0:
-                # Get cohorts from teams not in the force list
-                if inputs.team_ids:
-                    other_teams_cohorts = list(
-                        Cohort.objects.filter(deleted=False, cohort_type=CohortType.REALTIME)
-                        .exclude(team_id__in=inputs.team_ids)
-                        .select_related("team")
-                        .order_by("id")
-                    )
-                else:
-                    other_teams_cohorts = list(
-                        Cohort.objects.filter(deleted=False, cohort_type=CohortType.REALTIME)
-                        .select_related("team")
-                        .order_by("id")
-                    )
-
-                if other_teams_cohorts:
-                    # Apply global percentage to other teams' cohorts (minimum 1)
-                    num_to_include = max(1, int(len(other_teams_cohorts) * inputs.global_percentage))
-                    # Randomly sample cohorts to ensure fairness
-                    if num_to_include >= len(other_teams_cohorts):
-                        # Include all cohorts if percentage would include everything
-                        selected_other_cohorts = other_teams_cohorts
-                    else:
-                        # Randomly sample the specified number of cohorts
-                        selected_other_cohorts = random.sample(other_teams_cohorts, num_to_include)
-                    selected_cohorts.extend(selected_other_cohorts)
-
-            # Remove duplicates and sort by ID for consistent ordering
-            seen = set()
-            unique_cohorts = []
-            for cohort in selected_cohorts:
-                if cohort.id not in seen:
-                    seen.add(cohort.id)
-                    unique_cohorts.append(cohort)
-
-            unique_cohorts.sort(key=lambda c: c.id)
-
-            # Apply pagination
-            if inputs.limit:
-                cohorts = unique_cohorts[inputs.offset : inputs.offset + inputs.limit]
-            else:
-                cohorts = unique_cohorts[inputs.offset :]
-
-            return cohorts
+            # No cohorts specified
+            return []
 
         cohorts: list[Cohort] = await get_cohorts()
 
@@ -385,8 +358,7 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
             cohorts_processed=cohorts_count,
             duration_seconds=duration_seconds,
             duration_minutes=duration_minutes,
-            offset=inputs.offset,
-            limit=inputs.limit,
+            range_info=num_cohorts_desc,
         )
 
 
@@ -403,9 +375,16 @@ class RealtimeCohortCalculationWorkflow(PostHogWorkflow):
     async def run(self, inputs: RealtimeCohortCalculationWorkflowInputs) -> None:
         """Run the workflow to process realtime cohort calculations."""
         workflow_logger = temporalio.workflow.logger
-        workflow_logger.info(
-            f"Starting realtime cohort calculation child workflow for range starting at offset={inputs.offset}"
-        )
+        if inputs.cohort_id is not None:
+            workflow_logger.info(
+                f"Starting realtime cohort calculation child workflow for cohort_id={inputs.cohort_id}"
+            )
+        elif inputs.min_cohort_id is not None and inputs.max_cohort_id is not None:
+            workflow_logger.info(
+                f"Starting realtime cohort calculation child workflow for range {inputs.min_cohort_id}-{inputs.max_cohort_id}"
+            )
+        else:
+            workflow_logger.info("Starting realtime cohort calculation child workflow for empty range")
 
         # Process the batch of actions
         await temporalio.workflow.execute_activity(

@@ -490,56 +490,35 @@ class TestRealtimeCohortCalculationCoordinator:
             # Global: 40% of 25 = 10 cohorts (max(1, int(25 * 0.4)))
             assert result.count == 10
 
-    def test_cohort_selection_uses_random_sampling_for_global_percentage(self):
-        """Should use random sampling when selecting cohorts for global percentage."""
-        import random
+    def test_worker_inputs_support_cohort_id_range(self):
+        """Worker inputs should support receiving cohort ID ranges from coordinator."""
 
-        from unittest.mock import MagicMock
-
-        from posthog.models.cohort.cohort import Cohort
         from posthog.temporal.messaging.realtime_cohort_calculation_workflow import (
             RealtimeCohortCalculationWorkflowInputs,
         )
 
-        # Create mock cohorts with different IDs
-        mock_cohorts = []
-        for i in range(10):
-            cohort = MagicMock(spec=Cohort)
-            cohort.id = i + 1
-            cohort.team_id = 100  # All from team 100 (not in force teams)
-            mock_cohorts.append(cohort)
+        # Test new range approach
+        inputs = RealtimeCohortCalculationWorkflowInputs(min_cohort_id=10, max_cohort_id=20)
 
-        inputs = RealtimeCohortCalculationWorkflowInputs(
-            team_ids=set(),  # No force teams
-            global_percentage=0.5,  # 50% = 5 out of 10 cohorts
-        )
+        assert inputs.min_cohort_id == 10
+        assert inputs.max_cohort_id == 20
+        assert inputs.properties_to_log["min_cohort_id"] == 10
+        assert inputs.properties_to_log["max_cohort_id"] == 20
+        assert inputs.properties_to_log["range_size"] == 11  # 20 - 10 + 1
 
-        # Test the random sampling logic directly (extracted from get_cohorts)
-        other_teams_cohorts = mock_cohorts  # All cohorts since no force teams
+        # Test backward compatibility with single cohort_id
+        inputs_single = RealtimeCohortCalculationWorkflowInputs(cohort_id=42)
 
-        if other_teams_cohorts:
-            # Apply global percentage to other teams' cohorts (minimum 1)
-            num_to_include = max(1, int(len(other_teams_cohorts) * inputs.global_percentage))
+        assert inputs_single.cohort_id == 42
+        assert inputs_single.min_cohort_id is None
+        assert inputs_single.max_cohort_id is None
+        assert inputs_single.properties_to_log["cohort_id"] == 42
+        assert inputs_single.properties_to_log["num_cohorts"] == 1
 
-            # Test random sampling with different seeds
-            random.seed(42)
-            if num_to_include >= len(other_teams_cohorts):
-                selected_other_cohorts_1 = other_teams_cohorts
-            else:
-                selected_other_cohorts_1 = random.sample(other_teams_cohorts, num_to_include)
+        # Test empty case
+        inputs_empty = RealtimeCohortCalculationWorkflowInputs()
 
-            random.seed(123)  # Different seed
-            if num_to_include >= len(other_teams_cohorts):
-                selected_other_cohorts_2 = other_teams_cohorts
-            else:
-                selected_other_cohorts_2 = random.sample(other_teams_cohorts, num_to_include)
-
-            # Verify we get the expected number of selections
-            selected_ids_1 = [c.id for c in selected_other_cohorts_1]
-            selected_ids_2 = [c.id for c in selected_other_cohorts_2]
-
-            assert len(selected_ids_1) == 5  # 50% of 10 = 5
-            assert len(selected_ids_2) == 5  # 50% of 10 = 5
-            # With different seeds, we should get different selections most of the time
-            # (There's a small chance they could be the same, but very unlikely)
-            assert selected_ids_1 != selected_ids_2, f"Expected different selections but got same: {selected_ids_1}"
+        assert inputs_empty.min_cohort_id is None
+        assert inputs_empty.max_cohort_id is None
+        assert inputs_empty.cohort_id is None
+        assert inputs_empty.properties_to_log["num_cohorts"] == 0
