@@ -5,6 +5,7 @@ from posthog.temporal.messaging.realtime_cohort_calculation_workflow import flus
 from posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator import (
     RealtimeCohortCalculationCoordinatorWorkflowInputs,
     get_realtime_cohort_calculation_count_activity,
+    get_realtime_cohort_selection_activity,
 )
 
 
@@ -323,7 +324,7 @@ class TestRealtimeCohortCalculationCoordinator:
         inputs = RealtimeCohortCalculationCoordinatorWorkflowInputs(team_ids=set(), global_percentage=0.1)  # 10% global
 
         with patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.Cohort") as mock_cohort:
-            # All teams have 20 cohorts, 10% = 2 cohorts (minimum 1)
+            # All teams have 20 cohorts, 10% = 2 cohorts
             team_queryset = Mock()
             team_queryset.count.return_value = 20
             mock_cohort.objects.filter.return_value = team_queryset
@@ -334,23 +335,23 @@ class TestRealtimeCohortCalculationCoordinator:
             assert result.count == 2
 
     @pytest.mark.asyncio
-    async def test_count_activity_with_small_global_percentage_ensures_minimum_one(self):
-        """When global percentage is small, should ensure at least 1 cohort."""
+    async def test_count_activity_with_small_global_percentage_rounds_down_to_zero(self):
+        """When global percentage is small, should round down to 0 if result < 1."""
         inputs = RealtimeCohortCalculationCoordinatorWorkflowInputs(
             team_ids=set(),  # Explicitly set empty team_ids
             global_percentage=0.05,  # 5%
         )
 
         with patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.Cohort") as mock_cohort:
-            # All teams have 10 cohorts, 5% = 0.5, should round to 1 (minimum 1)
+            # All teams have 10 cohorts, 5% = 0.5, should round down to 0
             team_queryset = Mock()
             team_queryset.count.return_value = 10
             mock_cohort.objects.filter.return_value = team_queryset
 
             result = await get_realtime_cohort_calculation_count_activity(inputs)
 
-            # Should be 1 (minimum, since 5% of 10 = 0.5 < 1)
-            assert result.count == 1
+            # Should be 0 (since int(5% of 10) = int(0.5) = 0)
+            assert result.count == 0
 
     def test_coordinator_workflow_inputs_includes_team_ids(self):
         """RealtimeCohortCalculationCoordinatorWorkflowInputs should include team_ids and global_percentage."""
@@ -405,6 +406,22 @@ class TestRealtimeCohortCalculationCoordinator:
             # Should use the env var defaults
             assert inputs.team_ids == {2, 42}
             assert inputs.global_percentage == 0.5
+
+    def test_coordinator_workflow_inputs_partial_env_var_defaults(self):
+        """Should only load env vars for fields that are None."""
+        with (
+            patch("posthog.settings.schedules.REALTIME_COHORT_CALCULATION_TEAMS", {999}),
+            patch("posthog.settings.schedules.REALTIME_COHORT_CALCULATION_GLOBAL_PERCENTAGE", 0.999),
+        ):
+            # User explicitly sets empty team_ids but wants env var for global_percentage
+            inputs = RealtimeCohortCalculationCoordinatorWorkflowInputs(
+                team_ids=set(),  # Explicitly empty (not None)
+                global_percentage=None,  # Use env var default
+            )
+
+            # Should preserve user's explicit empty set and use env var for percentage
+            assert inputs.team_ids == set()  # User's explicit value, not env var {999}
+            assert inputs.global_percentage == 0.999  # From env var
 
     def test_team_percentages_parsing_from_env_var(self):
         """Test parsing team percentages from environment variable using JSON format."""
@@ -468,7 +485,7 @@ class TestRealtimeCohortCalculationCoordinator:
 
             # Team 2: All 10 cohorts
             # Team 3: All 20 cohorts
-            # Global: 50% of 30 = 15 cohorts (max(1, int(30 * 0.5)))
+            # Global: 50% of 30 = 15 cohorts (int(30 * 0.5))
             # Total: 10 + 20 + 15 = 45
             assert result.count == 45
 
@@ -487,38 +504,237 @@ class TestRealtimeCohortCalculationCoordinator:
 
             result = await get_realtime_cohort_calculation_count_activity(inputs)
 
-            # Global: 40% of 25 = 10 cohorts (max(1, int(25 * 0.4)))
+            # Global: 40% of 25 = 10 cohorts (int(25 * 0.4))
             assert result.count == 10
 
-    def test_worker_inputs_support_cohort_id_range(self):
-        """Worker inputs should support receiving cohort ID ranges from coordinator."""
+    def test_worker_inputs_support_cohort_id_array(self):
+        """Worker inputs should support receiving cohort ID arrays from coordinator."""
 
         from posthog.temporal.messaging.realtime_cohort_calculation_workflow import (
             RealtimeCohortCalculationWorkflowInputs,
         )
 
-        # Test new range approach
-        inputs = RealtimeCohortCalculationWorkflowInputs(min_cohort_id=10, max_cohort_id=20)
+        # Test new array approach
+        inputs = RealtimeCohortCalculationWorkflowInputs(cohort_ids=[10, 15, 20, 25])
 
-        assert inputs.min_cohort_id == 10
-        assert inputs.max_cohort_id == 20
-        assert inputs.properties_to_log["min_cohort_id"] == 10
-        assert inputs.properties_to_log["max_cohort_id"] == 20
-        assert inputs.properties_to_log["range_size"] == 11  # 20 - 10 + 1
+        assert inputs.cohort_ids == [10, 15, 20, 25]
+        assert inputs.properties_to_log["cohort_ids"] == [10, 15, 20, 25]
+        assert inputs.properties_to_log["num_cohorts"] == 4
+
+        # Test array approach with many cohorts (should truncate in logs)
+        many_cohort_ids = list(range(1, 16))  # 1-15
+        inputs_many = RealtimeCohortCalculationWorkflowInputs(cohort_ids=many_cohort_ids)
+
+        assert inputs_many.cohort_ids == many_cohort_ids
+        assert inputs_many.properties_to_log["cohort_ids"] == list(range(1, 11))  # First 10
+        assert inputs_many.properties_to_log["num_cohorts"] == 15
 
         # Test backward compatibility with single cohort_id
         inputs_single = RealtimeCohortCalculationWorkflowInputs(cohort_id=42)
 
         assert inputs_single.cohort_id == 42
-        assert inputs_single.min_cohort_id is None
-        assert inputs_single.max_cohort_id is None
+        assert inputs_single.cohort_ids is None
         assert inputs_single.properties_to_log["cohort_id"] == 42
         assert inputs_single.properties_to_log["num_cohorts"] == 1
 
         # Test empty case
         inputs_empty = RealtimeCohortCalculationWorkflowInputs()
 
-        assert inputs_empty.min_cohort_id is None
-        assert inputs_empty.max_cohort_id is None
+        assert inputs_empty.cohort_ids is None
         assert inputs_empty.cohort_id is None
         assert inputs_empty.properties_to_log["num_cohorts"] == 0
+
+
+class TestRealtimeCohortSelectionActivity:
+    """Tests for the get_realtime_cohort_selection_activity function."""
+
+    @pytest.mark.asyncio
+    async def test_selection_activity_with_specific_cohort_id_exists(self):
+        """When cohort_id is specified and exists, should return that cohort ID."""
+
+        inputs = RealtimeCohortCalculationCoordinatorWorkflowInputs(cohort_id=123)
+
+        with patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.Cohort") as mock_cohort:
+            mock_queryset = Mock()
+            mock_queryset.exists.return_value = True
+            mock_cohort.objects.filter.return_value = mock_queryset
+
+            result = await get_realtime_cohort_selection_activity(inputs)
+
+            assert result.cohort_ids == [123]
+            mock_cohort.objects.filter.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_selection_activity_with_specific_cohort_id_not_exists(self):
+        """When cohort_id is specified but doesn't exist, should return empty list."""
+
+        inputs = RealtimeCohortCalculationCoordinatorWorkflowInputs(cohort_id=999)
+
+        with patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.Cohort") as mock_cohort:
+            mock_queryset = Mock()
+            mock_queryset.exists.return_value = False
+            mock_cohort.objects.filter.return_value = mock_queryset
+
+            result = await get_realtime_cohort_selection_activity(inputs)
+
+            assert result.cohort_ids == []
+
+    @pytest.mark.asyncio
+    async def test_selection_activity_with_team_ids_only(self):
+        """Should select all cohorts for specified teams."""
+
+        inputs = RealtimeCohortCalculationCoordinatorWorkflowInputs(team_ids={2, 3}, global_percentage=None)
+
+        with patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.Cohort") as mock_cohort:
+            # Team 2 has cohorts [10, 20]
+            team2_queryset = Mock()
+            team2_queryset.order_by.return_value.values_list.return_value = [10, 20]
+
+            # Team 3 has cohorts [30, 40]
+            team3_queryset = Mock()
+            team3_queryset.order_by.return_value.values_list.return_value = [30, 40]
+
+            mock_cohort.objects.filter.side_effect = [team2_queryset, team3_queryset]
+
+            result = await get_realtime_cohort_selection_activity(inputs)
+
+            # Should include all cohorts from both teams, sorted by ID
+            assert result.cohort_ids == [10, 20, 30, 40]
+
+    @pytest.mark.asyncio
+    async def test_selection_activity_with_global_percentage_only(self):
+        """Should select percentage of all cohorts when no teams specified."""
+
+        inputs = RealtimeCohortCalculationCoordinatorWorkflowInputs(
+            team_ids=set(),
+            global_percentage=0.5,  # 50%
+        )
+
+        with patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.Cohort") as mock_cohort:
+            # All teams have cohorts [1, 2, 3, 4, 5, 6]
+            queryset = Mock()
+            queryset.order_by.return_value.values_list.return_value = [1, 2, 3, 4, 5, 6]
+            mock_cohort.objects.filter.return_value = queryset
+
+            result = await get_realtime_cohort_selection_activity(inputs)
+
+            # Should select 50% = 3 cohorts (first 3)
+            assert result.cohort_ids == [1, 2, 3]
+
+    @pytest.mark.asyncio
+    async def test_selection_activity_with_small_global_percentage_returns_zero(self):
+        """Should return empty list when global percentage results in zero cohorts."""
+
+        inputs = RealtimeCohortCalculationCoordinatorWorkflowInputs(
+            team_ids=set(),
+            global_percentage=0.01,  # 1% of 10 = 0.1 → 0
+        )
+
+        with patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.Cohort") as mock_cohort:
+            queryset = Mock()
+            queryset.order_by.return_value.values_list.return_value = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+            mock_cohort.objects.filter.return_value = queryset
+
+            result = await get_realtime_cohort_selection_activity(inputs)
+
+            # Should be empty since int(10 * 0.01) = 0
+            assert result.cohort_ids == []
+
+    @pytest.mark.asyncio
+    async def test_selection_activity_with_team_ids_and_global_percentage(self):
+        """Should combine team-specific cohorts with global percentage of other teams."""
+
+        inputs = RealtimeCohortCalculationCoordinatorWorkflowInputs(
+            team_ids={2},
+            global_percentage=0.5,  # 50% of other teams
+        )
+
+        with patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.Cohort") as mock_cohort:
+            # Team 2 has cohorts [10, 20]
+            team2_queryset = Mock()
+            team2_queryset.order_by.return_value.values_list.return_value = [10, 20]
+
+            # Other teams (excluding team 2) have cohorts [1, 2, 3, 4]
+            other_teams_base_queryset = Mock()
+            other_teams_queryset = Mock()
+            other_teams_queryset.order_by.return_value.values_list.return_value = [1, 2, 3, 4]
+            other_teams_base_queryset.exclude.return_value = other_teams_queryset
+
+            mock_cohort.objects.filter.side_effect = [team2_queryset, other_teams_base_queryset]
+
+            result = await get_realtime_cohort_selection_activity(inputs)
+
+            # Should include:
+            # - All cohorts from team 2: [10, 20]
+            # - 50% of other teams: [1, 2] (first 2 of 4)
+            # Sorted result: [1, 2, 10, 20]
+            assert result.cohort_ids == [1, 2, 10, 20]
+
+    @pytest.mark.asyncio
+    async def test_selection_activity_deduplication(self):
+        """Should remove duplicate cohort IDs while preserving order."""
+
+        inputs = RealtimeCohortCalculationCoordinatorWorkflowInputs(team_ids={2, 3}, global_percentage=0.5)
+
+        with patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.Cohort") as mock_cohort:
+            # Team 2 has cohorts [10, 30]
+            team2_queryset = Mock()
+            team2_queryset.order_by.return_value.values_list.return_value = [10, 30]
+
+            # Team 3 has cohorts [20, 30] - note: 30 is duplicate
+            team3_queryset = Mock()
+            team3_queryset.order_by.return_value.values_list.return_value = [20, 30]
+
+            # Other teams have cohorts [1, 2, 10] - note: 10 is duplicate
+            other_teams_base_queryset = Mock()
+            other_teams_queryset = Mock()
+            other_teams_queryset.order_by.return_value.values_list.return_value = [1, 2, 10]
+            other_teams_base_queryset.exclude.return_value = other_teams_queryset
+
+            mock_cohort.objects.filter.side_effect = [team2_queryset, team3_queryset, other_teams_base_queryset]
+
+            result = await get_realtime_cohort_selection_activity(inputs)
+
+            # Should deduplicate: [10, 30, 20, 1] (50% of [1,2,10] = 1 cohort)
+            # Sorted result: [1, 10, 20, 30]
+            assert result.cohort_ids == [1, 10, 20, 30]
+
+    @pytest.mark.asyncio
+    async def test_selection_activity_skips_invalid_team_ids(self):
+        """Should skip invalid team IDs (non-int or <= 0)."""
+
+        inputs = RealtimeCohortCalculationCoordinatorWorkflowInputs(
+            team_ids={2, 0, -1},  # 0 and -1 are invalid
+            global_percentage=None,
+        )
+
+        with patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.Cohort") as mock_cohort:
+            # Only team 2 should be queried
+            team2_queryset = Mock()
+            team2_queryset.order_by.return_value.values_list.return_value = [10, 20]
+            mock_cohort.objects.filter.return_value = team2_queryset
+
+            result = await get_realtime_cohort_selection_activity(inputs)
+
+            # Should only include cohorts from team 2
+            assert result.cohort_ids == [10, 20]
+            # Should only call filter once (for valid team 2)
+            assert mock_cohort.objects.filter.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_selection_activity_deterministic_ordering(self):
+        """Should always return cohorts in the same order for consistent distribution."""
+
+        inputs = RealtimeCohortCalculationCoordinatorWorkflowInputs(team_ids=set(), global_percentage=0.6)
+
+        with patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.Cohort") as mock_cohort:
+            # Cohorts returned in different order from DB
+            queryset = Mock()
+            queryset.order_by.return_value.values_list.return_value = [50, 10, 30, 20, 40]
+            mock_cohort.objects.filter.return_value = queryset
+
+            result = await get_realtime_cohort_selection_activity(inputs)
+
+            # Should take first 3 (60% of 5) and sort them
+            # Selected: [50, 10, 30], sorted: [10, 30, 50]
+            assert result.cohort_ids == [10, 30, 50]

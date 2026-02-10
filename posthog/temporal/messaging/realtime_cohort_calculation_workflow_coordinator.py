@@ -45,16 +45,15 @@ class RealtimeCohortCalculationCoordinatorWorkflowInputs:
 
     def __post_init__(self):
         """Load default configuration from environment if not provided."""
-        if self.team_ids is None or self.global_percentage is None:
-            from posthog.settings.schedules import (
-                REALTIME_COHORT_CALCULATION_GLOBAL_PERCENTAGE,
-                REALTIME_COHORT_CALCULATION_TEAMS,
-            )
+        if self.team_ids is None:
+            from posthog.settings.schedules import REALTIME_COHORT_CALCULATION_TEAMS
 
-            if self.team_ids is None:
-                self.team_ids = REALTIME_COHORT_CALCULATION_TEAMS.copy()
-            if self.global_percentage is None:
-                self.global_percentage = REALTIME_COHORT_CALCULATION_GLOBAL_PERCENTAGE
+            self.team_ids = REALTIME_COHORT_CALCULATION_TEAMS.copy()
+
+        if self.global_percentage is None:
+            from posthog.settings.schedules import REALTIME_COHORT_CALCULATION_GLOBAL_PERCENTAGE
+
+            self.global_percentage = REALTIME_COHORT_CALCULATION_GLOBAL_PERCENTAGE
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
@@ -122,8 +121,8 @@ async def get_realtime_cohort_calculation_count_activity(
                 ).count()
 
             if other_teams_cohorts_count > 0:
-                # Apply global percentage to other teams' cohorts (minimum 1)
-                num_to_include = max(1, int(other_teams_cohorts_count * inputs.global_percentage))
+                # Apply global percentage to other teams' cohorts
+                num_to_include = int(other_teams_cohorts_count * inputs.global_percentage)
                 total_count += min(num_to_include, other_teams_cohorts_count)
 
         return total_count
@@ -179,11 +178,12 @@ async def get_realtime_cohort_selection_activity(
                 )
 
             if other_teams_cohort_ids:
-                # Apply global percentage (minimum 1) - SAME LOGIC AS COUNT ACTIVITY
-                num_to_include = max(1, int(len(other_teams_cohort_ids) * inputs.global_percentage))
-                # Take the first N cohort IDs for deterministic selection
-                selected_other_cohort_ids = other_teams_cohort_ids[:num_to_include]
-                selected_cohort_ids.extend(selected_other_cohort_ids)
+                # Apply global percentage - SAME LOGIC AS COUNT ACTIVITY
+                num_to_include = int(len(other_teams_cohort_ids) * inputs.global_percentage)
+                if num_to_include > 0:
+                    # Take the first N cohort IDs for deterministic selection
+                    selected_other_cohort_ids = other_teams_cohort_ids[:num_to_include]
+                    selected_cohort_ids.extend(selected_other_cohort_ids)
 
         # Step 3: Remove duplicates while preserving order
         seen_ids = set()
@@ -247,22 +247,17 @@ class RealtimeCohortCalculationCoordinatorWorkflow(PostHogWorkflow):
             if start_idx >= total_cohorts:
                 break
 
-            # Get the range of cohort IDs for this worker
+            # Get the specific cohort IDs for this worker
             worker_cohort_ids = all_cohort_ids[start_idx:end_idx]
 
             if not worker_cohort_ids:
                 continue  # Skip empty ranges
 
-            # Calculate min/max range for this worker
-            min_cohort_id = worker_cohort_ids[0]
-            max_cohort_id = worker_cohort_ids[-1]
-
             workflow_configs.append(
                 WorkflowConfig(
                     id=get_child_workflow_id(temporalio.workflow.info().workflow_id, i),
                     inputs=RealtimeCohortCalculationWorkflowInputs(
-                        min_cohort_id=min_cohort_id,
-                        max_cohort_id=max_cohort_id,
+                        cohort_ids=worker_cohort_ids,
                         cohort_id=inputs.cohort_id,  # Keep for backward compatibility
                     ),
                     index=i + 1,
@@ -298,7 +293,7 @@ class RealtimeCohortCalculationCoordinatorWorkflow(PostHogWorkflow):
                 workflows_scheduled += 1
 
                 workflow_logger.info(
-                    f"Scheduled workflow {config['index']} for cohort range {config['inputs'].min_cohort_id}-{config['inputs'].max_cohort_id}"
+                    f"Scheduled workflow {config['index']} for {len(config['inputs'].cohort_ids)} cohorts: {config['inputs'].cohort_ids[:5]}{'...' if len(config['inputs'].cohort_ids) > 5 else ''}"
                 )
 
             workflow_logger.info(

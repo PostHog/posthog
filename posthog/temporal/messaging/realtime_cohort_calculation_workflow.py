@@ -59,9 +59,8 @@ def get_membership_changed_metric(status: str):
 class RealtimeCohortCalculationWorkflowInputs:
     """Inputs for the realtime cohort calculation workflow."""
 
-    # Range-based approach: coordinator provides cohort ID range to process
-    min_cohort_id: Optional[int] = None
-    max_cohort_id: Optional[int] = None
+    # Array-based approach: coordinator provides specific cohort IDs to process
+    cohort_ids: Optional[list[int]] = None
 
     # Keep cohort_id for backward compatibility with single cohort processing
     cohort_id: Optional[int] = None
@@ -73,11 +72,12 @@ class RealtimeCohortCalculationWorkflowInputs:
                 "cohort_id": self.cohort_id,
                 "num_cohorts": 1,
             }
-        elif self.min_cohort_id is not None and self.max_cohort_id is not None:
+        elif self.cohort_ids is not None:
             return {
-                "min_cohort_id": self.min_cohort_id,
-                "max_cohort_id": self.max_cohort_id,
-                "range_size": self.max_cohort_id - self.min_cohort_id + 1,
+                "cohort_ids": self.cohort_ids[:10]
+                if len(self.cohort_ids) > 10
+                else self.cohort_ids,  # Log first 10 for brevity
+                "num_cohorts": len(self.cohort_ids),
             }
         else:
             return {
@@ -149,9 +149,8 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
 
     if inputs.cohort_id is not None:
         num_cohorts_desc = "1 cohort"
-    elif inputs.min_cohort_id is not None and inputs.max_cohort_id is not None:
-        range_size = inputs.max_cohort_id - inputs.min_cohort_id + 1
-        num_cohorts_desc = f"cohort range {inputs.min_cohort_id}-{inputs.max_cohort_id} (up to {range_size} cohorts)"
+    elif inputs.cohort_ids is not None:
+        num_cohorts_desc = f"{len(inputs.cohort_ids)} cohorts"
     else:
         num_cohorts_desc = "0 cohorts"
 
@@ -169,15 +168,14 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
                 ).select_related("team")
                 return list(queryset)
 
-            # Handle new approach: cohort ID range provided by coordinator
-            if inputs.min_cohort_id is not None and inputs.max_cohort_id is not None:
-                # Filter within the assigned range, maintaining order for consistent processing
+            # Handle new approach: specific cohort IDs provided by coordinator
+            if inputs.cohort_ids is not None:
+                # Filter by the specific cohort IDs, maintaining order for consistent processing
                 queryset = (
                     Cohort.objects.filter(
                         deleted=False,
                         cohort_type=CohortType.REALTIME,
-                        id__gte=inputs.min_cohort_id,
-                        id__lte=inputs.max_cohort_id,
+                        id__in=inputs.cohort_ids,
                     )
                     .select_related("team")
                     .order_by("id")  # Critical: ordered by ID for consistent processing
@@ -379,12 +377,12 @@ class RealtimeCohortCalculationWorkflow(PostHogWorkflow):
             workflow_logger.info(
                 f"Starting realtime cohort calculation child workflow for cohort_id={inputs.cohort_id}"
             )
-        elif inputs.min_cohort_id is not None and inputs.max_cohort_id is not None:
+        elif inputs.cohort_ids is not None:
             workflow_logger.info(
-                f"Starting realtime cohort calculation child workflow for range {inputs.min_cohort_id}-{inputs.max_cohort_id}"
+                f"Starting realtime cohort calculation child workflow for {len(inputs.cohort_ids)} cohorts: {inputs.cohort_ids[:10]}{'...' if len(inputs.cohort_ids) > 10 else ''}"
             )
         else:
-            workflow_logger.info("Starting realtime cohort calculation child workflow for empty range")
+            workflow_logger.info("Starting realtime cohort calculation child workflow for empty batch")
 
         # Process the batch of actions
         await temporalio.workflow.execute_activity(
