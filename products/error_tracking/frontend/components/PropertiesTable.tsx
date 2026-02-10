@@ -104,7 +104,7 @@ function renderValue(value: unknown): React.ReactNode {
             )
         }
         if (value.includes('$$_posthog_value_too_long_$$')) {
-            const masked = value.replaceAll('$$_posthog_value_too_long_$$', '[value too long]')
+            const masked = value.replaceAll('$$_posthog_value_too_long_$$', '<value too long>')
             return (
                 <MaskedValue
                     value={masked}
