@@ -7,7 +7,7 @@ from uuid import uuid4
 from temporalio import activity
 
 from posthog.clickhouse.query_tagging import Product, tag_queries
-from posthog.storage import session_recording_v2_object_storage
+from posthog.storage.recordings import file_storage
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.logger import get_write_only_logger
 from posthog.temporal.import_recording.types import ImportContext, ImportRecordingInput
@@ -68,7 +68,7 @@ async def import_recording_data(input: ImportContext) -> None:
     data_files = list(data_dir.iterdir())
     logger.info(f"Found {len(data_files)} data files to import")
 
-    async with session_recording_v2_object_storage.async_client() as storage:
+    async with file_storage.async_file_storage() as storage:
         for data_file in data_files:
             s3_key = f"{input.s3_prefix}/{data_file.name}"
             logger.info(f"Uploading {data_file.name} to {s3_key}")

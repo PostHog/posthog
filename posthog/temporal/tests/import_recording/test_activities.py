@@ -70,15 +70,12 @@ async def test_import_recording_data_success(tmp_path):
     )
 
     mock_storage = AsyncMock()
-    mock_storage.upload_file = AsyncMock()
 
     with (
-        patch(
-            "posthog.temporal.import_recording.activities.session_recording_v2_object_storage.async_client"
-        ) as mock_storage_client,
+        patch("posthog.temporal.import_recording.activities.file_storage.async_file_storage") as mock_async_client,
         patch("posthog.temporal.import_recording.activities.Path") as mock_path_cls,
     ):
-        mock_storage_client.return_value.__aenter__.return_value = mock_storage
+        mock_async_client.return_value.__aenter__.return_value = mock_storage
 
         def path_side_effect(p):
             if p == "/tmp":
