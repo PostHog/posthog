@@ -49,7 +49,7 @@
         "mobile-replay:schema:build:json": "pnpm mobile-replay:web:schema:build:json && pnpm mobile-replay:mobile:schema:build:json"
     },
     "dependencies": {
-        "@babel/runtime": "^7.24.0",
+        "@babel/runtime": "^7.26.10",
         "@base-ui/react": "^1.0.0",
         "@dagrejs/dagre": "^1.1.5",
         "@dnd-kit/core": "^6.0.8",

@@ -9,7 +9,7 @@
         "@babel/preset-env": "^7.22.10",
         "@babel/preset-react": "^7.22.5",
         "@babel/preset-typescript": "^7.22.5",
-        "@babel/runtime": "^7.24.0",
+        "@babel/runtime": "^7.26.10",
         "@posthog/frontend": "workspace:*",
         "@storybook/addon-a11y": "^7.6.4",
         "@storybook/addon-actions": "catalog:",

@@ -335,8 +335,8 @@ importers:
         specifier: ^7.22.5
         version: 7.23.3(@babel/core@7.26.0)
       '@babel/runtime':
-        specifier: ^7.24.0
-        version: 7.24.0
+        specifier: ^7.26.10
+        version: 7.28.6
       '@posthog/frontend':
         specifier: workspace:*
         version: link:../../frontend
@@ -469,8 +469,8 @@ importers:
   frontend:
     dependencies:
       '@babel/runtime':
-        specifier: ^7.24.0
-        version: 7.24.0
+        specifier: ^7.26.10
+        version: 7.28.6
       '@base-ui/react':
         specifier: ^1.0.0
         version: 1.0.0(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -4150,14 +4150,6 @@ packages:
 
   '@babel/runtime-corejs3@7.29.0':
     resolution: {integrity: sha512-TgUkdp71C9pIbBcHudc+gXZnihEDOjUAmXO1VO4HHGES7QLZcShR0stfKIxLSNIYx2fqhmJChOjm/wkF8wv4gA==}
-    engines: {node: '>=6.9.0'}
-
-  '@babel/runtime@7.24.0':
-    resolution: {integrity: sha512-Chk32uHMg6TnQdvw2e9IlqPpFX/6NLuK0Ys2PqLb7/gL5uFn9mXvK715FGLlOLQrcO4qIkNHkvPGktzzXexsFw==}
-    engines: {node: '>=6.9.0'}
-
-  '@babel/runtime@7.28.4':
-    resolution: {integrity: sha512-Q/N6JNWvIvPnLDvjlE1OUBLPQHH6l3CltCEsHIujp45zQUSSh8K+gHnaEX45yAT1nyngnINhvWtzN+Nb9D8RAQ==}
     engines: {node: '>=6.9.0'}
 
   '@babel/runtime@7.28.6':
@@ -23865,12 +23857,6 @@ snapshots:
     dependencies:
       core-js-pure: 3.48.0
 
-  '@babel/runtime@7.24.0':
-    dependencies:
-      regenerator-runtime: 0.14.1
-
-  '@babel/runtime@7.28.4': {}
-
   '@babel/runtime@7.28.6': {}
 
   '@babel/standalone@7.26.7': {}
@@ -23923,7 +23909,7 @@ snapshots:
 
   '@base-ui/react@1.0.0(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)':
     dependencies:
-      '@babel/runtime': 7.28.4
+      '@babel/runtime': 7.28.6
       '@base-ui/utils': 0.2.3(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@floating-ui/react-dom': 2.1.6(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@floating-ui/utils': 0.2.10
@@ -30432,7 +30418,7 @@ snapshots:
   '@testing-library/dom@8.19.0':
     dependencies:
       '@babel/code-frame': 7.26.2
-      '@babel/runtime': 7.24.0
+      '@babel/runtime': 7.28.6
       '@types/aria-query': 4.2.2
       aria-query: 5.1.3
       chalk: 4.1.2
@@ -30454,7 +30440,7 @@ snapshots:
   '@testing-library/jest-dom@5.16.5':
     dependencies:
       '@adobe/css-tools': 4.0.1
-      '@babel/runtime': 7.28.4
+      '@babel/runtime': 7.28.6
       '@types/testing-library__jest-dom': 5.14.5
       aria-query: 5.1.3
       chalk: 3.0.0
@@ -30465,7 +30451,7 @@ snapshots:
 
   '@testing-library/react@13.4.0(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)':
     dependencies:
-      '@babel/runtime': 7.28.4
+      '@babel/runtime': 7.28.6
       '@testing-library/dom': 8.19.0
       '@types/react-dom': 18.3.7(@types/react@18.3.27)
       react: 18.3.1
@@ -30475,12 +30461,12 @@ snapshots:
 
   '@testing-library/user-event@13.5.0(@testing-library/dom@8.19.0)':
     dependencies:
-      '@babel/runtime': 7.28.4
+      '@babel/runtime': 7.28.6
       '@testing-library/dom': 8.19.0
 
   '@testing-library/user-event@13.5.0(@testing-library/dom@9.3.4)':
     dependencies:
-      '@babel/runtime': 7.28.4
+      '@babel/runtime': 7.28.6
       '@testing-library/dom': 9.3.4
 
   '@testing-library/user-event@14.6.1(@testing-library/dom@9.3.4)':
@@ -35739,7 +35725,7 @@ snapshots:
 
   history@5.3.0:
     dependencies:
-      '@babel/runtime': 7.24.0
+      '@babel/runtime': 7.28.6
 
   hls.js@1.5.15: {}
 
@@ -40810,7 +40796,7 @@ snapshots:
 
   rc-trigger@5.3.3(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
     dependencies:
-      '@babel/runtime': 7.24.0
+      '@babel/runtime': 7.28.6
       classnames: 2.5.1
       rc-align: 4.0.12(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       rc-motion: 2.6.2(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -40957,7 +40943,7 @@ snapshots:
 
   react-instantsearch@7.6.0(algoliasearch@4.22.1)(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
     dependencies:
-      '@babel/runtime': 7.24.0
+      '@babel/runtime': 7.28.6
       algoliasearch: 4.22.1
       instantsearch-ui-components: 0.3.0
       instantsearch.js: 4.65.0(algoliasearch@4.22.1)
@@ -41064,7 +41050,7 @@ snapshots:
 
   react-syntax-highlighter@15.5.0(react@18.3.1):
     dependencies:
-      '@babel/runtime': 7.24.0
+      '@babel/runtime': 7.28.6
       highlight.js: 10.7.3
       lowlight: 1.20.0
       prismjs: 1.29.0
@@ -41073,7 +41059,7 @@ snapshots:
 
   react-textarea-autosize@8.3.4(@types/react@18.3.27)(react@18.3.1):
     dependencies:
-      '@babel/runtime': 7.24.0
+      '@babel/runtime': 7.28.6
       react: 18.3.1
       use-composed-ref: 1.3.0(react@18.3.1)
       use-latest: 1.2.1(@types/react@18.3.27)(react@18.3.1)
@@ -41097,7 +41083,7 @@ snapshots:
 
   react-transition-group@4.4.5(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
     dependencies:
-      '@babel/runtime': 7.24.0
+      '@babel/runtime': 7.28.6
       dom-helpers: 5.2.1
       loose-envify: 1.4.0
       prop-types: 15.8.1
@@ -42431,7 +42417,7 @@ snapshots:
 
   tailwind-merge@2.2.2:
     dependencies:
-      '@babel/runtime': 7.24.0
+      '@babel/runtime': 7.28.6
 
   tailwindcss@4.0.11: {}
 
