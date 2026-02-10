@@ -218,8 +218,8 @@ export const SETTINGS_MAP: SettingSection[] = [
         ],
     },
     {
-        level: 'environment',
-        id: 'environment-max',
+        level: 'environment-asdsadsadffd',
+        id: 'environment',
         title: 'AI',
         settings: [
             {
