@@ -116,7 +116,8 @@ export class RecordingApi {
             this.s3Prefix!,
             this.keyStore,
             this.decryptor,
-            metadataStore
+            metadataStore,
+            this.hub.postgres
         )
 
         logger.info('[RecordingApi] Started successfully')

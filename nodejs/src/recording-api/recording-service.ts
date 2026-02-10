@@ -3,6 +3,7 @@ import { GetObjectCommand, S3Client } from '@aws-sdk/client-s3'
 import { ValidRetentionPeriods } from '../session-recording/constants'
 import { createNoopBlockMetadata } from '../session-recording/sessions/session-block-metadata'
 import { SessionMetadataStore } from '../session-recording/sessions/session-metadata-store'
+import { PostgresRouter, PostgresUse } from '../utils/db/postgres'
 import { logger } from '../utils/logger'
 import { KeyStore, RecordingDecryptor, SessionKeyDeletedError } from './types'
 
@@ -32,7 +33,8 @@ export class RecordingService {
         private s3Prefix: string,
         private keyStore: KeyStore,
         private decryptor: RecordingDecryptor,
-        private metadataStore?: SessionMetadataStore
+        private metadataStore?: SessionMetadataStore,
+        private postgres?: PostgresRouter
     ) {}
 
     validateS3Key(key: string): boolean {
@@ -113,6 +115,7 @@ export class RecordingService {
 
         if (result.deleted) {
             await this.emitDeletionEvent(sessionId, teamId)
+            await this.deletePostgresRecords(sessionId, teamId)
             return { ok: true }
         }
 
@@ -145,5 +148,46 @@ export class RecordingService {
         await this.metadataStore.storeSessionBlocks([deletionMetadata])
 
         logger.info('[RecordingService] Deletion event emitted', { sessionId, teamId })
+    }
+
+    private async deletePostgresRecords(sessionId: string, teamId: number): Promise<void> {
+        if (!this.postgres) {
+            logger.warn('[RecordingService] No postgres configured, skipping record deletion', {
+                sessionId,
+                teamId,
+            })
+            return
+        }
+
+        await this.postgres.query(
+            PostgresUse.COMMON_WRITE,
+            `DELETE FROM ee_single_session_summary WHERE team_id = $1 AND session_id = $2`,
+            [teamId, sessionId],
+            'deleteSessionSummary'
+        )
+
+        await this.postgres.query(
+            PostgresUse.COMMON_WRITE,
+            `DELETE FROM posthog_exportedrecording WHERE team_id = $1 AND session_id = $2`,
+            [teamId, sessionId],
+            'deleteExportedRecording'
+        )
+
+        await this.postgres.query(
+            PostgresUse.COMMON_WRITE,
+            `DELETE FROM posthog_comment WHERE team_id = $1 AND scope = 'recording' AND item_id = $2`,
+            [teamId, sessionId],
+            'deleteRecordingComments'
+        )
+
+        // CASCADE deletes: SessionRecordingViewed, SessionRecordingExternalReference, SessionRecordingPlaylistItem
+        await this.postgres.query(
+            PostgresUse.COMMON_WRITE,
+            `DELETE FROM posthog_sessionrecording WHERE team_id = $1 AND session_id = $2`,
+            [teamId, sessionId],
+            'deleteSessionRecording'
+        )
+
+        logger.info('[RecordingService] PostgreSQL records deleted', { sessionId, teamId })
     }
 }
