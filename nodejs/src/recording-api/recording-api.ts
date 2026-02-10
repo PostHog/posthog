@@ -12,7 +12,7 @@ import {
 } from '../types'
 import { createRedisPoolFromConfig } from '../utils/db/redis'
 import { logger } from '../utils/logger'
-import { MemoryCachedKeyStore, RedisCachedKeyStore } from './cache'
+import { RedisCachedKeyStore } from './cache'
 import { getBlockDecryptor } from './crypto'
 import { getKeyStore } from './keystore'
 import { RecordingService } from './recording-service'
@@ -93,7 +93,9 @@ export class RecordingApi {
             kmsEndpoint: this.hub.SESSION_RECORDING_KMS_ENDPOINT,
             dynamoDBEndpoint: this.hub.SESSION_RECORDING_DYNAMODB_ENDPOINT,
         })
-        this.keyStore = new MemoryCachedKeyStore(new RedisCachedKeyStore(keyStore, this.redisPool))
+        // In-memory caching is intentionally omitted here — a stale in-memory cache on
+        // another instance would allow serving a deleted recording's data.
+        this.keyStore = new RedisCachedKeyStore(keyStore, this.redisPool)
         await this.keyStore.start()
 
         this.decryptor = getBlockDecryptor(this.keyStore)
