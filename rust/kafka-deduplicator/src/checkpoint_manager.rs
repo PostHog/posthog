@@ -3,16 +3,11 @@
 //! This module handles scheduling and execution of checkpoint export workers, which
 //! persist deduplication store state to S3 for recovery.
 //!
-//! # Export Suppression During Rebalancing
+//! # Export suppression during rebalance
 //!
-//! When a Kafka rebalance occurs, checkpoint imports (downloads from S3) need S3
-//! bandwidth to quickly restore partition state. To prevent exports from competing
-//! for this bandwidth, workers obtain a rebalance-scoped cancellation token from
-//! `RebalanceTracker::get_export_token()`.
-//!
-//! This token is cancelled when any rebalance starts (0->1 transition) and recreated
-//! when all rebalances complete (1->0 transition). Workers check this token before
-//! expensive I/O and pass it to the exporter for cancellation during S3 uploads.
+//! Rebalance triggers checkpoint imports (S3 downloads); exports are suppressed so imports get bandwidth.
+//! Workers take a token from `RebalanceTracker::get_export_token()` — cancelled on any rebalance start (0→1),
+//! recreated when all rebalances finish (1→0). Workers check before I/O and pass to exporter for upload cancellation.
 
 use std::collections::HashSet;
 use std::path::Path;
@@ -209,9 +204,7 @@ impl CheckpointManager {
                                 break 'inner;
                             }
 
-                            // wait for a slot to become available in the gating loop.
-                            // if the attempt is cleared to proceed, the is_checkpointing
-                            // lock will have atomically registered the partition as in-flight
+                            // Wait for a slot; when Ready, is_checkpointing has already registered this partition as in-flight.
                             let mut gate_interval = tokio::time::interval(submit_loop_config.checkpoint_gate_interval);
                             'gate: loop {
                                 let status = tokio::select! {
@@ -240,9 +233,7 @@ impl CheckpointManager {
                                 }
                             }
 
-                            // clone required manager-owned structures for the next worker instance
-                            // to avoid race conditions - the worker must acquire protected values
-                            // when the thread executes, and mark it's own completion
+                            // Clone manager-owned state for the worker; worker acquires and marks completion when it runs.
                             let worker_is_checkpointing = is_checkpointing.clone();
                             let worker_checkpoint_state = checkpoint_state.clone();
                             let worker_store_manager = store_manager.clone();
@@ -250,7 +241,7 @@ impl CheckpointManager {
                             let worker_offset_tracker = offset_tracker.clone();
                             // Shutdown token - child of main loop token, cancelled on graceful shutdown
                             let worker_shutdown_token = cancel_submit_loop_token.child_token();
-                            // Rebalance token - cancelled when any rebalance starts, to free S3 bandwidth for imports
+                            // Rebalance token — cancelled when any rebalance starts (frees S3 for imports)
                             let worker_rebalance_token = store_manager.rebalance_tracker().get_export_token();
                             let attempt_timestamp = Utc::now();
                             let worker_local_base_dir = Path::new(&submit_loop_config.local_checkpoint_dir);
@@ -270,8 +261,7 @@ impl CheckpointManager {
                                 worker_offset_tracker,
                             );
 
-                            // for now, we don't bother to track the handles of spawned workers
-                            // because each worker represents one best-effort checkpoint attempt
+                            // Workers are best-effort; we don't track handles.
                             let _result = tokio::spawn(async move {
                                 // Best-effort bail if shutdown requested before worker started
                                 if tokio::time::timeout(Duration::from_millis(1), worker_shutdown_token.cancelled()).await.is_ok() {
@@ -283,8 +273,7 @@ impl CheckpointManager {
                                     return Ok(None);
                                 }
 
-                                // Best-effort bail if rebalance started before worker started
-                                // (frees S3 bandwidth for checkpoint imports)
+                                // Bail if rebalance started before worker (frees S3 for imports)
                                 if worker_rebalance_token.is_cancelled() {
                                     let tags = [("result", "skipped"), ("cause", "rebalance_before_start")];
                                     metrics::counter!(CHECKPOINT_WORKER_STATUS_COUNTER, &tags).increment(1);
@@ -361,9 +350,7 @@ impl CheckpointManager {
                                     return Ok(None);
                                 }
 
-                                // Execute checkpoint operation with previous metadata for deduplication.
-                                // Pass the rebalance token for cancellation during S3 upload - this frees
-                                // bandwidth for imports when a rebalance occurs.
+                                // Run checkpoint (previous metadata for dedup). Rebalance token cancels uploads if rebalance starts.
                                 let result = worker.checkpoint_partition_cancellable(
                                     &target_store,
                                     incremental_or_full,
@@ -583,6 +570,9 @@ mod tests {
                 let dest_filepath = self
                     .export_base_dir
                     .join(plan.info.get_file_key(&local_file.filename));
+                if let Some(parent) = dest_filepath.parent() {
+                    tokio::fs::create_dir_all(parent).await?;
+                }
                 tokio::fs::copy(src_filepath, &dest_filepath).await?;
                 uploaded_files.push(dest_filepath.to_string_lossy().to_string());
             }
@@ -755,9 +745,7 @@ mod tests {
             ..Default::default()
         };
 
-        // no Partition is created and associated with the store manager,
-        // so the ChekcpointManager task loop should find no Partitions to
-        // execute CheckpointWorkers against
+        // No partition is associated with the store manager, so the checkpoint loop finds nothing to run.
         let mut manager = CheckpointManager::new(config.clone(), store_manager.clone(), None);
 
         // Should fail for non-existent topic partition.
