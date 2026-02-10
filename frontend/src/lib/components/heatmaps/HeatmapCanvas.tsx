@@ -155,7 +155,7 @@ export function HeatmapCanvas({
                 })
             }
         },
-        [heatmapElements, windowWidth, windowWidthOverride, setSelectedArea, isToolbar]
+        [heatmapElements, windowWidth, windowWidthOverride, setSelectedArea, isToolbar, scrollYRef]
     )
 
     const updateHeatmapData = useCallback((): void => {
