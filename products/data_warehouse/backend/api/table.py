@@ -136,6 +136,12 @@ class TableSerializer(serializers.ModelSerializer):
 
         return table
 
+    def validate_url_pattern(self, url_pattern):
+        s3_domain = settings.DATAWAREHOUSE_BUCKET_DOMAIN
+        if s3_domain in url_pattern:
+            raise serializers.ValidationError("Cant use this bucket")
+        return url_pattern
+
     def validate_name(self, name):
         if not self.instance or self.instance.name != name:
             name_exists_in_hogql_database = self.context["database"].has_table(name)
@@ -224,9 +230,19 @@ class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         credential_data = validated_data.pop("credential", None)
         if credential_data:
+            access_key = credential_data.get("access_key")
+            access_secret = credential_data.get("access_secret")
+
+            if access_key is not None and len(access_key.strip()) == 0:
+                raise serializers.ValidationError("Access key can't be blank")
+            if access_secret is not None and len(access_secret.strip()) == 0:
+                raise serializers.ValidationError("Access secret can't be blank")
+
             credential = instance.credential
-            credential.access_key = credential_data.get("access_key", credential.access_key)
-            credential.access_secret = credential_data.get("access_secret", credential.access_secret)
+            if access_key is not None:
+                credential.access_key = access_key
+            if access_secret is not None:
+                credential.access_secret = access_secret
             credential.save()
 
         for attr, value in validated_data.items():
