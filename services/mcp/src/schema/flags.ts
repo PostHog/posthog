@@ -16,16 +16,14 @@ const numberOpsForSchema = ['gt', 'gte', 'lt', 'lte', 'min', 'max']
 const numberOps = [...base, ...numberOpsForSchema] as const
 const booleanOps = [...base] as const
 
-const arrayOps = ['in', 'not_in'] as const
-
-const operatorValues = [...new Set([...stringOps, ...numberOps, ...booleanOps, ...arrayOps])] as [string, ...string[]]
+const operatorValues = [...new Set([...stringOps, ...numberOps, ...booleanOps])] as [string, ...string[]]
 
 const operatorSchema = z.enum(operatorValues)
 
 export const PersonPropertyFilterSchema = z
     .object({
         key: z.string(),
-        value: z.union([z.string(), z.number(), z.boolean(), z.array(z.string()), z.array(z.number())]),
+        value: z.union([z.string(), z.number(), z.boolean()]),
         operator: operatorSchema.optional(),
     })
     .superRefine((data, ctx) => {
@@ -33,25 +31,16 @@ export const PersonPropertyFilterSchema = z
         if (!operator) {
             return
         }
-        const isArray = Array.isArray(value)
 
         const valid =
             (typeof value === 'string' && stringOps.includes(operator as any)) ||
             (typeof value === 'number' && numberOps.includes(operator as any)) ||
-            (typeof value === 'boolean' && booleanOps.includes(operator as any)) ||
-            (isArray && arrayOps.includes(operator as any))
+            (typeof value === 'boolean' && booleanOps.includes(operator as any))
 
         if (!valid) {
             ctx.addIssue({
                 code: z.ZodIssueCode.custom,
-                message: `operator "${operator}" is not valid for value type "${isArray ? 'array' : typeof value}"`,
-            })
-        }
-
-        if (!isArray && arrayOps.includes(operator as any)) {
-            ctx.addIssue({
-                code: z.ZodIssueCode.custom,
-                message: `operator "${operator}" requires an array value`,
+                message: `operator "${operator}" is not valid for value type "${typeof value}"`,
             })
         }
     })
@@ -164,6 +153,7 @@ export const FeatureFlagSchema = z.object({
     filters: z.any().nullish(),
     active: z.boolean(),
     tags: z.array(z.string()).optional(),
+    updated_at: z.string().nullish(),
 })
 
 export type FeatureFlag = z.infer<typeof FeatureFlagSchema>

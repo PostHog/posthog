@@ -3,6 +3,8 @@ from typing import Any
 from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, MagicMock, patch
 
+from django.test import override_settings
+
 import boto3
 from clickhouse_driver.errors import ServerException
 
@@ -316,6 +318,23 @@ class TestTable(APIBaseTest):
 
         assert table.deleted is False
 
+    def test_create_table_with_internal_bucket_url(self):
+        with override_settings(DATAWAREHOUSE_BUCKET_DOMAIN="somedomain.com"):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/warehouse_tables/",
+                {
+                    "name": "whatever",
+                    "url_pattern": f"https://{settings.DATAWAREHOUSE_BUCKET_DOMAIN}/some/path.pqt",
+                    "format": "Parquet",
+                    "credential": {
+                        "access_key": "_accesskey",
+                        "access_secret": "_accesssecret",
+                    },
+                },
+            )
+            assert response.status_code == 400
+            assert DataWarehouseTable.objects.count() == 0
+
     def test_create_table_with_existing_name(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/warehouse_tables/",
@@ -373,6 +392,121 @@ class TestTable(APIBaseTest):
         )
         assert response.status_code == 200
         assert response.json()["name"] == "test_table2"
+
+    def test_update_table_url_pattern_to_internal_bucket(self):
+        table = DataWarehouseTable.objects.create(
+            name="test_table",
+            format="Parquet",
+            team=self.team,
+            team_id=self.team.pk,
+            columns={},
+            url_pattern="https://your-org.s3.amazonaws.com/bucket/whatever.pqt",
+        )
+        with override_settings(DATAWAREHOUSE_BUCKET_DOMAIN="somedomain.com"):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/warehouse_tables/{table.id}",
+                {"url_pattern": "https://somedomain.com/some/path.pqt"},
+            )
+            assert response.status_code == 400
+
+        table.refresh_from_db()
+        assert table.url_pattern == "https://your-org.s3.amazonaws.com/bucket/whatever.pqt"
+
+    def test_update_table_credential_blank_access_key(self):
+        from products.data_warehouse.backend.models import DataWarehouseCredential
+
+        credential = DataWarehouseCredential.objects.create(
+            team=self.team, access_key="original_key", access_secret="original_secret"
+        )
+        table = DataWarehouseTable.objects.create(
+            name="test_table",
+            format="Parquet",
+            team=self.team,
+            team_id=self.team.pk,
+            columns={},
+            credential=credential,
+        )
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/warehouse_tables/{table.id}",
+            {"credential": {"access_key": "  ", "access_secret": "new_secret"}},
+        )
+        assert response.status_code == 400
+
+        credential.refresh_from_db()
+        assert credential.access_key == "original_key"
+
+    def test_update_table_credential_blank_access_secret(self):
+        from products.data_warehouse.backend.models import DataWarehouseCredential
+
+        credential = DataWarehouseCredential.objects.create(
+            team=self.team, access_key="original_key", access_secret="original_secret"
+        )
+        table = DataWarehouseTable.objects.create(
+            name="test_table",
+            format="Parquet",
+            team=self.team,
+            team_id=self.team.pk,
+            columns={},
+            credential=credential,
+        )
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/warehouse_tables/{table.id}",
+            {"credential": {"access_key": "new_key", "access_secret": ""}},
+        )
+        assert response.status_code == 400
+
+        credential.refresh_from_db()
+        assert credential.access_secret == "original_secret"
+
+    def test_update_table_credential_null_field_values_rejected(self):
+        from products.data_warehouse.backend.models import DataWarehouseCredential
+
+        credential = DataWarehouseCredential.objects.create(
+            team=self.team, access_key="original_key", access_secret="original_secret"
+        )
+        table = DataWarehouseTable.objects.create(
+            name="test_table",
+            format="Parquet",
+            team=self.team,
+            team_id=self.team.pk,
+            columns={},
+            credential=credential,
+        )
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/warehouse_tables/{table.id}",
+            {"credential": {"access_key": None, "access_secret": None}},
+            content_type="application/json",
+        )
+        assert response.status_code == 400
+
+        credential.refresh_from_db()
+        assert credential.access_key == "original_key"
+        assert credential.access_secret == "original_secret"
+
+    def test_update_table_credential_null_rejected(self):
+        from products.data_warehouse.backend.models import DataWarehouseCredential
+
+        credential = DataWarehouseCredential.objects.create(
+            team=self.team, access_key="original_key", access_secret="original_secret"
+        )
+        table = DataWarehouseTable.objects.create(
+            name="test_table",
+            format="Parquet",
+            team=self.team,
+            team_id=self.team.pk,
+            columns={},
+            credential=credential,
+        )
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/warehouse_tables/{table.id}",
+            {"credential": None},
+            content_type="application/json",
+        )
+        assert response.status_code == 400
+
+        credential.refresh_from_db()
+        assert credential.access_key == "original_key"
+        assert credential.access_secret == "original_secret"
 
     @patch("posthoganalytics.feature_enabled", return_value=True)
     @patch("boto3.client")

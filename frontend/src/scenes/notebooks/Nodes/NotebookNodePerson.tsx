@@ -8,6 +8,7 @@ import { NotFound } from 'lib/components/NotFound'
 import { PropertyIcon } from 'lib/components/PropertyIcon/PropertyIcon'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { compactNumber } from 'lib/utils'
 import { formatCurrency } from 'lib/utils/geography/currency'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
@@ -29,9 +30,11 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodePersonAttribute
     const { id, distinctId } = attributes
 
     const personLogicProps = { id, distinctId }
-    const { person, personLoading } = useValues(personLogic(personLogicProps))
-    const { setExpanded, setActions, insertAfter } = useActions(notebookNodeLogic)
-    const { setTitlePlaceholder } = useActions(notebookNodeLogic)
+    const mountedPersonLogic = personLogic(personLogicProps)
+    const { person, personLoading } = useValues(mountedPersonLogic)
+    const { setExpanded, setActions, insertAfter, setTitlePlaceholder } = useActions(notebookNodeLogic)
+    const { notebookLogic } = useValues(notebookNodeLogic)
+    useAttachedLogic(mountedPersonLogic, notebookLogic)
 
     useEffect(() => {
         const title = person ? `Person: ${asDisplay(person)}` : 'Person'

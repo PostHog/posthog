@@ -1698,8 +1698,8 @@ def capture_report(
             name="organization usage report",
             organization_id=organization_id,
             properties=full_report_dict,
+            group_properties={"has_non_zero_usage": full_report_dict.get("has_non_zero_usage")},
             timestamp=at_date,
-            set_on_organization=True,
         )
 
     except Exception as err:

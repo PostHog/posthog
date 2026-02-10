@@ -60,7 +60,7 @@ function truncateString(str: string, num: number): string {
 }
 
 const RESOLVED_COLOR_MAP = new Map<string, string>()
-function resolveVariableColor(color: string | undefined): string | undefined {
+export function resolveVariableColor(color: string | undefined): string | undefined {
     if (!color) {
         return color
     }
@@ -483,8 +483,6 @@ export function LineGraph_({
     function generateYaxesForLineGraph(
         dataSetCount: number,
         seriesNonZeroMin: number,
-        goalLines: GoalLine[],
-        goalLinesY: number[],
         goalLinesWithColor: GoalLine[],
         tickOptions: Partial<TickOptions>,
         precision: number,
@@ -513,22 +511,6 @@ export function LineGraph_({
 
                     return colors.axisLabel as Color
                 },
-            },
-            afterTickToLabelConversion: (axis: { id: string; ticks: { value: number }[] }) => {
-                if (!axis.id.startsWith('y')) {
-                    return
-                }
-
-                const nonAnnotationTicks = axis.ticks.filter(
-                    ({ value }: { value: number }) => !goalLinesY.includes(value)
-                )
-                const annotationTicks = goalLines.map((value) => ({
-                    value: value.value,
-                    label: `⬤ ${formatYAxisTick(value.value)}`,
-                }))
-
-                // Guarantee that all annotations exist as ticks
-                axis.ticks = [...nonAnnotationTicks, ...annotationTicks]
             },
             grid: gridOptions,
         }
@@ -682,14 +664,14 @@ export function LineGraph_({
                                 type: 'line',
                                 yMin: annotation.value,
                                 yMax: annotation.value,
-                                borderColor: resolveVariableColor(annotation.borderColor) || 'rgb(255, 99, 132)',
+                                borderWidth: 2,
+                                borderDash: [6, 6],
+                                borderColor: resolveVariableColor(annotation.borderColor),
                                 label: {
                                     content: annotation.label,
                                     display: annotation.displayLabel ?? true,
                                     position: annotation.position ?? 'end',
                                 },
-                                borderWidth: 1,
-                                borderDash: [5, 8],
                                 enter: () => {
                                     const tooltipEl = document.getElementById(`InsightTooltipWrapper-${tooltipId}`)
                                     if (tooltipEl) {
@@ -963,8 +945,6 @@ export function LineGraph_({
                         (showMultipleYAxes && new Set(processedDatasets.map((d) => d.yAxisID)).size) ||
                             processedDatasets.length,
                         seriesNonZeroMin,
-                        goalLines,
-                        goalLinesY,
                         goalLinesWithColor,
                         tickOptions,
                         precision,

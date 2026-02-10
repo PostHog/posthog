@@ -18,7 +18,7 @@ import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePane
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { actionsModel } from '~/models/actionsModel'
 import { productUrls } from '~/products'
-import { RootAssistantMessage } from '~/queries/schema/schema-assistant-messages'
+import { AgentMode, RootAssistantMessage } from '~/queries/schema/schema-assistant-messages'
 import { Breadcrumb, Conversation, ConversationDetail, ConversationStatus, SidePanelTab } from '~/types'
 
 import { maxContextLogic } from './maxContextLogic'
@@ -67,13 +67,45 @@ const HEADLINES = [
     'What do you want to know today?',
 ]
 
+interface ParsedCommand {
+    mode?: AgentMode | null
+    autoRun: boolean
+    question: string
+}
+
+function parseCommandString(options: string): ParsedCommand {
+    let remaining = options
+
+    // Check for mode parameter (format: mode=<value>:rest), remove it if present
+    if (remaining.startsWith('mode=')) {
+        const colonIndex = remaining.indexOf(':', 5) // After "mode="
+        remaining = colonIndex === -1 ? '' : remaining.slice(colonIndex + 1)
+    }
+
+    // Handle auto-run prefix
+    const autoRun = remaining.startsWith('!')
+    if (autoRun) {
+        remaining = remaining.slice(1)
+    }
+
+    return {
+        autoRun,
+        question: remaining.trim(),
+    }
+}
+
 function handleCommandString(options: string, actions: maxLogicType['actions']): void {
-    if (options.startsWith('!')) {
+    const parsed = parseCommandString(options)
+
+    // Note: The mode parameter is handled directly by maxThreadLogic in its afterMount
+    // to ensure the correct logic instance sets its own mode
+
+    if (parsed.autoRun) {
         actions.setAutoRun(true)
     }
-    const cleanedQuestion = options.replace(/^!/, '')
-    if (cleanedQuestion.trim() !== '') {
-        actions.setQuestion(cleanedQuestion)
+
+    if (parsed.question !== '') {
+        actions.setQuestion(parsed.question)
     }
 }
 
@@ -197,7 +229,7 @@ export const maxLogic = kea<maxLogicType>([
             },
         ],
 
-        autoRun: [false as boolean, { setAutoRun: (_, { autoRun }) => autoRun }],
+        autoRun: [false as boolean, { setAutoRun: (_, { autoRun }) => autoRun, startNewConversation: () => false }],
     }),
 
     selectors({
@@ -232,8 +264,8 @@ export const maxLogic = kea<maxLogicType>([
                           parseInt((conversation?.id || uuid()).split('-').at(-1) as string, 16) % HEADLINES.length
                       ]
             },
-            // It's important we use a deep equality check for inputs, because we want to avoid needless re-renders
-            { equalityCheck: objectsEqual },
+            // It's important we use a deep equality check for outputs, because we want to avoid needless re-renders
+            { resultEqualityCheck: objectsEqual },
         ],
 
         conversationLoading: [
