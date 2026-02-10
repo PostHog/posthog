@@ -9,7 +9,7 @@ from django.db import close_old_connections
 import structlog
 from temporalio import activity
 
-from posthog.models.exported_asset import ExportedAsset, get_public_access_token, save_content
+from posthog.models.exported_asset import ExportedAsset, get_public_access_token, save_content_from_file
 from posthog.tasks.exports.video_exporter import RecordReplayToFileOptions
 from posthog.utils import absolute_uri
 
@@ -128,9 +128,4 @@ def record_and_persist_video_activity(build: dict[str, Any]) -> None:
             raise RuntimeError(
                 f"Video file too large: {file_size / (1024 * 1024):.1f}MB exceeds {MAX_FILE_SIZE // (1024 * 1024)}MB limit"
             )
-        chunk_size = 64 * 1024  # 64KB chunks for better I/O performance
-        chunks = []
-        with open(tmp_path, "rb") as f:
-            while chunk := f.read(chunk_size):
-                chunks.append(chunk)
-        save_content(asset, b"".join(chunks))
+        save_content_from_file(asset, tmp_path)
