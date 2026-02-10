@@ -11,6 +11,7 @@ import { Breadcrumb } from '~/types'
 
 import { LLMProvider, LLMProviderKey, llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
 import { queryEvaluationRuns } from '../utils'
+import { EVALUATION_SUMMARY_MAX_RUNS } from './constants'
 import type { llmEvaluationLogicType } from './llmEvaluationLogicType'
 import { EvaluationTemplateKey, defaultEvaluationTemplates } from './templates'
 import {
@@ -37,10 +38,10 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
     props({} as LLMEvaluationLogicProps),
     key((props) => `${props.evaluationId || 'new'}${props.templateKey ? `-${props.templateKey}` : ''}`),
 
-    connect({
+    connect(() => ({
         values: [llmProviderKeysLogic, ['providerKeys', 'providerKeysLoading']],
         actions: [llmProviderKeysLogic, ['loadProviderKeys', 'loadProviderKeysSuccess']],
-    }),
+    })),
 
     actions({
         // Evaluation configuration actions
@@ -314,8 +315,8 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 const provider = evaluation.model_configuration?.provider || 'openai'
                 let keyId = evaluation.model_configuration?.provider_key_id || null
 
-                // For new evals without a key, auto-select user's first key if available
-                if (!keyId && !evaluation.id) {
+                // Auto-select user's first key if none set (for new OR existing evals)
+                if (!keyId) {
                     const keysForProvider = values.providerKeysByProvider[provider] || []
                     if (keysForProvider.length > 0) {
                         keyId = keysForProvider[0].id
@@ -328,14 +329,24 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         },
 
         loadProviderKeysSuccess: () => {
-            // When provider keys finish loading after evaluation, auto-select key for new evals
             const evaluation = values.evaluation
+
+            // For new evals without a key, auto-select first key
             if (evaluation && !evaluation.id && !values.selectedKeyId) {
                 const keysForProvider = values.providerKeysByProvider[values.selectedProvider] || []
                 if (keysForProvider.length > 0) {
                     const keyId = keysForProvider[0].id
                     actions.setSelectedKeyId(keyId)
                     actions.loadAvailableModels({ provider: values.selectedProvider, keyId })
+                }
+            }
+
+            // For existing evals, if selected key no longer exists, reload evaluation to get fresh data
+            if (evaluation && evaluation.id && values.selectedKeyId) {
+                const keysForProvider = values.providerKeysByProvider[values.selectedProvider] || []
+                const keyExists = keysForProvider.some((key) => key.id === values.selectedKeyId)
+                if (!keyExists) {
+                    actions.loadEvaluation()
                 }
             }
         },
@@ -502,6 +513,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     openai: [],
                     anthropic: [],
                     gemini: [],
+                    openrouter: [],
                 }
                 for (const key of providerKeys) {
                     if (key.provider in byProvider) {
@@ -566,7 +578,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 } else if (filter === 'na') {
                     filteredRuns = filteredRuns.filter((r) => r.result === null)
                 }
-                return Math.min(filteredRuns.length, 100)
+                return Math.min(filteredRuns.length, EVALUATION_SUMMARY_MAX_RUNS)
             },
         ],
 
@@ -574,20 +586,15 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
             (s) => [s.evaluation],
             (evaluation): Breadcrumb[] => [
                 {
-                    name: 'LLM Analytics',
-                    path: urls.llmAnalyticsDashboard(),
-                    key: 'LLMAnalytics',
-                    iconType: 'llm_analytics',
-                },
-                {
                     name: 'Evaluations',
                     path: urls.llmAnalyticsEvaluations(),
                     key: 'LLMAnalyticsEvaluations',
-                    iconType: 'llm_analytics',
+                    iconType: 'llm_evaluations',
                 },
                 {
                     name: evaluation?.name || 'New Evaluation',
                     key: 'LLMAnalyticsEvaluationEdit',
+                    iconType: 'llm_evaluations',
                 },
             ],
         ],

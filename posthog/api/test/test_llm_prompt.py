@@ -42,29 +42,54 @@ class TestLLMPromptAPI(APIBaseTest):
         assert response.json()["attr"] == "name"
         assert response.json()["detail"] == "A prompt with this name already exists."
 
-    def test_update_prompt_to_duplicate_name_fails(self, mock_feature_enabled):
-        LLMPrompt.objects.create(
+    def test_update_prompt_name_rejected(self, mock_feature_enabled):
+        prompt = LLMPrompt.objects.create(
             team=self.team,
-            name="existing-prompt",
-            prompt="Content 1",
-            created_by=self.user,
-        )
-        prompt_to_update = LLMPrompt.objects.create(
-            team=self.team,
-            name="another-prompt",
-            prompt="Content 2",
+            name="original-name",
+            prompt="Content",
             created_by=self.user,
         )
 
         response = self.client.patch(
-            f"/api/environments/{self.team.id}/llm_prompts/{prompt_to_update.id}/",
-            data={"name": "existing-prompt"},
+            f"/api/environments/{self.team.id}/llm_prompts/{prompt.id}/",
+            data={"name": "new-name"},
             format="json",
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["attr"] == "name"
-        assert response.json()["detail"] == "A prompt with this name already exists."
+        assert response.json()["detail"] == "Prompt name cannot be changed after creation."
+
+        prompt.refresh_from_db()
+        assert prompt.name == "original-name"
+
+    def test_create_prompt_with_reserved_name_new_fails(self, mock_feature_enabled):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_prompts/",
+            data={
+                "name": "new",
+                "prompt": "Content",
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "name"
+        assert "'new' is a reserved name" in response.json()["detail"]
+
+    def test_create_prompt_with_reserved_name_NEW_uppercase_fails(self, mock_feature_enabled):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_prompts/",
+            data={
+                "name": "NEW",
+                "prompt": "Content",
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "name"
+        assert "'new' is a reserved name" in response.json()["detail"]
 
     def test_create_prompt_with_same_name_as_deleted_prompt_succeeds(self, mock_feature_enabled):
         LLMPrompt.objects.create(

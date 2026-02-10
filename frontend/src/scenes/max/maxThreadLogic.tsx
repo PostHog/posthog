@@ -13,6 +13,7 @@ import {
     reducers,
     selectors,
 } from 'kea'
+import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
@@ -32,6 +33,7 @@ import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { openNotebook } from '~/models/notebooksModel'
 import {
     AgentMode,
@@ -53,7 +55,15 @@ import {
     SubagentUpdateEvent,
     TaskExecutionStatus,
 } from '~/queries/schema/schema-assistant-messages'
-import { Conversation, ConversationDetail, ConversationStatus, ConversationType, PendingApproval } from '~/types'
+import { SidePanelTab } from '~/types'
+import {
+    Conversation,
+    ConversationDetail,
+    ConversationQueueMessage,
+    ConversationStatus,
+    ConversationType,
+    PendingApproval,
+} from '~/types'
 
 import { EnhancedToolCall, getToolCallDescriptionAndWidget } from './Thread'
 import { ToolRegistration } from './max-constants'
@@ -61,6 +71,7 @@ import { MaxBillingContext, MaxBillingContextSubscriptionLevel, maxBillingContex
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'
 import type { maxThreadLogicType } from './maxThreadLogicType'
+import { MaxUIContext } from './maxTypes'
 import { MAX_SLASH_COMMANDS, SlashCommand } from './slash-commands'
 import {
     getAgentModeForScene,
@@ -191,6 +202,19 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         setSupportOverrideEnabled: (enabled: boolean) => ({ enabled }),
         processNotebookUpdate: (notebookId: string, notebookContent: JSONContent) => ({ notebookId, notebookContent }),
         appendMessageToConversation: (message: string) => ({ message }),
+        enqueueQueuedMessage: (payload: {
+            content: string
+            uiContext?: MaxUIContext
+            contextualTools?: Record<string, any>
+            billingContext?: MaxBillingContext | null
+            agentMode?: AgentMode | null
+        }) => payload,
+        updateQueuedMessage: (queueId: string, content: string) => ({ queueId, content }),
+        deleteQueuedMessage: (queueId: string) => ({ queueId }),
+        consumeQueuedMessage: (message: ConversationQueueMessage) => ({ message }),
+        setQueuedMessages: (messages: ConversationQueueMessage[]) => ({ messages }),
+        setQueueLimit: (limit: number) => ({ limit }),
+        clearQueuedMessages: true,
         setForAnotherAgenticIteration: (value: boolean) => ({ value }),
         setToolCallUpdate: (
             update: AssistantUpdateEvent | SubagentUpdateEvent,
@@ -261,7 +285,6 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         streamingActive: [
             false,
             {
-                askMax: () => true,
                 reconnectToStream: () => true,
                 streamConversation: () => true,
                 completeThreadGeneration: () => false,
@@ -295,6 +318,24 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 askMax: (_, { prompt }) => prompt,
                 completeThreadGeneration: () => null,
                 stopGeneration: () => null,
+            },
+        ],
+
+        queuedMessages: [
+            [] as ConversationQueueMessage[],
+            {
+                loadQueueDataSuccess: (_, { queueData }) => queueData.messages,
+                setQueuedMessages: (_, { messages }) => messages,
+                consumeQueuedMessage: (state, { message }) => state.filter((item) => item.id !== message.id),
+                clearQueuedMessages: () => [],
+            },
+        ],
+
+        queueLimit: [
+            0,
+            {
+                loadQueueDataSuccess: (_, { queueData }) => queueData.limit,
+                setQueueLimit: (_, { limit }) => limit,
             },
         ],
 
@@ -466,6 +507,29 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         ],
     })),
 
+    loaders(({ values }) => ({
+        queueData: [
+            { messages: [] as ConversationQueueMessage[], limit: 0 },
+            {
+                loadQueueData: async () => {
+                    if (!values.queueingEnabled || !values.conversation?.id) {
+                        return { messages: [], limit: 0 }
+                    }
+                    try {
+                        const queue = await api.conversations.queue.list(values.conversation.id)
+                        return { messages: queue.messages, limit: queue.max_queue_messages }
+                    } catch (error: any) {
+                        if (error instanceof ApiError && error.status === 404) {
+                            return { messages: [], limit: 0 }
+                        }
+                        lemonToast.error(error?.data?.detail || 'Failed to load queued messages.')
+                        return { messages: [], limit: 0 }
+                    }
+                },
+            },
+        ],
+    })),
+
     listeners((logic) => ({
         streamConversation: async (
             { streamData: { agent_mode: agentMode, ...streamData }, generationAttempt, addToThread = true },
@@ -603,7 +667,10 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                         }
 
                         if (e.status === 429) {
-                            relevantErrorMessage.content = `You've reached PostHog AI's usage limit for the moment. Please try again ${e.formattedRetryAfter}.`
+                            // Use server-provided message (includes research beta messaging)
+                            relevantErrorMessage.content =
+                                e.detail ||
+                                `You've reached PostHog AI's usage limit for the moment. Please try again ${e.formattedRetryAfter}.`
                         }
 
                         if (e.status === 402) {
@@ -644,14 +711,179 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
     })),
     listeners(({ actions, values, cache }) => ({
         setConversation: ({ conversation }) => {
+            const nextConversationId = conversation?.id ?? null
+            if (cache.lastConversationId !== nextConversationId) {
+                cache.lastConversationId = nextConversationId
+                actions.setQueuedMessages([])
+                actions.setQueueLimit(0)
+                if (values.queueingEnabled && conversation?.id) {
+                    actions.loadQueueData()
+                }
+            }
             // Sync agentMode from conversation only if user hasn't manually selected a mode after submission
             if (!values.agentModeLockedByUser && conversation?.agent_mode) {
                 actions.syncAgentModeFromConversation(conversation.agent_mode as AgentMode)
+            }
+            if (
+                values.queueingEnabled &&
+                conversation?.pending_approvals?.some((approval) => approval.decision_status === 'pending')
+            ) {
+                actions.clearQueuedMessages()
+            }
+            // Note: pending approvals loading is handled in the reducer (pendingApprovalsData.setConversation)
+        },
+        enqueueQueuedMessage: async ({ content, contextualTools, uiContext, billingContext, agentMode }) => {
+            if (!values.queueingEnabled || !values.conversation?.id) {
+                actions.setQueuedMessages([])
+                actions.setQueueLimit(0)
+                return
+            }
+            try {
+                const queuePayload: {
+                    content: string
+                    contextual_tools?: Record<string, any>
+                    ui_context?: MaxUIContext
+                    billing_context?: MaxBillingContext
+                    agent_mode?: AgentMode
+                } = {
+                    content,
+                    contextual_tools: contextualTools,
+                }
+
+                if (uiContext != null) {
+                    queuePayload.ui_context = uiContext
+                }
+
+                if (billingContext != null) {
+                    queuePayload.billing_context = billingContext
+                }
+
+                if (agentMode != null) {
+                    queuePayload.agent_mode = agentMode
+                }
+
+                const queue = await api.conversations.queue.enqueue(values.conversation.id, queuePayload)
+                actions.setQueuedMessages(queue.messages)
+                actions.setQueueLimit(queue.max_queue_messages)
+            } catch (error: any) {
+                if (error instanceof ApiError && error.status === 409) {
+                    lemonToast.error('You can only queue two messages at a time.')
+                    return
+                }
+                lemonToast.error(error?.data?.detail || 'Failed to queue the message.')
+            }
+        },
+        updateQueuedMessage: async ({ queueId, content }) => {
+            if (!values.queueingEnabled || !values.conversation?.id) {
+                actions.setQueuedMessages([])
+                actions.setQueueLimit(0)
+                return
+            }
+            try {
+                const queue = await api.conversations.queue.update(values.conversation.id, queueId, content)
+                actions.setQueuedMessages(queue.messages)
+                actions.setQueueLimit(queue.max_queue_messages)
+            } catch (error: any) {
+                lemonToast.error(error?.data?.detail || 'Failed to update the queued message.')
+            }
+        },
+        deleteQueuedMessage: async ({ queueId }) => {
+            if (!values.queueingEnabled || !values.conversation?.id) {
+                actions.setQueuedMessages([])
+                actions.setQueueLimit(0)
+                return
+            }
+            if (!queueId) {
+                return
+            }
+            const fallbackQueue = values.queuedMessages.filter((item) => item.id !== queueId)
+            actions.setQueuedMessages(fallbackQueue)
+            try {
+                const queue = await api.conversations.queue.delete(values.conversation.id, queueId)
+                actions.setQueuedMessages(queue.messages)
+                actions.setQueueLimit(queue.max_queue_messages)
+            } catch (error: any) {
+                if (error instanceof ApiError && error.status === 404) {
+                    return
+                }
+                actions.setQueuedMessages(fallbackQueue)
+            }
+        },
+        consumeQueuedMessage: async ({ message }) => {
+            if (!values.queueingEnabled || !values.conversation?.id) {
+                actions.setQueuedMessages([])
+                actions.setQueueLimit(0)
+                return
+            }
+            const queueId = message.id
+            if (!queueId) {
+                return
+            }
+            const fallbackQueue = values.queuedMessages.filter((item) => item.id !== queueId)
+            actions.setQueuedMessages(fallbackQueue)
+            try {
+                const queue = await api.conversations.queue.delete(values.conversation.id, queueId)
+                actions.setQueuedMessages(queue.messages)
+                actions.setQueueLimit(queue.max_queue_messages)
+            } catch (error: any) {
+                if (error instanceof ApiError && error.status === 404) {
+                    return
+                }
+                actions.setQueuedMessages(fallbackQueue)
+            }
+        },
+        clearQueuedMessages: async () => {
+            if (!values.queueingEnabled || !values.conversation?.id) {
+                actions.setQueuedMessages([])
+                actions.setQueueLimit(0)
+                return
+            }
+            try {
+                const queue = await api.conversations.queue.clear(values.conversation.id)
+                actions.setQueuedMessages(queue.messages)
+                actions.setQueueLimit(queue.max_queue_messages)
+            } catch (error: any) {
+                lemonToast.error(error?.data?.detail || 'Failed to clear queued messages.')
+            }
+        },
+        setPendingApproval: () => {
+            if (values.queueingEnabled) {
+                actions.clearQueuedMessages()
             }
         },
         askMax: async ({ prompt, addToThread = true, uiContext }) => {
             // Only process if this thread is the currently active one
             if (values.conversationId !== values.activeThreadKey) {
+                return
+            }
+            const contextualTools = Object.fromEntries(values.tools.map((tool) => [tool.identifier, tool.context]))
+            const mergedUiContext = uiContext
+                ? { ...values.compiledContext, ...uiContext }
+                : values.compiledContext || undefined
+            const billingContext =
+                values.billingContext && values.featureFlags[FEATURE_FLAGS.MAX_BILLING_CONTEXT]
+                    ? values.billingContext
+                    : undefined
+
+            if (
+                values.queueingEnabled &&
+                values.threadLoading &&
+                addToThread &&
+                typeof prompt === 'string' &&
+                prompt.trim() !== ''
+            ) {
+                if (values.queueIsFull) {
+                    lemonToast.error('You can only queue two messages at a time.')
+                    return
+                }
+                actions.enqueueQueuedMessage({
+                    content: prompt,
+                    contextualTools,
+                    uiContext: mergedUiContext,
+                    billingContext,
+                    agentMode: values.agentMode,
+                })
+                actions.setQuestion('')
                 return
             }
             if (!values.dataProcessingAccepted) {
@@ -715,16 +947,11 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 actions.updateGlobalConversationCache(updatedConversation)
             }
 
-            // Merge the compiled context with any additional ui_context (e.g., form_answers)
-            const mergedUiContext = uiContext
-                ? { ...values.compiledContext, ...uiContext }
-                : values.compiledContext || undefined
-
             actions.streamConversation(
                 {
                     agent_mode: agentMode,
                     content: prompt,
-                    contextual_tools: Object.fromEntries(values.tools.map((tool) => [tool.identifier, tool.context])),
+                    contextual_tools: contextualTools,
                     ui_context: mergedUiContext,
                     conversation: values.conversation?.id || values.conversationId,
                     // Include auto-rejection payload if there was a pending approval
@@ -797,6 +1024,10 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             // Fetch the full conversation to get state fields
             // (those which aren't included in the streaming response)
             actions.loadConversation(values.conversation.id)
+
+            if (values.queueingEnabled && values.conversation?.id) {
+                actions.loadQueueData()
+            }
 
             // Must go last. Otherwise, the logic will be unmounted before the lifecycle finishes.
             if (values.activeThreadKey !== values.conversationId && cache.unmount) {
@@ -892,6 +1123,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             )
         },
         continueAfterApproval: ({ proposalId }) => {
+            actions.clearQueuedMessages()
             // Persist the approved status so the card can display it
             // NOTE: We don't call clearPendingApproval() here - the component should stay
             // mounted to show the resolved state. The alreadyResolved check in askMax
@@ -911,6 +1143,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             )
         },
         continueAfterRejection: ({ proposalId, feedback }) => {
+            actions.clearQueuedMessages()
             // Persist the rejected status and feedback so the card can display it
             // NOTE: We don't call clearPendingApproval() here - the component should stay
             // mounted to show the resolved state with feedback. The alreadyResolved check
@@ -934,7 +1167,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
     selectors({
         conversationId: [
             (s, p) => [s.conversation, p.conversationId],
-            (conversation, propsConversationId) => conversation?.id || propsConversationId,
+            (conversation, propsConversationId) => (conversation?.id ? conversation.id : propsConversationId),
         ],
 
         effectiveApprovalStatuses: [
@@ -986,6 +1219,23 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         threadLoading: [
             (s) => [s.conversationLoading, s.streamingActive],
             (conversationLoading, streamingActive) => conversationLoading || streamingActive,
+        ],
+
+        queueingEnabled: [
+            (s) => [s.featureFlags],
+            (featureFlags): boolean => !!featureFlags[FEATURE_FLAGS.POSTHOG_AI_QUEUE_MESSAGES_SYSTEM],
+        ],
+
+        queueIsFull: [
+            (s) => [s.queuedMessages, s.queueLimit],
+            (queuedMessages, queueLimit): boolean =>
+                queueLimit !== null && queueLimit > 0 ? queuedMessages.length >= queueLimit : false,
+        ],
+
+        queueDisabledReason: [
+            (s) => [s.queueingEnabled, s.threadLoading, s.queueIsFull],
+            (queueingEnabled, threadLoading, queueIsFull): string | undefined =>
+                queueingEnabled && threadLoading && queueIsFull ? 'Queue is full' : undefined,
         ],
 
         threadGrouped: [
@@ -1231,8 +1481,8 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         ],
 
         submissionDisabledReason: [
-            (s) => [s.contextDisabledReason, s.question],
-            (contextDisabledReason, question): string | undefined => {
+            (s) => [s.contextDisabledReason, s.question, s.queueDisabledReason],
+            (contextDisabledReason, question, queueDisabledReason): string | undefined => {
                 // Context-related reasons take precedence (form pending, streaming, etc.)
                 if (contextDisabledReason) {
                     return contextDisabledReason
@@ -1240,6 +1490,10 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
 
                 if (!question) {
                     return 'I need some input first'
+                }
+
+                if (queueDisabledReason) {
+                    return queueDisabledReason
                 }
 
                 return undefined
@@ -1291,6 +1545,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
 
     afterMount((logic) => {
         const { actions, values, props, cache } = logic
+        cache.lastConversationId = props.conversationId
         for (const l of maxThreadLogic.findAllMounted()) {
             if (l !== logic && l.props.conversationId === props.conversationId) {
                 // We found a logic with the same conversationId, but a different tabId
@@ -1300,8 +1555,48 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 if (l.values.threadRaw) {
                     actions.setThread(l.values.threadRaw)
                 }
+                if (l.values.queuedMessages.length > 0) {
+                    actions.setQueuedMessages(l.values.queuedMessages)
+                }
+                if (l.values.queueLimit != null) {
+                    actions.setQueueLimit(l.values.queueLimit)
+                }
                 break
             }
+        }
+
+        // Check for URL-based mode from side panel options (e.g., #panel=max:mode=research:question)
+        // This must be done in maxThreadLogic's afterMount to ensure the correct instance sets the mode
+        if (
+            props.tabId === 'sidepanel' &&
+            !values.agentMode &&
+            sidePanelStateLogic.isMounted() &&
+            sidePanelStateLogic.values.selectedTab === SidePanelTab.Max &&
+            sidePanelStateLogic.values.selectedTabOptions
+        ) {
+            const options = sidePanelStateLogic.values.selectedTabOptions
+            if (typeof options === 'string' && options.startsWith('mode=')) {
+                const colonIndex = options.indexOf(':', 5)
+                const modeValue = colonIndex === -1 ? options.slice(5) : options.slice(5, colonIndex)
+                // Parse the mode value (gated modes fall back to null if their feature flags are off)
+                let parsedMode: AgentMode | null = null
+                if (modeValue === 'auto') {
+                    parsedMode = null
+                } else if (modeValue === 'research') {
+                    parsedMode = values.featureFlags[FEATURE_FLAGS.MAX_DEEP_RESEARCH] ? AgentMode.Research : null
+                } else if (modeValue === 'plan') {
+                    parsedMode = values.featureFlags[FEATURE_FLAGS.PHAI_PLAN_MODE] ? AgentMode.Plan : null
+                } else if ((Object.values(AgentMode) as string[]).includes(modeValue)) {
+                    parsedMode = modeValue as AgentMode
+                }
+                if (parsedMode !== undefined) {
+                    actions.setAgentMode(parsedMode)
+                }
+            }
+        }
+
+        if (values.queueingEnabled && values.conversation?.id) {
+            actions.loadQueueData()
         }
 
         if (values.autoRun && values.question) {
@@ -1326,13 +1621,28 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
 
     subscriptions(({ actions, values }) => ({
         sceneId: (sceneId: Scene | null) => {
-            // Only auto-set mode when no conversation is active
-            if (!values.conversation) {
-                const suggestedMode = getAgentModeForScene(sceneId)
-                if (suggestedMode !== values.agentMode) {
-                    // Use sync action to not lock - allows conversation to still update mode if agent changes it
-                    actions.syncAgentModeFromConversation(suggestedMode)
+            // Defer to next tick to allow URL-based mode setting to complete first
+            // This prevents race conditions where the subscription fires during mount
+            // before setAgentMode from URL params has updated the state
+            setTimeout(() => {
+                // Guard against accessing values after the logic is unmounted
+                try {
+                    // Only auto-set mode when no conversation is active and user hasn't manually set mode (e.g., via URL params)
+                    if (!values.conversation && !values.agentModeLockedByUser) {
+                        const suggestedMode = getAgentModeForScene(sceneId)
+                        if (suggestedMode !== values.agentMode) {
+                            // Use sync action to not lock - allows conversation to still update mode if agent changes it
+                            actions.syncAgentModeFromConversation(suggestedMode)
+                        }
+                    }
+                } catch {
+                    // Logic was unmounted before setTimeout fired - ignore
                 }
+            }, 0)
+        },
+        queueingEnabled: (enabled: boolean) => {
+            if (enabled) {
+                actions.loadQueueData()
             }
         },
     })),
@@ -1363,15 +1673,26 @@ function enhanceThreadToolCalls(
         }
     }
 
-    // Create a set of tool call IDs that have pending approvals
+    // Create sets of tool call IDs based on approval status
     // An approval is truly pending if:
     // 1. It's in pendingApprovalsData with decision_status === 'pending', AND
     // 2. It's NOT in resolvedApprovalStatuses (which takes precedence)
     const toolCallsWithPendingApproval = new Set<string>()
+    // Track tool calls that have been rejected (declined by user)
+    const toolCallsWithRejectedApproval = new Set<string>()
     for (const approval of Object.values(pendingApprovalsData)) {
-        const isResolved = resolvedApprovalStatuses[approval.proposal_id]?.status !== undefined
-        if (approval.original_tool_call_id && approval.decision_status === 'pending' && !isResolved) {
-            toolCallsWithPendingApproval.add(approval.original_tool_call_id)
+        const frontendResolved = resolvedApprovalStatuses[approval.proposal_id]
+        if (approval.original_tool_call_id) {
+            // Frontend resolved status takes precedence over backend status
+            if (frontendResolved?.status) {
+                if (frontendResolved.status === 'rejected' || frontendResolved.status === 'auto_rejected') {
+                    toolCallsWithRejectedApproval.add(approval.original_tool_call_id)
+                }
+            } else if (approval.decision_status === 'pending') {
+                toolCallsWithPendingApproval.add(approval.original_tool_call_id)
+            } else if (approval.decision_status === 'rejected') {
+                toolCallsWithRejectedApproval.add(approval.original_tool_call_id)
+            }
         }
     }
 
@@ -1414,13 +1735,17 @@ function enhanceThreadToolCalls(
         if (isAssistantMessage(message) && message.tool_calls && message.tool_calls.length > 0) {
             const isLastPlanningMessage = message.id === lastPlanningMessageId
             message.tool_calls = message.tool_calls.map<EnhancedToolCall>((toolCall) => {
-                const isCompleted = !!toolCallCompletions.get(toolCall.id)
+                const resultMessage = toolCallCompletions.get(toolCall.id)
+                const isCompleted = !!resultMessage
                 // create_form is an interactive tool - it's "completed" once rendered (waiting for user input)
                 const isInteractiveTool = toolCall.name === 'create_form'
                 // Tool calls with pending approvals should show as "in progress" (awaiting approval)
                 const hasPendingApproval = toolCallsWithPendingApproval.has(toolCall.id)
+                // Tool calls with rejected approvals should show as "failed" (user declined)
+                const hasRejectedApproval = toolCallsWithRejectedApproval.has(toolCall.id)
                 const isFailed =
-                    !isCompleted && !isInteractiveTool && !hasPendingApproval && (!isFinalGroup || !isLoading)
+                    hasRejectedApproval ||
+                    (!isCompleted && !isInteractiveTool && !hasPendingApproval && (!isFinalGroup || !isLoading))
                 return {
                     ...toolCall,
                     status: isFailed
@@ -1430,6 +1755,7 @@ function enhanceThreadToolCalls(
                           : TaskExecutionStatus.InProgress,
                     isLastPlanningMessage: toolCall.name === 'todo_write' && isLastPlanningMessage,
                     updates: toolCallUpdateMap.get(toolCall.id) ?? [],
+                    result: isAssistantToolCallMessage(resultMessage) ? resultMessage : undefined,
                 }
             })
         }
@@ -1483,11 +1809,20 @@ export async function onEventImplementation(
                 .reverse()
                 .find(([m]) => isHumanMessage(m))?.[1]
 
-            if (lastHumanIndex != null) {
+            const lastHumanMessage = lastHumanIndex != null ? values.threadRaw[lastHumanIndex] : null
+            const shouldReplace =
+                isHumanMessage(lastHumanMessage) &&
+                parsedResponse.trace_id &&
+                lastHumanMessage.trace_id === parsedResponse.trace_id
+
+            if (lastHumanIndex != null && shouldReplace) {
                 actions.replaceMessage(lastHumanIndex, { ...parsedResponse, status: 'completed' })
             } else {
                 // Fallback – if we somehow don't have a provisional Human message, just add it
                 actions.addMessage({ ...parsedResponse, status: 'completed' })
+                if (values.queueingEnabled && values.conversation?.id) {
+                    actions.loadQueueData()
+                }
             }
         } else if (isAssistantToolCallMessage(parsedResponse)) {
             for (const [toolName, toolResult] of Object.entries(parsedResponse.ui_payload)) {
@@ -1554,6 +1889,7 @@ export async function onEventImplementation(
         }
     } else if (event === AssistantEventType.Approval) {
         const parsedResponse = parseResponse<PendingApproval>(data)
+
         if (!parsedResponse) {
             return
         }

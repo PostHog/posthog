@@ -2,7 +2,9 @@ import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, redu
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 
@@ -13,9 +15,9 @@ const POLL_INTERVAL = 60 * 1000 // 60 seconds
 
 export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
     path(['products', 'conversations', 'frontend', 'components', 'SidePanel', 'sidepanelTicketsLogic']),
-    connect({
-        values: [sidePanelStateLogic, ['sidePanelOpen']],
-    }),
+    connect(() => ({
+        values: [sidePanelStateLogic, ['sidePanelOpen'], featureFlagLogic, ['featureFlags']],
+    })),
     actions({
         loadTickets: true,
         startPolling: true,
@@ -83,11 +85,15 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
         ],
     }),
     selectors({
+        isEnabled: [
+            (s) => [s.featureFlags],
+            (featureFlags): boolean => !!featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT_SIDE_PANEL],
+        ],
         totalUnreadCount: [(s) => [s.tickets], (tickets) => tickets.reduce((sum, t) => sum + (t.unread_count ?? 0), 0)],
     }),
     listeners(({ actions, values, cache }) => ({
         loadTickets: async () => {
-            if (!posthog.conversations) {
+            if (!values.isEnabled || !posthog.conversations) {
                 return
             }
             actions.setTicketsLoading(true)
@@ -108,8 +114,8 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
             }
         },
         startPolling: () => {
-            // Only poll if page is visible
-            if (document.visibilityState !== 'visible') {
+            // Only poll if feature is enabled and page is visible
+            if (!values.isEnabled || document.visibilityState !== 'visible') {
                 return
             }
             // Clear any existing poll timer
@@ -127,25 +133,41 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
             }
         },
         loadMessages: async ({ ticketId }) => {
-            if (!ticketId || !posthog.conversations) {
+            if (!values.isEnabled || !ticketId || !posthog.conversations) {
                 return
             }
             actions.setMessagesLoading(true)
             try {
-                const response = await posthog.conversations.getMessages(ticketId)
-                if (response) {
-                    const transformedMessages: ChatMessage[] = (response.messages as ConversationMessage[]).map(
-                        (msg) => ({
-                            id: msg.id,
-                            content: msg.content,
-                            authorType: msg.author_type,
-                            authorName: msg.author_name || '',
-                            createdAt: msg.created_at,
-                        })
-                    )
-                    actions.setMessages(transformedMessages)
-                    actions.setHasMoreMessages(response.has_more)
+                const allMessages: ConversationMessage[] = []
+                let after: string | undefined
+                let hasMore = true
+
+                // Fetch all pages of messages using `after` timestamp pagination
+                while (hasMore) {
+                    const response = await (posthog.conversations.getMessages as any)(ticketId, after)
+                    // Check if we're still viewing the same ticket (avoid race condition when switching quickly)
+                    if (!response || values.currentTicket?.id !== ticketId) {
+                        return
+                    }
+                    const messages = response.messages as ConversationMessage[]
+                    allMessages.push(...messages)
+                    hasMore = response.has_more && messages.length > 0
+                    // Use the last message's created_at as the `after` cursor for next page
+                    if (hasMore && messages.length > 0) {
+                        after = messages[messages.length - 1].created_at
+                    }
                 }
+
+                // Transform and set all messages
+                const transformedMessages: ChatMessage[] = allMessages.map((msg) => ({
+                    id: msg.id,
+                    content: msg.content,
+                    authorType: msg.author_type,
+                    authorName: msg.author_name || '',
+                    createdAt: msg.created_at,
+                }))
+                actions.setMessages(transformedMessages)
+                actions.setHasMoreMessages(false)
             } catch (e) {
                 console.error('Failed to load messages:', e)
                 lemonToast.error('Failed to load messages. Please try again.')
@@ -154,7 +176,7 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
             }
         },
         sendMessage: async ({ content, onSuccess }) => {
-            if (!content.trim() || values.messageSending || !posthog.conversations) {
+            if (!values.isEnabled || !content.trim() || values.messageSending || !posthog.conversations) {
                 return
             }
             actions.setMessageSending(true)
@@ -190,7 +212,7 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
             }
         },
         markAsRead: async ({ ticketId }) => {
-            if (!ticketId || !posthog.conversations) {
+            if (!values.isEnabled || !ticketId || !posthog.conversations) {
                 return
             }
             try {
@@ -201,30 +223,35 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
         },
         setCurrentTicket: ({ ticket }: { ticket: ConversationTicket }) => {
             actions.setView('ticket')
+            actions.setMessages([]) // Clear messages immediately to avoid showing stale data
             actions.loadMessages(ticket.id)
             actions.markAsRead(ticket.id)
         },
     })),
-    subscriptions(({ actions }) => ({
+    subscriptions(({ actions, values }) => ({
         sidePanelOpen: (open: boolean) => {
-            if (open) {
+            if (values.isEnabled && open) {
                 actions.loadTickets()
             }
         },
     })),
-    afterMount(({ actions, cache }) => {
-        // Initial load
-        actions.loadTickets()
-
-        // Set up visibility change listener
-        cache.onVisibilityChange = (): void => {
-            if (document.visibilityState === 'visible') {
-                actions.loadTickets()
-            } else {
-                actions.stopPolling()
-            }
+    afterMount(({ actions, values, cache }) => {
+        // Only load if feature is enabled
+        if (values.isEnabled) {
+            actions.loadTickets()
         }
-        document.addEventListener('visibilitychange', cache.onVisibilityChange)
+
+        // Set up visibility change listener (only if feature is enabled)
+        if (values.isEnabled) {
+            cache.onVisibilityChange = (): void => {
+                if (document.visibilityState === 'visible') {
+                    actions.loadTickets()
+                } else {
+                    actions.stopPolling()
+                }
+            }
+            document.addEventListener('visibilitychange', cache.onVisibilityChange)
+        }
     }),
     beforeUnmount(({ actions, cache }) => {
         actions.stopPolling()

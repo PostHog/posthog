@@ -29,7 +29,7 @@ export const DataPipelinesSelfManagedSource = ({ id }: SelfManagedProps): JSX.El
                         type="secondary"
                         onClick={() => {
                             editingTable(false)
-                            router.actions.push(urls.dataPipelines('sources'))
+                            router.actions.push(urls.sources())
                         }}
                         size="small"
                     >

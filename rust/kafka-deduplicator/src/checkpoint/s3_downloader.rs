@@ -6,7 +6,9 @@ use tokio_util::bytes::Bytes;
 
 use super::config::CheckpointConfig;
 use super::downloader::CheckpointDownloader;
+use super::error::DownloadCancelledError;
 use super::metadata::{DATE_PLUS_HOURS_ONLY_FORMAT, METADATA_FILENAME};
+use super::s3_client::create_s3_client;
 use crate::metrics_const::{
     CHECKPOINT_BATCH_FETCH_STORE_HISTOGRAM, CHECKPOINT_FILE_DOWNLOADS_COUNTER,
     CHECKPOINT_FILE_FETCH_HISTOGRAM, CHECKPOINT_FILE_FETCH_STORE_HISTOGRAM,
@@ -18,10 +20,9 @@ use async_trait::async_trait;
 use chrono::{DateTime, Duration, Utc};
 use futures::stream::FuturesUnordered;
 use futures::{StreamExt, TryStreamExt};
-use object_store::aws::AmazonS3Builder;
 use object_store::limit::LimitStore;
 use object_store::path::Path as ObjectPath;
-use object_store::{ClientOptions, ObjectStore, ObjectStoreExt};
+use object_store::{ObjectStore, ObjectStoreExt};
 use tokio::io::AsyncWriteExt;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
@@ -100,78 +101,16 @@ pub struct S3Downloader {
 
 impl S3Downloader {
     pub async fn new(config: &CheckpointConfig) -> Result<Self> {
-        // Per-request timeout (analogous to operation_attempt_timeout in aws_sdk_s3)
-        let client_options = ClientOptions::new().with_timeout(config.s3_attempt_timeout);
-
-        // Build the base S3 store using the same pattern as S3Uploader
-        let mut builder = AmazonS3Builder::new()
-            .with_bucket_name(&config.s3_bucket)
-            .with_client_options(client_options)
-            .with_retry(object_store::RetryConfig {
-                max_retries: config.s3_max_retries,
-                // Total retry budget (analogous to operation_timeout in aws_sdk_s3)
-                retry_timeout: config.s3_operation_timeout,
-                ..Default::default()
-            });
-
-        // Set region if provided
-        if let Some(ref region) = config.aws_region {
-            builder = builder.with_region(region);
-        }
-
-        // Set custom endpoint for MinIO/local dev
-        if let Some(ref endpoint) = config.s3_endpoint {
-            builder = builder.with_endpoint(endpoint);
-            // Allow HTTP for local development
-            if endpoint.starts_with("http://") {
-                builder = builder.with_allow_http(true);
-            }
-        }
-
-        // Set credentials if provided (for local dev without IAM)
-        if let (Some(ref access_key), Some(ref secret_key)) =
-            (&config.s3_access_key_id, &config.s3_secret_access_key)
-        {
-            builder = builder
-                .with_access_key_id(access_key)
-                .with_secret_access_key(secret_key);
-        }
-
-        // Force path-style URLs if needed (required for MinIO)
-        if config.s3_force_path_style {
-            builder = builder.with_virtual_hosted_style_request(false);
-        }
-
-        let base_store = builder.build().with_context(|| {
-            format!(
-                "Failed to create S3 client for bucket '{}' in region '{}'",
-                config.s3_bucket,
-                config.aws_region.as_deref().unwrap_or("default")
-            )
-        })?;
-
-        // Wrap with LimitStore for bounded concurrency
-        // The semaphore permit is held for the entire stream duration
-        let store = LimitStore::new(base_store, config.max_concurrent_checkpoint_file_downloads);
-
-        // Validate bucket access by attempting to list - fail fast if misconfigured
-        if let Some(Err(e)) = store.list(Some(&ObjectPath::from(""))).next().await {
-            return Err(anyhow::anyhow!(e)).with_context(|| {
-                format!(
-                    "S3 bucket validation failed for '{}' in region '{}' - check bucket exists, credentials, and network connectivity",
-                    config.s3_bucket,
-                    config.aws_region.as_deref().unwrap_or("default")
-                )
-            });
-        }
+        let store =
+            create_s3_client(config, config.max_concurrent_checkpoint_file_downloads).await?;
 
         info!(
-            "S3 bucket '{}' validated successfully with max {} concurrent downloads",
+            "S3 downloader initialized for bucket '{}' with max {} concurrent downloads",
             config.s3_bucket, config.max_concurrent_checkpoint_file_downloads
         );
 
         Ok(Self {
-            store: Arc::new(store),
+            store,
             s3_bucket: config.s3_bucket.clone(),
             s3_key_prefix: config.s3_key_prefix.clone(),
             checkpoint_import_window_hours: config.checkpoint_import_window_hours,
@@ -227,9 +166,11 @@ impl CheckpointDownloader for S3Downloader {
         // Check cancellation before starting the request
         if let Some(token) = cancel_token {
             if token.is_cancelled() {
-                return Err(anyhow::anyhow!(
-                    "Download cancelled before starting: {remote_key}"
-                ));
+                warn!("Download cancelled before starting: {remote_key}");
+                return Err(DownloadCancelledError {
+                    reason: format!("before starting: {remote_key}"),
+                }
+                .into());
             }
         }
 
@@ -280,7 +221,10 @@ impl CheckpointDownloader for S3Downloader {
                     metrics::counter!(CHECKPOINT_FILE_DOWNLOADS_COUNTER, "status" => "cancelled")
                         .increment(1);
                     warn!("Download of {remote_key} cancelled mid-stream");
-                    return Err(anyhow::anyhow!("Download cancelled: {remote_key}"));
+                    return Err(DownloadCancelledError {
+                        reason: format!("mid-stream: {remote_key}"),
+                    }
+                    .into());
                 }
                 ChunkResult::Error(e) => {
                     metrics::counter!(CHECKPOINT_FILE_DOWNLOADS_COUNTER, "status" => "error")
@@ -318,7 +262,10 @@ impl CheckpointDownloader for S3Downloader {
         if let Some(token) = cancel_token {
             if token.is_cancelled() {
                 warn!("Download cancelled before starting");
-                return Err(anyhow::anyhow!("Download cancelled before starting"));
+                return Err(DownloadCancelledError {
+                    reason: "before starting batch".to_string(),
+                }
+                .into());
             }
         }
 

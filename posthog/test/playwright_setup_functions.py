@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Protocol, runtime_checkable
 
+from django.utils import timezone
+
 from pydantic import BaseModel
 
 from posthog.schema import PlaywrightWorkspaceSetupData, PlaywrightWorkspaceSetupResult
@@ -32,12 +34,16 @@ def create_organization_with_team(data: PlaywrightWorkspaceSetupData) -> Playwri
     # Use the working generate_demo_data command to create workspace with demo data
     command = GenerateDemoDataCommand()
 
-    # Use fixed time for consistent test data: November 3, 2024 at noon UTC
+    # Determine the reference time for data generation
     fixed_now = datetime(2024, 11, 3, 12, 0, 0)
+    if data.use_current_time:
+        now = timezone.now()
+    else:
+        now = fixed_now
 
     options = {
         "seed": f"playwright_test",  # constant seed
-        "now": fixed_now,  # Fixed time for consistent data generation
+        "now": now,
         "days_past": 30,
         "days_future": 0,
         "n_clusters": 3,  # Reduced from 10 for faster test execution
@@ -68,6 +74,8 @@ def create_organization_with_team(data: PlaywrightWorkspaceSetupData) -> Playwri
         organization.name = org_name
         organization.save()
 
+    # Bypass billing quota limits so insights always compute on CI
+    organization.never_drop_data = True
     # Add advanced permissions feature for password-protected sharing
     organization.available_product_features = [
         {
@@ -87,6 +95,28 @@ def create_organization_with_team(data: PlaywrightWorkspaceSetupData) -> Playwri
         defaults={"secure_value": secure_value, "mask_value": mask_value, "scopes": ["*"]},
     )
     api_key._value = api_key_value  # type: ignore
+
+    # Skip all onboarding tasks if requested (prevents Quick Start popover in tests)
+    if data.skip_onboarding:
+        # Mark all common onboarding tasks as skipped
+        team.onboarding_tasks = {
+            "ingest_first_event": "skipped",
+            "set_up_reverse_proxy": "skipped",
+            "create_first_insight": "skipped",
+            "create_first_dashboard": "skipped",
+            "track_custom_events": "skipped",
+            "define_actions": "skipped",
+            "set_up_cohorts": "skipped",
+            "explore_trends_insight": "skipped",
+            "create_funnel": "skipped",
+            "explore_retention_insight": "skipped",
+            "explore_paths_insight": "skipped",
+            "explore_stickiness_insight": "skipped",
+            "explore_lifecycle_insight": "skipped",
+            "setup_session_recordings": "skipped",
+            "watch_session_recording": "skipped",
+        }
+        team.save()
 
     return PlaywrightWorkspaceSetupResult(
         organization_id=str(organization.id),

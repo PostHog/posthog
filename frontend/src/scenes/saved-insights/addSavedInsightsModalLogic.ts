@@ -2,8 +2,10 @@ import { actions, connect, events, kea, listeners, path, reducers, selectors } f
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { Sorting } from 'lib/lemon-ui/LemonTable'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual, toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
@@ -17,18 +19,18 @@ import type { addSavedInsightsModalLogicType } from './addSavedInsightsModalLogi
 import { SavedInsightFilters, cleanFilters } from './savedInsightsLogic'
 
 export const INSIGHTS_PER_PAGE = 30
+const INSIGHTS_PER_PAGE_EXPERIMENT = 15
 
 export const addSavedInsightsModalLogic = kea<addSavedInsightsModalLogicType>([
     path(['scenes', 'saved-insights', 'addSavedInsightsModalLogic']),
     connect(() => ({
-        values: [teamLogic, ['currentTeamId']],
+        values: [teamLogic, ['currentTeamId'], featureFlagLogic, ['featureFlags']],
         logic: [eventUsageLogic],
     })),
     actions({
-        setModalFilters: (filters: Partial<SavedInsightFilters>, merge: boolean = true, debounce: boolean = true) => ({
+        setModalFilters: (filters: Partial<SavedInsightFilters>, merge: boolean = true) => ({
             filters,
             merge,
-            debounce,
         }),
         loadInsights: true,
         setModalPage: (page: number) => ({ page }),
@@ -39,19 +41,23 @@ export const addSavedInsightsModalLogic = kea<addSavedInsightsModalLogicType>([
             insight,
             dashboardId,
         }),
+        dashboardUpdateFailed: (insightId: number) => ({ insightId }),
 
         updateInsight: (insight: QueryBasedInsightModel) => ({ insight }),
     }),
     loaders(({ values }) => ({
         insights: {
             __default: { results: [] as QueryBasedInsightModel[], count: 0 },
-            loadInsights: async () => {
+            loadInsights: async (_, breakpoint) => {
+                await breakpoint(300)
+
                 const { order, page, search, dashboardId, insightType, createdBy, dateFrom, dateTo } = values.filters
 
+                const perPage = values.insightsPerPage
                 const params: Record<string, any> = {
                     order,
-                    limit: INSIGHTS_PER_PAGE,
-                    offset: Math.max(0, (page - 1) * INSIGHTS_PER_PAGE),
+                    limit: perPage,
+                    offset: Math.max(0, (page - 1) * perPage),
                     saved: true,
                     basic: true,
                 }
@@ -76,6 +82,8 @@ export const addSavedInsightsModalLogic = kea<addSavedInsightsModalLogicType>([
                 const response = await api.get(
                     `api/environments/${teamLogic.values.currentTeamId}/insights/?${toParams(params)}`
                 )
+
+                breakpoint()
 
                 return {
                     ...response,
@@ -118,6 +126,13 @@ export const addSavedInsightsModalLogic = kea<addSavedInsightsModalLogicType>([
             (s) => [s.rawModalFilters],
             (rawModalFilters): SavedInsightFilters => cleanFilters(rawModalFilters || {}),
         ],
+        insightsPerPage: [
+            (s) => [s.featureFlags],
+            (featureFlags): number =>
+                featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_ADD_INSIGHT_TO_DASHBOARD_MODAL] === 'test'
+                    ? INSIGHTS_PER_PAGE_EXPERIMENT
+                    : INSIGHTS_PER_PAGE,
+        ],
         count: [(s) => [s.insights], (insights) => insights.count],
         sorting: [
             (s) => [s.filters],
@@ -133,15 +148,11 @@ export const addSavedInsightsModalLogic = kea<addSavedInsightsModalLogicType>([
     listeners(({ actions, values, selectors }) => ({
         setModalPage: async ({ page }) => {
             actions.setModalFilters({ page }, true)
-            actions.loadInsights()
         },
-        setModalFilters: async ({ debounce }, breakpoint, __, previousState) => {
+        setModalFilters: async (_, _breakpoint, __, previousState) => {
             const oldFilters = selectors.filters(previousState)
             const newFilters = values.filters
 
-            if (debounce) {
-                await breakpoint(300)
-            }
             if (!objectsEqual(oldFilters, newFilters)) {
                 actions.loadInsights()
             }
@@ -161,6 +172,10 @@ export const addSavedInsightsModalLogic = kea<addSavedInsightsModalLogicType>([
                     logic.unmount()
                     lemonToast.success('Insight added to dashboard')
                 }
+            } catch (e) {
+                actions.dashboardUpdateFailed(insight.id)
+                lemonToast.error('Failed to add insight to dashboard')
+                throw e
             } finally {
                 eventUsageLogic.actions.reportSavedInsightToDashboard(insight, dashboardId)
                 actions.setDashboardUpdateLoading(insight.id, false)
@@ -181,6 +196,10 @@ export const addSavedInsightsModalLogic = kea<addSavedInsightsModalLogicType>([
                     logic.unmount()
                     lemonToast.success('Insight removed from dashboard')
                 }
+            } catch (e) {
+                actions.dashboardUpdateFailed(insight.id)
+                lemonToast.error('Failed to remove insight from dashboard')
+                throw e
             } finally {
                 eventUsageLogic.actions.reportRemovedInsightFromDashboard(insight, dashboardId)
                 actions.setDashboardUpdateLoading(insight.id, false)

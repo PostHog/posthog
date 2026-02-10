@@ -104,7 +104,8 @@ const errorTrackingIssueActionsMapping: Record<
         return {
             description: [
                 <>
-                    changed status of {nameAndLink(logItem)} from <strong>{before}</strong> to <strong>{after}</strong>
+                    changed status of {nameAndLink(logItem)} from <strong>{String(before)}</strong> to{' '}
+                    <strong>{String(after)}</strong>
                 </>,
             ],
         }

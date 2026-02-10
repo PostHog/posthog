@@ -48,6 +48,7 @@ def get_max_backup_bandwidth() -> str:
 
 
 SHARDED_TABLES = [
+    "sharded_events",
     "sharded_app_metrics",
     "sharded_app_metrics2",
     "sharded_heatmaps",
@@ -57,7 +58,6 @@ SHARDED_TABLES = [
     "sharded_session_replay_embeddings",
     "sharded_session_replay_events",
     "sharded_sessions",
-    "sharded_events",
 ]
 
 NON_SHARDED_TABLES = [
@@ -70,19 +70,15 @@ NON_SHARDED_TABLES = [
     "groups",
     "infi_clickhouse_orm_migrations",
     "log_entries",
-    "metrics_query_log",
     "metrics_time_to_see_data",
-    "pending_person_deletes_reporting",
     "person",
     "person_collapsing",
-    "person_distinct_id",
     "person_distinct_id2",
     "person_distinct_id_overrides",
     "person_overrides",
     "person_static_cohort",
     "pg_embeddings",
     "plugin_log_entries",
-    "swap_person_distinct_id",
 ]
 
 
@@ -150,13 +146,13 @@ class Backup:
         return f"https://{bucket}.s3.amazonaws.com"
 
     @classmethod
-    def from_s3_path(cls, path: str) -> "Backup":
+    def from_s3_path(cls, path: str) -> Optional["Backup"]:
         path_regex = re.compile(
             r"^(?P<database>\w+)(\/(?P<table>\w+))?\/(?P<shard>\w+)\/(?P<backup_type>full|inc)-(?P<date>\d{14})\/$"
         )
         match = path_regex.match(path)
         if not match:
-            raise ValueError(f"Could not parse backup path: {path}. It does not match the regex: {path_regex.pattern}")
+            return None
 
         return Backup(
             database=match.group("database"),
@@ -315,6 +311,10 @@ def get_latest_backups(
 
     They are sorted from most recent to oldest.
     """
+    if not config.incremental:
+        context.log.info("Full backup requested, skipping latest backups retrieval.")
+        return []
+
     shard_path = shard if shard else NO_SHARD_PATH
 
     base_prefix = f"{config.database}/"
@@ -331,8 +331,16 @@ def get_latest_backups(
 
     # Parse all backups first, then sort by date (not lexicographically by prefix)
     # to ensure correct ordering regardless of backup type (full/inc)
+    parsed_backups = []
+    for backup in backups["CommonPrefixes"]:
+        parsed = Backup.from_s3_path(backup["Prefix"])
+        if parsed is None:
+            context.log.warning(f"Could not parse backup path: {backup['Prefix']}, skipping.")
+        else:
+            parsed_backups.append(parsed)
+
     latest_backups = sorted(
-        [Backup.from_s3_path(backup["Prefix"]) for backup in backups["CommonPrefixes"]],
+        parsed_backups,
         key=lambda x: x.date,
         reverse=True,
     )
