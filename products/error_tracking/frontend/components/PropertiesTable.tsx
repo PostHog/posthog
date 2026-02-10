@@ -58,12 +58,25 @@ export function PropertiesTable({ entries, alternatingColors = true }: Propertie
     )
 }
 
+const SENTINEL_REPLACEMENTS: Record<string, string> = {
+    $$_posthog_redacted_based_on_masking_rules_$$: '***',
+    $$_posthog_value_too_long_$$: '<value too long>',
+}
+
+function normalizeSentinels(str: string): string {
+    let result = str
+    for (const [sentinel, replacement] of Object.entries(SENTINEL_REPLACEMENTS)) {
+        result = result.replaceAll(sentinel, replacement)
+    }
+    return result
+}
+
 function copyValue(value: unknown): string {
     // oxlint-disable-next-line
     if (value && typeof value === 'object') {
-        return JSON.stringify(value)
+        return normalizeSentinels(JSON.stringify(value))
     }
-    return String(value)
+    return normalizeSentinels(String(value))
 }
 
 function renderValue(value: unknown): React.ReactNode {
@@ -87,10 +100,9 @@ function renderValue(value: unknown): React.ReactNode {
             )
         }
         if (value.includes('$$_posthog_redacted_based_on_masking_rules_$$')) {
-            const masked = value.replaceAll('$$_posthog_redacted_based_on_masking_rules_$$', '***')
             return (
                 <MaskedValue
-                    value={masked}
+                    value={normalizeSentinels(value)}
                     tooltip="Some values inside got redacted by SDK code variables masking configuration"
                 />
             )
@@ -104,10 +116,9 @@ function renderValue(value: unknown): React.ReactNode {
             )
         }
         if (value.includes('$$_posthog_value_too_long_$$')) {
-            const masked = value.replaceAll('$$_posthog_value_too_long_$$', '<value too long>')
             return (
                 <MaskedValue
-                    value={masked}
+                    value={normalizeSentinels(value)}
                     tooltip="Some values inside were truncated because they exceeded the maximum allowed length"
                 />
             )
