@@ -253,6 +253,9 @@ CLICKHOUSE_LOGS_CLUSTER_SECURE: bool = get_from_env(
     "CLICKHOUSE_LOGS_CLUSTER_SECURE", not TEST and not DEBUG, type_cast=str_to_bool
 )
 CLICKHOUSE_KAFKA_NAMED_COLLECTION: str = os.getenv("CLICKHOUSE_KAFKA_NAMED_COLLECTION", "msk_cluster")
+CLICKHOUSE_KAFKA_WARPSTREAM_NAMED_COLLECTION: str = os.getenv(
+    "CLICKHOUSE_KAFKA_WARPSTREAM_NAMED_COLLECTION", "warpstream_ingestion"
+)
 
 # Per-team settings used for client/pool connection parameters. Note that this takes precedence over any workload-based
 # routing. Keys should be strings, not numbers.

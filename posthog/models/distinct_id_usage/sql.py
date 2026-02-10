@@ -1,3 +1,5 @@
+from django.conf import settings
+
 from posthog.clickhouse.kafka_engine import CONSUMER_GROUP_DISTINCT_ID_USAGE, kafka_engine, ttl_period
 from posthog.clickhouse.table_engines import Distributed, ReplicationScheme, SummingMergeTree
 from posthog.kafka_client.topics import KAFKA_DISTINCT_ID_USAGE_EVENTS_JSON
@@ -84,7 +86,11 @@ SETTINGS kafka_skip_broken_messages = 100
 def KAFKA_DISTINCT_ID_USAGE_TABLE_SQL():
     return KAFKA_DISTINCT_ID_USAGE_TABLE_BASE_SQL.format(
         table_name=KAFKA_TABLE_NAME,
-        engine=kafka_engine(topic=KAFKA_DISTINCT_ID_USAGE_EVENTS_JSON, group=CONSUMER_GROUP_DISTINCT_ID_USAGE),
+        engine=kafka_engine(
+            topic=KAFKA_DISTINCT_ID_USAGE_EVENTS_JSON,
+            group=CONSUMER_GROUP_DISTINCT_ID_USAGE,
+            named_collection=settings.CLICKHOUSE_KAFKA_WARPSTREAM_NAMED_COLLECTION,
+        ),
     )
 
 
