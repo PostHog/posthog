@@ -1,5 +1,5 @@
 import { instrumentFn } from '../../common/tracing/tracing-utils'
-import type { TopHogPipeOptions } from '../tophog/tophog'
+import { TopHogMetricType, type TopHogPipeOptions } from '../tophog/tophog'
 import { Pipeline, PipelineResultWithContext } from './pipeline.interface'
 import { PipelineResult, isOkResult } from './results'
 import { ProcessingStep } from './steps'
@@ -33,22 +33,27 @@ export class StepPipeline<TInput, TIntermediate, TOutput, C> implements Pipeline
             }
         }
 
-        const startTime = this.topHogOptions ? performance.now() : 0
+        const startTime = this.topHogOptions?.length ? performance.now() : 0
 
         const currentResult = await instrumentFn({ key: this.stepName, sendException: false }, () =>
             this.currentStep(previousResult.value)
         )
 
-        if (this.topHogOptions && isOkResult(currentResult)) {
+        if (this.topHogOptions?.length && isOkResult(currentResult)) {
             const topHog = previousResultWithContext.context.topHog
             if (topHog) {
-                const metric = this.topHogOptions.metric ?? this.stepName
-                const key = this.topHogOptions.keyExtractor(previousResult.value)
-                if (this.topHogOptions.trackCount !== false) {
-                    topHog.increment(`${metric}.count`, key)
-                }
-                if (this.topHogOptions.trackTime !== false) {
-                    topHog.increment(`${metric}.time_ms`, key, performance.now() - startTime)
+                const elapsedMs = performance.now() - startTime
+                for (const metric of this.topHogOptions) {
+                    const name = metric.name
+                    const key = metric.key(previousResult.value)
+                    switch (metric.type) {
+                        case TopHogMetricType.Count:
+                            topHog.increment(`${name}.count`, key)
+                            break
+                        case TopHogMetricType.Time:
+                            topHog.increment(`${name}.time_ms`, key, elapsedMs)
+                            break
+                    }
                 }
             }
         }

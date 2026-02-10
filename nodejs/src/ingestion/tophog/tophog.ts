@@ -10,12 +10,18 @@ export interface TopHogOptions {
     labels?: Record<string, string>
 }
 
-export interface TopHogPipeOptions<T> {
-    keyExtractor: (input: T) => string
-    metric?: string
-    trackCount?: boolean
-    trackTime?: boolean
+export enum TopHogMetricType {
+    Count,
+    Time,
 }
+
+export interface TopHogMetric<T> {
+    key: (input: T) => string
+    type: TopHogMetricType
+    name: string
+}
+
+export type TopHogPipeOptions<T> = TopHogMetric<T>[]
 
 interface TopHogConfig {
     kafkaProducer: KafkaProducerWrapper
