@@ -608,7 +608,8 @@ class PropertyDefinitionViewSet(
 
             span.set_attribute("property_type", prop_type or "")
             span.set_attribute("has_search", search is not None and search != "")
-            span.set_attribute("event_names_count", len(event_names) if event_names else 0)
+            parsed_event_names = json.loads(event_names) if event_names else []
+            span.set_attribute("event_names_count", len(parsed_event_names))
             span.set_attribute("filter_by_event_names", bool(filter_by_event_names))
             span.set_attribute("limit", limit)
             span.set_attribute("offset", offset)
