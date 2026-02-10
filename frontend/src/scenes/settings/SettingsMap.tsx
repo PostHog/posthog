@@ -468,6 +468,11 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <WebAnalyticsEnablePreAggregatedTables />,
                 flag: 'WEB_ANALYTICS_API',
             },
+            {
+                id: 'web-vitals-autocapture',
+                title: 'Web vitals autocapture',
+                component: <WebVitalsAutocaptureSettings />,
+            },
         ],
     },
     {
@@ -495,6 +500,11 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'replay-network',
                 title: 'Network capture',
                 component: <NetworkCaptureSettings />,
+            },
+            {
+                id: 'web-vitals-autocapture',
+                title: 'Web vitals',
+                component: <WebVitalsAutocaptureSettings />,
             },
             {
                 id: 'replay-authorized-domains',

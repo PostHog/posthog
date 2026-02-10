@@ -259,7 +259,10 @@ export const webAnalyticsHealthLogic = kea<webAnalyticsHealthLogicType>([
                         action:
                             webAnalyticsHealthStatus.isSendingWebVitals || webVitalsEnabled
                                 ? { label: 'View Web Vitals', to: '/web/web-vitals' }
-                                : { label: 'Enable Web Vitals', to: urls.settings('environment-web-analytics') },
+                                : {
+                                      label: 'Enable Web Vitals',
+                                      to: urls.settings('environment-web-analytics', 'web-vitals-autocapture'),
+                                  },
                         docsUrl: 'https://posthog.com/docs/web-analytics/web-vitals',
                     },
                 ]
