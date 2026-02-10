@@ -1,6 +1,5 @@
 import os
 import uuid
-import shutil
 import datetime as dt
 import tempfile
 from typing import Any
@@ -102,9 +101,8 @@ def record_and_persist_video_activity(build: dict[str, Any]) -> None:
     close_old_connections()
     asset = ExportedAsset.objects.select_related("team").get(pk=build["exported_asset_id"])
 
-    tmp_dir = tempfile.mkdtemp(prefix="ph-video-export-")
-    tmp_path = os.path.join(tmp_dir, f"{uuid.uuid4()}.{build['tmp_ext']}")
-    try:
+    with tempfile.TemporaryDirectory(prefix="ph-video-export-") as tmp_dir:
+        tmp_path = os.path.join(tmp_dir, f"{uuid.uuid4()}.{build['tmp_ext']}")
         inactivity_periods = record_replay_to_file(
             RecordReplayToFileOptions(
                 image_path=tmp_path,
@@ -130,19 +128,9 @@ def record_and_persist_video_activity(build: dict[str, Any]) -> None:
             raise RuntimeError(
                 f"Video file too large: {file_size / (1024 * 1024):.1f}MB exceeds {MAX_FILE_SIZE // (1024 * 1024)}MB limit"
             )
-        # Read in chunks to avoid loading entire file into memory at once
         chunk_size = 64 * 1024  # 64KB chunks for better I/O performance
         chunks = []
         with open(tmp_path, "rb") as f:
             while chunk := f.read(chunk_size):
                 chunks.append(chunk)
         save_content(asset, b"".join(chunks))
-    finally:
-        try:
-            os.remove(tmp_path)
-        except Exception:
-            pass
-        try:
-            shutil.rmtree(tmp_dir, ignore_errors=True)
-        except Exception:
-            pass
