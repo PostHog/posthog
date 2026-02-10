@@ -14,9 +14,17 @@ import { hogql } from '~/queries/utils'
 import { Breadcrumb } from '~/types'
 
 import type { clusterDetailLogicType } from './clusterDetailLogicType'
+import { loadClusterMetrics } from './clusterMetricsLoader'
 import { NOISE_CLUSTER_ID, OUTLIER_COLOR, TRACES_PER_PAGE } from './constants'
 import { loadTraceSummaries } from './traceSummaryLoader'
-import { Cluster, ClusterItemInfo, ClusteringLevel, TraceSummary, getTimestampBoundsFromRunId } from './types'
+import {
+    Cluster,
+    ClusterItemInfo,
+    ClusterMetrics,
+    ClusteringLevel,
+    TraceSummary,
+    getTimestampBoundsFromRunId,
+} from './types'
 
 export interface ClusterDetailLogicProps {
     runId: string
@@ -61,6 +69,9 @@ export const clusterDetailLogic = kea<clusterDetailLogicType>([
         loadMoreTraces: true,
         setTraceSummaries: (summaries: Record<string, TraceSummary>) => ({ summaries }),
         setTraceSummariesLoading: (loading: boolean) => ({ loading }),
+        setClusterMetrics: (metrics: ClusterMetrics | null) => ({ metrics }),
+        setClusterMetricsLoading: (loading: boolean) => ({ loading }),
+        loadClusterMetricsForCluster: true,
     }),
 
     reducers({
@@ -80,6 +91,18 @@ export const clusterDetailLogic = kea<clusterDetailLogicType>([
             false,
             {
                 setTraceSummariesLoading: (_, { loading }) => loading,
+            },
+        ],
+        clusterMetrics: [
+            null as ClusterMetrics | null,
+            {
+                setClusterMetrics: (_, { metrics }) => metrics,
+            },
+        ],
+        clusterMetricsLoading: [
+            false,
+            {
+                setClusterMetricsLoading: (_, { loading }) => loading,
             },
         ],
     }),
@@ -296,14 +319,30 @@ export const clusterDetailLogic = kea<clusterDetailLogicType>([
 
     listeners(({ actions, values, props }) => ({
         loadClusterDataSuccess: () => {
-            // Load summaries for the first page of traces
             actions.setPage(1)
+            actions.loadClusterMetricsForCluster()
 
-            // Track product intent when user explores a cluster
             void actions.addProductIntent({
                 product_type: ProductKey.LLM_CLUSTERS,
                 intent_context: ProductIntentContext.LLM_CLUSTER_EXPLORED,
             })
+        },
+
+        loadClusterMetricsForCluster: async () => {
+            const { cluster, windowStart, windowEnd, clusteringLevel } = values
+            if (!cluster || !windowStart || !windowEnd) {
+                return
+            }
+
+            actions.setClusterMetricsLoading(true)
+            try {
+                const metricsMap = await loadClusterMetrics([cluster], windowStart, windowEnd, clusteringLevel)
+                actions.setClusterMetrics(metricsMap[cluster.cluster_id] || null)
+            } catch (error) {
+                console.error('Failed to load cluster metrics:', error)
+            } finally {
+                actions.setClusterMetricsLoading(false)
+            }
         },
 
         setPage: async ({ page }) => {

@@ -2,7 +2,7 @@ import tk from 'timekeeper'
 
 import { dayjs } from 'lib/dayjs'
 
-import { ElementType, EventType, PropertyType, TimeUnitType } from '~/types'
+import { ElementType, EventType, PropertyOperator, PropertyType, TimeUnitType } from '~/types'
 
 import {
     areDatesValidForInterval,
@@ -38,6 +38,7 @@ import {
     is12HoursOrLess,
     isExternalLink,
     isLessThan2Days,
+    isOperatorMulti,
     isURL,
     median,
     midEllipsis,
@@ -395,6 +396,40 @@ describe('lib/utils', () => {
                 )
             })
         })
+
+        describe('week formatting respects weekStartDay', () => {
+            // 2012-03-02 is a Friday
+            beforeEach(() => {
+                tk.freeze(new Date(1330688329321))
+            })
+            afterEach(() => {
+                tk.reset()
+            })
+
+            it('This week with Sunday start (default)', () => {
+                expect(
+                    dateFilterToText('wStart', undefined, 'default', dateMapping, true, undefined, undefined, 0)
+                ).toEqual('February 26 - March 2, 2012')
+            })
+
+            it('This week with Monday start', () => {
+                expect(
+                    dateFilterToText('wStart', undefined, 'default', dateMapping, true, undefined, undefined, 1)
+                ).toEqual('February 27 - March 2, 2012')
+            })
+
+            it('Last week with Sunday start (default)', () => {
+                expect(
+                    dateFilterToText('-1wStart', '-1wEnd', 'default', dateMapping, true, undefined, undefined, 0)
+                ).toEqual('February 19 - February 25, 2012')
+            })
+
+            it('Last week with Monday start', () => {
+                expect(
+                    dateFilterToText('-1wStart', '-1wEnd', 'default', dateMapping, true, undefined, undefined, 1)
+                ).toEqual('February 20 - February 26, 2012')
+            })
+        })
     })
 
     describe('dateStringToDayJs', () => {
@@ -487,6 +522,10 @@ describe('lib/utils', () => {
 
         it('should return days for month to date', () => {
             expect(getDefaultInterval('mStart', null)).toEqual('day')
+        })
+
+        it('should return days for week to date', () => {
+            expect(getDefaultInterval('wStart', null)).toEqual('day')
         })
 
         it('should return month for year to date', () => {
@@ -1528,6 +1567,23 @@ describe('lib/utils', () => {
                 'test-error'
             )
             expect(shouldRetry).toHaveBeenCalledWith(testError)
+        })
+    })
+
+    describe('isOperatorMulti', () => {
+        it('returns true for operators that support multiple values', () => {
+            expect(isOperatorMulti(PropertyOperator.Exact)).toBe(true)
+            expect(isOperatorMulti(PropertyOperator.IsNot)).toBe(true)
+            expect(isOperatorMulti(PropertyOperator.IContains)).toBe(true)
+            expect(isOperatorMulti(PropertyOperator.NotIContains)).toBe(true)
+        })
+
+        it('returns false for operators that do not support multiple values', () => {
+            expect(isOperatorMulti(PropertyOperator.GreaterThan)).toBe(false)
+            expect(isOperatorMulti(PropertyOperator.LessThan)).toBe(false)
+            expect(isOperatorMulti(PropertyOperator.IsSet)).toBe(false)
+            expect(isOperatorMulti(PropertyOperator.IsNotSet)).toBe(false)
+            expect(isOperatorMulti(PropertyOperator.Regex)).toBe(false)
         })
     })
 })

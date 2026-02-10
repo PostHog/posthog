@@ -468,16 +468,18 @@ def _set_table_partitioning(
         conn.execute(f"ALTER TABLE {alias}.posthog.{table} SET PARTITIONED BY ({partition_expr})")
         context.log.info(f"Successfully set partitioning on {table} table")
         logger.info(
-            f"duckling_{table}_partitioning_set",
+            "duckling_table_partitioning_set",
             team_id=team_id,
+            table=table,
             partition_expr=partition_expr,
         )
         return True
     except Exception as exc:
         context.log.warning(f"Failed to set partitioning on {table} table: {exc}")
         logger.warning(
-            f"duckling_{table}_partitioning_failed",
+            "duckling_table_partitioning_failed",
             team_id=team_id,
+            table=table,
             partition_expr=partition_expr,
             error=str(exc),
             error_type=type(exc).__name__,
@@ -1712,11 +1714,11 @@ def duckling_persons_backfill(context: AssetExecutionContext, config: DucklingBa
 
 
 @sensor(
-    name="duckling_backfill_discovery_sensor",
+    name="duckling_events_daily_backfill_sensor",
     minimum_interval_seconds=3600,  # Run hourly
     job_name="duckling_events_backfill_job",
 )
-def duckling_backfill_discovery_sensor(context: SensorEvaluationContext) -> SensorResult:
+def duckling_events_daily_backfill_sensor(context: SensorEvaluationContext) -> SensorResult:
     """Discover teams with DuckLakeCatalog entries and create daily backfill partitions.
 
     This sensor runs periodically to:
@@ -1810,6 +1812,9 @@ def duckling_backfill_discovery_sensor(context: SensorEvaluationContext) -> Sens
 # Number of monthly partitions to create per sensor tick (to avoid timeout)
 BACKFILL_MONTHS_PER_TICK = 3
 
+# Ignore events before this date — pre-2015 data is typically junk timestamps
+EARLIEST_BACKFILL_DATE = datetime(2015, 1, 1)
+
 
 def get_months_in_range(start_date: date, end_date: date) -> list[str]:
     """Generate list of month strings (YYYY-MM) between start and end dates."""
@@ -1829,12 +1834,12 @@ def get_months_in_range(start_date: date, end_date: date) -> list[str]:
 
 
 @sensor(
-    name="duckling_full_backfill_sensor",
-    minimum_interval_seconds=60,  # Run frequently to process backlog quickly
+    name="duckling_events_full_backfill_sensor",
+    minimum_interval_seconds=600,  # Run every 10 minutes
     job_name="duckling_events_backfill_job",
     default_status=DefaultSensorStatus.RUNNING,
 )
-def duckling_full_backfill_sensor(context: SensorEvaluationContext) -> SensorResult:
+def duckling_events_full_backfill_sensor(context: SensorEvaluationContext) -> SensorResult:
     """Full historical backfill sensor - creates MONTHLY partitions for efficiency.
 
     Uses monthly partitions (YYYY-MM) instead of daily to reduce partition count.
@@ -1847,7 +1852,7 @@ def duckling_full_backfill_sensor(context: SensorEvaluationContext) -> SensorRes
 
     Manual trigger:
         To restart from scratch, reset the cursor in Dagster UI:
-        Sensors -> duckling_full_backfill_sensor -> Reset cursor
+        Sensors -> duckling_events_full_backfill_sensor -> Reset cursor
     """
     yesterday = (timezone.now() - timedelta(days=1)).date()
 
@@ -1900,6 +1905,7 @@ def duckling_full_backfill_sensor(context: SensorEvaluationContext) -> SensorRes
             if earliest_dt is None:
                 context.log.info(f"No events found for team_id={team_id}, skipping")
                 continue
+            earliest_dt = max(earliest_dt, EARLIEST_BACKFILL_DATE)
             earliest_month = earliest_dt.strftime("%Y-%m")
             current_month = earliest_month
 
@@ -1984,14 +1990,14 @@ duckling_events_backfill_job = define_asset_job(
 
 
 @sensor(
-    name="duckling_persons_discovery_sensor",
+    name="duckling_persons_daily_backfill_sensor",
     minimum_interval_seconds=3600,  # Run hourly
     job_name="duckling_persons_backfill_job",
 )
-def duckling_persons_discovery_sensor(context: SensorEvaluationContext) -> SensorResult:
+def duckling_persons_daily_backfill_sensor(context: SensorEvaluationContext) -> SensorResult:
     """Discover teams with DuckLakeCatalog entries and create daily persons partitions.
 
-    Similar to duckling_backfill_discovery_sensor but for persons data.
+    Similar to duckling_events_daily_backfill_sensor but for persons data.
     Uses _timestamp (Kafka ingestion time) for date filtering.
     """
     yesterday = (timezone.now() - timedelta(days=1)).strftime("%Y-%m-%d")
@@ -2069,7 +2075,7 @@ def duckling_persons_discovery_sensor(context: SensorEvaluationContext) -> Senso
 
 @sensor(
     name="duckling_persons_full_backfill_sensor",
-    minimum_interval_seconds=60,  # Run frequently to process backlog quickly
+    minimum_interval_seconds=600,  # Run every 10 minutes
     job_name="duckling_persons_backfill_job",
     default_status=DefaultSensorStatus.RUNNING,
 )

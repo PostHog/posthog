@@ -3,9 +3,11 @@ import { useDebouncedCallback } from 'use-debounce'
 
 import { Spinner } from '@posthog/lemon-ui'
 
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
+import { Link } from 'lib/lemon-ui/Link'
 import { HeatmapsForbiddenURL } from 'scenes/heatmaps/components/HeatmapsForbiddenURL'
 import { HeatmapsUrlsList } from 'scenes/heatmaps/components/HeatmapsInfo'
 import { HeatmapsInvalidURL } from 'scenes/heatmaps/components/HeatmapsInvalidURL'
@@ -94,6 +96,13 @@ export function HeatmapNewScene(): JSX.Element {
                     value={type}
                     onChange={(value: HeatmapType) => setType(value)}
                 />
+                <LemonBanner type="info" className="mb-4">
+                    You can also generate a screenshot of your site directly from{' '}
+                    <Link to={urls.replay()} target="_blank">
+                        session replay
+                    </Link>{' '}
+                    by clicking the 'view heatmap' button above a recording.
+                </LemonBanner>
             </SceneSection>
             <SceneDivider />
             <div className="flex gap-2">
