@@ -308,6 +308,9 @@ build:
             - postgresql
             - clickhouse
             - django
+    build:schema-mcp:
+        cmd: cd services/mcp && npx tsx scripts/generate-tool-schema.ts && pnpm prettier --write schema/tool-inputs.json
+        description: Generate MCP tool-inputs.json schema from Zod definitions
     build:openapi-types:
         cmd: pnpm --filter=@posthog/frontend run openapi:types
         description: Generate TypeScript API types from the backend OpenAPI schema

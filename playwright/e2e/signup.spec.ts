@@ -116,7 +116,7 @@ test.describe('Signup', () => {
 
     test('Can submit the signup form multiple times if there is a generic email set', async ({ page }) => {
         let signupRequestBody: string | null = null
-        const email = `new_user+generic_error_test@posthog.com`
+        const email = `new_user+generic_error_test_${Math.floor(Math.random() * 10000)}@posthog.com`
 
         await page.route('/api/signup/', async (route) => {
             signupRequestBody = route.request().postData()

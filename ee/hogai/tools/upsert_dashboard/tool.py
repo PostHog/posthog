@@ -305,8 +305,10 @@ class UpsertDashboardTool(MaxTool):
                 active_tile_ids.add(new_tile.id)
                 tiles_to_update.append(new_tile)
 
-        # 3. Soft delete tiles not in the new list
-        tiles_to_delete = [t.id for t in all_tiles if t.id not in active_tile_ids and not t.deleted]
+        # 3. Soft delete insight tiles not in the new list (preserve text tiles)
+        tiles_to_delete = [
+            t.id for t in all_tiles if t.id not in active_tile_ids and not t.deleted and t.insight_id is not None
+        ]
         if tiles_to_delete:
             DashboardTile.objects.filter(id__in=tiles_to_delete).update(deleted=True)
 
