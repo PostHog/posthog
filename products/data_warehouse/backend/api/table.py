@@ -25,6 +25,7 @@ from products.data_warehouse.backend.models.table import (
     CLICKHOUSE_HOGQL_MAPPING,
     SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING,
 )
+from products.data_warehouse.backend.models.util import validate_warehouse_table_url_pattern
 
 
 class CredentialSerializer(serializers.ModelSerializer):
@@ -130,6 +131,12 @@ class TableSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError("A table with this name already exists.")
 
         return name
+
+    def validate_url_pattern(self, url_pattern: str) -> str:
+        is_valid, error_message = validate_warehouse_table_url_pattern(url_pattern)
+        if not is_valid:
+            raise serializers.ValidationError(error_message)
+        return url_pattern
 
 
 class SimpleTableSerializer(serializers.ModelSerializer):

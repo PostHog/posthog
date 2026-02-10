@@ -1,5 +1,8 @@
 import re
+import socket
+from ipaddress import ip_address
 from typing import TYPE_CHECKING, Union
+from urllib.parse import urlparse
 
 from django.db.models import Q
 
@@ -169,3 +172,44 @@ STR_TO_HOGQL_MAPPING = {
     "StringJSONDatabaseField": StringJSONDatabaseField,
     "UnknownDatabaseField": UnknownDatabaseField,
 }
+
+
+def _is_safe_public_ip(host: str) -> bool:
+    ip = ip_address(host)
+    return not (
+        ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_reserved or ip.is_unspecified
+    )
+
+
+def validate_warehouse_table_url_pattern(url_pattern: str | None) -> tuple[bool, str]:
+    if not url_pattern:
+        return True, ""
+
+    parsed = urlparse(url_pattern)
+    if parsed.scheme != "https":
+        return False, "URL pattern must use https."
+
+    if not parsed.hostname:
+        return False, "URL pattern must include a valid hostname."
+
+    # Block direct internal IPs.
+    try:
+        if not _is_safe_public_ip(parsed.hostname):
+            return False, "URL pattern hostname must not resolve to internal IP ranges."
+        return True, ""
+    except ValueError:
+        pass
+
+    # Block hostnames that resolve to any internal IP (SSRF guard).
+    try:
+        resolved_hosts = socket.getaddrinfo(parsed.hostname, parsed.port or 443, proto=socket.IPPROTO_TCP)
+    except socket.gaierror:
+        return False, "URL pattern hostname could not be resolved."
+
+    for resolved_host in resolved_hosts:
+        sockaddr = resolved_host[4]
+        ip = sockaddr[0]
+        if not _is_safe_public_ip(ip):
+            return False, "URL pattern hostname must not resolve to internal IP ranges."
+
+    return True, ""
