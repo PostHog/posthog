@@ -540,7 +540,8 @@ def RAW_SESSION_TABLE_BACKFILL_SQL_V3(
     Each shard should call this with its own shard_index to only SELECT events
     that will end up on that shard, then INSERT directly to the local sharded table.
     """
-    target_table |= SHARDED_RAW_SESSIONS_TABLE_V3()
+    if not target_table:
+        target_table = SHARDED_RAW_SESSIONS_TABLE_V3()
     if shard_index is not None and num_shards is not None:
         shard_filter = f"modulo(cityHash64(`$session_id_uuid`), {num_shards}) = {shard_index}"
         combined_where = f"({where}) AND {shard_filter}"
@@ -569,7 +570,8 @@ def RAW_SESSION_TABLE_BACKFILL_RECORDINGS_SQL_V3(
     Each shard should call this with its own shard_index to only SELECT recordings
     that will end up on that shard, then INSERT directly to the local sharded table.
     """
-    target_table |= SHARDED_RAW_SESSIONS_TABLE_V3()
+    if not target_table:
+        target_table = SHARDED_RAW_SESSIONS_TABLE_V3()
     if shard_index is not None and num_shards is not None:
         shard_filter = f"modulo(cityHash64(toUInt128(accurateCast(session_id, 'UUID'))), {num_shards}) = {shard_index}"
         combined_where = f"({where}) AND {shard_filter}"
