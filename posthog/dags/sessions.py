@@ -458,7 +458,8 @@ def _do_experimental_backfill(
 
                 backfill_sql = sql_template(
                     where=chunk_where_clause,
-                    target_table=DISTRIBUTED_RAW_SESSIONS_TABLE_V3(),
+                    target_table=DISTRIBUTED_RAW_SESSIONS_TABLE_V3(),  # this is just what the table is called in the experimental cluster, it's not actually distributed
+                    include_session_timestamp=False,
                 )
                 context.log.info(backfill_sql)
                 sync_execute(backfill_sql, settings=merged_settings, sync_client=client)
