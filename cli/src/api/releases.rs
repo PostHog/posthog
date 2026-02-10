@@ -22,7 +22,7 @@ pub struct Release {
 
 #[derive(Debug, Clone, Default)]
 pub struct ReleaseBuilder {
-    project: Option<String>,
+    name: Option<String>,
     version: Option<String>,
     metadata: HashMap<String, Value>,
 }
@@ -34,12 +34,13 @@ struct CreateReleaseRequest {
     pub metadata: HashMap<String, Value>,
     pub hash_id: String,
     pub version: String,
+    // TODO: update API to use name instead
     pub project: String,
 }
 
 impl Release {
-    pub fn lookup(project: &str, version: &str) -> Result<Option<Self>, ClientError> {
-        let hash_id = content_hash([project, version]);
+    pub fn lookup(name: &str, version: &str) -> Result<Option<Self>, ClientError> {
+        let hash_id = content_hash([name, version]);
         let client = &context().client;
 
         let path = format!("error_tracking/releases/hash/{hash_id}");
@@ -47,13 +48,13 @@ impl Release {
 
         if let Err(err) = response {
             if let ClientError::ApiError(404, _, _) = err {
-                warn!("release {} of project {} not found", version, project);
+                warn!("release {}@{} not found", name, version);
                 return Ok(None);
             }
             warn!("failed to get release from hash: {}", err);
             Err(err)
         } else {
-            info!("found release {} of project {}", version, project);
+            info!("found release {}@{}", name, version);
             Ok(Some(response.unwrap().json()?))
         }
     }
@@ -70,14 +71,14 @@ impl ReleaseBuilder {
         Self {
             metadata,
             version: Some(info.commit_id), // TODO - We should pull this commits tags and use them if we can
-            project: info.repo_name,
+            name: info.repo_name,
         }
     }
 
     pub fn with_git(&mut self, info: GitInfo) -> &mut Self {
-        if !self.has_project() {
+        if !self.has_name() {
             if let Some(name) = &info.repo_name {
-                self.with_project(name);
+                self.with_name(name);
             }
         }
         if !self.has_version() {
@@ -96,12 +97,12 @@ impl ReleaseBuilder {
         Ok(self)
     }
 
-    pub fn has_project(&self) -> bool {
-        self.project.is_some()
+    pub fn has_name(&self) -> bool {
+        self.name.is_some()
     }
 
-    pub fn with_project(&mut self, project: &str) -> &mut Self {
-        self.project = Some(project.to_string());
+    pub fn with_name(&mut self, name: &str) -> &mut Self {
+        self.name = Some(name.to_string());
         self
     }
 
@@ -115,7 +116,7 @@ impl ReleaseBuilder {
     }
 
     pub fn can_create(&self) -> bool {
-        self.version.is_some() && self.project.is_some()
+        self.version.is_some() && self.name.is_some()
     }
 
     pub fn missing(&self) -> Vec<&str> {
@@ -124,7 +125,7 @@ impl ReleaseBuilder {
         if self.version.is_none() {
             missing.push("version");
         }
-        if self.project.is_none() {
+        if self.name.is_none() {
             missing.push("project");
         }
         missing
@@ -138,7 +139,7 @@ impl ReleaseBuilder {
             )
         }
         let version = self.version.as_ref().unwrap();
-        let project = self.project.as_ref().unwrap();
+        let project = self.name.as_ref().unwrap();
         if let Some(release) = Release::lookup(project, version)? {
             Ok(release)
         } else {
@@ -157,16 +158,16 @@ impl ReleaseBuilder {
             )
         }
         let version = self.version.unwrap();
-        let project = self.project.unwrap();
+        let name = self.name.unwrap();
         let metadata = self.metadata;
 
-        let hash_id = content_hash([project.as_bytes(), version.as_bytes()]);
+        let hash_id = content_hash([name.as_bytes(), version.as_bytes()]);
 
         let request = CreateReleaseRequest {
             metadata,
             hash_id,
             version,
-            project,
+            project: name,
         };
 
         let client = &context().client;
@@ -179,8 +180,8 @@ impl ReleaseBuilder {
 
         let response = response.json::<Release>()?;
         info!(
-            "Release {} of {} created successfully! {}",
-            request.version, request.project, response.id
+            "Release {}@{} created successfully! {}",
+            request.project, request.version, response.id
         );
         Ok(response)
     }
