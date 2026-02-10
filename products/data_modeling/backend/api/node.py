@@ -135,7 +135,7 @@ class NodeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return super().get_serializer_context()
 
     def safely_get_queryset(self, queryset):
-        return queryset.filter(team_id=self.team_id).order_by(self.ordering)
+        return queryset.filter(team_id=self.team_id, dag_id=f"posthog_{self.team_id}").order_by(self.ordering)
 
     @action(methods=["POST"], detail=True)
     def run(self, req: request.Request, *args, **kwargs) -> response.Response:
@@ -175,7 +175,7 @@ class NodeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 dag_id=node.dag_id,
                 node_ids=list(node_ids),
             )
-            workflow_name = "execute-dag"
+            workflow_name = "data-modeling-execute-dag"
             workflow_id = f"execute-dag-{node.dag_id}-{uuid4()}"
         else:
             saved_query_ids = list(
@@ -239,7 +239,7 @@ class NodeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 dag_id=node.dag_id,
                 node_id=str(node.id),
             )
-            workflow_name = "materialize-view"
+            workflow_name = "data-modeling-materialize-view"
             workflow_id = f"materialize-view-{node.id}-{uuid4()}"
         else:
             inputs = RunWorkflowInputs(

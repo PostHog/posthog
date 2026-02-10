@@ -686,4 +686,141 @@ describe('the feature flag release conditions logic', () => {
             expect(logic.values.filters.groups[0].properties).toHaveLength(1)
         })
     })
+
+    describe('open conditions state', () => {
+        it('initializes first condition as open when there is only one group', async () => {
+            logic?.unmount()
+
+            logic = featureFlagReleaseConditionsLogic({
+                id: 'open-test-1',
+                filters: generateFeatureFlagFilters([
+                    { properties: [], rollout_percentage: 50, variant: null, sort_key: 'A' },
+                ]),
+            })
+
+            await expectLogic(logic, () => {
+                logic.mount()
+            }).toMatchValues({
+                openConditions: ['condition-A'],
+            })
+        })
+
+        it('does not auto-open conditions when there are multiple groups', async () => {
+            logic?.unmount()
+
+            logic = featureFlagReleaseConditionsLogic({
+                id: 'open-test-2',
+                filters: generateFeatureFlagFilters([
+                    { properties: [], rollout_percentage: 50, variant: null, sort_key: 'A' },
+                    { properties: [], rollout_percentage: 75, variant: null, sort_key: 'B' },
+                ]),
+            })
+
+            await expectLogic(logic, () => {
+                logic.mount()
+            }).toMatchValues({
+                openConditions: [],
+            })
+        })
+
+        it('opens new condition when adding a condition set', async () => {
+            logic?.unmount()
+
+            logic = featureFlagReleaseConditionsLogic({
+                id: 'open-test-3',
+                filters: generateFeatureFlagFilters([
+                    { properties: [], rollout_percentage: 50, variant: null, sort_key: 'A' },
+                ]),
+            })
+            logic.mount()
+
+            await expectLogic(logic, () => {
+                logic.actions.addConditionSet('NEW-KEY')
+            }).toMatchValues({
+                openConditions: ['condition-A', 'condition-NEW-KEY'],
+            })
+        })
+
+        it('opens duplicated condition when duplicating a condition set', async () => {
+            logic?.unmount()
+
+            nextUuid = 'DUP'
+            logic = featureFlagReleaseConditionsLogic({
+                id: 'open-test-4',
+                filters: generateFeatureFlagFilters([
+                    { properties: [], rollout_percentage: 50, variant: null, sort_key: 'A' },
+                ]),
+            })
+            logic.mount()
+
+            await expectLogic(logic, () => {
+                logic.actions.duplicateConditionSet(0)
+            }).toMatchValues({
+                openConditions: ['condition-A', 'condition-DUP'],
+            })
+        })
+
+        it('removes condition from openConditions when removing a condition set', async () => {
+            logic?.unmount()
+
+            logic = featureFlagReleaseConditionsLogic({
+                id: 'open-test-5',
+                filters: generateFeatureFlagFilters([
+                    { properties: [], rollout_percentage: 50, variant: null, sort_key: 'A' },
+                    { properties: [], rollout_percentage: 75, variant: null, sort_key: 'B' },
+                ]),
+            })
+            logic.mount()
+
+            // Manually open both conditions and wait for it to be processed
+            await expectLogic(logic, () => {
+                logic.actions.setOpenConditions(['condition-A', 'condition-B'])
+            }).toMatchValues({
+                openConditions: ['condition-A', 'condition-B'],
+            })
+
+            // Now remove condition A and verify B remains open
+            await expectLogic(logic, () => {
+                logic.actions.removeConditionSet(0)
+            })
+                .toDispatchActions(['removeConditionSet', 'setOpenConditions'])
+                .toMatchValues({
+                    openConditions: ['condition-B'],
+                })
+        })
+
+        it('preserves open state by index when changing aggregation type', async () => {
+            logic?.unmount()
+
+            logic = featureFlagReleaseConditionsLogic({
+                id: 'open-test-6',
+                filters: {
+                    ...generateFeatureFlagFilters([
+                        { properties: [], rollout_percentage: 50, variant: null, sort_key: 'OLD-KEY' },
+                    ]),
+                    aggregation_group_type_index: null,
+                },
+            })
+
+            // Mount and wait for initial setOpenConditions
+            await expectLogic(logic, () => {
+                logic.mount()
+            })
+                .toDispatchActions(['setOpenConditions'])
+                .toMatchValues({
+                    openConditions: ['condition-OLD-KEY'],
+                })
+
+            // Switch to group aggregation - this resets groups with new sort_key
+            nextUuid = 'NEW-KEY'
+            await expectLogic(logic, () => {
+                logic.actions.setAggregationGroupTypeIndex(0)
+            })
+                .toDispatchActions(['setAggregationGroupTypeIndex', 'setOpenConditions'])
+                .toMatchValues({
+                    // The open state should be preserved by index (first condition stays open)
+                    openConditions: ['condition-NEW-KEY'],
+                })
+        })
+    })
 })

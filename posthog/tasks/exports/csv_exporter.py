@@ -27,7 +27,7 @@ from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models.exported_asset import ExportedAsset, save_content_from_file
 from posthog.utils import absolute_uri
 
-from ...exceptions import QuerySizeExceeded
+from ...exceptions import ClickHouseQuerySizeExceeded
 from ...hogql.constants import CSV_EXPORT_BREAKDOWN_LIMIT_INITIAL, CSV_EXPORT_BREAKDOWN_LIMIT_LOW, CSV_EXPORT_LIMIT
 from ...hogql.query import LimitContext
 from ...hogql_queries.insights.trends.breakdown import (
@@ -37,6 +37,7 @@ from ...hogql_queries.insights.trends.breakdown import (
     BREAKDOWN_OTHER_STRING_LABEL,
 )
 from ..exporter import EXPORT_TIMER
+from ..exports.failure_handler import ExcelColumnLimitExceeded
 
 logger = structlog.get_logger(__name__)
 
@@ -86,7 +87,12 @@ class ExcelWriter(TabularWriter):
 
     def write_header(self, columns: list[str]) -> None:
         self._columns = columns
-        self._worksheet.append(columns)
+        try:
+            self._worksheet.append(columns)
+        except ValueError as e:
+            if "Invalid column index" in str(e):
+                raise ExcelColumnLimitExceeded() from e
+            raise
 
     def write_row(self, row: dict) -> None:
         values = []
@@ -95,7 +101,12 @@ class ExcelWriter(TabularWriter):
             if value is not None and not isinstance(value, str | int | float | bool):
                 value = str(value)
             values.append(sanitize_value_for_excel(value))
-        self._worksheet.append(values)
+        try:
+            self._worksheet.append(values)
+        except ValueError as e:
+            if "Invalid column index" in str(e):
+                raise ExcelColumnLimitExceeded() from e
+            raise
 
     def finish(self) -> str:
         self._workbook.save(self._path)
@@ -200,6 +211,14 @@ def _get_breakdown_info(
     return breakdown_values, breakdowns, has_breakdown_columns
 
 
+def _format_breakdown_value(breakdown_value: Any) -> str:
+    """Format breakdown_value for CSV export in a type safe way."""
+    if breakdown_value is None:
+        return ""
+
+    return "::".join(breakdown_value)
+
+
 def _convert_response_to_csv_data(data: Any, breakdown_filter: Optional[dict] = None) -> Generator[Any, None, None]:
     if isinstance(data.get("results"), list):
         results = data.get("results")
@@ -247,7 +266,7 @@ def _convert_response_to_csv_data(data: Any, breakdown_filter: Optional[dict] = 
                 yield from (
                     {
                         "name": x.get("custom_name") or x.get("action_id", ""),
-                        "breakdown_value": "::".join(x.get("breakdown_value", [])),
+                        "breakdown_value": _format_breakdown_value(x.get("breakdown_value")),
                         "action_id": x.get("action_id", ""),
                         "count": x.get("count", ""),
                         "median_conversion_time (seconds)": x.get("median_conversion_time", ""),
@@ -452,7 +471,7 @@ def get_from_query(exported_asset: ExportedAsset, limit: int, resource: dict) ->
                 limit_context=LimitContext.EXPORT,
                 execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
             )
-        except QuerySizeExceeded:
+        except ClickHouseQuerySizeExceeded:
             if "breakdownFilter" not in query or limit <= CSV_EXPORT_BREAKDOWN_LIMIT_LOW:
                 raise
 
@@ -539,16 +558,19 @@ def _determine_columns(user_columns: list[str], all_keys: list[str], seen_keys: 
 
     columns = []
     for col in user_columns:
+        # Always check for nested keys that start with this prefix
+        # This handles the case where some rows have null values (adding 'col' to seen_keys)
+        # while others have nested objects (adding 'col.nested.path' to all_keys)
+        nested_keys = [key for key in all_keys if key.startswith(col + ".")]
+        if nested_keys:
+            # Include nested keys to capture the expanded data
+            columns.extend(nested_keys)
         if col in seen_keys:
+            # Also include the base column if it exists (for rows with null/primitive values)
             columns.append(col)
-        else:
-            # Check if there are nested keys that start with this prefix
-            nested_keys = [key for key in all_keys if key.startswith(col + ".")]
-            if nested_keys:
-                columns.extend(nested_keys)
-            else:
-                # Include the column even if it doesn't exist in data (will be empty)
-                columns.append(col)
+        elif not nested_keys:
+            # Include the column even if it doesn't exist in data (will be empty)
+            columns.append(col)
     return columns
 
 

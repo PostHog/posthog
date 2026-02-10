@@ -6,10 +6,8 @@ import { IconGear } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDivider, LemonSwitch, Link } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { surveysLogic } from 'scenes/surveys/surveysLogic'
 import { sanitizeSurveyAppearance, validateSurveyAppearance } from 'scenes/surveys/utils'
 import { teamLogic } from 'scenes/teamLogic'
@@ -212,9 +210,6 @@ function openSurveysSettingsDialog(): void {
 export function SurveysDisabledBanner(): JSX.Element | null {
     const { showSurveysDisabledBanner } = useValues(surveysLogic)
 
-    const { featureFlags } = useValues(featureFlagLogic)
-    const settingLevel = featureFlags[FEATURE_FLAGS.ENVIRONMENTS] ? 'environment' : 'project'
-
     if (!showSurveysDisabledBanner) {
         return null
     }
@@ -230,8 +225,8 @@ export function SurveysDisabledBanner(): JSX.Element | null {
             }}
             className="mb-2"
         >
-            Surveys are currently disabled for this {settingLevel}. Re-enable them in the settings, otherwise surveys
-            will not be rendered in your app (either automatically or{' '}
+            Surveys are currently disabled for this project. Re-enable them in the settings, otherwise surveys will not
+            be rendered in your app (either automatically or{' '}
             <Link to="https://posthog.com/docs/surveys/implementing-custom-surveys#rendering-surveys-programmatically">
                 using the <code>renderSurvey</code> function
             </Link>

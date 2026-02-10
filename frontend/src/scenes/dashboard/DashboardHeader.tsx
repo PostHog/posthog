@@ -85,8 +85,9 @@ export function DashboardHeader(): JSX.Element | null {
         apiUrl,
         showTextTileModal,
         textTileId,
+        isSavingTags,
     } = useValues(dashboardLogic)
-    const { setDashboardMode, triggerDashboardUpdate, loadDashboard } = useActions(dashboardLogic)
+    const { setDashboardMode, loadDashboard, updateDashboardTags } = useActions(dashboardLogic)
     const { asDashboardTemplate, effectiveEditBarFilters, effectiveDashboardVariableOverrides, tiles } =
         useValues(dashboardLogic)
     const { updateDashboard, pinDashboard, unpinDashboard } = useActions(dashboardsModel)
@@ -160,8 +161,6 @@ export function DashboardHeader(): JSX.Element | null {
         setIsPinned(dashboard?.pinned)
     }, [dashboard?.pinned])
 
-    const hasUpsertDashboardFeatureFlag = useFeatureFlag('POSTHOG_AI_UPSERT_DASHBOARD')
-
     return dashboard || dashboardLoading ? (
         <>
             {dashboardMode === DashboardMode.Fullscreen && (
@@ -208,12 +207,13 @@ export function DashboardHeader(): JSX.Element | null {
                 <ScenePanelInfoSection>
                     <SceneTags
                         onSave={(tags) => {
-                            triggerDashboardUpdate({ tags })
+                            updateDashboardTags(tags)
                         }}
                         canEdit={canEditDashboard}
                         tags={dashboard?.tags}
                         tagsAvailable={tags.filter((tag) => !dashboard?.tags?.includes(tag))}
                         dataAttrKey={RESOURCE_TYPE}
+                        loading={isSavingTags}
                     />
 
                     <SceneFile dataAttrKey={RESOURCE_TYPE} />
@@ -540,11 +540,7 @@ export function DashboardHeader(): JSX.Element | null {
                                             </AppShortcut>
                                         </AccessControlAction>
                                         <MaxTool
-                                            identifier={
-                                                hasUpsertDashboardFeatureFlag
-                                                    ? 'upsert_dashboard'
-                                                    : 'edit_current_dashboard'
-                                            }
+                                            identifier="upsert_dashboard"
                                             context={{
                                                 current_dashboard: dashboard
                                                     ? {

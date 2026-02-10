@@ -3,12 +3,10 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use anyhow::{Context, Result};
-use common_types::RawEvent;
 use rocksdb::{ColumnFamilyDescriptor, Options, SliceTransform};
 use tracing::info;
 
 use crate::metrics::MetricsHelper;
-use crate::rocksdb::dedup_metadata::EventSimilarity;
 use crate::rocksdb::store::{block_based_table_factory, RocksDbStore};
 
 use super::keys::TimestampKey;
@@ -33,91 +31,6 @@ pub struct DeduplicationStore {
     store: Arc<RocksDbStore>,
     topic: String,
     partition: i32,
-}
-
-#[derive(strum_macros::Display, Debug, Copy, Clone, PartialEq)]
-pub enum DeduplicationResultReason {
-    OnlyUuidDifferent,
-    SameEvent,
-}
-
-#[derive(strum_macros::Display, Debug, Copy, Clone, PartialEq)]
-pub enum DeduplicationType {
-    Timestamp,
-}
-
-#[derive(strum_macros::Display, Debug)]
-pub enum DeduplicationResult {
-    ConfirmedDuplicate(
-        DeduplicationType,
-        DeduplicationResultReason,
-        EventSimilarity,
-        RawEvent, // Original event from metadata
-    ), // The reason why it's a confirmed duplicate
-    PotentialDuplicate(DeduplicationType, EventSimilarity, RawEvent), // Original event
-    New,
-    Skipped,
-}
-
-impl PartialEq for DeduplicationResult {
-    fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (
-                DeduplicationResult::ConfirmedDuplicate(
-                    deduplication_type,
-                    deduplication_reason,
-                    _,
-                    _,
-                ),
-                DeduplicationResult::ConfirmedDuplicate(
-                    other_deduplication_type,
-                    other_deduplication_reason,
-                    _,
-                    _,
-                ),
-            ) => {
-                deduplication_type == other_deduplication_type
-                    && deduplication_reason == other_deduplication_reason
-            }
-            (
-                DeduplicationResult::PotentialDuplicate(deduplication_type, _, _),
-                DeduplicationResult::PotentialDuplicate(other_deduplication_type, _, _),
-            ) => deduplication_type == other_deduplication_type,
-            (DeduplicationResult::New, DeduplicationResult::New) => true,
-            (DeduplicationResult::Skipped, DeduplicationResult::Skipped) => true,
-            _ => false,
-        }
-    }
-}
-
-impl DeduplicationResult {
-    pub fn is_duplicate(&self) -> bool {
-        matches!(self, DeduplicationResult::ConfirmedDuplicate(_, _, _, _))
-    }
-
-    pub fn get_similarity(&self) -> Option<&EventSimilarity> {
-        match self {
-            DeduplicationResult::ConfirmedDuplicate(_, _, similarity, _) => Some(similarity),
-            DeduplicationResult::PotentialDuplicate(_, similarity, _) => Some(similarity),
-            _ => None,
-        }
-    }
-
-    pub fn get_original_event(&self) -> Option<&RawEvent> {
-        match self {
-            DeduplicationResult::ConfirmedDuplicate(_, _, _, original) => Some(original),
-            DeduplicationResult::PotentialDuplicate(_, _, original) => Some(original),
-            _ => None,
-        }
-    }
-
-    pub fn take_original_event(self) -> Option<RawEvent> {
-        match self {
-            DeduplicationResult::ConfirmedDuplicate(_, _, _, original) => Some(original),
-            DeduplicationResult::PotentialDuplicate(_, _, original) => Some(original),
-            _ => None,
-        }
-    }
 }
 
 impl DeduplicationStore {

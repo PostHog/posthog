@@ -14,12 +14,12 @@ from loginas.utils import is_impersonated_session
 from rest_framework import exceptions, request, response, serializers, viewsets
 from rest_framework.permissions import BasePermission, IsAuthenticated
 
-from posthog.schema import AttributionMode
+from posthog.schema import AttributionMode, HogQLQueryModifiers
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import TeamBasicSerializer
 from posthog.api.utils import action, raise_if_user_provided_url_unsafe
-from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
+from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.constants import AvailableFeature
 from posthog.decorators import disallow_if_impersonated
 from posthog.event_usage import report_user_action
@@ -64,7 +64,7 @@ from posthog.session_recordings.data_retention import (
     validate_retention_period,
 )
 from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
-from posthog.utils import get_instance_realm, get_ip_address, get_week_start_for_country_code
+from posthog.utils import get_instance_realm, get_instance_region, get_ip_address, get_week_start_for_country_code
 
 from products.customer_analytics.backend.models.team_customer_analytics_config import TeamCustomerAnalyticsConfig
 
@@ -199,6 +199,7 @@ TEAM_CONFIG_FIELDS = (
     "business_model",
     "conversations_enabled",
     "conversations_settings",
+    "proactive_tasks_enabled",
 )
 
 TEAM_CONFIG_FIELDS_SET = set(TEAM_CONFIG_FIELDS)
@@ -685,6 +686,41 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
         return value
 
+    @staticmethod
+    def validate_modifiers(value: dict | None) -> dict | None:
+        if value is None:
+            return value
+
+        if not isinstance(value, dict):
+            raise exceptions.ValidationError("Must provide a dictionary or None.")
+
+        if "bounceRateDurationSeconds" in value:
+            bounce_rate = value["bounceRateDurationSeconds"]
+            if bounce_rate is not None:
+                if not isinstance(bounce_rate, (int, float)):
+                    raise exceptions.ValidationError({"bounceRateDurationSeconds": "Must be a number."})
+                if bounce_rate < 1 or bounce_rate > 120:
+                    raise exceptions.ValidationError(
+                        {"bounceRateDurationSeconds": "Must be between 1 and 120 seconds."}
+                    )
+
+        try:
+            HogQLQueryModifiers(**value)
+        except Exception:
+            raise exceptions.ValidationError(f"Invalid modifier key.")
+
+        return value
+
+    def validate_proactive_tasks_enabled(self, value: bool | None) -> bool | None:
+        if not value or settings.DEBUG:
+            return value
+
+        # Only team ID 2 in US region can enable proactive tasks
+        if self.instance and self.instance.id == 2 and get_instance_region() == "US":
+            return value
+
+        raise exceptions.PermissionDenied("Proactive tasks can only be enabled for authorized teams.")
+
     def validate(self, attrs: Any) -> Any:
         attrs = validate_team_attrs(attrs, self.context["view"], self.context["request"], self.instance)
         return super().validate(attrs)
@@ -979,7 +1015,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
     Projects for the current organization.
     """
 
-    scope_object: APIScopeObjectOrNotSupported = "project"  # TODO: Change to `environment` on environments rollout
+    scope_object: APIScopeObjectOrNotSupported = "project"
     serializer_class = TeamSerializer
     queryset = Team.objects.all().select_related("organization")
     lookup_field = "id"
@@ -1015,11 +1051,16 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
 
         # If the request only contains config fields, require read:team scope
         # Otherwise, require write:team scope (handled by APIScopePermission)
+        # NOTE: This downgrade only applies to session-based auth (browser users).
+        # All other auth methods (API keys, OAuth tokens, etc.) must have project:write
+        # to modify any fields, preserving the semantic meaning of read-only API keys.
         if self.action == "partial_update":
-            request_fields = set(request.data.keys())
-            non_team_config_fields = request_fields - TEAM_CONFIG_FIELDS_SET
-            if not non_team_config_fields:
-                return ["project:read"]
+            is_session_auth = isinstance(request.successful_authenticator, SessionAuthentication)
+            if is_session_auth:
+                request_fields = set(request.data.keys())
+                non_team_config_fields = request_fields - TEAM_CONFIG_FIELDS_SET
+                if not non_team_config_fields:
+                    return ["project:read"]
 
         # Fall back to the default behavior
         return None
@@ -1471,7 +1512,7 @@ def validate_team_attrs(
 
 
 class PremiumMultiEnvironmentPermission(BasePermission):
-    """Require user to have all necessary premium features on their plan for create access to the endpoint."""
+    """Enforce one non-demo team per project limit."""
 
     message = "You have reached the maximum limit of allowed environments for your current plan. Upgrade your plan to be able to create and manage more environments."
 
@@ -1487,24 +1528,14 @@ class PremiumMultiEnvironmentPermission(BasePermission):
             )
 
         if request.data.get("is_demo"):
-            # If we're requesting to make a demo project but the org already has a demo project
+            # Allow one demo team per organization
             if project.organization.teams.filter(is_demo=True).count() > 0:
                 return False
+            return True
 
-        environments_feature = project.organization.get_available_feature(AvailableFeature.ENVIRONMENTS)
+        # Only allow one non-demo team per project
         current_non_demo_team_count = project.teams.exclude(is_demo=True).count()
-        if environments_feature:
-            allowed_team_per_project_count = environments_feature.get("limit")
-            # If allowed_project_count is None then the user is allowed unlimited projects
-            if allowed_team_per_project_count is None:
-                return True
-            # Check current limit against allowed limit
-            if current_non_demo_team_count >= allowed_team_per_project_count:
-                return False
-        else:
-            # If the org doesn't have the feature, they can only have one non-demo project
-            if current_non_demo_team_count >= 1:
-                return False
+        if current_non_demo_team_count >= 1:
+            return False
 
-        # in any other case, we're good to go
         return True

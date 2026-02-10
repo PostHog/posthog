@@ -109,6 +109,7 @@ jobs:
                         # changes to docker-compose.dev.yml e.g. dependency
                         # version changes
                         - docker-compose.dev.yml
+                        - docker-compose.profiles.yml
                         - docker-compose.base.yml
                         - frontend/public/email/*
                         - docker/clickhouse
@@ -154,7 +155,10 @@ jobs:
                   else
                     AUTHOR="${{ github.actor }}"
                     echo "Workflow triggered by: $AUTHOR"
-                    if [[ "$AUTHOR" == *"github-actions"* ]] || [[ "$AUTHOR" == *"[bot]"* ]] || [[ "$AUTHOR" == "posthog-bot" ]]; then
+                    # Dependabot is excluded - it creates new PRs that may need snapshot updates
+                    # Other bots (github-actions, posthog-bot) commit snapshots and must use CHECK mode to avoid loops
+                    if [[ "$AUTHOR" != "dependabot[bot]" ]] && \
+                       ([[ "$AUTHOR" == *"github-actions"* ]] || [[ "$AUTHOR" == *"[bot]"* ]] || [[ "$AUTHOR" == "posthog-bot" ]]); then
                       echo "mode=check" >> $GITHUB_OUTPUT
                       echo "::notice::🔍 Running in CHECK mode - snapshots must match exactly"
                     else
@@ -193,9 +197,10 @@ jobs:
 
             - name: Install uv
               id: setup-uv
-              uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b # v7.2.0
+              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
               with:
                   enable-cache: true
+                  save-cache: ${{ github.ref == 'refs/heads/master' }}
                   version: 0.9.9
 
             - name: Install SAML (python3-saml) dependencies
@@ -212,7 +217,9 @@ jobs:
             - name: Cache Rust dependencies
               uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
               with:
+                  shared-key: 'v2-rust-backend'
                   workspaces: rust
+                  save-if: ${{ github.ref == 'refs/heads/master' }}
 
             - name: Install sqlx-cli
               run: |
@@ -454,6 +461,9 @@ jobs:
             - name: Install pnpm
               uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
 
+            - name: Fix node-gyp permissions
+              run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
+
             - name: Set up Node.js
               uses: actions/setup-node@v4
               with:
@@ -494,7 +504,8 @@ jobs:
         timeout-minutes: 30
 
         name: Django tests – ${{ matrix.segment }} (persons-on-events ${{ matrix.person-on-events && 'on' || 'off' }}), Py ${{ matrix.python-version }}, ${{ matrix.clickhouse-server-image }} (${{matrix.group}}/${{ matrix.concurrency }})
-        runs-on: depot-ubuntu-latest
+        # Runner type is performance-critical — consult #team-devex before changing
+        runs-on: depot-ubuntu-latest-4
 
         strategy:
             fail-fast: false
@@ -504,7 +515,9 @@ jobs:
                 segment: ['Core']
                 person-on-events: [false]
                 # :NOTE: Keep concurrency and groups in sync
-                concurrency: [40]
+                # Shard counts are tuned to balance wall-clock time vs setup overhead (Amdahl's law).
+                # Consult #team-devex before changing.
+                concurrency: [38]
                 group:
                     [
                         1,
@@ -545,110 +558,78 @@ jobs:
                         36,
                         37,
                         38,
-                        39,
-                        40,
                     ]
                 include:
                     - segment: 'Core'
                       person-on-events: true
                       python-version: '3.12.12'
-                      concurrency: 10
+                      concurrency: 7
                       group: 1
                     - segment: 'Core'
                       person-on-events: true
                       python-version: '3.12.12'
-                      concurrency: 10
+                      concurrency: 7
                       group: 2
                     - segment: 'Core'
                       person-on-events: true
                       python-version: '3.12.12'
-                      concurrency: 10
+                      concurrency: 7
                       group: 3
                     - segment: 'Core'
                       person-on-events: true
                       python-version: '3.12.12'
-                      concurrency: 10
+                      concurrency: 7
                       group: 4
                     - segment: 'Core'
                       person-on-events: true
                       python-version: '3.12.12'
-                      concurrency: 10
+                      concurrency: 7
                       group: 5
                     - segment: 'Core'
                       person-on-events: true
                       python-version: '3.12.12'
-                      concurrency: 10
+                      concurrency: 7
                       group: 6
                     - segment: 'Core'
                       person-on-events: true
                       python-version: '3.12.12'
-                      concurrency: 10
+                      concurrency: 7
                       group: 7
-                    - segment: 'Core'
-                      person-on-events: true
-                      python-version: '3.12.12'
-                      concurrency: 10
-                      group: 8
-                    - segment: 'Core'
-                      person-on-events: true
-                      python-version: '3.12.12'
-                      concurrency: 10
-                      group: 9
-                    - segment: 'Core'
-                      person-on-events: true
-                      python-version: '3.12.12'
-                      concurrency: 10
-                      group: 10
                     - segment: 'Temporal'
                       person-on-events: false
                       python-version: '3.12.12'
-                      concurrency: 10
+                      concurrency: 7
                       group: 1
                     - segment: 'Temporal'
                       person-on-events: false
                       python-version: '3.12.12'
-                      concurrency: 10
+                      concurrency: 7
                       group: 2
                     - segment: 'Temporal'
                       person-on-events: false
                       python-version: '3.12.12'
-                      concurrency: 10
+                      concurrency: 7
                       group: 3
                     - segment: 'Temporal'
                       person-on-events: false
                       python-version: '3.12.12'
-                      concurrency: 10
+                      concurrency: 7
                       group: 4
                     - segment: 'Temporal'
                       person-on-events: false
                       python-version: '3.12.12'
-                      concurrency: 10
+                      concurrency: 7
                       group: 5
                     - segment: 'Temporal'
                       person-on-events: false
                       python-version: '3.12.12'
-                      concurrency: 10
+                      concurrency: 7
                       group: 6
                     - segment: 'Temporal'
                       person-on-events: false
                       python-version: '3.12.12'
-                      concurrency: 10
+                      concurrency: 7
                       group: 7
-                    - segment: 'Temporal'
-                      person-on-events: false
-                      python-version: '3.12.12'
-                      concurrency: 10
-                      group: 8
-                    - segment: 'Temporal'
-                      person-on-events: false
-                      python-version: '3.12.12'
-                      concurrency: 10
-                      group: 9
-                    - segment: 'Temporal'
-                      person-on-events: false
-                      python-version: '3.12.12'
-                      concurrency: 10
-                      group: 10
 
         steps:
             - uses: actions/checkout@v6
@@ -694,8 +675,9 @@ jobs:
                       while [ $attempt -le $max_attempts ]; do
                           echo "Attempt $attempt of $max_attempts to start stack..."
 
+                          # Docker profiles control which services start — consult #team-devex before changing
                           if docker compose -f docker-compose.dev.yml --profile '*' down && \
-                            docker compose -f docker-compose.dev.yml --profile batch-exports up -d; then
+                            docker compose -f docker-compose.dev.yml -f docker-compose.profiles.yml --profile temporal --profile azure up -d; then
                               echo "Stack started successfully"
                               exit 0
                           fi
@@ -726,9 +708,10 @@ jobs:
 
             - name: Install uv
               id: setup-uv-tests
-              uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b # v7.2.0
+              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
               with:
                   enable-cache: true
+                  save-cache: ${{ github.ref == 'refs/heads/master' }}
                   version: 0.9.9
 
             - name: Install SAML (python3-saml) dependencies
@@ -748,11 +731,9 @@ jobs:
               if: needs.changes.outputs.backend == 'true'
               uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
               with:
-                  # Add unique prefix per matrix job to avoid cache contention
-                  prefix-key: 'v1-rust-${{ matrix.segment }}-${{ matrix.group }}'
-                  # Add shared-key for cross-job cache reuse
-                  shared-key: 'v1-rust-shared'
+                  shared-key: 'v2-rust-backend'
                   workspaces: rust
+                  save-if: ${{ github.ref == 'refs/heads/master' }}
 
             - name: Install sqlx-cli
               if: needs.changes.outputs.backend == 'true'
@@ -1090,8 +1071,9 @@ jobs:
                   oldest_supported_clickhouse_image: ${{ needs.get_clickhouse_versions.outputs.oldest_supported_image }}
                   # Skip plugin transpiler build - these tests don't need it and it causes esbuild deadlocks
                   skip-plugin-transpiler: 'true'
-                  # Compat tests run a subset of snapshot tests, so unused snapshots are expected
-                  # This makes unused snapshots non-fatal (warning only) instead of failing the build
+                  # Compat tests run a subset and don't own snapshots (main django tests do).
+                  # This flag makes unused snapshots non-fatal and always updates snapshot
+                  # content so compat tests never fail due to CH version query differences.
                   snapshot-warn-unused: 'true'
 
     # Aggregate and commit snapshot changes from all matrix jobs
@@ -1239,9 +1221,10 @@ jobs:
 
             - name: Install uv
               id: setup-uv-async
-              uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b # v7.2.0
+              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
               with:
                   enable-cache: true
+                  save-cache: ${{ github.ref == 'refs/heads/master' }}
                   version: 0.9.9
 
             - name: Install SAML (python3-saml) dependencies
@@ -1259,7 +1242,9 @@ jobs:
             - name: Cache Rust dependencies
               uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
               with:
+                  shared-key: 'v2-rust-backend'
                   workspaces: rust
+                  save-if: ${{ github.ref == 'refs/heads/master' }}
 
             - name: Install sqlx-cli
               run: |
@@ -1336,7 +1321,7 @@ jobs:
                   python-version: '3.12'
 
             - name: Install uv
-              uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b # v7.2.0
+              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
 
             - name: Install dependencies
               run: uv sync --frozen --dev

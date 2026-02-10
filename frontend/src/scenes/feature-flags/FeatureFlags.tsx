@@ -2,8 +2,8 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useState } from 'react'
 
-import { IconLock } from '@posthog/icons'
-import { LemonDialog, LemonTag, lemonToast } from '@posthog/lemon-ui'
+import { IconLock, IconPlusSmall, IconTrash } from '@posthog/icons'
+import { LemonButton, LemonCheckbox, LemonDialog, LemonTag, lemonToast } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
@@ -14,7 +14,6 @@ import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductI
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
 import { FeatureFlagHog } from 'lib/components/hedgehogs'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
@@ -29,7 +28,6 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import stringWithWBR from 'lib/utils/stringWithWBR'
-import MaxTool from 'scenes/max/MaxTool'
 import { projectLogic } from 'scenes/projectLogic'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { QuickSurveyModal } from 'scenes/surveys/QuickSurveyModal'
@@ -51,10 +49,13 @@ import {
     FeatureFlagType,
 } from '~/types'
 
+import { BulkDeleteResultsModal } from './BulkDeleteResultsModal'
 import { FeatureFlagEvaluationTags } from './FeatureFlagEvaluationTags'
 import { FeatureFlagFiltersSection } from './FeatureFlagFilters'
+import { OverlayForNewFeatureFlagMenu } from './NewFeatureFlagMenu'
 import { featureFlagLogic } from './featureFlagLogic'
 import { FLAGS_PER_PAGE, FeatureFlagsTab, featureFlagsLogic } from './featureFlagsLogic'
+import { flagSelectionLogic } from './flagSelectionLogic'
 
 // Component for feature flag row actions that needs to use hooks
 function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }): JSX.Element {
@@ -168,7 +169,7 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
                         )}
 
                         <LemonButton
-                            to={urls.featureFlagDuplicate(featureFlag.id)}
+                            to={urls.featureFlagNew({ sourceId: featureFlag.id })}
                             data-attr="feature-flag-duplicate"
                             fullWidth
                         >
@@ -275,6 +276,10 @@ export function OverViewTab({
     const { setFeatureFlagsFilters } = useActions(flagLogic)
     const { featureFlags: enabledFeatureFlags } = useValues(enabledFeaturesLogic)
 
+    const { selectedFlagIds, selectedCount, isAllSelected, isSomeSelected, bulkDeleteResponseLoading } =
+        useValues(flagSelectionLogic)
+    const { toggleFlagSelection, selectAll, clearSelection, bulkDeleteFlags } = useActions(flagSelectionLogic)
+
     const page = filters.page || 1
     const startCount = (page - 1) * FLAGS_PER_PAGE + 1
     const effectiveCount = pagination.entryCount ?? 0
@@ -282,6 +287,40 @@ export function OverViewTab({
     const flagCountText = `${startCount}${endCount - startCount > 1 ? '-' + endCount : ''} of ${pluralize(effectiveCount, 'flag')}`
 
     const columns: LemonTableColumns<FeatureFlagType> = [
+        {
+            key: 'selection',
+            width: 32,
+            title: (
+                <LemonCheckbox
+                    checked={isSomeSelected ? 'indeterminate' : isAllSelected}
+                    onChange={(checked: boolean) => {
+                        if (checked) {
+                            selectAll()
+                        } else {
+                            clearSelection()
+                        }
+                    }}
+                    aria-label="Select all feature flags"
+                />
+            ),
+            render: function Render(_: unknown, featureFlag: FeatureFlagType, index: number) {
+                const flagId = featureFlag.id
+                if (flagId === null) {
+                    return null
+                }
+                return (
+                    <LemonCheckbox
+                        checked={selectedFlagIds.includes(flagId)}
+                        onChange={() => toggleFlagSelection(flagId, index)}
+                        disabled={!featureFlag.can_edit}
+                        disabledReason={
+                            !featureFlag.can_edit ? "You don't have permission to edit this feature flag." : undefined
+                        }
+                        aria-label={`Select feature flag ${featureFlag.key}`}
+                    />
+                )
+            },
+        },
         {
             title: 'Key',
             dataIndex: 'key',
@@ -390,10 +429,10 @@ export function OverViewTab({
                             <Tooltip
                                 title={
                                     <>
-                                        <div className="text-sm">Flag at least 30 days old and fully rolled out</div>
+                                        <div className="text-sm">This flag is likely safe to remove</div>
                                         <div className="text-xs">
-                                            Make sure to remove any references to this flag in your code before deleting
-                                            it.
+                                            Not called in 30+ days or fully rolled out. Make sure to remove any
+                                            references in your code before deleting it.
                                         </div>
                                     </>
                                 }
@@ -472,7 +511,7 @@ export function OverViewTab({
             />
             <div>{filtersSection}</div>
             <LemonDivider className="my-0" />
-            <div>
+            <div className="flex items-center justify-between min-h-9">
                 <span
                     className={cn('text-secondary transition-opacity', filtersChanged && 'opacity-50')}
                     aria-busy={filtersChanged}
@@ -484,7 +523,44 @@ export function OverViewTab({
                         flagCountText
                     ) : null}
                 </span>
+                {selectedCount > 0 && (
+                    <div className="flex items-center gap-2">
+                        <span className="text-muted text-sm">
+                            {selectedCount} flag{selectedCount !== 1 ? 's' : ''} selected
+                        </span>
+                        <LemonButton type="secondary" size="small" onClick={clearSelection}>
+                            Clear
+                        </LemonButton>
+                        <LemonButton
+                            type="primary"
+                            status="danger"
+                            size="small"
+                            icon={<IconTrash />}
+                            loading={bulkDeleteResponseLoading}
+                            onClick={() => {
+                                LemonDialog.open({
+                                    title: `Delete ${selectedCount} feature flag${selectedCount !== 1 ? 's' : ''}?`,
+                                    description: `Are you sure you want to delete ${selectedCount} feature flag${selectedCount !== 1 ? 's' : ''}? This action cannot be undone.`,
+                                    primaryButton: {
+                                        children: 'Delete',
+                                        status: 'danger',
+                                        onClick: () => bulkDeleteFlags(),
+                                        size: 'small',
+                                    },
+                                    secondaryButton: {
+                                        children: 'Cancel',
+                                        type: 'tertiary',
+                                        size: 'small',
+                                    },
+                                })
+                            }}
+                        >
+                            Delete selected
+                        </LemonButton>
+                    </div>
+                )}
             </div>
+            <BulkDeleteResultsModal />
 
             <LemonTable
                 dataSource={displayedFlags}
@@ -514,7 +590,7 @@ export function OverViewTab({
 
 export function FeatureFlags(): JSX.Element {
     const { activeTab } = useValues(featureFlagsLogic)
-    const { setActiveTab, loadFeatureFlags } = useActions(featureFlagsLogic)
+    const { setActiveTab } = useActions(featureFlagsLogic)
 
     return (
         <SceneContent className="feature_flags">
@@ -528,49 +604,33 @@ export function FeatureFlags(): JSX.Element {
                         resourceType={AccessControlResourceType.FeatureFlag}
                         minAccessLevel={AccessControlLevel.Editor}
                     >
-                        <MaxTool
-                            identifier="create_feature_flag"
-                            initialMaxPrompt="Create a feature flag for "
-                            suggestions={[
-                                'Create a flag to gradually roll out…',
-                                'Create a flag that starts at 10% rollout for…',
-                                'Create a multivariate flag for…',
-                                'Create a beta testing flag for…',
-                            ]}
-                            callback={(toolOutput: { flag_id?: string | number; error?: string }) => {
-                                if (toolOutput?.error || !toolOutput?.flag_id) {
-                                    lemonToast.error(
-                                        `Failed to create feature flag: ${toolOutput?.error || 'Unknown error'}`
-                                    )
-                                    return
-                                }
-
-                                // Refresh feature flags list to show new flag, then redirect to it
-                                loadFeatureFlags()
-                                router.actions.push(urls.featureFlag(toolOutput.flag_id))
-                            }}
-                            position="bottom-right"
-                            active={true}
-                            context={{}}
+                        <AppShortcut
+                            name="NewFeatureFlag"
+                            keybind={[keyBinds.new]}
+                            intent="New feature flag"
+                            interaction="click"
+                            scope={Scene.FeatureFlags}
                         >
-                            <AppShortcut
-                                name="NewFeatureFlag"
-                                keybind={[keyBinds.new]}
-                                intent="New feature flag"
-                                interaction="click"
-                                scope={Scene.FeatureFlags}
+                            <LemonButton
+                                type="primary"
+                                to={urls.featureFlag('new')}
+                                data-attr="new-feature-flag"
+                                size="small"
+                                icon={<IconPlusSmall />}
+                                sideAction={{
+                                    dropdown: {
+                                        placement: 'bottom-end',
+                                        className: 'new-feature-flag-overlay',
+                                        actionable: true,
+                                        overlay: <OverlayForNewFeatureFlagMenu />,
+                                    },
+                                    'data-attr': 'new-feature-flag-dropdown',
+                                }}
+                                tooltip="New feature flag"
                             >
-                                <LemonButton
-                                    type="primary"
-                                    to={urls.featureFlag('new')}
-                                    data-attr="new-feature-flag"
-                                    size="small"
-                                    tooltip="New feature flag"
-                                >
-                                    <span className="pr-4">New feature flag</span>
-                                </LemonButton>
-                            </AppShortcut>
-                        </MaxTool>
+                                New
+                            </LemonButton>
+                        </AppShortcut>
                     </AccessControlAction>
                 }
             />
