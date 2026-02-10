@@ -1,12 +1,20 @@
-import { IconPlus, IconShortcut } from '@posthog/icons'
+import React from 'react'
+
+import { IconPlug, IconPlus, IconShortcut } from '@posthog/icons'
 import { Spinner } from '@posthog/lemon-ui'
 
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 
 import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/SearchHighlight'
 import { RecentResults, SearchResults } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
+// -----------------------------------------------------------------------------
+// NEW SHARED LOGIC FROM THE REFACTOR
+// -----------------------------------------------------------------------------
+
+import { fileSystemTypes } from '~/products'
 import { FileSystemEntry, FileSystemIconType, FileSystemImport } from '~/queries/schema/schema-general'
 import { UserBasicType } from '~/types'
+import { FileSystemType } from '~/types'
 
 import { getCustomIcon } from './customIconRegistry'
 import { iconForType } from './defaultTree'
@@ -384,12 +392,12 @@ export function convertFileSystemEntryToTreeDataItem({
 
 /**
  * Splits `path` by unescaped "/" delimiters.
- *   - splitPath("a/b")            => ["a", "b"]
- *   - splitPath("a\\/b/c")        => ["a/b", "c"]
- *   - splitPath("a\\/b\\\\/c")    => ["a/b\\", "c"]
- *   - splitPath("a\n\t/b")        => ["a\n\t", "b"]
- *   - splitPath("a")              => ["a"]
- *   - splitPath("")               => []
+ * - splitPath("a/b")            => ["a", "b"]
+ * - splitPath("a\\/b/c")        => ["a/b", "c"]
+ * - splitPath("a\\/b\\\\/c")    => ["a/b\\", "c"]
+ * - splitPath("a\n\t/b")        => ["a\n\t", "b"]
+ * - splitPath("a")              => ["a"]
+ * - splitPath("")               => []
  */
 export function splitPath(path: string | undefined): string[] {
     if (!path) {
@@ -513,3 +521,22 @@ export function appendResultsToFolders(
 export const isGroupViewShortcut = (shortcut: FileSystemEntry): boolean => {
     return !!shortcut?.type?.startsWith('group_') && !!shortcut?.type?.endsWith('_view')
 }
+
+export const missingProductTypes: { value: string; label: string; icon?: React.ReactNode; flag?: string }[] = [
+    { value: 'destination', label: 'Destinations', icon: <IconPlug /> },
+    { value: 'site_app', label: 'Site apps', icon: <IconPlug /> },
+    { value: 'source', label: 'Sources', icon: <IconPlug /> },
+    { value: 'transformation', label: 'Transformations', icon: <IconPlug /> },
+]
+
+export const productTypesMapped = [
+    ...Object.entries(fileSystemTypes as unknown as Record<string, FileSystemType>).map(
+        ([key, value]): { value: string; label: string; icon: React.ReactNode; flag?: string } => ({
+            value: value.filterKey || key,
+            label: value.name,
+            icon: iconForType(value.iconType),
+            flag: value.flag,
+        })
+    ),
+    ...missingProductTypes,
+]
