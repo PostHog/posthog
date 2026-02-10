@@ -106,12 +106,22 @@ class TableSerializer(serializers.ModelSerializer):
 
         validated_data["team_id"] = team_id
         validated_data["created_by"] = self.context["request"].user
-        if validated_data.get("credential"):
-            validated_data["credential"] = DataWarehouseCredential.objects.create(
-                team_id=team_id,
-                access_key=validated_data["credential"]["access_key"],
-                access_secret=validated_data["credential"]["access_secret"],
-            )
+        credential = validated_data.get("credential")
+
+        if not credential:
+            raise serializers.ValidationError("Credentials are required")
+
+        access_key = credential["access_key"]
+        access_secret = credential["access_secret"]
+
+        if not access_key or not access_secret:
+            raise serializers.ValidationError("Access key and secret is required")
+
+        validated_data["credential"] = DataWarehouseCredential.objects.create(
+            team_id=team_id,
+            access_key=access_key,
+            access_secret=access_secret,
+        )
         table = DataWarehouseTable(**validated_data)
         try:
             table.columns = table.get_columns()
