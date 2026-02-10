@@ -2,7 +2,8 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { useRef } from 'react'
 
-import { LemonInput, lemonToast } from '@posthog/lemon-ui'
+import { IconInfo } from '@posthog/icons'
+import { LemonInput, Tooltip, lemonToast } from '@posthog/lemon-ui'
 
 import { useUploadFiles } from 'lib/hooks/useUploadFiles'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -92,6 +93,14 @@ export function SupportForm(): JSX.Element | null {
                     </div>
                 )}
             </LemonField>
+            <div className="flex items-center gap-1 text-xs text-muted">
+                <Tooltip title="Severity, topic, and category (bug, feedback, support) will be automatically determined by PostHog AI based on your message.">
+                    <span>
+                        <IconInfo className="opacity-75" />
+                    </span>
+                </Tooltip>
+                <span>Severity, topic, and category are decided by PostHog AI</span>
+            </div>
         </Form>
     )
 }
