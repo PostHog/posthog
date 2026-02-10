@@ -474,6 +474,38 @@ pub struct Config {
     pub parallel_eval_threshold: usize,
 }
 
+/// Thread counts for Tokio (async I/O) and Rayon (CPU-bound parallel evaluation).
+///
+/// Both Tokio and Rayon default to the host CPU count when unconfigured. In Kubernetes,
+/// this means they each create N threads for an N-core CFS limit, causing 2x
+/// oversubscription and CFS throttling whenever Rayon activates.
+///
+/// We split the available cores: 75% to Tokio (handles all request I/O — DB, Redis,
+/// network) and the remainder to Rayon (CPU-bound flag evaluation), ensuring the total
+/// stays at or near the CFS budget.
+pub struct ThreadCounts {
+    pub tokio_workers: usize,
+    pub rayon_threads: usize,
+}
+
+impl ThreadCounts {
+    pub fn from_available_parallelism() -> Self {
+        let cores = std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(1);
+
+        // With 1 core we need at least 1 thread per pool to function,
+        // accepting the slight oversubscription.
+        let tokio_workers = (cores * 3 / 4).max(1);
+        let rayon_threads = cores.saturating_sub(tokio_workers).max(1);
+
+        Self {
+            tokio_workers,
+            rayon_threads,
+        }
+    }
+}
+
 impl Config {
     const MAX_RESPONSE_TIMEOUT_MS: u64 = 30_000; // 30 seconds
     const MAX_CONNECTION_TIMEOUT_MS: u64 = 60_000; // 60 seconds
