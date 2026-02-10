@@ -23,6 +23,7 @@ class TestTable(APIBaseTest):
             ("literal_ipv4_linklocal", "https://169.254.169.254/path/*.csv", "internal IP ranges"),
             ("literal_ipv6_mapped_loopback", "https://[::ffff:127.0.0.1]/path/*.csv", "internal IP ranges"),
             ("literal_ipv6_6to4_loopback", "https://[2002:7f00:1::]/path/*.csv", "internal IP ranges"),
+            ("hostname_with_ipv4_prefix", "https://169.254.169.254.nip.io/latest/meta-data/", "internal IP ranges"),
         ]
     )
     def test_create_columns_blocks_unsafe_url_patterns(self, _: str, url_pattern: str, expected_error: str):
