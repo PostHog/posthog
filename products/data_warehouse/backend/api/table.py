@@ -141,6 +141,11 @@ class TableSerializer(serializers.ModelSerializer):
         s3_domain = settings.DATAWAREHOUSE_BUCKET_DOMAIN
         if s3_domain in url_pattern:
             raise serializers.ValidationError("Cant use this bucket")
+
+        is_valid, error_message = validate_warehouse_table_url_pattern(url_pattern)
+        if not is_valid:
+            raise serializers.ValidationError(error_message)
+
         return url_pattern
 
     def validate_name(self, name):
@@ -150,12 +155,6 @@ class TableSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError("A table with this name already exists.")
 
         return name
-
-    def validate_url_pattern(self, url_pattern: str) -> str:
-        is_valid, error_message = validate_warehouse_table_url_pattern(url_pattern)
-        if not is_valid:
-            raise serializers.ValidationError(error_message)
-        return url_pattern
 
 
 class SimpleTableSerializer(serializers.ModelSerializer):
