@@ -2,18 +2,16 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { useRef } from 'react'
 
-import { IconInfo } from '@posthog/icons'
-import { LemonBanner, LemonInput, Link, Tooltip, lemonToast } from '@posthog/lemon-ui'
+import { LemonInput, lemonToast } from '@posthog/lemon-ui'
 
 import { useUploadFiles } from 'lib/hooks/useUploadFiles'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput/LemonFileInput'
-import { LemonSelect } from 'lib/lemon-ui/LemonSelect/LemonSelect'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { SEVERITY_LEVEL_TO_NAME, SUPPORT_TICKET_TEMPLATES, TARGET_AREA_TO_NAME, supportLogic } from './supportLogic'
+import { SUPPORT_TICKET_TEMPLATES, supportLogic } from './supportLogic'
 
 export function SupportForm(): JSX.Element | null {
     const { sendSupportRequest } = useValues(supportLogic)
@@ -70,23 +68,6 @@ export function SupportForm(): JSX.Element | null {
                     </LemonField>
                 </>
             )}
-            <LemonField name="target_area" label="Topic">
-                <LemonSelect
-                    disabledReason={
-                        !user
-                            ? 'Please login to your account before opening a ticket unrelated to authentication issues.'
-                            : null
-                    }
-                    fullWidth
-                    options={TARGET_AREA_TO_NAME}
-                />
-            </LemonField>
-            {sendSupportRequest.target_area === 'error_tracking' && (
-                <LemonBanner type="warning">
-                    This topic is for our Error Tracking <i>product</i>. If you're reporting an error in PostHog please
-                    choose the relevant topic so your submission is sent to the correct team.
-                </LemonBanner>
-            )}
             <LemonField name="message" label="What can we help you with?">
                 {(props) => (
                     <div ref={dropRef} className="flex flex-col gap-2" onPaste={handlePaste}>
@@ -111,34 +92,6 @@ export function SupportForm(): JSX.Element | null {
                     </div>
                 )}
             </LemonField>
-            <div className="flex gap-2 flex-col">
-                <div className="flex justify-between items-center">
-                    <label className="LemonLabel">
-                        Severity level
-                        <Tooltip title="Severity levels help us prioritize your request.">
-                            <span>
-                                <IconInfo className="opacity-75" />
-                            </span>
-                        </Tooltip>
-                    </label>
-                    <Link
-                        target="_blank"
-                        disableDocsPanel
-                        to="https://posthog.com/docs/support-options#severity-levels"
-                    >
-                        Definitions
-                    </Link>
-                </div>
-                <LemonField name="severity_level">
-                    <LemonSelect
-                        fullWidth
-                        options={Object.entries(SEVERITY_LEVEL_TO_NAME).map(([key, value]) => ({
-                            label: value,
-                            value: key,
-                        }))}
-                    />
-                </LemonField>
-            </div>
         </Form>
     )
 }
