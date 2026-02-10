@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 
-import { IconEllipsis, IconPencil, IconX } from '@posthog/icons'
+import { IconEllipsis, IconPencil, IconSparkles, IconX } from '@posthog/icons'
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
@@ -37,14 +37,13 @@ export function SceneTitlePanelButton({ inPanel = false }: { inPanel?: boolean }
     if (isRemovingSidePanelFlag) {
         // Open Info tab if scene has panel content, otherwise default to PostHog AI
         const defaultTab = scenePanelIsPresent ? SidePanelTab.Info : SidePanelTab.Max
+
+        if (sidePanelOpen) {
+            return null
+        }
+
         return (
-            <AppShortcut
-                name="OpenSidePanel"
-                keybind={[keyBinds.toggleRightNav]}
-                intent="Open side panel"
-                interaction="click"
-            >
-                {/* Size to mimic lemon button small */}
+            <>
                 <ButtonPrimitive
                     className="size-[33px] group -mr-[2px]"
                     onClick={(e) => {
@@ -53,22 +52,39 @@ export function SceneTitlePanelButton({ inPanel = false }: { inPanel?: boolean }
                         if (sidePanelOpen) {
                             closeSidePanel()
                         } else {
-                            openSidePanel(defaultTab)
+                            openSidePanel(SidePanelTab.Max)
                         }
                     }}
-                    tooltip={sidePanelOpen ? 'Close side panel' : 'Open side panel'}
+                    tooltip="Open PostHog AI"
                     tooltipPlacement="bottom-end"
                     tooltipCloseDelayMs={0}
                     iconOnly
-                    active={sidePanelOpen}
                 >
-                    {sidePanelOpen ? (
-                        <IconX className="text-primary size-3 group-hover:text-primary z-10" />
-                    ) : (
-                        <IconEllipsis className="text-primary group-hover:text-primary z-10" />
-                    )}
+                    <IconSparkles className="text-ai" />
                 </ButtonPrimitive>
-            </AppShortcut>
+                <AppShortcut
+                    name="OpenSidePanel"
+                    keybind={[keyBinds.toggleRightNav]}
+                    intent="Open side panel"
+                    interaction="click"
+                >
+                    {/* Size to mimic lemon button small */}
+                    <ButtonPrimitive
+                        className="size-[33px] group -mr-[2px]"
+                        onClick={(e) => {
+                            e.stopPropagation()
+                            e.preventDefault()
+                            openSidePanel(defaultTab)
+                        }}
+                        tooltip={sidePanelOpen ? 'Close side panel' : 'Open side panel'}
+                        tooltipPlacement="bottom-end"
+                        tooltipCloseDelayMs={0}
+                        iconOnly
+                    >
+                        <IconEllipsis className="text-primary group-hover:text-primary z-10" />
+                    </ButtonPrimitive>
+                </AppShortcut>
+            </>
         )
     }
 
