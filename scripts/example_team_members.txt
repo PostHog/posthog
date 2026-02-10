@@ -1,0 +1,8 @@
+# Example team members file
+# Add one GitHub username per line
+# Lines starting with # are ignored
+
+# Support team members
+paolodamico
+mariusandra
+benjackwhite
