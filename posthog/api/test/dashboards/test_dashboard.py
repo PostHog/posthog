@@ -617,7 +617,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.dashboard_api.soft_delete(dashboard_id, "dashboards")
 
         self.team.refresh_from_db()
-        self.assertIsNone(self.team.primary_dashboard)
+        assert self.team.primary_dashboard is None
 
     def test_delete_dashboard_resets_group_type_detail_dashboard_if_needed(self):
         group_type = create_group_type_mapping_without_created_at(

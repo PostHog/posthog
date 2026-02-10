@@ -116,12 +116,8 @@ export const NoPrimaryDashboard: Story = {
             },
         }),
         (Story) => {
-            const appContext = (window as any).POSTHOG_APP_CONTEXT
-            const originalTeam = appContext.current_team
-            appContext.current_team = teamWithNoPrimaryDashboard
-            const result = <Story />
-            appContext.current_team = originalTeam
-            return result
+            ;(window as any).POSTHOG_APP_CONTEXT.current_team = teamWithNoPrimaryDashboard
+            return <Story />
         },
     ],
 }
