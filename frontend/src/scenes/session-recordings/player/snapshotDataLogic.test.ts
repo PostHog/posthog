@@ -473,7 +473,7 @@ describe('snapshotDataLogic', () => {
                 })
             }
 
-            it('dispatches resetTimestampLoading after finding playable FullSnapshot', async () => {
+            it('transitions to sequential after finding playable FullSnapshot', async () => {
                 const sources = createBlobSources(10)
                 setupSessionRecordingTest({ snapshotSources: sources })
                 enableTimestampBasedLoading()
@@ -498,8 +498,9 @@ describe('snapshotDataLogic', () => {
                     (action) =>
                         action.type === testLogic.actionTypes.setLoadingPhase &&
                         action.payload.phase === 'find_fullsnapshot',
-                    // Then finds FullSnapshot and resets timestamp loading (clears target, sets phase to sequential)
-                    'resetTimestampLoading',
+                    // Loads backward blobs to find FullSnapshot, then switches to sequential
+                    (action) =>
+                        action.type === testLogic.actionTypes.setLoadingPhase && action.payload.phase === 'sequential',
                 ])
             })
 
@@ -586,6 +587,88 @@ describe('snapshotDataLogic', () => {
                 // Mock data includes FullSnapshot, so it should find it and transition to sequential
                 expect(testLogic.values.loadingPhase).toBe('sequential')
                 expect(testLogic.values.hasPlayableFullSnapshot).toBe(true)
+            })
+
+            it('recordPlayabilityMarkers accumulates and deduplicates markers', () => {
+                setupSessionRecordingTest({ snapshotSources: createBlobSources(10) })
+                enableTimestampBasedLoading()
+
+                const testLogic = snapshotDataLogic({
+                    sessionRecordingId: '2',
+                    blobV2PollingDisabled: true,
+                })
+                testLogic.mount()
+
+                testLogic.actions.recordPlayabilityMarkers({
+                    fullSnapshots: [1000, 2000],
+                    metas: [900],
+                })
+                testLogic.actions.recordPlayabilityMarkers({
+                    fullSnapshots: [2000, 3000],
+                    metas: [900, 1900],
+                })
+
+                const markers = testLogic.values.playabilityMarkers
+                // Deduplicates and sorts
+                expect(markers.fullSnapshots).toEqual([1000, 2000, 3000])
+                expect(markers.metas).toEqual([900, 1900])
+            })
+
+            it('playability markers persist across resetTimestampLoading', () => {
+                setupSessionRecordingTest({ snapshotSources: createBlobSources(10) })
+                enableTimestampBasedLoading()
+
+                const testLogic = snapshotDataLogic({
+                    sessionRecordingId: '2',
+                    blobV2PollingDisabled: true,
+                })
+                testLogic.mount()
+
+                testLogic.actions.recordPlayabilityMarkers({
+                    fullSnapshots: [1000, 2000],
+                    metas: [900],
+                })
+
+                testLogic.actions.setTargetTimestamp(5000)
+                testLogic.actions.setLoadingPhase('find_fullsnapshot')
+                testLogic.actions.resetTimestampLoading()
+
+                // Markers survive reset — they're metadata about the recording, not loading state
+                expect(testLogic.values.playabilityMarkers).toEqual({
+                    fullSnapshots: [1000, 2000],
+                    metas: [900],
+                })
+                // But loading state is reset
+                expect(testLogic.values.targetTimestamp).toBe(null)
+                expect(testLogic.values.loadingPhase).toBe('sequential')
+            })
+
+            it('isWaitingForPlayableFullSnapshot reflects target and playability state', async () => {
+                setupSessionRecordingTest({ snapshotSources: createBlobSources(10) })
+                enableTimestampBasedLoading()
+
+                const testLogic = snapshotDataLogic({
+                    sessionRecordingId: '2',
+                    blobV2PollingDisabled: true,
+                })
+                testLogic.mount()
+
+                // No target — not waiting
+                expect(testLogic.values.isWaitingForPlayableFullSnapshot).toBe(false)
+
+                // Load sources metadata so hasPlayableFullSnapshot doesn't default to true
+                await expectLogic(testLogic, () => {
+                    testLogic.actions.loadSnapshots()
+                }).toDispatchActions(['loadSnapshotSourcesSuccess'])
+
+                // Set target — no playable FullSnapshot yet (no blobs loaded, no markers recorded)
+                const targetTime = new Date(Date.UTC(2023, 7, 11, 12, 5, 30)).getTime()
+                testLogic.actions.setTargetTimestamp(targetTime)
+                expect(testLogic.values.isWaitingForPlayableFullSnapshot).toBe(true)
+
+                // Clear target — not waiting again
+                testLogic.actions.resetTimestampLoading()
+                expect(testLogic.values.isWaitingForPlayableFullSnapshot).toBe(false)
             })
         })
     })

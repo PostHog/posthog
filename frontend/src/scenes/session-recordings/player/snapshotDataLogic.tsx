@@ -5,7 +5,9 @@ import posthog from 'posthog-js'
 import { EventType } from '@posthog/rrweb-types'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import 'lib/dayjs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { parseEncodedSnapshots } from 'scenes/session-recordings/player/snapshot-processing/process-all-snapshots'
 import { SourceKey, keyForSource } from 'scenes/session-recordings/player/snapshot-processing/source-key'
 import { windowIdRegistryLogic } from 'scenes/session-recordings/player/windowIdRegistryLogic'
@@ -64,6 +66,8 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
         values: [
             windowIdRegistryLogic({ sessionRecordingId: props.sessionRecordingId }),
             ['uuidToIndex', 'getWindowId'],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
     })),
     actions({
