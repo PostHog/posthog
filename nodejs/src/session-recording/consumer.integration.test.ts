@@ -155,11 +155,14 @@ interface TestCase {
 
 /**
  * Creates a Kafka message payload for session recording.
+ *
+ * Headers match what capture sends - these are used by the event restrictions
+ * pipeline for rate limiting and routing decisions.
  */
 function createKafkaPayload(config: PayloadConfig): {
     value: Buffer
     key: Buffer
-    headers: Array<{ token: Buffer }>
+    headers: Record<string, string>
 } {
     const { sessionId, distinctId, token, windowId = 'window-1', events } = config
 
@@ -186,10 +189,20 @@ function createKafkaPayload(config: PayloadConfig): {
         data: JSON.stringify(eventData),
     }
 
+    const now = new Date().toISOString()
+
     return {
         value: Buffer.from(JSON.stringify(messagePayload)),
         key: Buffer.from(sessionId),
-        headers: [{ token: Buffer.from(token) }],
+        headers: {
+            token,
+            distinct_id: distinctId,
+            session_id: sessionId,
+            event: '$snapshot_items',
+            uuid: uuidv4(),
+            timestamp: baseTimestamp.toString(),
+            now,
+        },
     }
 }
 
@@ -199,13 +212,13 @@ function createKafkaPayload(config: PayloadConfig): {
 async function produceToKafka(
     producer: KafkaProducerWrapper,
     topic: string,
-    payload: { value: Buffer; key: Buffer; headers: Array<{ token: Buffer }> }
+    payload: { value: Buffer; key: Buffer; headers: Record<string, string> }
 ): Promise<void> {
     await producer.produce({
         topic,
         value: payload.value,
         key: payload.key,
-        headers: Object.fromEntries(payload.headers.map((h) => ['token', h.token.toString()])),
+        headers: payload.headers,
     })
     await producer.flush()
 }
