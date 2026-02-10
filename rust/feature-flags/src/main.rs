@@ -165,7 +165,7 @@ fn main() {
         .build()
         .expect("failed to create tokio thread pool");
 
-    tracing::info!(
+    eprintln!(
         "Initialized thread pools: tokio_workers={}, rayon_threads={} (from {} available cores)",
         threads.tokio_workers,
         threads.rayon_threads,
