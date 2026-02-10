@@ -1832,7 +1832,7 @@ def get_months_in_range(start_date: date, end_date: date) -> list[str]:
 
 @sensor(
     name="duckling_full_backfill_sensor",
-    minimum_interval_seconds=60,  # Run frequently to process backlog quickly
+    minimum_interval_seconds=600,  # Run every 10 minutes
     job_name="duckling_events_backfill_job",
     default_status=DefaultSensorStatus.RUNNING,
 )
@@ -2071,7 +2071,7 @@ def duckling_persons_discovery_sensor(context: SensorEvaluationContext) -> Senso
 
 @sensor(
     name="duckling_persons_full_backfill_sensor",
-    minimum_interval_seconds=60,  # Run frequently to process backlog quickly
+    minimum_interval_seconds=600,  # Run every 10 minutes
     job_name="duckling_persons_backfill_job",
     default_status=DefaultSensorStatus.RUNNING,
 )
