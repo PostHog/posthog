@@ -9,10 +9,12 @@
  * 1. Produces test messages to the input Kafka topic (session_recording_snapshot_item_events)
  * 2. The real SessionRecordingIngester consumes and processes messages
  * 3. Ingester writes session data to S3 and publishes metadata to the output Kafka topic
- * 4. Test consumes session metadata from the output topic (clickhouse_session_replay_events)
- * 5. Uses the block_url byte ranges from metadata to read specific S3 blocks
- * 6. Decompresses snappy blocks and parses JSONL event data
- * 7. Builds a snapshot capturing event types, ordering, window IDs, and metadata counts
+ * 4. ClickHouse's materialized view (session_replay_events_mv) consumes metadata from Kafka
+ *    and writes to the aggregated session_replay_events table
+ * 5. Test queries the aggregated ClickHouse table to verify metadata was correctly written
+ * 6. Uses the block_url byte ranges from metadata to read specific S3 blocks
+ * 7. Decompresses snappy blocks and parses JSONL event data
+ * 8. Builds a snapshot capturing event types, ordering, window IDs, and metadata counts
  *
  * This allows us to:
  * - Capture baseline behavior before refactoring
@@ -63,10 +65,11 @@
  * If a snapshot changes unexpectedly, investigate before updating.
  */
 import { DeleteObjectsCommand, GetObjectCommand, ListObjectsV2Command, S3Client } from '@aws-sdk/client-s3'
-import { HighLevelProducer, KafkaConsumer } from 'node-rdkafka'
+import { HighLevelProducer } from 'node-rdkafka'
 import snappy from 'snappy'
 import { v4 as uuidv4 } from 'uuid'
 
+import { Clickhouse } from '../../tests/helpers/clickhouse'
 import { waitForExpect } from '../../tests/helpers/expectations'
 import { resetKafka } from '../../tests/helpers/kafka'
 import { forSnapshot } from '../../tests/helpers/snapshots'
@@ -107,17 +110,17 @@ interface PayloadConfig {
 }
 
 /**
- * Session metadata as received from Kafka (snake_case format).
+ * Aggregated session metadata from ClickHouse.
  *
- * This mirrors the format produced by KafkaSessionMetadataStore.storeSessionBlocks(),
- * which converts from SessionBlockMetadata (camelCase) to this Kafka format.
- * The Kafka format isn't exported as a type, so we define it here for parsing.
+ * This represents session data after it has been processed by the materialized view
+ * and aggregated in the session_replay_events table. A session may have multiple
+ * block_urls if it was flushed multiple times during recording.
  */
-interface KafkaSessionMetadata {
+interface SessionMetadata {
     session_id: string
     team_id: number
     distinct_id: string
-    block_url: string | null
+    block_urls: string[]
     event_count: number
     first_url: string | null
     urls: string[]
@@ -284,6 +287,18 @@ async function isPostgresAvailable(): Promise<boolean> {
 }
 
 /**
+ * Checks if ClickHouse is available with the Kafka engine table.
+ */
+async function isClickHouseAvailable(clickhouse: Clickhouse): Promise<boolean> {
+    try {
+        await clickhouse.query('SELECT 1')
+        return true
+    } catch {
+        return false
+    }
+}
+
+/**
  * Cleans up test data from S3, handling pagination for large result sets.
  */
 async function cleanupS3TestData(s3Client: S3Client): Promise<void> {
@@ -331,72 +346,111 @@ async function listS3Objects(s3Client: S3Client): Promise<string[]> {
 }
 
 /**
- * Consumes session metadata messages from Kafka, filtered by session IDs.
+ * Raw result from the aggregated session_replay_events table.
+ * The schema uses aggregate functions that need special handling.
  */
-async function consumeKafkaSessionMetadata(
-    kafkaHosts: string,
-    metadataTopic: string,
+interface ClickHouseSessionReplayRow {
+    session_id: string
+    team_id: number
+    distinct_id: string
+    block_urls: string[]
+    event_count: number
+    first_url: string | null
+    all_urls: string[]
+    click_count: number
+    keypress_count: number
+    mouse_activity_count: number
+    console_log_count: number
+    console_warn_count: number
+    console_error_count: number
+    size: number
+}
+
+/**
+ * Queries session metadata from the ClickHouse aggregated table.
+ *
+ * The materialized view (`session_replay_events_mv`) continuously processes data from
+ * the Kafka engine table and writes aggregated results to `session_replay_events`.
+ * We query this table with FINAL to get properly merged results.
+ */
+async function queryClickHouseSessionMetadata(
+    clickhouse: Clickhouse,
     expectedSessionIds: Set<string>,
     timeoutMs: number = 10000
-): Promise<KafkaSessionMetadata[]> {
-    const config = overrideWithEnv(defaultConfig, process.env)
+): Promise<SessionMetadata[]> {
+    if (expectedSessionIds.size === 0) {
+        return []
+    }
 
-    return new Promise((resolve, reject) => {
-        const messages: KafkaSessionMetadata[] = []
-        const foundSessionIds = new Set<string>()
-        const consumer = new KafkaConsumer(
-            {
-                'metadata.broker.list': kafkaHosts || config.KAFKA_HOSTS,
-                'group.id': `test-consumer-${uuidv4()}`,
-                'enable.auto.commit': false,
-            },
-            {
-                'auto.offset.reset': 'earliest',
+    const sessionIdsList = Array.from(expectedSessionIds)
+        .map((id) => `'${id}'`)
+        .join(', ')
+
+    // Poll the aggregated table until we find all expected sessions or timeout
+    const startTime = Date.now()
+    const foundMetadata = new Map<string, SessionMetadata>()
+
+    while (Date.now() - startTime < timeoutMs) {
+        // Query the aggregated table with FINAL to get merged results
+        // block_urls is an array containing all S3 block URLs for this session
+        const results = await clickhouse.query<ClickHouseSessionReplayRow>(`
+            SELECT
+                session_id,
+                team_id,
+                distinct_id,
+                block_urls,
+                event_count,
+                argMinMerge(first_url) as first_url,
+                all_urls,
+                click_count,
+                keypress_count,
+                mouse_activity_count,
+                console_log_count,
+                console_warn_count,
+                console_error_count,
+                size
+            FROM session_replay_events
+            FINAL
+            WHERE session_id IN (${sessionIdsList})
+            GROUP BY session_id, team_id, distinct_id, block_urls, event_count, all_urls,
+                     click_count, keypress_count, mouse_activity_count,
+                     console_log_count, console_warn_count, console_error_count, size
+        `)
+
+        // Transform to SessionMetadata format and collect results
+        for (const row of results) {
+            if (!foundMetadata.has(row.session_id)) {
+                // Filter out empty block URLs from the array
+                const blockUrls = (row.block_urls ?? []).filter((url) => url && url.length > 0)
+                foundMetadata.set(row.session_id, {
+                    session_id: row.session_id,
+                    team_id: row.team_id,
+                    distinct_id: row.distinct_id,
+                    block_urls: blockUrls,
+                    event_count: row.event_count,
+                    first_url: row.first_url,
+                    urls: row.all_urls ?? [],
+                    click_count: row.click_count,
+                    keypress_count: row.keypress_count,
+                    mouse_activity_count: row.mouse_activity_count,
+                    console_log_count: row.console_log_count,
+                    console_warn_count: row.console_warn_count,
+                    console_error_count: row.console_error_count,
+                    size: row.size,
+                })
             }
-        )
+        }
 
-        const timeout = setTimeout(() => {
-            consumer.disconnect()
-            // Return what we have even if we didn't get all expected sessions
-            resolve(messages)
-        }, timeoutMs)
+        // Check if we have all expected sessions
+        if (foundMetadata.size >= expectedSessionIds.size) {
+            break
+        }
 
-        consumer.on('ready', () => {
-            consumer.subscribe([metadataTopic])
-            consumer.consume()
-        })
+        // Small delay before next poll
+        await new Promise((resolve) => setTimeout(resolve, 100))
+    }
 
-        consumer.on('data', (message) => {
-            if (message.value) {
-                try {
-                    const metadata = parseJSON(message.value.toString()) as KafkaSessionMetadata
-
-                    // Only include messages for our expected session IDs
-                    if (expectedSessionIds.has(metadata.session_id) && !foundSessionIds.has(metadata.session_id)) {
-                        messages.push(metadata)
-                        foundSessionIds.add(metadata.session_id)
-
-                        // Check if we have all expected sessions
-                        if (foundSessionIds.size >= expectedSessionIds.size) {
-                            clearTimeout(timeout)
-                            consumer.disconnect()
-                            resolve(messages)
-                        }
-                    }
-                } catch {
-                    // Ignore parse errors
-                }
-            }
-        })
-
-        consumer.on('event.error', (err) => {
-            clearTimeout(timeout)
-            consumer.disconnect()
-            reject(err)
-        })
-
-        consumer.connect()
-    })
+    return Array.from(foundMetadata.values())
 }
 
 /**
@@ -474,7 +528,7 @@ async function readSessionBlockFromS3(s3Client: S3Client, blockUrl: string): Pro
  */
 function buildSnapshotOutput(
     outcome: 'written' | 'dropped',
-    metadata: KafkaSessionMetadata[],
+    metadata: SessionMetadata[],
     sessionEvents: Map<string, ParsedSessionEvent[]>
 ): object {
     if (outcome === 'dropped') {
@@ -495,7 +549,7 @@ function buildSnapshotOutput(
                 // Session identification (redacted for snapshot stability)
                 hasSessionId: !!meta.session_id,
                 hasDistinctId: !!meta.distinct_id,
-                hasBlockUrl: !!meta.block_url,
+                blockUrlCount: meta.block_urls.length,
 
                 // Metadata counts
                 eventCount: meta.event_count,
@@ -508,7 +562,7 @@ function buildSnapshotOutput(
                 hasFirstUrl: !!meta.first_url,
                 urlCount: meta.urls?.length ?? 0,
 
-                // Actual event content from S3
+                // Actual event content from S3 (from all blocks)
                 events: events.map((e) => ({
                     windowId: e.windowId,
                     type: e.type,
@@ -517,7 +571,7 @@ function buildSnapshotOutput(
                 })),
 
                 // Window IDs present in events
-                windowIds: [...new Set(events.map((e) => e.windowId))].sort(),
+                windowIds: Array.from(new Set(events.map((e) => e.windowId))).sort(),
             }
         })
 
@@ -651,6 +705,7 @@ describe('Session Recording Consumer Integration', () => {
     let hub: Hub
     let team: Team
     let s3Client: S3Client
+    let clickhouse: Clickhouse
     let infraAvailable: boolean
 
     async function createIngester(): Promise<SessionRecordingIngester> {
@@ -679,19 +734,23 @@ describe('Session Recording Consumer Integration', () => {
             },
         })
 
-        const [s3Ok, kafkaOk, postgresOk] = await Promise.all([
+        clickhouse = Clickhouse.create()
+
+        const [s3Ok, kafkaOk, postgresOk, clickhouseOk] = await Promise.all([
             isS3Available(s3Client),
             isKafkaAvailable(),
             isPostgresAvailable(),
+            isClickHouseAvailable(clickhouse),
         ])
 
-        infraAvailable = s3Ok && kafkaOk && postgresOk
+        infraAvailable = s3Ok && kafkaOk && postgresOk && clickhouseOk
 
         if (!infraAvailable) {
             console.warn('Skipping integration tests: infrastructure not available')
             console.warn(`  S3 available: ${s3Ok}`)
             console.warn(`  Kafka available: ${kafkaOk}`)
             console.warn(`  Postgres available: ${postgresOk}`)
+            console.warn(`  ClickHouse available: ${clickhouseOk}`)
             console.warn('To run these tests:')
             console.warn('  1. Start services: hogli dev:setup (or docker compose -f docker-compose.dev.yml up)')
             console.warn('  2. Set up test DB: pnpm setup:test (from nodejs directory)')
@@ -724,6 +783,7 @@ describe('Session Recording Consumer Integration', () => {
             await cleanupS3TestData(s3Client)
         }
         s3Client?.destroy()
+        clickhouse?.close()
     })
 
     beforeEach(async () => {
@@ -776,24 +836,25 @@ describe('Session Recording Consumer Integration', () => {
             // Disconnect test producer
             await testProducer.disconnect()
 
-            // Consume session metadata from Kafka
-            const metadata = await consumeKafkaSessionMetadata(
-                hub.KAFKA_HOSTS,
-                hub.SESSION_RECORDING_V2_REPLAY_EVENTS_KAFKA_TOPIC,
-                expectedSessionIds,
-                10000
-            )
+            // Query session metadata from ClickHouse aggregated table
+            // The MV processes Kafka messages asynchronously, so we poll until data appears
+            const metadata = await queryClickHouseSessionMetadata(clickhouse, expectedSessionIds, 30000)
 
             // Read actual session events from S3 using metadata
+            // A session may have multiple blocks if it was flushed multiple times
             const sessionEvents = new Map<string, ParsedSessionEvent[]>()
             for (const meta of metadata) {
-                if (meta.block_url) {
+                const allEvents: ParsedSessionEvent[] = []
+                for (const blockUrl of meta.block_urls) {
                     try {
-                        const events = await readSessionBlockFromS3(s3Client, meta.block_url)
-                        sessionEvents.set(meta.session_id, events)
+                        const events = await readSessionBlockFromS3(s3Client, blockUrl)
+                        allEvents.push(...events)
                     } catch (err) {
                         console.warn(`Failed to read session block for ${meta.session_id}:`, err)
                     }
+                }
+                if (allEvents.length > 0) {
+                    sessionEvents.set(meta.session_id, allEvents)
                 }
             }
 

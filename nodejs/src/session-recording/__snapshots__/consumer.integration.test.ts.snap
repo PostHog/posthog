@@ -14,6 +14,7 @@ exports[`Session Recording Consumer Integration end-to-end message processing mu
   "sessionCount": 2,
   "sessions": [
     {
+      "blockUrlCount": 1,
       "clickCount": 0,
       "consoleErrorCount": 0,
       "consoleLogCount": 0,
@@ -33,7 +34,6 @@ exports[`Session Recording Consumer Integration end-to-end message processing mu
           "windowId": "window-1",
         },
       ],
-      "hasBlockUrl": true,
       "hasDistinctId": true,
       "hasFirstUrl": true,
       "hasSessionId": true,
@@ -45,6 +45,7 @@ exports[`Session Recording Consumer Integration end-to-end message processing mu
       ],
     },
     {
+      "blockUrlCount": 1,
       "clickCount": 0,
       "consoleErrorCount": 0,
       "consoleLogCount": 0,
@@ -64,7 +65,6 @@ exports[`Session Recording Consumer Integration end-to-end message processing mu
           "windowId": "window-1",
         },
       ],
-      "hasBlockUrl": true,
       "hasDistinctId": true,
       "hasFirstUrl": true,
       "hasSessionId": true,
@@ -85,6 +85,7 @@ exports[`Session Recording Consumer Integration end-to-end message processing mu
   "sessionCount": 1,
   "sessions": [
     {
+      "blockUrlCount": 1,
       "clickCount": 0,
       "consoleErrorCount": 0,
       "consoleLogCount": 0,
@@ -104,7 +105,6 @@ exports[`Session Recording Consumer Integration end-to-end message processing mu
           "windowId": "window-popup",
         },
       ],
-      "hasBlockUrl": true,
       "hasDistinctId": true,
       "hasFirstUrl": true,
       "hasSessionId": true,
@@ -126,6 +126,7 @@ exports[`Session Recording Consumer Integration end-to-end message processing si
   "sessionCount": 1,
   "sessions": [
     {
+      "blockUrlCount": 1,
       "clickCount": 0,
       "consoleErrorCount": 0,
       "consoleLogCount": 0,
@@ -151,7 +152,6 @@ exports[`Session Recording Consumer Integration end-to-end message processing si
           "windowId": "window-1",
         },
       ],
-      "hasBlockUrl": true,
       "hasDistinctId": true,
       "hasFirstUrl": true,
       "hasSessionId": true,
