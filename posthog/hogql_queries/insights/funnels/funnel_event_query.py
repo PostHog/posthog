@@ -345,7 +345,8 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
             # all events
             if isinstance(table_entity, DataWarehouseNode):
                 event_expr = ast.Constant(value=0)
-            event_expr = ast.Constant(value=1)
+            else:
+                event_expr = ast.Constant(value=1)
         else:
             # event
             event_expr = parse_expr("event = {event}", {"event": ast.Constant(value=step_entity.event)})
