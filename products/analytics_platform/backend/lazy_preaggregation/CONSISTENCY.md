@@ -253,7 +253,7 @@ Sentry [rejected `select_sequential_consistency`](https://blog.sentry.io/how-to-
 
 **Optional hardening: add quorum writes.** Adding `insert_quorum='auto'` ensures the INSERT is acknowledged by a majority of replicas before returning. This covers the failover edge case: if replica 1 goes down between INSERT and SELECT, `in_order` falls back to replica 2, which has the data thanks to quorum. Importantly, since we're using `load_balancing='in_order'` instead of `select_sequential_consistency`, we do NOT need `insert_quorum_parallel=0` — parallel quorum (the default) works fine, so there's no per-table lock and no throughput limit. The cost is +20-100ms INSERT latency for the quorum wait.
 
-**Optional performance optimisation: only read from relevant shards.** Depending on the sharding key, `optimize_skip_unused_shards=1` could ensure the SELECT also routes to the correct _shard_ (not just the correct replica within a shard), since our combiner queries filter by `job_id IN (...)` which may the sharding key.
+**Optional performance optimisation: only read from relevant shards.** Depending on the sharding key, `optimize_skip_unused_shards=1` could ensure the SELECT also routes to the correct _shard_ (not just the correct replica within a shard), since our combiner queries filter by `job_id IN (...)` which may be the sharding key.
 
 ## Sharding key analysis
 
