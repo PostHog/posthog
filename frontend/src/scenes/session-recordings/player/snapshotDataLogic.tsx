@@ -804,12 +804,8 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
         // Returns true when timestamp-based loading is active and we don't have a playable FullSnapshot yet
         // The player should stay in buffering state when this is true
         isWaitingForPlayableFullSnapshot: [
-            (s) => [s.targetTimestamp, s.loadingPhase, s.hasPlayableFullSnapshot],
-            (
-                targetTimestamp: number | null,
-                _loadingPhase: LoadingPhase,
-                hasPlayableFullSnapshot: boolean
-            ): boolean => {
+            (s) => [s.targetTimestamp, s.hasPlayableFullSnapshot],
+            (targetTimestamp: number | null, hasPlayableFullSnapshot: boolean): boolean => {
                 if (targetTimestamp === null) {
                     return false // Not doing timestamp-based loading
                 }
