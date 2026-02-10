@@ -131,15 +131,17 @@ async def _get_workflows(
 
         query = f'CloseTime >= "{db_incremental_field_last_value.strftime("%Y-%m-%dT%H:%M:%S.000Z")}"'
 
-    resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    # Only use resume state for full-refresh syncs — the pagination token is tied
+    # to a specific query, so it becomes invalid when incremental field values change.
     next_page_token: bytes | None = None
-    if resume_config is not None:
-        next_page_token = base64.b64decode(resume_config.next_page_token)
-        logger.debug(f"TemporalIO: resuming from next_page_token")
+    if not should_use_incremental_field and resumable_source_manager.can_resume():
+        resume_config = resumable_source_manager.load_state()
+        if resume_config is not None:
+            next_page_token = base64.b64decode(resume_config.next_page_token)
+            logger.debug("TemporalIO: resuming from next_page_token")
 
     client = await _get_temporal_client(config)
-    # Set page_size to 100 so we can save state after each page
-    workflows = client.list_workflows(query=query, next_page_token=next_page_token, page_size=100)
+    workflows = client.list_workflows(query=query, next_page_token=next_page_token)
 
     page_count = 0
     total_count = 0
@@ -147,9 +149,10 @@ async def _get_workflows(
         yield _sanitize(item.__dict__)
         total_count += 1
 
-        # Check if we've moved to a new page (next_page_token has changed)
-        # Save state after completing each page to allow resuming
-        if workflows.current_page_index == 0 and total_count > 1:
+        # current_page_index is incremented by __anext__ before returning, so it
+        # equals 1 on the first item of each new page. Save state at page
+        # boundaries so we can resume from the next page if interrupted.
+        if workflows.current_page_index == 1 and total_count > 1 and not should_use_incremental_field:
             page_count += 1
             if workflows.next_page_token:
                 token_b64 = base64.b64encode(workflows.next_page_token).decode("utf-8")
@@ -173,15 +176,15 @@ async def _get_workflow_histories(
 
         query = f'CloseTime >= "{db_incremental_field_last_value.strftime("%Y-%m-%dT%H:%M:%S.000Z")}"'
 
-    resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     next_page_token: bytes | None = None
-    if resume_config is not None:
-        next_page_token = base64.b64decode(resume_config.next_page_token)
-        logger.debug(f"TemporalIO: resuming workflow histories from next_page_token")
+    if not should_use_incremental_field and resumable_source_manager.can_resume():
+        resume_config = resumable_source_manager.load_state()
+        if resume_config is not None:
+            next_page_token = base64.b64decode(resume_config.next_page_token)
+            logger.debug("TemporalIO: resuming workflow histories from next_page_token")
 
     client = await _get_temporal_client(config)
-    # Set page_size to 100 so we can save state after each page
-    workflows = client.list_workflows(query=query, next_page_token=next_page_token, page_size=100)
+    workflows = client.list_workflows(query=query, next_page_token=next_page_token)
 
     page_count = 0
     workflow_count = 0
@@ -202,15 +205,12 @@ async def _get_workflow_histories(
                 }
                 yield _sanitize(event_with_ids)
         except RPCError as e:
-            # If temporal cloud retention period kicks in before we've grabbed the history, then we can get a 404 error for the workflow
             if "workflow execution not found for" in e.message:
                 continue
             raise
 
         workflow_count += 1
-        # Check if we've moved to a new page (current_page_index reset to 0)
-        # Save state after completing each page to allow resuming
-        if workflows.current_page_index == 0 and workflow_count > 1:
+        if workflows.current_page_index == 1 and workflow_count > 1 and not should_use_incremental_field:
             page_count += 1
             if workflows.next_page_token:
                 token_b64 = base64.b64encode(workflows.next_page_token).decode("utf-8")
