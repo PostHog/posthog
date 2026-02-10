@@ -152,10 +152,7 @@ class BatchTraceSummarizationCoordinatorWorkflow(PostHogWorkflow):
                     id=f"{child_id_prefix}-{team_id}-{temporalio.workflow.now().isoformat()}",
                     execution_timeout=timedelta(minutes=WORKFLOW_EXECUTION_TIMEOUT_MINUTES),
                     retry_policy=constants.COORDINATOR_CHILD_WORKFLOW_RETRY_POLICY,
-                    # Allow child workflows to complete even if the coordinator
-                    # is cancelled (e.g. due to coordinator timeout). Prevents
-                    # wasting work already in progress.
-                    parent_close_policy=temporalio.workflow.ParentClosePolicy.ABANDON,
+                    parent_close_policy=temporalio.workflow.ParentClosePolicy.TERMINATE,
                 )
                 workflow_handles.append((team_id, handle))
 
