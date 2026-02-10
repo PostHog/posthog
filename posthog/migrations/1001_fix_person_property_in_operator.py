@@ -42,6 +42,7 @@ def fix_person_property_in_operators(apps, schema_editor):
                     modified = True
 
         if modified:
+            flag.filters = filters  # Reassign to mark JSONField as dirty
             flags_to_update.append(flag)
 
     if flags_to_update:
