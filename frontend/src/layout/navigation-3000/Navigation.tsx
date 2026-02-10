@@ -47,9 +47,9 @@ export function Navigation({
     const { activeTabId } = useValues(sceneLogic)
     const { registerScenePanelElement } = useActions(sceneLayoutLogic)
     const { scenePanelIsPresent, scenePanelOpenManual } = useValues(sceneLayoutLogic)
+    const { sidePanelOpen } = useValues(sidePanelStateLogic)
     const { sidePanelWidth } = useValues(panelLayoutLogic)
     const { firstTabIsActive } = useValues(sceneLogic)
-    const { sidePanelOpen, sidePanelAvailable } = useValues(sidePanelStateLogic)
     const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
 
     // Set container ref so we can measure the width of the scene layout in logic
@@ -84,8 +84,7 @@ export function Navigation({
             <div
                 className={cn('app-layout bg-surface-tertiary', {
                     'app-layout--mobile': mobileLayout,
-                    'app-layout--sidepanel-open': isRemovingSidePanelFlag && sidePanelOpen && sidePanelAvailable,
-                    'app-layout--ai-first': isRemovingSidePanelFlag,
+                    'app-layout--scene-side-panel reduce-visual-noise': isRemovingSidePanelFlag,
                 })}
                 style={
                     {
@@ -119,6 +118,7 @@ export function Navigation({
                             {
                                 'lg:rounded-tl-none': firstTabIsActive,
                                 'lg:mr-2': isRemovingSidePanelFlag,
+                                'rounded-r-none': isRemovingSidePanelFlag && sidePanelOpen,
                             }
                         )}
                     >
@@ -134,6 +134,9 @@ export function Navigation({
                                         sceneConfig?.layout === 'app-raw-no-header' ||
                                         sceneConfig?.layout === 'app-raw',
                                     'rounded-tl-none': firstTabIsActive,
+                                    'focus-visible:outline-none': isRemovingSidePanelFlag,
+                                    'lg:max-w-[calc(100%-var(--side-panel-width))] rounded-r-none':
+                                        isRemovingSidePanelFlag && sidePanelOpen,
                                 }
                             )}
                             onScroll={(e) => {
@@ -156,6 +159,7 @@ export function Navigation({
                                     </div>
                                 )}
                                 {children}
+                                {isRemovingSidePanelFlag && <SidePanel />}
                             </SceneLayout>
                         </main>
 
@@ -186,7 +190,7 @@ export function Navigation({
                             </>
                         )}
                     </div>
-                    <SidePanel className="right-nav" />
+                    {!isRemovingSidePanelFlag && <SidePanel className="right-nav" />}
                 </ProjectDragAndDropProvider>
             </div>
         </>

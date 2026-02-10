@@ -157,6 +157,8 @@ export type MessageApiContextualTools = { [key: string]: unknown }
  * `plan` - plan
  * `execution` - execution
  * `survey` - survey
+ * `research` - research
+ * `flags` - flags
  */
 export type AgentModeEnumApi = (typeof AgentModeEnumApi)[keyof typeof AgentModeEnumApi]
 
@@ -168,6 +170,8 @@ export const AgentModeEnumApi = {
     plan: 'plan',
     execution: 'execution',
     survey: 'survey',
+    research: 'research',
+    flags: 'flags',
 } as const
 
 /**
@@ -185,7 +189,6 @@ export interface MessageApi {
     billing_context?: unknown
     trace_id: string
     session_id?: string
-    deep_research_mode?: boolean
     agent_mode?: AgentModeEnumApi
     resume_payload?: unknown | null
 }
@@ -293,6 +296,20 @@ export interface TicketAssignmentApi {
     readonly type: string
 }
 
+export type TicketPersonApiProperties = { [key: string]: unknown }
+
+/**
+ * Minimal person serializer for embedding in ticket responses.
+ */
+export interface TicketPersonApi {
+    readonly id: string
+    readonly name: string
+    readonly distinct_ids: readonly string[]
+    readonly properties: TicketPersonApiProperties
+    readonly created_at: string
+    readonly is_identified: boolean
+}
+
 export interface TicketApi {
     readonly id: string
     readonly ticket_number: number
@@ -316,6 +333,7 @@ export interface TicketApi {
     /** @nullable */
     readonly session_id: string | null
     readonly session_context: unknown
+    readonly person: TicketPersonApi | null
 }
 
 export interface PaginatedTicketListApi {
@@ -350,6 +368,7 @@ export interface PatchedTicketApi {
     /** @nullable */
     readonly session_id?: string | null
     readonly session_context?: unknown
+    readonly person?: TicketPersonApi | null
 }
 
 export type ConversationsListParams = {

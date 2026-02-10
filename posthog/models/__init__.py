@@ -25,8 +25,8 @@ from .core_event import CoreEvent
 from .dashboard import Dashboard
 from .dashboard_templates import DashboardTemplate
 from .data_color_theme import DataColorTheme
-from .dashboard_tile import DashboardTile, Text
 from ..ducklake.models import DuckLakeCatalog
+from .dashboard_tile import DashboardTile, Text
 from .element import Element
 from .element_group import ElementGroup
 from .entity import Entity
@@ -51,6 +51,7 @@ from .host_definition import HostDefinition
 from .hog_flow import HogFlow
 from .hog_functions import HogFunction
 from .hog_function_template import HogFunctionTemplate
+from .health_issue import HealthIssue
 from .insight import Insight, InsightViewed
 from .insight_caching_state import InsightCachingState
 from .insight_variable import InsightVariable
@@ -69,6 +70,7 @@ from .organization_integration import OrganizationIntegration
 from .organization_invite import OrganizationInvite, InviteExpiredException
 from .person import Person, PersonDistinctId, PersonOverride, PersonOverrideMapping
 from .personal_api_key import PersonalAPIKey
+from .project_secret_api_key import ProjectSecretAPIKey
 from .plugin import Plugin, PluginAttachment, PluginConfig, PluginLogEntry, PluginSourceFile
 from .product_intent import ProductIntent
 from .project import Project
@@ -147,6 +149,7 @@ __all__ = [
     "GroupUsageMetric",
     "GroupTypeMapping",
     "HeatmapSnapshot",
+    "HealthIssue",
     "HogFlow",
     "HogFunction",
     "HogFunctionTemplate",
@@ -182,6 +185,7 @@ __all__ = [
     "Person",
     "PersonDistinctId",
     "PersonalAPIKey",
+    "ProjectSecretAPIKey",
     "PersonOverride",
     "PersonOverrideMapping",
     "Plugin",

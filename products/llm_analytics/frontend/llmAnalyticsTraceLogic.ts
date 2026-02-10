@@ -42,6 +42,7 @@ export enum TraceViewMode {
     Summary = 'summary',
     Evals = 'evals',
     Clusters = 'clusters',
+    Feedback = 'feedback',
 }
 
 export interface LLMAnalyticsTraceDataNodeLogicParams {
@@ -129,6 +130,9 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
                     }
                     if (tab === 'clusters') {
                         return TraceViewMode.Clusters
+                    }
+                    if (tab === 'feedback') {
+                        return TraceViewMode.Feedback
                     }
                     return TraceViewMode.Conversation
                 },
@@ -251,6 +255,11 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
             null as TraceNeighborsQueryResponse | null,
             {
                 loadNeighbors: async ({ traceId, timestamp }, breakpoint) => {
+                    // Check if feature flag is enabled
+                    if (!values.featureFlags?.[FEATURE_FLAGS.LLM_ANALYTICS_TRACE_NAVIGATION]) {
+                        return null
+                    }
+
                     if (!traceId || !timestamp) {
                         return null
                     }

@@ -4,7 +4,8 @@ import { DraggableSyntheticListeners } from '@dnd-kit/core'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { BuiltLogic, useActions, useValues } from 'kea'
-import { useState } from 'react'
+import posthog from 'posthog-js'
+import { useCallback, useState } from 'react'
 
 import { IconCopy, IconEllipsis, IconFilter, IconPencil, IconStack, IconTrash, IconWarning } from '@posthog/icons'
 import {
@@ -41,6 +42,7 @@ import { GroupIntroductionFooter } from 'scenes/groups/GroupsIntroduction'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { isAllEventsEntityFilter } from 'scenes/insights/utils'
+import { teamLogic } from 'scenes/teamLogic'
 import {
     COUNT_PER_ACTOR_MATH_DEFINITIONS,
     MathCategory,
@@ -62,6 +64,7 @@ import {
 import {
     ActionFilter,
     ActionFilter as ActionFilterType,
+    AnyPropertyFilter,
     BaseMathType,
     ChartDisplayCategory,
     ChartDisplayType,
@@ -71,6 +74,7 @@ import {
     FunnelExclusionLegacy,
     HogQLMathType,
     InsightShortId,
+    InsightType,
     PropertyFilterValue,
     PropertyMathType,
 } from '~/types'
@@ -125,6 +129,7 @@ export interface ActionFilterRowProps {
     hideDuplicate?: boolean // Hides the duplicate option
     hideDeleteBtn?: boolean // Choose to hide delete btn. You can use the onClose function passed into customRow{Pre|Suf}fix to render the delete btn anywhere
     showCombine?: boolean // Show the combine inline events option
+    insightType?: InsightType // The type of insight (trends, funnels, etc.)
     propertyFiltersPopover?: boolean
     onRenameClick?: () => void // Used to open rename modal
     showSeriesIndicator?: boolean // Show series badge
@@ -180,6 +185,7 @@ export function ActionFilterRow({
     hideDuplicate = false,
     hideDeleteBtn = false,
     showCombine = false,
+    insightType,
     propertyFiltersPopover = false,
     onRenameClick = () => {},
     showSeriesIndicator,
@@ -203,6 +209,7 @@ export function ActionFilterRow({
     excludedProperties,
     allowNonCapturedEvents,
 }: ActionFilterRowProps & Pick<TaxonomicPopoverProps, 'excludedProperties' | 'allowNonCapturedEvents'>): JSX.Element {
+    const { currentTeamId } = useValues(teamLogic)
     const { entityFilterVisible } = useValues(logic)
     const {
         updateFilter,
@@ -255,6 +262,11 @@ export function ActionFilterRow({
     const onClose = (): void => {
         removeLocalFilter({ ...filter, index })
     }
+
+    const onPropertyChange = useCallback(
+        (properties: AnyPropertyFilter[]) => updateFilterProperty({ properties, index }),
+        [updateFilterProperty, index]
+    )
 
     const onMathSelect = (_: unknown, selectedMath?: string): void => {
         let mathProperties
@@ -443,22 +455,33 @@ export function ActionFilterRow({
         </LemonButton>
     )
 
-    const combineRowButton = (
-        <Tooltip title="Count multiple events as a single event">
-            <LemonButton
-                key="combine"
-                icon={<IconStack />}
-                data-attr={`show-prop-combine-${index}`}
-                noPadding={!enablePopup}
-                onClick={() => {
-                    setIsMenuVisible(false)
-                    convertFilterToGroup(index)
-                }}
-                fullWidth={enablePopup}
-            >
-                {enablePopup ? 'Combine' : undefined}
-            </LemonButton>
-        </Tooltip>
+    const combineInlineButton = (
+        <LemonButton
+            key="combine-inline"
+            icon={<IconStack />}
+            title="Count multiple events as a single event"
+            data-attr={`show-prop-combine-${index}`}
+            noPadding
+            onClick={() => {
+                convertFilterToGroup(index)
+                posthog.capture('combine_events', {
+                    insight_type: insightType,
+                    team_id: currentTeamId,
+                })
+            }}
+            tooltip={
+                <>
+                    Combine events
+                    <br />
+                    <Link
+                        to="https://posthog.com/docs/product-analytics/trends/overview#combine-events-inline"
+                        target="_blank"
+                    >
+                        Read the docs
+                    </Link>
+                </>
+            }
+        />
     )
 
     const deleteButton = (
@@ -483,13 +506,9 @@ export function ActionFilterRow({
         showSeriesIndicator && <div key="series-indicator">{seriesIndicator}</div>,
     ].filter(Boolean)
 
-    // Check if popup would have any menu items (excluding filter button which is always outside the menu)
+    // Check if popup would have any menu items (excluding filter and combine buttons which are always outside the menu)
     const hasMenuItems =
-        isFunnelContext ||
-        !hideRename ||
-        (!hideDuplicate && !singleFilter) ||
-        showCombine ||
-        (!hideDeleteBtn && !singleFilter)
+        isFunnelContext || !hideRename || (!hideDuplicate && !singleFilter) || (!hideDeleteBtn && !singleFilter)
     const showPopupMenu = !readOnly && enablePopup && hasMenuItems
 
     // When not using popup, show elements inline
@@ -497,9 +516,9 @@ export function ActionFilterRow({
         !readOnly && !showPopupMenu
             ? [
                   !hideFilter && propertyFiltersButton,
+                  showCombine && combineInlineButton,
                   !hideRename && renameRowButton,
                   !hideDuplicate && !singleFilter && duplicateRowButton,
-                  showCombine && combineRowButton,
                   !hideDeleteBtn && !singleFilter && deleteButton,
               ].filter(Boolean)
             : []
@@ -659,6 +678,7 @@ export function ActionFilterRow({
                                 {showPopupMenu ? (
                                     <>
                                         {!hideFilter && propertyFiltersButton}
+                                        {showCombine && combineInlineButton}
                                         <div className="relative">
                                             <LemonMenu
                                                 placement={isTrendsContext ? 'bottom-end' : 'bottom-start'}
@@ -737,13 +757,6 @@ export function ActionFilterRow({
                                                               },
                                                           ]
                                                         : []),
-                                                    ...(showCombine
-                                                        ? [
-                                                              {
-                                                                  label: () => combineRowButton,
-                                                              },
-                                                          ]
-                                                        : []),
                                                     ...(!hideDeleteBtn && !singleFilter
                                                         ? [
                                                               {
@@ -782,7 +795,7 @@ export function ActionFilterRow({
                     <PropertyFilters
                         pageKey={`${index}-${value}-${typeKey}-filter`}
                         propertyFilters={filter.properties}
-                        onChange={(properties) => updateFilterProperty({ properties, index })}
+                        onChange={onPropertyChange}
                         showNestedArrow={showNestedArrow}
                         disablePopover={!propertyFiltersPopover}
                         metadataSource={

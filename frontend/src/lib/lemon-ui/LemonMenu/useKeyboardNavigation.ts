@@ -46,15 +46,14 @@ export function useKeyboardNavigation<R extends HTMLElement = HTMLElement, I ext
             }
         }
 
-        referenceRef.current?.addEventListener('keydown', handleKeyDown)
+        const controller = new AbortController()
+
+        referenceRef.current?.addEventListener('keydown', handleKeyDown, { signal: controller.signal })
         for (const item of itemsRef.current) {
-            item?.current?.addEventListener('keydown', handleKeyDown)
+            item?.current?.addEventListener('keydown', handleKeyDown, { signal: controller.signal })
         }
         return () => {
-            referenceRef.current?.removeEventListener('keydown', handleKeyDown)
-            for (const item of itemsRef.current) {
-                item?.current?.removeEventListener('keydown', handleKeyDown)
-            }
+            controller.abort()
         }
     }, [focusedItemIndex, itemCount, enabled])
 

@@ -24,6 +24,8 @@ use crate::{
     types::RawErrProps,
 };
 
+const MAX_EXCEPTION_VALUE_LENGTH: usize = 10_000;
+
 pub async fn do_exception_handling(
     mut events: Vec<PipelineResult>,
     context: Arc<AppContext>,
@@ -123,12 +125,26 @@ pub fn get_props(event: &ClickHouseEvent) -> Result<RawErrProps, EventError> {
         recursively_sanitize_properties(event.uuid, v, 0)?;
     }
 
-    let props: RawErrProps = match serde_json::from_value(properties) {
+    let mut props: RawErrProps = match serde_json::from_value(properties) {
         Ok(r) => r,
         Err(e) => {
             return Err(EventError::InvalidProperties(event.uuid, e.to_string()));
         }
     };
+
+    for exception in props.exception_list.iter_mut() {
+        if exception.exception_message.len() > MAX_EXCEPTION_VALUE_LENGTH {
+            let truncate_at = exception
+                .exception_message
+                .char_indices()
+                .take_while(|(i, _)| *i < MAX_EXCEPTION_VALUE_LENGTH)
+                .last()
+                .map(|(i, c)| i + c.len_utf8())
+                .unwrap_or(0);
+            exception.exception_message.truncate(truncate_at);
+            exception.exception_message.push_str("...");
+        }
+    }
 
     if props.exception_list.is_empty() {
         return Err(EventError::EmptyExceptionList(event.uuid));
@@ -156,4 +172,53 @@ pub fn add_error_to_event(
     );
     event.set_raw_properties(props)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    fn make_exception_event(exception_value: &str) -> ClickHouseEvent {
+        let props = serde_json::json!({
+            "$exception_list": [{
+                "type": "Error",
+                "value": exception_value
+            }]
+        });
+        ClickHouseEvent {
+            uuid: Uuid::now_v7(),
+            team_id: 1,
+            project_id: Some(1),
+            event: "$exception".to_string(),
+            distinct_id: "test".to_string(),
+            properties: Some(props.to_string()),
+            timestamp: "2021-01-01T00:00:00Z".to_string(),
+            created_at: "2021-01-01T00:00:00Z".to_string(),
+            elements_chain: None,
+            person_id: None,
+            person_created_at: None,
+            person_properties: None,
+            group0_properties: None,
+            group1_properties: None,
+            group2_properties: None,
+            group3_properties: None,
+            group4_properties: None,
+            group0_created_at: None,
+            group1_created_at: None,
+            group2_created_at: None,
+            group3_created_at: None,
+            group4_created_at: None,
+            person_mode: common_types::PersonMode::Full,
+        }
+    }
+
+    #[test]
+    fn test_exception_value_truncation() {
+        let long_value = "x".repeat(MAX_EXCEPTION_VALUE_LENGTH + 100);
+        let event = make_exception_event(&long_value);
+        let props = get_props(&event).unwrap();
+
+        let expected = format!("{}...", "x".repeat(MAX_EXCEPTION_VALUE_LENGTH));
+        assert_eq!(props.exception_list[0].exception_message, expected);
+    }
 }

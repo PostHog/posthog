@@ -71,6 +71,7 @@ import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLo
 import { CurrentFilterIndicator } from './CurrentFilterIndicator'
 import { DurationFilter } from './DurationFilter'
 import { SavedFilters } from './SavedFilters'
+import { recordingsUniversalFiltersEmbedLogic } from './recordingsUniversalFiltersEmbedLogic'
 
 function QuickFilterButton({
     filterKey,
@@ -88,7 +89,23 @@ function QuickFilterButton({
     const icon = propertyType === PropertyFilterType.Person ? <IconPerson /> : <IconUnverifiedEvent />
     const propertyTypeLabel = propertyType === PropertyFilterType.Person ? 'Person property' : 'Event property'
 
-    const tooltipContent = (
+    const { getPropertyCheckState } = useValues(recordingsUniversalFiltersEmbedLogic)
+    const { propertyMissing, propertyLoading } = getPropertyCheckState(filterKey, propertyType)
+
+    const tooltipContent = propertyMissing ? (
+        <div className="flex flex-col gap-1">
+            <div className="flex items-center gap-2">
+                <PropertyFilterIcon type={propertyType} />
+                <span>{propertyTypeLabel}</span>
+            </div>
+            <span>Sent as: {filterKey}</span>
+            <LemonDivider className="my-1" />
+            <span className="text-secondary">
+                This person property doesn't exist in your data. You may have set this as an event property instead. Try
+                adding a new filter from the events category.
+            </span>
+        </div>
+    ) : (
         <div className="flex flex-col gap-1">
             <div className="flex items-center gap-2">
                 <PropertyFilterIcon type={propertyType} />
@@ -105,6 +122,13 @@ function QuickFilterButton({
                 size="small"
                 icon={icon}
                 data-attr={`quick-filter-${filterKey}`}
+                disabledReason={
+                    propertyMissing
+                        ? `The person property "${filterKey}" doesn't exist in your data`
+                        : propertyLoading
+                          ? 'Loading property definition...'
+                          : undefined
+                }
                 onClick={() => {
                     // Create the new filter based on property type
                     const newFilter: PersonPropertyFilter | EventPropertyFilter = {
@@ -291,6 +315,7 @@ export const RecordingsUniversalFiltersEmbed = ({ ...props }: ReplayUniversalFil
     useMountedLogic(cohortsModel)
     useMountedLogic(actionsModel)
     useMountedLogic(groupsModel)
+    useMountedLogic(recordingsUniversalFiltersEmbedLogic)
 
     const { activeFilterTab } = useValues(playlistFiltersLogic)
     const { setIsFiltersExpanded, setActiveFilterTab } = useActions(playlistFiltersLogic)

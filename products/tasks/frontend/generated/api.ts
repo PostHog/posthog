@@ -354,3 +354,18 @@ export const tasksRunsSetOutputPartialUpdate = async (
         method: 'PATCH',
     })
 }
+
+/**
+ * Run the video segment clustering workflow for this team. DEBUG only. Blocks until workflow completes.
+ * @summary Run video segment clustering
+ */
+export const getTasksClusterVideoSegmentsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/tasks/cluster_video_segments/`
+}
+
+export const tasksClusterVideoSegmentsCreate = async (projectId: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getTasksClusterVideoSegmentsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+    })
+}

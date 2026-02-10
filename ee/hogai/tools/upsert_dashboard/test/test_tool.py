@@ -23,11 +23,12 @@ from posthog.schema import (
 )
 
 from posthog.models import Dashboard, DashboardTile, Insight
+from posthog.models.dashboard_tile import Text
 
 from ee.hogai.artifacts.types import ModelArtifactResult
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.context.insight.context import InsightContext
-from ee.hogai.tool_errors import MaxToolFatalError, MaxToolRetryableError
+from ee.hogai.tool_errors import MaxToolAccessDeniedError, MaxToolFatalError, MaxToolRetryableError
 from ee.hogai.tools.upsert_dashboard.tool import CreateDashboardToolArgs, UpdateDashboardToolArgs, UpsertDashboardTool
 from ee.hogai.utils.types import AssistantState
 from ee.models.assistant import AgentArtifact, Conversation
@@ -200,15 +201,13 @@ class TestUpsertDashboardTool(BaseTest):
             insight_ids=[new_insight.short_id],
         )
 
-        # Patch at the class level to return False (no permission)
-        async def mock_no_permission(self, dashboard):
-            return False
+        with patch.object(tool, "user_access_control") as mock_uac:
+            mock_uac.check_access_level_for_object.return_value = False
 
-        with patch.object(UpsertDashboardTool, "_check_user_permissions", mock_no_permission):
-            with self.assertRaises(MaxToolFatalError) as ctx:
+            with self.assertRaises(MaxToolAccessDeniedError) as ctx:
                 await tool._arun_impl(action)
 
-        self.assertIn("permission", str(ctx.exception).lower())
+        self.assertIn("access", str(ctx.exception).lower())
 
         tiles = [t async for t in DashboardTile.objects.filter(dashboard=dashboard)]
         self.assertEqual(len(tiles), 0)
@@ -808,6 +807,44 @@ class TestUpsertDashboardTool(BaseTest):
         self.assertEqual(len(active_tiles), 3)
         self.assertEqual({t.insight_id for t in active_tiles}, {insights[k].id for k in ["A", "B", "C"]})
 
+    @parameterized.expand(
+        [
+            ("add_insight_to_dashboard_with_text", None),
+            ("replace_insights_on_dashboard_with_text", "Old Insight"),
+        ]
+    )
+    async def test_update_dashboard_preserves_text_tiles(self, _name: str, existing_insight_name: str | None):
+        dashboard = await Dashboard.objects.acreate(team=self.team, name="Dashboard", created_by=self.user)
+
+        text = await Text.objects.acreate(body="Hello World", team=self.team)
+        text_tile = await DashboardTile.objects.acreate(
+            dashboard=dashboard, text=text, layouts={"sm": {"x": 0, "y": 0, "w": 6, "h": 3}}
+        )
+
+        if existing_insight_name:
+            old_insight = await self._create_insight(existing_insight_name)
+            await DashboardTile.objects.acreate(dashboard=dashboard, insight=old_insight, layouts={})
+
+        new_insight = await self._create_insight("New Insight")
+        tool = self._create_tool()
+        action = UpdateDashboardToolArgs(
+            dashboard_id=str(dashboard.id),
+            insight_ids=[new_insight.short_id],
+        )
+
+        await tool._arun_impl(action)
+
+        await text_tile.arefresh_from_db()
+        self.assertFalse(text_tile.deleted)
+
+        active_tiles = [t async for t in DashboardTile.objects.filter(dashboard=dashboard)]
+        text_tiles = [t for t in active_tiles if t.text_id is not None]
+        insight_tiles = [t for t in active_tiles if t.insight_id is not None]
+        self.assertEqual(len(text_tiles), 1)
+        self.assertEqual(text_tiles[0].text_id, text.id)
+        self.assertEqual(len(insight_tiles), 1)
+        self.assertEqual(insight_tiles[0].insight_id, new_insight.id)
+
 
 class TestGetDashboardAndSortedTiles(BaseTest):
     def _create_tool(self, state: AssistantState | None = None) -> UpsertDashboardTool:
@@ -864,6 +901,39 @@ class TestGetDashboardAndSortedTiles(BaseTest):
         self.assertEqual(sorted_tiles[0].insight_id, insight1.id)
         self.assertEqual(sorted_tiles[1].insight_id, insight2.id)
         self.assertEqual(sorted_tiles[2].insight_id, insight3.id)
+
+    @parameterized.expand(
+        [
+            ("int", lambda id: id),
+            ("str", lambda id: str(id)),
+            ("float_str", lambda id: f"{id}.0"),
+        ]
+    )
+    async def test_get_dashboard_parses_various_id_formats(self, _name: str, format_id):
+        dashboard = await Dashboard.objects.acreate(
+            team=self.team,
+            name="Test Dashboard",
+            created_by=self.user,
+        )
+
+        tool = self._create_tool()
+        result = await tool._get_dashboard(format_id(dashboard.id))
+
+        self.assertEqual(result.id, dashboard.id)
+
+    @parameterized.expand(
+        [
+            ("invalid_string", "not-a-number"),
+            ("empty_string", ""),
+        ]
+    )
+    async def test_get_dashboard_raises_error_for_invalid_id_format(self, _name: str, invalid_id: str):
+        tool = self._create_tool()
+
+        with self.assertRaises(MaxToolFatalError) as ctx:
+            await tool._get_dashboard(invalid_id)
+
+        self.assertIn(invalid_id, str(ctx.exception))
 
     async def test_raises_error_for_nonexistent_dashboard(self):
         tool = self._create_tool()

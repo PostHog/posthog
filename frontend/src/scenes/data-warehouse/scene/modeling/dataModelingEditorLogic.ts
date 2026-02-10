@@ -9,6 +9,7 @@ import {
     applyEdgeChanges,
     applyNodeChanges,
 } from '@xyflow/react'
+import equal from 'fast-deep-equal'
 import { actions, afterMount, beforeUnmount, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import type { RefObject } from 'react'
@@ -23,8 +24,8 @@ import {
     DataModelingNodeType,
 } from '~/types'
 
-import { getFormattedNodes } from './autolayout'
-import { BOTTOM_HANDLE_POSITION, TOP_HANDLE_POSITION } from './constants'
+import { ElkDirection, getFormattedNodes } from './autolayout'
+import { BOTTOM_HANDLE_POSITION, LEFT_HANDLE_POSITION, RIGHT_HANDLE_POSITION, TOP_HANDLE_POSITION } from './constants'
 import type { dataModelingEditorLogicType } from './dataModelingEditorLogicType'
 import { ModelNode, ModelNodeHandle } from './types'
 
@@ -42,7 +43,7 @@ export const dataModelingEditorLogic = kea<dataModelingEditorLogicType>([
         onEdgesChange: (edges: EdgeChange<Edge>[]) => ({ edges }),
         onNodesChange: (nodes: NodeChange<ModelNode>[]) => ({ nodes }),
         onNodesDelete: (deleted: ModelNode[]) => ({ deleted }),
-        setNodes: (nodes: ModelNode[]) => ({ nodes }),
+        setNodes: (nodes: ModelNode[], fitViewAfter?: boolean) => ({ nodes, fitViewAfter }),
         setNodesRaw: (nodes: ModelNode[]) => ({ nodes }),
         setEdges: (edges: Edge[]) => ({ edges }),
         setSelectedNodeId: (selectedNodeId: string | null) => ({ selectedNodeId }),
@@ -51,9 +52,14 @@ export const dataModelingEditorLogic = kea<dataModelingEditorLogicType>([
         }),
         setReactFlowWrapper: (reactFlowWrapper: RefObject<HTMLDivElement>) => ({ reactFlowWrapper }),
         setHighlightedNodeType: (highlightedNodeType: DataModelingNodeType | null) => ({ highlightedNodeType }),
-        resetGraph: (dataModelingNodes: DataModelingNode[], dataModelingEdges: DataModelingEdge[]) => ({
+        resetGraph: (
+            dataModelingNodes: DataModelingNode[],
+            dataModelingEdges: DataModelingEdge[],
+            fitViewAfter?: boolean
+        ) => ({
             dataModelingNodes,
             dataModelingEdges,
+            fitViewAfter,
         }),
         runNode: (nodeId: string, direction: 'upstream' | 'downstream') => ({ nodeId, direction }),
         runNodeSuccess: (nodeId: string, direction: 'upstream' | 'downstream', runningNodeIds: string[]) => ({
@@ -76,6 +82,7 @@ export const dataModelingEditorLogic = kea<dataModelingEditorLogicType>([
         pollRunningJobsSuccess: (runningJobs: DataModelingJob[]) => ({ runningJobs }),
         loadRecentJobs: true,
         loadRecentJobsSuccess: (recentJobs: DataModelingJob[]) => ({ recentJobs }),
+        setLayoutDirection: (layoutDirection: ElkDirection) => ({ layoutDirection }),
     }),
     loaders({
         dataModelingNodes: [
@@ -176,6 +183,12 @@ export const dataModelingEditorLogic = kea<dataModelingEditorLogicType>([
                 },
             },
         ],
+        layoutDirection: [
+            'DOWN' as ElkDirection,
+            {
+                setLayoutDirection: (_, { layoutDirection }) => layoutDirection,
+            },
+        ],
     })),
     selectors({
         nodesById: [
@@ -189,6 +202,7 @@ export const dataModelingEditorLogic = kea<dataModelingEditorLogicType>([
                     {} as Record<string, ModelNode>
                 )
             },
+            { resultEqualityCheck: equal },
         ],
         nodeIdBySavedQueryId: [
             (s) => [s.nodes],
@@ -203,11 +217,12 @@ export const dataModelingEditorLogic = kea<dataModelingEditorLogicType>([
                     {} as Record<string, string>
                 )
             },
+            { resultEqualityCheck: equal },
         ],
         selectedNode: [
-            (s) => [s.nodes, s.selectedNodeId],
-            (nodes, selectedNodeId) => {
-                return nodes.find((node) => node.id === selectedNodeId) ?? null
+            (s) => [s.nodesById, s.selectedNodeId],
+            (nodesById, selectedNodeId) => {
+                return selectedNodeId ? (nodesById[selectedNodeId] ?? null) : null
             },
         ],
         nodesLoading: [
@@ -225,6 +240,103 @@ export const dataModelingEditorLogic = kea<dataModelingEditorLogicType>([
                     }
                 }
                 return statusMap
+            },
+            { resultEqualityCheck: equal },
+        ],
+        // nodes are enriched with derived state to optimize reactflow rendering
+        enrichedNodes: [
+            (s) => [s.nodes, s.selectedNodeId, s.runningNodeIds, s.lastJobStatusByNodeId, s.highlightedNodeType],
+            (nodes, selectedNodeId, runningNodeIds, lastJobStatusByNodeId, highlightedNodeType): ModelNode[] => {
+                return nodes.map((node) => {
+                    const isSelected = selectedNodeId === node.id
+                    const isRunning = runningNodeIds.has(node.id)
+                    const lastJobStatus = lastJobStatusByNodeId[node.id]
+                    const isTypeHighlighted = highlightedNodeType !== null && highlightedNodeType === node.data.type
+                    if (
+                        node.data.isSelected === isSelected &&
+                        node.data.isRunning === isRunning &&
+                        node.data.lastJobStatus === lastJobStatus &&
+                        node.data.isTypeHighlighted === isTypeHighlighted
+                    ) {
+                        return node
+                    }
+                    return {
+                        ...node,
+                        data: {
+                            ...node.data,
+                            isSelected,
+                            isRunning,
+                            lastJobStatus,
+                            isTypeHighlighted,
+                        },
+                    }
+                })
+            },
+        ],
+        highlightedNodeIds: [
+            (s) => [s.nodes, s.edges],
+            (nodes, edges): ((baseName: string, mode: 'upstream' | 'downstream' | 'all') => Set<string>) => {
+                // Build adjacency lists for efficient traversal
+                const upstreamEdges = new Map<string, string[]>() // target -> sources
+                const downstreamEdges = new Map<string, string[]>() // source -> targets
+
+                for (const edge of edges) {
+                    // upstream: edge.source is upstream of edge.target
+                    if (!upstreamEdges.has(edge.target)) {
+                        upstreamEdges.set(edge.target, [])
+                    }
+                    upstreamEdges.get(edge.target)!.push(edge.source)
+
+                    // downstream: edge.target is downstream of edge.source
+                    if (!downstreamEdges.has(edge.source)) {
+                        downstreamEdges.set(edge.source, [])
+                    }
+                    downstreamEdges.get(edge.source)!.push(edge.target)
+                }
+
+                // BFS helper to traverse in one direction
+                const traverse = (startId: string, adjacencyMap: Map<string, string[]>): Set<string> => {
+                    const result = new Set<string>()
+                    const queue = [startId]
+                    while (queue.length > 0) {
+                        const current = queue.shift()!
+                        const neighbors = adjacencyMap.get(current) ?? []
+                        for (const neighbor of neighbors) {
+                            if (!result.has(neighbor)) {
+                                result.add(neighbor)
+                                queue.push(neighbor)
+                            }
+                        }
+                    }
+                    return result
+                }
+
+                return (baseName: string, mode: 'upstream' | 'downstream' | 'all'): Set<string> => {
+                    // Find the starting node by name (exact match first, then partial)
+                    const lowerBaseName = baseName.toLowerCase()
+                    let startNode = nodes.find((n) => n.data.name.toLowerCase() === lowerBaseName)
+                    if (!startNode) {
+                        startNode = nodes.find((n) => n.data.name.toLowerCase().includes(lowerBaseName))
+                    }
+                    if (!startNode) {
+                        return new Set()
+                    }
+
+                    const result = new Set<string>([startNode.id])
+
+                    if (mode === 'upstream' || mode === 'all') {
+                        for (const id of traverse(startNode.id, upstreamEdges)) {
+                            result.add(id)
+                        }
+                    }
+                    if (mode === 'downstream' || mode === 'all') {
+                        for (const id of traverse(startNode.id, downstreamEdges)) {
+                            result.add(id)
+                        }
+                    }
+
+                    return result
+                }
             },
         ],
     }),
@@ -248,8 +360,9 @@ export const dataModelingEditorLogic = kea<dataModelingEditorLogicType>([
             }
         },
 
-        resetGraph: async ({ dataModelingNodes, dataModelingEdges }) => {
+        resetGraph: async ({ dataModelingNodes, dataModelingEdges, fitViewAfter }) => {
             const nodeIds = new Set(dataModelingNodes.map((n) => n.id))
+            const isHorizontal = values.layoutDirection === 'RIGHT'
 
             const handlesByNodeId: Record<string, Record<string, ModelNodeHandle>> = {}
 
@@ -258,14 +371,14 @@ export const dataModelingEditorLogic = kea<dataModelingEditorLogicType>([
                     [`target_${node.id}`]: {
                         id: `target_${node.id}`,
                         type: 'target',
-                        position: Position.Top,
-                        ...TOP_HANDLE_POSITION,
+                        position: isHorizontal ? Position.Left : Position.Top,
+                        ...(isHorizontal ? LEFT_HANDLE_POSITION : TOP_HANDLE_POSITION),
                     },
                     [`source_${node.id}`]: {
                         id: `source_${node.id}`,
                         type: 'source',
-                        position: Position.Bottom,
-                        ...BOTTOM_HANDLE_POSITION,
+                        position: isHorizontal ? Position.Right : Position.Bottom,
+                        ...(isHorizontal ? RIGHT_HANDLE_POSITION : BOTTOM_HANDLE_POSITION),
                     },
                 }
             })
@@ -287,6 +400,8 @@ export const dataModelingEditorLogic = kea<dataModelingEditorLogicType>([
                         savedQueryId: node.saved_query_id,
                         handles: Object.values(handlesByNodeId[node.id] ?? {}),
                         userTag,
+                        upstreamCount: node.upstream_count,
+                        downstreamCount: node.downstream_count,
                     },
                     position: { x: 0, y: 0 },
                     deletable: true,
@@ -302,7 +417,7 @@ export const dataModelingEditorLogic = kea<dataModelingEditorLogicType>([
                     id: getEdgeId(edge.source_id, edge.target_id),
                     source: edge.source_id,
                     target: edge.target_id,
-                    type: 'bezier',
+                    type: 'straight',
                     deletable: false,
                     markerEnd: { type: MarkerType.ArrowClosed },
                     sourceHandle: `source_${edge.source_id}`,
@@ -310,21 +425,30 @@ export const dataModelingEditorLogic = kea<dataModelingEditorLogicType>([
                 }))
 
             actions.setEdges(edges)
-            actions.setNodes(nodes)
+            actions.setNodes(nodes, fitViewAfter)
         },
 
-        setNodes: async ({ nodes }) => {
+        setNodes: async ({ nodes, fitViewAfter }) => {
             if (nodes.length === 0) {
                 actions.setNodesRaw([])
                 return
             }
-            const formattedNodes = await getFormattedNodes(nodes, values.edges)
+            const formattedNodes = await getFormattedNodes(nodes, values.edges, values.layoutDirection)
             actions.setNodesRaw(formattedNodes)
+            if (fitViewAfter) {
+                values.reactFlowInstance?.fitView({ padding: 0.2, maxZoom: 1 })
+            }
         },
 
         onNodesDelete: ({ deleted }) => {
             if (deleted.some((node) => node.id === values.selectedNodeId)) {
                 actions.setSelectedNodeId(null)
+            }
+        },
+
+        setLayoutDirection: () => {
+            if (values.dataModelingNodes.length > 0) {
+                actions.resetGraph(values.dataModelingNodes, values.dataModelingEdges, true)
             }
         },
 

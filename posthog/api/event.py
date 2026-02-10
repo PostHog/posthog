@@ -54,6 +54,7 @@ EVENT_LIST_CACHE_KEY_PREFIX = "event_list_good_period"
 
 
 def _get_limit_size_category(limit: int) -> str:
+    """Groups limits into size categories to limit cache key cardinality."""
     if limit < 1000:
         return "s"
     elif limit < 10000:
@@ -67,6 +68,21 @@ def _get_event_list_cache_key(
     has_distinct_id: bool,
     limit: int,
 ) -> str:
+    """
+    Generate a cache key for the event list progressive window optimization.
+
+    The cache stores {"window": int, "result_count": int} to track which time
+    window worked and how many results it returned. When reading from cache,
+    we only use the cached window if its result_count >= half_limit for the
+    current request. This prevents the bug where a cached window that succeeded
+    for a smaller limit (e.g., 4999 with half_limit=2499) is incorrectly used
+    for a larger limit (e.g., 6000 with half_limit=3000) that needs more results.
+
+    We use size categories (s/m/l) instead of exact limits to bound cache key
+    cardinality to ~3 keys per team/filter combination. Within a size category,
+    different limits share the same cache key but have different half_limit
+    thresholds - the result_count validation handles this.
+    """
     event_flag = "1" if has_event_filter else "0"
     distinct_id_flag = "1" if has_distinct_id else "0"
     size_category = _get_limit_size_category(limit)
@@ -251,7 +267,7 @@ class EventViewSet(
             has_event_filter = bool(request.GET.get("event"))
             has_distinct_id = bool(request.GET.get("distinct_id"))
             cache_key = _get_event_list_cache_key(team.pk, has_event_filter, has_distinct_id, limit)
-            cached_window = cache.get(cache_key)
+            cached_data = cache.get(cache_key)
 
             # Calculate the user's requested time range in seconds
             request_window_seconds: Optional[int] = None
@@ -268,7 +284,21 @@ class EventViewSet(
                 w for w in EVENT_LIST_TIME_WINDOWS if request_window_seconds is None or w < request_window_seconds
             ]
 
-            # If cached window is valid, try it first
+            half_limit = max(limit // 2, 1)  # At least 1 result required
+
+            # Only use cached window if it returned enough results for our threshold.
+            # This prevents the bug where a cached window that succeeded for a smaller
+            # limit (e.g., 4999 with half_limit=2499) is used for a larger limit
+            # (e.g., 6000 with half_limit=3000) that needs more results.
+            cached_window = None
+            if cached_data and isinstance(cached_data, dict):
+                cached_result_count = cached_data.get("result_count", 0)
+                if cached_result_count >= half_limit:
+                    cached_window = cached_data.get("window")
+            elif cached_data and isinstance(cached_data, int):
+                # Backwards compatibility: old cache format was just the window integer
+                cached_window = cached_data
+
             if cached_window and cached_window in windows_to_try:
                 windows_to_try.remove(cached_window)
                 windows_to_try.insert(0, cached_window)
@@ -279,7 +309,6 @@ class EventViewSet(
                 query_result: list = []
                 successful_window: Optional[int] = None
                 applied_window: Optional[int] = None
-                half_limit = max(limit // 2, 1)  # At least 1 result required
 
                 for window in windows_to_try:
                     query_result, applied_window = query_events_list(
@@ -302,9 +331,13 @@ class EventViewSet(
                         break
 
                 if successful_window:
-                    # Cache the successful window for future requests
-                    if successful_window != cached_window:
-                        cache.set(cache_key, successful_window, EVENT_LIST_CACHE_TTL)
+                    # Cache the successful window AND result count for future requests.
+                    # This allows requests with smaller limits to reuse cached windows,
+                    # while requests with larger limits will find their own windows.
+                    # Cache format: {"window": int, "result_count": int} (or int for legacy)
+                    new_cache_data = {"window": successful_window, "result_count": len(query_result)}
+                    if new_cache_data != cached_data:
+                        cache.set(cache_key, new_cache_data, EVENT_LIST_CACHE_TTL)
                 elif applied_window is not None or not windows_to_try:
                     # Windows were applied but didn't return enough results, or no windows to try - run full query
                     query_result, _ = query_events_list(

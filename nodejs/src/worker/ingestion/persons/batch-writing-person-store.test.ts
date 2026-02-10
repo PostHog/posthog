@@ -66,6 +66,7 @@ describe('BatchWritingPersonStore', () => {
             is_user_id: null,
             is_identified: false,
             uuid: '1',
+            last_seen_at: null,
         }
 
         mockPostgres = {

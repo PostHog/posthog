@@ -12,7 +12,7 @@ import { sceneConfigurations } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
-import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
+import { DataTableNode, NodeKind, ProductKey } from '~/queries/schema/schema-general'
 import { Breadcrumb } from '~/types'
 
 import type { personsSceneLogicType } from './personsSceneLogicType'
@@ -23,6 +23,7 @@ export const PEOPLE_LIST_DEFAULT_QUERY = {
     kind: NodeKind.DataTableNode,
     source: {
         kind: NodeKind.ActorsQuery,
+        tags: { productKey: ProductKey.CUSTOMER_ANALYTICS },
         select: [...defaultDataTableColumns(NodeKind.ActorsQuery), 'person.$delete'],
     },
     full: true,
@@ -37,10 +38,24 @@ export const personsSceneLogic = kea<personsSceneLogicType>([
     actions({
         setQuery: (query: DataTableNode) => ({ query }),
         resetDeletedDistinctId: (distinct_id: string) => ({ distinct_id }),
+        setShowDisplayNameNudge: (showDisplayNameNudge: boolean) => ({ showDisplayNameNudge }),
+        setIsBannerLoading: (isBannerLoading: boolean) => ({ isBannerLoading }),
     }),
 
     reducers({
         query: [PEOPLE_LIST_DEFAULT_QUERY, { setQuery: (_, { query }) => query }],
+        showDisplayNameNudge: [
+            false,
+            {
+                setShowDisplayNameNudge: (_, { showDisplayNameNudge }) => showDisplayNameNudge,
+            },
+        ],
+        isBannerLoading: [
+            false,
+            {
+                setIsBannerLoading: (_, { isBannerLoading }) => isBannerLoading,
+            },
+        ],
     }),
 
     listeners({

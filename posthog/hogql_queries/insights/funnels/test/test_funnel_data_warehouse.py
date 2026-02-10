@@ -5,7 +5,14 @@ import pytest
 from freezegun import freeze_time
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_person, snapshot_clickhouse_queries
 
-from posthog.schema import DataWarehouseNode, DataWarehousePropertyFilter, DateRange, EventsNode, FunnelsQuery
+from posthog.schema import (
+    DataWarehouseNode,
+    DataWarehousePropertyFilter,
+    DateRange,
+    EventsNode,
+    FunnelsFilter,
+    FunnelsQuery,
+)
 
 from posthog.errors import ExposedCHQueryError
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
@@ -21,6 +28,10 @@ class TestFunnelDataWarehouse(ClickhouseTestMixin, BaseTest):
     def teardown_method(self, method) -> None:
         if getattr(self, "cleanUpDataWarehouse", None):
             self.cleanUpDataWarehouse()
+        if getattr(self, "cleanUpLeadWarehouse", None):
+            self.cleanUpLeadWarehouse()
+        if getattr(self, "cleanUpOpportunityWarehouse", None):
+            self.cleanUpOpportunityWarehouse()
 
     def setup_data_warehouse(self):
         table, _source, _credential, _df, self.cleanUpDataWarehouse = create_data_warehouse_table_from_csv(
@@ -52,6 +63,44 @@ class TestFunnelDataWarehouse(ClickhouseTestMixin, BaseTest):
         )
 
         return table.name
+
+    def setup_salesforce_data_warehouse(self):
+        lead_table, _source, _credential, _df, self.cleanUpLeadWarehouse = create_data_warehouse_table_from_csv(
+            csv_path=Path(__file__).parent / "salesforce_lead_data.csv",
+            table_name="salesforce_lead",
+            table_columns={
+                "id": {"clickhouse": "String", "hogql": "StringDatabaseField"},
+                "created_date": {
+                    "clickhouse": "DateTime64(3, 'UTC')",
+                    "hogql": "DateTimeDatabaseField",
+                },
+                "converted_opportunity_id": {
+                    "clickhouse": "Nullable(String)",
+                    "hogql": "StringDatabaseField",
+                },
+            },
+            test_bucket=TEST_BUCKET,
+            team=self.team,
+        )
+
+        opportunity_table, _source, _credential, _df, self.cleanUpOpportunityWarehouse = (
+            create_data_warehouse_table_from_csv(
+                csv_path=Path(__file__).parent / "salesforce_opportunity_data.csv",
+                table_name="salesforce_opportunity",
+                table_columns={
+                    "id": {"clickhouse": "String", "hogql": "StringDatabaseField"},
+                    "created_date": {
+                        "clickhouse": "DateTime64(3, 'UTC')",
+                        "hogql": "DateTimeDatabaseField",
+                    },
+                    "close_date": {"clickhouse": "Nullable(Date)", "hogql": "DateDatabaseField"},
+                },
+                test_bucket=TEST_BUCKET,
+                team=self.team,
+            )
+        )
+
+        return lead_table.name, opportunity_table.name
 
     @snapshot_clickhouse_queries
     def test_funnels_data_warehouse(self):
@@ -128,7 +177,7 @@ class TestFunnelDataWarehouse(ClickhouseTestMixin, BaseTest):
                         id=table_name,
                         table_name=table_name,
                         id_field="uuid",
-                        distinct_id_field="user_id",
+                        distinct_id_field="toUUID(user_id)",
                         timestamp_field="created",
                     ),
                 ],
@@ -222,3 +271,45 @@ class TestFunnelDataWarehouse(ClickhouseTestMixin, BaseTest):
         results = response.results
         assert results[0]["count"] == 4
         assert results[1]["count"] == 1
+
+    @snapshot_clickhouse_queries
+    def test_funnels_salesforce_lead_to_opportunity(self):
+        lead_table_name, opportunity_table_name = self.setup_salesforce_data_warehouse()
+
+        funnels_query = FunnelsQuery(
+            kind="FunnelsQuery",
+            dateRange=DateRange(date_from="2024-05-01"),
+            series=[
+                DataWarehouseNode(
+                    id=lead_table_name,
+                    table_name=lead_table_name,
+                    id_field="id",
+                    distinct_id_field="coalesce(converted_opportunity_id, id)",
+                    timestamp_field="created_date",
+                ),
+                DataWarehouseNode(
+                    id=opportunity_table_name,
+                    table_name=opportunity_table_name,
+                    id_field="id",
+                    distinct_id_field="id",
+                    timestamp_field="created_date",
+                ),
+                DataWarehouseNode(
+                    id=opportunity_table_name,
+                    table_name=opportunity_table_name,
+                    id_field="id",
+                    distinct_id_field="id",
+                    timestamp_field="close_date",
+                ),
+            ],
+            funnelsFilter=FunnelsFilter(funnelWindowInterval=30),
+        )
+
+        with freeze_time("2024-06-30"):
+            runner = FunnelsQueryRunner(query=funnels_query, team=self.team, just_summarize=True)
+            response = runner.calculate()
+
+        results = response.results
+        assert results[0]["count"] == 5
+        assert results[1]["count"] == 3
+        assert results[2]["count"] == 2

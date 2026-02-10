@@ -154,7 +154,14 @@ class ApprovalPolicy(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
     approver_config = models.JSONField()
 
     allow_self_approve = models.BooleanField(default=False)
-    bypass_roles = models.JSONField(default=list)
+
+    bypass_org_membership_levels = models.JSONField(default=list)
+
+    bypass_roles = models.ManyToManyField(
+        "ee.Role",
+        blank=True,
+        related_name="bypass_policies",
+    )
 
     expires_after = models.DurationField(
         default=timedelta(days=14),
@@ -178,6 +185,25 @@ class ApprovalPolicy(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
     def __str__(self):
         scope = f"Team {self.team.id}" if self.team else f"Org {self.organization.id}"
         return f"ApprovalPolicy({self.action_key}, {scope})"
+
+    def set_bypass_roles(self, role_ids: list[str]) -> None:
+        """Set bypass roles with validation that they belong to the same organization."""
+        if not role_ids:
+            self.bypass_roles.clear()
+            return
+
+        try:
+            from ee.models.rbac.role import Role
+        except ImportError:
+            pass
+        else:
+            roles = Role.objects.filter(id__in=role_ids)
+            invalid_roles = [r for r in roles if r.organization_id != self.organization_id]
+            if invalid_roles:
+                invalid_names = [r.name for r in invalid_roles]
+                raise ValueError(f"Roles must belong to the same organization: {', '.join(invalid_names)}")
+
+            self.bypass_roles.set(roles)
 
     def get_approver_user_ids(self) -> list[int]:
         """Get list of user IDs who can approve based on this policy's approver_config."""
