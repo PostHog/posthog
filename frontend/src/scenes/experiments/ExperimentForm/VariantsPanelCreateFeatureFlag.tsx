@@ -32,6 +32,40 @@ interface VariantsPanelCreateFeatureFlagProps {
     disabled?: boolean
 }
 
+interface RolloutPercentageControlProps {
+    rolloutPercentage: number
+    disabled: boolean
+    onChange: (value: number) => void
+}
+
+const RolloutPercentageControl = ({
+    rolloutPercentage,
+    disabled,
+    onChange,
+}: RolloutPercentageControlProps): JSX.Element => {
+    return (
+        <div className="border border-primary rounded p-4 flex flex-col gap-3">
+            <div className={`flex items-center gap-3 ${disabled ? 'pointer-events-none opacity-50' : ''}`}>
+                <div className="flex-1">
+                    <LemonSlider value={rolloutPercentage} onChange={onChange} min={0} max={100} step={1} />
+                </div>
+                <LemonInput
+                    type="number"
+                    min={0}
+                    max={100}
+                    value={rolloutPercentage}
+                    onChange={(value) => onChange(ensureIsPercent(value))}
+                    suffix={<span>%</span>}
+                    disabledReason={disabled ? 'Cannot edit rollout percentage in edit mode' : undefined}
+                    data-attr="experiment-rollout-percentage-input"
+                    className="w-20"
+                />
+            </div>
+            <p className="text-xs text-secondary m-0">Percentage of users who this experiment will be released to.</p>
+        </div>
+    )
+}
+
 export const VariantsPanelCreateFeatureFlag = ({
     experiment,
     onChange,
@@ -264,37 +298,11 @@ export const VariantsPanelCreateFeatureFlag = ({
 
                 <div className="flex-1">
                     <LemonField.Pure label="Rollout percentage">
-                        <div className="border border-primary rounded p-4 flex flex-col gap-3">
-                            <div
-                                className={`flex items-center gap-3 ${disabled ? 'pointer-events-none opacity-50' : ''}`}
-                            >
-                                <div className="flex-1">
-                                    <LemonSlider
-                                        value={rolloutPercentage}
-                                        onChange={updateRolloutPercentage}
-                                        min={0}
-                                        max={100}
-                                        step={1}
-                                    />
-                                </div>
-                                <LemonInput
-                                    type="number"
-                                    min={0}
-                                    max={100}
-                                    value={rolloutPercentage}
-                                    onChange={(value) => updateRolloutPercentage(ensureIsPercent(value))}
-                                    suffix={<span>%</span>}
-                                    disabledReason={
-                                        disabled ? 'Cannot edit rollout percentage in edit mode' : undefined
-                                    }
-                                    data-attr="experiment-rollout-percentage-input"
-                                    className="w-20"
-                                />
-                            </div>
-                            <p className="text-xs text-secondary m-0">
-                                Percentage of users who this experiment will be released to.
-                            </p>
-                        </div>
+                        <RolloutPercentageControl
+                            rolloutPercentage={rolloutPercentage}
+                            disabled={disabled}
+                            onChange={updateRolloutPercentage}
+                        />
                     </LemonField.Pure>
                 </div>
             </div>
