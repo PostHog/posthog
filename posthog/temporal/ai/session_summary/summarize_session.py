@@ -609,21 +609,15 @@ async def ensure_llm_single_session_summary(inputs: SingleSessionSummaryInputs):
     # If the asset needs rendering, run the video export as a child workflow
     if export_result.needs_export:
         workflow_id = f"session-video-summary-export_{video_inputs.team_id}_{video_inputs.session_id}"
-        try:
-            handle = await temporalio.workflow.start_child_workflow(
-                "export-video",
-                VideoExportInputs(exported_asset_id=asset_id, use_puppeteer=True),
-                id=workflow_id,
-                task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
-                retry_policy=RetryPolicy(maximum_attempts=int(settings.TEMPORAL_WORKFLOW_MAX_ATTEMPTS)),
-                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
-                execution_timeout=timedelta(hours=3),
-            )
-            await handle.result()
-        except WorkflowAlreadyStartedError:
-            # Another summarization request already started exporting this session - wait for it
-            external_handle = temporalio.workflow.get_external_workflow_handle(workflow_id)
-            await external_handle.result()
+        await temporalio.workflow.execute_child_workflow(
+            "export-video",
+            VideoExportInputs(exported_asset_id=asset_id, use_puppeteer=True),
+            id=workflow_id,
+            task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+            retry_policy=RetryPolicy(maximum_attempts=int(settings.TEMPORAL_WORKFLOW_MAX_ATTEMPTS)),
+            id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+            execution_timeout=timedelta(hours=3),
+        )
 
     # Activity 2: Upload full video to Gemini (single upload)
     upload_result = await temporalio.workflow.execute_activity(
