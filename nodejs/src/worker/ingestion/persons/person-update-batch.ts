@@ -16,6 +16,7 @@ export interface PersonUpdate {
     version: number
     is_identified: boolean
     is_user_id: number | null
+    last_seen_at: string | null
     needs_write: boolean
     // Fine-grained property tracking
     properties_to_set: Properties // Properties to set/update
@@ -46,6 +47,7 @@ export function fromInternalPerson(person: InternalPerson, distinctId: string): 
         version: person.version,
         is_identified: person.is_identified,
         is_user_id: person.is_user_id,
+        last_seen_at: person.last_seen_at,
         needs_write: false,
         properties_to_set: {},
         properties_to_unset: [],
@@ -80,5 +82,6 @@ export function toInternalPerson(personUpdate: PersonUpdate): InternalPerson {
         version: personUpdate.version,
         is_identified: personUpdate.is_identified,
         is_user_id: personUpdate.is_user_id,
+        last_seen_at: personUpdate.last_seen_at,
     }
 }
