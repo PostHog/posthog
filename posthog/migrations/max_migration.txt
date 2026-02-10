@@ -1,1 +1,1 @@
-1000_create_healthissue_table
+1001_remove_social_auth_unique_constraint

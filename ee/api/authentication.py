@@ -24,6 +24,7 @@ from social_core.backends.saml import (
     SAMLIdentityProvider,
 )
 from social_core.exceptions import AuthFailed, AuthMissingParameter
+from social_core.pipeline.partial import partial
 from social_django.models import UserSocialAuth
 from social_django.utils import load_backend, load_strategy
 
@@ -568,6 +569,65 @@ class BillingServiceAuthentication(authentication.BaseAuthentication):
             algorithms=["HS256"],
             audience=self.EXPECTED_AUDIENCE,
         )
+
+
+@partial
+def social_user_multi_account(strategy, backend, uid, user=None, *args, **kwargs):
+    """
+    Custom replacement for social_core.pipeline.social_auth.social_user that supports
+    one social account (e.g. GitHub) being linked to multiple PostHog users.
+
+    When multiple matches exist during login (no logged-in user), redirects to an
+    account chooser page. When a user is already logged in (link mode), proceeds
+    normally.
+    """
+    provider = backend.name
+    socials = list(UserSocialAuth.objects.select_related("user").filter(provider=provider, uid=uid))
+    # Guard against case-insensitive DB collation returning wrong rows
+    socials = [s for s in socials if s.uid == uid]
+
+    if not socials:
+        return {"social": None, "user": user, "is_new": user is None, "new_association": True}
+
+    if len(socials) == 1:
+        social = socials[0]
+        if user and social.user != user:
+            # Logged-in user linking a social account already owned by someone else
+            return {"social": None, "user": user, "is_new": False, "new_association": True}
+        return {
+            "social": social,
+            "user": social.user if not user else user,
+            "is_new": False,
+            "new_association": False,
+        }
+
+    # Multiple matches — if user is already logged in (link mode), just proceed
+    if user:
+        existing = next((s for s in socials if s.user == user), None)
+        if existing:
+            return {"social": existing, "user": user, "is_new": False, "new_association": False}
+        return {"social": None, "user": user, "is_new": False, "new_association": True}
+
+    # Multiple matches, not logged in — need account chooser
+    selected_user_id = strategy.session_get("social_auth_selected_user_id")
+    if selected_user_id:
+        strategy.session_set("social_auth_selected_user_id", None)
+        social = next((s for s in socials if str(s.user.id) == str(selected_user_id)), None)
+        if social:
+            return {"social": social, "user": social.user, "is_new": False, "new_association": False}
+
+    # Store account options in session, redirect to chooser
+    strategy.session_set(
+        "social_auth_account_choices",
+        [{"user_id": str(s.user.id), "email": s.user.email, "name": s.user.first_name} for s in socials],
+    )
+    current_partial = kwargs.get("current_partial")
+    if current_partial:
+        return strategy.redirect(f"/login/choose-account/?partial_token={current_partial.token}")
+
+    # Fallback: if no partial token, just use first match
+    social = socials[0]
+    return {"social": social, "user": social.user, "is_new": False, "new_association": False}
 
 
 def social_auth_allowed(backend, details, response, *args, **kwargs) -> None:

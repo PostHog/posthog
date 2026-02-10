@@ -32,6 +32,7 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import APIException
 from rest_framework.request import Request
 from rest_framework.response import Response
+from social_django.models import UserSocialAuth
 from social_django.strategy import DjangoStrategy
 from social_django.views import auth
 from two_factor.utils import default_device
@@ -969,3 +970,103 @@ def social_login_notification(
         ip_address = get_ip_address(request)
         backend_name = getattr(backend, "name", "")
         login_from_new_device_notification.delay(user.id, timezone.now(), short_user_agent, ip_address, backend_name)
+
+
+# --- Connected accounts: link/unlink social accounts from settings ---
+
+
+def social_connect(request: HttpRequest, backend: str) -> HttpResponse:
+    """
+    Initiate OAuth flow to link a social account to the currently logged-in user.
+    Unlike sso_login, this preserves the existing session.
+    """
+    if not request.user.is_authenticated:
+        return redirect("/login")
+
+    sso_providers = get_instance_available_sso_providers()
+    if backend not in sso_providers or not sso_providers[backend]:
+        return redirect("/settings/user#connected-accounts?error=invalid_provider")
+
+    request.session["next"] = "/settings/user#connected-accounts"
+    return auth(request, backend)
+
+
+class SocialConnectionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = UserSocialAuth
+        fields = ["id", "provider", "uid", "created"]
+        read_only_fields = fields
+
+
+class SocialConnectionViewSet(viewsets.ModelViewSet):
+    serializer_class = SocialConnectionSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    http_method_names = ["get", "delete"]
+
+    def get_queryset(self):
+        return self.request.user.social_auth.all()
+
+    def perform_destroy(self, instance):
+        user = self.request.user
+        has_password = user.has_usable_password()
+        remaining_social = user.social_auth.exclude(id=instance.id).count()
+        if not has_password and remaining_social == 0:
+            raise serializers.ValidationError("Cannot remove your only login method. Set a password first.")
+        instance.delete()
+
+
+class AccountChoicesView(viewsets.ViewSet):
+    """Returns the list of accounts from session for the multi-account chooser."""
+
+    permission_classes = [permissions.AllowAny]
+
+    def list(self, request: Request) -> Response:
+        choices = request.session.get("social_auth_account_choices", [])
+        return Response({"choices": choices})
+
+
+class ChooseAccountView(viewsets.ViewSet):
+    """Sets the selected user in session and resumes the partial pipeline."""
+
+    permission_classes = [permissions.AllowAny]
+
+    def create(self, request: Request) -> Response:
+        from social_django.models import Partial
+
+        user_id = request.data.get("user_id")
+        partial_token = request.data.get("partial_token")
+
+        if not user_id or not partial_token:
+            return Response(
+                {"error": "user_id and partial_token are required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Validate the partial exists
+        try:
+            partial_obj = Partial.objects.get(token=partial_token)
+        except Partial.DoesNotExist:
+            return Response(
+                {"error": "Invalid or expired session. Please try logging in again."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Validate user_id is in the choices
+        choices = request.session.get("social_auth_account_choices", [])
+        valid_user_ids = [c["user_id"] for c in choices]
+        if str(user_id) not in valid_user_ids:
+            return Response(
+                {"error": "Invalid account selection."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Store selected user and clear choices
+        request.session["social_auth_selected_user_id"] = str(user_id)
+        request.session.pop("social_auth_account_choices", None)
+        request.session.save()
+
+        # Build the complete URL for resuming the pipeline
+        backend_name = partial_obj.backend
+        complete_url = f"/complete/{backend_name}/?partial_token={partial_token}"
+
+        return Response({"redirect_url": complete_url})
