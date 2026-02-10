@@ -64,12 +64,14 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
     serializer_class = ProxyRecordSerializer
     permission_classes = [OrganizationAdminWritePermissions, TimeSensitiveActionPermission]
 
+    DEFAULT_MAX_PROXY_RECORDS = 2
+
     @property
     def max_proxy_records(self) -> int:
         feature = self.organization.get_available_feature(AvailableFeature.MANAGED_REVERSE_PROXY)
         if feature is None:
-            return 0
-        return feature.get("limit", 0)
+            return self.DEFAULT_MAX_PROXY_RECORDS
+        return feature.get("limit", self.DEFAULT_MAX_PROXY_RECORDS)
 
     def list(self, request, *args, **kwargs):
         queryset = self.organization.proxy_records.order_by("-created_at")

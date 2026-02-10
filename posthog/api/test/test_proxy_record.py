@@ -29,15 +29,15 @@ class TestProxyRecordAPI(APIBaseTest):
         self.assertEqual(data["max_proxy_records"], 2)
         self.assertEqual(data["results"], [])
 
-    def test_list_returns_zero_without_feature(self):
-        """Without the managed_reverse_proxy feature, max_proxy_records should be 0."""
+    def test_list_returns_default_without_feature(self):
+        """Without the managed_reverse_proxy feature, max_proxy_records should default to 2."""
         self.organization.available_product_features = []
         self.organization.save()
 
         response = self.client.get(f"/api/organizations/{self.organization.id}/proxy_records/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
-        self.assertEqual(data["max_proxy_records"], 0)
+        self.assertEqual(data["max_proxy_records"], 2)
 
         # Restore for other tests
         self.organization.available_product_features = [
@@ -88,8 +88,13 @@ class TestProxyRecordAPI(APIBaseTest):
         # Verify only 2 records exist
         self.assertEqual(ProxyRecord.objects.filter(organization=self.organization).count(), 2)
 
-    def test_cannot_create_without_feature(self):
-        """Without the feature, creation should be blocked (limit is 0)."""
+    @patch("posthog.api.proxy_record.sync_connect")
+    @patch("posthoganalytics.capture")
+    def test_can_create_without_feature_using_default(self, mock_capture, mock_sync_connect):
+        """Without the feature, creation should still work using the default limit of 2."""
+        mock_temporal = AsyncMock()
+        mock_sync_connect.return_value = mock_temporal
+
         self.organization.available_product_features = []
         self.organization.save()
 
@@ -97,8 +102,7 @@ class TestProxyRecordAPI(APIBaseTest):
             f"/api/organizations/{self.organization.id}/proxy_records/",
             {"domain": "test.example.com"},
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("Maximum of 0 proxy records", response.json()["detail"])
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         # Restore for other tests
         self.organization.available_product_features = [
