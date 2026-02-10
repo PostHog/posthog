@@ -470,7 +470,9 @@ def _validate_period(
     recording_period_start = period.recording_ts_from_s
     recording_period_end = period.recording_ts_to_s
     # Skip periods that are too short, as they won't bring any value to the summary
-    if (recording_period_end - recording_period_start) < MIN_SESSION_PERIOD_DURATION_S:
+    # Checking for >= 0 to still fail on negative durations
+    recording_period_duration = recording_period_end - recording_period_start
+    if recording_period_duration >= 0 and recording_period_duration < MIN_SESSION_PERIOD_DURATION_S:
         logger.warning(
             f"Skipping period {index} of {inactivity_periods_count - 1} because it's too short: {recording_period_end - recording_period_start}s < {MIN_SESSION_PERIOD_DURATION_S}s",
             signals_type="session-summaries",
