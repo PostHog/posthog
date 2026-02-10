@@ -441,7 +441,7 @@ def compile_hog(hog: str, hog_type: str, in_repl: Optional[bool] = False) -> lis
         supported_functions = set()
 
         if hog_type == "destination":
-            supported_functions = {"fetch", "postHogCapture"}
+            supported_functions = {"fetch", "postHogCapture", "postHogUpdateTicket", "postHogGetTicket"}
 
         return create_bytecode(program, supported_functions=supported_functions, in_repl=in_repl).bytecode
     except serializers.ValidationError:
