@@ -898,13 +898,15 @@ class ClickHousePrinter(HogQLPrinter):
         table_type: ast.TableType | ast.LazyTableType,
         node_type: ast.TableOrSelectType | None,
     ):
-        """Add access control guard for system tables (PostgresTable)."""
-        from posthog.hogql.database.postgres_table import PostgresTable
+        """Add access control guard for system tables"""
         from posthog.hogql.printer.access_control import build_access_control_guard
 
-        if not isinstance(table_type.table, PostgresTable):
-            return None
         if node_type is None:
+            return None
+
+        # Only apply access control to tables registered under the system namespace
+        system_node = self.context.database.tables.children.get("system")  # type: ignore[union-attr]
+        if not system_node or table_type.table.name not in system_node.children:
             return None
 
         return build_access_control_guard(table_type.table, node_type, self.context)
