@@ -250,6 +250,18 @@ class ProductTourSerializerCreateUpdateOnly(serializers.ModelSerializer):
         elif linked_flag_variant and not linked_flag_id:
             raise serializers.ValidationError("linkedFlagVariant can only be used when a linked_flag_id is specified")
 
+        # Block launching a tour with incomplete element targeting
+        is_launching = "start_date" in data and data["start_date"] is not None
+        if is_launching and self.instance and self.instance.start_date is None:
+            launch_content = data.get("content") or (self.instance.content if self.instance else None) or {}
+            steps = launch_content.get("steps", [])
+            for i, step in enumerate(steps):
+                targeting = step.get("elementTargeting")
+                if targeting == "manual" and not step.get("selector"):
+                    raise serializers.ValidationError(f"Step {i + 1} is missing an element selector")
+                if targeting == "auto" and not step.get("inferenceData"):
+                    raise serializers.ValidationError(f"Step {i + 1} requires an element to be selected")
+
         return data
 
     @transaction.atomic
