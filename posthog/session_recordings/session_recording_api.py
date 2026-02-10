@@ -737,11 +737,11 @@ class SessionRecordingViewSet(
         if recording.deleted:
             raise exceptions.NotFound("Recording not found")
 
+        recording.deleted = True
+        recording.save()
+
         if self._should_use_recording_api():
             self._delete_via_recording_api(recording.session_id)
-        else:
-            recording.deleted = True
-            recording.save()
 
         return Response({"success": True}, status=204)
 
@@ -792,38 +792,34 @@ class SessionRecordingViewSet(
         # Filter out recordings that are already deleted
         non_deleted_recordings = [recording for recording in accessible_recordings if not recording.deleted]
 
+        session_recordings_to_create = [
+            SessionRecording(
+                team=self.team,
+                session_id=recording.session_id,
+                distinct_id=recording.distinct_id,
+                deleted=True,
+            )
+            for recording in non_deleted_recordings
+        ]
+
+        created_records = []
+        if session_recordings_to_create:
+            created_records = SessionRecording.objects.bulk_create(session_recordings_to_create, ignore_conflicts=True)
+
+        session_ids_to_delete = [recording.session_id for recording in non_deleted_recordings]
+        updated_count = 0
+        if session_ids_to_delete:
+            updated_count = SessionRecording.objects.filter(
+                team=self.team,
+                session_id__in=session_ids_to_delete,
+                deleted=False,
+            ).update(deleted=True)
+
+        deleted_count = len(created_records) + updated_count
+
         if self._should_use_recording_api():
-            deleted_count = 0
             for recording in non_deleted_recordings:
-                if self._delete_via_recording_api(recording.session_id):
-                    deleted_count += 1
-        else:
-            session_recordings_to_create = [
-                SessionRecording(
-                    team=self.team,
-                    session_id=recording.session_id,
-                    distinct_id=recording.distinct_id,
-                    deleted=True,
-                )
-                for recording in non_deleted_recordings
-            ]
-
-            created_records = []
-            if session_recordings_to_create:
-                created_records = SessionRecording.objects.bulk_create(
-                    session_recordings_to_create, ignore_conflicts=True
-                )
-
-            session_ids_to_delete = [recording.session_id for recording in non_deleted_recordings]
-            updated_count = 0
-            if session_ids_to_delete:
-                updated_count = SessionRecording.objects.filter(
-                    team=self.team,
-                    session_id__in=session_ids_to_delete,
-                    deleted=False,
-                ).update(deleted=True)
-
-            deleted_count = len(created_records) + updated_count
+                self._delete_via_recording_api(recording.session_id)
 
         logger.info(
             "bulk_recordings_deleted",
@@ -1049,7 +1045,7 @@ class SessionRecordingViewSet(
             raise
         except RecordingDeletedError as e:
             logger.info(
-                "Recording has been permanently deleted",
+                "recording_permanently_deleted",
                 session_id=str(recording.session_id),
                 team_id=self.team.id,
                 deleted_at=e.deleted_at,
@@ -1344,9 +1340,8 @@ class SessionRecordingViewSet(
         if not settings.RECORDING_API_URL:
             return False
 
-        # Allow override via settings (defaults to True in DEBUG mode)
-        if settings.RECORDING_API_ENABLED:
-            return True
+        if not settings.RECORDING_API_ENABLED:
+            return False
 
         return (
             posthoganalytics.feature_enabled(
@@ -1370,16 +1365,15 @@ class SessionRecordingViewSet(
                 return False  # Not found in S3 (may still need soft-delete)
             else:
                 logger.warning(
-                    "Recording-api delete failed",
+                    "recording_api_delete_failed",
                     status_code=response.status_code,
-                    response_text=response.text,
                     session_id=session_id,
                     team_id=self.team.id,
                 )
                 return False
         except Exception as e:
             logger.exception(
-                "Recording-api delete error",
+                "recording_api_delete_error",
                 error=str(e),
                 session_id=session_id,
                 team_id=self.team.id,

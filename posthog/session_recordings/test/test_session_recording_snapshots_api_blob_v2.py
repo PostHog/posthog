@@ -11,6 +11,7 @@ from posthog.models.personal_api_key import hash_key_value
 from posthog.models.utils import generate_random_token_personal, uuid7
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
+from posthog.storage.recordings.errors import RecordingDeletedError
 
 
 class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest):
@@ -851,3 +852,55 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         assert snappy.decompress(block_3_data).decode("utf-8") == test_data_3
 
         assert offset == len(response_bytes)
+
+    # Tests for 410 Gone response when recording is deleted
+
+    @parameterized.expand(
+        [
+            ("cleartext", False, "cleartext_block_storage"),
+            ("recording_api", True, "encrypted_block_storage"),
+        ]
+    )
+    @patch("posthog.session_recordings.session_recording_api.list_blocks")
+    @patch(
+        "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
+        return_value=True,
+    )
+    @patch("posthog.session_recordings.session_recording_api.SessionRecording.get_or_build")
+    def test_blob_v2_returns_410_when_recording_deleted(
+        self,
+        _name,
+        use_recording_api,
+        storage_factory_name,
+        mock_get_session_recording,
+        _mock_exists,
+        mock_list_blocks,
+    ):
+        session_id = str(uuid7())
+
+        mock_get_session_recording.return_value = SessionRecording(session_id=session_id, team=self.team, deleted=False)
+
+        mock_list_blocks.return_value = [MagicMock(url="s3://bucket/key0?range=bytes=0-100")]
+
+        mock_storage = MagicMock()
+        mock_storage.fetch_decompressed_block = AsyncMock(
+            side_effect=RecordingDeletedError("recording deleted", deleted_at=1700000000)
+        )
+
+        with (
+            patch(
+                "posthog.session_recordings.session_recording_api.SessionRecordingViewSet._should_use_recording_api",
+                return_value=use_recording_api,
+            ),
+            patch(
+                f"posthog.session_recordings.session_recording_api.{storage_factory_name}",
+            ) as mock_factory,
+        ):
+            mock_factory.return_value.__aenter__.return_value = mock_storage
+
+            url = f"/api/projects/{self.team.pk}/session_recordings/{session_id}/snapshots/?source=blob_v2&start_blob_key=0&end_blob_key=0"
+            response = self.client.get(url)
+
+        assert response.status_code == status.HTTP_410_GONE
+        assert response.json()["error"] == "recording_deleted"
+        assert response.json()["deleted_at"] == 1700000000
