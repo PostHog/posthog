@@ -130,20 +130,25 @@ export const flagSelectionLogic = kea<flagSelectionLogicType>([
                         const allDeleted: DeletedFlagInfo[] = []
                         const allErrors: Array<{ id: number; key?: string; reason: string }> = []
 
-                        for (let i = 0; i < totalFlags; i += BULK_DELETE_BATCH_SIZE) {
-                            const batch = idsToDelete.slice(i, i + BULK_DELETE_BATCH_SIZE)
-                            actions.setBulkDeleteProgress({ current: i, total: totalFlags })
+                        try {
+                            for (let i = 0; i < totalFlags; i += BULK_DELETE_BATCH_SIZE) {
+                                const batch = idsToDelete.slice(i, i + BULK_DELETE_BATCH_SIZE)
 
-                            const response = (await api.create(
-                                `api/projects/${values.currentProjectId}/feature_flags/bulk_delete/`,
-                                { ids: batch }
-                            )) as BulkDeleteResult
+                                const response = (await api.create(
+                                    `api/projects/${values.currentProjectId}/feature_flags/bulk_delete/`,
+                                    { ids: batch }
+                                )) as BulkDeleteResult
 
-                            allDeleted.push(...response.deleted)
-                            allErrors.push(...response.errors)
+                                allDeleted.push(...response.deleted)
+                                allErrors.push(...response.errors)
+
+                                // Update progress after each batch completes (shows completed count)
+                                actions.setBulkDeleteProgress({ current: allDeleted.length, total: totalFlags })
+                            }
+                        } finally {
+                            actions.setBulkDeleteProgress(null)
                         }
 
-                        actions.setBulkDeleteProgress(null)
                         return { deleted: allDeleted, errors: allErrors }
                     }
 
@@ -260,6 +265,10 @@ export const flagSelectionLogic = kea<flagSelectionLogicType>([
                 actions.setSelectedFlagIds(matchingFlagIds.ids)
                 actions.setAllMatchingSelected(true)
             }
+        },
+        loadMatchingFlagIdsFailure: () => {
+            // Reset to page-only selection on failure
+            actions.setAllMatchingSelected(false)
         },
         setFeatureFlagsFilters: () => {
             actions.clearSelection()

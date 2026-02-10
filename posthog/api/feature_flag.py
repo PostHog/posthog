@@ -1969,13 +1969,13 @@ class FeatureFlagViewSet(
         # Apply client filters (same filtering as list endpoint)
         queryset = self._filter_request(self.request, queryset)
 
-        # Get all matching flags
-        flags = list(queryset)
-
-        # If no access control, all flags are editable
+        # If no access control, fetch IDs directly without loading full rows
         if not self.user_access_control:
-            editable_ids = [f.id for f in flags]
+            editable_ids = list(queryset.values_list("id", flat=True))
         else:
+            # Load only the id field to minimize data transfer
+            flags = list(queryset.only("id"))
+
             # Preload access controls to avoid N+1 queries
             self.user_access_control.preload_object_access_controls(cast(list, flags))
 
