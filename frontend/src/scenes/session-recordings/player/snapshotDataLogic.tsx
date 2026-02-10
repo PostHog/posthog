@@ -33,6 +33,23 @@ export interface SnapshotLogicProps {
     accessToken?: string
 }
 
+/** Find which blob source index contains the given timestamp. Returns the index, clamped to bounds. */
+function getBlobIndexForTimestamp(snapshotSources: SessionRecordingSnapshotSource[], timestamp: number): number {
+    for (let i = 0; i < snapshotSources.length; i++) {
+        const source = snapshotSources[i]
+        const startTs = source.start_timestamp ? new Date(source.start_timestamp).getTime() : null
+        const endTs = source.end_timestamp ? new Date(source.end_timestamp).getTime() : null
+        if (startTs && endTs && timestamp >= startTs && timestamp <= endTs) {
+            return i
+        }
+    }
+    const firstStart = snapshotSources[0].start_timestamp
+    if (firstStart && timestamp < new Date(firstStart).getTime()) {
+        return 0
+    }
+    return snapshotSources.length - 1
+}
+
 export type LoadingPhase =
     | 'sequential' // Default: load from start (existing behavior)
     | 'find_target' // Loading blob window around target timestamp
@@ -687,24 +704,7 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                     if (!snapshotSources?.length) {
                         return null
                     }
-
-                    for (let i = 0; i < snapshotSources.length; i++) {
-                        const source = snapshotSources[i]
-                        const startTs = source.start_timestamp ? new Date(source.start_timestamp).getTime() : null
-                        const endTs = source.end_timestamp ? new Date(source.end_timestamp).getTime() : null
-
-                        if (startTs && endTs && timestamp >= startTs && timestamp <= endTs) {
-                            return i
-                        }
-                    }
-
-                    // If timestamp is before first blob, return first blob
-                    const firstStart = snapshotSources[0].start_timestamp
-                    if (firstStart && timestamp < new Date(firstStart).getTime()) {
-                        return 0
-                    }
-                    // Otherwise return last blob
-                    return snapshotSources.length - 1
+                    return getBlobIndexForTimestamp(snapshotSources, timestamp)
                 }
             },
         ],
@@ -732,24 +732,8 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                 // Get the nearest (latest) FullSnapshot before target
                 const nearestFullSnapshotTs = validFullSnapshots[validFullSnapshots.length - 1]
 
-                const getBlobIndexForTimestamp = (ts: number): number => {
-                    for (let i = 0; i < snapshotSources.length; i++) {
-                        const source = snapshotSources[i]
-                        const startTs = source.start_timestamp ? new Date(source.start_timestamp).getTime() : null
-                        const endTs = source.end_timestamp ? new Date(source.end_timestamp).getTime() : null
-                        if (startTs && endTs && ts >= startTs && ts <= endTs) {
-                            return i
-                        }
-                    }
-                    const firstStart = snapshotSources[0].start_timestamp
-                    if (firstStart && ts < new Date(firstStart).getTime()) {
-                        return 0
-                    }
-                    return snapshotSources.length - 1
-                }
-
                 return {
-                    blobIndex: getBlobIndexForTimestamp(nearestFullSnapshotTs),
+                    blobIndex: getBlobIndexForTimestamp(snapshotSources, nearestFullSnapshotTs),
                     timestamp: nearestFullSnapshotTs,
                 }
             },
@@ -769,6 +753,15 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
 
                 const { fullSnapshots } = playabilityMarkers
 
+                const isSourceLoaded = (index: number): boolean => {
+                    const source = snapshotSources[index]
+                    if (!source) {
+                        return false
+                    }
+                    const sourceKey = keyForSource(source)
+                    return !!snapshotsBySources[sourceKey]?.sourceLoaded
+                }
+
                 // Find FullSnapshots at or before target timestamp
                 const validFullSnapshots = fullSnapshots.filter((ts) => ts <= targetTimestamp)
                 if (validFullSnapshots.length === 0) {
@@ -776,15 +769,6 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                     // If we have blob 0 loaded AND there's at least one FullSnapshot, we can play from it
                     // rrweb will start from the first available FullSnapshot
                     if (fullSnapshots.length > 0) {
-                        const isSourceLoaded = (index: number): boolean => {
-                            const source = snapshotSources[index]
-                            if (!source) {
-                                return false
-                            }
-                            const sourceKey = keyForSource(source)
-                            return !!snapshotsBySources[sourceKey]?.sourceLoaded
-                        }
-
                         // Check if blob 0 (first blob) is loaded - it should contain the first FullSnapshot
                         if (isSourceLoaded(0)) {
                             const firstFullSnapshotTs = fullSnapshots[0]
@@ -801,33 +785,8 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                 // Find the nearest FullSnapshot before target (largest timestamp <= targetTimestamp)
                 const nearestFullSnapshotTs = validFullSnapshots[validFullSnapshots.length - 1]
 
-                const getBlobIndexForTimestamp = (ts: number): number => {
-                    for (let i = 0; i < snapshotSources.length; i++) {
-                        const source = snapshotSources[i]
-                        const startTs = source.start_timestamp ? new Date(source.start_timestamp).getTime() : null
-                        const endTs = source.end_timestamp ? new Date(source.end_timestamp).getTime() : null
-                        if (startTs && endTs && ts >= startTs && ts <= endTs) {
-                            return i
-                        }
-                    }
-                    const firstStart = snapshotSources[0].start_timestamp
-                    if (firstStart && ts < new Date(firstStart).getTime()) {
-                        return 0
-                    }
-                    return snapshotSources.length - 1
-                }
-
-                const isSourceLoaded = (index: number): boolean => {
-                    const source = snapshotSources[index]
-                    if (!source) {
-                        return false
-                    }
-                    const sourceKey = keyForSource(source)
-                    return !!snapshotsBySources[sourceKey]?.sourceLoaded
-                }
-
-                const fullSnapshotBlobIndex = getBlobIndexForTimestamp(nearestFullSnapshotTs)
-                const targetBlobIndex = getBlobIndexForTimestamp(targetTimestamp)
+                const fullSnapshotBlobIndex = getBlobIndexForTimestamp(snapshotSources, nearestFullSnapshotTs)
+                const targetBlobIndex = getBlobIndexForTimestamp(snapshotSources, targetTimestamp)
 
                 // Check continuous coverage from FullSnapshot blob to target blob
                 // Also check one blob before for potential Meta event
