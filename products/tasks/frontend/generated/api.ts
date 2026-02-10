@@ -9,6 +9,7 @@
  */
 import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
+    ConnectionTokenResponseApi,
     PaginatedTaskListApi,
     PaginatedTaskRunDetailListApi,
     PatchedTaskApi,
@@ -19,6 +20,7 @@ import type {
     TaskRunArtifactPresignResponseApi,
     TaskRunArtifactsUploadRequestApi,
     TaskRunArtifactsUploadResponseApi,
+    TaskRunCreateRequestApi,
     TaskRunDetailApi,
     TasksListParams,
     TasksRunsListParams,
@@ -166,10 +168,17 @@ export const getTasksRunCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/tasks/${id}/run/`
 }
 
-export const tasksRunCreate = async (projectId: string, id: string, options?: RequestInit): Promise<TaskApi> => {
+export const tasksRunCreate = async (
+    projectId: string,
+    id: string,
+    taskRunCreateRequestApi: TaskRunCreateRequestApi,
+    options?: RequestInit
+): Promise<TaskApi> => {
     return apiMutator<TaskApi>(getTasksRunCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(taskRunCreateRequestApi),
     })
 }
 
@@ -332,6 +341,26 @@ export const tasksRunsArtifactsPresignCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(taskRunArtifactPresignRequestApi),
+    })
+}
+
+/**
+ * Generate a JWT token for direct connection to the sandbox. Valid for 24 hours.
+ * @summary Get sandbox connection token
+ */
+export const getTasksRunsConnectionTokenRetrieveUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/connection_token/`
+}
+
+export const tasksRunsConnectionTokenRetrieve = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ConnectionTokenResponseApi> => {
+    return apiMutator<ConnectionTokenResponseApi>(getTasksRunsConnectionTokenRetrieveUrl(projectId, taskId, id), {
+        ...options,
+        method: 'GET',
     })
 }
 
