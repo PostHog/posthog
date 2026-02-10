@@ -10,6 +10,7 @@ from parameterized import parameterized
 from posthog.temporal.llm_analytics.sentiment.model import SentimentResult
 from posthog.temporal.llm_analytics.sentiment.run_sentiment import (
     SentimentClassificationInput,
+    _classify_single_event,
     classify_sentiment_activity,
 )
 
@@ -51,26 +52,24 @@ def _make_event_data(
 
 class TestSentimentClassificationInput:
     def test_properties_to_log(self):
-        input = SentimentClassificationInput(event_data={"team_id": 1, "uuid": "abc"})
-        assert input.properties_to_log == {"team_id": 1, "event_uuid": "abc"}
+        inp = SentimentClassificationInput(events=[{"uuid": "abc"}, {"uuid": "def"}])
+        assert inp.properties_to_log == {"event_count": 2, "event_uuids": ["abc", "def"]}
 
     def test_parse_inputs(self):
         from posthog.temporal.llm_analytics.sentiment.run_sentiment import RunSentimentClassificationWorkflow
 
-        event_data = {"team_id": 1, "uuid": "abc"}
-        result = RunSentimentClassificationWorkflow.parse_inputs([json.dumps(event_data)])
-        assert result.event_data == event_data
+        events = [{"team_id": 1, "uuid": "abc"}, {"team_id": 1, "uuid": "def"}]
+        result = RunSentimentClassificationWorkflow.parse_inputs([json.dumps(events)])
+        assert result.events == events
 
 
-class TestClassifySentimentActivity:
+class TestClassifySingleEvent:
     @pytest.mark.asyncio
     @patch("posthog.temporal.llm_analytics.sentiment.run_sentiment.classify")
     @patch("posthog.temporal.llm_analytics.sentiment.run_sentiment.database_sync_to_async")
     async def test_skips_when_no_ai_input(self, mock_db_async, mock_classify):
         event_data = _make_event_data(ai_input=None)
-        input = SentimentClassificationInput(event_data=event_data)
-
-        result = await classify_sentiment_activity(input)
+        result = await _classify_single_event(event_data)
 
         assert result["skipped"] is True
         assert result["skip_reason"] == "no_ai_input"
@@ -85,9 +84,7 @@ class TestClassifySentimentActivity:
             {"role": "assistant", "content": "Hello!"},
         ]
         event_data = _make_event_data(ai_input=ai_input)
-        input = SentimentClassificationInput(event_data=event_data)
-
-        result = await classify_sentiment_activity(input)
+        result = await _classify_single_event(event_data)
 
         assert result["skipped"] is True
         assert result["skip_reason"] == "no_user_messages"
@@ -102,7 +99,6 @@ class TestClassifySentimentActivity:
             SentimentResult(label="negative", score=0.87, scores={"positive": 0.03, "neutral": 0.10, "negative": 0.87}),
         ]
 
-        # Make database_sync_to_async return a coroutine that resolves
         async def fake_emit():
             pass
 
@@ -115,22 +111,17 @@ class TestClassifySentimentActivity:
             {"role": "user", "content": "I'm frustrated"},
         ]
         event_data = _make_event_data(ai_input=ai_input)
-        input = SentimentClassificationInput(event_data=event_data)
-
-        result = await classify_sentiment_activity(input)
+        result = await _classify_single_event(event_data)
 
         assert result["skipped"] is False
-        # Overall = average of scores: positive=(0.10+0.03)/2=0.065, neutral=(0.70+0.10)/2=0.40, negative=(0.20+0.87)/2=0.535
         assert result["label"] == "negative"
         assert result["score"] == pytest.approx(0.535)
         assert result["scores"]["negative"] == pytest.approx(0.535)
         assert result["scores"]["neutral"] == pytest.approx(0.40)
         assert result["scores"]["positive"] == pytest.approx(0.065)
-        # Per-message results
         assert len(result["per_message"]) == 2
         assert result["per_message"][0]["label"] == "neutral"
         assert result["per_message"][1]["label"] == "negative"
-        # Called once per user message
         assert mock_classify.call_count == 2
 
     @pytest.mark.asyncio
@@ -144,9 +135,7 @@ class TestClassifySentimentActivity:
             "person_id": None,
             "properties": json.dumps({"$ai_trace_id": "trace-1"}),
         }
-        input = SentimentClassificationInput(event_data=event_data)
-
-        result = await classify_sentiment_activity(input)
+        result = await _classify_single_event(event_data)
 
         assert result["skipped"] is True
         assert result["skip_reason"] == "no_ai_input"
@@ -167,24 +156,18 @@ class TestClassifySentimentActivity:
             {"role": "user", "content": "This is broken"},
         ]
         event_data = _make_event_data(ai_input=ai_input)
-        input = SentimentClassificationInput(event_data=event_data)
+        result = await _classify_single_event(event_data)
 
-        result = await classify_sentiment_activity(input)
-
-        # Overall = average: positive=(0.95+0.05)/2=0.50, neutral=(0.03+0.15)/2=0.09, negative=(0.02+0.80)/2=0.41
         assert result["label"] == "positive"
         mock_create_event.assert_called_once()
         call_kwargs = mock_create_event.call_args
         props = call_kwargs.kwargs.get("properties") or call_kwargs[1].get("properties")
         assert props["$ai_sentiment_label"] == "positive"
-        # Max message-level scores: positive max=0.95 (msg1), negative max=0.80 (msg2)
         assert props["$ai_sentiment_positive_max_score"] == pytest.approx(0.95)
         assert props["$ai_sentiment_negative_max_score"] == pytest.approx(0.80)
-        # Per-message array present
         assert len(props["$ai_sentiment_messages"]) == 2
         assert props["$ai_sentiment_messages"][0]["label"] == "positive"
         assert props["$ai_sentiment_messages"][1]["label"] == "negative"
-        # Uses generation event timestamp, not now()
         assert (call_kwargs.kwargs.get("timestamp") or call_kwargs[1].get("timestamp")) == "2024-06-15 12:00:00.000000"
 
     @pytest.mark.asyncio
@@ -202,9 +185,7 @@ class TestClassifySentimentActivity:
 
         ai_input = [{"role": "user", "content": "I love this!"}]
         event_data = _make_event_data(ai_input=ai_input)
-        input = SentimentClassificationInput(event_data=event_data)
-
-        result = await classify_sentiment_activity(input)
+        result = await _classify_single_event(event_data)
 
         assert result["label"] == "positive"
         assert result["score"] == 0.92
@@ -239,9 +220,7 @@ class TestClassifySentimentActivity:
 
         ai_input = [{"role": "user", "content": "hello"}]
         event_data = _make_event_data(ai_input=ai_input, extra_properties=props)
-        input = SentimentClassificationInput(event_data=event_data)
-
-        result = await classify_sentiment_activity(input)
+        result = await _classify_single_event(event_data)
 
         assert result["skipped"] is False
         mock_create_event.assert_called_once()
@@ -269,9 +248,8 @@ class TestClassifySentimentActivity:
 
         ai_input = [{"role": "user", "content": "hello"}]
         event_data = _make_event_data(ai_input=ai_input, timestamp=event_timestamp)
-        input = SentimentClassificationInput(event_data=event_data)
 
-        await classify_sentiment_activity(input)
+        await _classify_single_event(event_data)
 
         mock_create_event.assert_called_once()
         call_kwargs = mock_create_event.call_args
@@ -279,7 +257,112 @@ class TestClassifySentimentActivity:
         if expected_timestamp is not None:
             assert actual_timestamp == expected_timestamp
         else:
-            # Falls back to datetime.now(UTC) — just check it's a datetime, not a string
             from datetime import datetime
 
             assert isinstance(actual_timestamp, datetime)
+
+
+class TestClassifySentimentActivity:
+    @pytest.mark.asyncio
+    @patch("posthog.temporal.llm_analytics.sentiment.run_sentiment.database_sync_to_async")
+    @patch("posthog.temporal.llm_analytics.sentiment.run_sentiment.classify")
+    async def test_batch_multiple_events_all_succeed(self, mock_classify, mock_db_async):
+        mock_classify.return_value = SentimentResult(
+            label="positive", score=0.90, scores={"positive": 0.90, "neutral": 0.07, "negative": 0.03}
+        )
+
+        async def fake_emit():
+            pass
+
+        mock_db_async.return_value = lambda: fake_emit()
+
+        events = [
+            _make_event_data(ai_input=[{"role": "user", "content": "Great!"}], uuid="evt-1"),
+            _make_event_data(ai_input=[{"role": "user", "content": "Awesome!"}], uuid="evt-2"),
+            _make_event_data(ai_input=[{"role": "user", "content": "Love it!"}], uuid="evt-3"),
+        ]
+        inp = SentimentClassificationInput(events=events)
+        result = await classify_sentiment_activity(inp)
+
+        assert result["processed"] == 3
+        assert result["skipped"] == 0
+        assert result["failed"] == 0
+        assert len(result["results"]) == 3
+        assert all(r["label"] == "positive" for r in result["results"])
+
+    @pytest.mark.asyncio
+    @patch("posthog.temporal.llm_analytics.sentiment.run_sentiment.database_sync_to_async")
+    @patch("posthog.temporal.llm_analytics.sentiment.run_sentiment.classify")
+    async def test_batch_partial_failure(self, mock_classify, mock_db_async):
+        call_count = 0
+
+        def classify_side_effect(text):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 2:
+                raise RuntimeError("ONNX inference failed")
+            return SentimentResult(
+                label="neutral", score=0.80, scores={"positive": 0.10, "neutral": 0.80, "negative": 0.10}
+            )
+
+        mock_classify.side_effect = classify_side_effect
+
+        async def fake_emit():
+            pass
+
+        mock_db_async.return_value = lambda: fake_emit()
+
+        events = [
+            _make_event_data(ai_input=[{"role": "user", "content": "Hello"}], uuid="evt-1"),
+            _make_event_data(ai_input=[{"role": "user", "content": "World"}], uuid="evt-2"),
+            _make_event_data(ai_input=[{"role": "user", "content": "Bye"}], uuid="evt-3"),
+        ]
+        inp = SentimentClassificationInput(events=events)
+        result = await classify_sentiment_activity(inp)
+
+        assert result["processed"] == 2
+        assert result["failed"] == 1
+        assert result["skipped"] == 0
+        assert len(result["results"]) == 3
+
+    @pytest.mark.asyncio
+    @patch("posthog.temporal.llm_analytics.sentiment.run_sentiment.classify")
+    @patch("posthog.temporal.llm_analytics.sentiment.run_sentiment.database_sync_to_async")
+    async def test_batch_all_skipped_no_user_messages(self, mock_db_async, mock_classify):
+        events = [
+            _make_event_data(
+                ai_input=[{"role": "system", "content": "System msg"}],
+                uuid="evt-1",
+            ),
+            _make_event_data(ai_input=None, uuid="evt-2"),
+        ]
+        inp = SentimentClassificationInput(events=events)
+        result = await classify_sentiment_activity(inp)
+
+        assert result["processed"] == 0
+        assert result["skipped"] == 2
+        assert result["failed"] == 0
+        mock_classify.assert_not_called()
+
+    @pytest.mark.asyncio
+    @patch("posthog.temporal.llm_analytics.sentiment.run_sentiment.database_sync_to_async")
+    @patch("posthog.temporal.llm_analytics.sentiment.run_sentiment.classify")
+    async def test_batch_single_event_matches_previous_behavior(self, mock_classify, mock_db_async):
+        mock_classify.return_value = SentimentResult(
+            label="positive", score=0.92, scores={"positive": 0.92, "neutral": 0.05, "negative": 0.03}
+        )
+
+        async def fake_emit():
+            pass
+
+        mock_db_async.return_value = lambda: fake_emit()
+
+        events = [_make_event_data(ai_input=[{"role": "user", "content": "I love this!"}])]
+        inp = SentimentClassificationInput(events=events)
+        result = await classify_sentiment_activity(inp)
+
+        assert result["processed"] == 1
+        assert result["skipped"] == 0
+        assert result["failed"] == 0
+        assert result["results"][0]["label"] == "positive"
+        assert result["results"][0]["score"] == 0.92

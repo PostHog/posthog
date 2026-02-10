@@ -1,13 +1,14 @@
 """Temporal workflow and activity for async sentiment classification of $ai_generation events.
 
-Follows the pattern of run_evaluation.py: a workflow that orchestrates activities
-to fetch event data, classify sentiment, and emit a $ai_sentiment event.
+Processes batches of events: the Kafka scheduler collects sampled events and starts
+one workflow containing them all. The activity classifies each event independently,
+emitting individual $ai_sentiment events. Individual failures are logged and skipped.
 """
 
 import json
 import uuid
 import asyncio
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
@@ -53,13 +54,13 @@ SENTIMENT_RETRY_POLICY = RetryPolicy(
 
 @dataclass
 class SentimentClassificationInput:
-    event_data: dict[str, Any]
+    events: list[dict[str, Any]] = field(default_factory=list)
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
         return {
-            "team_id": self.event_data.get("team_id"),
-            "event_uuid": self.event_data.get("uuid"),
+            "event_count": len(self.events),
+            "event_uuids": [e.get("uuid") for e in self.events[:5]],
         }
 
 
@@ -73,16 +74,11 @@ class SentimentClassificationResult:
     skip_reason: str | None = None
 
 
-@temporalio.activity.defn
-async def classify_sentiment_activity(input: SentimentClassificationInput) -> dict[str, Any]:
-    """Classify sentiment of user messages in a $ai_generation event.
+async def _classify_single_event(event_data: dict[str, Any]) -> dict[str, Any]:
+    """Classify sentiment for a single $ai_generation event and emit $ai_sentiment.
 
-    1. Extract $ai_input from event properties
-    2. Filter for user messages and concatenate
-    3. Classify via local HuggingFace model
-    4. Emit $ai_sentiment event to ClickHouse
+    Returns a result dict with classification info or skip/error status.
     """
-    event_data = input.event_data
     team_id = event_data["team_id"]
     bind_contextvars(team_id=team_id, event_uuid=event_data.get("uuid"))
 
@@ -90,7 +86,6 @@ async def classify_sentiment_activity(input: SentimentClassificationInput) -> di
     if isinstance(properties, str):
         properties = json.loads(properties)
 
-    # Extract user messages from $ai_input
     ai_input = properties.get("$ai_input")
     if not ai_input:
         logger.info("Skipping sentiment: no $ai_input")
@@ -107,29 +102,25 @@ async def classify_sentiment_activity(input: SentimentClassificationInput) -> di
             "skip_reason": "no_user_messages",
         }
 
-    # Classify each user message individually, heartbeating between messages
-    # so Temporal knows we're alive (especially important with many messages).
     per_message_results: list[dict[str, Any]] = []
     classify_results: list[SentimentClassificationResult] = []
-    async with _classify_lock:
-        for i, text in enumerate(individual_messages):
-            truncated = truncate_to_token_limit(text)
-            msg_result = await asyncio.to_thread(classify, truncated)
-            per_message_results.append(
-                {
-                    "label": msg_result.label,
-                    "score": msg_result.score,
-                }
+    for text in individual_messages:
+        truncated = truncate_to_token_limit(text)
+        msg_result = await asyncio.to_thread(classify, truncated)
+        per_message_results.append(
+            {
+                "label": msg_result.label,
+                "score": msg_result.score,
+            }
+        )
+        classify_results.append(
+            SentimentClassificationResult(
+                label=msg_result.label,
+                score=msg_result.score,
+                scores=msg_result.scores,
+                text=truncated,
             )
-            classify_results.append(
-                SentimentClassificationResult(
-                    label=msg_result.label,
-                    score=msg_result.score,
-                    scores=msg_result.scores,
-                    text=truncated,
-                )
-            )
-            temporalio.activity.heartbeat(f"classified {i + 1}/{len(individual_messages)}")
+        )
 
     # Overall sentiment = average of per-message softmax scores
     n = len(classify_results)
@@ -145,13 +136,8 @@ async def classify_sentiment_activity(input: SentimentClassificationInput) -> di
     trace_id = properties.get("$ai_trace_id")
     session_id = properties.get("$ai_session_id")
     generation_event_uuid = event_data.get("uuid")
-    # Use the generation's logical ID so the sentiment event can nest under it
-    # in the trace tree. The frontend resolves $ai_parent_id against
-    # $ai_generation_id ?? $ai_span_id ?? event.id.
     generation_parent_id = properties.get("$ai_generation_id") or properties.get("$ai_span_id") or generation_event_uuid
     distinct_id = event_data.get("distinct_id", "")
-    # Use the original generation event's timestamp so the sentiment event
-    # aligns with trace time windows rather than classification time.
     generation_timestamp = event_data.get("timestamp")
 
     def _emit():
@@ -198,12 +184,52 @@ async def classify_sentiment_activity(input: SentimentClassificationInput) -> di
     }
 
 
+@temporalio.activity.defn
+async def classify_sentiment_activity(input: SentimentClassificationInput) -> dict[str, Any]:
+    """Classify sentiment for a batch of $ai_generation events.
+
+    Processes each event independently with try/except so individual failures
+    don't block the rest of the batch.
+    """
+    processed = 0
+    skipped = 0
+    failed = 0
+    results: list[dict[str, Any]] = []
+
+    async with _classify_lock:
+        for i, event_data in enumerate(input.events):
+            try:
+                result = await _classify_single_event(event_data)
+                if result.get("skipped"):
+                    skipped += 1
+                else:
+                    processed += 1
+                results.append(result)
+            except Exception:
+                logger.exception(
+                    "Failed to classify event",
+                    event_uuid=event_data.get("uuid"),
+                    team_id=event_data.get("team_id"),
+                )
+                failed += 1
+                results.append({"skipped": False, "error": True, "event_uuid": event_data.get("uuid")})
+
+            temporalio.activity.heartbeat(f"event {i + 1}/{len(input.events)}")
+
+    return {
+        "processed": processed,
+        "skipped": skipped,
+        "failed": failed,
+        "results": results,
+    }
+
+
 @temporalio.workflow.defn(name="llma-run-sentiment-classification")
 class RunSentimentClassificationWorkflow(PostHogWorkflow):
     @staticmethod
     def parse_inputs(inputs: list[str]) -> SentimentClassificationInput:
         return SentimentClassificationInput(
-            event_data=json.loads(inputs[0]),
+            events=json.loads(inputs[0]),
         )
 
     @temporalio.workflow.run
