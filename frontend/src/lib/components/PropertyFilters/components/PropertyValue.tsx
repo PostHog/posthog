@@ -282,7 +282,7 @@ export function PropertyValue({
         )
     }
 
-    function formatLabelContent(value: any): JSX.Element {
+    function formatLabelContent(value: string | boolean | undefined): JSX.Element {
         const name = toString(value)
         if (name === '') {
             return <i>(empty string)</i>

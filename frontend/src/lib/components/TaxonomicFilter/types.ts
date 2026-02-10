@@ -5,16 +5,28 @@ import { ReactNode } from 'react'
 import { DataWarehouseTableForInsight } from 'scenes/data-warehouse/types'
 import { LocalFilter } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { MaxContextTaxonomicFilterOption } from 'scenes/max/maxTypes'
+import { NotebookType } from 'scenes/notebooks/types'
 import { ReplayTaxonomicFilterProperty } from 'scenes/session-recordings/filters/ReplayTaxonomicFilters'
 
-import { AnyDataNode, DatabaseSchemaField, DatabaseSerializedFieldType } from '~/queries/schema/schema-general'
+import {
+    AnyDataNode,
+    DatabaseSchemaField,
+    DatabaseSchemaTable,
+    DatabaseSerializedFieldType,
+} from '~/queries/schema/schema-general'
 import {
     ActionType,
     CohortType,
+    DashboardType,
     EventDefinition,
+    Experiment,
+    FeatureFlagType,
+    Group,
     PersonProperty,
+    PersonType,
     PropertyDefinition,
     PropertyFilterType,
+    QueryBasedInsightModel,
 } from '~/types'
 
 export interface SimpleOption {
@@ -32,7 +44,12 @@ export interface TaxonomicFilterProps {
     value?: TaxonomicFilterValue
     // sometimes the filter searches for a different value than provided e.g. a URL will be searched as $current_url
     // in that case the original value is returned here as well as the property that the user chose
-    onChange?: (group: TaxonomicFilterGroup, value: TaxonomicFilterValue, item: any, originalQuery?: string) => void
+    onChange?: (
+        group: TaxonomicFilterGroup,
+        value: TaxonomicFilterValue,
+        item: TaxonomicDefinitionTypes,
+        originalQuery?: string
+    ) => void
     onEnter?: (query: string) => void
     onClose?: () => void
     filter?: LocalFilter
@@ -86,7 +103,7 @@ export interface TaxonomicFilterLogicProps extends TaxonomicFilterProps {
 export type TaxonomicFilterValue = string | number | null
 export type TaxonomicFilterRenderProps = {
     value?: TaxonomicFilterValue
-    onChange: (value: TaxonomicFilterValue, item: any) => void
+    onChange: (value: TaxonomicFilterValue, item: TaxonomicDefinitionTypes) => void
     /** allows the component to access the infinite list logic e.g. to react to search results */
     infiniteListLogicProps: InfiniteListLogicProps
 }
@@ -111,20 +128,20 @@ export interface TaxonomicFilterGroup {
     expandLabel?: (props: { count: number; expandedCount: number }) => ReactNode
     /** Static message shown at the bottom of the list */
     footerMessage?: ReactNode
-    options?: Record<string, any>[]
+    options?: TaxonomicDefinitionTypes[]
     logic?: LogicWrapper
     value?: string
     searchAlias?: string
     valuesEndpoint?: (propertyKey: string) => string | undefined
-    getGroup?: (instance: any) => TaxonomicFilterGroup
-    getName?: (instance: any) => string
-    getValue?: (instance: any) => TaxonomicFilterValue
-    getPopoverHeader: (instance: any) => string
-    getIcon?: (instance: any) => JSX.Element
+    getGroup?: (instance: TaxonomicDefinitionTypes) => TaxonomicFilterGroup
+    getName?: (instance: TaxonomicDefinitionTypes) => string
+    getValue?: (instance: TaxonomicDefinitionTypes) => TaxonomicFilterValue
+    getPopoverHeader: (instance: TaxonomicDefinitionTypes) => string
+    getIcon?: (instance: TaxonomicDefinitionTypes) => JSX.Element
     /** Determines if an item should be disabled (unselectable) */
-    getIsDisabled?: (instance: any) => boolean
+    getIsDisabled?: (instance: TaxonomicDefinitionTypes) => boolean
     groupTypeIndex?: number
-    getFullDetailUrl?: (instance: any) => string
+    getFullDetailUrl?: (instance: TaxonomicDefinitionTypes) => string
     excludedProperties?: string[]
     propertyAllowList?: string[]
     /** Passed to the component specified via the `render` key */
@@ -219,3 +236,13 @@ export type TaxonomicDefinitionTypes =
     | DataWarehouseTableForInsight
     | MaxContextTaxonomicFilterOption
     | ReplayTaxonomicFilterProperty
+    | SimpleOption
+    | DatabaseSchemaField
+    | DatabaseSchemaTable
+    | PersonType
+    | Group
+    | DashboardType
+    | FeatureFlagType
+    | Experiment
+    | QueryBasedInsightModel
+    | NotebookType
