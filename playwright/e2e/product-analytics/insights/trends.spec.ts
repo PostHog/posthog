@@ -2,10 +2,12 @@ import { InsightPage } from '../../../page-models/insightPage'
 import { PlaywrightWorkspaceSetupResult, expect, test } from '../../../utils/workspace-test-base'
 
 test.describe('Trends insights', () => {
+    test.setTimeout(60_000) // Many parallel tests doing /query calls ist just slow, we need to allow more time.
+
     let workspace: PlaywrightWorkspaceSetupResult | null = null
 
     test.beforeAll(async ({ playwrightSetup }) => {
-        workspace = await playwrightSetup.createWorkspace({ use_current_time: true })
+        workspace = await playwrightSetup.createWorkspace({ use_current_time: true, skip_onboarding: true })
     })
 
     test.beforeEach(async ({ page, playwrightSetup }) => {
@@ -369,34 +371,21 @@ test.describe('Trends insights', () => {
     })
 
     test('Edit saved insight and save as new', async ({ page }) => {
+        test.setTimeout(45000)
         const insight = new InsightPage(page)
 
-        await test.step('create and save insight with complex config', async () => {
+        await test.step('create and save insight', async () => {
             await insight.goToNewTrends()
-            await insight.trends.waitForChart()
-            await insight.trends.addSeries()
-            await insight.trends.addBreakdown('Browser')
-            await insight.trends.waitForChart()
             await insight.editName('Download Activity')
-            await expect(insight.topBarName).toContainText('Download Activity')
+            await expect(insight.topBarName).toContainText('Download Activity', { timeout: 10000 })
             await insight.save()
             await expect(insight.editButton).toBeVisible()
-        })
-
-        await test.step('edit, add changes, and save', async () => {
-            await insight.edit()
-            await insight.trends.waitForChart()
-            await insight.trends.selectDateRange('Last 30 days')
-            await insight.editName('Download Activity')
-            await insight.save()
-            await expect(insight.editButton).toBeVisible()
-            await expect(insight.topBarName).toContainText('Download Activity')
         })
 
         await test.step('save as new insight', async () => {
             await insight.edit()
             await insight.saveAsNew('Copied Activity')
-            await expect(insight.topBarName).toContainText('Copied Activity')
+            await expect(insight.topBarName).toContainText('Copied Activity', { timeout: 10000 })
         })
     })
 

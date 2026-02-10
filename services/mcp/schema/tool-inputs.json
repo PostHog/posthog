@@ -1166,29 +1166,7 @@
                                                     "type": "string"
                                                 },
                                                 "value": {
-                                                    "anyOf": [
-                                                        {
-                                                            "type": "string"
-                                                        },
-                                                        {
-                                                            "type": "number"
-                                                        },
-                                                        {
-                                                            "type": "boolean"
-                                                        },
-                                                        {
-                                                            "type": "array",
-                                                            "items": {
-                                                                "type": "string"
-                                                            }
-                                                        },
-                                                        {
-                                                            "type": "array",
-                                                            "items": {
-                                                                "type": "number"
-                                                            }
-                                                        }
-                                                    ]
+                                                    "type": ["string", "number", "boolean"]
                                                 },
                                                 "operator": {
                                                     "type": "string",
@@ -1207,9 +1185,7 @@
                                                         "lt",
                                                         "lte",
                                                         "min",
-                                                        "max",
-                                                        "in",
-                                                        "not_in"
+                                                        "max"
                                                     ]
                                                 }
                                             },
@@ -1355,29 +1331,7 @@
                                                             "type": "string"
                                                         },
                                                         "value": {
-                                                            "anyOf": [
-                                                                {
-                                                                    "type": "string"
-                                                                },
-                                                                {
-                                                                    "type": "number"
-                                                                },
-                                                                {
-                                                                    "type": "boolean"
-                                                                },
-                                                                {
-                                                                    "type": "array",
-                                                                    "items": {
-                                                                        "type": "string"
-                                                                    }
-                                                                },
-                                                                {
-                                                                    "type": "array",
-                                                                    "items": {
-                                                                        "type": "number"
-                                                                    }
-                                                                }
-                                                            ]
+                                                            "type": ["string", "number", "boolean"]
                                                         },
                                                         "operator": {
                                                             "type": "string",
@@ -1396,9 +1350,7 @@
                                                                 "lt",
                                                                 "lte",
                                                                 "min",
-                                                                "max",
-                                                                "in",
-                                                                "not_in"
+                                                                "max"
                                                             ]
                                                         }
                                                     },
@@ -3689,29 +3641,7 @@
                                                     "type": "string"
                                                 },
                                                 "value": {
-                                                    "anyOf": [
-                                                        {
-                                                            "type": "string"
-                                                        },
-                                                        {
-                                                            "type": "number"
-                                                        },
-                                                        {
-                                                            "type": "boolean"
-                                                        },
-                                                        {
-                                                            "type": "array",
-                                                            "items": {
-                                                                "type": "string"
-                                                            }
-                                                        },
-                                                        {
-                                                            "type": "array",
-                                                            "items": {
-                                                                "type": "number"
-                                                            }
-                                                        }
-                                                    ]
+                                                    "type": ["string", "number", "boolean"]
                                                 },
                                                 "operator": {
                                                     "type": "string",
@@ -3730,9 +3660,7 @@
                                                         "lt",
                                                         "lte",
                                                         "min",
-                                                        "max",
-                                                        "in",
-                                                        "not_in"
+                                                        "max"
                                                     ]
                                                 }
                                             },
@@ -4578,29 +4506,7 @@
                                                     "type": "string"
                                                 },
                                                 "value": {
-                                                    "anyOf": [
-                                                        {
-                                                            "type": "string"
-                                                        },
-                                                        {
-                                                            "type": "number"
-                                                        },
-                                                        {
-                                                            "type": "boolean"
-                                                        },
-                                                        {
-                                                            "type": "array",
-                                                            "items": {
-                                                                "type": "string"
-                                                            }
-                                                        },
-                                                        {
-                                                            "type": "array",
-                                                            "items": {
-                                                                "type": "number"
-                                                            }
-                                                        }
-                                                    ]
+                                                    "type": ["string", "number", "boolean"]
                                                 },
                                                 "operator": {
                                                     "type": "string",
@@ -4619,9 +4525,7 @@
                                                         "lt",
                                                         "lte",
                                                         "min",
-                                                        "max",
-                                                        "in",
-                                                        "not_in"
+                                                        "max"
                                                     ]
                                                 }
                                             },
