@@ -849,6 +849,7 @@ export interface BasePerson {
     uuid: string
     properties_last_updated_at: PropertiesLastUpdatedAt
     properties_last_operation: PropertiesLastOperation | null
+    last_seen_at: string | null
 }
 
 /** Raw Person row from database. */
