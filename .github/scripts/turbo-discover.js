@@ -143,4 +143,5 @@ const products = getProducts(tasks, legacyChanged)
 console.error(`Products to test: ${JSON.stringify(products)}`)
 
 const durations = loadTestDurations()
-const matrix = buildMatrix(products, durations)
+// eslint-disable-next-line no-console
+process.stdout.write(JSON.stringify(buildMatrix(products, durations)) + '\n')

@@ -99,18 +99,23 @@ jobs:
                       --segment Core
                   uv run .github/scripts/optimize_test_durations.py timing_artifacts /tmp/temporal_durations \
                       --segment Temporal
+                  uv run .github/scripts/optimize_test_durations.py timing_artifacts /tmp/products_durations \
+                      --segment Products
 
-                  # Merge into single file (Core first, then Temporal overwrites any overlaps)
+                  # Merge into single file (Core → Temporal → Products, later segments overwrite overlaps)
                   python3 -c "
                   import json
-                  with open('/tmp/core_durations') as f: durations = json.load(f)
-                  with open('/tmp/temporal_durations') as f: durations.update(json.load(f))
+                  durations = {}
+                  for path in ['/tmp/core_durations', '/tmp/temporal_durations', '/tmp/products_durations']:
+                      try:
+                          with open(path) as f: durations.update(json.load(f))
+                      except FileNotFoundError: pass
                   with open('.test_durations', 'w') as f:
                       json.dump(durations, f, indent=4, sort_keys=True)
                       f.write('\n')
                   print(f'Merged {len(durations)} tests')
                   "
-                  rm -rf timing_artifacts /tmp/core_durations /tmp/temporal_durations
+                  rm -rf timing_artifacts /tmp/core_durations /tmp/temporal_durations /tmp/products_durations
 
             - name: Check for changes
               id: check-changes
