@@ -1,4 +1,6 @@
-import { EventHeaders, IncomingEventWithTeam, Team } from '../../types'
+import { PluginEvent } from '@posthog/plugin-scaffold'
+
+import { EventHeaders, Team } from '../../types'
 import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restrictions'
 import {
     createApplyPersonProcessingRestrictionsStep,
@@ -11,7 +13,7 @@ import { PipelineBuilder, StartPipelineBuilder } from '../pipelines/builders/pip
 
 export interface PostTeamPreprocessingSubpipelineInput {
     headers: EventHeaders
-    eventWithTeam: IncomingEventWithTeam
+    event: PluginEvent
     team: Team
 }
 

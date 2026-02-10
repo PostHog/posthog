@@ -1,10 +1,12 @@
-import { EventHeaders, IncomingEventWithTeam } from '../../types'
+import { PluginEvent } from '@posthog/plugin-scaffold'
+
+import { EventHeaders } from '../../types'
 import { PipelineResult, ok } from '../pipelines/results'
 import { OverflowEventBatch, OverflowRedirectService } from '../utils/overflow-redirect/overflow-redirect-service'
 
 export interface OverflowLaneTTLRefreshStepInput {
     headers: EventHeaders
-    eventWithTeam: IncomingEventWithTeam
+    event: PluginEvent
 }
 
 /**
@@ -25,9 +27,9 @@ export function createOverflowLaneTTLRefreshStep<T extends OverflowLaneTTLRefres
         // Group events by token:distinct_id for batch TTL refresh
         const keyStats = new Map<string, { token: string; distinctId: string; count: number; firstTimestamp: number }>()
 
-        for (const { headers, eventWithTeam } of inputs) {
+        for (const { headers, event } of inputs) {
             const token = headers.token ?? ''
-            const distinctId = eventWithTeam.event.distinct_id ?? ''
+            const distinctId = event.distinct_id ?? ''
             const eventKey = `${token}:${distinctId}`
             const timestamp = headers.now?.getTime() ?? Date.now()
 

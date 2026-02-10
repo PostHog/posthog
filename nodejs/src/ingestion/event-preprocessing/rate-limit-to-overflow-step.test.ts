@@ -1,5 +1,5 @@
-import { createTestMessage } from '../../../tests/helpers/kafka-message'
-import { EventHeaders, PipelineEvent, Team } from '../../types'
+import { PluginEvent } from '@posthog/plugin-scaffold'
+
 import { PipelineResultType } from '../pipelines/results'
 import { OverflowRedirectService } from '../utils/overflow-redirect/overflow-redirect-service'
 import { RateLimitToOverflowStepInput, createRateLimitToOverflowStep } from './rate-limit-to-overflow-step'
@@ -12,12 +12,15 @@ const createMockEvent = (token: string, distinctId: string, now?: Date): RateLim
         force_disable_person_processing: false,
         historical_migration: false,
     },
-    eventWithTeam: {
-        message: createTestMessage(),
-        event: { distinct_id: distinctId, token } as PipelineEvent,
-        team: { id: 1 } as Team,
-        headers: {} as EventHeaders,
-    },
+    event: {
+        distinct_id: distinctId,
+        team_id: 1,
+        ip: '127.0.0.1',
+        site_url: 'https://example.com',
+        now: (now ?? new Date()).toISOString(),
+        event: 'test-event',
+        uuid: '123e4567-e89b-12d3-a456-426614174000',
+    } as PluginEvent,
 })
 
 const createMockOverflowRedirectService = (

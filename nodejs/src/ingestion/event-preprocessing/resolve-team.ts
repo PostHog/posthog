@@ -1,9 +1,11 @@
 import { Message } from 'node-rdkafka'
 
+import { PluginEvent } from '@posthog/plugin-scaffold'
+
 import { TeamManager } from '~/utils/team-manager'
 
 import { eventDroppedCounter } from '../../common/metrics'
-import { EventHeaders, IncomingEvent, IncomingEventWithTeam, Team } from '../../types'
+import { EventHeaders, IncomingEvent, PipelineEvent, Team } from '../../types'
 import { tokenOrTeamPresentCounter } from '../../worker/ingestion/event-pipeline/metrics'
 import { drop, ok } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
@@ -15,20 +17,15 @@ export interface ResolveTeamStepInput {
 }
 
 export interface ResolveTeamStepOutput {
-    eventWithTeam: IncomingEventWithTeam
     team: Team
+    event: PluginEvent
 }
 
 type ResolveTeamError = { error: true; cause: 'no_token' | 'invalid_token' }
-type ResolveTeamSuccess = { error: false } & ResolveTeamStepOutput
+type ResolveTeamSuccess = { error: false; team: Team }
 type ResolveTeamResult = ResolveTeamSuccess | ResolveTeamError
 
-async function resolveTeam(
-    teamManager: TeamManager,
-    message: Message,
-    headers: EventHeaders,
-    event: IncomingEvent['event']
-): Promise<ResolveTeamResult> {
+async function resolveTeam(teamManager: TeamManager, event: PipelineEvent): Promise<ResolveTeamResult> {
     tokenOrTeamPresentCounter
         .labels({
             team_id_present: event.team_id ? 'true' : 'false',
@@ -58,30 +55,22 @@ async function resolveTeam(
         return { error: true, cause: 'invalid_token' }
     }
 
-    return {
-        error: false,
-        team,
-        eventWithTeam: {
-            event,
-            team,
-            message,
-            headers,
-        },
-    }
+    return { error: false, team }
 }
 
 export function createResolveTeamStep<TInput extends ResolveTeamStepInput>(
     teamManager: TeamManager
-): ProcessingStep<TInput, TInput & ResolveTeamStepOutput> {
+): ProcessingStep<TInput, Omit<TInput, 'event'> & ResolveTeamStepOutput> {
     return async function resolveTeamStep(input) {
-        const { message, headers, event } = input
+        const { event: incomingEvent } = input
 
-        const result = await resolveTeam(teamManager, message, headers, event.event)
+        const result = await resolveTeam(teamManager, incomingEvent.event)
 
         if (result.error) {
             return drop(result.cause)
         }
 
-        return ok({ ...input, eventWithTeam: result.eventWithTeam, team: result.team })
+        const pluginEvent: PluginEvent = { ...incomingEvent.event, team_id: result.team.id }
+        return ok({ ...input, team: result.team, event: pluginEvent })
     }
 }

@@ -12,23 +12,21 @@ describe('createEnrichSurveyPersonPropertiesStep', () => {
 
     const createEvent = (eventName: string, properties?: Record<string, unknown>, timestamp?: string) => ({
         event: {
-            event: {
-                event: eventName,
-                distinct_id: 'user123',
-                team_id: 1,
-                ip: '127.0.0.1',
-                site_url: 'https://example.com',
-                now: '2021-01-01T00:00:00Z',
-                uuid: '123e4567-e89b-12d3-a456-426614174000',
-                timestamp: timestamp || '2021-01-01T12:00:00Z',
-                properties,
-            },
-            headers: createTestEventHeaders({
-                token: 'token123',
-                distinct_id: 'user123',
-                timestamp: '2021-01-01T00:00:00Z',
-            }),
+            event: eventName,
+            distinct_id: 'user123',
+            team_id: 1,
+            ip: '127.0.0.1',
+            site_url: 'https://example.com',
+            now: '2021-01-01T00:00:00Z',
+            uuid: '123e4567-e89b-12d3-a456-426614174000',
+            timestamp: timestamp || '2021-01-01T12:00:00Z',
+            properties,
         },
+        headers: createTestEventHeaders({
+            token: 'token123',
+            distinct_id: 'user123',
+            timestamp: '2021-01-01T00:00:00Z',
+        }),
     })
 
     it('adds $survey_last_seen_date to $set for survey shown events', async () => {
@@ -36,7 +34,7 @@ describe('createEnrichSurveyPersonPropertiesStep', () => {
         const result = await step(input)
 
         expect(result.type).toBe(PipelineResultType.OK)
-        expect(input.event.event.properties!['$set']).toEqual({
+        expect(input.event.properties!['$set']).toEqual({
             [SURVEY_PERSON_PROPERTIES.LAST_SEEN_DATE]: '2021-01-01T12:00:00Z',
         })
     })
@@ -53,7 +51,7 @@ describe('createEnrichSurveyPersonPropertiesStep', () => {
         const result = await step(input)
 
         expect(result.type).toBe(PipelineResultType.OK)
-        expect(input.event.event.properties!['$set']).toEqual({
+        expect(input.event.properties!['$set']).toEqual({
             [SURVEY_PERSON_PROPERTIES.LAST_SEEN_DATE]: 'custom-override',
             existing_prop: 'value',
         })
@@ -64,7 +62,7 @@ describe('createEnrichSurveyPersonPropertiesStep', () => {
         const result = await step(input)
 
         expect(result.type).toBe(PipelineResultType.OK)
-        expect(input.event.event.properties!['$set']).toBeUndefined()
+        expect(input.event.properties!['$set']).toBeUndefined()
     })
 
     it('handles survey shown events with no properties', async () => {
@@ -72,7 +70,7 @@ describe('createEnrichSurveyPersonPropertiesStep', () => {
         const result = await step(input)
 
         expect(result.type).toBe(PipelineResultType.OK)
-        expect(input.event.event.properties!['$set']).toEqual({
+        expect(input.event.properties!['$set']).toEqual({
             [SURVEY_PERSON_PROPERTIES.LAST_SEEN_DATE]: '2021-01-01T12:00:00Z',
         })
     })

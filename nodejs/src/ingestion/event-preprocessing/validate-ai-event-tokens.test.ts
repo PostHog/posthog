@@ -50,22 +50,20 @@ describe('createValidateAiEventTokensStep', () => {
 
     const createEvent = (eventName: string, properties?: Record<string, unknown>) => ({
         event: {
-            event: {
-                event: eventName,
-                distinct_id: 'user123',
-                team_id: 1,
-                ip: '127.0.0.1',
-                site_url: 'https://example.com',
-                now: '2021-01-01T00:00:00Z',
-                uuid: '123e4567-e89b-12d3-a456-426614174000',
-                properties,
-            },
-            headers: createTestEventHeaders({
-                token: 'token123',
-                distinct_id: 'user123',
-                timestamp: '2021-01-01T00:00:00Z',
-            }),
+            event: eventName,
+            distinct_id: 'user123',
+            team_id: 1,
+            ip: '127.0.0.1',
+            site_url: 'https://example.com',
+            now: '2021-01-01T00:00:00Z',
+            uuid: '123e4567-e89b-12d3-a456-426614174000',
+            properties,
         },
+        headers: createTestEventHeaders({
+            token: 'token123',
+            distinct_id: 'user123',
+            timestamp: '2021-01-01T00:00:00Z',
+        }),
     })
 
     const expectAllowed = async (input: ReturnType<typeof createEvent>) => {

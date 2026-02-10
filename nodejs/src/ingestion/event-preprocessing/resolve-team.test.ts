@@ -105,14 +105,10 @@ describe('createResolveTeamStep()', () => {
         const response = await step(input)
         expect(response).toEqual(
             ok({
-                ...input,
+                message: {} as Message,
+                headers: {} as EventHeaders,
+                event: { ...pipelineEvent, token: teamTwoToken, team_id: teamTwo.id },
                 team: teamTwo,
-                eventWithTeam: {
-                    event: { ...pipelineEvent, token: teamTwoToken },
-                    team: teamTwo,
-                    message: input.message,
-                    headers: input.headers,
-                },
             })
         )
         expect(teamManager.getTeamByToken).toHaveBeenCalledWith(teamTwoToken)
@@ -152,14 +148,10 @@ describe('createResolveTeamStep()', () => {
         const response = await step(input)
         expect(response).toEqual(
             ok({
-                ...input,
+                message: {} as Message,
+                headers: {} as EventHeaders,
+                event: { ...pipelineEvent, team_id: teamTwo.id, token: teamTwoToken },
                 team: teamTwo,
-                eventWithTeam: {
-                    event: { ...pipelineEvent, team_id: 3, token: teamTwoToken },
-                    team: teamTwo,
-                    message: input.message,
-                    headers: input.headers,
-                },
             })
         )
         expect(teamManager.getTeamByToken).toHaveBeenCalledWith(teamTwoToken)

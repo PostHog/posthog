@@ -1,7 +1,7 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { PipelineResultType } from '~/ingestion/pipelines/results'
-import { IncomingEventWithTeam, Team } from '~/types'
+import { Team } from '~/types'
 
 import { PersonsStore } from '../../../../src/worker/ingestion/persons/persons-store'
 
@@ -31,10 +31,10 @@ describe('processPersonlessDistinctIdsBatchStep', () => {
         } as unknown as jest.Mocked<PersonsStore>
     })
 
-    const createEventWithTeam = (
+    const createEventInput = (
         distinctId: string,
         processPerson: boolean | undefined = undefined
-    ): { eventWithTeam: IncomingEventWithTeam } => {
+    ): { event: PluginEvent; team: Team } => {
         const event: PluginEvent = {
             distinct_id: distinctId,
             ip: null,
@@ -48,15 +48,8 @@ describe('processPersonlessDistinctIdsBatchStep', () => {
         }
 
         return {
-            eventWithTeam: {
-                event,
-                team,
-                message: {} as any,
-                headers: {
-                    force_disable_person_processing: false,
-                    historical_migration: false,
-                },
-            },
+            event,
+            team,
         }
     }
 
@@ -64,9 +57,9 @@ describe('processPersonlessDistinctIdsBatchStep', () => {
         it('should process personless events and call batch insert', async () => {
             const step = processPersonlessDistinctIdsBatchStep(mockPersonsStore, true)
             const events = [
-                createEventWithTeam('user-1', false),
-                createEventWithTeam('user-2', false),
-                createEventWithTeam('user-3', false),
+                createEventInput('user-1', false),
+                createEventInput('user-2', false),
+                createEventInput('user-3', false),
             ]
 
             const results = await step(events)
@@ -83,9 +76,9 @@ describe('processPersonlessDistinctIdsBatchStep', () => {
         it('should skip non-personless events', async () => {
             const step = processPersonlessDistinctIdsBatchStep(mockPersonsStore, true)
             const events = [
-                createEventWithTeam('user-1', true), // processPerson=true
-                createEventWithTeam('user-2', false), // processPerson=false (personless)
-                createEventWithTeam('user-3'), // processPerson=undefined (default, not personless)
+                createEventInput('user-1', true), // processPerson=true
+                createEventInput('user-2', false), // processPerson=false (personless)
+                createEventInput('user-3'), // processPerson=undefined (default, not personless)
             ]
 
             const results = await step(events)
@@ -98,7 +91,7 @@ describe('processPersonlessDistinctIdsBatchStep', () => {
 
         it('should not call batch insert when no personless events', async () => {
             const step = processPersonlessDistinctIdsBatchStep(mockPersonsStore, true)
-            const events = [createEventWithTeam('user-1', true), createEventWithTeam('user-2')]
+            const events = [createEventInput('user-1', true), createEventInput('user-2')]
 
             const results = await step(events)
 
@@ -110,7 +103,7 @@ describe('processPersonlessDistinctIdsBatchStep', () => {
             mockPersonsStore.processPersonlessDistinctIdsBatch.mockRejectedValue(new Error('DB error'))
 
             const step = processPersonlessDistinctIdsBatchStep(mockPersonsStore, true)
-            const events = [createEventWithTeam('user-1', false)]
+            const events = [createEventInput('user-1', false)]
 
             // The step should throw since we don't handle errors gracefully
             await expect(step(events)).rejects.toThrow('DB error')
@@ -120,7 +113,7 @@ describe('processPersonlessDistinctIdsBatchStep', () => {
     describe('when disabled', () => {
         it('should not process any events', async () => {
             const step = processPersonlessDistinctIdsBatchStep(mockPersonsStore, false)
-            const events = [createEventWithTeam('user-1', false), createEventWithTeam('user-2', false)]
+            const events = [createEventInput('user-1', false), createEventInput('user-2', false)]
 
             const results = await step(events)
 
@@ -134,9 +127,9 @@ describe('processPersonlessDistinctIdsBatchStep', () => {
         it('should deduplicate entries within same batch before hitting cache', async () => {
             const step = processPersonlessDistinctIdsBatchStep(mockPersonsStore, true)
             const events = [
-                createEventWithTeam('user-1', false),
-                createEventWithTeam('user-1', false), // Duplicate - deduped before cache/insert
-                createEventWithTeam('user-2', false),
+                createEventInput('user-1', false),
+                createEventInput('user-1', false), // Duplicate - deduped before cache/insert
+                createEventInput('user-2', false),
             ]
 
             await step(events)
@@ -152,7 +145,7 @@ describe('processPersonlessDistinctIdsBatchStep', () => {
             const step = processPersonlessDistinctIdsBatchStep(mockPersonsStore, true)
 
             // First batch
-            await step([createEventWithTeam('user-1', false)])
+            await step([createEventInput('user-1', false)])
             expect(mockPersonsStore.processPersonlessDistinctIdsBatch).toHaveBeenCalledWith([
                 { teamId: team.id, distinctId: 'user-1' },
             ])
@@ -160,7 +153,7 @@ describe('processPersonlessDistinctIdsBatchStep', () => {
             mockPersonsStore.processPersonlessDistinctIdsBatch.mockClear()
 
             // Second batch - user-1 should be cached, only user-2 should be inserted
-            await step([createEventWithTeam('user-1', false), createEventWithTeam('user-2', false)])
+            await step([createEventInput('user-1', false), createEventInput('user-2', false)])
             expect(mockPersonsStore.processPersonlessDistinctIdsBatch).toHaveBeenCalledWith([
                 { teamId: team.id, distinctId: 'user-2' },
             ])

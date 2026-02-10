@@ -1,8 +1,9 @@
 import { DateTime } from 'luxon'
-import { Message } from 'node-rdkafka'
 import { v4 } from 'uuid'
 
-import { EventHeaders, PipelineEvent, ProjectId, Team } from '../../types'
+import { PluginEvent } from '@posthog/plugin-scaffold'
+
+import { EventHeaders, ProjectId, Team } from '../../types'
 import { PipelineResultType, isDropResult } from '../pipelines/results'
 import { DropOldEventsInput, createDropOldEventsStep } from './drop-old-events-step'
 
@@ -34,7 +35,7 @@ describe('createDropOldEventsStep', () => {
         expect(result.warnings[0]).toMatchObject({
             type: 'event_dropped_too_old',
             details: {
-                eventUuid: input.eventWithTeam.event.uuid,
+                eventUuid: input.event.uuid,
                 event: '$pageview',
                 distinctId: 'user-1',
                 dropThresholdSeconds: 3600,
@@ -152,7 +153,7 @@ describe('createDropOldEventsStep', () => {
 function createTestInput(options: {
     dropThreshold?: number | null
     eventAgeSeconds?: number
-    event?: Partial<PipelineEvent>
+    event?: Partial<PluginEvent>
     team?: Partial<Team>
     headers?: Partial<EventHeaders> | null
 }): DropOldEventsInput {
@@ -173,12 +174,8 @@ function createTestInput(options: {
           })
 
     return {
-        eventWithTeam: {
-            message: createTestMessage(),
-            event: createTestEvent(event),
-            team: createTestTeam({ drop_events_older_than_seconds: dropThreshold, ...team }),
-            headers: createTestHeaders(),
-        },
+        event: createTestEvent(event),
+        team: createTestTeam({ drop_events_older_than_seconds: dropThreshold, ...team }),
         headers: resolvedHeaders,
     }
 }
@@ -207,7 +204,7 @@ function createTestTeam(overrides: Partial<Team> = {}): Team {
     }
 }
 
-function createTestEvent(overrides: Partial<PipelineEvent> = {}): PipelineEvent {
+function createTestEvent(overrides: Partial<PluginEvent> = {}): PluginEvent {
     return {
         uuid: v4(),
         event: '$pageview',
@@ -216,17 +213,7 @@ function createTestEvent(overrides: Partial<PipelineEvent> = {}): PipelineEvent 
         site_url: 'https://test.posthog.com',
         now: DateTime.utc().toISO()!,
         properties: {},
-        ...overrides,
-    }
-}
-
-function createTestMessage(overrides: Partial<Message> = {}): Message {
-    return {
-        value: Buffer.from('{}'),
-        size: 2,
-        topic: 'test-topic',
-        offset: 0,
-        partition: 0,
+        team_id: 1,
         ...overrides,
     }
 }

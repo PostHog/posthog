@@ -1,14 +1,11 @@
-import { IncomingEventWithTeam } from '../../types'
+import { PluginEvent } from '@posthog/plugin-scaffold'
+
 import { drop, ok } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
 
-export function createValidateEventPropertiesStep<T extends { eventWithTeam: IncomingEventWithTeam }>(): ProcessingStep<
-    T,
-    T
-> {
+export function createValidateEventPropertiesStep<T extends { event: PluginEvent }>(): ProcessingStep<T, T> {
     return async function validateEventPropertiesStep(input) {
-        const { eventWithTeam } = input
-        const { event } = eventWithTeam
+        const { event } = input
 
         // Validate $groupidentify group_key length
         if (event.event === '$groupidentify') {

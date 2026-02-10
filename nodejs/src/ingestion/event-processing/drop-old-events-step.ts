@@ -1,12 +1,15 @@
 import { DateTime } from 'luxon'
 
-import { EventHeaders, IncomingEventWithTeam } from '../../types'
+import { PluginEvent } from '@posthog/plugin-scaffold'
+
+import { EventHeaders, Team } from '../../types'
 import { PipelineWarning } from '../pipelines/pipeline.interface'
 import { PipelineResult, drop, ok } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
 
 export interface DropOldEventsInput {
-    eventWithTeam: IncomingEventWithTeam
+    event: PluginEvent
+    team: Team
     headers: Pick<EventHeaders, 'timestamp' | 'now'>
 }
 
@@ -22,8 +25,7 @@ export interface DropOldEventsInput {
  */
 export function createDropOldEventsStep<T extends DropOldEventsInput>(): ProcessingStep<T, T> {
     return function dropOldEventsStep(input: T): Promise<PipelineResult<T>> {
-        const { eventWithTeam, headers } = input
-        const { event, team } = eventWithTeam
+        const { event, team, headers } = input
 
         // If no drop threshold is set (null) or set to 0, don't drop any events
         // Zero threshold is ignored to protect from misconfiguration bugs

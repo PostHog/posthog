@@ -2,7 +2,6 @@ import { Message } from 'node-rdkafka'
 
 import { HogTransformerService } from '../../cdp/hog-transformations/hog-transformer.service'
 import { KafkaProducerWrapper } from '../../kafka/producer'
-import { PipelineEvent } from '../../types'
 import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restrictions'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
 import { TeamManager } from '../../utils/team-manager'
@@ -54,6 +53,7 @@ export interface JoinedIngestionPipelineContext {
 }
 
 type PreprocessedEventWithGroupStore = PostTeamPreprocessingSubpipelineInput & {
+    message: Message
     groupStoreForBatch: GroupStoreForBatch
 }
 
@@ -69,8 +69,8 @@ function mapToPerEventInput<C>(
     const input = element.result.value
     return {
         result: ok({
-            message: input.eventWithTeam.message,
-            event: input.eventWithTeam.event as PipelineEvent,
+            message: input.message,
+            event: input.event,
             team: input.team,
             headers: input.headers,
             groupStoreForBatch: input.groupStoreForBatch,
