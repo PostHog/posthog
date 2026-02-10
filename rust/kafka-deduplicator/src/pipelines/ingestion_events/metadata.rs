@@ -155,6 +155,10 @@ impl DeduplicationMetadata<RawEvent> for TimestampMetadata {
         TimestampMetadata::calculate_similarity(self, new_event)
     }
 
+    fn unique_uuids_count(&self) -> usize {
+        self.seen_uuids.len()
+    }
+
     fn to_bytes(&self) -> Result<Vec<u8>> {
         bincode::serde::encode_to_vec(self, bincode::config::standard())
             .map_err(|e| anyhow::anyhow!("Failed to serialize metadata: {}", e))

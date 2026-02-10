@@ -79,13 +79,6 @@ impl ClickHouseEventsBatchProcessor {
         Self { deduplicator }
     }
 
-    /// Get the store configuration (for backwards compatibility)
-    pub fn store_config(&self) -> &DeduplicationStoreConfig {
-        // Note: This method is kept for API compatibility but the config
-        // is now managed by the store_manager
-        unimplemented!("store_config is managed by store_manager")
-    }
-
     async fn process_partition_batch(
         &self,
         partition: Partition,

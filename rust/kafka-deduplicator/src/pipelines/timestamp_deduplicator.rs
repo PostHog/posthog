@@ -235,6 +235,9 @@ impl<E: DeduplicatableEvent> TimestampDeduplicator<E> {
                 // Update metadata to track this duplicate
                 metadata.update_duplicate(event);
 
+                // Get unique UUIDs count after update
+                let unique_uuids_count = metadata.unique_uuids_count();
+
                 // Determine the duplicate reason based on similarity and UUID
                 let reason = if similarity.overall_score == 1.0 {
                     DuplicateReason::SameEvent
@@ -248,9 +251,10 @@ impl<E: DeduplicatableEvent> TimestampDeduplicator<E> {
                     // Different content - this is a potential duplicate, not confirmed
                     return Ok((
                         DeduplicationResult::PotentialDuplicate(DuplicateInfo {
-                            reason: DuplicateReason::OnlyUuidDifferent,
+                            reason: DuplicateReason::ContentDiffers,
                             similarity,
                             original_event,
+                            unique_uuids_count,
                         }),
                         metadata,
                     ));
@@ -261,6 +265,7 @@ impl<E: DeduplicatableEvent> TimestampDeduplicator<E> {
                         reason,
                         similarity,
                         original_event,
+                        unique_uuids_count,
                     }),
                     metadata,
                 ))

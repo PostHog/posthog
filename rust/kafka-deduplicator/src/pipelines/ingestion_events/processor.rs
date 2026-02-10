@@ -28,7 +28,8 @@ use crate::metrics_const::{
     KAFKA_PRODUCER_SEND_DURATION_MS, PARTITION_BATCH_PROCESSING_DURATION_MS,
     TIMESTAMP_DEDUP_DIFFERENT_FIELDS_HISTOGRAM, TIMESTAMP_DEDUP_DIFFERENT_PROPERTIES_HISTOGRAM,
     TIMESTAMP_DEDUP_FIELD_DIFFERENCES_COUNTER, TIMESTAMP_DEDUP_PROPERTIES_SIMILARITY_HISTOGRAM,
-    TIMESTAMP_DEDUP_SIMILARITY_SCORE_HISTOGRAM, UNIQUE_EVENTS_TOTAL_COUNTER,
+    TIMESTAMP_DEDUP_SIMILARITY_SCORE_HISTOGRAM, TIMESTAMP_DEDUP_UNIQUE_UUIDS_HISTOGRAM,
+    UNIQUE_EVENTS_TOTAL_COUNTER,
 };
 use crate::pipelines::traits::EventParser;
 use crate::pipelines::DeduplicationResult;
@@ -454,7 +455,13 @@ impl IngestionEventsBatchProcessor {
         raw_event: &RawEvent,
         metrics: &MetricsHelper,
     ) {
-        if let Some(similarity) = result.get_similarity() {
+        let duplicate_info = match result {
+            DeduplicationResult::ConfirmedDuplicate(info) => Some(info),
+            DeduplicationResult::PotentialDuplicate(info) => Some(info),
+            _ => None,
+        };
+
+        if let Some(info) = duplicate_info {
             if let Some(lib_info) = raw_event.extract_library_info() {
                 metrics
                     .counter(DUPLICATE_EVENTS_TOTAL_COUNTER)
@@ -463,26 +470,31 @@ impl IngestionEventsBatchProcessor {
                     .increment(1);
 
                 metrics
+                    .histogram(TIMESTAMP_DEDUP_UNIQUE_UUIDS_HISTOGRAM)
+                    .with_label("lib", &lib_info.name)
+                    .record(info.unique_uuids_count as f64);
+
+                metrics
                     .histogram(TIMESTAMP_DEDUP_SIMILARITY_SCORE_HISTOGRAM)
                     .with_label("lib", &lib_info.name)
-                    .record(similarity.overall_score);
+                    .record(info.similarity.overall_score);
 
                 metrics
                     .histogram(TIMESTAMP_DEDUP_DIFFERENT_FIELDS_HISTOGRAM)
                     .with_label("lib", &lib_info.name)
-                    .record(similarity.different_field_count as f64);
+                    .record(info.similarity.different_field_count as f64);
 
                 metrics
                     .histogram(TIMESTAMP_DEDUP_DIFFERENT_PROPERTIES_HISTOGRAM)
                     .with_label("lib", &lib_info.name)
-                    .record(similarity.different_property_count as f64);
+                    .record(info.similarity.different_property_count as f64);
 
                 metrics
                     .histogram(TIMESTAMP_DEDUP_PROPERTIES_SIMILARITY_HISTOGRAM)
                     .with_label("lib", &lib_info.name)
-                    .record(similarity.properties_similarity);
+                    .record(info.similarity.properties_similarity);
 
-                for (field_name, _, _) in &similarity.different_fields {
+                for (field_name, _, _) in &info.similarity.different_fields {
                     metrics
                         .counter(TIMESTAMP_DEDUP_FIELD_DIFFERENCES_COUNTER)
                         .with_label("lib", &lib_info.name)

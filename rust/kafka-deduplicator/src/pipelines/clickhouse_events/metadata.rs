@@ -160,6 +160,10 @@ impl DeduplicationMetadata<ClickHouseEvent> for ClickHouseEventMetadata {
         ClickHouseEventMetadata::calculate_similarity(self, new_event)
     }
 
+    fn unique_uuids_count(&self) -> usize {
+        self.seen_uuids.len()
+    }
+
     fn to_bytes(&self) -> Result<Vec<u8>> {
         ClickHouseEventMetadata::to_bytes(self)
     }

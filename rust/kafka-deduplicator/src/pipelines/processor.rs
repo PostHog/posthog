@@ -17,15 +17,17 @@ use crate::pipelines::EventSimilarity;
 use crate::store::deduplication_store::{DeduplicationStore, TimestampBatchEntry};
 use crate::store_manager::{StoreError, StoreManager};
 
-/// Reason why an event was confirmed as a duplicate.
+/// Reason why an event was identified as a duplicate or potential duplicate.
 #[derive(strum_macros::Display, Debug, Copy, Clone, PartialEq)]
 pub enum DuplicateReason {
     /// Exact same event (all fields match including UUID)
     SameEvent,
     /// Same dedup key with same UUID (retry of original)
     SameUuid,
-    /// Same dedup key, only UUID differs
+    /// Same dedup key, only UUID differs (confirmed duplicate)
     OnlyUuidDifferent,
+    /// Same dedup key but content differs beyond just UUID (potential duplicate)
+    ContentDiffers,
 }
 
 /// Metadata about a duplicate event detection.
@@ -37,6 +39,8 @@ pub struct DuplicateInfo<E> {
     pub similarity: EventSimilarity,
     /// The original event that was stored
     pub original_event: E,
+    /// Number of unique UUIDs seen for this dedup key (after update)
+    pub unique_uuids_count: usize,
 }
 
 /// Deduplication result shared across all pipelines.
@@ -111,11 +115,17 @@ pub fn get_result_labels<E>(result: &DeduplicationResult<E>) -> DeduplicationRes
                 DuplicateReason::SameEvent => "same_event",
                 DuplicateReason::SameUuid => "same_uuid",
                 DuplicateReason::OnlyUuidDifferent => "only_uuid_different",
+                DuplicateReason::ContentDiffers => "content_differs",
             }),
         },
-        DeduplicationResult::PotentialDuplicate(_) => DeduplicationResultLabels {
+        DeduplicationResult::PotentialDuplicate(info) => DeduplicationResultLabels {
             result_type: "potential_duplicate",
-            reason: None,
+            reason: Some(match info.reason {
+                DuplicateReason::SameEvent => "same_event",
+                DuplicateReason::SameUuid => "same_uuid",
+                DuplicateReason::OnlyUuidDifferent => "only_uuid_different",
+                DuplicateReason::ContentDiffers => "content_differs",
+            }),
         },
         DeduplicationResult::Skipped => DeduplicationResultLabels {
             result_type: "skipped",

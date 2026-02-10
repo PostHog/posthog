@@ -92,12 +92,21 @@ impl DuplicateEvent {
                     DuplicateReason::SameEvent => "SameEvent".to_string(),
                     DuplicateReason::SameUuid => "SameUuid".to_string(),
                     DuplicateReason::OnlyUuidDifferent => "OnlyUuidDifferent".to_string(),
+                    DuplicateReason::ContentDiffers => "ContentDiffers".to_string(),
                 }),
                 &info.original_event,
             ),
-            DeduplicationResult::PotentialDuplicate(info) => {
-                ("timestamp".to_string(), false, None, &info.original_event)
-            }
+            DeduplicationResult::PotentialDuplicate(info) => (
+                "timestamp".to_string(),
+                false,
+                Some(match info.reason {
+                    DuplicateReason::SameEvent => "SameEvent".to_string(),
+                    DuplicateReason::SameUuid => "SameUuid".to_string(),
+                    DuplicateReason::OnlyUuidDifferent => "OnlyUuidDifferent".to_string(),
+                    DuplicateReason::ContentDiffers => "ContentDiffers".to_string(),
+                }),
+                &info.original_event,
+            ),
             _ => {
                 // New and Skipped don't have similarity data
                 return None;
@@ -256,6 +265,7 @@ mod tests {
             reason: DuplicateReason::OnlyUuidDifferent,
             similarity,
             original_event: result_event,
+            unique_uuids_count: 2,
         });
 
         let duplicate_event = DuplicateEvent::from_result(&source_event, &result).unwrap();
@@ -307,16 +317,20 @@ mod tests {
         };
 
         let result = DeduplicationResult::PotentialDuplicate(DuplicateInfo {
-            reason: DuplicateReason::OnlyUuidDifferent,
+            reason: DuplicateReason::ContentDiffers,
             similarity,
             original_event: result_event,
+            unique_uuids_count: 2,
         });
 
         let duplicate_event = DuplicateEvent::from_result(&source_event, &result).unwrap();
 
         assert!(!duplicate_event.is_confirmed);
         assert_eq!(duplicate_event.dedup_type, "timestamp");
-        assert!(duplicate_event.reason.is_none());
+        assert_eq!(
+            duplicate_event.reason,
+            Some("ContentDiffers".to_string())
+        );
         assert_eq!(duplicate_event.similarity_score, 0.7);
     }
 
@@ -378,6 +392,7 @@ mod tests {
             reason: DuplicateReason::OnlyUuidDifferent,
             similarity,
             original_event: result_event,
+            unique_uuids_count: 2,
         });
 
         let duplicate_event = DuplicateEvent::from_result(&source_event, &result).unwrap();
@@ -428,6 +443,7 @@ mod tests {
             reason: DuplicateReason::OnlyUuidDifferent,
             similarity,
             original_event: result_event,
+            unique_uuids_count: 2,
         });
 
         let duplicate_event = DuplicateEvent::from_result(&source_event, &result).unwrap();
