@@ -788,6 +788,9 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                         }
                     }
 
+                    const oldActions = values.workflow.actions
+                    const newActions = [...oldActions.slice(0, -1), newAction, oldActions[oldActions.length - 1]]
+
                     actions.setWorkflowInfo({ actions: newActions, edges: newEdges, variables: updatedVariables })
                     actions.setNodeToBeAdded(null)
                     actions.setSelectedNodeId(newAction.id)
