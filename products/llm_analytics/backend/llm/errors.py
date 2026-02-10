@@ -47,6 +47,10 @@ class ModelNotFoundError(LLMError):
         super().__init__(f"Model '{model}' not found")
 
 
+class StructuredOutputParseError(LLMError):
+    """Raised when the LLM response cannot be parsed into the expected structured output format"""
+
+
 class ModelPermissionError(LLMError):
     """Raised when the API key doesn't have permission to access a model"""
 
