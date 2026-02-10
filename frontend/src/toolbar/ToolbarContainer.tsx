@@ -28,10 +28,11 @@ export function ToolbarContainer(): JSX.Element {
             <FloatingContainerContext.Provider value={ref}>
                 <Elements />
                 <ToolbarFixedZones />
-                <div id="button-toolbar" ref={ref} {...themeProps}>
+                <div id="button-toolbar" {...themeProps}>
                     <Toolbar />
                 </div>
                 <HedgehogButton />
+                <div ref={ref} className="fixed inset-0 pointer-events-none z-[2147483647] [&>*]:pointer-events-auto" />
             </FloatingContainerContext.Provider>
         </Fade>
     )

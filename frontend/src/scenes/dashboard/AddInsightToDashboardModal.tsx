@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { BindLogic } from 'kea'
+import posthog from 'posthog-js'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -18,8 +19,12 @@ import { dashboardLogic } from './dashboardLogic'
 export function AddInsightToDashboardModal(): JSX.Element {
     const isExperimentEnabled = useFeatureFlag('PRODUCT_ANALYTICS_ADD_INSIGHT_TO_DASHBOARD_MODAL', 'test')
     const { hideAddInsightToDashboardModal } = useActions(addInsightToDashboardLogic)
-    const { addInsightToDashboardModalVisible } = useValues(addInsightToDashboardLogic)
     const { dashboard } = useValues(dashboardLogic)
+
+    const handleClose = (): void => {
+        posthog.capture('insight dashboard modal - closed')
+        hideAddInsightToDashboardModal()
+    }
 
     if (isExperimentEnabled) {
         return <AddInsightToDashboardModalNew />
@@ -29,15 +34,11 @@ export function AddInsightToDashboardModal(): JSX.Element {
         <BindLogic logic={addSavedInsightsModalLogic} props={{}}>
             <LemonModal
                 title="Add insight to dashboard"
-                onClose={hideAddInsightToDashboardModal}
-                isOpen={addInsightToDashboardModalVisible}
+                onClose={handleClose}
+                isOpen
                 footer={
                     <>
-                        <LemonButton
-                            type="secondary"
-                            data-attr="dashboard-cancel"
-                            onClick={hideAddInsightToDashboardModal}
-                        >
+                        <LemonButton type="secondary" data-attr="dashboard-cancel" onClick={handleClose}>
                             Cancel
                         </LemonButton>
                         <AccessControlAction
@@ -48,6 +49,11 @@ export function AddInsightToDashboardModal(): JSX.Element {
                                 type="primary"
                                 data-attr="dashboard-add-new-insight"
                                 to={urls.insightNew({ dashboardId: dashboard?.id })}
+                                onClick={() =>
+                                    posthog.capture('insight dashboard modal - new insight clicked', {
+                                        insight_type: 'new_insight',
+                                    })
+                                }
                             >
                                 New insight
                             </LemonButton>
