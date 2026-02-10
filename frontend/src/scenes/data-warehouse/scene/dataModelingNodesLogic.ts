@@ -31,9 +31,9 @@ export function parseSearchTerm(searchTerm: string): ParsedSearch {
 
 export const dataModelingNodesLogic = kea<dataModelingNodesLogicType>([
     path(['scenes', 'data-warehouse', 'scene', 'dataModelingNodesLogic']),
-    connect({
+    connect(() => ({
         values: [dataModelingEditorLogic, ['dataModelingNodes as nodes', 'dataModelingNodesLoading as nodesLoading']],
-    }),
+    })),
     actions({
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
         setDebouncedSearchTerm: (debouncedSearchTerm: string) => ({ debouncedSearchTerm }),
