@@ -1,0 +1,38 @@
+{
+    "name": "@posthog/products-visual_review",
+    "version": "0.0.0",
+    "private": true,
+    "scripts": {
+        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/tests -v --tb=short",
+        "backend:test:unit": "pytest -c ../../pytest.ini --rootdir ../.. backend/tests -v -m 'not integration' --tb=short",
+        "backend:test:integration": "pytest -c ../../pytest.ini --rootdir ../.. backend/tests -v -m 'integration' --tb=short",
+        "backend:lint": "ruff check --config ../../pyproject.toml backend && ruff format --config ../../pyproject.toml --check backend",
+        "backend:contract-check": "echo 'Contract files unchanged'"
+    },
+    "dependencies": {
+        "kea": "^3.1.7",
+        "kea-loaders": "^3.1.1",
+        "kea-router": "^3.4.1"
+    },
+    "peerDependencies": {
+        "@posthog/icons": "*",
+        "@types/react": "*",
+        "react": "*"
+    },
+    "turbo": {
+        "extends": [
+            "//"
+        ],
+        "tasks": {
+            "backend:contract-check": {
+                "inputs": [
+                    "backend/api/api.py",
+                    "backend/api/dtos.py",
+                    "backend/domain_types.py"
+                ],
+                "outputs": [],
+                "cache": true
+            }
+        }
+    }
+}

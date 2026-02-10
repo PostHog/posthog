@@ -110,6 +110,7 @@ depends_on = [
     "products.surveys",
     "products.tasks",
     "products.user_interviews",
+    "products.visual_review",
     "products.web_analytics",
     "products.workflows",
 ]
@@ -373,13 +374,11 @@ layer = "non_isolated"
 # ============================================================================
 
 
-# Example isolated product (add with stacked PR):
-#
-# [[modules]]
-# path = "products.visual_review"
-# depends_on = ["posthog"]
-# layer = "products"
-# interfaces = [
-#     "products.visual_review.backend.facade",
-#     "products.visual_review.backend.presentation.views",
-# ]
+[[modules]]
+path = "products.visual_review"
+depends_on = ["posthog"]
+layer = "products"
+interfaces = [
+    "products.visual_review.backend.facade",
+    "products.visual_review.backend.presentation.views",
+]
