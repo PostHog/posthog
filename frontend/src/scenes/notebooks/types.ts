@@ -68,8 +68,10 @@ export enum NotebookNodeType {
     RelatedGroups = 'ph-related-groups',
 }
 
+export type CustomNotebookNodeAttributes = Record<string, any>
+
 export type NotebookNodeResource = {
-    attrs: Record<string, any>
+    attrs: CustomNotebookNodeAttributes
     type: NotebookNodeType
 }
 
@@ -83,8 +85,6 @@ export enum NotebookTarget {
 export type NotebookSyncStatus = 'synced' | 'saving' | 'unsaved' | 'local'
 
 export type NotebookPopoverVisibility = 'hidden' | 'visible' | 'peek'
-
-export type CustomNotebookNodeAttributes = Record<string, any>
 
 export type CreatePostHogWidgetNodeOptions<T extends CustomNotebookNodeAttributes> = Omit<
     NodeWrapperProps<T>,
@@ -128,7 +128,6 @@ export type NotebookNodeAttributes<T extends CustomNotebookNodeAttributes> = T &
         expanded?: boolean
         showSettings?: boolean
     }
-    // TODO: Type this more specifically to be our supported nodes only
     children?: NotebookNodeResource[]
 }
 
@@ -143,8 +142,8 @@ export type NotebookNodeAttributeProperties<T extends CustomNotebookNodeAttribut
 export type NotebookNodeProps<T extends CustomNotebookNodeAttributes> = NotebookNodeAttributeProperties<T>
 
 export type NotebookNodeSettings =
-    // using 'any' here shouldn't be necessary but, I couldn't figure out how to set a generic on the notebookNodeLogic props
-    (({ attributes, updateAttributes }: NotebookNodeAttributeProperties<any>) => JSX.Element) | null
+    | (({ attributes, updateAttributes }: NotebookNodeAttributeProperties<CustomNotebookNodeAttributes>) => JSX.Element)
+    | null
 
 export type NotebookNodeAction = Pick<LemonButtonProps, 'icon'> & {
     text: string
