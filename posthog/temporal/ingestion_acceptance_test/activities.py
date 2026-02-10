@@ -4,6 +4,7 @@ import asyncio
 from concurrent.futures import ThreadPoolExecutor
 
 import structlog
+import posthoganalytics
 import temporalio.activity
 
 from posthog.temporal.ingestion_acceptance_test.client import PostHogClient
@@ -25,8 +26,8 @@ async def run_ingestion_acceptance_tests() -> dict:
     - INGESTION_ACCEPTANCE_TEST_PROJECT_API_KEY
     - INGESTION_ACCEPTANCE_TEST_PROJECT_ID
     - INGESTION_ACCEPTANCE_TEST_PERSONAL_API_KEY
-    - INGESTION_ACCEPTANCE_TEST_EVENT_TIMEOUT_SECONDS (optional, default 30)
-    - INGESTION_ACCEPTANCE_TEST_POLL_INTERVAL_SECONDS (optional, default 2.0)
+    - INGESTION_ACCEPTANCE_TEST_EVENT_TIMEOUT_SECONDS (optional, default 90)
+    - INGESTION_ACCEPTANCE_TEST_POLL_INTERVAL_SECONDS (optional, default 10.0)
     - INGESTION_ACCEPTANCE_TEST_SLACK_WEBHOOK_URL (optional, for Slack notifications)
 
     Returns:
@@ -36,18 +37,22 @@ async def run_ingestion_acceptance_tests() -> dict:
     logger.info("Starting ingestion acceptance tests")
 
     config = Config()
-    from posthog.models.utils import mask_key_value
 
     logger.info(
         "Loaded config",
         api_host=config.api_host,
         project_id=config.project_id,
-        project_api_key=mask_key_value(config.project_api_key),
-        personal_api_key=mask_key_value(config.personal_api_key),
+    )
+
+    posthog_sdk = posthoganalytics.Posthog(
+        config.project_api_key,
+        host=config.api_host,
+        debug=True,
+        sync_mode=True,
     )
 
     tests = discover_tests()
-    client = PostHogClient(config)
+    client = PostHogClient(config, posthog_sdk)
     with ThreadPoolExecutor() as executor:
         result: TestSuiteResult = await asyncio.to_thread(run_tests, config, tests, client, executor)
 

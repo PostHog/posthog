@@ -29,6 +29,7 @@ from posthog.temporal.common.codec import EncryptionCodec
 
 pytestmark = [
     pytest.mark.django_db,
+    pytest.mark.usefixtures("temporal_worker", "cleanup"),
 ]
 
 

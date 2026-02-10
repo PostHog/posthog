@@ -24,6 +24,9 @@ class AIEventType(StrEnum):
     FIELD_AI_FEEDBACK = "$ai_feedback"
     FIELD_AI_EVALUATION = "$ai_evaluation"
     FIELD_AI_TRACE_SUMMARY = "$ai_trace_summary"
+    FIELD_AI_GENERATION_SUMMARY = "$ai_generation_summary"
+    FIELD_AI_TRACE_CLUSTERS = "$ai_trace_clusters"
+    FIELD_AI_GENERATION_CLUSTERS = "$ai_generation_clusters"
 
 
 class MathGroupTypeIndex(float, Enum):
@@ -43,6 +46,7 @@ class AgentMode(StrEnum):
     EXECUTION = "execution"
     SURVEY = "survey"
     RESEARCH = "research"
+    FLAGS = "flags"
 
 
 class AggregationAxisFormat(StrEnum):
@@ -334,11 +338,10 @@ class AssistantTool(StrEnum):
     SEARCH_ERROR_TRACKING_ISSUES = "search_error_tracking_issues"
     FIND_ERROR_TRACKING_IMPACTFUL_ISSUE_EVENT_LIST = "find_error_tracking_impactful_issue_event_list"
     EXPERIMENT_RESULTS_SUMMARY = "experiment_results_summary"
+    EXPERIMENT_SESSION_REPLAYS_SUMMARY = "experiment_session_replays_summary"
     CREATE_SURVEY = "create_survey"
     EDIT_SURVEY = "edit_survey"
     ANALYZE_SURVEY_RESPONSES = "analyze_survey_responses"
-    CREATE_DASHBOARD = "create_dashboard"
-    EDIT_CURRENT_DASHBOARD = "edit_current_dashboard"
     READ_TAXONOMY = "read_taxonomy"
     SEARCH = "search"
     READ_DATA = "read_data"
@@ -1624,6 +1627,7 @@ class ExternalDataSourceType(StrEnum):
     TIK_TOK_ADS = "TikTokAds"
     BING_ADS = "BingAds"
     SHOPIFY = "Shopify"
+    ATTIO = "Attio"
     SNAPCHAT_ADS = "SnapchatAds"
 
 
@@ -1741,6 +1745,14 @@ class FileSystemIconType(StrEnum):
     CONVERSATIONS = "conversations"
     TOOLBAR = "toolbar"
     SETTINGS = "settings"
+    HEALTH = "health"
+    SDK_DOCTOR = "sdk_doctor"
+    PIPELINE_STATUS = "pipeline_status"
+    LLM_EVALUATIONS = "llm_evaluations"
+    LLM_DATASETS = "llm_datasets"
+    LLM_PROMPTS = "llm_prompts"
+    LLM_CLUSTERS = "llm_clusters"
+    EXPORTS = "exports"
 
 
 class FileSystemViewLogEntry(BaseModel):
@@ -2263,7 +2275,7 @@ class MarketingIntegrationConfig1(BaseModel):
     nameField: Literal["campaign_name"] = "campaign_name"
     primarySource: Literal["google"] = "google"
     sourceType: Literal["GoogleAds"] = "GoogleAds"
-    statsTableName: Literal["campaign_stats"] = "campaign_stats"
+    statsTableName: Literal["campaign_overview_stats"] = "campaign_overview_stats"
     tableExclusions: list[str] = Field(..., max_length=1, min_length=1)
     tableKeywords: list[str] = Field(..., max_length=1, min_length=1)
 
@@ -2381,16 +2393,6 @@ class MatchingEventsResponse(BaseModel):
         extra="forbid",
     )
     results: list[MatchedRecordingEvent]
-
-
-class MaxActionContext(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    description: str | None = None
-    id: float
-    name: str
-    type: Literal["action"] = "action"
 
 
 class MaxAddonInfo(BaseModel):
@@ -2814,6 +2816,8 @@ class PlaywrightWorkspaceSetupData(BaseModel):
         extra="forbid",
     )
     organization_name: str | None = None
+    skip_onboarding: bool | None = None
+    use_current_time: bool | None = None
 
 
 class PlaywrightWorkspaceSetupResult(BaseModel):
@@ -2846,8 +2850,13 @@ class ProductIntentContext(StrEnum):
     ERROR_TRACKING_ISSUE_EXPLAINED = "error_tracking_issue_explained"
     LLM_ANALYTICS_VIEWED = "llm_analytics_viewed"
     LLM_ANALYTICS_DOCS_VIEWED = "llm_analytics_docs_viewed"
+    LLM_CLUSTER_EXPLORED = "llm_cluster_explored"
+    LLM_DATASET_CREATED = "llm_dataset_created"
+    LLM_EVALUATION_CREATED = "llm_evaluation_created"
+    LLM_PROMPT_CREATED = "llm_prompt_created"
     LOGS_DOCS_VIEWED = "logs_docs_viewed"
     LOGS_SET_FILTERS = "logs_set_filters"
+    LOGS_SETTINGS_OPENED = "logs_settings_opened"
     TAXONOMIC_FILTER_EMPTY_STATE = "taxonomic filter empty state"
     CREATE_EXPERIMENT_FROM_FUNNEL_BUTTON = "create_experiment_from_funnel_button"
     WEB_ANALYTICS_INSIGHT = "web_analytics_insight"
@@ -2885,6 +2894,8 @@ class ProductIntentContext(StrEnum):
     MARKETING_ANALYTICS_SETTINGS_UPDATED = "marketing_analytics_settings_updated"
     MARKETING_ANALYTICS_DASHBOARD_INTERACTION = "marketing_analytics_dashboard_interaction"
     MARKETING_ANALYTICS_ADS_INTEGRATION_VISITED = "marketing_analytics_ads_integration_visited"
+    MARKETING_ANALYTICS_DATA_SOURCE_CONNECTED = "marketing_analytics_data_source_connected"
+    MARKETING_ANALYTICS_ONBOARDING_COMPLETED = "marketing_analytics_onboarding_completed"
     CUSTOMER_ANALYTICS_DASHBOARD_BUSINESS_MODE_CHANGED = "customer_analytics_dashboard_business_mode_changed"
     CUSTOMER_ANALYTICS_DASHBOARD_CONFIGURATION_BUTTON_CLICKED = (
         "customer_analytics_dashboard_configuration_button_clicked"
@@ -2898,6 +2909,8 @@ class ProductIntentContext(StrEnum):
     WORKFLOW_CREATED = "workflow_created"
     DATA_PIPELINE_CREATED = "data_pipeline_created"
     BATCH_EXPORT_CREATED = "batch_export_created"
+    BATCH_EXPORT_UPDATED = "batch_export_updated"
+    BATCH_EXPORT_BACKFILL_CREATED = "batch_export_backfill_created"
     NOTEBOOK_CREATED = "notebook_created"
     PRODUCT_TOUR_CREATED = "product_tour_created"
     TASK_CREATED = "task_created"
@@ -2931,6 +2944,10 @@ class ProductKey(StrEnum):
     LINKS = "links"
     LIVE_DEBUGGER = "live_debugger"
     LLM_ANALYTICS = "llm_analytics"
+    LLM_CLUSTERS = "llm_clusters"
+    LLM_DATASETS = "llm_datasets"
+    LLM_EVALUATIONS = "llm_evaluations"
+    LLM_PROMPTS = "llm_prompts"
     LOGS = "logs"
     MARKETING_ANALYTICS = "marketing_analytics"
     MAX = "max"
@@ -3181,6 +3198,17 @@ class RefreshType(StrEnum):
     LAZY_ASYNC = "lazy_async"
 
 
+class ReplayInactivityPeriod(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    active: bool
+    recording_ts_from_s: float | None = None
+    recording_ts_to_s: float | None = None
+    ts_from_s: float
+    ts_to_s: float | None = None
+
+
 class ResolvedDateRangeResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3229,6 +3257,12 @@ class RetentionDashboardDisplayType(StrEnum):
 class RetentionEntityKind(StrEnum):
     ACTIONS_NODE = "ActionsNode"
     EVENTS_NODE = "EventsNode"
+
+
+class AggregationType(StrEnum):
+    COUNT = "count"
+    SUM = "sum"
+    AVG = "avg"
 
 
 class TimeWindowMode(StrEnum):
@@ -5255,7 +5289,6 @@ class HogQLQueryModifiers(BaseModel):
         default=None,
         description=("Try to automatically convert HogQL queries to use preaggregated tables at the AST level *"),
     )
-    usePresortedEventsTable: bool | None = None
     useWebAnalyticsPreAggregatedTables: bool | None = None
 
 
@@ -5293,6 +5326,7 @@ class LLMTrace(BaseModel):
     )
     aiSessionId: str | None = None
     createdAt: str
+    distinctId: str
     errorCount: float | None = None
     events: list[LLMTraceEvent]
     id: str
@@ -5303,7 +5337,7 @@ class LLMTrace(BaseModel):
     outputCost: float | None = None
     outputState: Any | None = None
     outputTokens: float | None = None
-    person: LLMTracePerson
+    person: LLMTracePerson | None = None
     totalCost: float | None = None
     totalLatency: float | None = None
     traceName: str | None = None
@@ -5414,6 +5448,16 @@ class MatchedRecording(BaseModel):
     )
     events: list[MatchedRecordingEvent]
     session_id: str | None = None
+
+
+class MaxActionContext(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str | None = None
+    id: int
+    name: str
+    type: Literal["action"] = "action"
 
 
 class MaxBillingContextBillingPeriod(BaseModel):
@@ -5679,15 +5723,6 @@ class QueryStatusResponse(BaseModel):
         extra="forbid",
     )
     query_status: QueryStatus
-
-
-class ReplayInactivityPeriod(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    active: bool
-    ts_from_s: int
-    ts_to_s: int | None = None
 
 
 class ResultCustomization(RootModel[ResultCustomizationByValue | ResultCustomizationByPosition]):
@@ -8005,7 +8040,6 @@ class CachedFunnelsQueryResponse(BaseModel):
         ),
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    isUdf: bool | None = None
     is_cached: bool
     last_refresh: AwareDatetime
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
@@ -10395,35 +10429,26 @@ class EndpointRunRequest(BaseModel):
         default=False,
         description=("Whether to include debug information (such as the executed HogQL) in the response."),
     )
-    filters_override: DashboardFilter | None = Field(
-        default=None,
-        description=(
-            "A map for overriding insight query filters.\n\nTip: Use to get data for a specific customer or user."
-        ),
-    )
+    filters_override: DashboardFilter | None = None
     limit: int | None = Field(
         default=None,
         description=("Maximum number of results to return. If not provided, returns all results."),
-    )
-    query_override: dict[str, Any] | None = Field(
-        default=None,
-        description=(
-            "Map of Insight query keys to be overridden at execution time. For example:"
-            '   Assuming query = {"kind": "TrendsQuery", "series": [{"kind":'
-            ' "EventsNode","name": "$pageview","event": "$pageview","math": "total"}]} '
-            '  If query_override = {"series": [{"kind": "EventsNode","name":'
-            ' "$identify","event": "$identify","math": "total"}]}   The query executed'
-            " will return the count of $identify events, instead of $pageview's"
-        ),
     )
     refresh: EndpointRefreshMode | None = EndpointRefreshMode.CACHE
     variables: dict[str, Any] | None = Field(
         default=None,
         description=(
-            "A map for overriding HogQL query variables, where the key is the variable"
-            " name and the value is the variable value. Variable must be set on the"
-            " endpoint's query between curly braces (i.e. {variable.from_date}) For"
-            ' example: {"from_date": "1970-01-01"}'
+            "Variables to parameterize the endpoint query. The key is the variable name"
+            " and the value is the variable value.\n\nFor HogQL endpoints:   Keys must"
+            " match a variable `code_name` defined in the query (referenced as"
+            ' `{variables.code_name}`).   Example: `{"event_name": "$pageview"}`\n\nFor'
+            " non-materialized insight endpoints (e.g. TrendsQuery):   - `date_from`"
+            " and `date_to` are built-in variables that filter the date range.    "
+            ' Example: `{"date_from": "2024-01-01", "date_to": "2024-01-31"}`\n\nFor'
+            " materialized insight endpoints:   - Use the breakdown property name as"
+            ' the key to filter by breakdown value.     Example: `{"$browser":'
+            ' "Chrome"}`   - `date_from`/`date_to` are not supported on materialized'
+            " insight endpoints.\n\nUnknown variable names will return a 400 error."
         ),
     )
     version: int | None = Field(
@@ -11271,7 +11296,6 @@ class FunnelsQueryResponse(BaseModel):
         ),
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    isUdf: bool | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
         default=None,
@@ -13211,7 +13235,6 @@ class QueryResponseAlternative66(BaseModel):
         ),
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    isUdf: bool | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
         default=None,
@@ -13688,6 +13711,14 @@ class RetentionEntity(BaseModel):
 class RetentionFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    aggregationProperty: str | None = Field(
+        default=None,
+        description="The property to aggregate when aggregationType is sum or avg",
+    )
+    aggregationType: AggregationType | None = Field(
+        default=AggregationType.COUNT,
+        description="The aggregation type to use for retention",
     )
     cumulative: bool | None = None
     dashboardDisplay: RetentionDashboardDisplayType | None = None
@@ -15302,6 +15333,10 @@ class FunnelsFilter(BaseModel):
     binCount: int | None = None
     breakdownAttributionType: BreakdownAttributionType | None = BreakdownAttributionType.FIRST_TOUCH
     breakdownAttributionValue: int | None = None
+    breakdownSorting: str | None = Field(
+        default=None,
+        description=("Breakdown table sorting. Format: 'column_key' or '-column_key' (descending)"),
+    )
     exclusions: list[FunnelExclusionEventsNode | FunnelExclusionActionsNode] | None = []
     funnelAggregateByHogQL: str | None = None
     funnelFromStep: int | None = None
@@ -16963,6 +16998,7 @@ class LogsQuery(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     orderBy: OrderBy3 | None = None
+    resourceFingerprint: str | None = None
     response: LogsQueryResponse | None = None
     searchTerm: str | None = None
     serviceNames: list[str]
@@ -18649,7 +18685,7 @@ class MaxDashboardContext(BaseModel):
     )
     description: str | None = None
     filters: DashboardFilter
-    id: float
+    id: int
     insights: list[MaxInsightContext]
     name: str | None = None
     type: Literal["dashboard"] = "dashboard"

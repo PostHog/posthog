@@ -11,9 +11,10 @@ from posthog.clickhouse.preaggregation.sql import DISTRIBUTED_PREAGGREGATION_RES
 from posthog.models import Team
 
 from products.analytics_platform.backend.lazy_preaggregation.lazy_preaggregation_executor import (
+    PreaggregationExecutor,
     PreaggregationResult,
+    PreaggregationTable,
     QueryInfo,
-    execute_preaggregation_jobs,
 )
 
 PREAGGREGATED_DAILY_UNIQUE_PERSONS_PAGEVIEWS_TABLE_NAME = DISTRIBUTED_PREAGGREGATION_RESULTS_TABLE()
@@ -466,9 +467,12 @@ def _run_daily_unique_persons_pageviews(
     2. Calls the executor to find/create preaggregation jobs
     3. Returns the result with job IDs for the combiner query
     """
-    query_info = QueryInfo(query=query_to_insert, timezone=team.timezone)
+    query_info = QueryInfo(
+        query=query_to_insert, table=PreaggregationTable.PREAGGREGATION_RESULTS, timezone=team.timezone
+    )
 
-    result = execute_preaggregation_jobs(
+    executor = PreaggregationExecutor()
+    result = executor.execute(
         team=team,
         query_info=query_info,
         start=start,
@@ -567,6 +571,11 @@ class Transformer(CloningVisitor):
                 left=ast.Field(chain=["time_window_start"]),
                 right=ast.Constant(value=end_date_for_query),
                 op=CompareOperationOp.Lt,
+            ),
+            ast.CompareOperation(
+                left=ast.Field(chain=["job_id"]),
+                right=ast.Constant(value=result.job_ids),
+                op=CompareOperationOp.In,
             ),
         ]
         where = ast.And(exprs=where_conditions) if len(where_conditions) > 1 else where_conditions[0]

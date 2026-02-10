@@ -15,6 +15,7 @@ from posthog.models.action.action import Action
 from posthog.models.user import User
 
 from ee.hogai.utils.dispatcher import AssistantDispatcher, create_dispatcher_from_config
+from ee.hogai.utils.feature_flags import is_core_memory_disabled
 from ee.hogai.utils.helpers import find_start_message
 from ee.hogai.utils.types.base import AssistantState, BaseStateWithIntermediateSteps, NodePath
 from ee.models import Conversation, CoreMemory
@@ -30,7 +31,9 @@ class AssistantContextMixin(ABC):
         except CoreMemory.DoesNotExist:
             return None
 
-    async def _aget_core_memory_text(self) -> str:
+    async def _aget_core_memory_text(self, *, force_enabled: bool = False) -> str:
+        if not force_enabled and is_core_memory_disabled(self._team, self._user):
+            return ""
         core_memory = await self._aget_core_memory()
         if not core_memory:
             return ""
@@ -60,6 +63,8 @@ class AssistantContextMixin(ABC):
     @property
     def core_memory_text(self) -> str:
         """Deprecated. Use `_aget_core_memory_text` instead."""
+        if is_core_memory_disabled(self._team, self._user):
+            return ""
         if not self.core_memory:
             return ""
         return self.core_memory.formatted_text

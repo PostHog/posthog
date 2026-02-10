@@ -9,6 +9,7 @@ import { getPluginServerCapabilities } from './capabilities'
 import { CdpApi } from './cdp/cdp-api'
 import { CdpBatchHogFlowRequestsConsumer } from './cdp/consumers/cdp-batch-hogflow.consumer'
 import { CdpCohortMembershipConsumer } from './cdp/consumers/cdp-cohort-membership.consumer'
+import { CdpCyclotronShadowWorker } from './cdp/consumers/cdp-cyclotron-shadow-worker.consumer'
 import { CdpCyclotronWorkerHogFlow } from './cdp/consumers/cdp-cyclotron-worker-hogflow.consumer'
 import { CdpCyclotronWorker } from './cdp/consumers/cdp-cyclotron-worker.consumer'
 import { CdpDatawarehouseEventsConsumer } from './cdp/consumers/cdp-data-warehouse-events.consumer'
@@ -237,6 +238,24 @@ export class PluginServer {
                     await worker.start()
                     return worker.service
                 })
+            }
+
+            if (capabilities.cdpCyclotronShadowWorker) {
+                // Only start the shadow worker if CYCLOTRON_SHADOW_DATABASE_URL is explicitly configured
+                // (not just using the default value). This prevents crashes in hobby/dev deployments
+                // that don't have the shadow database set up.
+                if (process.env.CYCLOTRON_SHADOW_DATABASE_URL) {
+                    serviceLoaders.push(async () => {
+                        const worker = new CdpCyclotronShadowWorker(hub)
+                        await worker.start()
+                        return worker.service
+                    })
+                } else {
+                    logger.info(
+                        '⏭️',
+                        'Skipping CdpCyclotronShadowWorker - CYCLOTRON_SHADOW_DATABASE_URL not configured'
+                    )
+                }
             }
 
             if (capabilities.cdpCyclotronWorkerHogFlow) {

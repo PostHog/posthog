@@ -66,7 +66,7 @@ class TestProviderMismatchValidation(SimpleTestCase):
         client = Client(provider_key=mock_key)
 
         request = CompletionRequest(
-            model="claude-3-5-sonnet-20241022",
+            model="claude-sonnet-4-5",
             messages=[{"role": "user", "content": "hi"}],
             provider="anthropic",
         )
