@@ -287,38 +287,34 @@ async function isPostgresAvailable(): Promise<boolean> {
  * Cleans up test data from S3, handling pagination for large result sets.
  */
 async function cleanupS3TestData(s3Client: S3Client): Promise<void> {
-    try {
-        let continuationToken: string | undefined
+    let continuationToken: string | undefined
 
-        // Keep listing and deleting until no more objects
-        do {
-            const listResponse = await s3Client.send(
-                new ListObjectsV2Command({
+    // Keep listing and deleting until no more objects
+    do {
+        const listResponse = await s3Client.send(
+            new ListObjectsV2Command({
+                Bucket: TEST_CONFIG.S3_BUCKET,
+                Prefix: TEST_CONFIG.S3_PREFIX,
+                ContinuationToken: continuationToken,
+            })
+        )
+
+        if (listResponse.Contents && listResponse.Contents.length > 0) {
+            await s3Client.send(
+                new DeleteObjectsCommand({
                     Bucket: TEST_CONFIG.S3_BUCKET,
-                    Prefix: TEST_CONFIG.S3_PREFIX,
-                    ContinuationToken: continuationToken,
+                    Delete: {
+                        Objects: listResponse.Contents.map((obj) => ({ Key: obj.Key })),
+                    },
                 })
             )
+        }
 
-            if (listResponse.Contents && listResponse.Contents.length > 0) {
-                await s3Client.send(
-                    new DeleteObjectsCommand({
-                        Bucket: TEST_CONFIG.S3_BUCKET,
-                        Delete: {
-                            Objects: listResponse.Contents.map((obj) => ({ Key: obj.Key })),
-                        },
-                    })
-                )
-            }
+        continuationToken = listResponse.NextContinuationToken
+    } while (continuationToken)
 
-            continuationToken = listResponse.NextContinuationToken
-        } while (continuationToken)
-
-        // Small delay to ensure S3 consistency
-        await new Promise((resolve) => setTimeout(resolve, 100))
-    } catch {
-        // Ignore cleanup errors
-    }
+    // Small delay to ensure S3 consistency
+    await new Promise((resolve) => setTimeout(resolve, 100))
 }
 
 /**
