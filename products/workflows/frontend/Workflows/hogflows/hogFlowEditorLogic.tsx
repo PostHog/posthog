@@ -141,6 +141,7 @@ export type HogFlowEditorActionMetrics = {
 
 export type CreateActionType = Pick<HogFlowAction, 'type' | 'config' | 'name' | 'description'> & {
     branchEdges?: number
+    output_variable?: HogFlowAction['output_variable']
 }
 
 export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
@@ -664,6 +665,9 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                         config: partialNewAction.config,
                         created_at: Date.now(),
                         updated_at: Date.now(),
+                        ...(!isHogFlowActionNode && (partialNewAction as CreateActionType).output_variable
+                            ? { output_variable: (partialNewAction as CreateActionType).output_variable }
+                            : {}),
                     } as HogFlowAction
 
                     const step = getHogFlowStep(newAction, values.hogFunctionTemplatesById)
@@ -746,10 +750,48 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                         from: newAction.id,
                     })
 
+                    // Auto-create workflow variables if the action has a default output_variable
+                    let updatedVariables = values.workflow.variables
+                    if (newAction.output_variable?.key) {
+                        const prefix = newAction.output_variable.key
+                        if (newAction.output_variable.spread) {
+                            // Create individual variables for each expected property
+                            const spreadKeys = [
+                                'status',
+                                'priority',
+                                'ticket_number',
+                                'channel_source',
+                                'message_count',
+                                'last_message_at',
+                                'last_message_text',
+                                'unread_team_count',
+                                'unread_customer_count',
+                            ].map((prop) => `${prefix}_${prop}`)
+
+                            const newVars = spreadKeys
+                                .filter((key) => !updatedVariables?.some((v) => v.key === key))
+                                .map((key) => ({
+                                    key,
+                                    label: key,
+                                    type: 'string' as const,
+                                    default: '',
+                                }))
+
+                            if (newVars.length > 0) {
+                                updatedVariables = [...(updatedVariables || []), ...newVars]
+                            }
+                        } else if (!updatedVariables?.some((v) => v.key === prefix)) {
+                            updatedVariables = [
+                                ...(updatedVariables || []),
+                                { key: prefix, label: prefix, type: 'string' as const, default: '' },
+                            ]
+                        }
+                    }
+
                     const oldActions = values.workflow.actions
                     const newActions = [...oldActions.slice(0, -1), newAction, oldActions[oldActions.length - 1]]
 
-                    actions.setWorkflowInfo({ actions: newActions, edges: newEdges })
+                    actions.setWorkflowInfo({ actions: newActions, edges: newEdges, variables: updatedVariables })
                     actions.setNodeToBeAdded(null)
                     actions.setSelectedNodeId(newAction.id)
                 }
