@@ -1,6 +1,6 @@
 import { actions, connect, defaults, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { actionToUrl, encodeParams, router, urlToAction } from 'kea-router'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
@@ -271,17 +271,16 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
             ): Breadcrumb[] => {
                 const exceptionType: string = issue?.name || 'Issue'
                 // We want to keep params in sync between listing and details views
-                const urlParams = encodeParams(
-                    updateFilterSearchParams(
-                        {},
-                        {
-                            dateRange,
-                            filterTestAccounts,
-                            filterGroup,
-                            searchQuery,
-                        }
-                    )
+                const urlParams = updateFilterSearchParams(
+                    {},
+                    {
+                        dateRange,
+                        filterTestAccounts,
+                        filterGroup,
+                        searchQuery,
+                    }
                 )
+
                 return [
                     {
                         key: Scene.ErrorTracking,
