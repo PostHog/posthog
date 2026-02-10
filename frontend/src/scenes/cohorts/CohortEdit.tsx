@@ -376,12 +376,8 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
                                                 e.preventDefault()
                                                 const csvContent = 'distinct_id,email\nuser_123,user@example.com'
                                                 const blob = new Blob([csvContent], { type: 'text/csv' })
-                                                const url = URL.createObjectURL(blob)
-                                                const a = document.createElement('a')
-                                                a.href = url
-                                                a.download = 'posthog_cohort_template.csv'
-                                                a.click()
-                                                URL.revokeObjectURL(url)
+                                                const file = new File([blob], 'posthog_cohort_template.csv', { type: 'text/csv' })
+                                                downloadFile(file)
                                             }}
                                         >
                                             Download template CSV
