@@ -10,7 +10,7 @@ function DialogPrimitive({
 }: {
     children: React.ReactNode
     open: boolean
-    onOpenChange: (open: boolean, eventDetails: Dialog.Root.ChangeEventDetails) => void
+    onOpenChange: (open: boolean, eventDetails?: Dialog.Root.ChangeEventDetails) => void
     className?: string
 }): JSX.Element {
     return (
