@@ -39,8 +39,9 @@
  * 3. Run the tests:
  *      pnpm jest src/session-recording/consumer.integration.test.ts
  *
- * Tests are automatically skipped if the required infrastructure is not available,
- * with a message indicating which services are missing.
+ * Tests will fail if required infrastructure is not available, with a message
+ * indicating which services are missing. To skip these tests when running the
+ * full suite, use: pnpm jest --testPathIgnorePatterns=e2e
  *
  * ## Adding new test cases
  *
@@ -706,7 +707,6 @@ describe('Session Recording Consumer Integration', () => {
     let team: Team
     let s3Client: S3Client
     let clickhouse: Clickhouse
-    let infraAvailable: boolean
 
     async function createIngester(): Promise<SessionRecordingIngester> {
         const kafkaMetadataProducer = await KafkaProducerWrapper.create(hub.KAFKA_CLIENT_RACK)
@@ -736,6 +736,8 @@ describe('Session Recording Consumer Integration', () => {
 
         clickhouse = Clickhouse.create()
 
+        // Verify all required infrastructure is available
+        // Tests will fail (not skip) if infrastructure is missing
         const [s3Ok, kafkaOk, postgresOk, clickhouseOk] = await Promise.all([
             isS3Available(s3Client),
             isKafkaAvailable(),
@@ -743,18 +745,28 @@ describe('Session Recording Consumer Integration', () => {
             isClickHouseAvailable(clickhouse),
         ])
 
-        infraAvailable = s3Ok && kafkaOk && postgresOk && clickhouseOk
+        const missing: string[] = []
+        if (!s3Ok) {
+            missing.push('S3/MinIO')
+        }
+        if (!kafkaOk) {
+            missing.push('Kafka')
+        }
+        if (!postgresOk) {
+            missing.push('Postgres')
+        }
+        if (!clickhouseOk) {
+            missing.push('ClickHouse')
+        }
 
-        if (!infraAvailable) {
-            console.warn('Skipping integration tests: infrastructure not available')
-            console.warn(`  S3 available: ${s3Ok}`)
-            console.warn(`  Kafka available: ${kafkaOk}`)
-            console.warn(`  Postgres available: ${postgresOk}`)
-            console.warn(`  ClickHouse available: ${clickhouseOk}`)
-            console.warn('To run these tests:')
-            console.warn('  1. Start services: hogli dev:setup (or docker compose -f docker-compose.dev.yml up)')
-            console.warn('  2. Set up test DB: pnpm setup:test (from nodejs directory)')
-            return
+        if (missing.length > 0) {
+            throw new Error(
+                `Required infrastructure not available: ${missing.join(', ')}.\n` +
+                    'To run these tests:\n' +
+                    '  1. Start services: hogli dev:setup (or docker compose -f docker-compose.dev.yml up)\n' +
+                    '  2. Set up test DB: pnpm setup:test (from nodejs directory)\n' +
+                    'To skip these tests, use: pnpm jest --testPathIgnorePatterns=e2e'
+            )
         }
 
         await resetKafka()
@@ -776,28 +788,20 @@ describe('Session Recording Consumer Integration', () => {
     })
 
     afterAll(async () => {
-        if (infraAvailable) {
-            if (hub) {
-                await closeHub(hub)
-            }
-            await cleanupS3TestData(s3Client)
+        if (hub) {
+            await closeHub(hub)
         }
+        await cleanupS3TestData(s3Client)
         s3Client?.destroy()
         clickhouse?.close()
     })
 
     beforeEach(async () => {
-        if (infraAvailable) {
-            await cleanupS3TestData(s3Client)
-        }
+        await cleanupS3TestData(s3Client)
     })
 
     describe('end-to-end message processing', () => {
         it.each(testCases)('$name', async ({ createPayloads, expectedOutcome }) => {
-            if (!infraAvailable) {
-                return
-            }
-
             const testRunId = uuidv4().slice(0, 8)
             const payloadConfigs = createPayloads(team, testRunId)
 
