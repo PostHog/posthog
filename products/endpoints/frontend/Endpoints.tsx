@@ -1,3 +1,4 @@
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
@@ -224,10 +225,9 @@ export const EndpointsTable = ({ tabId }: EndpointsTableProps): JSX.Element => {
                 pagination={{ pageSize: 20 }}
                 dataSource={endpoints as EndpointType[]}
                 rowKey="id"
-                rowClassName={(record) => (record._highlight ? 'highlighted' : null)}
-                onRow={(record) => ({
-                    onClick: () => router.actions.push(urls.endpoint(record.name)),
-                })}
+                rowClassName={(record) =>
+                    clsx('hover:bg-accent-highlight-secondary', record._highlight && 'highlighted')
+                }
                 columns={columns}
                 loading={allEndpointsLoading}
                 defaultSorting={{
