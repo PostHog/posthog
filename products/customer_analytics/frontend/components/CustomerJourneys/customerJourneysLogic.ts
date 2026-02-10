@@ -1,9 +1,11 @@
-import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
-import { loaders } from 'kea-loaders'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { lazyLoaders } from 'kea-loaders'
 
 import api from 'lib/api'
+import { LemonSelectOptions } from 'lib/lemon-ui/LemonSelect/LemonSelect'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { isInsightVizNode } from '~/queries/utils'
 import { insightsApi } from '~/scenes/insights/utils/api'
 import { QueryBasedInsightModel } from '~/types'
 
@@ -31,7 +33,7 @@ export const customerJourneysLogic = kea<customerJourneysLogicType>([
         selectFirstJourneyIfNeeded: (journeys: CustomerJourney[]) => ({ journeys }),
         deleteJourney: (journeyId: string) => ({ journeyId }),
     }),
-    loaders(({ values }) => ({
+    lazyLoaders(({ values }) => ({
         journeys: {
             __default: [] as CustomerJourney[],
             loadJourneys: async () => {
@@ -110,14 +112,16 @@ export const customerJourneysLogic = kea<customerJourneysLogicType>([
         },
     })),
     selectors({
-        sortedJourneys: [
+        journeyOptions: [
             (s) => [s.journeys],
-            (journeys): CustomerJourney[] => {
-                return [...journeys].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
-            },
+            (journeys): LemonSelectOptions<string> =>
+                journeys.map((journey) => ({
+                    value: journey.id,
+                    label: journey.name,
+                })),
         ],
         activeJourney: [
-            (s) => [s.sortedJourneys, s.activeJourneyId],
+            (s) => [s.journeys, s.activeJourneyId],
             (journeys, activeId): CustomerJourney | null => {
                 if (!activeId) {
                     return null
@@ -125,8 +129,12 @@ export const customerJourneysLogic = kea<customerJourneysLogicType>([
                 return journeys.find((j) => j.id === activeId) || null
             },
         ],
-    }),
-    afterMount(({ actions }) => {
-        actions.loadJourneys()
+        activeJourneyFullQuery: [
+            (s) => [s.activeInsight],
+            (activeInsight) => {
+                const query = activeInsight?.query
+                return query && isInsightVizNode(query) ? { ...query, full: true } : query
+            },
+        ],
     }),
 ])

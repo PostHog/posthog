@@ -6,14 +6,19 @@ import { LemonButton, LemonSelect, Spinner } from '@posthog/lemon-ui'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 
 import { Query } from '~/queries/Query/Query'
-import { isInsightVizNode } from '~/queries/utils'
 
 import { AddJourneyModal } from './AddJourneyModal'
 import { customerJourneysLogic } from './customerJourneysLogic'
 
 export function CustomerJourneys(): JSX.Element {
-    const { sortedJourneys, journeysLoading, activeJourney, activeJourneyId, activeInsight, activeInsightLoading } =
-        useValues(customerJourneysLogic)
+    const {
+        journeyOptions,
+        journeysLoading,
+        activeJourney,
+        activeJourneyId,
+        activeInsightLoading,
+        activeJourneyFullQuery,
+    } = useValues(customerJourneysLogic)
     const { showAddJourneyModal, setActiveJourneyId, deleteJourney } = useActions(customerJourneysLogic)
 
     if (journeysLoading) {
@@ -24,7 +29,7 @@ export function CustomerJourneys(): JSX.Element {
         )
     }
 
-    if (sortedJourneys.length === 0) {
+    if (journeyOptions.length === 0) {
         return (
             <>
                 <EmptyMessage
@@ -37,14 +42,6 @@ export function CustomerJourneys(): JSX.Element {
             </>
         )
     }
-
-    const journeyOptions = sortedJourneys.map((j) => ({
-        value: j.id,
-        label: j.name,
-    }))
-
-    const query = activeInsight?.query
-    const fullQuery = query && isInsightVizNode(query) ? { ...query, full: true } : query
 
     return (
         <div className="space-y-4">
@@ -74,8 +71,8 @@ export function CustomerJourneys(): JSX.Element {
                 <div className="flex items-center justify-center p-8">
                     <Spinner />
                 </div>
-            ) : fullQuery ? (
-                <Query query={fullQuery} readOnly />
+            ) : activeJourneyFullQuery ? (
+                <Query query={activeJourneyFullQuery} readOnly />
             ) : (
                 <div className="text-muted text-center p-8">Insight not found</div>
             )}
