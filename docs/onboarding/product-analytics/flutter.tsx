@@ -1,7 +1,6 @@
 import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 
 import { StepDefinition } from '../steps'
-import { PersonProfiles } from './_snippets/person-profiles'
 
 export const getFlutterSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
     const { CodeBlock, Markdown, Tab, dedent } = ctx
