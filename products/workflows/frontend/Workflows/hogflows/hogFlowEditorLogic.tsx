@@ -184,6 +184,8 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
         setNodeToBeAdded: (nodeToBeAdded: CreateActionType | HogFlowActionNode | null) => ({ nodeToBeAdded }),
         setHighlightedDropzoneNodeId: (highlightedDropzoneNodeId: string | null) => ({ highlightedDropzoneNodeId }),
         setMode: (mode: HogFlowEditorMode) => ({ mode }),
+        setAnimatingEdgePair: (from: string, to: string) => ({ from, to }),
+        clearAnimatingEdgePair: true,
         startCopyingNode: (node: HogFlowActionNode) => ({ node }),
         stopCopyingNode: true,
         copyNodeToHighlightedDropzone: true,
@@ -272,6 +274,15 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             null as RefObject<HTMLDivElement> | null,
             {
                 setReactFlowWrapper: (_, { reactFlowWrapper }) => reactFlowWrapper,
+            },
+        ],
+        animatingEdgePair: [
+            null as string | null,
+            {
+                setAnimatingEdgePair: (_: string | null, { from, to }: { from: string; to: string }) =>
+                    `${from}->${to}`,
+                clearAnimatingEdgePair: () => null,
+                setMode: () => null,
             },
         ],
     })),
@@ -390,6 +401,9 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
         },
         onNodesChange: ({ nodes }) => {
             actions.setNodes(applyNodeChanges(nodes, values.nodes))
+        },
+        setAnimatingEdgePair: () => {
+            setTimeout(() => actions.clearAnimatingEdgePair(), 1500)
         },
 
         resetFlowFromHogFlow: ({ hogFlow }) => {
