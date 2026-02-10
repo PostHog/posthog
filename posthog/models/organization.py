@@ -611,6 +611,24 @@ def ensure_organization_membership_consistency(sender, instance: OrganizationMem
         instance.user.save()
 
 
+@receiver(models.signals.post_delete, sender=OrganizationMembership)
+def clean_up_alert_subscriptions_on_membership_removal(sender, instance: OrganizationMembership, **kwargs):
+    from posthog.models.alert import AlertSubscription
+
+    deleted_count, _ = AlertSubscription.objects.filter(
+        user=instance.user,
+        alert_configuration__team__organization=instance.organization,
+    ).delete()
+
+    if deleted_count > 0:
+        logger.info(
+            "Removed alert subscriptions for user removed from organization",
+            user_id=instance.user_id,
+            organization_id=str(instance.organization_id),
+            deleted_count=deleted_count,
+        )
+
+
 @receiver(models.signals.pre_save, sender=OrganizationMembership)
 def organization_membership_saved(sender: Any, instance: OrganizationMembership, **kwargs: Any) -> None:
     from posthog.event_usage import report_user_organization_membership_level_changed

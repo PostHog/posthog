@@ -329,6 +329,7 @@ export class ClickHousePersonRepository implements PersonRepository {
             is_identified: Boolean(row.is_identified),
             created_at: DateTime.fromSQL(row.created_at, { zone: 'UTC' }),
             version: typeof row.version === 'string' ? parseInt(row.version) : row.version || 0,
+            last_seen_at: null,
         }
     }
 

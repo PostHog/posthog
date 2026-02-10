@@ -14,7 +14,7 @@ DEFAULT_MAX_K = 10
 MIN_TRACES_FOR_CLUSTERING = 20
 
 # Coordinator concurrency settings
-DEFAULT_MAX_CONCURRENT_TEAMS = 3  # Max teams to process in parallel
+DEFAULT_MAX_CONCURRENT_TEAMS = 4  # Max teams to process in parallel
 
 # Workflow timeouts
 WORKFLOW_EXECUTION_TIMEOUT = timedelta(minutes=30)
