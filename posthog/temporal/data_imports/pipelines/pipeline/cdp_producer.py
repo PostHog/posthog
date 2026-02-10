@@ -26,8 +26,6 @@ from products.data_warehouse.backend.s3 import aget_s3_client, ensure_bucket_exi
 
 def _configure_ssl_context() -> ssl.SSLContext:
     context = ssl.create_default_context(purpose=ssl.Purpose.SERVER_AUTH)
-    context.check_hostname = False
-    context.verify_mode = ssl.CERT_OPTIONAL
     context.load_default_certs()
     return context
 
