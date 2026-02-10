@@ -2,38 +2,82 @@
 
 Quick guide for generating weekly PR summaries for the PostHog support team.
 
-## Quick Start
+## Quick Start (Recommended)
 
-### Step 1: Get Team Member Usernames
+### Step 1: Run the Setup Script
 
-Since the team members endpoint requires special permissions, manually create a list of support team members:
+The easiest way to get started:
 
 ```bash
-cat > support_team_members.txt << 'EOF'
+./scripts/setup_support_team.sh
+```
+
+This script will:
+
+- Check if GitHub CLI is installed and authenticated
+- Attempt to automatically fetch team-support members
+- Create a configured team members file
+- Test the PR summary tool
+
+If you don't have team admin permissions, it will create a template file that you need to fill in manually.
+
+### Step 2: Add Team Members (if needed)
+
+If the setup script couldn't fetch members automatically, edit the file:
+
+```bash
+# Visit https://github.com/orgs/PostHog/teams/team-support
+# Then add usernames to:
+vim scripts/posthog_team_support_members.txt
+```
+
+### Step 3: Generate Weekly Reports
+
+Use the convenience wrapper script:
+
+```bash
+# Default: 7 days, text format
+./scripts/support_team_weekly_summary.sh
+
+# Markdown format
+./scripts/support_team_weekly_summary.sh --format markdown
+
+# Last 14 days, save to file
+./scripts/support_team_weekly_summary.sh --days 14 --format markdown --output weekly_summary.md
+```
+
+## Alternative: Manual Setup
+
+If you prefer to do it manually:
+
+### Step 1: Create Team Members File
+
+```bash
+cat > scripts/posthog_team_support_members.txt << 'EOF'
 # PostHog Support Team Members
+# Visit https://github.com/orgs/PostHog/teams/team-support for current members
 # Add GitHub usernames (one per line)
-paolodamico
-mariusandra
-benjackwhite
-# Add more team members as needed
+
+# Add team member usernames below:
+
 EOF
 ```
 
-Or visit [https://github.com/orgs/PostHog/teams/team-support](https://github.com/orgs/PostHog/teams/team-support) to see the current team members and add their usernames to the file.
+Visit [https://github.com/orgs/PostHog/teams/team-support](https://github.com/orgs/PostHog/teams/team-support) and add the usernames to the file.
 
-### Step 2: Generate the Weekly Report
+### Step 2: Generate Reports
 
 For text output (terminal):
 
 ```bash
-python3 scripts/pr_weekly_summary.py --team-members-file support_team_members.txt
+python3 scripts/pr_weekly_summary.py --team-members-file scripts/posthog_team_support_members.txt
 ```
 
 For markdown output (great for posting in Slack or issues):
 
 ```bash
 python3 scripts/pr_weekly_summary.py \
-  --team-members-file support_team_members.txt \
+  --team-members-file scripts/posthog_team_support_members.txt \
   --format markdown \
   --output weekly_summary_$(date +%Y-%m-%d).md
 ```
@@ -42,12 +86,12 @@ For JSON output (for data analysis):
 
 ```bash
 python3 scripts/pr_weekly_summary.py \
-  --team-members-file support_team_members.txt \
+  --team-members-file scripts/posthog_team_support_members.txt \
   --format json \
   --output weekly_summary_$(date +%Y-%m-%d).json
 ```
 
-### Step 3: Share the Report
+## Sharing Reports
 
 The markdown output can be:
 
@@ -63,17 +107,13 @@ The markdown output can be:
 Last 14 days:
 
 ```bash
-python3 scripts/pr_weekly_summary.py \
-  --team-members-file support_team_members.txt \
-  --days 14
+./scripts/support_team_weekly_summary.sh --days 14
 ```
 
 Last 30 days (monthly report):
 
 ```bash
-python3 scripts/pr_weekly_summary.py \
-  --team-members-file support_team_members.txt \
-  --days 30
+./scripts/support_team_weekly_summary.sh --days 30
 ```
 
 ### Specific Team Members
@@ -114,8 +154,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          python3 scripts/pr_weekly_summary.py \
-            --team-members-file scripts/support_team_members.txt \
+          ./scripts/support_team_weekly_summary.sh \
             --format markdown \
             --output weekly_summary.md
 
@@ -136,15 +175,16 @@ Add to your crontab (`crontab -e`):
 
 ```bash
 # Generate support team PR summary every Monday at 9 AM
-0 9 * * 1 cd ~/posthog && python3 scripts/pr_weekly_summary.py --team-members-file scripts/support_team_members.txt --format markdown --output ~/weekly_summary_$(date +\%Y-\%m-\%d).md
+0 9 * * 1 cd ~/posthog && ./scripts/support_team_weekly_summary.sh --format markdown --output ~/weekly_summary_$(date +\%Y-\%m-\%d).md
 ```
 
 ## Tips
 
-1. **Keep the team members file updated**: Regularly update `support_team_members.txt` as team members join or leave
+1. **Keep the team members file updated**: Regularly update `scripts/posthog_team_support_members.txt` as team members join or leave. Re-run `./scripts/setup_support_team.sh` periodically if you have team admin access.
 2. **Archive reports**: Save weekly reports for historical tracking
 3. **Combine with other metrics**: Use the JSON output to combine with other team metrics
 4. **Filter by repository**: Modify the script if you only want PRs from specific repositories
+5. **Use the wrapper script**: The `support_team_weekly_summary.sh` script is the easiest way to generate reports
 
 ## Troubleshooting
 
