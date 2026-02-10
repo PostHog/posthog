@@ -39,21 +39,21 @@ function getTurboTasks() {
         if (e.stderr) {
             console.error(e.stderr.toString().slice(0, 1000))
         }
-        return []
+        process.exit(1)
     }
 }
 
 function getProducts(tasks, legacyChanged) {
     if (legacyChanged) {
         // Legacy code changed — all products must be tested
-        return [...new Set(tasks.map((t) => t.package.replace('@posthog/products-', '')))]
+        return [...new Set(tasks.map((t) => t.package.replace('@posthog/products-', '')))].sort()
     }
     // Only product files changed — test only cache MISSes
     return [
         ...new Set(
             tasks.filter((t) => t.cache?.status === 'MISS').map((t) => t.package.replace('@posthog/products-', ''))
         ),
-    ]
+    ].sort()
 }
 
 function loadTestDurations() {
