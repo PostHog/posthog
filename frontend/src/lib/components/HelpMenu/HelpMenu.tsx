@@ -21,7 +21,7 @@ import { LemonTag } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Link } from 'lib/lemon-ui/Link/Link'
-import { IconPreview } from 'lib/lemon-ui/icons'
+import { IconBlank, IconPreview } from 'lib/lemon-ui/icons'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { MenuOpenIndicator } from 'lib/ui/Menus/Menus'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -202,6 +202,15 @@ export function HelpMenu(): JSX.Element {
 
                                 {user?.is_staff && (
                                     <Menu.SubmenuRoot>
+                                        <Menu.SubmenuTrigger
+                                            render={
+                                                <ButtonPrimitive menuItem>
+                                                    <IconBlank />
+                                                    Admin (Lucky you!)
+                                                    <MenuOpenIndicator intent="sub" />
+                                                </ButtonPrimitive>
+                                            }
+                                        />
                                         <Menu.Portal>
                                             <Menu.Positioner
                                                 className="z-[var(--z-popover)]"
