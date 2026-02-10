@@ -71,7 +71,7 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
         feature = self.organization.get_available_feature(AvailableFeature.MANAGED_REVERSE_PROXY)
         if feature is None:
             return self.DEFAULT_MAX_PROXY_RECORDS
-        return feature.get("limit", self.DEFAULT_MAX_PROXY_RECORDS)
+        return feature.get("limit") or self.DEFAULT_MAX_PROXY_RECORDS
 
     def list(self, request, *args, **kwargs):
         queryset = self.organization.proxy_records.order_by("-created_at")
