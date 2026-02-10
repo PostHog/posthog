@@ -15,7 +15,10 @@ import { resetKafka } from '../../tests/helpers/kafka'
 import { forSnapshot } from '../../tests/helpers/snapshots'
 import { createOrganization, createTeam, getFirstTeam, resetTestDatabase } from '../../tests/helpers/sql'
 import { defaultConfig, overrideWithEnv } from '../config/config'
-import { KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS } from '../config/kafka-topics'
+import {
+    KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS,
+    KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
+} from '../config/kafka-topics'
 import { KafkaProducerWrapper } from '../kafka/producer'
 import { Hub, Team } from '../types'
 import { closeHub, createHub } from '../utils/db/hub'
@@ -830,12 +833,17 @@ describe('Session Recording Consumer Integration', () => {
     let s3Client: S3Client
     let clickhouse: Clickhouse
 
-    async function createIngester(): Promise<SessionRecordingIngester> {
+    interface IngesterWithProducers {
+        ingester: SessionRecordingIngester
+        kafkaMetadataProducer: KafkaProducerWrapper
+    }
+
+    async function createIngester(): Promise<IngesterWithProducers> {
         const kafkaMetadataProducer = await KafkaProducerWrapper.create(hub.KAFKA_CLIENT_RACK)
         const kafkaMessageProducer = await KafkaProducerWrapper.create(hub.KAFKA_CLIENT_RACK)
         const kafkaDLQProducer = await KafkaProducerWrapper.create(hub.KAFKA_CLIENT_RACK)
 
-        return new SessionRecordingIngester(
+        const ingester = new SessionRecordingIngester(
             hub as any,
             false,
             hub.postgres,
@@ -843,6 +851,8 @@ describe('Session Recording Consumer Integration', () => {
             kafkaMessageProducer,
             kafkaDLQProducer
         )
+
+        return { ingester, kafkaMetadataProducer }
     }
 
     beforeAll(async () => {
@@ -904,6 +914,8 @@ describe('Session Recording Consumer Integration', () => {
             SESSION_RECORDING_V2_S3_TIMEOUT_MS: TEST_CONFIG.S3_TIMEOUT_MS,
             SESSION_RECORDING_MAX_BATCH_SIZE_KB: 1,
             SESSION_RECORDING_MAX_BATCH_AGE_MS: 1000,
+            // Use the test topic (with _test suffix) to match ClickHouse's Kafka engine table
+            SESSION_RECORDING_V2_REPLAY_EVENTS_KAFKA_TOPIC: KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS,
         })
 
         team = await getFirstTeam(hub)
@@ -975,7 +987,7 @@ describe('Session Recording Consumer Integration', () => {
             const testProducer = await KafkaProducerWrapper.create(hub.KAFKA_CLIENT_RACK)
 
             // Create and start ingester
-            const ingester = await createIngester()
+            const { ingester, kafkaMetadataProducer } = await createIngester()
             await ingester.start()
             await new Promise((resolve) => setTimeout(resolve, PARTITION_ASSIGNMENT_WAIT_MS))
 
@@ -999,7 +1011,8 @@ describe('Session Recording Consumer Integration', () => {
             // Stop ingester (triggers final flush)
             await ingester.stop()
 
-            // Disconnect test producer
+            // Disconnect producers created for this test
+            await kafkaMetadataProducer.disconnect()
             await testProducer.disconnect()
 
             // Query session metadata from ClickHouse aggregated table
