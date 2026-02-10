@@ -1,5 +1,4 @@
 from collections.abc import Generator, Iterable
-from dataclasses import dataclass
 from graphlib import TopologicalSorter
 from typing import Any
 
@@ -7,35 +6,15 @@ from django.db import models, transaction
 
 from posthog.models import Project, Team
 from posthog.models.resource_transfer.resource_transfer import ResourceTransfer
+from posthog.models.resource_transfer.types import (
+    ResourceTransferEdge,
+    ResourceTransferKey,
+    ResourceTransferVertex,
+    RewriteRelationFn,
+)
 from posthog.models.resource_transfer.visitors import ResourceTransferVisitor
 
 MAX_RELATIONAL_RECURSION_DEPTH = 20
-
-
-@dataclass
-class ResourceTransferEdge:
-    name: str
-    source_model: type
-    source_primary_key: Any
-    target_model: type
-    target_primary_key: Any
-
-    @property
-    def key(self) -> tuple[type, Any]:
-        return (self.target_model, self.target_primary_key)
-
-
-@dataclass
-class ResourceTransferVertex:
-    model: type
-    primary_key: Any
-    source_resource: models.Model
-    edges: list[ResourceTransferEdge]
-    duplicated_resource: models.Model | None = None
-
-    @property
-    def key(self) -> tuple[type, Any]:
-        return (self.model, self.primary_key)
 
 
 def duplicate_resource_to_new_team(resource: Any, team: Team) -> list[Any]:
@@ -63,7 +42,7 @@ def duplicate_resources_from_dag(dag: Iterable[ResourceTransferVertex], source_t
     :param source_team: The team the resources are being copied from.
     :param new_team: The team to copy the resources to.
     """
-    consumed_vertices: dict[tuple[type, Any], ResourceTransferVertex] = {}
+    consumed_vertices: dict[ResourceTransferKey, ResourceTransferVertex] = {}
     transfer_records: list[ResourceTransfer] = []
 
     for vertex in dag:
@@ -93,13 +72,7 @@ def duplicate_resources_from_dag(dag: Iterable[ResourceTransferVertex], source_t
             elif edge.target_model is Project:
                 payload[edge.name] = new_team.project
             else:
-                related_vertex = consumed_vertices.get(edge.key, None)
-                if related_vertex is None:
-                    raise ValueError(
-                        f"Could not duplicate {vertex.model}: attempted to instantiate relation before it was created in DAG"
-                    )
-
-                payload[edge.name] = related_vertex.duplicated_resource
+                payload = edge.rewrite_relation(payload, consumed_vertices)
 
         vertex.duplicated_resource = visitor.get_model().objects.create(**payload)
         consumed_vertices[vertex.key] = vertex
@@ -133,7 +106,7 @@ def dag_sort_duplication_graph(graph: Iterable[ResourceTransferVertex]) -> tuple
 
 
 def build_resource_duplication_graph(
-    resource: Any, exclude_set: set[tuple[type, Any]], depth: int = 1
+    resource: Any, exclude_set: set[ResourceTransferKey], depth: int = 1
 ) -> Generator[ResourceTransferVertex, None, None]:
     """
     This function builds a graph representing the relations in the connected component that `resource` is a member of.
@@ -170,10 +143,18 @@ def build_resource_duplication_graph(
         return
 
     model = visitor.get_model()
-    edges = []
+    edges = visitor.get_dynamic_edges(resource)
 
-    # NOTE: in some cases there are "hidden" relations, such as Insights referencing actions or cohorts. This will need to be updated in future to handle this
-    # Reece note: this should probably be a classmethod in the Visitor implementation for the model that takes in the runtime resource object, and spits out any extra edges
+    for edge in edges:
+        related_resource = edge.target_model.objects.get(pk=edge.target_primary_key)
+
+        if related_resource is None:
+            raise ValueError(
+                f"Could not fetch dynamic relationship {edge.target_model.__name__}:{edge.target_primary_key}"
+            )
+
+        yield from build_resource_duplication_graph(related_resource, exclude_set, depth + 1)
+
     for attribute_name, attribute_value in model.__dict__.items():
         if not visitor.should_touch_field(attribute_name) or not visitor.is_relation(attribute_name):
             continue
@@ -198,11 +179,28 @@ def build_resource_duplication_graph(
             edges.append(
                 ResourceTransferEdge(
                     name=attribute_name,
-                    source_model=model,
-                    source_primary_key=resource.pk,
                     target_model=related_model,
                     target_primary_key=related_resource.pk,
+                    rewrite_relation=_make_relation_rewriter(attribute_name, related_model, related_resource.pk),
                 )
             )
 
     yield ResourceTransferVertex(model=model, primary_key=resource.pk, source_resource=resource, edges=edges)
+
+
+def _make_relation_rewriter(
+    relation_name: str, related_model: type[models.Model], related_pk: Any
+) -> RewriteRelationFn:
+    def _rewrite_relation(
+        payload: dict[str, Any], resource_map: dict[ResourceTransferKey, ResourceTransferVertex]
+    ) -> dict[str, Any]:
+        related_vertex = resource_map.get((related_model, related_pk))
+
+        if related_vertex is None:
+            raise ValueError(
+                f"Could not duplicate relation of type {related_model.__name__}: attempted to reference relation before creation"
+            )
+
+        return {**payload, relation_name: related_vertex.duplicated_resource}
+
+    return _rewrite_relation
