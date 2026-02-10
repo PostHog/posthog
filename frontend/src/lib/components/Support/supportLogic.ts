@@ -118,34 +118,38 @@ interface AIConversationData {
 const AI_CONVERSATION_CACHE_MAX_AGE_MS = 30 * 60 * 1000 // 30 minutes
 
 function getAIConversationData(): AIConversationData | null {
-    // Lazy requires to avoid pulling the entire Max AI module graph into every bundle that imports supportLogic
-    const { maxThreadLogic } = require('scenes/max/maxThreadLogic')
-    const { maxGlobalLogic } = require('scenes/max/maxGlobalLogic')
-    const { wasTicketAISuggested } = require('scenes/max/ticketUtils')
+    try {
+        // Lazy requires to avoid pulling the entire Max AI module graph into every bundle that imports supportLogic
+        const { maxThreadLogic } = require('scenes/max/maxThreadLogic')
+        const { maxGlobalLogic } = require('scenes/max/maxGlobalLogic')
+        const { wasTicketAISuggested } = require('scenes/max/ticketUtils')
 
-    // Try the mounted thread logic first (most accurate, available when ticket is created from within AI chat)
-    const mountedThreadLogic = maxThreadLogic.findMounted()
-    if (mountedThreadLogic) {
-        const { conversationId, threadGrouped } = mountedThreadLogic.values
-        if (conversationId && threadGrouped.length > 0) {
-            const tag = wasTicketAISuggested(threadGrouped)
-                ? 'ai_suggested_support_ticket'
-                : 'raised_from_posthog_ai_chat'
+        // Try the mounted thread logic first (most accurate, available when ticket is created from within AI chat)
+        const mountedThreadLogic = maxThreadLogic.findMounted()
+        if (mountedThreadLogic) {
+            const { conversationId, threadGrouped } = mountedThreadLogic.values
+            if (conversationId && threadGrouped.length > 0) {
+                const tag = wasTicketAISuggested(threadGrouped)
+                    ? 'ai_suggested_support_ticket'
+                    : 'raised_from_posthog_ai_chat'
+                return {
+                    link: `\nAI conversation: https://us.posthog.com/project/2/ai?chat=${conversationId}`,
+                    tag,
+                }
+            }
+        }
+
+        // Fall back to the global cache (survives tab switches, e.g. AI tab → Support tab)
+        const cached = maxGlobalLogic.findMounted()?.values.lastActiveAIConversation
+        if (cached?.conversationId && Date.now() - cached.timestamp < AI_CONVERSATION_CACHE_MAX_AGE_MS) {
+            const tag = cached.aiSuggested ? 'ai_suggested_support_ticket' : 'raised_from_posthog_ai_chat'
             return {
-                link: `\nAI conversation: https://us.posthog.com/project/2/ai?chat=${conversationId}`,
+                link: `\nAI conversation: https://us.posthog.com/project/2/ai?chat=${cached.conversationId}`,
                 tag,
             }
         }
-    }
-
-    // Fall back to the global cache (survives tab switches, e.g. AI tab → Support tab)
-    const cached = maxGlobalLogic.findMounted()?.values.lastActiveAIConversation
-    if (cached?.conversationId && Date.now() - cached.timestamp < AI_CONVERSATION_CACHE_MAX_AGE_MS) {
-        const tag = cached.aiSuggested ? 'ai_suggested_support_ticket' : 'raised_from_posthog_ai_chat'
-        return {
-            link: `\nAI conversation: https://us.posthog.com/project/2/ai?chat=${cached.conversationId}`,
-            tag,
-        }
+    } catch {
+        // Max AI modules may not be available (e.g. in posthog-foss builds)
     }
 
     return null
