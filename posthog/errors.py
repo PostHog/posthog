@@ -6,10 +6,10 @@ from clickhouse_driver.errors import ServerException
 
 from posthog.exceptions import (
     ClickHouseAtCapacity,
+    ClickHouseEstimatedQueryExecutionTimeTooLong,
     ClickHouseQueryMemoryLimitExceeded,
+    ClickHouseQuerySizeExceeded,
     ClickHouseQueryTimeOut,
-    EstimatedQueryExecutionTimeTooLong,
-    QuerySizeExceeded,
 )
 
 
@@ -49,49 +49,85 @@ class ErrorCodeMeta:
         return self.name.replace("_", " ").title().replace(" ", "")
 
 
-def ch_error_type(e: Exception) -> str:
+def clickhouse_error_type(e: Exception) -> str:
     "Provide a ClickHouse error type for observability"
     if not isinstance(e, ServerException):
         return type(e).__name__
-    return f"CHQueryError{look_up_error_code_meta(e).label}"
+    return f"CHQueryError{look_up_clickhouse_error_code_meta(e).label}"
 
 
-def wrap_query_error(err: Exception) -> Exception:
+def wrap_clickhouse_query_error(err: Exception) -> Exception:
     "Beautifies clickhouse client errors, using custom error classes for every code"
     if not isinstance(err, ServerException):
         return err
 
-    # 202 is too many simultanous queries, 439 is cannot schedule tasks - too many threads, both
-    if err.code in (202, 439):
+    meta = look_up_clickhouse_error_code_meta(err)
+    name = meta.name
+
+    # Naming convention:
+    # - Exceptions starting with ClickHouse inherit from APIException and are not sent to error reporting.
+    # - Exceptions starting with CH inherit from InternalCHQueryError or ExposedCHQueryError.
+    #   These ultimately extend clickhouse_driver.errors.ServerException and are sent to error reporting.
+
+    # infrastructure errors - custom messages to hide internals
+    if name in ("TOO_MANY_SIMULTANEOUS_QUERIES", "CANNOT_SCHEDULE_TASK"):
         return ClickHouseAtCapacity()
-    elif err.code == 159:
+    elif name == "TIMEOUT_EXCEEDED":
         return ClickHouseQueryTimeOut()
-    elif err.code == 241:
+    elif name == "MEMORY_LIMIT_EXCEEDED":
         return ClickHouseQueryMemoryLimitExceeded()
     elif (
-        err.code == 62 and "query size exceeded" in err.message
+        name == "SYNTAX_ERROR" and "query size exceeded" in err.message
     ):  # Handle syntax error when "max query size exceeded" in the message
-        return QuerySizeExceeded()
-    elif err.code == 160:
+        return ClickHouseQuerySizeExceeded()
+    elif name == "TOO_SLOW":
         # Return a 512 error for queries which would time out
         detail = "Estimated query execution time is too long"
         if match := re.search(r"Estimated query execution time \(.* seconds\) is too long.", err.message):
             detail = match.group(0)
-        return EstimatedQueryExecutionTimeTooLong(detail=f"{detail} Try reducing its scope by changing the time range.")
+        return ClickHouseEstimatedQueryExecutionTimeTooLong(
+            detail=f"{detail} Try reducing its scope by changing the time range."
+        )
+    elif name == "S3_ERROR":
+        return CHQueryErrorS3Error("S3 error occurred. Try again later.", code=err.code)
 
-    meta = look_up_error_code_meta(err)
+    # user query errors - pass through original message with proper code_name
+    elif name == "ILLEGAL_TYPE_OF_ARGUMENT":
+        return CHQueryErrorIllegalTypeOfArgument(err.message, code=err.code, code_name="illegal_type_of_argument")
+    elif name == "NO_COMMON_TYPE":
+        return CHQueryErrorNoCommonType(err.message, code=err.code, code_name="no_common_type")
+    elif name == "NOT_AN_AGGREGATE":
+        return CHQueryErrorNotAnAggregate(err.message, code=err.code, code_name="not_an_aggregate")
+    elif name == "UNKNOWN_FUNCTION":
+        return CHQueryErrorUnknownFunction(err.message, code=err.code, code_name="unknown_function")
+    elif name == "TYPE_MISMATCH":
+        return CHQueryErrorTypeMismatch(err.message, code=err.code, code_name="type_mismatch")
+    elif name == "ILLEGAL_AGGREGATION":
+        return CHQueryErrorIllegalAggregation(err.message, code=err.code, code_name="illegal_aggregation")
+    elif name == "NUMBER_OF_ARGUMENTS_DOESNT_MATCH":
+        return CHQueryErrorNumberOfArgumentsDoesntMatch(
+            err.message, code=err.code, code_name="number_of_arguments_doesnt_match"
+        )
+    elif name == "UNKNOWN_IDENTIFIER":
+        return CHQueryErrorUnknownIdentifier(err.message, code=err.code, code_name="unknown_identifier")
+    elif name == "TOO_MANY_BYTES":
+        return CHQueryErrorTooManyBytes(err.message, code=err.code, code_name="too_many_bytes")
+    elif name == "CANNOT_PARSE_UUID":
+        return CHQueryErrorCannotParseUuid(err.message, code=err.code, code_name="cannot_parse_uuid")
+    elif name == "UNSUPPORTED_METHOD":
+        return CHQueryErrorUnsupportedMethod(err.message, code=err.code, code_name="unsupported_method")
+    elif name == "INVALID_JOIN_ON_EXPRESSION":
+        return CHQueryErrorInvalidJoinOnExpression(err.message, code=err.code, code_name="invalid_join_on_expression")
 
-    specific_error = get_specific_clickhouse_error(meta.name, err.message, err.code)
-    if specific_error is not None:
-        return specific_error
-
-    name = f"CHQueryError{meta.label}"
-    processed_error_class = ExposedCHQueryError if meta.user_safe else InternalCHQueryError
-    message = meta.user_safe if isinstance(meta.user_safe, str) else err.message
-    return type(name, (processed_error_class,), {})(message, code=err.code, code_name=meta.name.lower())
+    # all other errors
+    else:
+        name = f"CHQueryError{meta.label}"
+        processed_error_class = ExposedCHQueryError if meta.user_safe else InternalCHQueryError
+        message = meta.user_safe if isinstance(meta.user_safe, str) else err.message
+        return type(name, (processed_error_class,), {})(message, code=err.code, code_name=meta.name.lower())
 
 
-def look_up_error_code_meta(error: ServerException) -> ErrorCodeMeta:
+def look_up_clickhouse_error_code_meta(error: ServerException) -> ErrorCodeMeta:
     code = getattr(error, "code", None)
     if code is None or code not in CLICKHOUSE_ERROR_CODE_LOOKUP:
         return CLICKHOUSE_UNKNOWN_EXCEPTION
@@ -159,43 +195,6 @@ class CHQueryErrorUnsupportedMethod(InternalCHQueryError):
 
 class CHQueryErrorInvalidJoinOnExpression(InternalCHQueryError):
     pass
-
-
-def get_specific_clickhouse_error(meta_name: str, original_message: str, code: int) -> InternalCHQueryError | None:
-    lookup: dict[str, InternalCHQueryError] = {
-        # Infrastructure errors - custom messages to hide internals
-        "TOO_MANY_SIMULTANEOUS_QUERIES": CHQueryErrorTooManySimultaneousQueries(
-            "Too many simultaneous queries. Try again later.", code=code
-        ),
-        "CANNOT_SCHEDULE_TASK": CHQueryErrorCannotScheduleTask("Cannot schedule task. Try again later.", code=code),
-        "S3_ERROR": CHQueryErrorS3Error("S3 error occurred. Try again later.", code=code),
-        # User query errors - pass through original message with proper code_name
-        "ILLEGAL_TYPE_OF_ARGUMENT": CHQueryErrorIllegalTypeOfArgument(
-            original_message, code=code, code_name="illegal_type_of_argument"
-        ),
-        "NO_COMMON_TYPE": CHQueryErrorNoCommonType(original_message, code=code, code_name="no_common_type"),
-        "NOT_AN_AGGREGATE": CHQueryErrorNotAnAggregate(original_message, code=code, code_name="not_an_aggregate"),
-        "UNKNOWN_FUNCTION": CHQueryErrorUnknownFunction(original_message, code=code, code_name="unknown_function"),
-        "TYPE_MISMATCH": CHQueryErrorTypeMismatch(original_message, code=code, code_name="type_mismatch"),
-        "ILLEGAL_AGGREGATION": CHQueryErrorIllegalAggregation(
-            original_message, code=code, code_name="illegal_aggregation"
-        ),
-        "NUMBER_OF_ARGUMENTS_DOESNT_MATCH": CHQueryErrorNumberOfArgumentsDoesntMatch(
-            original_message, code=code, code_name="number_of_arguments_doesnt_match"
-        ),
-        "UNKNOWN_IDENTIFIER": CHQueryErrorUnknownIdentifier(
-            original_message, code=code, code_name="unknown_identifier"
-        ),
-        "TOO_MANY_BYTES": CHQueryErrorTooManyBytes(original_message, code=code, code_name="too_many_bytes"),
-        "CANNOT_PARSE_UUID": CHQueryErrorCannotParseUuid(original_message, code=code, code_name="cannot_parse_uuid"),
-        "UNSUPPORTED_METHOD": CHQueryErrorUnsupportedMethod(
-            original_message, code=code, code_name="unsupported_method"
-        ),
-        "INVALID_JOIN_ON_EXPRESSION": CHQueryErrorInvalidJoinOnExpression(
-            original_message, code=code, code_name="invalid_join_on_expression"
-        ),
-    }
-    return lookup.get(meta_name)
 
 
 #
@@ -442,7 +441,10 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     255: ErrorCodeMeta("TOO_MANY_RETRIES_TO_FETCH_PARTS"),
     256: ErrorCodeMeta("PARTITION_ALREADY_EXISTS"),
     257: ErrorCodeMeta("PARTITION_DOESNT_EXIST"),
-    258: ErrorCodeMeta("UNION_ALL_RESULT_STRUCTURES_MISMATCH", user_safe="Mismatched number of columns in UNION ALL."),
+    258: ErrorCodeMeta(
+        "UNION_ALL_RESULT_STRUCTURES_MISMATCH",
+        user_safe="Mismatched number of columns in UNION ALL.",
+    ),
     260: ErrorCodeMeta("CLIENT_OUTPUT_FORMAT_SPECIFIED"),
     261: ErrorCodeMeta("UNKNOWN_BLOCK_INFO_FIELD"),
     262: ErrorCodeMeta("BAD_COLLATION"),

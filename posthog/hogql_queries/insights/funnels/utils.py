@@ -124,13 +124,6 @@ def entity_source_or_table_mismatch(entity: EntityNode, source_kind: SourceTable
     return False
 
 
-def get_table_name(entity: EntityNode):
-    if is_data_warehouse_entity(entity):
-        return entity.table_name
-    else:
-        return "events"
-
-
 def alias_columns_in_select(columns: list[ast.Expr], table_alias: str) -> list[ast.Expr]:
     """
     Returns a list of `column_or_alias_name AS table_alias.column_or_alias_name`, from a given list of `columns`.
