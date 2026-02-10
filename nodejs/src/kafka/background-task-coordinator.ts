@@ -51,7 +51,7 @@ export class BackgroundTaskCoordinator {
      * Returns a snapshot of current tasks (for rebalance waiting)
      */
     get pendingTasks(): readonly BackgroundTask[] {
-        return [...this.tasks]
+        return Array.from(this.tasks)
     }
 
     /**
@@ -60,13 +60,13 @@ export class BackgroundTaskCoordinator {
      * The offsetsStoredPromise will resolve only after:
      * 1. The task completes (success or failure via finally)
      * 2. All earlier tasks' offsets have been stored
-     * 3. The onOffsetsStored callback has been called
+     * 3. The storeOffsets callback has been called
      *
      * @param taskPromise - The background work promise
-     * @param onOffsetsStored - Callback to store offsets (called in order)
+     * @param storeOffsets - Callback that stores offsets (called in order after predecessors complete)
      * @returns The task descriptor with offsetsStoredPromise
      */
-    addTask(taskPromise: Promise<void>, onOffsetsStored: () => void): BackgroundTask {
+    addTask(taskPromise: Promise<void>, storeOffsets: () => void): BackgroundTask {
         const createdAt = Date.now()
 
         // Create the offset storage promise that chains through finally
@@ -80,18 +80,21 @@ export class BackgroundTaskCoordinator {
                 return
             }
 
-            // Capture promises to wait for BEFORE removing ourselves
-            // We wait for offsetsStoredPromise (not just promise) to ensure offsets are stored in order
-            const promisesToWait = this.tasks.slice(0, index).map((t) => t.offsetsStoredPromise)
+            // Capture the previous task's offsetsStoredPromise BEFORE removing ourselves.
+            // We only need to wait for the immediate predecessor since each task transitively
+            // waits for all its predecessors, making this O(n) instead of O(n^2).
+            const previousTask = index > 0 ? this.tasks[index - 1] : null
 
             // Remove ourselves from the queue
             this.tasks.splice(index, 1)
 
-            // Wait for all earlier tasks to store their offsets
-            await Promise.all(promisesToWait)
+            // Wait for the previous task to store its offsets (which transitively waits for all earlier tasks)
+            if (previousTask) {
+                await previousTask.offsetsStoredPromise
+            }
 
             // Now it's safe to store our offsets
-            onOffsetsStored()
+            storeOffsets()
         })
 
         const task: BackgroundTask = {
@@ -120,11 +123,10 @@ export class BackgroundTaskCoordinator {
             return { status: 'success', durationMs: 0 }
         }
 
-        // Capture current tasks - new tasks added during wait are not our concern
-        const tasksToWait = [...this.tasks]
-
-        // Wait for all offsets to be stored
-        const offsetsStoredPromise = Promise.all(tasksToWait.map((t) => t.offsetsStoredPromise))
+        // We only need to await the last task's offsetsStoredPromise since each task
+        // transitively waits for all its predecessors before storing offsets.
+        const lastTask = this.tasks[this.tasks.length - 1]
+        const offsetsStoredPromise = lastTask.offsetsStoredPromise
 
         // Create timeout promise
         let timeoutId: NodeJS.Timeout | undefined
