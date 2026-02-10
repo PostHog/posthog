@@ -47,6 +47,39 @@ fn map_join_result(
     r.map_err(|e| e.to_string())
 }
 
+/// Outcome variant for REBALANCE_CHECKPOINT_IMPORT_COUNTER.
+/// Caller removes from partition_fallback_reasons for Cancelled (use reason) and for Failed/TimedOut/Panic (cleanup).
+#[derive(Clone, Copy)]
+enum ImportOutcomeTag {
+    Pending,
+    CompletedRevoked,
+    Cancelled,
+    Failed,
+    TimedOut,
+    Panic,
+}
+
+fn import_outcome_to_tags(
+    outcome: ImportOutcomeTag,
+    fallback_reason: Option<&'static str>,
+) -> (&'static str, &'static str) {
+    match outcome {
+        ImportOutcomeTag::Pending => ("cancelled", "revoked_incomplete"),
+        ImportOutcomeTag::CompletedRevoked => ("success", "success_unowned"),
+        ImportOutcomeTag::Cancelled => {
+            let reason = fallback_reason.unwrap_or("import_cancelled");
+            let result = match reason {
+                "store_exists" | "no_importer" => "skipped",
+                _ => "cancelled",
+            };
+            (result, reason)
+        }
+        ImportOutcomeTag::Failed => ("failed", "import"),
+        ImportOutcomeTag::TimedOut => ("failed", "timeout"),
+        ImportOutcomeTag::Panic => ("failed", "panic"),
+    }
+}
+
 /// Type alias for the shared task handle. We keep the outcome so we can peek before re-attach
 /// and apply Option A (register/delete) in finalize. Mapped to Result<O, String> so Output is Clone.
 type SharedTaskHandle = Shared<
@@ -266,13 +299,39 @@ where
     ///
     /// Moves handles to revoked_setup_tasks so we can re-attach on re-assign and peek
     /// to see if cancellation took (spawn fresh) or task completed (re-attach).
+    /// If the partition is already in revoked_setup_tasks (e.g. from an earlier revoke before assign/finalize),
+    /// we peek, emit status, and prune that entry before replacing it so we never drop a task without counting.
     fn cancel_setup_tasks(&self, partitions: &[Partition]) {
         for partition in partitions {
+            if let Some((_, old_task)) = self.revoked_setup_tasks.remove(partition) {
+                let peeked = old_task.handle.as_ref().and_then(|h| h.peek());
+                let tag = match &peeked {
+                    None => ImportOutcomeTag::Pending,
+                    Some(Ok(PartitionImportOutcome::Completed(_))) => {
+                        ImportOutcomeTag::CompletedRevoked
+                    }
+                    Some(Ok(PartitionImportOutcome::Cancelled)) => ImportOutcomeTag::Cancelled,
+                    Some(Ok(PartitionImportOutcome::Failed(_))) => ImportOutcomeTag::Failed,
+                    Some(Ok(PartitionImportOutcome::TimedOut)) => ImportOutcomeTag::TimedOut,
+                    Some(Err(_)) => ImportOutcomeTag::Panic,
+                };
+                let fallback_reason = self
+                    .partition_fallback_reasons
+                    .remove(partition)
+                    .map(|(_, r)| r);
+                let (result, reason) = import_outcome_to_tags(tag, fallback_reason);
+                metrics::counter!(
+                    REBALANCE_CHECKPOINT_IMPORT_COUNTER,
+                    "result" => result,
+                    "reason" => reason,
+                )
+                .increment(1);
+            }
             if let Some((_, task)) = self.partition_setup_tasks.remove(partition) {
                 task.cancel_token.cancel();
                 self.revoked_setup_tasks.insert(partition.clone(), task);
             }
-            self.partition_fallback_reasons.remove(partition);
+            // Keep partition_fallback_reasons so assign/finalize can emit store_exists, no_importer, etc. when pruning
         }
     }
 
@@ -325,12 +384,7 @@ where
                 .get(partition.topic(), partition.partition_number())
                 .is_some()
             {
-                metrics::counter!(
-                    REBALANCE_CHECKPOINT_IMPORT_COUNTER,
-                    "result" => "skipped",
-                    "reason" => "store_exists",
-                )
-                .increment(1);
+                fallback_reasons.insert(partition.clone(), "store_exists");
                 return PartitionImportOutcome::Cancelled;
             }
 
@@ -348,12 +402,6 @@ where
                     Ok(path) => PartitionImportOutcome::Completed(path),
                     Err(e) => {
                         if e.downcast_ref::<ImportTimeoutError>().is_some() {
-                            metrics::counter!(
-                                REBALANCE_CHECKPOINT_IMPORT_COUNTER,
-                                "result" => "failed",
-                                "reason" => "timeout",
-                            )
-                            .increment(1);
                             fallback_reasons.insert(partition.clone(), "import_timeout");
                             PartitionImportOutcome::TimedOut
                         } else if cancel_token.is_cancelled()
@@ -362,12 +410,6 @@ where
                             fallback_reasons.insert(partition.clone(), "import_cancelled");
                             PartitionImportOutcome::Cancelled
                         } else {
-                            metrics::counter!(
-                                REBALANCE_CHECKPOINT_IMPORT_COUNTER,
-                                "result" => "failed",
-                                "reason" => "import",
-                            )
-                            .increment(1);
                             warn!(
                                 topic = partition.topic(),
                                 partition = partition.partition_number(),
@@ -380,12 +422,6 @@ where
                     }
                 }
             } else {
-                metrics::counter!(
-                    REBALANCE_CHECKPOINT_IMPORT_COUNTER,
-                    "result" => "skipped",
-                    "reason" => "disabled",
-                )
-                .increment(1);
                 fallback_reasons.insert(partition.clone(), "no_importer");
                 PartitionImportOutcome::Cancelled
             }
@@ -492,17 +528,28 @@ where
                 | Ok(PartitionImportOutcome::Failed(_))
                 | Ok(PartitionImportOutcome::TimedOut)
                 | Err(_) => {
-                    let variant = match &result {
-                        Ok(PartitionImportOutcome::Cancelled) => "cancelled",
-                        Ok(PartitionImportOutcome::Failed(_)) => "failed",
-                        Ok(PartitionImportOutcome::TimedOut) => "timeout",
+                    let tag = match &result {
+                        Ok(PartitionImportOutcome::Cancelled) => ImportOutcomeTag::Cancelled,
+                        Ok(PartitionImportOutcome::Failed(_)) => ImportOutcomeTag::Failed,
+                        Ok(PartitionImportOutcome::TimedOut) => ImportOutcomeTag::TimedOut,
                         Ok(PartitionImportOutcome::Completed(_)) => unreachable!("handled above"),
-                        Err(_) => "panic",
+                        Err(_) => ImportOutcomeTag::Panic,
                     };
+                    let fallback_reason = self
+                        .partition_fallback_reasons
+                        .remove(&partition)
+                        .map(|(_, r)| r);
+                    let (result_label, reason) = import_outcome_to_tags(tag, fallback_reason);
+                    metrics::counter!(
+                        REBALANCE_CHECKPOINT_IMPORT_COUNTER,
+                        "result" => result_label,
+                        "reason" => reason,
+                    )
+                    .increment(1);
                     debug!(
                         topic = partition.topic(),
                         partition = partition.partition_number(),
-                        variant,
+                        variant = result_label,
                         "Partition import cancelled, failed, or timed out; fallback will be used if owned"
                     );
                 }
@@ -530,7 +577,7 @@ where
         }
 
         // Count and remove revoked_setup_tasks for partitions not in owned (avoid leaking handles).
-        // Peek each pruned task and increment REBALANCE_CHECKPOINT_IMPORT_COUNTER; use reason=revoked_incomplete when peek is None (pending).
+        // Rule: every task removed from a setup map is counted ONCE with full tag variety; no double-counting.
         let owned_set: std::collections::HashSet<_> = owned.iter().collect();
         let to_prune: Vec<Partition> = self
             .revoked_setup_tasks
@@ -541,16 +588,21 @@ where
         for partition in to_prune {
             if let Some((_, task)) = self.revoked_setup_tasks.remove(&partition) {
                 let peeked = task.handle.as_ref().and_then(|h| h.peek());
-                let (result, reason): (&str, &str) = match peeked {
-                    None => ("cancelled", "revoked_incomplete"),
-                    Some(Ok(PartitionImportOutcome::Completed(_))) => ("success", "not_owned"),
-                    Some(Ok(PartitionImportOutcome::Cancelled)) => {
-                        ("cancelled", "import_cancelled")
+                let tag = match &peeked {
+                    None => ImportOutcomeTag::Pending,
+                    Some(Ok(PartitionImportOutcome::Completed(_))) => {
+                        ImportOutcomeTag::CompletedRevoked
                     }
-                    Some(Ok(PartitionImportOutcome::Failed(_))) => ("failed", "import"),
-                    Some(Ok(PartitionImportOutcome::TimedOut)) => ("failed", "timeout"),
-                    Some(Err(_)) => ("failed", "panic"),
+                    Some(Ok(PartitionImportOutcome::Cancelled)) => ImportOutcomeTag::Cancelled,
+                    Some(Ok(PartitionImportOutcome::Failed(_))) => ImportOutcomeTag::Failed,
+                    Some(Ok(PartitionImportOutcome::TimedOut)) => ImportOutcomeTag::TimedOut,
+                    Some(Err(_)) => ImportOutcomeTag::Panic,
                 };
+                let fallback_reason = self
+                    .partition_fallback_reasons
+                    .remove(&partition)
+                    .map(|(_, r)| r);
+                let (result, reason) = import_outcome_to_tags(tag, fallback_reason);
                 metrics::counter!(
                     REBALANCE_CHECKPOINT_IMPORT_COUNTER,
                     "result" => result,
@@ -778,6 +830,28 @@ where
                 };
                 if re_attach {
                     self.partition_setup_tasks.insert(partition.clone(), task);
+                } else {
+                    let tag = match &peeked {
+                        None => ImportOutcomeTag::Pending,
+                        Some(Ok(PartitionImportOutcome::Completed(_))) => {
+                            unreachable!("re_attach is true")
+                        }
+                        Some(Ok(PartitionImportOutcome::Cancelled)) => ImportOutcomeTag::Cancelled,
+                        Some(Ok(PartitionImportOutcome::Failed(_))) => ImportOutcomeTag::Failed,
+                        Some(Ok(PartitionImportOutcome::TimedOut)) => ImportOutcomeTag::TimedOut,
+                        Some(Err(_)) => ImportOutcomeTag::Panic,
+                    };
+                    let fallback_reason = self
+                        .partition_fallback_reasons
+                        .remove(partition)
+                        .map(|(_, r)| r);
+                    let (result, reason) = import_outcome_to_tags(tag, fallback_reason);
+                    metrics::counter!(
+                        REBALANCE_CHECKPOINT_IMPORT_COUNTER,
+                        "result" => result,
+                        "reason" => reason,
+                    )
+                    .increment(1);
                 }
             }
         }
