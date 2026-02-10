@@ -211,6 +211,9 @@ jobs:
         env:
             NODE_OPTIONS: --max-old-space-size=16384
             OPT_OUT_CAPTURE: 1
+            # Shuffle test order across shards to avoid persistent hotspots (see test-sequencer.js).
+            # Seeded by PR number so reruns are deterministic; falls back to SHA on master pushes.
+            STORYBOOK_SHUFFLE_SEED: ${{ github.event.pull_request.number || github.sha }}
         steps:
             - uses: actions/checkout@v6
               with:
