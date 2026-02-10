@@ -106,12 +106,25 @@ class TableSerializer(serializers.ModelSerializer):
 
         validated_data["team_id"] = team_id
         validated_data["created_by"] = self.context["request"].user
-        if validated_data.get("credential"):
-            validated_data["credential"] = DataWarehouseCredential.objects.create(
-                team_id=team_id,
-                access_key=validated_data["credential"]["access_key"],
-                access_secret=validated_data["credential"]["access_secret"],
-            )
+        credential = validated_data.get("credential")
+
+        if not credential:
+            raise serializers.ValidationError("Credentials are required")
+
+        access_key: str | None = credential.get("access_key")
+        access_secret: str | None = credential.get("access_secret")
+
+        if not access_key or not access_secret:
+            raise serializers.ValidationError("Access key and secret are required")
+
+        if len(access_key.strip()) == 0 or len(access_secret.strip()) == 0:
+            raise serializers.ValidationError("Access key and secret can't be blank")
+
+        validated_data["credential"] = DataWarehouseCredential.objects.create(
+            team_id=team_id,
+            access_key=access_key,
+            access_secret=access_secret,
+        )
         table = DataWarehouseTable(**validated_data)
         try:
             table.columns = table.get_columns()
@@ -122,6 +135,12 @@ class TableSerializer(serializers.ModelSerializer):
         validate_data_warehouse_table_columns.delay(self.context["team_id"], str(table.id))
 
         return table
+
+    def validate_url_pattern(self, url_pattern):
+        s3_domain = settings.DATAWAREHOUSE_BUCKET_DOMAIN
+        if s3_domain in url_pattern:
+            raise serializers.ValidationError("Cant use this bucket")
+        return url_pattern
 
     def validate_name(self, name):
         if not self.instance or self.instance.name != name:
@@ -211,9 +230,19 @@ class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         credential_data = validated_data.pop("credential", None)
         if credential_data:
+            access_key = credential_data.get("access_key")
+            access_secret = credential_data.get("access_secret")
+
+            if access_key is not None and len(access_key.strip()) == 0:
+                raise serializers.ValidationError("Access key can't be blank")
+            if access_secret is not None and len(access_secret.strip()) == 0:
+                raise serializers.ValidationError("Access secret can't be blank")
+
             credential = instance.credential
-            credential.access_key = credential_data.get("access_key", credential.access_key)
-            credential.access_secret = credential_data.get("access_secret", credential.access_secret)
+            if access_key is not None:
+                credential.access_key = access_key
+            if access_secret is not None:
+                credential.access_secret = access_secret
             credential.save()
 
         for attr, value in validated_data.items():

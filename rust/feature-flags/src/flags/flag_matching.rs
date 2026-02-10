@@ -16,7 +16,8 @@ use crate::flags::flag_models::{FeatureFlag, FeatureFlagId, FeatureFlagList, Fla
 use crate::flags::flag_operations::flags_require_db_preparation;
 use crate::handler::with_canonical_log;
 use crate::metrics::consts::{
-    DB_PERSON_AND_GROUP_PROPERTIES_READS_COUNTER, FLAG_DB_PROPERTIES_FETCH_TIME,
+    DB_PERSON_AND_GROUP_PROPERTIES_READS_COUNTER, FLAG_BATCH_EVALUATION_COUNTER,
+    FLAG_BATCH_EVALUATION_TIME, FLAG_BATCH_SIZE, FLAG_DB_PROPERTIES_FETCH_TIME,
     FLAG_EVALUATE_ALL_CONDITIONS_TIME, FLAG_EVALUATION_ERROR_COUNTER, FLAG_EVALUATION_TIME,
     FLAG_EXPERIENCE_CONTINUITY_OPTIMIZED, FLAG_EXPERIENCE_CONTINUITY_REQUESTS_COUNTER,
     FLAG_GET_MATCH_TIME, FLAG_GROUP_CACHE_FETCH_TIME, FLAG_GROUP_DB_FETCH_TIME,
@@ -29,7 +30,7 @@ use crate::utils::graph_utils::{
     DependencyGraph, DependencyGraphResult, FilteredGraphResult,
 };
 use anyhow::Result;
-use common_metrics::{inc, timing_guard};
+use common_metrics::{histogram, inc, timing_guard};
 use common_types::collections::HashMapExt;
 use common_types::{PersonId, TeamId};
 use rayon::prelude::*;
@@ -48,6 +49,21 @@ pub struct FlagEvaluationOverrides {
     pub hash_key_override_error: bool,
     /// The request's anon_distinct_id, used as a fallback for EEC flags when no DB override exists
     pub request_hash_key_override: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum EvaluationType {
+    Sequential,
+    Parallel,
+}
+
+impl std::fmt::Display for EvaluationType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            EvaluationType::Sequential => write!(f, "sequential"),
+            EvaluationType::Parallel => write!(f, "parallel"),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -198,7 +214,12 @@ pub struct FeatureFlagMatcher {
     ///     "customer" → "101"
     ///     "team" → "112"
     groups: HashMap<String, Value>,
+    /// Flag count threshold for switching from sequential to parallel evaluation.
+    /// Configured via PARALLEL_EVAL_THRESHOLD env var in production.
+    parallel_eval_threshold: usize,
 }
+
+const DEFAULT_PARALLEL_EVAL_THRESHOLD: usize = 100;
 
 impl FeatureFlagMatcher {
     #[allow(clippy::too_many_arguments)]
@@ -221,7 +242,13 @@ impl FeatureFlagMatcher {
                 .unwrap_or_else(|| GroupTypeMappingCache::new(team_id)),
             groups: groups.unwrap_or_default(),
             flag_evaluation_state: FlagEvaluationState::default(),
+            parallel_eval_threshold: DEFAULT_PARALLEL_EVAL_THRESHOLD,
         }
+    }
+
+    pub fn with_parallel_eval_threshold(mut self, threshold: usize) -> Self {
+        self.parallel_eval_threshold = threshold;
+        self
     }
 
     /// Evaluates all feature flags for the current matcher context.
@@ -761,30 +788,13 @@ impl FeatureFlagMatcher {
             .map(|flag| (&flag.key, *flag))
             .collect();
 
-        let results: Vec<(String, Result<FeatureFlagMatch, FlagError>)> = flags_to_evaluate
-            .par_iter()
-            .map(|flag| {
-                // Flags with missing dependencies evaluate to false (fail closed)
-                if flags_with_missing_deps.contains(&flag.id) {
-                    return (flag.key.clone(), Ok(FeatureFlagMatch::missing_dependency()));
-                }
-
-                // If the overrides for this flag are not in the pre-computed map, assume no overrides
-                // this shouldn't happen, but it's here to avoid panics
-                let property_overrides = precomputed_property_overrides
-                    .get(&flag.key)
-                    .and_then(|opt| opt.as_ref());
-                (
-                    flag.key.clone(),
-                    self.get_match(
-                        flag,
-                        property_overrides,
-                        hash_key_overrides.as_ref(),
-                        request_hash_key_override,
-                    ),
-                )
-            })
-            .collect();
+        let results: Vec<(String, Result<FeatureFlagMatch, FlagError>)> = self.evaluate_flag_batch(
+            &flags_to_evaluate,
+            &precomputed_property_overrides,
+            flags_with_missing_deps,
+            hash_key_overrides,
+            request_hash_key_override,
+        );
 
         for (flag_key, result) in results {
             // If flag not found in map, skip it (this shouldn't happen but is safe)
@@ -879,6 +889,75 @@ impl FeatureFlagMatcher {
         }
 
         Ok(None)
+    }
+
+    /// Evaluates flags using the appropriate strategy based on flag count.
+    ///
+    /// For small flag counts, uses sequential iteration which is faster due to
+    /// avoiding thread synchronization overhead. For large flag counts, uses
+    /// rayon's parallel iteration for work-stealing parallelism.
+    ///
+    /// The threshold is configurable via the PARALLEL_EVAL_THRESHOLD env var.
+    fn evaluate_flag_batch(
+        &self,
+        flags_to_evaluate: &[&FeatureFlag],
+        precomputed_property_overrides: &HashMap<String, Option<HashMap<String, Value>>>,
+        flags_with_missing_deps: &HashSet<i32>,
+        hash_key_overrides: &Option<HashMap<String, String>>,
+        request_hash_key_override: &Option<String>,
+    ) -> Vec<(String, Result<FeatureFlagMatch, FlagError>)> {
+        let eval_type = if flags_to_evaluate.len() >= self.parallel_eval_threshold {
+            EvaluationType::Parallel
+        } else {
+            EvaluationType::Sequential
+        };
+
+        let labels = [("evaluation_type".to_string(), eval_type.to_string())];
+        histogram(FLAG_BATCH_SIZE, &labels, flags_to_evaluate.len() as f64);
+        inc(FLAG_BATCH_EVALUATION_COUNTER, &labels, 1);
+        let _timer = timing_guard(FLAG_BATCH_EVALUATION_TIME, &labels);
+
+        let eval = |flag: &&FeatureFlag| {
+            self.evaluate_single_flag(
+                flag,
+                precomputed_property_overrides,
+                flags_with_missing_deps,
+                hash_key_overrides,
+                request_hash_key_override,
+            )
+        };
+
+        match eval_type {
+            EvaluationType::Parallel => flags_to_evaluate.par_iter().map(eval).collect(),
+            EvaluationType::Sequential => flags_to_evaluate.iter().map(eval).collect(),
+        }
+    }
+
+    fn evaluate_single_flag(
+        &self,
+        flag: &FeatureFlag,
+        precomputed_property_overrides: &HashMap<String, Option<HashMap<String, Value>>>,
+        flags_with_missing_deps: &HashSet<i32>,
+        hash_key_overrides: &Option<HashMap<String, String>>,
+        request_hash_key_override: &Option<String>,
+    ) -> (String, Result<FeatureFlagMatch, FlagError>) {
+        if flags_with_missing_deps.contains(&flag.id) {
+            return (flag.key.clone(), Ok(FeatureFlagMatch::missing_dependency()));
+        }
+
+        let property_overrides = precomputed_property_overrides
+            .get(&flag.key)
+            .and_then(|opt| opt.as_ref());
+
+        (
+            flag.key.clone(),
+            self.get_match(
+                flag,
+                property_overrides,
+                hash_key_overrides.as_ref(),
+                request_hash_key_override,
+            ),
+        )
     }
 
     /// Determines if a feature flag matches for the current context.

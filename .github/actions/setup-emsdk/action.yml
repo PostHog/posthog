@@ -1,0 +1,51 @@
+name: Setup Emscripten SDK
+description: |
+    Installs and activates the Emscripten SDK for WASM builds.
+    Replaces mymindstorm/setup-emsdk to avoid its truthy-string bug
+    that causes unnecessary emsdk update downloads (HTTP 502/429 failures).
+
+inputs:
+    version:
+        description: 'Emscripten SDK version to install'
+        required: false
+        default: '4.0.23'
+
+runs:
+    using: composite
+    steps:
+        - name: Install and activate Emscripten SDK ${{ inputs.version }}
+          shell: bash
+          env:
+              EMSDK_VERSION: ${{ inputs.version }}
+          run: |
+              set -euo pipefail
+
+              VERSION="$EMSDK_VERSION"
+              EMSDK_DIR="$RUNNER_TEMP/emsdk"
+
+              # Download emsdk with retry logic to handle transient GitHub errors (502/429)
+              curl -fsSL --retry 5 --retry-delay 10 --retry-all-errors \
+                "https://github.com/emscripten-core/emsdk/archive/main.tar.gz" \
+                -o "$RUNNER_TEMP/emsdk.tar.gz"
+
+              mkdir -p "$EMSDK_DIR"
+              tar -xzf "$RUNNER_TEMP/emsdk.tar.gz" -C "$EMSDK_DIR" --strip-components=1
+              rm "$RUNNER_TEMP/emsdk.tar.gz"
+
+              # Install and activate the pinned version — no emsdk update needed
+              "$EMSDK_DIR/emsdk" install "$VERSION"
+              "$EMSDK_DIR/emsdk" activate "$VERSION"
+
+              # Source emsdk_env.sh to get canonical env vars, then propagate to subsequent steps
+              # Note: emsdk_env.sh may unset/overwrite env vars, so we save VERSION above
+              source "$EMSDK_DIR/emsdk_env.sh" 2>/dev/null || true
+
+              echo "EMSDK=$EMSDK_DIR" >> "$GITHUB_ENV"
+              echo "$EMSDK_DIR" >> "$GITHUB_PATH"
+              echo "$EMSDK_DIR/upstream/emscripten" >> "$GITHUB_PATH"
+              if [ -n "${EM_CONFIG:-}" ]; then
+                echo "EM_CONFIG=$EM_CONFIG" >> "$GITHUB_ENV"
+              fi
+
+              echo "Emscripten SDK $VERSION installed and activated"
+              emcc --version | head -1

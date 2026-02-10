@@ -4,7 +4,7 @@ import { sampleOnProperty } from 'posthog-js/lib/src/extensions/sampling'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils'
 
-export const SDK_DEFAULTS_DATE = '2025-11-30'
+export const SDK_DEFAULTS_DATE = '2026-01-30'
 
 const shouldDefer = (): boolean => {
     const sessionId = posthog.get_session_id()

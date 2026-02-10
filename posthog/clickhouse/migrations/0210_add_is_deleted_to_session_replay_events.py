@@ -26,6 +26,7 @@ operations = [
         ADD_IS_DELETED_WRITABLE_SESSION_REPLAY_EVENTS_TABLE_SQL(),
         sharded=False,
         is_alter_on_replicated_table=False,
+        node_roles=[NodeRole.INGESTION_SMALL],
     ),
     # Distributed table for reads - Distributed engine
     run_sql_with_exceptions(

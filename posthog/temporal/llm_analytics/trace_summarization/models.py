@@ -64,7 +64,7 @@ class SampledItem:
 
 @dataclass
 class SummarizationActivityResult:
-    """Result from generate_and_save_summary_activity."""
+    """Result from summarize_and_save_activity."""
 
     trace_id: str  # Always set - the trace ID (or parent trace for generations)
     success: bool
@@ -96,6 +96,57 @@ class BatchSummarizationResult:
 
     batch_run_id: str
     metrics: BatchSummarizationMetrics
+
+
+@dataclass
+class FetchAndFormatInput:
+    trace_id: str
+    trace_first_timestamp: str
+    team_id: int
+    window_start: str
+    window_end: str
+    max_length: int | None = None
+    generation_id: str | None = None  # None = trace-level, set = generation-level
+
+
+@dataclass
+class FetchAndFormatResult:
+    redis_key: str
+    trace_id: str
+    team_id: int
+    trace_first_timestamp: str
+    text_repr_length: int = 0
+    compressed_size: int = 0
+    event_count: int = 0
+    skipped: bool = False
+    skip_reason: str | None = None
+    generation_id: str | None = None
+
+
+@dataclass
+class FetchResult:
+    """Internal result from fetch helpers — not serialized through Temporal."""
+
+    text_repr: str | None  # None if oversized (event_count still set)
+    event_count: int
+
+
+@dataclass
+class SummarizeAndSaveInput:
+    redis_key: str
+    trace_id: str
+    team_id: int
+    trace_first_timestamp: str
+    mode: str
+    batch_run_id: str
+    model: str | None = None
+    generation_id: str | None = None
+    event_count: int = 0
+    text_repr_length: int = 0
+
+
+class TextReprExpiredError(Exception):
+    pass
 
 
 @dataclass
