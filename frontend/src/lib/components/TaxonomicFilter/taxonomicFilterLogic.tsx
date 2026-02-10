@@ -896,11 +896,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getName: (option: MaxContextTaxonomicFilterOption) => option.name,
                         getValue: (option: MaxContextTaxonomicFilterOption) => option.value,
                         getIcon: (option: MaxContextTaxonomicFilterOption) => {
-                            const Icon = option.icon as React.ComponentType
-                            if (Icon) {
-                                return <Icon />
-                            }
-                            return <></>
+                            const IconComponent = option.icon
+                            return <IconComponent />
                         },
                         getPopoverHeader: () => 'On this page',
                     },

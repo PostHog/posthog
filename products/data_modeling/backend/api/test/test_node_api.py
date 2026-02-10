@@ -178,7 +178,7 @@ class TestNodeViewSet(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         call_args = mock_client.start_workflow.call_args
-        self.assertEqual(call_args[0][0], "execute-dag")
+        self.assertEqual(call_args[0][0], "data-modeling-execute-dag")
 
     @patch("products.data_modeling.backend.api.node.posthoganalytics.feature_enabled", return_value=False)
     @patch("products.data_modeling.backend.api.node.sync_connect")
@@ -207,7 +207,7 @@ class TestNodeViewSet(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         call_args = mock_client.start_workflow.call_args
-        self.assertEqual(call_args[0][0], "materialize-view")
+        self.assertEqual(call_args[0][0], "data-modeling-materialize-view")
 
     @patch("products.data_modeling.backend.api.node.posthoganalytics.feature_enabled", return_value=False)
     @patch("products.data_modeling.backend.api.node.sync_connect")

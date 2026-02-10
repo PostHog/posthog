@@ -418,11 +418,6 @@ def get_context_for_template(
         if posthoganalytics.api_key:
             context["js_posthog_api_key"] = posthoganalytics.api_key
             context["js_posthog_host"] = ""  # Becomes location.origin in the frontend
-        # In development (not test mode), point ui_host to the Vite dev server so the toolbar loads from there with hot reload
-        if settings.DEBUG and not settings.TEST and settings.JS_URL == "http://localhost:8234":
-            context["js_posthog_ui_host"] = settings.JS_URL
-        else:
-            context["js_posthog_ui_host"] = ""
     else:
         context["js_posthog_api_key"] = "sTMFPsFhdP1Ssg"
         context["js_posthog_host"] = "https://internal-j.posthog.com"

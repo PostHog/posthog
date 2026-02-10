@@ -19,6 +19,8 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
 from posthog.models import User
+from posthog.permissions import AccessControlPermission
+from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 
 from products.llm_analytics.backend.models import Dataset
 from products.llm_analytics.backend.models.datasets import DatasetItem
@@ -134,8 +136,9 @@ class DatasetFilter(django_filters.FilterSet):
 
 
 @extend_schema(tags=[ProductKey.LLM_ANALYTICS])
-class DatasetViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, ModelViewSet):
+class DatasetViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDestroyModel, ModelViewSet):
     scope_object = "dataset"
+    permission_classes = [AccessControlPermission]
     serializer_class = DatasetSerializer
     queryset = Dataset.objects.all()
     filter_backends = [DjangoFilterBackend]
@@ -258,6 +261,7 @@ class DatasetItemSerializer(serializers.ModelSerializer):
 @extend_schema(tags=[ProductKey.LLM_ANALYTICS])
 class DatasetItemViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, ModelViewSet):
     scope_object = "dataset"
+    permission_classes = [AccessControlPermission]
     serializer_class = DatasetItemSerializer
     queryset = DatasetItem.objects.all()
     filter_backends = [DjangoFilterBackend]

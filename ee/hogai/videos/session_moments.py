@@ -24,9 +24,8 @@ from posthog.temporal.exports_video.workflow import VideoExportInputs, VideoExpo
 from products.llm_analytics.backend.providers.gemini import GeminiProvider
 
 from ee.hogai.session_summaries.constants import (
-    DEFAULT_VIDEO_EXPORT_MIME_TYPE,
     DEFAULT_VIDEO_UNDERSTANDING_MODEL,
-    SESSION_VIDEO_RENDERING_DELAY,
+    MOMENT_VIDEO_EXPORT_FORMAT,
     SHORT_VALIDATION_VIDEO_PLAYBACK_SPEED,
     VALIDATION_VIDEO_DURATION,
 )
@@ -147,7 +146,7 @@ class SessionMomentsLLMAnalyzer:
             expires_after = created_at + timedelta(days=expires_after_days)
             exported_asset = await ExportedAsset.objects.acreate(
                 team_id=self.team_id,
-                export_format=DEFAULT_VIDEO_EXPORT_MIME_TYPE,
+                export_format=MOMENT_VIDEO_EXPORT_FORMAT,
                 export_context={
                     "session_recording_id": self.session_id,
                     "timestamp": moment.timestamp_s,
@@ -228,15 +227,11 @@ class SessionMomentsLLMAnalyzer:
                 total_video_duration = get_video_duration_s(video_bytes=video_bytes)
             except ValueError:
                 total_video_duration = None
-            start_offset_s = (
-                total_video_duration - VALIDATION_VIDEO_DURATION + SESSION_VIDEO_RENDERING_DELAY
-                if total_video_duration
-                else None
-            )
+            start_offset_s = total_video_duration - VALIDATION_VIDEO_DURATION if total_video_duration else None
             # Analyze the video with LLM
             content = await self._provider.understand_video(
                 video_bytes=video_bytes,
-                mime_type=DEFAULT_VIDEO_EXPORT_MIME_TYPE,
+                mime_type=MOMENT_VIDEO_EXPORT_FORMAT,
                 prompt=prompt,
                 start_offset_s=start_offset_s,
                 # No end offset is required, as we expect the export rendering to stop right after the video was played

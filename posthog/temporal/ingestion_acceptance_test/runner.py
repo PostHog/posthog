@@ -6,7 +6,7 @@ from concurrent.futures import Executor, as_completed
 from dataclasses import dataclass
 from typing import Literal
 
-from .client import PostHogClient
+from .client import CapturedEvent, PostHogClient
 from .config import Config
 from .results import TestResult, TestSuiteResult
 from .test_cases_discovery import TestCase
@@ -30,6 +30,25 @@ class AcceptanceTest:
         """Called before each test method."""
         self.client = ctx.client
         self.config = ctx.config
+
+    def assert_properties_contain(self, actual: dict, expected: dict, context: str = "") -> None:
+        """Assert that actual dict contains all expected key-value pairs."""
+        prefix = f"{context}: " if context else ""
+        for key, expected_value in expected.items():
+            actual_value = actual.get(key)
+            assert actual_value == expected_value, f"{prefix}Expected {key}={expected_value!r}, got {actual_value!r}"
+
+    def assert_event(
+        self, event: CapturedEvent | None, expected_uuid: str, expected_name: str, expected_distinct_id: str
+    ) -> CapturedEvent:
+        """Assert event was found and has expected uuid, name, and distinct_id. Returns the event."""
+        assert event is not None, f"Event {expected_uuid} not found within {self.config.event_timeout_seconds}s timeout"
+        assert event.uuid == expected_uuid, f"Expected uuid={expected_uuid}, got {event.uuid}"
+        assert event.event == expected_name, f"Expected event={expected_name}, got {event.event}"
+        assert event.distinct_id == expected_distinct_id, (
+            f"Expected distinct_id={expected_distinct_id}, got {event.distinct_id}"
+        )
+        return event
 
 
 def _run_single_test(

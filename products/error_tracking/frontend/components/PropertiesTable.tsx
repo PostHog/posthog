@@ -24,7 +24,7 @@ export function PropertiesTable({ entries, alternatingColors = true }: Propertie
                     className: 'font-medium bg-inherit',
                     render: (dataValue, record) => (
                         <div className="flex gap-x-2 justify-between items-center">
-                            <div>{dataValue}</div>
+                            <div>{String(dataValue)}</div>
                             <LemonButton
                                 size="xsmall"
                                 tooltip="Copy value"

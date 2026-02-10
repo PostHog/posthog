@@ -1,12 +1,13 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import { IconClock } from '@posthog/icons'
+import { IconClock, IconDownload } from '@posthog/icons'
 
 import api from 'lib/api'
 import { commandLogic } from 'lib/components/Command/commandLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { toSentenceCase } from 'lib/utils'
+import { GroupQueryResult, mapGroupQueryResponse } from 'lib/utils/groups'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 
@@ -15,7 +16,7 @@ import { groupsModel } from '~/models/groupsModel'
 import { getTreeItemsMetadata, getTreeItemsNew, getTreeItemsProducts } from '~/products'
 import { FileSystemEntry, FileSystemViewLogEntry, GroupsQueryResponse } from '~/queries/schema/schema-general'
 import { SETTINGS_MAP } from '~/scenes/settings/SettingsMap'
-import { ActivityTab, Group, GroupTypeIndex, PersonType, SearchResponse } from '~/types'
+import { ActivityTab, GroupTypeIndex, PersonType, SearchResponse } from '~/types'
 
 import type { searchLogicType } from './searchLogicType'
 
@@ -45,25 +46,14 @@ export interface SearchLogicProps {
     logicKey: string
 }
 
-export type GroupQueryResult = Pick<Group, 'group_key' | 'group_properties'>
-
 export const RECENTS_LIMIT = 5
 const SEARCH_LIMIT = 5
-
-function mapGroupQueryResponse(response: GroupsQueryResponse): GroupQueryResult[] {
-    return response.results.map((row) => ({
-        group_key: row[response.columns.indexOf('key')],
-        group_properties: {
-            name: row[response.columns.indexOf('group_name')],
-        },
-    }))
-}
 
 export const searchLogic = kea<searchLogicType>([
     path((logicKey) => ['lib', 'components', 'Search', 'searchLogic', logicKey]),
     props({} as SearchLogicProps),
     key((props) => props.logicKey),
-    connect({
+    connect(() => ({
         values: [
             groupsModel,
             ['groupTypes', 'aggregationLabel'],
@@ -74,7 +64,7 @@ export const searchLogic = kea<searchLogicType>([
             preflightLogic,
             ['isDev'],
         ],
-    }),
+    })),
     actions({
         setSearch: (search: string) => ({ search }),
     }),
@@ -214,8 +204,6 @@ export const searchLogic = kea<searchLogicType>([
             false,
             {
                 setSearch: (_, { search }) => search.trim() !== '',
-                loadRecentsSuccess: () => false,
-                loadRecentsFailure: () => false,
                 loadUnifiedSearchResultsSuccess: () => false,
                 loadUnifiedSearchResultsFailure: () => false,
             },
@@ -533,6 +521,47 @@ export const searchLogic = kea<searchLogicType>([
                 })
             },
         ],
+        healthItems: [
+            (s) => [s.sceneLogViewsByRef],
+            (sceneLogViewsByRef): SearchItem[] => [
+                {
+                    id: 'health-pipeline-status',
+                    name: 'Pipeline status',
+                    displayName: 'Pipeline status',
+                    category: 'health',
+                    href: urls.pipelineStatus(),
+                    itemType: 'pipeline_status',
+                    lastViewedAt: sceneLogViewsByRef['PipelineStatus'] ?? null,
+                    record: { type: 'pipeline_status', iconType: 'pipeline_status' },
+                },
+                {
+                    id: 'health-sdk-doctor',
+                    name: 'SDK doctor',
+                    displayName: 'SDK doctor',
+                    category: 'health',
+                    href: urls.sdkDoctor(),
+                    itemType: 'sdk_doctor',
+                    lastViewedAt: sceneLogViewsByRef['SdkDoctor'] ?? null,
+                    record: { type: 'sdk_doctor', iconType: 'sdk_doctor' },
+                },
+            ],
+        ],
+        miscItems: [
+            (s) => [s.sceneLogViewsByRef],
+            (sceneLogViewsByRef): SearchItem[] => [
+                {
+                    id: 'misc-exports',
+                    name: 'Exports',
+                    displayName: 'Exports',
+                    category: 'misc',
+                    href: urls.exports(),
+                    icon: <IconDownload />,
+                    itemType: null,
+                    lastViewedAt: sceneLogViewsByRef['Exports'] ?? null,
+                    record: { type: 'exports' },
+                },
+            ],
+        ],
         settingsItems: [
             (s) => [s.featureFlags],
             (featureFlags): SearchItem[] => {
@@ -568,11 +597,13 @@ export const searchLogic = kea<searchLogicType>([
                     // Create a search item for each settings section
                     const levelPrefix = toSentenceCase(section.level)
 
-                    const settings = section.settings.flatMap((setting) => [
-                        toSentenceCase(setting.id.replace(/[-]/g, ' ')),
-                        ...(typeof setting.title === 'string' ? [setting.title] : []),
-                        ...(typeof setting.description === 'string' ? [setting.description] : []),
-                    ])
+                    const settings = section.settings
+                        .filter((setting) => !!setting.title)
+                        .flatMap((setting) => [
+                            toSentenceCase(setting.id.replace(/[-]/g, ' ')),
+                            ...(typeof setting.title === 'string' ? [setting.title] : []),
+                            ...(typeof setting.description === 'string' ? [setting.description] : []),
+                        ])
 
                     // Create the display name for each settings section
                     const displayName =
@@ -721,6 +752,8 @@ export const searchLogic = kea<searchLogicType>([
                 s.recentItems,
                 s.appsItems,
                 s.dataManagementItems,
+                s.healthItems,
+                s.miscItems,
                 s.settingsItems,
                 s.newItems,
                 s.personItems,
@@ -734,6 +767,8 @@ export const searchLogic = kea<searchLogicType>([
                 recentItems: SearchItem[],
                 appsItems: SearchItem[],
                 dataManagementItems: SearchItem[],
+                healthItems: SearchItem[],
+                miscItems: SearchItem[],
                 settingsItems: SearchItem[],
                 newItems: SearchItem[],
                 personItems: SearchItem[],
@@ -806,6 +841,26 @@ export const searchLogic = kea<searchLogicType>([
                         key: 'data-management',
                         items: isAppsLoading ? [] : filteredDataManagement,
                         isLoading: isAppsLoading,
+                    })
+                }
+
+                // Show health items if searching with matching results
+                const filteredHealth = filterBySearch(healthItems)
+                if (hasSearch && filteredHealth.length > 0) {
+                    categories.push({
+                        key: 'health',
+                        items: filteredHealth,
+                        isLoading: false,
+                    })
+                }
+
+                // Show misc items if searching with matching results
+                const filteredMisc = filterBySearch(miscItems)
+                if (hasSearch && filteredMisc.length > 0) {
+                    categories.push({
+                        key: 'misc',
+                        items: filteredMisc,
+                        isLoading: false,
                     })
                 }
 
@@ -930,9 +985,9 @@ export const searchLogic = kea<searchLogicType>([
         setSearch: async ({ search }, breakpoint) => {
             await breakpoint(150)
 
-            actions.loadRecents({ search })
-
-            if (search.trim() !== '') {
+            if (search.trim() === '') {
+                actions.loadRecents({ search: '' })
+            } else {
                 actions.loadUnifiedSearchResults({ searchTerm: search })
                 actions.loadPersonSearchResults({ searchTerm: search })
                 actions.loadGroupSearchResults({ searchTerm: search })

@@ -40,7 +40,7 @@ export function SceneTitlePanelButton({ inPanel = false }: { inPanel?: boolean }
         return (
             <AppShortcut
                 name="OpenSidePanel"
-                keybind={[keyBinds.openSidePanel]}
+                keybind={[keyBinds.toggleRightNav]}
                 intent="Open side panel"
                 interaction="click"
             >

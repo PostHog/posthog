@@ -405,11 +405,10 @@ export type AssistantTool =
     | 'search_error_tracking_issues'
     | 'find_error_tracking_impactful_issue_event_list'
     | 'experiment_results_summary'
+    | 'experiment_session_replays_summary'
     | 'create_survey'
     | 'edit_survey'
     | 'analyze_survey_responses'
-    | 'create_dashboard'
-    | 'edit_current_dashboard'
     | 'read_taxonomy'
     | 'search'
     | 'read_data'
@@ -448,6 +447,7 @@ export enum AgentMode {
     Execution = 'execution',
     Survey = 'survey',
     Research = 'research',
+    Flags = 'flags',
 }
 
 export enum SlashCommandName {

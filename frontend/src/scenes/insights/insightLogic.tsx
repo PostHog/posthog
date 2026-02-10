@@ -189,12 +189,16 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                         return values.insight
                     }
                     const response = await insightsApi.update(values.insight.id as number, insightUpdate)
+                    // Call the callback before breakpoint so it fires even if a newer loader
+                    // action was dispatched while the API call was in flight. The API call
+                    // succeeded, so the callback (e.g. navigation after adding to dashboard)
+                    // should run regardless.
+                    callback?.()
                     breakpoint()
                     const updatedInsight: QueryBasedInsightModel = {
                         ...response,
                         result: response.result || values.insight.result,
                     }
-                    callback?.()
 
                     const removedDashboards = (values.insight.dashboards || []).filter(
                         (d) => !updatedInsight.dashboards?.includes(d)
@@ -319,6 +323,13 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                     ...insight,
                     query: insight.query || null,
                 }),
+                setInsightMetadataSuccess: (state, { insight }) => ({
+                    ...state,
+                    name: insight.name,
+                    description: insight.description,
+                    tags: insight.tags,
+                    favorited: insight.favorited,
+                }),
             },
         ],
         insightLoading: [
@@ -335,6 +346,14 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                 saveInsight: () => true,
                 saveInsightSuccess: () => false,
                 saveInsightFailure: () => false,
+            },
+        ],
+        isSavingTags: [
+            false,
+            {
+                setInsightMetadata: (_, { metadataUpdate }) => !!metadataUpdate.tags,
+                setInsightMetadataSuccess: () => false,
+                setInsightMetadataFailure: () => false,
             },
         ],
         previousQuery: [

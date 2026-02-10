@@ -73,6 +73,11 @@ export function percentageDistribution(variantCount: number): number[] {
     return percentages
 }
 
+export function isEvenlyDistributed(variants: MultivariateFlagVariant[]): boolean {
+    const evenPercentages = percentageDistribution(variants.length)
+    return variants.every((variant, index) => variant.rollout_percentage === evenPercentages[index])
+}
+
 export function transformFiltersForWinningVariant(
     currentFlagFilters: FeatureFlagFilters,
     selectedVariant: string
@@ -878,6 +883,7 @@ export function getOrderedMetricsWithResults(
     result: any
     error: any
     displayIndex: number
+    metricIndex: number
 }> {
     const metricType = isSecondary ? 'secondary' : 'primary'
     const results = isSecondary ? secondaryMetricsResults : primaryMetricsResults
@@ -903,6 +909,7 @@ export function getOrderedMetricsWithResults(
     const resultsMap = new Map()
     const errorsMap = new Map()
     const metricsMap = new Map()
+    const originalIndexMap = new Map()
 
     allMetrics.forEach((metric: any, index) => {
         const uuid = metric.uuid || metric.query?.uuid
@@ -910,6 +917,7 @@ export function getOrderedMetricsWithResults(
             resultsMap.set(uuid, results[index])
             errorsMap.set(uuid, errors[index])
             metricsMap.set(uuid, metric)
+            originalIndexMap.set(uuid, index) // Track original position for retry
         }
     })
 
@@ -926,5 +934,6 @@ export function getOrderedMetricsWithResults(
             result: resultsMap.get(metric.uuid),
             error: errorsMap.get(metric.uuid),
             displayIndex: index,
+            metricIndex: originalIndexMap.get(metric.uuid) ?? index, // Original position for retry
         }))
 }
