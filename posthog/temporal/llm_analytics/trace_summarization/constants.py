@@ -11,7 +11,7 @@ DEFAULT_MAX_ITEMS_PER_WINDOW = (
     15  # Max items to process per window (targets ~2500 summaries in 7-day clustering window)
 )
 DEFAULT_BATCH_SIZE = 5  # Number of generations to process in parallel
-DEFAULT_TRACE_BATCH_SIZE = 2  # Traces processed in small parallel batches
+DEFAULT_TRACE_BATCH_SIZE = 4  # Traces processed in small parallel batches
 DEFAULT_MODE = SummarizationMode.DETAILED
 DEFAULT_WINDOW_MINUTES = 60  # Process traces from last N minutes (matches schedule frequency)
 DEFAULT_WINDOW_OFFSET_MINUTES = 30  # Offset window into the past so traces have time to fully complete
@@ -99,12 +99,8 @@ SUMMARIZE_AND_SAVE_RETRY_POLICY = RetryPolicy(
 )
 
 # Workflow-level timeouts (in minutes)
-WORKFLOW_EXECUTION_TIMEOUT_MINUTES = (
-    180  # Max time for single team workflow (5 batches * 45 min worst case, usually ~75 min)
-)
-COORDINATOR_EXECUTION_TIMEOUT_MINUTES = (
-    240  # 4 hours - 211 teams with 3 concurrent, most finish instantly but a few hit child timeout
-)
+WORKFLOW_EXECUTION_TIMEOUT_MINUTES = 30  # Max time for single team workflow — must be well under coordinator timeout
+COORDINATOR_EXECUTION_TIMEOUT_MINUTES = 55  # Must finish before next hourly trigger to avoid silent skips
 
 # Retry policies
 SAMPLE_RETRY_POLICY = RetryPolicy(

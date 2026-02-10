@@ -14,7 +14,12 @@ from anthropic.types import MessageParam, TextBlockParam, ThinkingConfigEnabledP
 from posthoganalytics.ai.anthropic import Anthropic
 from pydantic import BaseModel
 
-from products.llm_analytics.backend.llm.errors import AuthenticationError, QuotaExceededError, RateLimitError
+from products.llm_analytics.backend.llm.errors import (
+    AuthenticationError,
+    QuotaExceededError,
+    RateLimitError,
+    StructuredOutputParseError,
+)
 from products.llm_analytics.backend.llm.types import (
     AnalyticsContext,
     CompletionRequest,
@@ -134,7 +139,7 @@ Return ONLY the JSON object, no other text or markdown formatting."""
                     parsed = request.response_format.model_validate_json(clean_content)
                 except Exception as e:
                     logger.warning(f"Failed to parse structured output from Anthropic: {e}")
-                    raise ValueError(f"Failed to parse structured output: {e}") from e
+                    raise StructuredOutputParseError(f"Failed to parse structured output: {e}") from e
 
             return CompletionResponse(
                 content=content,

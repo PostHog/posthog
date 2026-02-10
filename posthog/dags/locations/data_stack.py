@@ -19,9 +19,9 @@ defs = dagster.Definitions(
         events_backfill_to_duckling.duckling_persons_backfill_job,
     ],
     sensors=[
-        events_backfill_to_duckling.duckling_backfill_discovery_sensor,
-        events_backfill_to_duckling.duckling_full_backfill_sensor,
-        events_backfill_to_duckling.duckling_persons_discovery_sensor,
+        events_backfill_to_duckling.duckling_events_daily_backfill_sensor,
+        events_backfill_to_duckling.duckling_events_full_backfill_sensor,
+        events_backfill_to_duckling.duckling_persons_daily_backfill_sensor,
         events_backfill_to_duckling.duckling_persons_full_backfill_sensor,
     ],
     resources=resources,
