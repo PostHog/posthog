@@ -253,6 +253,26 @@ describe('RecordingService', () => {
             expect(result).toEqual({ ok: false, error: 'not_supported' })
         })
 
+        it('still returns ok when metadata store fails after key deletion', async () => {
+            mockKeyStore.deleteKey.mockResolvedValue({ deleted: true })
+            mockMetadataStore.storeSessionBlocks.mockRejectedValue(new Error('Kafka connection lost'))
+
+            const result = await service.deleteRecording('session-123', 1)
+
+            expect(result).toEqual({ ok: true })
+            expect(mockPostgres.query).not.toHaveBeenCalled()
+        })
+
+        it('still returns ok when postgres fails after key deletion', async () => {
+            mockKeyStore.deleteKey.mockResolvedValue({ deleted: true })
+            mockPostgres.query.mockRejectedValue(new Error('Postgres connection lost'))
+
+            const result = await service.deleteRecording('session-123', 1)
+
+            expect(result).toEqual({ ok: true })
+            expect(mockMetadataStore.storeSessionBlocks).toHaveBeenCalled()
+        })
+
         it('propagates unexpected errors', async () => {
             mockKeyStore.deleteKey.mockRejectedValue(new Error('Database error'))
 

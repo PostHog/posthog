@@ -114,8 +114,12 @@ export class RecordingService {
         logger.debug('[RecordingService] deleteKey result', { teamId, sessionId, result })
 
         if (result.deleted) {
-            await this.emitDeletionEvent(sessionId, teamId)
-            await this.deletePostgresRecords(sessionId, teamId)
+            try {
+                await this.emitDeletionEvent(sessionId, teamId)
+                await this.deletePostgresRecords(sessionId, teamId)
+            } catch (error) {
+                logger.error('[RecordingService] Post-deletion cleanup failed', { sessionId, teamId, error })
+            }
             return { ok: true }
         }
 
