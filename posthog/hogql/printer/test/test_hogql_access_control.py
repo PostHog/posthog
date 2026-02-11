@@ -1,4 +1,5 @@
 from posthog.test.base import BaseTest
+from unittest.mock import Mock, patch
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
@@ -115,6 +116,7 @@ class TestAccessControlGuard(BaseTest):
         assert guard is None
 
 
+@patch("posthoganalytics.feature_enabled", new=Mock(return_value=True))
 class TestObjectLevelAccessControl(BaseTest):
     """Test object-level access control (get_blocked_resource_ids)."""
 
@@ -247,6 +249,7 @@ class TestObjectLevelAccessControl(BaseTest):
         assert blocked == {"10"}
 
 
+@patch("posthoganalytics.feature_enabled", new=Mock(return_value=True))
 class TestDeniedTableError(BaseTest):
     """Test that denied tables show a helpful error message."""
 
