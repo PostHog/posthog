@@ -21,6 +21,7 @@ export type DeleteRecordingResult =
     | { ok: true }
     | { ok: false; error: 'not_found' }
     | { ok: false; error: 'already_deleted'; deletedAt?: number }
+    | { ok: false; error: 'not_supported' }
 
 export class RecordingService {
     constructor(
@@ -104,25 +105,26 @@ export class RecordingService {
     async deleteRecording(sessionId: string, teamId: number): Promise<DeleteRecordingResult> {
         logger.info('[RecordingService] deleteRecording request', { teamId, sessionId })
 
-        try {
-            const deleted = await this.keyStore.deleteKey(sessionId, teamId)
-            logger.debug('[RecordingService] deleteKey result', { teamId, sessionId, deleted })
+        const result = await this.keyStore.deleteKey(sessionId, teamId)
+        logger.debug('[RecordingService] deleteKey result', { teamId, sessionId, result })
 
-            if (deleted) {
-                return { ok: true }
-            }
-            return { ok: false, error: 'not_found' }
-        } catch (error) {
-            if (error instanceof SessionKeyDeletedError) {
-                logger.info('[RecordingService] Recording already deleted', {
-                    teamId,
-                    sessionId,
-                    deleted_at: error.deletedAt,
-                })
-                return { ok: false, error: 'already_deleted', deletedAt: error.deletedAt }
-            }
-
-            throw error
+        if (result.deleted) {
+            return { ok: true }
         }
+
+        if (result.reason === 'already_deleted') {
+            logger.info('[RecordingService] Recording already deleted', {
+                teamId,
+                sessionId,
+                deleted_at: result.deletedAt,
+            })
+            return { ok: false, error: 'already_deleted', deletedAt: result.deletedAt }
+        }
+
+        if (result.reason === 'not_supported') {
+            return { ok: false, error: 'not_supported' }
+        }
+
+        return { ok: false, error: 'not_found' }
     }
 }

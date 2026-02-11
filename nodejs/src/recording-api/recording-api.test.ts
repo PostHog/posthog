@@ -426,6 +426,15 @@ describe('RecordingApi', () => {
                 })
             })
 
+            it('should return 501 when deletion is not supported', async () => {
+                mockService.deleteRecording.mockResolvedValue({ ok: false, error: 'not_supported' })
+
+                const res = await supertest(app).delete('/api/projects/1/recordings/session-123')
+
+                expect(res.status).toBe(501)
+                expect(res.body).toEqual({ error: 'Recording deletion is not supported for this deployment' })
+            })
+
             it('should return 500 when service throws unexpected error', async () => {
                 mockService.deleteRecording.mockRejectedValue(new Error('Delete error'))
 

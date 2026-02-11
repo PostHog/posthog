@@ -66,14 +66,20 @@ export interface SerializedSessionKey {
  * Interface for managing session encryption keys.
  * Implementations include DynamoDB (cloud) and cleartext (self-hosted).
  */
+export type DeleteKeyResult =
+    | { deleted: true }
+    | { deleted: false; reason: 'not_found' }
+    | { deleted: false; reason: 'already_deleted'; deletedAt?: number }
+    | { deleted: false; reason: 'not_supported' }
+
 export interface KeyStore {
     start(): Promise<void>
     /** Generate and store a new encryption key for a session */
     generateKey(sessionId: string, teamId: number): Promise<SessionKey>
     /** Retrieve the encryption key for a session */
     getKey(sessionId: string, teamId: number): Promise<SessionKey>
-    /** Delete a session's key (crypto-shredding). Returns true if key existed. */
-    deleteKey(sessionId: string, teamId: number): Promise<boolean>
+    /** Delete a session's key (crypto-shredding) */
+    deleteKey(sessionId: string, teamId: number): Promise<DeleteKeyResult>
     stop(): void
 }
 

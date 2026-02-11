@@ -256,6 +256,10 @@ export class RecordingApi {
                     })
                     return
                 }
+                if (result.error === 'not_supported') {
+                    res.status(501).json({ error: 'Recording deletion is not supported for this deployment' })
+                    return
+                }
                 res.status(404).json({ error: 'Recording key not found' })
                 return
             }

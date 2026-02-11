@@ -1,6 +1,6 @@
 import { RedisPool } from '../../types'
 import { deserializeSessionKey, serializeSessionKey } from '../session-key'
-import { KeyStore, SessionKey } from '../types'
+import { DeleteKeyResult, KeyStore, SessionKey } from '../types'
 
 const CACHE_KEY_PREFIX = '@posthog/replay/recording-key'
 const REDIS_CACHE_TTL_SECONDS = 60 * 60 * 24 // 24 hours
@@ -65,7 +65,7 @@ export class RedisCachedKeyStore implements KeyStore {
         return key
     }
 
-    async deleteKey(sessionId: string, teamId: number): Promise<boolean> {
+    async deleteKey(sessionId: string, teamId: number): Promise<DeleteKeyResult> {
         // Clear cache first to ensure stale data isn't served
         await this.deleteCached(sessionId, teamId)
         return this.delegate.deleteKey(sessionId, teamId)

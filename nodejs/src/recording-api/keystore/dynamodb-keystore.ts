@@ -4,7 +4,7 @@ import sodium from 'libsodium-wrappers'
 
 import { RetentionService } from '../../session-recording/retention/retention-service'
 import { TeamService } from '../../session-recording/teams/team-service'
-import { KeyStore, SessionKey, SessionKeyDeletedError } from '../types'
+import { DeleteKeyResult, KeyStore, SessionKey } from '../types'
 
 const KEYS_TABLE_NAME = 'session-recording-keys'
 
@@ -145,12 +145,11 @@ export class DynamoDBKeyStore implements KeyStore {
                 sessionState: 'deleted',
                 deletedAt,
             }
-        } else {
-            return {
-                plaintextKey: Buffer.alloc(0),
-                encryptedKey: Buffer.alloc(0),
-                sessionState: 'cleartext',
-            }
+        }
+        return {
+            plaintextKey: Buffer.alloc(0),
+            encryptedKey: Buffer.alloc(0),
+            sessionState: 'cleartext',
         }
     }
 
@@ -161,7 +160,7 @@ export class DynamoDBKeyStore implements KeyStore {
         return item.session_state.S as 'ciphertext' | 'cleartext' | 'deleted'
     }
 
-    async deleteKey(sessionId: string, teamId: number): Promise<boolean> {
+    async deleteKey(sessionId: string, teamId: number): Promise<DeleteKeyResult> {
         const existingItem = await this.dynamoDBClient.send(
             new GetItemCommand({
                 TableName: KEYS_TABLE_NAME,
@@ -173,7 +172,7 @@ export class DynamoDBKeyStore implements KeyStore {
         )
 
         if (!existingItem.Item) {
-            return false
+            return { deleted: false, reason: 'not_found' }
         }
 
         // Verify the returned item belongs to the requested team (defense in depth)
@@ -183,7 +182,7 @@ export class DynamoDBKeyStore implements KeyStore {
 
         if (existingItem.Item.session_state?.S === 'deleted') {
             const deletedAt = existingItem.Item.deleted_at?.N ? parseInt(existingItem.Item.deleted_at.N, 10) : undefined
-            throw new SessionKeyDeletedError(sessionId, teamId, deletedAt)
+            return { deleted: false, reason: 'already_deleted', deletedAt }
         }
 
         const deletedAt = Math.floor(Date.now() / 1000)
@@ -202,7 +201,7 @@ export class DynamoDBKeyStore implements KeyStore {
             })
         )
 
-        return true
+        return { deleted: true }
     }
 
     stop(): void {

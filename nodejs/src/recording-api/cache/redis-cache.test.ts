@@ -32,7 +32,7 @@ describe('RedisCachedKeyStore', () => {
             start: jest.fn().mockResolvedValue(undefined),
             generateKey: jest.fn().mockResolvedValue(mockSessionKey),
             getKey: jest.fn().mockResolvedValue(mockSessionKey),
-            deleteKey: jest.fn().mockResolvedValue(true),
+            deleteKey: jest.fn().mockResolvedValue({ deleted: true }),
             stop: jest.fn(),
         } as unknown as jest.Mocked<KeyStore>
 
@@ -159,16 +159,16 @@ describe('RedisCachedKeyStore', () => {
 
             expect(mockRedisClient.del).toHaveBeenCalledWith('@posthog/replay/recording-key:1:session-123')
             expect(mockDelegate.deleteKey).toHaveBeenCalledWith('session-123', 1)
-            expect(result).toBe(true)
+            expect(result).toEqual({ deleted: true })
         })
 
-        it('should clear cache even if delegate returns false', async () => {
-            mockDelegate.deleteKey.mockResolvedValue(false)
+        it('should clear cache even if delegate returns not_found', async () => {
+            mockDelegate.deleteKey.mockResolvedValue({ deleted: false, reason: 'not_found' })
 
             const result = await cachedKeyStore.deleteKey('session-123', 1)
 
             expect(mockRedisClient.del).toHaveBeenCalledWith('@posthog/replay/recording-key:1:session-123')
-            expect(result).toBe(false)
+            expect(result).toEqual({ deleted: false, reason: 'not_found' })
         })
 
         it('should propagate delegate deleteKey error', async () => {

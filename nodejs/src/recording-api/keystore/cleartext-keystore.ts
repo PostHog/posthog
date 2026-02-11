@@ -1,4 +1,4 @@
-import { KeyStore, SessionKey } from '../types'
+import { DeleteKeyResult, KeyStore, SessionKey } from '../types'
 
 /**
  * Cleartext key store used for hobby deployments and local development instances.
@@ -25,9 +25,9 @@ export class CleartextKeyStore implements KeyStore {
         })
     }
 
-    deleteKey(_sessionId: string, _teamId: number): Promise<boolean> {
+    deleteKey(_sessionId: string, _teamId: number): Promise<DeleteKeyResult> {
         // Crypto-shredding is not supported for cleartext sessions (non-cloud deployments)
-        return Promise.reject(new Error('Recording deletion is not supported for cleartext sessions'))
+        return Promise.resolve({ deleted: false, reason: 'not_supported' })
     }
 
     stop(): void {}

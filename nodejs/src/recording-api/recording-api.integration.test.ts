@@ -11,11 +11,10 @@
  *
  * Includes tests with:
  * - MemoryKeyStore (always run)
- * - DynamoDB/KMS/S3 via Localstack (run when LOCALSTACK_ENABLED=1)
+ * - DynamoDB/KMS/S3 via Localstack (run by default, skip with LOCALSTACK_DISABLED=1)
  *
- * To run localstack tests:
- *   docker-compose up localstack
- *   LOCALSTACK_ENABLED=1 pnpm jest src/recording-api/recording-api.integration.test.ts
+ * To skip localstack tests (e.g. when localstack isn't running):
+ *   LOCALSTACK_DISABLED=1 pnpm jest src/recording-api/recording-api.integration.test.ts
  */
 import {
     CreateTableCommand,
@@ -57,7 +56,7 @@ import { KeyStore, RecordingApiHub, SessionKey, SessionKeyDeletedError } from '.
 const LOCALSTACK_ENDPOINT = 'http://localhost:4566'
 const KEYS_TABLE_NAME = 'session-recording-keys'
 const KMS_KEY_ALIAS = 'alias/session-replay-master-key'
-const shouldRunLocalstackTests = process.env.LOCALSTACK_ENABLED === '1'
+const shouldRunLocalstackTests = process.env.LOCALSTACK_DISABLED !== '1'
 
 // Helper functions shared across all tests
 const createBlockData = async (events: unknown[]): Promise<Buffer> => {
@@ -231,8 +230,8 @@ describe('Recording API encryption integration', () => {
                 expect(decryptedBefore.equals(blockData)).toBe(true)
 
                 // Delete the key
-                const deleted = await keyStore.deleteKey(sessionId, teamId)
-                expect(deleted).toBe(true)
+                const deleteResult = await keyStore.deleteKey(sessionId, teamId)
+                expect(deleteResult).toEqual({ deleted: true })
 
                 // Verify decryption fails after deletion
                 await expect(decryptor.decryptBlock(sessionId, teamId, encrypted)).rejects.toThrow(
@@ -279,11 +278,11 @@ describe('Recording API encryption integration', () => {
                 )
             })
 
-            it('should return false when deleting non-existent key', async () => {
+            it('should return not_found when deleting non-existent key', async () => {
                 const keyStore = getKeyStore()
 
-                const deleted = await keyStore.deleteKey(`non-existent-${Date.now()}`, 999)
-                expect(deleted).toBe(false)
+                const result = await keyStore.deleteKey(`non-existent-${Date.now()}`, 999)
+                expect(result).toEqual({ deleted: false, reason: 'not_found' })
             })
 
             it('should handle multiple sessions with selective deletion', async () => {
@@ -611,14 +610,17 @@ describe('Recording API encryption integration', () => {
                 expect(retrievedKey.sessionState).toBe('cleartext')
             })
 
-            it('should throw SessionKeyDeletedError when deleting already deleted key', async () => {
+            it('should return already_deleted when deleting already deleted key', async () => {
                 const sessionId = `double-delete-${Date.now()}`
                 const teamId = 4
 
                 await keyStore.generateKey(sessionId, teamId)
                 await keyStore.deleteKey(sessionId, teamId)
 
-                await expect(keyStore.deleteKey(sessionId, teamId)).rejects.toThrow(SessionKeyDeletedError)
+                const result = await keyStore.deleteKey(sessionId, teamId)
+                expect(result.deleted).toBe(false)
+                expect((result as any).reason).toBe('already_deleted')
+                expect((result as any).deletedAt).toBeDefined()
             })
 
             it('should isolate keys between teams', async () => {

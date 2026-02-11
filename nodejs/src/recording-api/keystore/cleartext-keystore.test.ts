@@ -34,10 +34,9 @@ describe('CleartextKeyStore', () => {
     })
 
     describe('deleteKey', () => {
-        it('should throw error since crypto-shredding is not supported', async () => {
-            await expect(keyStore.deleteKey('session-123', 1)).rejects.toThrow(
-                'Recording deletion is not supported for cleartext sessions'
-            )
+        it('should return not_supported since crypto-shredding requires encryption', async () => {
+            const result = await keyStore.deleteKey('session-123', 1)
+            expect(result).toEqual({ deleted: false, reason: 'not_supported' })
         })
     })
 

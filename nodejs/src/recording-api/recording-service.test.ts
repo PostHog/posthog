@@ -161,7 +161,7 @@ describe('RecordingService', () => {
 
     describe('deleteRecording', () => {
         it('returns ok when key is deleted successfully', async () => {
-            mockKeyStore.deleteKey.mockResolvedValue(true)
+            mockKeyStore.deleteKey.mockResolvedValue({ deleted: true })
 
             const result = await service.deleteRecording('session-123', 1)
 
@@ -170,7 +170,7 @@ describe('RecordingService', () => {
         })
 
         it('returns not_found when key does not exist', async () => {
-            mockKeyStore.deleteKey.mockResolvedValue(false)
+            mockKeyStore.deleteKey.mockResolvedValue({ deleted: false, reason: 'not_found' })
 
             const result = await service.deleteRecording('session-123', 1)
 
@@ -178,7 +178,11 @@ describe('RecordingService', () => {
         })
 
         it('returns already_deleted with timestamp when key was already deleted', async () => {
-            mockKeyStore.deleteKey.mockRejectedValue(new SessionKeyDeletedError('session-123', 1, 1700000000))
+            mockKeyStore.deleteKey.mockResolvedValue({
+                deleted: false,
+                reason: 'already_deleted',
+                deletedAt: 1700000000,
+            })
 
             const result = await service.deleteRecording('session-123', 1)
 
@@ -186,11 +190,23 @@ describe('RecordingService', () => {
         })
 
         it('returns already_deleted with undefined timestamp when not available', async () => {
-            mockKeyStore.deleteKey.mockRejectedValue(new SessionKeyDeletedError('session-123', 1, undefined))
+            mockKeyStore.deleteKey.mockResolvedValue({
+                deleted: false,
+                reason: 'already_deleted',
+                deletedAt: undefined,
+            })
 
             const result = await service.deleteRecording('session-123', 1)
 
             expect(result).toEqual({ ok: false, error: 'already_deleted', deletedAt: undefined })
+        })
+
+        it('returns not_supported when keystore does not support deletion', async () => {
+            mockKeyStore.deleteKey.mockResolvedValue({ deleted: false, reason: 'not_supported' })
+
+            const result = await service.deleteRecording('session-123', 1)
+
+            expect(result).toEqual({ ok: false, error: 'not_supported' })
         })
 
         it('propagates unexpected errors', async () => {

@@ -1,6 +1,6 @@
 import sodium from 'libsodium-wrappers'
 
-import { KeyStore, SessionKey, SessionKeyDeletedError } from '../types'
+import { DeleteKeyResult, KeyStore, SessionKey } from '../types'
 
 /**
  * In-memory key store for testing purposes.
@@ -47,18 +47,17 @@ export class MemoryKeyStore implements KeyStore {
         return Promise.resolve(sessionKey)
     }
 
-    deleteKey(sessionId: string, teamId: number): Promise<boolean> {
+    deleteKey(sessionId: string, teamId: number): Promise<DeleteKeyResult> {
         const deletedAt = this.deletedKeys.get(`${teamId}:${sessionId}`)
         if (deletedAt) {
-            return Promise.reject(new SessionKeyDeletedError(sessionId, teamId, deletedAt))
+            return Promise.resolve({ deleted: false, reason: 'already_deleted', deletedAt })
         }
         if (this.keystore.has(`${teamId}:${sessionId}`)) {
             this.keystore.delete(`${teamId}:${sessionId}`)
-            // Store timestamp in seconds (Unix timestamp)
             this.deletedKeys.set(`${teamId}:${sessionId}`, Math.floor(Date.now() / 1000))
-            return Promise.resolve(true)
+            return Promise.resolve({ deleted: true })
         }
-        return Promise.resolve(false)
+        return Promise.resolve({ deleted: false, reason: 'not_found' })
     }
 
     stop(): void {}

@@ -1,6 +1,6 @@
 import { LRUCache } from 'lru-cache'
 
-import { KeyStore, SessionKey } from '../types'
+import { DeleteKeyResult, KeyStore, SessionKey } from '../types'
 
 const MEMORY_CACHE_MAX_SIZE = 1_000_000
 const MEMORY_CACHE_TTL_MS = 24 * 60 * 60 * 1000 // 24 hours
@@ -43,7 +43,7 @@ export class MemoryCachedKeyStore implements KeyStore {
         return key
     }
 
-    async deleteKey(sessionId: string, teamId: number): Promise<boolean> {
+    async deleteKey(sessionId: string, teamId: number): Promise<DeleteKeyResult> {
         // Clear cache first to ensure stale data isn't served
         this.cache.delete(this.cacheKey(sessionId, teamId))
         return this.delegate.deleteKey(sessionId, teamId)
