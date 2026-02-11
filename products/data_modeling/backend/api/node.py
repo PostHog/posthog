@@ -179,6 +179,7 @@ class NodeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             workflow_id = f"execute-dag-{node.dag_id}-{uuid4()}"
         else:
             saved_query_ids = list(
+                # nosemgrep: idor-lookup-without-team (node_ids from prior team-scoped graph traversal)
                 Node.objects.filter(
                     id__in=node_ids,
                     saved_query_id__isnull=False,

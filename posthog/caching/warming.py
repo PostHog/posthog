@@ -198,6 +198,7 @@ def schedule_warming_for_teams_task():
 )
 def warm_insight_cache_task(insight_id: int, dashboard_id: Optional[int]):
     try:
+        # nosemgrep: idor-lookup-without-team (Celery task, ID from internal scheduling)
         insight = Insight.objects.get(pk=insight_id)
     except Insight.DoesNotExist:
         logger.info(f"Warming insight cache failed 404 insight not found: {insight_id}")
