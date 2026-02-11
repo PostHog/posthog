@@ -444,6 +444,12 @@ class DashboardSerializer(DashboardMetadataSerializer):
 
         if validated_data.get("deleted", False):
             self._delete_related_tiles(instance, self.validated_data.get("delete_insights", False))
+            from posthog.models.team import Team
+
+            Team.objects.filter(
+                primary_dashboard=instance,
+                id=instance.team_id,
+            ).update(primary_dashboard=None)
             group_type_mapping = GroupTypeMapping.objects.filter(
                 team=instance.team, project_id=instance.team.project_id, detail_dashboard_id=instance.id
             ).first()

@@ -208,7 +208,7 @@ This is a faster option to get up and running if you can't or don't want to set 
 7. Install `sqlx-cli` with `cargo install sqlx-cli` (install Cargo following the [Cargo getting started guide](https://doc.rust-lang.org/cargo/getting-started/installation.html) if needed)
 8. Now run `DEBUG=1 ./bin/migrate`
 9. Install [mprocs](https://github.com/pvolok/mprocs#installation) (`cargo install mprocs`)
-10. Run `hogli start`.
+10. Run `bin/hogli start` (or just `hogli start` if using Flox).
 11. Open browser to <http://localhost:8010/>.
 12. To get some practical test data into your brand-new instance of PostHog, run `DEBUG=1 ./manage.py generate_demo_data`.
 
@@ -303,7 +303,7 @@ Backend side flags are only evaluated locally, which requires the `POSTHOG_PERSO
 
 The PostHog repository includes [VS Code launch options for debugging](https://github.com/PostHog/posthog/blob/master/.vscode/launch.json). Simply go to the `Run and Debug` tab in VS Code, select the desired service you want to debug, and run it. Once it starts up, you can set breakpoints and step through code to see exactly what is happening. There are also debug launch options for frontend and backend tests if you're dealing with a tricky test failure.
 
-> **Note:** You can debug all services using the main "PostHog" launch option. Otherwise, if you are running most of the PostHog services locally with `hogli start`, for example if you only want to debug the backend, make sure to comment out that service from the [start script temporarily](https://github.com/PostHog/posthog/blob/master/bin/start#L22).
+> **Note:** You can debug all services using the main "PostHog" launch option. If you are running most services with `hogli start` and only want to debug one (e.g. the backend), use `hogli dev:setup` to exclude that service so it doesn't conflict with the VS Code debugger.
 
 ## Extra: Debugging the backend in PyCharm
 
