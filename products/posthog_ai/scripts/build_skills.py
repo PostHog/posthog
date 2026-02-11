@@ -412,6 +412,42 @@ class SkillBuilder:
         print(f"OK: {len(skills)} skill(s) passed lint checks.")
         return True
 
+    def init_skill(self, product_name: str, skill_name: str, *, template: bool = False) -> Path:
+        """Scaffold a new skill directory with SKILL.md boilerplate.
+
+        Creates products/{product}/skills/{skill-name}/ with a SKILL.md (or .md.j2)
+        stub and a references/ subdirectory.
+
+        Returns the path to the created skill file.
+        """
+        product_dir = self.products_dir / product_name
+        if not product_dir.is_dir():
+            raise FileNotFoundError(f"Product directory does not exist: products/{product_name}")
+
+        skill_dir = product_dir / "skills" / skill_name
+        if skill_dir.exists():
+            raise FileExistsError(f"Skill directory already exists: {skill_dir.relative_to(self.repo_root)}")
+
+        skill_dir.mkdir(parents=True)
+        (skill_dir / "references").mkdir()
+
+        display_name = skill_name.replace("-", " ").capitalize()
+        filename = "SKILL.md.j2" if template else "SKILL.md"
+        content = textwrap.dedent(f"""\
+            ---
+            name: {skill_name}
+            description: TODO
+            ---
+
+            # {display_name}
+
+            TODO: Describe when and how to use this skill.
+        """)
+
+        skill_file = skill_dir / filename
+        skill_file.write_text(content)
+        return skill_file
+
     def list_skills(self) -> None:
         """List all discovered product skills."""
         skills = self.discoverer.discover()
@@ -473,11 +509,40 @@ def main() -> None:
         action="store_true",
         help="Validate skill sources without rendering (no Django needed)",
     )
+    parser.add_argument(
+        "--init",
+        action="store_true",
+        help="Scaffold a new skill directory with SKILL.md boilerplate",
+    )
+    parser.add_argument(
+        "--product",
+        help="Product name for --init (e.g. feature_flags)",
+    )
+    parser.add_argument(
+        "--name",
+        help="Skill name for --init (e.g. my-new-skill)",
+    )
+    parser.add_argument(
+        "--j2",
+        action="store_true",
+        help="Create SKILL.md.j2 instead of SKILL.md (use with --init)",
+    )
     args = parser.parse_args()
 
     products_dir = REPO_ROOT / "products"
     output_dir = REPO_ROOT / "products" / "posthog_ai"
     builder = SkillBuilder(REPO_ROOT, products_dir, output_dir)
+
+    if args.init:
+        if not args.product or not args.name:
+            parser.error("--init requires --product and --name")
+        try:
+            skill_file = builder.init_skill(args.product, args.name, template=args.j2)
+            print(f"Created {skill_file.relative_to(REPO_ROOT)}")
+        except (FileNotFoundError, FileExistsError) as e:
+            print(f"ERROR: {e}", file=sys.stderr)
+            sys.exit(1)
+        return
 
     if args.lint:
         if not builder.lint_all():

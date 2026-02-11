@@ -328,6 +328,9 @@ build:
     build:skills:
         cmd: python products/posthog_ai/scripts/build_skills.py
         description: Build agent skills from products/*/skills/ into dist/skills/ and dist/skills.zip
+    init:skill:
+        cmd: python products/posthog_ai/scripts/build_skills.py --init
+        description: Scaffold a new agent skill directory with SKILL.md boilerplate
 docker:
     # docker:services:up is a Python command in common/hogli/devenv/cli.py that respects intent config
     docker:services:down:

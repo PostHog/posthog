@@ -579,3 +579,49 @@ def test_build_skill_renders_j2_scripts(tmp_path: Path) -> None:
     assert "scripts/template.sh" in paths
     script_file = next(f for f in result.files if f.path == "scripts/template.sh")
     assert "echo rendered" in script_file.content
+
+
+@pytest.mark.parametrize(
+    "template,expected_filename",
+    [
+        (False, "SKILL.md"),
+        (True, "SKILL.md.j2"),
+    ],
+    ids=["creates-md", "creates-j2"],
+)
+def test_init_skill_creates_file(tmp_path: Path, template: bool, expected_filename: str) -> None:
+    product_dir = tmp_path / "products" / "my_product"
+    product_dir.mkdir(parents=True)
+
+    builder = SkillBuilder(repo_root=tmp_path, products_dir=tmp_path / "products", output_dir=tmp_path / "output")
+    skill_file = builder.init_skill("my_product", "my-new-skill", template=template)
+
+    assert skill_file.name == expected_filename
+    assert skill_file.exists()
+
+    content = skill_file.read_text()
+    fm = validate_frontmatter(content, str(skill_file))
+    assert fm.name == "my-new-skill"
+    assert fm.description == "TODO"
+    assert "# My new skill" in content
+
+    refs_dir = skill_file.parent / "references"
+    assert refs_dir.is_dir()
+
+
+def test_init_skill_rejects_existing(tmp_path: Path) -> None:
+    product_dir = tmp_path / "products" / "my_product"
+    skill_dir = product_dir / "skills" / "existing-skill"
+    skill_dir.mkdir(parents=True)
+
+    builder = SkillBuilder(repo_root=tmp_path, products_dir=tmp_path / "products", output_dir=tmp_path / "output")
+    with pytest.raises(FileExistsError, match="already exists"):
+        builder.init_skill("my_product", "existing-skill")
+
+
+def test_init_skill_rejects_missing_product(tmp_path: Path) -> None:
+    (tmp_path / "products").mkdir()
+
+    builder = SkillBuilder(repo_root=tmp_path, products_dir=tmp_path / "products", output_dir=tmp_path / "output")
+    with pytest.raises(FileNotFoundError, match="does not exist"):
+        builder.init_skill("nonexistent_product", "some-skill")
