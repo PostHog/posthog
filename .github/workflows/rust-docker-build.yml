@@ -57,6 +57,9 @@ jobs:
                     - image: kafka-deduplicator
                       dockerfile: ./rust/Dockerfile
                       project: vznmbshh6q
+                    - image: personhog-replica
+                      dockerfile: ./rust/Dockerfile
+                      project: vq4lxdfdv2
         runs-on: depot-ubuntu-22.04
         permissions:
             id-token: write # allow issuing OIDC tokens for this workflow run
@@ -78,6 +81,7 @@ jobs:
             feature-flags_digest: ${{ steps.digest.outputs.feature-flags_digest }}
             capture-logs_digest: ${{ steps.digest.outputs.capture-logs_digest }}
             kafka-deduplicator_digest: ${{ steps.digest.outputs.kafka-deduplicator_digest }}
+            personhog-replica_digest: ${{ steps.digest.outputs.personhog-replica_digest }}
         defaults:
             run:
                 working-directory: rust
@@ -89,8 +93,13 @@ jobs:
               # Turning off cone mode ensures that files in the project root are not included during checkout
               uses: actions/checkout@v6
               with:
-                  sparse-checkout: 'rust/'
+                  sparse-checkout: |
+                      rust/
+                      proto/
                   sparse-checkout-cone-mode: false
+
+            - name: Copy proto files into rust build context
+              run: cp -r proto rust/proto
 
             - name: Set up Depot CLI
               uses: depot/setup-action@b0b1ea4f69e92ebf5dea3f8713a1b0c37b2126a5 # v1.6.0
@@ -228,6 +237,10 @@ jobs:
                       values:
                           image:
                               sha: '${{ needs.build.outputs.sqlx-migrate_digest }}'
+                    - release: personhog-replica
+                      values:
+                          image:
+                              sha: '${{ needs.build.outputs.personhog-replica_digest }}'
         steps:
             - name: get deployer token
               id: deployer
