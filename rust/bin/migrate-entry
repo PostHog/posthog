@@ -86,16 +86,24 @@ run_persons_migrations() {
     PERSONS_DATABASE_NAME=${PERSONS_DATABASE_NAME:-posthog_persons}
     PERSONS_DATABASE_URL=${PERSONS_DATABASE_URL:-postgres://posthog:posthog@localhost:5432/$PERSONS_DATABASE_NAME}
 
+    local migrations_source
+    if [ "${DEPLOYMENT:-}" = "hobby" ] && [ -d "$MIGRATIONS_BASE/persons_migrations_hobby/" ]; then
+        migrations_source="$MIGRATIONS_BASE/persons_migrations_hobby/"
+        log_json "info" "Using hobby persons migrations (no partitioning)" "starting" "$db_type"
+    else
+        migrations_source="$MIGRATIONS_BASE/persons_migrations/"
+    fi
+
     log_json "info" "Starting migrations" "starting" "$db_type" "\"database_name\":\"$PERSONS_DATABASE_NAME\",\"fresh_mode\":$FRESH_MODE"
 
     if [ "$FRESH_MODE" = true ]; then
-        sqlx database reset -y -D "$PERSONS_DATABASE_URL" --source "$MIGRATIONS_BASE/persons_migrations/"
+        sqlx database reset -y -D "$PERSONS_DATABASE_URL" --source "$migrations_source"
         log_json "info" "Database reset and migrations completed" "completed" "$db_type"
     else
         sqlx database create -D "$PERSONS_DATABASE_URL"
         log_json "info" "Database created or already exists" "running" "$db_type"
 
-        sqlx migrate run -D "$PERSONS_DATABASE_URL" --source "$MIGRATIONS_BASE/persons_migrations/"
+        sqlx migrate run -D "$PERSONS_DATABASE_URL" --source "$migrations_source"
         log_json "info" "Migrations completed successfully" "completed" "$db_type"
     fi
 }

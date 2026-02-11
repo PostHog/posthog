@@ -187,6 +187,13 @@ RUN apt-get update && \
 #
 # ---------------------------------------------------------
 #
+FROM rust:1.91-bookworm AS sqlx-build
+RUN cargo install sqlx-cli --version 0.8.0 --features native-tls,postgres --no-default-features --locked
+
+
+#
+# ---------------------------------------------------------
+#
 # NOTE: v1.32 is running bullseye, v1.33 is running bookworm
 FROM unit:1.33.0-python3.12
 WORKDIR /code
@@ -286,6 +293,10 @@ RUN --mount=type=cache,id=playwright-browsers,target=/tmp/playwright-cache \
     mkdir -p /ms-playwright && \
     cp -r /tmp/playwright-cache/* /ms-playwright/ && \
     chown -R posthog:posthog /ms-playwright
+
+# Install sqlx-cli for database migrations (hobby deploy)
+COPY --from=sqlx-build /usr/local/cargo/bin/sqlx /usr/local/bin/sqlx
+
 USER posthog
 
 # Copy the frontend assets from the frontend-build stage.
@@ -313,6 +324,9 @@ COPY --from=node-scripts-build --chown=posthog:posthog /code/common/plugin_trans
 
 # Add in custom bin files and Django deps.
 COPY --chown=posthog:posthog ./bin ./bin/
+COPY --chown=posthog:posthog ./rust/bin ./rust/bin/
+COPY --chown=posthog:posthog ./rust/persons_migrations ./rust/persons_migrations/
+COPY --chown=posthog:posthog ./rust/persons_migrations_hobby ./rust/persons_migrations_hobby/
 COPY --chown=posthog:posthog manage.py manage.py
 COPY --chown=posthog:posthog posthog posthog/
 COPY --chown=posthog:posthog ee ee/

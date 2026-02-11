@@ -18,19 +18,21 @@ run_scope() {
 
 # NOTE when running in docker, rust might not exist so we need to check for it
 if [ -d "$SCRIPT_DIR/../rust/bin" ]; then
-    if run_scope "cyclotron"; then
-        bash $SCRIPT_DIR/../rust/bin/migrate-cyclotron
-        if [ $? -ne 0 ]; then
-            echo "Error in rust/bin/migrate-cyclotron, exiting."
-            exit 1
+    if [ "${DEPLOYMENT:-}" != "hobby" ]; then
+        if run_scope "cyclotron"; then
+            bash $SCRIPT_DIR/../rust/bin/migrate-cyclotron
+            if [ $? -ne 0 ]; then
+                echo "Error in rust/bin/migrate-cyclotron, exiting."
+                exit 1
+            fi
         fi
-    fi
 
-    if run_scope "cyclotron-shadow"; then
-        bash $SCRIPT_DIR/../rust/bin/migrate-cyclotron-shadow
-        if [ $? -ne 0 ]; then
-            echo "Error in rust/bin/migrate-cyclotron-shadow, exiting."
-            exit 1
+        if run_scope "cyclotron-shadow"; then
+            bash $SCRIPT_DIR/../rust/bin/migrate-cyclotron-shadow
+            if [ $? -ne 0 ]; then
+                echo "Error in rust/bin/migrate-cyclotron-shadow, exiting."
+                exit 1
+            fi
         fi
     fi
 
@@ -43,12 +45,14 @@ if [ -d "$SCRIPT_DIR/../rust/bin" ]; then
         fi
     fi
 
-    if run_scope "behavioral-cohorts"; then
-        echo "Running behavioral cohorts migrations via external non-django migrator..."
-        bash $SCRIPT_DIR/../rust/bin/migrate-behavioral-cohorts
-        if [ $? -ne 0 ]; then
-            echo "Error in rust/bin/migrate-behavioral-cohorts, exiting."
-            exit 1
+    if [ "${DEPLOYMENT:-}" != "hobby" ]; then
+        if run_scope "behavioral-cohorts"; then
+            echo "Running behavioral cohorts migrations via external non-django migrator..."
+            bash $SCRIPT_DIR/../rust/bin/migrate-behavioral-cohorts
+            if [ $? -ne 0 ]; then
+                echo "Error in rust/bin/migrate-behavioral-cohorts, exiting."
+                exit 1
+            fi
         fi
     fi
 fi
