@@ -128,7 +128,8 @@ export const createDisableAnimationsInitScript = (): string =>
         if (property && property.includes('transition')) return false;
         return originalSupports.apply(this, arguments);
       };
-})()
+    }
+  })()
 `
 
 /**
