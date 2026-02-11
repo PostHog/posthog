@@ -882,6 +882,14 @@ def JSONExtractString(args: list[Any], team: Optional["Team"], stdout: Optional[
     return str(val) if val is not None else None
 
 
+def multiSearchAnyCaseInsensitive(args: list[Any], team, stdout, timeout):
+    if args[0] is None or args[1] is None:
+        return 0
+    haystack = str(args[0]).lower()
+    needles = args[1] if isinstance(args[1], list) else []
+    return int(any(str(needle).lower() in haystack for needle in needles))
+
+
 STL: dict[str, STLFunction] = {
     "concat": STLFunction(
         fn=lambda args, team, stdout, timeout: "".join(
@@ -1093,4 +1101,9 @@ STL: dict[str, STLFunction] = {
     # only in python, async function in nodejs
     "sleep": STLFunction(fn=sleep, minArgs=1, maxArgs=1),
     "run": STLFunction(fn=run, minArgs=1, maxArgs=1),
+    "multiSearchAnyCaseInsensitive": STLFunction(
+        fn=multiSearchAnyCaseInsensitive,
+        minArgs=2,
+        maxArgs=2,
+    ),
 }

@@ -230,6 +230,7 @@ class TestTraceQueryRunner(ClickhouseTestMixin, BaseTest):
                 for i, event in enumerate(value):
                     self.assertEventEqual(trace.events[i], event)
             elif field == "person":
+                assert trace.person is not None
                 self.assertLess(value.items(), trace.person.model_dump(mode="json", exclude={"uuid"}).items())
             else:
                 self.assertEqual(getattr(trace, field), value, f"Field {field} does not match")
@@ -284,6 +285,7 @@ class TestTraceQueryRunner(ClickhouseTestMixin, BaseTest):
                 "totalCost": 12.0,
             },
         )
+        assert trace.person is not None
         self.assertEqual(trace.person.distinct_id, "person1")
 
         # Detail view returns all events
@@ -357,6 +359,7 @@ class TestTraceQueryRunner(ClickhouseTestMixin, BaseTest):
             query=TraceQuery(traceId="trace1"),
         ).calculate()
         self.assertEqual(len(response.results), 1)
+        assert response.results[0].person is not None
         self.assertEqual(response.results[0].person.created_at, "2025-01-01T00:00:00+00:00")
         self.assertEqual(response.results[0].person.properties, {"email": "test@posthog.com"})
         self.assertEqual(response.results[0].person.distinct_id, "person1")

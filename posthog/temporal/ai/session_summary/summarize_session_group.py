@@ -429,7 +429,7 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
                     single_session_input,
                 )
         self._current_status.append(f"Watching sessions ({self._total_sessions}/{self._total_sessions})")
-        session_inputs: list[SingleSessionSummaryInputs] = []
+        successful_sessions: list[SingleSessionSummaryInputs] = []
 
         # Check summary generation results
         for session_id, (task, single_session_input) in tasks.items():
@@ -447,10 +447,10 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
                 )
             else:
                 # Store only successful generations
-                session_inputs.append(single_session_input)
+                successful_sessions.append(single_session_input)
 
         # Fail the workflow if too many sessions failed to summarize
-        if ceil(len(inputs) * FAILED_SESSION_SUMMARIES_MIN_RATIO) > len(session_inputs):
+        if len(successful_sessions) / len(inputs) < FAILED_SESSION_SUMMARIES_MIN_RATIO:
             session_ids = [s.session_id for s in inputs]
             exception_message = (
                 f"Too many sessions failed to summarize, when summarizing {len(inputs)} sessions "
@@ -462,7 +462,7 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
                 extra={"user_id": inputs[0].user_id, "team_id": inputs[0].team_id, "signals_type": "session-summaries"},
             )
             raise ApplicationError(exception_message)
-        return session_inputs
+        return successful_sessions
 
     async def _run_patterns_extraction_chunk(self, inputs: SessionGroupSummaryOfSummariesInputs) -> None | Exception:
         """

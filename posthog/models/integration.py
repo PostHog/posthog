@@ -9,8 +9,6 @@ from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, Literal, Optional
 from urllib.parse import urlencode
 
-import posthoganalytics
-
 from products.workflows.backend.providers import MAILDEV_MOCK_DNS_RECORDS
 
 if TYPE_CHECKING:
@@ -1427,20 +1425,8 @@ class EmailIntegration:
 
         # Update domain in the appropriate provider
         if provider == "ses":
-            mail_from_subdomain_enabled = posthoganalytics.feature_enabled(
-                "workflows-mail-from-domain",
-                str(team_id),
-                groups={"project": str(team_id)},
-                group_properties={
-                    "project": {
-                        "id": str(team_id),
-                    }
-                },
-                send_feature_flag_events=False,
-            )
-            if mail_from_subdomain_enabled:
-                ses = SESProvider()
-                ses.update_mail_from_subdomain(domain, mail_from_subdomain=mail_from_subdomain)
+            ses = SESProvider()
+            ses.update_mail_from_subdomain(domain, mail_from_subdomain=mail_from_subdomain)
         elif provider == "maildev" and settings.DEBUG:
             pass
         else:
