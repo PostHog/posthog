@@ -296,9 +296,15 @@ class RealtimeCohortCalculationCoordinatorWorkflow(PostHogWorkflow):
                 child_workflow_handles.append(child_handle)
                 workflows_scheduled += 1
 
-                workflow_logger.info(
-                    f"Scheduled workflow {config['index']} for {len(config['inputs'].cohort_ids)} cohorts: {config['inputs'].cohort_ids[:5]}{'...' if len(config['inputs'].cohort_ids) > 5 else ''}"
-                )
+                cohort_ids = config["inputs"].cohort_ids
+                if cohort_ids is not None:
+                    workflow_logger.info(
+                        f"Scheduled workflow {config['index']} for {len(cohort_ids)} cohorts: {cohort_ids[:5]}{'...' if len(cohort_ids) > 5 else ''}"
+                    )
+                else:
+                    workflow_logger.info(
+                        f"Scheduled workflow {config['index']} for single cohort: {config['inputs'].cohort_id}"
+                    )
 
             workflow_logger.info(
                 f"Batch {batch_number}/{total_batches} completed: {len(batch_configs)} workflows started "
