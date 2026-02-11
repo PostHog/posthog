@@ -4,10 +4,19 @@ from datetime import timedelta
 
 from django.conf import settings
 
-from temporalio.client import Client, Schedule, ScheduleActionStartWorkflow, ScheduleIntervalSpec, ScheduleSpec
+from temporalio.client import (
+    Client,
+    Schedule,
+    ScheduleActionStartWorkflow,
+    ScheduleIntervalSpec,
+    ScheduleOverlapPolicy,
+    SchedulePolicy,
+    ScheduleSpec,
+)
 
 from posthog.temporal.common.schedule import a_create_schedule, a_delete_schedule, a_schedule_exists, a_update_schedule
 from posthog.temporal.llm_analytics.trace_clustering.constants import (
+    COORDINATOR_EXECUTION_TIMEOUT,
     COORDINATOR_SCHEDULE_ID,
     COORDINATOR_WORKFLOW_NAME,
     DEFAULT_LOOKBACK_DAYS,
@@ -38,8 +47,10 @@ async def create_trace_clustering_coordinator_schedule(client: Client):
             ),
             id=COORDINATOR_SCHEDULE_ID,
             task_queue=settings.LLMA_TASK_QUEUE,
+            execution_timeout=COORDINATOR_EXECUTION_TIMEOUT,
         ),
         spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=timedelta(days=1))]),
+        policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
     )
 
     if await a_schedule_exists(client, COORDINATOR_SCHEDULE_ID):
@@ -83,8 +94,10 @@ async def create_generation_clustering_coordinator_schedule(client: Client):
             ),
             id=GENERATION_COORDINATOR_SCHEDULE_ID,
             task_queue=settings.LLMA_TASK_QUEUE,
+            execution_timeout=COORDINATOR_EXECUTION_TIMEOUT,
         ),
         spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=timedelta(days=1))]),
+        policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
     )
 
     if await a_schedule_exists(client, GENERATION_COORDINATOR_SCHEDULE_ID):

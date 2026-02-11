@@ -233,7 +233,7 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
         conversation_id = request.data.get("conversation")
         if conversation_id:
             try:
-                conversation = Conversation.objects.get(id=conversation_id)
+                conversation = Conversation.objects.get(id=conversation_id, team=self.team)
                 if conversation.type == Conversation.Type.DEEP_RESEARCH:
                     return True
             except (Conversation.DoesNotExist, ValidationError):
@@ -313,7 +313,7 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
         conversation_id = serializer.validated_data["conversation"]
 
         has_message = serializer.validated_data.get("content") is not None
-        is_deep_research = serializer.validated_data.get("agent_mode") == AgentMode.RESEARCH
+        is_research = serializer.validated_data.get("agent_mode") == AgentMode.RESEARCH
 
         is_new_conversation = False
         # Safely set the lookup kwarg for potential error handling
@@ -334,7 +334,7 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
             # Use frontend-provided conversation ID
             # Mark conversation as internal if created during an impersonated session (support agents)
             is_impersonated = is_impersonated_session(request)
-            conversation_type = Conversation.Type.DEEP_RESEARCH if is_deep_research else Conversation.Type.ASSISTANT
+            conversation_type = Conversation.Type.DEEP_RESEARCH if is_research else Conversation.Type.ASSISTANT
             conversation = Conversation.objects.create(
                 user=cast(User, request.user),
                 team=self.team,
@@ -348,7 +348,7 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
         has_message = serializer.validated_data.get("message") is not None
         has_resume_payload = serializer.validated_data.get("resume_payload") is not None
         if conversation.type == Conversation.Type.DEEP_RESEARCH:
-            is_deep_research = True
+            is_research = True
 
         if has_message and not is_idle:
             raise Conflict("Cannot resume streaming with a new message")
@@ -356,9 +356,11 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
         if not has_message and conversation.status == Conversation.Status.IDLE and not has_resume_payload:
             raise exceptions.ValidationError("Cannot continue streaming from an idle conversation")
 
+        is_impersonated = is_impersonated_session(request)
+
         workflow_inputs: ChatAgentWorkflowInputs | ResearchAgentWorkflowInputs
         workflow_class: type[ChatAgentWorkflow] | type[ResearchAgentWorkflow]
-        if is_deep_research:
+        if is_research:
             workflow_inputs = ResearchAgentWorkflowInputs(
                 team_id=self.team_id,
                 user_id=cast(User, request.user).pk,  # Use pk instead of id for User model
@@ -370,13 +372,13 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
                 session_id=request.headers.get("X-POSTHOG-SESSION-ID"),  # Relies on posthog-js __add_tracing_headers
                 billing_context=serializer.validated_data.get("billing_context"),
                 is_agent_billable=False,
+                is_impersonated=is_impersonated,
                 resume_payload=serializer.validated_data.get("resume_payload"),
             )
             workflow_class = ResearchAgentWorkflow
             timeout = RESEARCH_AGENT_WORKFLOW_TIMEOUT
             max_length = RESEARCH_AGENT_STREAM_MAX_LENGTH
         else:
-            is_impersonated = is_impersonated_session(request)
             is_agent_billable = not is_impersonated
             workflow_inputs = ChatAgentWorkflowInputs(
                 team_id=self.team_id,
@@ -392,6 +394,7 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
                 agent_mode=serializer.validated_data.get("agent_mode"),
                 use_checkpointer=True,
                 is_agent_billable=is_agent_billable,
+                is_impersonated=is_impersonated,
                 resume_payload=serializer.validated_data.get("resume_payload"),
             )
             workflow_class = ChatAgentWorkflow

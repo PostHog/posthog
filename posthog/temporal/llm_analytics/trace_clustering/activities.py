@@ -16,6 +16,7 @@ import structlog
 from temporalio import activity
 
 from posthog.models.team import Team
+from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.llm_analytics.trace_clustering import constants
 from posthog.temporal.llm_analytics.trace_clustering.clustering import (
     calculate_distances_to_cluster_means,
@@ -257,7 +258,8 @@ async def perform_clustering_compute_activity(inputs: ClusteringActivityInputs) 
     Output is ~150 KB (labels, centroids, distances, coords).
     Embeddings (~3-4 MB) are not passed to subsequent activities.
     """
-    return await asyncio.to_thread(_perform_clustering_compute, inputs)
+    async with Heartbeater():
+        return await asyncio.to_thread(_perform_clustering_compute, inputs)
 
 
 def _generate_cluster_labels(inputs: GenerateLabelsActivityInputs) -> GenerateLabelsActivityOutputs:
@@ -292,15 +294,16 @@ def _generate_cluster_labels(inputs: GenerateLabelsActivityInputs) -> GenerateLa
 async def generate_cluster_labels_activity(inputs: GenerateLabelsActivityInputs) -> GenerateLabelsActivityOutputs:
     """Activity 2: LLM labeling - generate titles and descriptions for clusters.
 
-    This activity runs a LangGraph agent (Claude Sonnet 4.5) that iteratively
-    explores cluster structure using tools to sample traces and generate
-    high-quality, distinctive labels.
+    This activity runs a LangGraph agent that iteratively explores cluster
+    structure using tools to sample traces and generate high-quality,
+    distinctive labels.
 
     Timeout: 10 minutes for full agent run
     Input: ~250 KB (trace IDs, cluster data, coordinates)
     Output: ~4 KB (cluster labels)
     """
-    return await asyncio.to_thread(_generate_cluster_labels, inputs)
+    async with Heartbeater():
+        return await asyncio.to_thread(_generate_cluster_labels, inputs)
 
 
 def _emit_cluster_events(inputs: EmitEventsActivityInputs) -> ClusteringResult:
@@ -346,4 +349,5 @@ async def emit_cluster_events_activity(inputs: EmitEventsActivityInputs) -> Clus
     Input: ~150 KB (all clustering data)
     Output: ClusteringResult with metrics and cluster info
     """
-    return await asyncio.to_thread(_emit_cluster_events, inputs)
+    async with Heartbeater():
+        return await asyncio.to_thread(_emit_cluster_events, inputs)

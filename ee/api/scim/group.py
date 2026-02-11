@@ -1,3 +1,4 @@
+import logging
 from typing import Union
 
 from django.db import transaction
@@ -10,6 +11,8 @@ from posthog.models import OrganizationMembership, User
 from posthog.models.organization_domain import OrganizationDomain
 
 from ee.models.rbac.role import Role, RoleMembership
+
+logger = logging.getLogger(__name__)
 
 
 class PostHogSCIMGroup(SCIMGroup):
@@ -247,8 +250,23 @@ class PostHogSCIMGroup(SCIMGroup):
                     user_id = path.params_by_attr_paths.get(("members", "value", None))
                     if user_id:
                         RoleMembership.objects.filter(role=self.obj, user__id=str(user_id)).delete()
+                elif isinstance(value, (list, dict)):
+                    # Simple path with value: remove only specified members
+                    # Entra ID uses this format: {"op": "Remove", "path": "members", "value": [{"value": "user-id"}]}
+                    members_to_remove = value if isinstance(value, list) else [value]
+                    user_ids = [
+                        str(m.get("value")) for m in members_to_remove if isinstance(m, dict) and m.get("value")
+                    ]
+                    if user_ids:
+                        RoleMembership.objects.filter(role=self.obj, user__id__in=user_ids).delete()
+                    else:
+                        logger.warning(
+                            "SCIM group remove: path='members' with value but no extractable user IDs, "
+                            "skipping removal. value=%s",
+                            value,
+                        )
                 else:
-                    # Simple path, remove all members
+                    # Bare simple path with no value: remove all members
                     RoleMembership.objects.filter(role=self.obj).delete()
 
     @classmethod

@@ -1,4 +1,5 @@
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from langchain_core.runnables import RunnableConfig
 
@@ -8,7 +9,8 @@ from ..flags import FlagsAgentToolkit
 
 
 class TestFlagsAgentToolkit(BaseTest):
-    def test_toolkit_includes_all_tools(self):
+    @patch("ee.hogai.core.agent_modes.presets.flags.has_experiment_summary_tool_feature_flag", return_value=True)
+    def test_toolkit_includes_all_tools(self, _mock_flag):
         toolkit = FlagsAgentToolkit(
             team=self.team,
             user=self.user,

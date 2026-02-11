@@ -73,6 +73,7 @@ export const Syncs = ({ id }: SyncsProps): JSX.Element => {
             <LemonTable
                 hideScrollbar
                 dataSource={filteredJobs}
+                rowKey="id"
                 loading={jobsLoading}
                 disableTableWhileLoading={false}
                 columns={[

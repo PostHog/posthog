@@ -169,6 +169,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     },
     [Scene.DebugHog]: { projectBased: true, name: 'Hog Repl' },
     [Scene.DebugQuery]: { projectBased: true },
+    [Scene.SignalsDebug]: { projectBased: true, name: 'Signals Debug' },
     [Scene.Error404]: { name: 'Not found', projectBased: true },
     [Scene.ErrorAccessDenied]: { name: 'Access denied' },
     [Scene.ErrorNetwork]: { name: 'Network error' },
@@ -506,6 +507,13 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         description:
             'Monitor and maintain your PostHog SDK integrations by automatically detecting version issues, configuration problems, and implementation patterns across your applications.',
         defaultDocsPath: '/docs/sdk-doctor',
+    },
+    [Scene.Exports]: {
+        projectBased: true,
+        name: 'Exports',
+        iconType: 'exports',
+        description:
+            'Retrieve your exports here. Exports are generated asynchronously and may take a few seconds to complete.',
     },
     [Scene.SessionAttributionExplorer]: { projectBased: true, name: 'Session attribution explorer (beta)' },
     [Scene.SessionProfile]: { projectBased: true, name: 'Session profile' },
@@ -886,6 +894,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.integrationsRedirect(':kind')]: [Scene.IntegrationsRedirect, 'integrationsRedirect'],
     [urls.debugQuery()]: [Scene.DebugQuery, 'debugQuery'],
     [urls.debugHog()]: [Scene.DebugHog, 'debugHog'],
+    [urls.signalsDebug()]: [Scene.SignalsDebug, 'signalsDebug'],
     [urls.notebook(':shortId')]: [Scene.Notebook, 'notebook'],
     [urls.notebooks()]: [Scene.Notebooks, 'notebooks'],
     [urls.canvas()]: [Scene.Canvas, 'canvas'],
@@ -905,6 +914,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.health()]: [Scene.Health, 'health'],
     [urls.pipelineStatus()]: [Scene.PipelineStatus, 'pipelineStatus'],
     [urls.sdkDoctor()]: [Scene.SdkDoctor, 'sdkDoctor'],
+    [urls.exports()]: [Scene.Exports, 'exports'],
     [urls.startups()]: [Scene.StartupProgram, 'startupProgram'],
     [urls.startups(':referrer')]: [Scene.StartupProgram, 'startupProgramWithReferrer'],
     [urls.oauthAuthorize()]: [Scene.OAuthAuthorize, 'oauthAuthorize'],

@@ -140,7 +140,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
     },
     ref
 ) {
-    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
+    const { dataProcessingAccepted, dataProcessingApprovalDisabledReason } = useValues(maxGlobalLogic)
     const { question } = useValues(maxLogic)
     const { setQuestion } = useActions(maxLogic)
     const { user } = useValues(userLogic)
@@ -182,7 +182,6 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
         setShowAutocomplete(isSlashCommand)
     }, [question, showAutocomplete])
 
-    const pendingApproval = !dataProcessingAccepted && !threadLoading
     let disabledReason = submissionDisabledReason
     if (threadLoading && !isQueueingSubmission) {
         disabledReason = undefined
@@ -190,7 +189,11 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
     if (cancelLoading) {
         disabledReason = 'Cancelling...'
     }
-    const tooltipReason = pendingApproval ? 'Pending approval' : disabledReason
+    // For non-admins, disable button when consent not given (admins see popup instead)
+    const isAdmin = !dataProcessingApprovalDisabledReason
+    if (!dataProcessingAccepted && !isAdmin && !disabledReason) {
+        disabledReason = dataProcessingApprovalDisabledReason
+    }
 
     useEffect(() => {
         if (!streamingActive && textAreaRef?.current) {
@@ -366,7 +369,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                     mainAxis: state.placement.includes('top') ? 30 : 1,
                                 })),
                             ]}
-                            hidden={!threadLoading}
+                            hidden={!isAdmin || (!threadLoading && !pendingPrompt)}
                         >
                             <LemonButton
                                 type={(isThreadVisible && !hasQuestion) || showStopButton ? 'secondary' : 'primary'}
@@ -390,8 +393,8 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                     askMax(question)
                                 }}
                                 tooltip={
-                                    tooltipReason ? (
-                                        tooltipReason
+                                    disabledReason ? (
+                                        disabledReason
                                     ) : showStopButton ? (
                                         <>
                                             Let's bail <KeyboardShortcut enter />
@@ -408,7 +411,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                 }
                                 loading={threadLoading && !dataProcessingAccepted}
                                 disabledReason={disabledReason}
-                                className={tooltipReason ? 'opacity-[0.5]' : ''}
+                                className={disabledReason ? 'opacity-[0.5]' : ''}
                                 size="small"
                                 icon={
                                     showStopButton ? (

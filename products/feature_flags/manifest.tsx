@@ -12,9 +12,11 @@ export const manifest: ProductManifest = {
         featureFlagNew: ({
             type,
             sourceId,
+            template,
         }: {
             type?: 'boolean' | 'multivariate' | 'remote_config'
             sourceId?: number | string | null
+            template?: 'simple' | 'targeted' | 'multivariate' | 'targeted-multivariate'
         }): string => {
             const params = new URLSearchParams()
             if (type) {
@@ -22,6 +24,9 @@ export const manifest: ProductManifest = {
             }
             if (sourceId) {
                 params.set('sourceId', sourceId.toString())
+            }
+            if (template) {
+                params.set('template', template)
             }
             return `/feature_flags/new?${params.toString()}`
         },

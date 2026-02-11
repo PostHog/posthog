@@ -40,7 +40,8 @@
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      GROUP BY breakdown
-     ORDER BY step_2 DESC, step_1 DESC)
+     ORDER BY step_2 DESC,
+              step_1 DESC)
   GROUP BY final_prop
   ORDER BY step_2 DESC,
            step_1 DESC
@@ -108,7 +109,8 @@
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      GROUP BY breakdown
-     ORDER BY step_2 DESC, step_1 DESC)
+     ORDER BY step_2 DESC,
+              step_1 DESC)
   GROUP BY final_prop
   ORDER BY step_2 DESC,
            step_1 DESC
@@ -181,7 +183,9 @@
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      GROUP BY breakdown
-     ORDER BY step_3 DESC, step_2 DESC, step_1 DESC)
+     ORDER BY step_3 DESC,
+              step_2 DESC,
+              step_1 DESC)
   GROUP BY final_prop
   ORDER BY step_3 DESC,
            step_2 DESC,
@@ -326,7 +330,9 @@
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      GROUP BY breakdown
-     ORDER BY step_3 DESC, step_2 DESC, step_1 DESC)
+     ORDER BY step_3 DESC,
+              step_2 DESC,
+              step_1 DESC)
   GROUP BY final_prop
   ORDER BY step_3 DESC,
            step_2 DESC,
@@ -407,7 +413,8 @@
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      GROUP BY breakdown
-     ORDER BY step_2 DESC, step_1 DESC)
+     ORDER BY step_2 DESC,
+              step_1 DESC)
   GROUP BY final_prop
   ORDER BY step_2 DESC,
            step_1 DESC
@@ -491,7 +498,9 @@
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      GROUP BY breakdown
-     ORDER BY step_3 DESC, step_2 DESC, step_1 DESC)
+     ORDER BY step_3 DESC,
+              step_2 DESC,
+              step_1 DESC)
   GROUP BY final_prop
   ORDER BY step_3 DESC,
            step_2 DESC,
@@ -781,7 +790,8 @@
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      GROUP BY breakdown
-     ORDER BY step_2 DESC, step_1 DESC)
+     ORDER BY step_2 DESC,
+              step_1 DESC)
   GROUP BY final_prop
   ORDER BY step_2 DESC,
            step_1 DESC
@@ -848,7 +858,8 @@
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      GROUP BY breakdown
-     ORDER BY step_2 DESC, step_1 DESC)
+     ORDER BY step_2 DESC,
+              step_1 DESC)
   GROUP BY final_prop
   ORDER BY step_2 DESC,
            step_1 DESC
@@ -917,7 +928,8 @@
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      GROUP BY breakdown
-     ORDER BY step_2 DESC, step_1 DESC)
+     ORDER BY step_2 DESC,
+              step_1 DESC)
   GROUP BY final_prop
   ORDER BY step_2 DESC,
            step_1 DESC
@@ -986,7 +998,8 @@
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      GROUP BY breakdown
-     ORDER BY step_2 DESC, step_1 DESC)
+     ORDER BY step_2 DESC,
+              step_1 DESC)
   GROUP BY final_prop
   ORDER BY step_2 DESC,
            step_1 DESC
@@ -1055,7 +1068,8 @@
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      GROUP BY breakdown
-     ORDER BY step_2 DESC, step_1 DESC)
+     ORDER BY step_2 DESC,
+              step_1 DESC)
   GROUP BY final_prop
   ORDER BY step_2 DESC,
            step_1 DESC
@@ -1131,7 +1145,9 @@
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      GROUP BY breakdown
-     ORDER BY step_3 DESC, step_2 DESC, step_1 DESC)
+     ORDER BY step_3 DESC,
+              step_2 DESC,
+              step_1 DESC)
   GROUP BY final_prop
   ORDER BY step_3 DESC,
            step_2 DESC,
@@ -1208,7 +1224,9 @@
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      GROUP BY breakdown
-     ORDER BY step_3 DESC, step_2 DESC, step_1 DESC)
+     ORDER BY step_3 DESC,
+              step_2 DESC,
+              step_1 DESC)
   GROUP BY final_prop
   ORDER BY step_3 DESC,
            step_2 DESC,
@@ -1292,7 +1310,9 @@
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      GROUP BY breakdown
-     ORDER BY step_3 DESC, step_2 DESC, step_1 DESC)
+     ORDER BY step_3 DESC,
+              step_2 DESC,
+              step_1 DESC)
   GROUP BY final_prop
   ORDER BY step_3 DESC,
            step_2 DESC,

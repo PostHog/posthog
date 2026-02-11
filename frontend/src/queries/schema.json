@@ -1966,11 +1966,10 @@
                 "search_error_tracking_issues",
                 "find_error_tracking_impactful_issue_event_list",
                 "experiment_results_summary",
+                "experiment_session_replays_summary",
                 "create_survey",
                 "edit_survey",
                 "analyze_survey_responses",
-                "create_dashboard",
-                "edit_current_dashboard",
                 "read_taxonomy",
                 "search",
                 "read_data",
@@ -2045,8 +2044,15 @@
                     "type": "string"
                 },
                 "ui_payload": {
-                    "description": "Payload passed through to the frontend - specifically for calls of contextual tool. Tool call messages without a ui_payload are not passed through to the frontend.",
-                    "type": "object"
+                    "anyOf": [
+                        {
+                            "type": "object"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Payload passed through to the frontend - specifically for calls of contextual tool. Tool call messages without a ui_payload are not passed through to the frontend."
                 }
             },
             "required": ["type", "content", "tool_call_id"],
@@ -15672,7 +15678,8 @@
                 "llm_evaluations",
                 "llm_datasets",
                 "llm_prompts",
-                "llm_clusters"
+                "llm_clusters",
+                "exports"
             ],
             "type": "string"
         },
@@ -16428,6 +16435,10 @@
                     },
                     "description": "Customizations for the appearance of result datasets.",
                     "type": "object"
+                },
+                "showTrendLines": {
+                    "description": "Display linear regression trend lines on the chart (only for historical trends viz)",
+                    "type": "boolean"
                 },
                 "showValuesOnSeries": {
                     "default": false,
@@ -18551,6 +18562,9 @@
                 "createdAt": {
                     "type": "string"
                 },
+                "distinctId": {
+                    "type": "string"
+                },
                 "errorCount": {
                     "type": "number"
                 },
@@ -18593,7 +18607,7 @@
                     "type": "string"
                 }
             },
-            "required": ["id", "createdAt", "person", "events"],
+            "required": ["id", "createdAt", "distinctId", "events"],
             "type": "object"
         },
         "LLMTraceEvent": {
@@ -18632,6 +18646,7 @@
                     "type": "string"
                 },
                 "properties": {
+                    "additionalProperties": {},
                     "type": "object"
                 },
                 "uuid": {
@@ -22528,6 +22543,8 @@
                 "marketing_analytics_settings_updated",
                 "marketing_analytics_dashboard_interaction",
                 "marketing_analytics_ads_integration_visited",
+                "marketing_analytics_data_source_connected",
+                "marketing_analytics_onboarding_completed",
                 "customer_analytics_dashboard_business_mode_changed",
                 "customer_analytics_dashboard_configuration_button_clicked",
                 "customer_analytics_dashboard_filters_changed",
@@ -22539,6 +22556,8 @@
                 "workflow_created",
                 "data_pipeline_created",
                 "batch_export_created",
+                "batch_export_updated",
+                "batch_export_backfill_created",
                 "notebook_created",
                 "product_tour_created",
                 "task_created",

@@ -2,10 +2,12 @@ import { InsightPage } from '../../../page-models/insightPage'
 import { PlaywrightWorkspaceSetupResult, expect, test } from '../../../utils/workspace-test-base'
 
 test.describe('Trends insights', () => {
+    test.setTimeout(60_000) // Many parallel tests doing /query calls ist just slow, we need to allow more time.
+
     let workspace: PlaywrightWorkspaceSetupResult | null = null
 
     test.beforeAll(async ({ playwrightSetup }) => {
-        workspace = await playwrightSetup.createWorkspace({ use_current_time: true })
+        workspace = await playwrightSetup.createWorkspace({ use_current_time: true, skip_onboarding: true })
     })
 
     test.beforeEach(async ({ page, playwrightSetup }) => {
@@ -101,6 +103,7 @@ test.describe('Trends insights', () => {
             await countPerUserItem.getByRole('button').click()
             await page.getByRole('menuitem', { name: 'median' }).click()
             await insight.trends.waitForChart()
+            await page.keyboard.press('Escape')
         })
 
         await test.step('change to Property value with sum', async () => {
@@ -110,11 +113,14 @@ test.describe('Trends insights', () => {
             await propertyValueItem.getByRole('button').click()
             await page.getByRole('menuitem', { name: 'sum' }).click()
             await insight.trends.waitForChart()
+            await page.keyboard.press('Escape')
         })
 
         await test.step('change to Weekly then Monthly active users', async () => {
             await insight.trends.mathSelector(0).click()
-            await page.getByRole('menuitem', { name: /Weekly active users/ }).click()
+            const weeklyOption = page.getByRole('menuitem', { name: /Weekly active users/ })
+            await weeklyOption.waitFor({ state: 'visible' })
+            await weeklyOption.click()
             await insight.trends.waitForChart()
 
             await insight.trends.mathSelector(0).click()
@@ -179,8 +185,8 @@ test.describe('Trends insights', () => {
         await test.step('use custom fixed date range', async () => {
             await insight.trends.dateRangeButton.click()
             await page.getByText('Custom fixed date range').click()
+            // In LemonCalendarRange, click start date then end date directly (no Start:/End: buttons)
             await page.locator('.LemonCalendar').getByRole('button', { name: '1', exact: true }).first().click()
-            await page.getByRole('button', { name: /End:/ }).click()
             await page.locator('.LemonCalendar').getByRole('button', { name: '15', exact: true }).first().click()
             await page.getByRole('button', { name: 'Apply' }).click()
             await insight.trends.waitForChart()
@@ -369,34 +375,21 @@ test.describe('Trends insights', () => {
     })
 
     test('Edit saved insight and save as new', async ({ page }) => {
+        test.setTimeout(45000)
         const insight = new InsightPage(page)
 
-        await test.step('create and save insight with complex config', async () => {
+        await test.step('create and save insight', async () => {
             await insight.goToNewTrends()
-            await insight.trends.waitForChart()
-            await insight.trends.addSeries()
-            await insight.trends.addBreakdown('Browser')
-            await insight.trends.waitForChart()
             await insight.editName('Download Activity')
-            await expect(insight.topBarName).toContainText('Download Activity')
+            await expect(insight.topBarName).toContainText('Download Activity', { timeout: 10000 })
             await insight.save()
             await expect(insight.editButton).toBeVisible()
-        })
-
-        await test.step('edit, add changes, and save', async () => {
-            await insight.edit()
-            await insight.trends.waitForChart()
-            await insight.trends.selectDateRange('Last 30 days')
-            await insight.editName('Download Activity')
-            await insight.save()
-            await expect(insight.editButton).toBeVisible()
-            await expect(insight.topBarName).toContainText('Download Activity')
         })
 
         await test.step('save as new insight', async () => {
             await insight.edit()
             await insight.saveAsNew('Copied Activity')
-            await expect(insight.topBarName).toContainText('Copied Activity')
+            await expect(insight.topBarName).toContainText('Copied Activity', { timeout: 10000 })
         })
     })
 

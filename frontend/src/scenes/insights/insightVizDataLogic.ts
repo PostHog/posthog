@@ -840,7 +840,7 @@ const handleQuerySourceUpdateSideEffects = (
         display !== maybeChangedDisplay &&
         maybeChangedDisplay === ChartDisplayType.WorldMap
     ) {
-        const math = (maybeChangedSeries || (currentState as TrendsQuery).series)?.[0].math
+        const math = (maybeChangedSeries || (currentState as TrendsQuery).series)?.[0]?.math
 
         mergedUpdate['breakdownFilter'] = {
             breakdown: '$geoip_country_code',

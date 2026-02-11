@@ -93,15 +93,17 @@ interface VariableInputProps {
     onChange: (variableId: string, value: any, isNull: boolean) => void
     onRemove?: (variableId: string) => void
     variableSettingsOnClick?: () => void
+    onInsertAtCursor?: (text: string) => void
 }
 
-const VariableInput = ({
+export const VariableInput = ({
     variable,
     showEditingUI,
     closePopover,
     onChange,
     onRemove,
     variableSettingsOnClick,
+    onInsertAtCursor,
 }: VariableInputProps): JSX.Element => {
     const [localInputValue, setLocalInputValue] = useState<string>(() => {
         const val = variable.value ?? variable.default_value
@@ -250,6 +252,17 @@ const VariableInput = ({
                             onClick={() => void copyToClipboard(variableAsHogQL, 'variable SQL')}
                             tooltip="Copy SQL"
                         />
+                        {onInsertAtCursor && (
+                            <LemonButton
+                                icon={<IconCodeInsert />}
+                                size="xsmall"
+                                onClick={() => {
+                                    onInsertAtCursor(variableAsHogQL)
+                                    closePopover()
+                                }}
+                                tooltip="Insert into query"
+                            />
+                        )}
                         {onRemove && (
                             <LemonButton
                                 onClick={() => onRemove(variable.id)}
@@ -349,6 +362,7 @@ export const VariableComponent = ({
                     onChange={onChange}
                     closePopover={() => setPopoverOpen(false)}
                     onRemove={onRemove}
+                    onInsertAtCursor={onInsertAtCursor}
                     variableSettingsOnClick={() => {
                         if (variableSettingsOnClick) {
                             setPopoverOpen(false)

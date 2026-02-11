@@ -23,6 +23,7 @@ const NEW_VARIABLE_DEFAULTS: Partial<Variable> = {
     name: '',
     type: 'String',
     default_value: '',
+    code_name: '',
 }
 
 export const sqlVariableEditSceneLogic = kea<sqlVariableEditSceneLogicType>([
@@ -146,6 +147,7 @@ export const sqlVariableEditSceneLogic = kea<sqlVariableEditSceneLogicType>([
                     name: variable.name,
                     type: variable.type,
                     default_value: variable.default_value,
+                    code_name: variable.code_name,
                     ...(variable.type === 'List' && { values: (variable as any).values }),
                 } as Partial<Variable>
 

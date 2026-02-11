@@ -27,7 +27,9 @@ export const InlineMenu = ({
     }
 
     const openLink = (): void => {
-        window.open(href, target)
+        if (isURL(href)) {
+            window.open(href, target)
+        }
     }
 
     return (

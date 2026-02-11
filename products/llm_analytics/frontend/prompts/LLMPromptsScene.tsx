@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconPlusSmall } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
@@ -15,7 +16,7 @@ import { LemonInput } from '~/lib/lemon-ui/LemonInput'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from '~/lib/lemon-ui/LemonTable'
 import { createdAtColumn } from '~/lib/lemon-ui/LemonTable/columnUtils'
 import { ProductKey } from '~/queries/schema/schema-general'
-import { LLMPrompt } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, LLMPrompt } from '~/types'
 
 import { PROMPTS_PER_PAGE, llmPromptsLogic } from './llmPromptsLogic'
 import { openDeletePromptDialog } from './utils'
@@ -89,14 +90,19 @@ export function LLMPromptsScene(): JSX.Element {
                                     View
                                 </LemonButton>
 
-                                <LemonButton
-                                    status="danger"
-                                    onClick={() => openDeletePromptDialog(() => deletePrompt(prompt.id))}
-                                    data-attr="prompt-dropdown-delete"
-                                    fullWidth
+                                <AccessControlAction
+                                    resourceType={AccessControlResourceType.LlmAnalytics}
+                                    minAccessLevel={AccessControlLevel.Editor}
                                 >
-                                    Delete
-                                </LemonButton>
+                                    <LemonButton
+                                        status="danger"
+                                        onClick={() => openDeletePromptDialog(() => deletePrompt(prompt.id))}
+                                        data-attr="prompt-dropdown-delete"
+                                        fullWidth
+                                    >
+                                        Delete
+                                    </LemonButton>
+                                </AccessControlAction>
                             </>
                         }
                     />
@@ -112,14 +118,19 @@ export function LLMPromptsScene(): JSX.Element {
                 description="Track and manage your LLM prompts."
                 resourceType={{ type: 'llm_prompts' }}
                 actions={
-                    <LemonButton
-                        type="primary"
-                        to={urls.llmAnalyticsPrompt('new')}
-                        icon={<IconPlusSmall />}
-                        data-attr="new-prompt-button"
+                    <AccessControlAction
+                        resourceType={AccessControlResourceType.LlmAnalytics}
+                        minAccessLevel={AccessControlLevel.Editor}
                     >
-                        New prompt
-                    </LemonButton>
+                        <LemonButton
+                            type="primary"
+                            to={urls.llmAnalyticsPrompt('new')}
+                            icon={<IconPlusSmall />}
+                            data-attr="new-prompt-button"
+                        >
+                            New prompt
+                        </LemonButton>
+                    </AccessControlAction>
                 }
             />
 

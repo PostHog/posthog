@@ -11,8 +11,9 @@ import { Scene } from 'scenes/sceneTypes'
 import { rolesLogic } from 'scenes/settings/organization/Permissions/Roles/rolesLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
-import { Breadcrumb, ChangeRequest, ChangeRequestState } from '~/types'
+import { AvailableFeature, Breadcrumb, ChangeRequest, ChangeRequestState } from '~/types'
 
 import type { approvalLogicType } from './approvalLogicType'
 
@@ -26,10 +27,10 @@ export const approvalLogic = kea<approvalLogicType>([
     path(['scenes', 'approvals', 'approvalLogic']),
     props({} as ApprovalLogicProps),
     key(({ id }) => id),
-    connect({
-        values: [teamLogic, ['currentTeamId']],
+    connect(() => ({
+        values: [teamLogic, ['currentTeamId'], userLogic, ['hasAvailableFeature']],
         actions: [membersLogic, ['loadAllMembers'], rolesLogic, ['loadRoles']],
-    }),
+    })),
     actions({
         loadChangeRequest: true,
         approveChangeRequest: (reason?: string) => ({ reason }),
@@ -69,6 +70,10 @@ export const approvalLogic = kea<approvalLogicType>([
         ],
     }),
     selectors({
+        isApprovalsFeatureEnabled: [
+            (s) => [s.hasAvailableFeature],
+            (hasAvailableFeature): boolean => hasAvailableFeature(AvailableFeature.APPROVALS),
+        ],
         breadcrumbs: [
             (s) => [s.changeRequest],
             (changeRequest): Breadcrumb[] => [

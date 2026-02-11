@@ -1,5 +1,7 @@
 use anyhow::{Context, Result};
 use dashmap::DashMap;
+use futures::stream::{self, StreamExt};
+use std::collections::HashSet;
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -25,7 +27,8 @@ use crate::kafka::types::Partition;
 use crate::metrics::MetricsHelper;
 use crate::metrics_const::{
     ACTIVE_STORE_COUNT, CLEANUP_BYTES_FREED_HISTOGRAM, CLEANUP_DURATION_HISTOGRAM,
-    CLEANUP_OPERATIONS_COUNTER, STORE_CREATION_DURATION_MS, STORE_CREATION_EVENTS,
+    CLEANUP_OPERATIONS_COUNTER, REBALANCE_DIRECTORY_CLEANUP_DURATION_HISTOGRAM,
+    STORE_CREATION_DURATION_MS, STORE_CREATION_EVENTS,
 };
 use crate::rebalance_tracker::RebalanceTracker;
 use crate::rocksdb::metrics_consts::ROCKSDB_OLDEST_DATA_AGE_SECONDS_GAUGE;
@@ -471,6 +474,134 @@ impl StoreManager {
         Ok(())
     }
 
+    /// Delete partition directories not in the owned set using bounded parallelism.
+    ///
+    /// Called at end of rebalance cycle to clean up directories for revoked partitions.
+    /// Uses scatter-gather pattern with configurable parallelism for fast cleanup
+    /// before resuming consumption.
+    ///
+    /// This is simpler and more aggressive than the periodic orphan cleaner:
+    /// - No staleness check (we know ownership is final at end of cycle)
+    /// - Also catches orphans from previous runs
+    pub async fn cleanup_unowned_partition_directories(
+        &self,
+        owned: &[Partition],
+        parallelism: usize,
+    ) -> Result<()> {
+        let start = Instant::now();
+
+        // Build HashSet of owned partition dir names for O(1) lookup
+        let owned_dirs: HashSet<String> = owned
+            .iter()
+            .map(|p| format_partition_dir(p.topic(), p.partition_number()))
+            .collect();
+
+        // Scan disk for all partition directories (tokio::fs to avoid blocking)
+        let base_path = &self.store_config.path;
+        let entries: Vec<PathBuf> = match tokio::fs::read_dir(base_path).await {
+            Err(e) => {
+                warn!(
+                    path = %base_path.display(),
+                    error = %e,
+                    "Failed to read store base directory for cleanup"
+                );
+                return Ok(());
+            }
+            Ok(mut read_dir) => {
+                let mut vec = Vec::new();
+                while let Some(entry) = read_dir
+                    .next_entry()
+                    .await
+                    .map_err(|e| {
+                        warn!(
+                            path = %base_path.display(),
+                            error = %e,
+                            "Error reading directory entry during cleanup"
+                        );
+                    })
+                    .ok()
+                    .flatten()
+                {
+                    let is_dir = entry
+                        .file_type()
+                        .await
+                        .map(|ft| ft.is_dir())
+                        .unwrap_or(false);
+                    if !is_dir {
+                        continue;
+                    }
+                    let path = entry.path();
+                    let unowned = path
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .map(|name| !owned_dirs.contains(name))
+                        .unwrap_or(false);
+                    if unowned {
+                        vec.push(path);
+                    }
+                }
+                vec
+            }
+        };
+
+        if entries.is_empty() {
+            debug!("No unowned partition directories to clean up");
+            return Ok(());
+        }
+
+        let count = entries.len();
+        info!(
+            count = count,
+            parallelism = parallelism,
+            "Cleaning up unowned partition directories"
+        );
+
+        // Delete in parallel with bounded concurrency
+        let results: Vec<std::io::Result<()>> = stream::iter(entries)
+            .map(|path| async move {
+                let path_str = path.display().to_string();
+                match tokio::fs::remove_dir_all(&path).await {
+                    Ok(_) => {
+                        debug!(path = %path_str, "Deleted unowned partition directory");
+                        Ok(())
+                    }
+                    Err(e) => {
+                        warn!(path = %path_str, error = %e, "Failed to delete partition directory");
+                        Err(e)
+                    }
+                }
+            })
+            .buffer_unordered(parallelism)
+            .collect()
+            .await;
+
+        // Record timing
+        let duration = start.elapsed();
+        self.metrics
+            .histogram(REBALANCE_DIRECTORY_CLEANUP_DURATION_HISTOGRAM)
+            .record(duration.as_secs_f64());
+
+        let failed = results.iter().filter(|r| r.is_err()).count();
+        let succeeded = count - failed;
+
+        if failed > 0 {
+            warn!(
+                succeeded = succeeded,
+                failed = failed,
+                duration_ms = duration.as_millis(),
+                "Partition directory cleanup completed with failures (orphan cleaner will retry)"
+            );
+        } else {
+            info!(
+                deleted = succeeded,
+                duration_ms = duration.as_millis(),
+                "Partition directory cleanup completed"
+            );
+        }
+
+        Ok(())
+    }
+
     /// Get a reference to the underlying stores map
     /// Used by checkpoint manager and rebalance handler
     pub fn stores(&self) -> &DashMap<Partition, DeduplicationStore> {
@@ -484,6 +615,11 @@ impl StoreManager {
     /// Get the base path where stores are created
     pub fn base_path(&self) -> &Path {
         &self.store_config.path
+    }
+
+    /// Get the store configuration
+    pub fn config(&self) -> &DeduplicationStoreConfig {
+        &self.store_config
     }
 
     /// Cleanup old entries across all stores to maintain global capacity
