@@ -9,6 +9,8 @@ from django.db.models.functions import Now
 
 from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, viewsets
+
+from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -53,7 +55,7 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
     created_by = UserBasicSerializer(read_only=True)
     feature_flag = MinimalFeatureFlagSerializer(read_only=True)
     holdout = ExperimentHoldoutSerializer(read_only=True)
-    holdout_id = serializers.PrimaryKeyRelatedField(
+    holdout_id = TeamScopedPrimaryKeyRelatedField(
         queryset=ExperimentHoldout.objects.all(), source="holdout", required=False, allow_null=True
     )
     saved_metrics = ExperimentToSavedMetricSerializer(many=True, source="experimenttosavedmetric_set", read_only=True)

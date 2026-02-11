@@ -1,0 +1,17 @@
+rules:
+  - id: unscoped-primary-key-related-field
+    patterns:
+      - pattern: serializers.PrimaryKeyRelatedField(..., queryset=$QS, ...)
+    message: >
+      Use TeamScopedPrimaryKeyRelatedField or OrgScopedPrimaryKeyRelatedField
+      instead of PrimaryKeyRelatedField with a queryset. These auto-scope by
+      team/org from serializer context to prevent IDOR. If this field cannot
+      use scoped fields (e.g. User model), add `# nosemgrep: unscoped-primary-key-related-field`
+      with a justification comment.
+    severity: ERROR
+    languages: [python]
+    paths:
+      exclude:
+        - "**/test*/**"
+        - "**/migrations/**"
+        - "**/.semgrep/**"

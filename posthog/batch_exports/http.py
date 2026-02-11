@@ -48,6 +48,7 @@ from posthog.batch_exports.service import (
 )
 from posthog.models import BatchExport, BatchExportBackfill, BatchExportDestination, BatchExportRun, Team, User
 from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
+from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.models.integration import (
     AzureBlobIntegration,
     AzureBlobIntegrationError,
@@ -230,7 +231,7 @@ class BatchExportRunViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.Read
 class BatchExportDestinationSerializer(serializers.ModelSerializer):
     """Serializer for an BatchExportDestination model."""
 
-    integration_id = serializers.PrimaryKeyRelatedField(
+    integration_id = TeamScopedPrimaryKeyRelatedField(
         write_only=True, queryset=Integration.objects.all(), source="integration", required=False, allow_null=True
     )
 

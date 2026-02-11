@@ -8,6 +8,8 @@ from django.shortcuts import get_object_or_404
 import posthoganalytics
 from drf_spectacular.utils import extend_schema
 from rest_framework import exceptions, permissions, serializers, viewsets
+
+from posthog.api.scoped_related_fields import OrgScopedPrimaryKeyRelatedField
 from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -83,7 +85,7 @@ class OrganizationSerializer(
     projects = serializers.SerializerMethodField()
     metadata = serializers.SerializerMethodField()
     member_count = serializers.SerializerMethodField()
-    logo_media_id = serializers.PrimaryKeyRelatedField(
+    logo_media_id = OrgScopedPrimaryKeyRelatedField(
         queryset=UploadedMedia.objects.all(), required=False, allow_null=True
     )
     default_role_id = serializers.CharField(

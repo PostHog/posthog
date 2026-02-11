@@ -5,6 +5,8 @@ from django.conf import settings
 import structlog
 import posthoganalytics
 from rest_framework import serializers, viewsets
+
+from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from rest_framework.exceptions import ValidationError
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
@@ -41,7 +43,7 @@ class SessionRecordingExternalReferenceSerializer(serializers.ModelSerializer):
     config = serializers.JSONField(write_only=True)
     session_recording_id = serializers.CharField(write_only=True)
     integration = SessionRecordingExternalReferenceIntegrationSerializer(read_only=True)
-    integration_id = serializers.PrimaryKeyRelatedField(
+    integration_id = TeamScopedPrimaryKeyRelatedField(
         write_only=True, queryset=Integration.objects.all(), source="integration"
     )
     external_url = serializers.SerializerMethodField()

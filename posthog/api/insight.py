@@ -35,6 +35,7 @@ from posthog.hogql.timings import HogQLTimings
 from posthog import schema
 from posthog.api.documentation import extend_schema, extend_schema_field, extend_schema_serializer
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
+from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.insight_suggestions import get_insight_analysis, get_insight_suggestions
 from posthog.api.insight_variable import map_stale_to_latest
 from posthog.api.monitoring import Feature, monitor
@@ -366,7 +367,7 @@ class InsightSerializer(InsightBasicSerializer):
     effective_privilege_level = serializers.SerializerMethodField()
     timezone = serializers.SerializerMethodField(help_text="The timezone this chart is displayed in.")
     last_viewed_at = serializers.SerializerMethodField(read_only=True)
-    dashboards = serializers.PrimaryKeyRelatedField(
+    dashboards = TeamScopedPrimaryKeyRelatedField(
         help_text="""
         DEPRECATED. Will be removed in a future release. Use dashboard_tiles instead.
         A dashboard ID for each of the dashboards that this insight is displayed on.

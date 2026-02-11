@@ -7,6 +7,8 @@ from django.db.models.signals import pre_delete
 from django.dispatch import receiver
 
 from rest_framework import serializers, viewsets
+
+from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 
@@ -86,6 +88,7 @@ class AlertCheckSerializer(serializers.ModelSerializer):
 
 
 class AlertSubscriptionSerializer(serializers.ModelSerializer):
+    # nosemgrep: unscoped-primary-key-related-field — User model is not team-scoped; validate() checks team membership
     user = serializers.PrimaryKeyRelatedField(queryset=User.objects.filter(is_active=True), required=True)
 
     class Meta:
@@ -114,10 +117,11 @@ class AlertSerializer(serializers.ModelSerializer):
     threshold = ThresholdSerializer()
     condition = AlertConditionField(required=False, allow_null=True)
     config = TrendsAlertConfigField(required=False, allow_null=True)
-    insight = serializers.PrimaryKeyRelatedField(
+    insight = TeamScopedPrimaryKeyRelatedField(
         queryset=Insight.objects.all(),
         help_text="Insight ID monitored by this alert. Note: Response returns full InsightBasicSerializer object.",
     )
+    # nosemgrep: unscoped-primary-key-related-field — User model is not team-scoped; validate_subscribed_users() checks team membership
     subscribed_users = serializers.PrimaryKeyRelatedField(
         queryset=User.objects.filter(is_active=True),
         many=True,

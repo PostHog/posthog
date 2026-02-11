@@ -601,7 +601,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         # The queryset should be empty (fail safe to prevent IDOR)
         analytics_field = fields["analytics_dashboards"]
-        self.assertEqual(analytics_field.child_relation.queryset.count(), 0)
+        self.assertEqual(analytics_field.child_relation.get_queryset().count(), 0)
 
     @patch("posthog.api.feature_flag.report_user_action")
     def test_create_feature_flag_with_evaluation_runtime(self, mock_capture):

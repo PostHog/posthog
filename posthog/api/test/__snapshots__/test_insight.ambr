@@ -2628,7 +2628,15 @@
          "posthog_dashboard"."share_token",
          "posthog_dashboard"."is_shared"
   FROM "posthog_dashboard"
+  INNER JOIN "posthog_team" ON ("posthog_dashboard"."team_id" = "posthog_team"."id")
   WHERE (NOT ("posthog_dashboard"."deleted")
+         AND ("posthog_dashboard"."team_id" =
+                (SELECT U0."parent_team_id"
+                 FROM "posthog_team" U0
+                 WHERE U0."id" = 99999
+                 LIMIT 1)
+              OR ("posthog_team"."parent_team_id" IS NULL
+                  AND "posthog_dashboard"."team_id" = 99999))
          AND "posthog_dashboard"."id" = 99999)
   LIMIT 21
   '''
