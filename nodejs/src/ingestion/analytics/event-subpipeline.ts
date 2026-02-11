@@ -19,7 +19,7 @@ import { createNormalizeEventStep } from '../event-processing/normalize-event-st
 import { createNormalizeProcessPersonFlagStep } from '../event-processing/normalize-process-person-flag-step'
 import { createProcessPersonlessStep } from '../event-processing/process-personless-step'
 import { PipelineBuilder, StartPipelineBuilder } from '../pipelines/builders/pipeline-builders'
-import { TopHogMetricType } from '../tophog/tophog'
+import { counter } from '../tophog/tophog'
 
 export interface EventSubpipelineInput {
     message: Message
@@ -78,13 +78,7 @@ export function createEventSubpipeline<TInput extends EventSubpipelineInput, TCo
                 groupId,
             }),
             {
-                topHog: [
-                    {
-                        key: (input) => ({ team_id: String(input.eventToEmit.team_id) }),
-                        type: TopHogMetricType.Count,
-                        name: 'emitted_events',
-                    },
-                ],
+                topHog: [counter('emitted_events', (input) => ({ team_id: String(input.eventToEmit.team_id) }))],
             }
         )
 }
