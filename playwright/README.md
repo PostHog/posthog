@@ -2,29 +2,40 @@
 
 ## Running playwright
 
-Note: All animations and transitions are disabled for E2E tests for speed reasons.
+All animations and transitions are disabled for E2E tests for speed reasons.
 If you absolutely need them, turn them back on by setting the env variable `DISABLE_ANIMATIONS="false"`
+
+If you do not have playwright installed and/or configured, the first time you run this it will download a few browsers so it can use them in later tests
 
 ### Local: no pre-existing instance
 
 Spin up a full local E2E environment (backend, frontend, docker services, Playwright UI):
 
+Via hogcli, if you configured your env with flox:
+
 ```bash
 hogli test:e2e
 ```
 
-This will start a setup with playwright, backend, celery-worker, frontend, docker-compose stack and reset-db process.
-
-1. Ensure all processes are up and running without errors before executing any tests
-2. Trigger `reset-db` process from mprocs's UI to start with a clean backend
-3. Launch desired tests using Playwright's UI
-
 ### Local: with pre-existing instance
 
-If you do not have playwright browsers installed they will be automatically installed prior to running the test command
+THis will hardcode BASE_URL to `http://localhost:8000`
+
+**Pre-requisites**
+
+1. Ensure you have a dev environment running `hogli start`
+1. Ensure you have exported LOGIN_USERNAME and LOGIN_PASSWORD if you want to re-use an existing account, otherwise a default will be used
+
+**Run the tests with UI**
 
 ```bash
-LOGIN_USERNAME="mylogin@example.com" LOGIN_PASSWORD="1234abcd" pnpm test:playwright:local
+pnpm run test:ui:local
+```
+
+**Run the tests headless**
+
+```bash
+pnpm run test:local
 ```
 
 ## Writing tests
