@@ -8,12 +8,13 @@ export const getNuxt36Steps = (ctx: OnboardingComponentsContext): StepDefinition
 
     const installSteps = getNuxtStepsPA(ctx)
 
+    const manualCaptureStep: StepDefinition = {
+        title: 'Manually capturing exceptions',
         badge: 'optional',
         content: (
             <>
                 <Markdown>
                     {dedent`
-
                         To send errors directly using the PostHog client, import it and use the \`captureException\` method like this:
                     `}
                 </Markdown>
