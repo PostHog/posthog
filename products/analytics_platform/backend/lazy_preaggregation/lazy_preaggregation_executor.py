@@ -428,7 +428,7 @@ def run_preaggregation_insert(
         expires_at=job.expires_at,
     )
 
-    sync_execute(insert_sql, values, settings={"load_balancing": "in_order"})
+    sync_execute(insert_sql, values, settings=HogQLQuerySettings(load_balancing="in_order"))
 
 
 class PreaggregationExecutor:
