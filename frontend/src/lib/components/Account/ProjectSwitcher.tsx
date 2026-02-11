@@ -7,6 +7,7 @@ import { IconCheck, IconPlusSmall, IconSearch, IconX } from '@posthog/icons'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { IconBlank } from 'lib/lemon-ui/icons'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { cn } from 'lib/utils/css-classes'
 import { getProjectSwitchTargetUrl } from 'lib/utils/router-utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -35,7 +36,7 @@ interface CreateProjectItem {
 
 type ListItem = ProjectListItem | CreateProjectItem
 
-export function ProjectSwitcher(): JSX.Element | null {
+export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.Element | null {
     const { preflight } = useValues(preflightLogic)
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
     const { showCreateProjectModal } = useActions(globalModalsLogic)
@@ -132,6 +133,8 @@ export function ProjectSwitcher(): JSX.Element | null {
         return null
     }
 
+    const spacingClass = dialog ? 'p-2' : 'p-1'
+
     return (
         <Combobox.Root
             items={filteredItems}
@@ -143,8 +146,15 @@ export function ProjectSwitcher(): JSX.Element | null {
         >
             <div className="flex flex-col overflow-hidden">
                 {/* Search Input */}
-                <div className="p-2 border-b border-primary">
-                    <label className="group input-like flex gap-1 items-center relative w-full bg-fill-input border border-primary focus-within:ring-primary py-1 px-2">
+                <div className={`${spacingClass} border-b border-primary`}>
+                    <label
+                        className={cn(
+                            'group input-like flex gap-1 items-center relative w-full bg-fill-input border border-primary focus-within:ring-primary py-1 px-2',
+                            {
+                                'h-[30px]': !dialog,
+                            }
+                        )}
+                    >
                         <Combobox.Icon
                             render={
                                 <IconSearch className="size-4 shrink-0 text-tertiary group-focus-within:text-primary" />
@@ -183,42 +193,7 @@ export function ProjectSwitcher(): JSX.Element | null {
                     styledScrollbars
                     className="flex-1 overflow-y-auto max-h-[400px]"
                 >
-                    <Combobox.List className="flex flex-col gap-px p-2 bg-surface-primary" tabIndex={-1}>
-                        {/* Create New Project */}
-                        {createItem && (
-                            <Combobox.Group items={[createItem]}>
-                                <Combobox.Collection>
-                                    {(item: CreateProjectItem) => (
-                                        <Combobox.Item
-                                            key={item.id}
-                                            value={item}
-                                            onClick={() => handleItemClick(item)}
-                                            render={(props) => (
-                                                <ButtonPrimitive
-                                                    {...props}
-                                                    menuItem
-                                                    fullWidth
-                                                    tabIndex={-1}
-                                                    disabled={!canCreateProject}
-                                                    variant="panel"
-                                                    tooltip={
-                                                        !canCreateProject
-                                                            ? projectCreationForbiddenReason ||
-                                                              'You do not have permission to create a project'
-                                                            : undefined
-                                                    }
-                                                    tooltipPlacement="right"
-                                                >
-                                                    <IconPlusSmall className="text-tertiary" />
-                                                    <span className="truncate">{item.label}</span>
-                                                </ButtonPrimitive>
-                                            )}
-                                        />
-                                    )}
-                                </Combobox.Collection>
-                            </Combobox.Group>
-                        )}
-
+                    <Combobox.List className={`flex flex-col gap-px ${spacingClass} bg-surface-primary`} tabIndex={-1}>
                         {/* Current Project */}
                         {currentProject && (
                             <Combobox.Group items={[currentProject]}>
@@ -275,23 +250,60 @@ export function ProjectSwitcher(): JSX.Element | null {
                                 </Combobox.Collection>
                             </Combobox.Group>
                         )}
+
+                        {/* Create New Project */}
+                        {createItem && (
+                            <Combobox.Group items={[createItem]}>
+                                <Combobox.Collection>
+                                    {(item: CreateProjectItem) => (
+                                        <Combobox.Item
+                                            key={item.id}
+                                            value={item}
+                                            onClick={() => handleItemClick(item)}
+                                            render={(props) => (
+                                                <ButtonPrimitive
+                                                    {...props}
+                                                    menuItem
+                                                    fullWidth
+                                                    tabIndex={-1}
+                                                    disabled={!canCreateProject}
+                                                    variant="panel"
+                                                    tooltip={
+                                                        !canCreateProject
+                                                            ? projectCreationForbiddenReason ||
+                                                              'You do not have permission to create a project'
+                                                            : undefined
+                                                    }
+                                                    tooltipPlacement="right"
+                                                >
+                                                    <IconPlusSmall className="text-tertiary" />
+                                                    <span className="truncate">{item.label}</span>
+                                                </ButtonPrimitive>
+                                            )}
+                                        />
+                                    )}
+                                </Combobox.Collection>
+                            </Combobox.Group>
+                        )}
                     </Combobox.List>
                 </ScrollableShadows>
 
                 {/* Footer */}
-                <div className="menu-legend border-t border-primary p-1">
-                    <div className="px-2 py-1 text-xxs text-tertiary font-medium flex items-center gap-2">
-                        <span>
-                            <KeyboardShortcut arrowup arrowdown preserveOrder /> navigate
-                        </span>
-                        <span>
-                            <KeyboardShortcut enter /> select
-                        </span>
-                        <span>
-                            <KeyboardShortcut escape /> close
-                        </span>
+                {dialog && (
+                    <div className="menu-legend border-t border-primary p-1">
+                        <div className="px-2 py-1 text-xxs text-tertiary font-medium flex items-center gap-2">
+                            <span>
+                                <KeyboardShortcut arrowup arrowdown preserveOrder /> navigate
+                            </span>
+                            <span>
+                                <KeyboardShortcut enter /> select
+                            </span>
+                            <span>
+                                <KeyboardShortcut escape /> close
+                            </span>
+                        </div>
                     </div>
-                </div>
+                )}
             </div>
         </Combobox.Root>
     )

@@ -1,7 +1,7 @@
 import { Menu } from '@base-ui/react/menu'
 import { useActions, useValues } from 'kea'
 
-import { IconLeave, IconPlusSmall, IconReceipt, IconSearch } from '@posthog/icons'
+import { IconGear, IconLeave, IconPlusSmall, IconReceipt } from '@posthog/icons'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Link } from 'lib/lemon-ui/Link/Link'
@@ -22,7 +22,6 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { globalModalsLogic } from '~/layout/GlobalModals'
-import { AccessLevelIndicator } from '~/layout/navigation/AccessLevelIndicator'
 import { AvailableFeature } from '~/types'
 
 import { RenderKeybind } from '../AppShortcuts/AppShortcutMenu'
@@ -30,7 +29,9 @@ import { keyBinds } from '../AppShortcuts/shortcuts'
 import { ScrollableShadows } from '../ScrollableShadows/ScrollableShadows'
 import { upgradeModalLogic } from '../UpgradeModal/upgradeModalLogic'
 import { OrgModal } from './OrgModal'
+import { OrgSwitcher } from './OrgSwitcher'
 import { ProjectModal } from './ProjectModal'
+import { ProjectSwitcher } from './ProjectSwitcher'
 import { newAccountMenuLogic } from './newAccountMenuLogic'
 
 interface AccountMenuProps {
@@ -46,7 +47,7 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
     const { logout } = useActions(userLogic)
     const { currentTeam } = useValues(teamLogic)
     const { isAccountMenuOpen } = useValues(newAccountMenuLogic)
-    const { setAccountMenuOpen, openProjectSwitcher, openOrgSwitcher } = useActions(newAccountMenuLogic)
+    const { setAccountMenuOpen } = useActions(newAccountMenuLogic)
     const { preflight } = useValues(preflightLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
@@ -119,41 +120,14 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                 className="flex flex-col gap-px overflow-x-hidden"
                                 innerClassName="primitive-menu-content-inner p-1 "
                             >
-                                <Label intent="menu" className="px-2">
-                                    Signed in as
-                                </Label>
-                                <DropdownMenuSeparator />
-                                <Menu.Item
-                                    render={(props) => (
-                                        <Link
-                                            {...props}
-                                            to={urls.settings(user?.organization?.id ? 'user' : 'user-danger-zone')}
-                                            buttonProps={{
-                                                className: 'flex items-center gap-2 h-fit',
-                                                menuItem: true,
-                                                truncate: true,
-                                            }}
-                                            tooltip="User settings"
-                                            tooltipPlacement="right"
-                                            data-attr="top-menu-account-owner"
-                                        >
-                                            <ProfilePicture user={user} size="xs" />
-                                            <span className="flex flex-col truncate">
-                                                <span className="font-semibold truncate">{user?.first_name}</span>
-                                                <span className="text-tertiary text-xs truncate">{user?.email}</span>
-                                            </span>
-                                        </Link>
-                                    )}
-                                />
-
-                                <Label intent="menu" className="pl-2 mt-2 relative">
-                                    Projects
+                                <Label intent="menu" className="pl-2 relative">
+                                    Project
                                     {preflight?.can_create_org && (
                                         <ButtonPrimitive
                                             iconOnly
                                             tooltip="Create a new project"
-                                            size="sm"
-                                            className="absolute right-0 -top-1"
+                                            size="xs"
+                                            className="absolute -right-[2px] -top-[2px]"
                                             data-attr="new-project-button"
                                             onClick={() => {
                                                 guardAvailableFeature(
@@ -166,38 +140,40 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                                 )
                                             }}
                                         >
-                                            <IconPlusSmall className="text-tertiary" />
+                                            <IconPlusSmall className="text-tertiary size-4" />
                                         </ButtonPrimitive>
                                     )}
                                 </Label>
                                 <DropdownMenuSeparator />
 
                                 {isAuthenticatedTeam(currentTeam) && (
-                                    <Menu.Item
-                                        render={(props) => (
-                                            <Link
-                                                {...props}
-                                                to={urls.settings('project')}
-                                                buttonProps={{
-                                                    className: 'flex items-center gap-2',
-                                                    menuItem: true,
-                                                    truncate: true,
-                                                }}
-                                                tooltip="Project settings"
-                                                tooltipPlacement="right"
-                                                data-attr="top-menu-project-settings"
+                                    <Menu.SubmenuRoot>
+                                        <Menu.SubmenuTrigger
+                                            render={
+                                                <ButtonPrimitive menuItem data-attr="top-menu-all-projects">
+                                                    <div className="Lettermark bg-[var(--color-bg-fill-button-tertiary-active)] size-4 dark:text-tertiary text-[8px]">
+                                                        {String.fromCodePoint(
+                                                            currentTeam.name.codePointAt(0)!
+                                                        ).toLocaleUpperCase()}
+                                                    </div>
+                                                    <span className="truncate font-semibold">
+                                                        {currentTeam ? projectNameWithoutFirstEmoji : 'Select project'}
+                                                    </span>
+                                                    <MenuOpenIndicator intent="sub" className="ml-auto" />
+                                                </ButtonPrimitive>
+                                            }
+                                        />
+                                        <Menu.Portal>
+                                            <Menu.Positioner
+                                                className="z-[var(--z-popover)]"
+                                                collisionPadding={{ top: 50, bottom: 50 }}
                                             >
-                                                <div className="Lettermark bg-[var(--color-bg-fill-button-tertiary-active)] size-4 dark:text-tertiary text-[8px]">
-                                                    {String.fromCodePoint(
-                                                        currentTeam.name.codePointAt(0)!
-                                                    ).toLocaleUpperCase()}
-                                                </div>
-                                                <span className="truncate font-semibold">
-                                                    {currentTeam ? projectNameWithoutFirstEmoji : 'Select project'}
-                                                </span>
-                                            </Link>
-                                        )}
-                                    />
+                                                <Menu.Popup className="primitive-menu-content">
+                                                    <Menu.Item render={<ProjectSwitcher dialog={false} />} />
+                                                </Menu.Popup>
+                                            </Menu.Positioner>
+                                        </Menu.Portal>
+                                    </Menu.SubmenuRoot>
                                 )}
 
                                 <Menu.Item
@@ -219,26 +195,29 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                 />
 
                                 <Menu.Item
-                                    onClick={() => openProjectSwitcher()}
                                     render={
-                                        <ButtonPrimitive menuItem data-attr="top-menu-all-projects">
-                                            <IconSearch />
-                                            Switch project
-                                            <span className="ml-auto text-tertiary text-xs">
-                                                <RenderKeybind keybind={[keyBinds.projectSwitcher]} />
-                                            </span>
-                                        </ButtonPrimitive>
+                                        <Link
+                                            buttonProps={{
+                                                menuItem: true,
+                                            }}
+                                            tooltip="Invite members"
+                                            tooltipPlacement="right"
+                                            data-attr="top-menu-invite-team-members"
+                                        >
+                                            <IconGear />
+                                            Project settings
+                                        </Link>
                                     }
                                 />
 
                                 <Label intent="menu" className="px-2 mt-2 relative">
-                                    Organizations
+                                    Organization
                                     {preflight?.can_create_org && (
                                         <ButtonPrimitive
                                             iconOnly
                                             tooltip="Create a new organization"
-                                            size="sm"
-                                            className="absolute right-0 -top-1"
+                                            size="xs"
+                                            className="absolute right-0 -top-1 p-0"
                                             data-attr="new-organization-button"
                                             onClick={() => {
                                                 guardAvailableFeature(
@@ -251,46 +230,45 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                                 )
                                             }}
                                         >
-                                            <IconPlusSmall className="text-tertiary" />
+                                            <IconPlusSmall className="text-tertiary size-4" />
                                         </ButtonPrimitive>
                                     )}
                                 </Label>
                                 <DropdownMenuSeparator />
-                                <Menu.Item
-                                    render={(props) => (
-                                        <Link
-                                            {...props}
-                                            to={urls.settings('organization')}
-                                            buttonProps={{
-                                                className: 'flex items-center gap-2',
-                                                menuItem: true,
-                                                truncate: true,
-                                            }}
-                                            tooltip="Organization settings"
-                                            tooltipPlacement="right"
-                                            data-attr="top-menu-organization-settings"
+                                <Menu.SubmenuRoot>
+                                    <Menu.SubmenuTrigger
+                                        render={
+                                            <ButtonPrimitive menuItem data-attr="top-menu-all-organizations">
+                                                {currentOrganization ? (
+                                                    <UploadedLogo
+                                                        name={currentOrganization.name}
+                                                        entityId={currentOrganization.id}
+                                                        mediaId={currentOrganization.logo_media_id}
+                                                        size="xsmall"
+                                                    />
+                                                ) : (
+                                                    <UploadedLogo name="?" entityId="" mediaId="" size="xsmall" />
+                                                )}
+                                                <span className="truncate font-semibold">
+                                                    {currentOrganization
+                                                        ? currentOrganization.name
+                                                        : 'Select organization'}
+                                                </span>
+                                                <MenuOpenIndicator intent="sub" className="ml-auto" />
+                                            </ButtonPrimitive>
+                                        }
+                                    />
+                                    <Menu.Portal>
+                                        <Menu.Positioner
+                                            className="z-[var(--z-popover)]"
+                                            collisionPadding={{ top: 50, bottom: 50 }}
                                         >
-                                            {currentOrganization ? (
-                                                <UploadedLogo
-                                                    name={currentOrganization.name}
-                                                    entityId={currentOrganization.id}
-                                                    mediaId={currentOrganization.logo_media_id}
-                                                    size="xsmall"
-                                                />
-                                            ) : (
-                                                <UploadedLogo name="?" entityId="" mediaId="" size="xsmall" />
-                                            )}
-                                            <span className="truncate font-semibold">
-                                                {currentOrganization ? currentOrganization.name : 'Select organization'}
-                                            </span>
-                                            {currentOrganization && (
-                                                <div className="ml-auto flex items-center gap-1">
-                                                    <AccessLevelIndicator organization={currentOrganization} />
-                                                </div>
-                                            )}
-                                        </Link>
-                                    )}
-                                />
+                                            <Menu.Popup className="primitive-menu-content">
+                                                <Menu.Item render={<OrgSwitcher dialog={false} />} />
+                                            </Menu.Popup>
+                                        </Menu.Positioner>
+                                    </Menu.Portal>
+                                </Menu.SubmenuRoot>
 
                                 {isCloudOrDev ? (
                                     <Menu.Item
@@ -318,22 +296,49 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                 ) : null}
 
                                 <Menu.Item
-                                    onClick={() => {
-                                        setAccountMenuOpen(false)
-                                        openOrgSwitcher()
-                                    }}
-                                    render={
-                                        <ButtonPrimitive menuItem data-attr="top-menu-all-organizations">
-                                            <IconSearch />
-                                            Switch organization
-                                            <span className="ml-auto text-tertiary text-xs">
-                                                <RenderKeybind keybind={[keyBinds.orgSwitcher]} />
-                                            </span>
-                                        </ButtonPrimitive>
-                                    }
+                                    render={(props) => (
+                                        <Link
+                                            {...props}
+                                            to={urls.settings('organization')}
+                                            buttonProps={{
+                                                menuItem: true,
+                                            }}
+                                            tooltip="Organization settings"
+                                            tooltipPlacement="right"
+                                            data-attr="top-menu-organization-settings"
+                                        >
+                                            <IconGear />
+                                            Organization settings
+                                        </Link>
+                                    )}
                                 />
 
+                                <Label intent="menu" className="px-2 mt-2">
+                                    Account
+                                </Label>
                                 <DropdownMenuSeparator />
+                                <Menu.Item
+                                    render={(props) => (
+                                        <Link
+                                            {...props}
+                                            to={urls.settings(user?.organization?.id ? 'user' : 'user-danger-zone')}
+                                            buttonProps={{
+                                                className: 'flex items-center gap-2 h-fit',
+                                                menuItem: true,
+                                                truncate: true,
+                                            }}
+                                            tooltip="User settings"
+                                            tooltipPlacement="right"
+                                            data-attr="top-menu-account-owner"
+                                        >
+                                            <ProfilePicture user={user} size="xs" />
+                                            <span className="flex flex-col truncate">
+                                                <span className="font-semibold truncate">{user?.first_name}</span>
+                                                <span className="text-tertiary text-xs truncate">{user?.email}</span>
+                                            </span>
+                                        </Link>
+                                    )}
+                                />
 
                                 <Menu.Item
                                     onClick={() => logout()}

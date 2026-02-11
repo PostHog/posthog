@@ -2,7 +2,7 @@ import { Tabs } from '@base-ui/react/tabs'
 import { useActions, useValues } from 'kea'
 import { useEffect, useRef, useState } from 'react'
 
-import { IconArrowLeft, IconArrowRight, IconEllipsis, IconQuestion, IconStethoscope, IconUser } from '@posthog/icons'
+import { IconArrowLeft, IconArrowRight, IconQuestion, IconSidePanel, IconStethoscope, IconUser } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { RenderKeybind } from 'lib/components/AppShortcuts/AppShortcutMenu'
@@ -56,8 +56,9 @@ export function SidePanelOfframpModal(): JSX.Element {
         },
         {
             id: 'side-panel',
-            title: 'Side panel has moved',
-            description: "We're not removing any features though, so don't worry!",
+            title: 'Goodbye side panel...',
+            description:
+                "That large thing on the right side of the screen? Yeah, we've removed it. The features aren't gone, just moved.",
             image: sidepanelOldImage,
             icon: (
                 <div aria-hidden="true" className="size-8 opacity-0 p-1">
@@ -67,19 +68,18 @@ export function SidePanelOfframpModal(): JSX.Element {
         },
         {
             id: 'side-panel-new',
-            title: 'Dot dot dot!',
+            title: 'Hello context panel!',
             description: (
                 <>
-                    <strong>PostHog AI</strong>, <strong>Support</strong>, <strong>Discussions</strong> &{' '}
-                    <strong>Access control</strong> are now behind the{' '}
-                    <RenderKeybind className="" keybind={[['...']]} /> button on most pages.
+                    Product actions, <strong>PostHog AI</strong>, <strong>Support</strong>, <strong>Discussions</strong>{' '}
+                    & <strong>Access control</strong> are now here.
                 </>
             ),
             keybind: [[']']],
             image: sidepanelNewImage,
             icon: (
                 <div className="size-8 flex items-center justify-center text-primary border border-primary rounded-sm p-1">
-                    <IconEllipsis />
+                    <IconSidePanel />
                 </div>
             ),
         },
@@ -135,11 +135,11 @@ export function SidePanelOfframpModal(): JSX.Element {
         <DialogPrimitive
             open={shouldShowOfframpModal}
             onOpenChange={(open, event) => {
-                if (event.reason === 'escape-key') {
+                if (event?.reason === 'escape-key') {
                     event.cancel()
                     return
                 }
-                if (event.reason === 'outside-press') {
+                if (event?.reason === 'outside-press') {
                     event.cancel()
                     return
                 }
