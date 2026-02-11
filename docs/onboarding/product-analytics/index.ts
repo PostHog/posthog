@@ -1,7 +1,6 @@
 // Snippets
 export { JSEventCapture } from './_snippets/js-event-capture'
 export { NodeEventCapture } from './_snippets/node-event-capture'
-export { PersonProfiles } from './_snippets/person-profiles'
 export { PythonEventCapture } from './_snippets/python-event-capture'
 
 // Installations

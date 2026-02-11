@@ -38,6 +38,7 @@ class TestCustomerProfileConfigViewSet(APIBaseTest):
         self.assertIn("created_at", response_data)
         self.assertIn("updated_at", response_data)
 
+        # nosemgrep: idor-lookup-without-team (test assertion)
         config = CustomerProfileConfig.objects.get(id=response_data["id"])
         self.assertEqual(config.scope, "person", "Should persist data")
         self.assertEqual(config.team, self.team)

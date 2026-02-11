@@ -195,7 +195,9 @@ from posthog.models.web_preaggregated.team_selection import (
 )
 from posthog.session_recordings.sql.session_replay_event_sql import (
     DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL,
+    DROP_KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL,
     DROP_SESSION_REPLAY_EVENTS_TABLE_SQL,
+    KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL,
     SESSION_REPLAY_EVENTS_TABLE_SQL,
 )
 from posthog.test.assert_faster_than import assert_faster_than
@@ -1479,6 +1481,7 @@ def reset_clickhouse_database() -> None:
             DROP_RAW_SESSION_WRITABLE_TABLE_SQL(),
             DROP_RAW_SESSION_WRITABLE_TABLE_SQL_V3(),
             DROP_SESSION_REPLAY_EVENTS_TABLE_SQL(),
+            DROP_KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL(),
             DROP_SESSION_TABLE_SQL(),
             DROP_WEB_STATS_SQL(),
             DROP_WEB_BOUNCES_SQL(),
@@ -1550,6 +1553,7 @@ def reset_clickhouse_database() -> None:
             DISTRIBUTED_RAW_SESSIONS_TABLE_SQL_V3(),
             DISTRIBUTED_SESSIONS_TABLE_SQL(),
             DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL(),
+            KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL(),
             CREATE_CUSTOM_METRICS_COUNTERS_VIEW,
             CUSTOM_METRICS_EVENTS_RECENT_LAG_VIEW(),
             CUSTOM_METRICS_TEST_VIEW(),
