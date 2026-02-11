@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { forwardRef } from 'react'
 
-export type LemonProgressProps = {
+export type LemonProgressProps = React.HTMLAttributes<HTMLDivElement> & {
     size?: 'medium' | 'large'
     bgColor?: string
     strokeColor?: string
@@ -26,6 +26,7 @@ export const LemonProgress: React.FunctionComponent<LemonProgressProps & React.R
             strokeColor = 'var(--brand-blue)',
             children,
             className,
+            ...rest
         },
         ref
     ): JSX.Element {
@@ -34,6 +35,7 @@ export const LemonProgress: React.FunctionComponent<LemonProgressProps & React.R
         return (
             <div
                 ref={ref}
+                {...rest}
                 className={clsx(
                     'LemonProgress rounded-full w-full inline-block',
                     size === 'large' ? 'h-5' : 'h-1.5',
