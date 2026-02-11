@@ -35,6 +35,10 @@ export function createNoopBlockMetadata(sessionId: string, teamId: number): Sess
     }
 }
 
+export function createDeletionBlockMetadata(sessionId: string, teamId: number): SessionBlockMetadata {
+    return { ...createNoopBlockMetadata(sessionId, teamId), isDeleted: true }
+}
+
 export interface SessionBlockMetadata {
     /** Unique identifier for the session */
     sessionId: string

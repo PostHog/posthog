@@ -1,3 +1,4 @@
+import { createMockEncryptor, createMockKeyStore } from '../../recording-api/test-helpers'
 import { KeyStore, RecordingEncryptor } from '../../recording-api/types'
 import { KafkaOffsetManager } from '../kafka/offset-manager'
 import { SessionBatchFileStorage, SessionBatchFileWriter } from './session-batch-file-storage'
@@ -72,27 +73,8 @@ describe('SessionBatchManager', () => {
             handleNewSession: jest.fn().mockResolvedValue(undefined),
         } as unknown as jest.Mocked<SessionFilter>
 
-        mockKeyStore = {
-            start: jest.fn().mockResolvedValue(undefined),
-            generateKey: jest.fn().mockResolvedValue({
-                plaintextKey: Buffer.alloc(0),
-                encryptedKey: Buffer.alloc(0),
-                sessionState: 'cleartext',
-            }),
-            getKey: jest.fn().mockResolvedValue({
-                plaintextKey: Buffer.alloc(0),
-                encryptedKey: Buffer.alloc(0),
-                sessionState: 'cleartext',
-            }),
-            deleteKey: jest.fn().mockResolvedValue(true),
-            stop: jest.fn().mockResolvedValue(undefined),
-        } as unknown as jest.Mocked<KeyStore>
-
-        mockEncryptor = {
-            start: jest.fn().mockResolvedValue(undefined),
-            encryptBlock: jest.fn().mockImplementation((_sessionId, _teamId, buffer) => Promise.resolve(buffer)),
-            encryptBlockWithKey: jest.fn().mockImplementation((_sessionId, _teamId, buffer, _sessionKey) => buffer),
-        } as unknown as jest.Mocked<RecordingEncryptor>
+        mockKeyStore = createMockKeyStore()
+        mockEncryptor = createMockEncryptor()
 
         manager = new SessionBatchManager({
             maxBatchSizeBytes: 100,
