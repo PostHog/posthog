@@ -12,7 +12,13 @@ from posthog.schema import MaterializationMode, PersonsOnEventsMode, PropertyGro
 from posthog.hogql import ast
 from posthog.hogql.ast import Constant, StringType
 from posthog.hogql.base import AST
-from posthog.hogql.constants import HogQLDialect, HogQLGlobalSettings, LimitContext, get_max_limit_for_context
+from posthog.hogql.constants import (
+    HogQLDialect,
+    HogQLGlobalSettings,
+    HogQLQuerySettings,
+    LimitContext,
+    get_max_limit_for_context,
+)
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import FunctionCallTable, Table
 from posthog.hogql.errors import ImpossibleASTError, QueryError, ResolutionError
@@ -82,6 +88,7 @@ class HogQLPrinter(Visitor[str]):
         self.pretty = pretty
         self._indent = -1
         self.tab_size = 4
+        self._table_top_level_settings: dict[str, Any] = {}
 
     def indent(self, extra: int = 0):
         return " " * self.tab_size * (self._indent + extra)
@@ -293,6 +300,8 @@ class HogQLPrinter(Visitor[str]):
 
             if not isinstance(table_type, ast.TableType) and not isinstance(table_type, ast.LazyTableType):
                 raise ImpossibleASTError(f"Invalid table type {type(table_type).__name__} in join_expr")
+
+            self._collect_table_top_level_settings(table_type.table)
 
             # :IMPORTANT: Ensures team_id filtering on every table. For LEFT JOINs, we add it to the
             # ON clause (not WHERE) to preserve LEFT JOIN semantics - otherwise NULL rows get filtered out.
@@ -1325,9 +1334,37 @@ class HogQLPrinter(Visitor[str]):
             return nullable
         return True
 
-    def _print_settings(self, settings):
+    def _collect_table_top_level_settings(self, table: Table) -> None:
+        if table.top_level_settings is None:
+            return
+        for key, value in table.top_level_settings.model_dump().items():
+            if value is None:
+                continue
+            existing = self._table_top_level_settings.get(key)
+            if existing is not None and existing != value:
+                raise QueryError(
+                    f"Conflicting top_level_settings for '{key}': "
+                    f"one table requires {existing!r} but another requires {value!r}"
+                )
+            self._table_top_level_settings[key] = value
+
+    def _merge_table_top_level_settings(self, settings: HogQLQuerySettings | None) -> dict[str, Any]:
+        merged = dict(settings.model_dump()) if settings else {}
+        if not self._table_top_level_settings:
+            return merged
+        for key, value in self._table_top_level_settings.items():
+            existing = merged.get(key)
+            if existing is not None and existing != value:
+                raise QueryError(
+                    f"Conflicting settings for '{key}': query has {existing!r} but table requires {value!r}"
+                )
+            merged[key] = value
+        return merged
+
+    def _print_settings(self, settings: HogQLQuerySettings | dict[str, Any]) -> str | None:
         pairs = []
-        for key, value in settings:
+        items = settings.items() if isinstance(settings, dict) else settings
+        for key, value in items:
             if value is None:
                 continue
             if not re.match(r"^[a-zA-Z0-9_]+$", key):
