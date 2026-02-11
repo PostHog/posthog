@@ -4,6 +4,8 @@ import { GitLabSetupModal } from 'scenes/integrations/gitlab/GitLabSetupModal'
 import { urls } from 'scenes/urls'
 
 import { ChannelSetupModal } from 'products/workflows/frontend/Channels/ChannelSetupModal'
+// Side-effect imports: product-specific integration setups
+import 'products/workflows/frontend/Channels/CursorSetup/integrationSetup'
 
 import { registerIntegrationSetup } from './integrationSetupRegistry'
 

@@ -1330,7 +1330,7 @@ export type ErrorClusterResponse = ErrorCluster[] | null
 export type EntityType = 'actions' | 'events' | 'data_warehouse' | 'new_entity' | 'groups'
 
 export interface Entity {
-    id: string | number | null
+    id: string | number
     name: string
     custom_name?: string
     order: number
@@ -4362,7 +4362,7 @@ export interface AppContext {
     current_project: ProjectType | null
     current_team: TeamType | TeamPublicType | null
     preflight: PreflightStatus
-    default_event_name: string | null
+    default_event_name: string
     persisted_feature_flags?: string[]
     anonymous: boolean
     frontend_apps?: Record<number, FrontendAppConfig>
@@ -4743,6 +4743,7 @@ export const INTEGRATION_KINDS = [
     'azure-blob',
     'firebase',
     'jira',
+    'cursor',
 ] as const
 
 export type IntegrationKind = (typeof INTEGRATION_KINDS)[number]

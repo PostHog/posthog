@@ -626,6 +626,11 @@ export class HogExecutorService {
             fetchParams.body = params.body
         }
 
+        // Cursor agent launch takes 10-30s; default 3s timeout causes spurious retries and duplicate agents
+        if (params.url.includes('api.cursor.com')) {
+            fetchParams.timeoutMs = 90_000
+        }
+
         const { fetchError, fetchResponse, fetchDuration } = await cdpTrackedFetch({
             url: params.url,
             fetchParams,
