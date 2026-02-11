@@ -280,12 +280,12 @@ class TestExperimentCRUD(APILicensedTest):
         created_ff.refresh_from_db()
         self.assertEqual(created_ff.filters["groups"][0]["rollout_percentage"], 80)
 
-    def test_updating_experiment_rejects_rollout_percentage_in_parameters(self):
-        ff_key = "test-reject-rollout-flag"
+    def test_updating_experiment_applies_rollout_percentage_to_feature_flag(self):
+        ff_key = "test-rollout-flag"
         response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/",
             {
-                "name": "Test Experiment Reject Rollout",
+                "name": "Test Experiment Rollout",
                 "description": "",
                 "start_date": None,
                 "end_date": None,
@@ -314,8 +314,10 @@ class TestExperimentCRUD(APILicensedTest):
             },
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("rollout_percentage cannot be updated", response.json()["detail"])
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        flag = FeatureFlag.objects.get(key=ff_key, team=self.team)
+        self.assertEqual(flag.filters["groups"][0]["rollout_percentage"], 30)
 
     def test_creating_updating_web_experiment(self):
         ff_key = "a-b-tests"
