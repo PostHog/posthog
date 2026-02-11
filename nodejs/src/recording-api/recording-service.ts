@@ -114,11 +114,17 @@ export class RecordingService {
         logger.debug('[RecordingService] deleteKey result', { teamId, sessionId, result })
 
         if (result.deleted) {
-            try {
-                await this.emitDeletionEvent(sessionId, teamId)
-                await this.deletePostgresRecords(sessionId, teamId)
-            } catch (error) {
-                logger.error('[RecordingService] Post-deletion cleanup failed', { sessionId, teamId, error })
+            const [metadataResult, postgresResult] = await Promise.allSettled([
+                this.emitDeletionEvent(sessionId, teamId),
+                this.deletePostgresRecords(sessionId, teamId),
+            ])
+            if (metadataResult.status === 'rejected' || postgresResult.status === 'rejected') {
+                logger.error('[RecordingService] Post-deletion cleanup failed', {
+                    sessionId,
+                    teamId,
+                    metadataError: metadataResult.status === 'rejected' ? metadataResult.reason : null,
+                    postgresError: postgresResult.status === 'rejected' ? postgresResult.reason : null,
+                })
             }
             return { ok: true }
         }

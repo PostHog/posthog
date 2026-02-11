@@ -260,7 +260,8 @@ describe('RecordingService', () => {
             const result = await service.deleteRecording('session-123', 1)
 
             expect(result).toEqual({ ok: true })
-            expect(mockPostgres.query).not.toHaveBeenCalled()
+            // Promise.allSettled runs both independently, so postgres is still called
+            expect(mockPostgres.query).toHaveBeenCalled()
         })
 
         it('still returns ok when postgres fails after key deletion', async () => {
