@@ -5,7 +5,7 @@ import { disableAnimations } from '../../utils/pagePerformance'
 import { expect, test } from '../../utils/playwright-test-base'
 
 test.describe('Billing', () => {
-    test.beforeAll(async ({ page }) => {
+    test.beforeEach(async ({ page }) => {
         await disableAnimations(page)
     })
 
