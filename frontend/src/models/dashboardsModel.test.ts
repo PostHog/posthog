@@ -189,9 +189,6 @@ describe('the dashboards model', () => {
     it('clears primary_dashboard from team when deleting the primary dashboard', async () => {
         const primaryDashboardId = 42
         initKeaTests(true, { ...MOCK_DEFAULT_TEAM, primary_dashboard: primaryDashboardId })
-        logic = dashboardsModel()
-        logic.mount()
-
         useMocks({
             get: {
                 '/api/environments/:team_id/dashboards/': {
@@ -207,6 +204,8 @@ describe('the dashboards model', () => {
                 },
             },
         })
+        logic = dashboardsModel()
+        logic.mount()
 
         logic.actions.deleteDashboard({ id: primaryDashboardId, deleteInsights: false })
 
@@ -219,9 +218,6 @@ describe('the dashboards model', () => {
     it('does not clear primary_dashboard when deleting a non-primary dashboard', async () => {
         const primaryDashboardId = 42
         initKeaTests(true, { ...MOCK_DEFAULT_TEAM, primary_dashboard: primaryDashboardId })
-        logic = dashboardsModel()
-        logic.mount()
-
         useMocks({
             get: {
                 '/api/environments/:team_id/dashboards/': {
@@ -237,6 +233,8 @@ describe('the dashboards model', () => {
                 },
             },
         })
+        logic = dashboardsModel()
+        logic.mount()
 
         logic.actions.deleteDashboard({ id: 99, deleteInsights: false })
 

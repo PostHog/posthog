@@ -350,7 +350,8 @@ export const dashboardsModel = kea<dashboardsModelType>([
         deleteDashboardSuccess: async ({ dashboard }) => {
             const currentTeam = teamLogic.values.currentTeam
             if (currentTeam && 'primary_dashboard' in currentTeam && currentTeam.primary_dashboard === dashboard.id) {
-                teamLogic.actions.loadCurrentTeamSuccess({ ...currentTeam, primary_dashboard: null })
+                // Reload team to get fresh state rather than overwriting with potentially stale snapshot
+                teamLogic.actions.loadCurrentTeam()
             }
 
             lemonToast.success(
