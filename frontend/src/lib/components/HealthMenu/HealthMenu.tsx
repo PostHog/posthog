@@ -111,7 +111,7 @@ export function HealthMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.El
                                                 menuItem: true,
                                                 size: 'fit',
                                                 className:
-                                                    'flex flex-col gap-1 p-2 border border-primary rounded h-32 items-center justify-center',
+                                                    'flex flex-col gap-1 p-2 border border-primary rounded h-32 items-center justify-center shadow hover:border-accent transition-colors',
                                             }}
                                         >
                                             <IconStethoscope className="size-5" />

@@ -118,7 +118,7 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
                                                 menuItem: true,
                                                 size: 'fit',
                                                 className:
-                                                    'flex flex-col gap-1 p-2 border border-primary rounded h-32 items-center justify-center',
+                                                    'flex flex-col gap-1 p-2 border border-primary rounded h-32 items-center justify-center shadow hover:border-accent transition-colors',
                                             }}
                                         >
                                             <span className="size-3 [&>svg]:size-4 mb-3">
@@ -307,7 +307,7 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
                                         render={
                                             <ButtonPrimitive menuItem>
                                                 <IconEllipsis />
-                                                More
+                                                Display options
                                                 <MenuOpenIndicator intent="sub" />
                                             </ButtonPrimitive>
                                         }

@@ -7,6 +7,7 @@ import { IconCheck, IconPlusSmall, IconSearch, IconX } from '@posthog/icons'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { IconBlank } from 'lib/lemon-ui/icons'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { MenuSeparator } from 'lib/ui/Menus/Menus'
 import { cn } from 'lib/utils/css-classes'
 import { getProjectSwitchTargetUrl } from 'lib/utils/router-utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -42,8 +43,7 @@ export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.El
     const { showCreateProjectModal } = useActions(globalModalsLogic)
     const { currentTeam } = useValues(teamLogic)
     const { currentOrganization, projectCreationForbiddenReason } = useValues(organizationLogic)
-    const { closeProjectSwitcher } = useActions(newAccountMenuLogic)
-
+    const { closeProjectSwitcher, setAccountMenuOpen } = useActions(newAccountMenuLogic)
     const [searchValue, setSearchValue] = useState('')
     const inputRef = useRef<HTMLInputElement>(null!)
 
@@ -93,9 +93,16 @@ export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.El
     const handleItemClick = useCallback(
         (item: ListItem) => {
             if (item.type === 'create') {
-                guardAvailableFeature(AvailableFeature.ORGANIZATIONS_PROJECTS, showCreateProjectModal, {
-                    currentUsage: currentOrganization?.teams?.length,
-                })
+                guardAvailableFeature(
+                    AvailableFeature.ORGANIZATIONS_PROJECTS,
+                    () => {
+                        showCreateProjectModal()
+                        setAccountMenuOpen(false)
+                    },
+                    {
+                        currentUsage: currentOrganization?.teams?.length,
+                    }
+                )
                 closeProjectSwitcher()
             } else if (!item.isCurrent) {
                 const targetUrl = getProjectSwitchTargetUrl(
@@ -146,7 +153,7 @@ export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.El
         >
             <div className="flex flex-col overflow-hidden">
                 {/* Search Input */}
-                <div className={`${spacingClass} border-b border-primary`}>
+                <div className={`${spacingClass} ${dialog && 'border-b border-primary'}`}>
                     <label
                         className={cn(
                             'group input-like flex gap-1 items-center relative w-full bg-fill-input border border-primary focus-within:ring-primary py-1 px-2',
@@ -193,7 +200,10 @@ export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.El
                     styledScrollbars
                     className="flex-1 overflow-y-auto max-h-[400px]"
                 >
-                    <Combobox.List className={`flex flex-col gap-px ${spacingClass} bg-surface-primary`} tabIndex={-1}>
+                    <Combobox.List
+                        className={`flex flex-col gap-px ${spacingClass} bg-surface-primary ${!dialog && 'pt-0.5'}`}
+                        tabIndex={-1}
+                    >
                         {/* Current Project */}
                         {currentProject && (
                             <Combobox.Group items={[currentProject]}>
@@ -203,17 +213,8 @@ export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.El
                                             key={item.id}
                                             value={item}
                                             onClick={() => handleItemClick(item)}
-                                            disabled
                                             render={(props) => (
-                                                <ButtonPrimitive
-                                                    {...props}
-                                                    menuItem
-                                                    active
-                                                    className="flex-1"
-                                                    tabIndex={-1}
-                                                    disabled={true}
-                                                    data-disabled="true"
-                                                >
+                                                <ButtonPrimitive {...props} menuItem active className="flex-1">
                                                     <IconCheck className="text-tertiary" />
                                                     <ProjectName team={item.team} />
                                                 </ButtonPrimitive>
@@ -251,6 +252,8 @@ export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.El
                             </Combobox.Group>
                         )}
 
+                        <MenuSeparator />
+
                         {/* Create New Project */}
                         {createItem && (
                             <Combobox.Group items={[createItem]}>
@@ -265,9 +268,7 @@ export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.El
                                                     {...props}
                                                     menuItem
                                                     fullWidth
-                                                    tabIndex={-1}
                                                     disabled={!canCreateProject}
-                                                    variant="panel"
                                                     tooltip={
                                                         !canCreateProject
                                                             ? projectCreationForbiddenReason ||

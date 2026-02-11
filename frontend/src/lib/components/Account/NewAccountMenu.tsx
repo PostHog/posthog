@@ -169,7 +169,10 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                                 collisionPadding={{ top: 50, bottom: 50 }}
                                             >
                                                 <Menu.Popup className="primitive-menu-content">
-                                                    <Menu.Item render={<ProjectSwitcher dialog={false} />} />
+                                                    {/* We need to add a div here to prevent the keydown event from bubbling up to the menu. */}
+                                                    <div onKeyDown={(e) => e.stopPropagation()}>
+                                                        <ProjectSwitcher dialog={false} />
+                                                    </div>
                                                 </Menu.Popup>
                                             </Menu.Positioner>
                                         </Menu.Portal>
@@ -264,7 +267,10 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                             collisionPadding={{ top: 50, bottom: 50 }}
                                         >
                                             <Menu.Popup className="primitive-menu-content">
-                                                <Menu.Item render={<OrgSwitcher dialog={false} />} />
+                                                {/* We need to add a div here to prevent the keydown event from bubbling up to the menu. */}
+                                                <div onKeyDown={(e) => e.stopPropagation()}>
+                                                    <OrgSwitcher dialog={false} />
+                                                </div>
                                             </Menu.Popup>
                                         </Menu.Positioner>
                                     </Menu.Portal>
@@ -288,7 +294,7 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                             >
                                                 <IconReceipt />
                                                 {featureFlags[FEATURE_FLAGS.USAGE_SPEND_DASHBOARDS]
-                                                    ? 'Billing & Usage'
+                                                    ? 'Billing & usage'
                                                     : 'Billing'}
                                             </Link>
                                         )}

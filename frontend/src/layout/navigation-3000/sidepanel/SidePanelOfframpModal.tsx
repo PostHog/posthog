@@ -2,20 +2,15 @@ import { Tabs } from '@base-ui/react/tabs'
 import { useActions, useValues } from 'kea'
 import { useEffect, useRef, useState } from 'react'
 
-import { IconArrowLeft, IconArrowRight, IconQuestion, IconSidePanel, IconStethoscope, IconUser } from '@posthog/icons'
+import { IconArrowLeft, IconArrowRight, IconSidePanel } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { RenderKeybind } from 'lib/components/AppShortcuts/AppShortcutMenu'
-import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { StopSignHog } from 'lib/components/hedgehogs'
 import { IconBlank } from 'lib/lemon-ui/icons'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { DialogPrimitive, DialogPrimitiveTitle } from 'lib/ui/DialogPrimitive/DialogPrimitive'
 import { cn } from 'lib/utils/css-classes'
 
-import accountMenuImage from './images/sidepanel-account.gif'
-import healthMenuImage from './images/sidepanel-health.gif'
-import helpMenuImage from './images/sidepanel-help.gif'
 import sidepanelNewImage from './images/sidepanel-new.gif'
 import sidepanelOldImage from './images/sidepanel-old.gif'
 import { sidePanelOfframpLogic } from './sidePanelOfframpLogic'
@@ -29,7 +24,6 @@ interface OfframpStep {
         onClick?: () => void
         type?: 'primary' | 'secondary' | 'tertiary'
     }
-    keybind?: string[][]
     image?: string
     icon?: React.ReactNode
 }
@@ -71,52 +65,15 @@ export function SidePanelOfframpModal(): JSX.Element {
             title: 'Hello context panel!',
             description: (
                 <>
-                    Product actions, <strong>PostHog AI</strong>, <strong>Support</strong>, <strong>Discussions</strong>{' '}
-                    & <strong>Access control</strong> are now here.
+                    Contextual info & actions, <strong>PostHog AI</strong>, <strong>Support</strong>,{' '}
+                    <strong>Notebooks</strong>, <strong>Discussions</strong> & <strong>Access control</strong> are now
+                    neatly tucked away.
                 </>
             ),
-            keybind: [[']']],
             image: sidepanelNewImage,
             icon: (
                 <div className="size-8 flex items-center justify-center text-primary border border-primary rounded-sm p-1">
                     <IconSidePanel />
-                </div>
-            ),
-        },
-        {
-            id: 'account-menu',
-            title: 'Account menu',
-            description:
-                'Your account settings, project or organization switching, and log out are now in the account menu.',
-            keybind: [keyBinds.newAccountMenu],
-            image: accountMenuImage,
-            icon: (
-                <div className="size-8 flex items-center justify-center text-primary border border-primary rounded-sm p-1">
-                    <IconUser />
-                </div>
-            ),
-        },
-        {
-            id: 'help-menu',
-            title: 'Help menu',
-            description: 'Support, docs, and other resources are now in the help menu.',
-            keybind: [keyBinds.helpMenu],
-            image: helpMenuImage,
-            icon: (
-                <div className="size-8 flex items-center justify-center text-primary border border-primary rounded-sm p-1">
-                    <IconQuestion />
-                </div>
-            ),
-        },
-        {
-            id: 'health-menu',
-            title: 'Health menu',
-            description: 'System status and health information are now in the health menu.',
-            keybind: [keyBinds.healthMenu],
-            image: healthMenuImage,
-            icon: (
-                <div className="size-8 flex items-center justify-center text-primary border border-primary rounded-sm p-1">
-                    <IconStethoscope />
                 </div>
             ),
         },
@@ -201,12 +158,6 @@ export function SidePanelOfframpModal(): JSX.Element {
                                     >
                                         Naw, I'll figure it out thanks
                                     </LemonButton>
-                                )}
-                                {step.keybind && (
-                                    <div className="flex gap-1">
-                                        Try it out by pressing:{' '}
-                                        <RenderKeybind className="[&>kbd]:pb-[3px] ml-1" keybind={step.keybind} />
-                                    </div>
                                 )}
                             </div>
                         </div>

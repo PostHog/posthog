@@ -8,6 +8,7 @@ import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic
 import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo'
 import { IconBlank } from 'lib/lemon-ui/icons'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { MenuSeparator } from 'lib/ui/Menus/Menus'
 import { cn } from 'lib/utils/css-classes'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -45,8 +46,7 @@ export function OrgSwitcher({ dialog = true }: { dialog?: boolean }): JSX.Elemen
     const { currentOrganization } = useValues(organizationLogic)
     const { otherOrganizations } = useValues(userLogic)
     const { updateCurrentOrganization } = useActions(userLogic)
-    const { closeOrgSwitcher } = useActions(newAccountMenuLogic)
-
+    const { closeOrgSwitcher, setAccountMenuOpen } = useActions(newAccountMenuLogic)
     const [searchValue, setSearchValue] = useState('')
     const inputRef = useRef<HTMLInputElement>(null!)
 
@@ -110,6 +110,7 @@ export function OrgSwitcher({ dialog = true }: { dialog?: boolean }): JSX.Elemen
                     AvailableFeature.ORGANIZATIONS_PROJECTS,
                     () => {
                         showCreateOrganizationModal()
+                        setAccountMenuOpen(false)
                     },
                     { guardOnCloud: false }
                 )
@@ -147,7 +148,7 @@ export function OrgSwitcher({ dialog = true }: { dialog?: boolean }): JSX.Elemen
         >
             <div className="flex flex-col overflow-hidden">
                 {/* Search Input */}
-                <div className={`${spacingClass} border-b border-primary`}>
+                <div className={`${spacingClass} ${dialog && 'border-b border-primary'}`}>
                     <label
                         className={cn(
                             'group input-like flex gap-1 items-center relative w-full bg-fill-input border border-primary focus-within:ring-primary py-1 px-2',
@@ -193,7 +194,10 @@ export function OrgSwitcher({ dialog = true }: { dialog?: boolean }): JSX.Elemen
                     styledScrollbars
                     className="flex-1 overflow-y-auto max-h-[400px]"
                 >
-                    <Combobox.List className={`flex flex-col gap-px ${spacingClass} bg-surface-primary`} tabIndex={-1}>
+                    <Combobox.List
+                        className={`flex flex-col gap-px ${spacingClass} bg-surface-primary ${!dialog && 'pt-0.5'}`}
+                        tabIndex={-1}
+                    >
                         {/* Current Organization */}
                         {currentOrgItem && (
                             <Combobox.Group items={[currentOrgItem]}>
@@ -203,16 +207,8 @@ export function OrgSwitcher({ dialog = true }: { dialog?: boolean }): JSX.Elemen
                                             key={item.id}
                                             value={item}
                                             onClick={() => handleItemClick(item)}
-                                            disabled
                                             render={(props) => (
-                                                <ButtonPrimitive
-                                                    {...props}
-                                                    disabled
-                                                    data-disabled="true"
-                                                    menuItem
-                                                    active
-                                                    fullWidth
-                                                >
+                                                <ButtonPrimitive {...props} menuItem active fullWidth>
                                                     <IconCheck className="text-tertiary" />
                                                     <UploadedLogo
                                                         size="xsmall"
@@ -269,6 +265,8 @@ export function OrgSwitcher({ dialog = true }: { dialog?: boolean }): JSX.Elemen
                             </Combobox.Group>
                         )}
 
+                        <MenuSeparator />
+
                         {/* Create New Organization */}
                         {createItem && (
                             <Combobox.Group items={[createItem]}>
@@ -284,7 +282,6 @@ export function OrgSwitcher({ dialog = true }: { dialog?: boolean }): JSX.Elemen
                                                     menuItem
                                                     fullWidth
                                                     disabled={!canCreateOrg}
-                                                    variant="panel"
                                                     tooltip={
                                                         !canCreateOrg
                                                             ? 'You do not have permission to create an organization'
