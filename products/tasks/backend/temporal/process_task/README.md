@@ -139,6 +139,10 @@ Per-team configuration for sandbox execution: network access level (trusted/full
 | Image source | Local Dockerfile build    | `ghcr.io/posthog/posthog-sandbox-base` |
 | Snapshots    | Docker commit/tag         | Modal `snapshot_filesystem()`          |
 
+### Local development with Modal
+
+To use Modal sandboxes locally, set these environment variables:
+
 ```bash
 MODAL_TOKEN_ID=your_token_id
 MODAL_TOKEN_SECRET=your_token_secret
@@ -155,7 +159,6 @@ ngrok http 8000
 
 Set `SANDBOX_API_URL` to the ngrok URL. `SITE_URL` stays as `http://localhost:8010` so that the rest of the stack (feature flags, self-capture, etc.) continues to work against localhost.
 
-## Running Tests
 ### Images
 
 - `Dockerfile.sandbox-base` — Base image with Node.js, `@posthog/agent` from npm, git
