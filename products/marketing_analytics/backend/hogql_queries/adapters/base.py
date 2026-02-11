@@ -87,6 +87,14 @@ class BingAdsConfig(BaseMarketingConfig):
 
 
 @dataclass
+class StackAdaptAdsConfig(BaseMarketingConfig):
+    """Configuration for StackAdapt Ads marketing sources"""
+
+    campaign_table: DataWarehouseTable
+    stats_table: DataWarehouseTable
+
+
+@dataclass
 class ValidationResult:
     """Result of source validation"""
 

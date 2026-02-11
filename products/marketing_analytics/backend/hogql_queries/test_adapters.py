@@ -28,6 +28,7 @@ from products.marketing_analytics.backend.hogql_queries.adapters.base import (
     MetaAdsConfig,
     QueryContext,
     RedditAdsConfig,
+    StackAdaptAdsConfig,
     TikTokAdsConfig,
 )
 from products.marketing_analytics.backend.hogql_queries.adapters.bigquery import BigQueryAdapter
@@ -42,6 +43,7 @@ from products.marketing_analytics.backend.hogql_queries.adapters.self_managed im
     CloudflareR2Adapter,
     GoogleCloudAdapter,
 )
+from products.marketing_analytics.backend.hogql_queries.adapters.stackadapt_ads import StackAdaptAdsAdapter
 from products.marketing_analytics.backend.hogql_queries.adapters.tiktok_ads import TikTokAdsAdapter
 
 # Test Constants
@@ -728,6 +730,78 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
                     "average_cpc": {"hogql": "FloatDatabaseField", "clickhouse": "Float64", "schema_valid": True},
                     "ctr": {"hogql": "FloatDatabaseField", "clickhouse": "Float64", "schema_valid": True},
                     "conversion_rate": {"hogql": "FloatDatabaseField", "clickhouse": "Float64", "schema_valid": True},
+                },
+            ),
+            "stackadapt_campaign": DataConfig(
+                csv_filename="test/stackadapt_ads/campaigns.csv",
+                table_name="stackadapt_campaigns_table",
+                platform="StackAdapt Ads",
+                source_type="StackAdaptAds",
+                bucket_suffix="stackadapt_campaign",
+                column_schema={
+                    "id": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "name": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "state": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "type": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "is_archived": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "is_draft": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "created_at": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "updated_at": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "advertiser_id": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "advertiser_name": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "campaign_group_id": {
+                        "hogql": "StringDatabaseField",
+                        "clickhouse": "String",
+                        "schema_valid": True,
+                    },
+                    "campaign_group_name": {
+                        "hogql": "StringDatabaseField",
+                        "clickhouse": "String",
+                        "schema_valid": True,
+                    },
+                    "budget_rollover": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                },
+            ),
+            "stackadapt_stats": DataConfig(
+                csv_filename="test/stackadapt_ads/campaign_stats_daily.csv",
+                table_name="stackadapt_campaign_stats_daily_table",
+                platform="StackAdapt Ads",
+                source_type="StackAdaptAds",
+                bucket_suffix="stackadapt_stats",
+                column_schema={
+                    "campaign_id": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "campaign_name": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "date": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "impressions": {"hogql": "FloatDatabaseField", "clickhouse": "Float64", "schema_valid": True},
+                    "clicks": {"hogql": "FloatDatabaseField", "clickhouse": "Float64", "schema_valid": True},
+                    "cost": {"hogql": "FloatDatabaseField", "clickhouse": "Float64", "schema_valid": True},
+                    "conversions": {"hogql": "FloatDatabaseField", "clickhouse": "Float64", "schema_valid": True},
+                    "conversionRevenue": {
+                        "hogql": "FloatDatabaseField",
+                        "clickhouse": "Float64",
+                        "schema_valid": True,
+                    },
+                    "clickConversions": {
+                        "hogql": "FloatDatabaseField",
+                        "clickhouse": "Float64",
+                        "schema_valid": True,
+                    },
+                    "impressionConversions": {
+                        "hogql": "FloatDatabaseField",
+                        "clickhouse": "Float64",
+                        "schema_valid": True,
+                    },
+                    "uniqueImpressions": {
+                        "hogql": "FloatDatabaseField",
+                        "clickhouse": "Float64",
+                        "schema_valid": True,
+                    },
+                    "videoStarts": {"hogql": "FloatDatabaseField", "clickhouse": "Float64", "schema_valid": True},
+                    "videoCompletions": {
+                        "hogql": "FloatDatabaseField",
+                        "clickhouse": "Float64",
+                        "schema_valid": True,
+                    },
                 },
             ),
         }
@@ -1855,3 +1929,74 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         assert "google_ads_campaign.campaign_name" in google_hogql, (
             f"GoogleAds match_key should use campaign_name field by default, but got: {google_hogql}"
         )
+
+    # ================================================================
+    # STACKADAPT ADS TESTS
+    # ================================================================
+
+    def test_stackadapt_ads_adapter_validation_consistency(self):
+        campaign_table = self._create_mock_table("stackadapt_campaigns_table", "StackAdaptAds")
+        stats_table = self._create_mock_table("stackadapt_campaign_stats_daily_table", "StackAdaptAds")
+
+        config = StackAdaptAdsConfig(
+            campaign_table=campaign_table,
+            stats_table=stats_table,
+            source_type="StackAdaptAds",
+            source_id="test_consistency",
+        )
+
+        adapter = StackAdaptAdsAdapter(config=config, context=self.context)
+        result = adapter.validate()
+
+        assert result.is_valid, "StackAdaptAdsAdapter validation should succeed"
+        assert isinstance(result.errors, list), "StackAdaptAdsAdapter should return list of errors"
+
+    def test_stackadapt_ads_native_query_generation(self):
+        campaign_table = self._create_mock_table("stackadapt_campaigns", "StackAdaptAds")
+        stats_table = self._create_mock_table("stackadapt_campaign_stats_daily", "StackAdaptAds")
+
+        config = StackAdaptAdsConfig(
+            campaign_table=campaign_table,
+            stats_table=stats_table,
+            source_type="StackAdaptAds",
+            source_id="stackadapt_ads",
+        )
+
+        adapter = StackAdaptAdsAdapter(config=config, context=self.context)
+        query = adapter.build_query()
+
+        assert query is not None, "StackAdaptAdsAdapter should generate a query"
+        self._validate_query_structure(query, "StackAdaptAdsAdapter")
+        assert self._execute_and_snapshot(query) == self.snapshot
+
+    def test_stackadapt_ads_adapter_with_real_data(self):
+        campaign_info = self._setup_csv_table("stackadapt_campaign")
+        stats_info = self._setup_csv_table("stackadapt_stats")
+
+        config = StackAdaptAdsConfig(
+            campaign_table=campaign_info.table,
+            stats_table=stats_info.table,
+            source_type="StackAdaptAds",
+            source_id="stackadapt_ads",
+        )
+
+        adapter = StackAdaptAdsAdapter(config=config, context=self.context)
+
+        validation_result = adapter.validate()
+        assert validation_result.is_valid, f"Validation failed: {validation_result.errors}"
+
+        query = adapter.build_query()
+        assert query is not None, "StackAdaptAdsAdapter should generate a query"
+        results = self._execute_query_and_validate(query)
+
+        total_cost = sum(float(row[6] or 0) for row in results)
+        total_impressions = sum(int(row[4] or 0) for row in results)
+        total_clicks = sum(int(row[5] or 0) for row in results)
+
+        assert len(results) == 3, "Expected 3 campaigns from StackAdapt Ads JOIN"
+        assert abs(total_cost - 581.50) < 0.01, f"Expected cost $581.50, got ${total_cost}"
+        assert total_impressions == 180000, f"Expected 180000 impressions, got {total_impressions}"
+        assert total_clicks == 960, f"Expected 960 clicks, got {total_clicks}"
+
+        sources = [row[3] for row in results]
+        assert all(source == "stackadapt" for source in sources), "All sources should be 'stackadapt'"

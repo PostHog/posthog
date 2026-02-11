@@ -1,0 +1,6 @@
+campaign_id,campaign_name,date,impressions,clicks,cost,conversions,conversionRevenue,clickConversions,impressionConversions,uniqueImpressions,videoStarts,videoCompletions
+1001,Brand Awareness Q1,2024-03-15T00:00:00Z,50000,250,125.50,10,500.00,7,3,45000,0,0
+1001,Brand Awareness Q1,2024-03-16T00:00:00Z,48000,230,120.25,8,400.00,5,3,43000,0,0
+1002,Retargeting Spring,2024-03-15T00:00:00Z,30000,180,90.75,15,750.00,12,3,28000,0,0
+1002,Retargeting Spring,2024-03-16T00:00:00Z,32000,200,95.00,18,900.00,14,4,29000,0,0
+1003,Video Summer Launch,2024-06-15T00:00:00Z,20000,100,150.00,5,250.00,3,2,18000,15000,8000

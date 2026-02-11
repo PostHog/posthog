@@ -1,0 +1,4 @@
+id,name,state,type,is_archived,is_draft,created_at,updated_at,advertiser_id,advertiser_name,campaign_group_id,campaign_group_name,budget_rollover
+1001,Brand Awareness Q1,active,display,false,false,2024-01-15T00:00:00Z,2024-06-01T00:00:00Z,500,Acme Corp,100,Q1 Campaigns,false
+1002,Retargeting Spring,active,native,false,false,2024-03-01T00:00:00Z,2024-06-15T00:00:00Z,500,Acme Corp,101,Spring Campaigns,true
+1003,Video Summer Launch,paused,video,false,false,2024-06-01T00:00:00Z,2024-07-01T00:00:00Z,500,Acme Corp,102,Summer Campaigns,false

@@ -26,6 +26,7 @@ from posthog.schema import (
     MarketingIntegrationConfig4,
     MarketingIntegrationConfig5,
     MarketingIntegrationConfig6,
+    MarketingIntegrationConfig7,
     MetaAdsDefaultSources,
     MetaAdsTableExclusions,
     MetaAdsTableKeywords,
@@ -33,6 +34,9 @@ from posthog.schema import (
     RedditAdsDefaultSources,
     RedditAdsTableExclusions,
     RedditAdsTableKeywords,
+    StackAdaptAdsDefaultSources,
+    StackAdaptAdsTableExclusions,
+    StackAdaptAdsTableKeywords,
     TikTokAdsDefaultSources,
     TikTokAdsTableExclusions,
     TikTokAdsTableKeywords,
@@ -241,6 +245,7 @@ _ALL_CONFIG_MODELS = [
     MarketingIntegrationConfig4,
     MarketingIntegrationConfig5,
     MarketingIntegrationConfig6,
+    MarketingIntegrationConfig7,
 ]
 
 
@@ -276,6 +281,7 @@ _DEFAULT_SOURCES_ENUMS = {
     NativeMarketingSource.TIK_TOK_ADS: TikTokAdsDefaultSources,
     NativeMarketingSource.REDDIT_ADS: RedditAdsDefaultSources,
     NativeMarketingSource.BING_ADS: BingAdsDefaultSources,
+    NativeMarketingSource.STACK_ADAPT_ADS: StackAdaptAdsDefaultSources,
 }
 
 _TABLE_KEYWORDS_ENUMS = {
@@ -285,6 +291,7 @@ _TABLE_KEYWORDS_ENUMS = {
     NativeMarketingSource.TIK_TOK_ADS: TikTokAdsTableKeywords,
     NativeMarketingSource.REDDIT_ADS: RedditAdsTableKeywords,
     NativeMarketingSource.BING_ADS: BingAdsTableKeywords,
+    NativeMarketingSource.STACK_ADAPT_ADS: StackAdaptAdsTableKeywords,
 }
 
 _TABLE_EXCLUSIONS_ENUMS = {
@@ -294,6 +301,7 @@ _TABLE_EXCLUSIONS_ENUMS = {
     NativeMarketingSource.TIK_TOK_ADS: TikTokAdsTableExclusions,
     NativeMarketingSource.REDDIT_ADS: RedditAdsTableExclusions,
     NativeMarketingSource.BING_ADS: BingAdsTableExclusions,
+    NativeMarketingSource.STACK_ADAPT_ADS: StackAdaptAdsTableExclusions,
 }
 
 # Derived constants from generated types

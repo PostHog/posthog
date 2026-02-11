@@ -94,6 +94,15 @@
   GROUP BY toString(reddit_campaign.name), toString(reddit_campaign.id)
   '''
 # ---
+# name: TestMarketingAnalyticsAdapters.test_stackadapt_ads_native_query_generation
+  '''
+  
+  SELECT toString(stackadapt_campaigns.name) AS match_key, toString(stackadapt_campaigns.name) AS campaign, toString(stackadapt_campaigns.id) AS id, toString('stackadapt') AS source, toFloat(SUM(ifNull(toFloat(stackadapt_campaign_stats_daily.impressions), 0))) AS impressions, toFloat(SUM(ifNull(toFloat(stackadapt_campaign_stats_daily.clicks), 0))) AS clicks, SUM(toFloat(stackadapt_campaign_stats_daily.cost)) AS cost, toFloat(SUM(ifNull(toFloat(stackadapt_campaign_stats_daily.conversions), 0))) AS reported_conversion, toFloat(SUM(ifNull(toFloat(stackadapt_campaign_stats_daily.conversionRevenue), 0))) AS reported_conversion_value 
+  FROM stackadapt_campaigns LEFT JOIN stackadapt_campaign_stats_daily ON equals(stackadapt_campaigns.id, stackadapt_campaign_stats_daily.campaign_id) 
+  WHERE and(greaterOrEquals(toDateTime(stackadapt_campaign_stats_daily.date), toDateTime('2024-01-01 00:00:00')), lessOrEquals(toDateTime(stackadapt_campaign_stats_daily.date), toDateTime('2024-12-31 23:59:59'))) 
+  GROUP BY toString(stackadapt_campaigns.name), toString(stackadapt_campaigns.id)
+  '''
+# ---
 # name: TestMarketingAnalyticsAdapters.test_tiktok_ads_native_query_generation
   '''
   

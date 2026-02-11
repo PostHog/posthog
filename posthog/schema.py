@@ -2357,6 +2357,21 @@ class MarketingIntegrationConfig6(BaseModel):
     tableKeywords: list[str] = Field(..., max_length=1, min_length=1)
 
 
+class MarketingIntegrationConfig7(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    campaignTableName: Literal["campaigns"] = "campaigns"
+    defaultSources: list[str] = Field(..., max_length=1, min_length=1)
+    idField: Literal["id"] = "id"
+    nameField: Literal["name"] = "name"
+    primarySource: Literal["stackadapt"] = "stackadapt"
+    sourceType: Literal["StackAdaptAds"] = "StackAdaptAds"
+    statsTableName: Literal["campaign_stats_daily"] = "campaign_stats_daily"
+    tableExclusions: list[str] = Field(..., max_length=1, min_length=1)
+    tableKeywords: list[str] = Field(..., max_length=1, min_length=1)
+
+
 class MarketingIntegrationConfig(
     RootModel[
         MarketingIntegrationConfig1
@@ -2365,6 +2380,7 @@ class MarketingIntegrationConfig(
         | MarketingIntegrationConfig4
         | MarketingIntegrationConfig5
         | MarketingIntegrationConfig6
+        | MarketingIntegrationConfig7
     ]
 ):
     root: (
@@ -2374,6 +2390,7 @@ class MarketingIntegrationConfig(
         | MarketingIntegrationConfig4
         | MarketingIntegrationConfig5
         | MarketingIntegrationConfig6
+        | MarketingIntegrationConfig7
     )
 
 
@@ -2636,6 +2653,7 @@ class NativeMarketingSource(StrEnum):
     TIK_TOK_ADS = "TikTokAds"
     REDDIT_ADS = "RedditAds"
     BING_ADS = "BingAds"
+    STACK_ADAPT_ADS = "StackAdaptAds"
 
 
 class NodeKind(StrEnum):
@@ -3543,6 +3561,18 @@ class SourceMap(BaseModel):
     reported_conversion: str | None = None
     reported_conversion_value: str | None = None
     source: str | None = None
+
+
+class StackAdaptAdsDefaultSources(StrEnum):
+    STACKADAPT = "stackadapt"
+
+
+class StackAdaptAdsTableExclusions(StrEnum):
+    STATS = "stats"
+
+
+class StackAdaptAdsTableKeywords(StrEnum):
+    CAMPAIGNS = "campaigns"
 
 
 class StepOrderValue(StrEnum):

@@ -20377,6 +20377,74 @@
                         "primarySource"
                     ],
                     "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "campaignTableName": {
+                            "const": "campaigns",
+                            "type": "string"
+                        },
+                        "defaultSources": {
+                            "items": {
+                                "const": "stackadapt",
+                                "type": "string"
+                            },
+                            "maxItems": 1,
+                            "minItems": 1,
+                            "type": "array"
+                        },
+                        "idField": {
+                            "const": "id",
+                            "type": "string"
+                        },
+                        "nameField": {
+                            "const": "name",
+                            "type": "string"
+                        },
+                        "primarySource": {
+                            "const": "stackadapt",
+                            "type": "string"
+                        },
+                        "sourceType": {
+                            "const": "StackAdaptAds",
+                            "type": "string"
+                        },
+                        "statsTableName": {
+                            "const": "campaign_stats_daily",
+                            "type": "string"
+                        },
+                        "tableExclusions": {
+                            "items": {
+                                "const": "stats",
+                                "type": "string"
+                            },
+                            "maxItems": 1,
+                            "minItems": 1,
+                            "type": "array"
+                        },
+                        "tableKeywords": {
+                            "items": {
+                                "const": "campaigns",
+                                "type": "string"
+                            },
+                            "maxItems": 1,
+                            "minItems": 1,
+                            "type": "array"
+                        }
+                    },
+                    "required": [
+                        "sourceType",
+                        "nameField",
+                        "idField",
+                        "campaignTableName",
+                        "statsTableName",
+                        "tableKeywords",
+                        "tableExclusions",
+                        "defaultSources",
+                        "primarySource"
+                    ],
+                    "type": "object"
                 }
             ]
         },
@@ -21531,7 +21599,7 @@
             "type": "string"
         },
         "NativeMarketingSource": {
-            "enum": ["GoogleAds", "LinkedinAds", "MetaAds", "TikTokAds", "RedditAds", "BingAds"],
+            "enum": ["GoogleAds", "LinkedinAds", "MetaAds", "TikTokAds", "RedditAds", "BingAds", "StackAdaptAds"],
             "type": "string"
         },
         "NewExperimentQueryResponse": {
@@ -30680,6 +30748,18 @@
                 }
             },
             "type": "object"
+        },
+        "StackAdaptAdsDefaultSources": {
+            "enum": ["stackadapt"],
+            "type": "string"
+        },
+        "StackAdaptAdsTableExclusions": {
+            "enum": ["stats"],
+            "type": "string"
+        },
+        "StackAdaptAdsTableKeywords": {
+            "enum": ["campaigns"],
+            "type": "string"
         },
         "StepOrderValue": {
             "enum": ["strict", "unordered", "ordered"],

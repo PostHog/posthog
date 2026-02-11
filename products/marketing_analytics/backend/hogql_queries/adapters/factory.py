@@ -16,6 +16,7 @@ from products.marketing_analytics.backend.hogql_queries.adapters.bing_ads import
 from products.marketing_analytics.backend.hogql_queries.adapters.linkedin_ads import LinkedinAdsAdapter
 from products.marketing_analytics.backend.hogql_queries.adapters.meta_ads import MetaAdsAdapter
 from products.marketing_analytics.backend.hogql_queries.adapters.reddit_ads import RedditAdsAdapter
+from products.marketing_analytics.backend.hogql_queries.adapters.stackadapt_ads import StackAdaptAdsAdapter
 from products.marketing_analytics.backend.hogql_queries.adapters.tiktok_ads import TikTokAdsAdapter
 
 from ..constants import (
@@ -34,6 +35,7 @@ from .base import (
     MetaAdsConfig,
     QueryContext,
     RedditAdsConfig,
+    StackAdaptAdsConfig,
     TikTokAdsConfig,
 )
 from .bigquery import BigQueryAdapter
@@ -55,6 +57,7 @@ class MarketingSourceFactory:
         "MetaAds": MetaAdsAdapter,
         "TikTokAds": TikTokAdsAdapter,
         "BingAds": BingAdsAdapter,
+        "StackAdaptAds": StackAdaptAdsAdapter,
         # Non-native adapters
         "BigQuery": BigQueryAdapter,
         # Self-managed adapters
@@ -72,6 +75,7 @@ class MarketingSourceFactory:
         "MetaAds": "_create_metaads_config",
         "TikTokAds": "_create_tiktokads_config",
         "BingAds": "_create_bingads_config",
+        "StackAdaptAds": "_create_stackadaptads_config",
     }
 
     @classmethod
@@ -373,6 +377,33 @@ class MarketingSourceFactory:
         )
 
         return config
+
+    def _create_stackadaptads_config(
+        self, source: ExternalDataSource, tables: list[DataWarehouseTable]
+    ) -> Optional[StackAdaptAdsConfig]:
+        patterns = TABLE_PATTERNS[NativeMarketingSource.STACK_ADAPT_ADS]
+        campaign_table = None
+        campaign_stats_table = None
+
+        for table in tables:
+            table_suffix = table.name.split(".")[-1].lower()
+
+            if any(kw in table_suffix for kw in patterns["campaign_table_keywords"]) and not any(
+                ex in table_suffix for ex in patterns["campaign_table_exclusions"]
+            ):
+                campaign_table = table
+            elif any(kw in table_suffix for kw in patterns["stats_table_keywords"]):
+                campaign_stats_table = table
+
+        if not (campaign_table and campaign_stats_table):
+            return None
+
+        return StackAdaptAdsConfig(
+            source_type=source.source_type,
+            campaign_table=campaign_table,
+            stats_table=campaign_stats_table,
+            source_id=str(source.id),
+        )
 
     def _create_external_adapters(self) -> list[MarketingSourceAdapter]:
         """Create adapters for non-native marketing sources"""
