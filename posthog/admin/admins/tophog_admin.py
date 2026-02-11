@@ -7,7 +7,7 @@ from django.shortcuts import render
 from posthog.clickhouse.client import sync_execute
 
 TOPHOG_QUERY = """
-SELECT metric, key, total, pipeline, lane
+SELECT metric, toString(key), total, pipeline, lane
 FROM (
     SELECT
         metric,

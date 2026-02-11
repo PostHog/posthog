@@ -23,7 +23,7 @@ CREATE TABLE IF NOT EXISTS {table_name}
 (
     timestamp DateTime64(6, 'UTC'),
     metric LowCardinality(String),
-    key String,
+    key Map(LowCardinality(String), String),
     value Float64,
     pipeline LowCardinality(String),
     lane LowCardinality(String),
@@ -53,7 +53,7 @@ def WRITABLE_TOPHOG_TABLE_SQL():
         table_name=WRITABLE_TABLE_NAME,
         engine=Distributed(
             data_table=DATA_TABLE_NAME,
-            sharding_key="sipHash64(key)",
+            sharding_key="sipHash64(toString(key))",
         ),
     )
 
@@ -63,7 +63,7 @@ def DISTRIBUTED_TOPHOG_TABLE_SQL():
         table_name=TABLE_BASE_NAME,
         engine=Distributed(
             data_table=DATA_TABLE_NAME,
-            sharding_key="sipHash64(key)",
+            sharding_key="sipHash64(toString(key))",
         ),
     )
 
@@ -73,7 +73,7 @@ CREATE TABLE IF NOT EXISTS {table_name}
 (
     timestamp DateTime64(6, 'UTC'),
     metric LowCardinality(String),
-    key String,
+    key Map(LowCardinality(String), String),
     value Float64,
     pipeline LowCardinality(String),
     lane LowCardinality(String),

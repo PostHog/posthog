@@ -80,7 +80,7 @@ export function createEventSubpipeline<TInput extends EventSubpipelineInput, TCo
             {
                 topHog: [
                     {
-                        key: (input) => String(input.eventToEmit.team_id),
+                        key: (input) => ({ team_id: String(input.eventToEmit.team_id) }),
                         type: TopHogMetricType.Count,
                         name: 'emitted_events',
                     },
