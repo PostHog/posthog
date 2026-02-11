@@ -178,7 +178,7 @@ export class SessionBatchRecorder {
                 return this.ignoreMessage(message)
             }
 
-            if (existingSessionKey !== sessionKey) {
+            if (!existingSessionKey.encryptedKey.equals(sessionKey.encryptedKey)) {
                 logger.warn('🔁', 'session_batch_recorder_session_key_mismatch', {
                     sessionId,
                     teamId,
