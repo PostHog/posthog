@@ -72,6 +72,7 @@ GITHUB_ENDPOINTS: dict[str, GithubEndpointConfig] = {
         ],
         default_incremental_field="created_at",
         primary_key="sha",  # Commits use sha as unique identifier
+        sort_mode="desc",  # GitHub commits API always returns newest-first, ignores sort/direction params
     ),
     "stargazers": GithubEndpointConfig(
         name="stargazers",

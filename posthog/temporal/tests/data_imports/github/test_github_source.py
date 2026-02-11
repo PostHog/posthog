@@ -88,7 +88,7 @@ class TestGetResource:
         assert resource["primary_key"] == "sha"
         assert params["since"] == "2026-01-15T10:00:00+00:00"
         assert params["sort"] == "created"
-        assert params["direction"] == "asc"
+        assert params["direction"] == "desc"
 
     @parameterized.expand(
         [
