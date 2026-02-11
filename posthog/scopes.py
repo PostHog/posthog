@@ -63,6 +63,7 @@ APIScopeObject = Literal[
     "session_recording",
     "session_recording_playlist",
     "sharing_configuration",
+    "sql_editor",
     "subscription",
     "survey",
     "ticket",

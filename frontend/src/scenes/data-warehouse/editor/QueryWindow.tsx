@@ -16,12 +16,14 @@ import { Link } from 'lib/lemon-ui/Link'
 import { IconCancel } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
+import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneTitlePanelButton } from '~/layout/scenes/components/SceneTitleSection'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { NodeKind } from '~/queries/schema/schema-general'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 import { OutputPane } from './OutputPane'
@@ -84,6 +86,11 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
 
     const isMaterializedView = editingView?.is_materialized === true
 
+    const canExecuteQueries = userHasAccess(AccessControlResourceType.SqlEditor, AccessControlLevel.Editor)
+    const queryExecutionDisabledReason = canExecuteQueries
+        ? undefined
+        : "You don't have permission to execute queries in the SQL editor. Editor access is required."
+
     return (
         <div className="flex grow flex-col overflow-hidden">
             {(editingView || editingInsight) && (
@@ -105,7 +112,7 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
                 </div>
             )}
             <div className="flex flex-row justify-start align-center w-full pl-2 pr-2 bg-white dark:bg-black border-b">
-                <RunButton />
+                <RunButton disabledReason={queryExecutionDisabledReason} />
                 <LemonDivider vertical />
                 {isDraft && featureFlags[FEATURE_FLAGS.EDITOR_DRAFTS] && (
                     <>
@@ -113,6 +120,7 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
                             type="tertiary"
                             size="xsmall"
                             id="sql-editor-query-window-save-as-draft"
+                            disabledReason={queryExecutionDisabledReason}
                             onClick={() => {
                                 if (editingView) {
                                     saveOrUpdateDraft(
@@ -143,7 +151,7 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
                             type="tertiary"
                             size="xsmall"
                             id="sql-editor-query-window-publish-draft"
-                            disabledReason={editingViewDisabledReason}
+                            disabledReason={queryExecutionDisabledReason ?? editingViewDisabledReason}
                             onClick={() => {
                                 if (editingView && currentDraft?.id && activeTab) {
                                     updateView(
@@ -182,6 +190,7 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
                                 type="tertiary"
                                 size="xsmall"
                                 id="sql-editor-query-window-save-draft"
+                                disabledReason={queryExecutionDisabledReason}
                                 onClick={() => {
                                     saveDraft(activeTab, queryInput ?? '', editingView.id)
                                 }}
@@ -202,7 +211,7 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
                                     edited_history_id: inProgressViewEdits[editingView.id],
                                 })
                             }
-                            disabledReason={editingViewDisabledReason}
+                            disabledReason={queryExecutionDisabledReason ?? editingViewDisabledReason}
                             icon={<EditingViewButtonIcon />}
                             type="tertiary"
                             size="xsmall"
@@ -241,6 +250,7 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
                                 size="xsmall"
                                 data-attr="sql-editor-save-view-button"
                                 id="sql-editor-query-window-save-as-view"
+                                disabledReason={queryExecutionDisabledReason}
                             >
                                 Save as view
                             </LemonButton>
@@ -269,7 +279,7 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
                 queryInput={(suggestedQueryInput || queryInput) ?? ''}
                 sourceQuery={sourceQuery.source}
                 promptError={null}
-                onRun={runQuery}
+                onRun={canExecuteQueries ? runQuery : undefined}
                 editorVimModeEnabled={vimModeFeatureEnabled && editorVimModeEnabled}
                 codeEditorProps={{
                     queryKey: codeEditorKey,
@@ -279,13 +289,15 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
                     onMount: (editor, monaco) => {
                         onSetMonacoAndEditor(monaco, editor)
                     },
-                    onPressCmdEnter: (value, selectionType) => {
-                        if (value && selectionType === 'selection') {
-                            runQuery(value)
-                        } else {
-                            runQuery()
-                        }
-                    },
+                    onPressCmdEnter: canExecuteQueries
+                        ? (value, selectionType) => {
+                              if (value && selectionType === 'selection') {
+                                  runQuery(value)
+                              } else {
+                                  runQuery()
+                              }
+                          }
+                        : undefined,
                     onError: (error) => {
                         setError(error)
                     },
@@ -303,7 +315,7 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
     )
 }
 
-function RunButton(): JSX.Element {
+function RunButton({ disabledReason }: { disabledReason?: string }): JSX.Element {
     const { runQuery } = useActions(multitabEditorLogic)
     const { cancelQuery } = useActions(dataNodeLogic)
     const { responseLoading } = useValues(dataNodeLogic)
@@ -344,6 +356,7 @@ function RunButton(): JSX.Element {
                         runQuery()
                     }
                 }}
+                disabledReason={disabledReason}
                 icon={responseLoading ? <IconCancel /> : <IconPlayFilled color={iconColor} />}
                 type="tertiary"
                 size="xsmall"

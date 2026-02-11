@@ -290,6 +290,7 @@ export enum AccessControlResourceType {
     Experiment = 'experiment',
     ExperimentSavedMetric = 'experiment_saved_metric',
     ExternalDataSource = 'external_data_source',
+    SqlEditor = 'sql_editor',
     WebAnalytics = 'web_analytics',
     ActivityLog = 'activity_log',
     ErrorTracking = 'error_tracking',
@@ -4962,6 +4963,7 @@ export type APIScopeObject =
     | 'session_recording'
     | 'session_recording_playlist'
     | 'sharing_configuration'
+    | 'sql_editor'
     | 'subscription'
     | 'survey'
     | 'task'

@@ -60,6 +60,7 @@ ACCESS_CONTROL_RESOURCES: tuple[APIScopeObject, ...] = (
     "notebook",
     "revenue_analytics",
     "session_recording",
+    "sql_editor",
     "survey",
     "web_analytics",
     "activity_log",
@@ -147,6 +148,8 @@ def highest_access_level(resource: APIScopeObject) -> AccessControlLevel:
     """Returns the highest allowed access level for a resource."""
     if resource in ["activity_log"]:
         return "viewer"
+    if resource in ["sql_editor"]:
+        return "editor"
     return ordered_access_levels(resource)[-1]
 
 

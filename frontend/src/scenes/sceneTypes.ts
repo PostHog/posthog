@@ -341,6 +341,9 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
     [Scene.LLMAnalyticsTrace]: AccessControlResourceType.LlmAnalytics,
     [Scene.LLMAnalyticsUsers]: AccessControlResourceType.LlmAnalytics,
 
+    // SQL Editor
+    [Scene.SQLEditor]: AccessControlResourceType.SqlEditor,
+
     // Data warehouse sources - not included here because self-managed sources don't have access control.
     // Managed sources handle access control at the logic level via SIDE_PANEL_CONTEXT_KEY.
 }
