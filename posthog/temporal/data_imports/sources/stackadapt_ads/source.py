@@ -3,8 +3,6 @@ from typing import Optional, cast
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
 )
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
@@ -12,10 +10,6 @@ from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleS
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import StackAdaptAdsSourceConfig
-from posthog.temporal.data_imports.sources.stackadapt_ads.stackadapt_ads import (
-    stackadapt_ads_source,
-    validate_credentials as validate_stackadapt_credentials,
-)
 
 from products.data_warehouse.backend.types import ExternalDataSourceType
 
@@ -31,34 +25,17 @@ class StackAdaptAdsSource(SimpleSource[StackAdaptAdsSourceConfig]):
         return SourceConfig(
             name=SchemaExternalDataSourceType.STACK_ADAPT_ADS,
             label="StackAdapt Ads",
-            caption="Collect campaign data and advertising metrics from StackAdapt. Learn more in [the documentation](https://posthog.com/docs/cdp/sources/stackadapt-ads).",
-            betaSource=True,
-            unreleasedSource=True,
-            featureFlag="stackadapt-ads-source",
             iconPath="/static/services/stackadapt.com.png",
-            docsUrl="https://posthog.com/docs/cdp/sources/stackadapt-ads",
-            fields=cast(
-                list[FieldType],
-                [
-                    SourceFieldInputConfig(
-                        name="api_token",
-                        label="StackAdapt GraphQL API token",
-                        type=SourceFieldInputConfigType.PASSWORD,
-                        required=True,
-                        placeholder="Your StackAdapt GraphQL API token",
-                    ),
-                ],
-            ),
+            unreleasedSource=True,
+            betaSource=True,
+            featureFlag="stackadapt-ads-source",
+            fields=cast(list[FieldType], []),
         )
 
     def validate_credentials(
         self, config: StackAdaptAdsSourceConfig, team_id: int, schema_name: Optional[str] = None
     ) -> tuple[bool, str | None]:
-        try:
-            validate_stackadapt_credentials(config.api_token)
-            return True, None
-        except Exception as e:
-            return False, f"Failed to validate StackAdapt credentials: {str(e)}"
+        raise NotImplementedError("StackAdapt validation not yet implemented")
 
     def get_schemas(
         self, config: StackAdaptAdsSourceConfig, team_id: int, with_counts: bool = False
@@ -66,12 +43,4 @@ class StackAdaptAdsSource(SimpleSource[StackAdaptAdsSourceConfig]):
         raise NotImplementedError("StackAdapt schemas not yet implemented")
 
     def source_for_pipeline(self, config: StackAdaptAdsSourceConfig, inputs: SourceInputs) -> SourceResponse:
-        return stackadapt_ads_source(
-            api_token=config.api_token,
-            endpoint=inputs.schema_name,
-            logger=inputs.logger,
-            should_use_incremental_field=inputs.should_use_incremental_field,
-            db_incremental_field_last_value=inputs.db_incremental_field_last_value
-            if inputs.should_use_incremental_field
-            else None,
-        )
+        raise NotImplementedError("StackAdapt pipeline not yet implemented")
