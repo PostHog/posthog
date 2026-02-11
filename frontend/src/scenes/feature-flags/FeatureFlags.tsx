@@ -57,6 +57,35 @@ import { featureFlagLogic } from './featureFlagLogic'
 import { FLAGS_PER_PAGE, FeatureFlagsTab, featureFlagsLogic } from './featureFlagsLogic'
 import { flagSelectionLogic } from './flagSelectionLogic'
 
+// Component for selection checkbox that uses hooks directly to avoid stale closure issues
+function FeatureFlagSelectionCheckbox({
+    featureFlag,
+    index,
+    displayedFlags,
+}: {
+    featureFlag: FeatureFlagType
+    index: number
+    displayedFlags: FeatureFlagType[]
+}): JSX.Element | null {
+    const { selectedFlagIds } = useValues(flagSelectionLogic)
+    const { toggleFlagSelection } = useActions(flagSelectionLogic)
+
+    const flagId = featureFlag.id
+    if (flagId === null) {
+        return null
+    }
+
+    return (
+        <LemonCheckbox
+            checked={selectedFlagIds.includes(flagId)}
+            onChange={() => toggleFlagSelection(flagId, index, displayedFlags)}
+            disabled={!featureFlag.can_edit}
+            disabledReason={!featureFlag.can_edit ? "You don't have permission to edit this feature flag." : undefined}
+            aria-label={`Select feature flag ${featureFlag.key}`}
+        />
+    )
+}
+
 // Component for feature flag row actions that needs to use hooks
 function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }): JSX.Element {
     const { currentProjectId } = useValues(projectLogic)
@@ -277,7 +306,6 @@ export function OverViewTab({
     const { featureFlags: enabledFeatureFlags } = useValues(enabledFeaturesLogic)
 
     const {
-        selectedFlagIds,
         selectedCount,
         isAllSelected,
         isSomeSelected,
@@ -287,8 +315,7 @@ export function OverViewTab({
         allMatchingSelected,
         matchingFlagIdsLoading,
     } = useValues(flagSelectionLogic)
-    const { toggleFlagSelection, selectAllOnPage, selectAllMatching, clearSelection, bulkDeleteFlags } =
-        useActions(flagSelectionLogic)
+    const { selectAllOnPage, selectAllMatching, clearSelection, bulkDeleteFlags } = useActions(flagSelectionLogic)
 
     const page = filters.page || 1
     const startCount = (page - 1) * FLAGS_PER_PAGE + 1
@@ -308,19 +335,11 @@ export function OverViewTab({
                 />
             ),
             render: function Render(_: unknown, featureFlag: FeatureFlagType, index: number) {
-                const flagId = featureFlag.id
-                if (flagId === null) {
-                    return null
-                }
                 return (
-                    <LemonCheckbox
-                        checked={selectedFlagIds.includes(flagId)}
-                        onChange={() => toggleFlagSelection(flagId, index, displayedFlags)}
-                        disabled={!featureFlag.can_edit}
-                        disabledReason={
-                            !featureFlag.can_edit ? "You don't have permission to edit this feature flag." : undefined
-                        }
-                        aria-label={`Select feature flag ${featureFlag.key}`}
+                    <FeatureFlagSelectionCheckbox
+                        featureFlag={featureFlag}
+                        index={index}
+                        displayedFlags={displayedFlags}
                     />
                 )
             },
