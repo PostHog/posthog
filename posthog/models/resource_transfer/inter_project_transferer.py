@@ -2,11 +2,14 @@ from collections.abc import Generator, Iterable
 from graphlib import TopologicalSorter
 from typing import Any
 
+from django.core.exceptions import ObjectDoesNotExist
 from django.db import models, transaction
 
 from posthog.models import Project, Team
 from posthog.models.resource_transfer.resource_transfer import ResourceTransfer
 from posthog.models.resource_transfer.types import (
+    ResourceMap,
+    ResourcePayload,
     ResourceTransferEdge,
     ResourceTransferKey,
     ResourceTransferVertex,
@@ -42,7 +45,7 @@ def duplicate_resources_from_dag(dag: Iterable[ResourceTransferVertex], source_t
     :param source_team: The team the resources are being copied from.
     :param new_team: The team to copy the resources to.
     """
-    consumed_vertices: dict[ResourceTransferKey, ResourceTransferVertex] = {}
+    consumed_vertices: ResourceMap = {}
     transfer_records: list[ResourceTransfer] = []
 
     for vertex in dag:
@@ -146,14 +149,13 @@ def build_resource_duplication_graph(
     edges = visitor.get_dynamic_edges(resource)
 
     for edge in edges:
-        related_resource = edge.target_model.objects.get(pk=edge.target_primary_key)
-
-        if related_resource is None:
+        try:
+            related_resource = edge.target_model.objects.get(pk=edge.target_primary_key)
+            yield from build_resource_duplication_graph(related_resource, exclude_set, depth + 1)
+        except ObjectDoesNotExist:
             raise ValueError(
                 f"Could not fetch dynamic relationship {edge.target_model.__name__}:{edge.target_primary_key}"
             )
-
-        yield from build_resource_duplication_graph(related_resource, exclude_set, depth + 1)
 
     for attribute_name, attribute_value in model.__dict__.items():
         if not visitor.should_touch_field(attribute_name) or not visitor.is_relation(attribute_name):
@@ -191,9 +193,7 @@ def build_resource_duplication_graph(
 def _make_relation_rewriter(
     relation_name: str, related_model: type[models.Model], related_pk: Any
 ) -> RewriteRelationFn:
-    def _rewrite_relation(
-        payload: dict[str, Any], resource_map: dict[ResourceTransferKey, ResourceTransferVertex]
-    ) -> dict[str, Any]:
+    def _rewrite_relation(payload: ResourcePayload, resource_map: ResourceMap) -> ResourcePayload:
         related_vertex = resource_map.get((related_model, related_pk))
 
         if related_vertex is None:

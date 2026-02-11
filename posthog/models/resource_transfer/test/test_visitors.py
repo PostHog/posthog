@@ -1,9 +1,11 @@
+from posthog.test.base import BaseTest
+
 from parameterized import parameterized
 
 from posthog.models.resource_transfer.visitors import InsightVisitor
 
 
-class TestExtractActionIds:
+class TestExtractActionIds(BaseTest):
     @parameterized.expand(
         [
             (
@@ -95,7 +97,7 @@ class TestExtractActionIds:
         assert InsightVisitor._extract_action_ids(filters, query) == expected
 
 
-class TestExtractCohortIds:
+class TestExtractCohortIds(BaseTest):
     @parameterized.expand(
         [
             (
@@ -203,7 +205,7 @@ class TestExtractCohortIds:
         assert InsightVisitor._extract_cohort_ids(filters, query) == expected
 
 
-class TestRewriteActionIdInFilters:
+class TestRewriteActionIdInFilters(BaseTest):
     @parameterized.expand(
         [
             (
@@ -240,7 +242,7 @@ class TestRewriteActionIdInFilters:
         assert InsightVisitor._rewrite_action_id_in_filters(filters, old_pk, new_pk) == expected
 
 
-class TestRewriteActionIdInQuery:
+class TestRewriteActionIdInQuery(BaseTest):
     @parameterized.expand(
         [
             (
@@ -299,7 +301,7 @@ class TestRewriteActionIdInQuery:
         assert InsightVisitor._rewrite_action_id_in_query(query, old_pk, new_pk) == expected
 
 
-class TestRewriteCohortIdInFilters:
+class TestRewriteCohortIdInFilters(BaseTest):
     @parameterized.expand(
         [
             (
@@ -360,7 +362,7 @@ class TestRewriteCohortIdInFilters:
         assert InsightVisitor._rewrite_cohort_id_in_filters(filters, old_pk, new_pk) == expected
 
 
-class TestRewriteCohortIdInQuery:
+class TestRewriteCohortIdInQuery(BaseTest):
     @parameterized.expand(
         [
             (

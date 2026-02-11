@@ -7,9 +7,9 @@ from django.db.models.fields import related_descriptors
 
 from posthog.models.resource_transfer.types import (
     ResourceKind,
+    ResourceMap,
+    ResourcePayload,
     ResourceTransferEdge,
-    ResourceTransferKey,
-    ResourceTransferVertex,
     RewriteRelationFn,
 )
 from posthog.models.utils import UUIDTClassicModel
@@ -197,7 +197,23 @@ class DashboardVisitor(
         return Dashboard
 
 
-class ActionVisitor(ResourceTransferVisitor, kind="Action"):
+class ActionVisitor(
+    ResourceTransferVisitor,
+    kind="Action",
+    excluded_fields=[
+        "is_calculating",
+        "last_calculated_at",
+        "bytecode",
+        "bytecode_error",
+        "last_summarized_at",
+        "summary",
+        "embedding_last_synced_at",
+        "embedding_version",
+        "events",
+        "post_to_slack",
+        "slack_message_format",
+    ],
+):
     @classmethod
     def get_model(cls) -> type[models.Model]:
         from posthog.models import Action
@@ -205,7 +221,21 @@ class ActionVisitor(ResourceTransferVisitor, kind="Action"):
         return Action
 
 
-class CohortVisitor(ResourceTransferVisitor, kind="Cohort"):
+class CohortVisitor(
+    ResourceTransferVisitor,
+    kind="Cohort",
+    excluded_fields=[
+        "is_calculating",
+        "last_calculation",
+        "errors_calculating",
+        "last_error_at",
+        "count",
+        "version",
+        "pending_version",
+        "people",
+        "groups",
+    ],
+):
     @classmethod
     def get_model(cls) -> type[models.Model]:
         from posthog.models import Cohort
@@ -441,15 +471,20 @@ class InsightVisitor(
     @classmethod
     def _make_json_id_rewriter(cls, target_model: type[models.Model], old_pk: Any) -> RewriteRelationFn:
         def _rewrite(
-            payload: dict[str, Any],
-            resource_map: dict[ResourceTransferKey, ResourceTransferVertex],
-        ) -> dict[str, Any]:
+            payload: ResourcePayload,
+            resource_map: ResourceMap,
+        ) -> ResourcePayload:
             vertex = resource_map.get((target_model, old_pk))
             if vertex is None:
                 raise ValueError(
                     f"Could not rewrite JSON reference to {target_model.__name__}(pk={old_pk}): "
                     "resource not found in map"
                 )
+            if vertex.duplicated_resource is None:
+                raise ValueError(
+                    f"Could not rewrite JSON reference to {target_model.__name__}(pk={old_pk}): resource not duplicated yet"
+                )
+
             new_pk = vertex.duplicated_resource.pk
 
             from posthog.models import Action, Cohort
