@@ -45,7 +45,7 @@ function HomePageContent(): JSX.Element {
         if (dashboardNotFound) {
             updateCurrentTeam({ primary_dashboard: null })
         }
-    }, [dashboardNotFound])
+    }, [dashboardNotFound, updateCurrentTeam])
 
     // TODO: Remove this after AA test is over
     const { featureFlags } = useValues(featureFlagLogic)
