@@ -103,10 +103,11 @@ if TEST:
                 distinct_id_inserts.append(f"('{distinct_id}', '{person.uuid}', {person.team_id}, 0, 0, now(), 0, 0)")
                 person_mapping[distinct_id] = person
 
-            created_at = now().strftime("%Y-%m-%d %H:%M:%S.%f")
-            timestamp = now().strftime("%Y-%m-%d %H:%M:%S")
+            dt = now()
+            created_at = dt.strftime("%Y-%m-%d %H:%M:%S.%f")
+            timestamp = dt.strftime("%Y-%m-%d %H:%M:%S")
             # Round to the hour for last_seen_at
-            last_seen_at = now().replace(minute=0, second=0, microsecond=0).strftime("%Y-%m-%d %H:%M:%S.%f")
+            last_seen_at = dt.replace(minute=0, second=0, microsecond=0).strftime("%Y-%m-%d %H:%M:%S.%f")
             person_inserts.append(
                 f"('{person.uuid}', '{created_at}', {person.team_id}, '{json.dumps(person.properties)}', {'1' if person.is_identified else '0'}, '{timestamp}', 0, 0, 0, '{last_seen_at}')"
             )
