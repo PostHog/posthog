@@ -96,6 +96,7 @@ export function startFramerateTracking(posthog: PostHog): void {
     }
 
     window.addEventListener('beforeunload', () => {
+        capture()
         stop()
         document.removeEventListener('visibilitychange', onVisibilityChange)
     })
