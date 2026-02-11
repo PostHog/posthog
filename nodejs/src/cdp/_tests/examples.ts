@@ -9,6 +9,30 @@ import { HogFunctionType } from '../types'
  */
 
 export const HOG_EXAMPLES: Record<string, Pick<HogFunctionType, 'hog' | 'bytecode' | 'type'>> = {
+    // Simple return examples (no async functions)
+    simple_return_object: {
+        type: 'destination',
+        hog: "return {'status': 'pending', 'priority': 'high', 'ticket_number': 42}",
+        bytecode: [
+            '_H',
+            1,
+            32,
+            'status',
+            32,
+            'pending',
+            32,
+            'priority',
+            32,
+            'high',
+            32,
+            'ticket_number',
+            33,
+            42,
+            42,
+            3,
+            38,
+        ],
+    },
     simple_fetch: {
         type: 'destination',
         hog: "let res := fetch(inputs.url, {\n  'headers': inputs.headers,\n  'body': inputs.body,\n  'method': inputs.method\n});\n\nprint('Fetch response:', res)",

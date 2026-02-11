@@ -2300,6 +2300,86 @@ class TestPrinter(BaseTest):
             f"SELECT 1 FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS optimize_aggregation_in_order=1, readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0",
         )
 
+    def test_table_top_level_settings_added_to_query(self):
+        printed = self._print("SELECT job_id FROM preaggregation_results")
+        assert "load_balancing='in_order'" in printed
+
+    def test_table_top_level_settings_not_added_for_regular_tables(self):
+        printed = self._print("SELECT event FROM events")
+        assert "load_balancing" not in printed
+
+    def test_table_top_level_settings_deduplication(self):
+        printed = self._print(
+            "SELECT a.job_id, b.job_id "
+            "FROM preaggregation_results a "
+            "JOIN experiment_exposures_preaggregated b ON a.job_id = b.job_id"
+        )
+        assert printed.count("load_balancing") == 1
+
+    def test_table_top_level_settings_conflict_between_tables(self):
+        db = Database()
+        db.get_table("preaggregation_results").top_level_settings = HogQLQuerySettings(load_balancing="round_robin")
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=db)
+        query_both = parse_select(
+            "SELECT a.job_id, b.job_id "
+            "FROM preaggregation_results a "
+            "JOIN experiment_exposures_preaggregated b ON a.job_id = b.job_id"
+        )
+        with self.assertRaises(QueryError) as cm:
+            prepare_and_print_ast(query_both, context, "clickhouse")
+        assert "Conflicting" in str(cm.exception)
+
+    def test_table_top_level_settings_conflict_with_query_settings(self):
+        query = parse_select("SELECT job_id FROM preaggregation_results")
+        assert isinstance(query, ast.SelectQuery)
+        query.settings = HogQLQuerySettings(load_balancing="round_robin")
+        with self.assertRaises(QueryError) as cm:
+            prepare_and_print_ast(
+                query,
+                HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+                "clickhouse",
+            )
+        assert "Conflicting" in str(cm.exception)
+
+    def test_table_top_level_settings_conflict_with_global_settings(self):
+        query = parse_select("SELECT job_id FROM preaggregation_results")
+        with self.assertRaises(QueryError) as cm:
+            prepare_and_print_ast(
+                query,
+                HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+                "clickhouse",
+                settings=HogQLGlobalSettings(load_balancing="round_robin"),
+            )
+        assert "Conflicting" in str(cm.exception)
+
+    def test_table_top_level_settings_same_value_in_query_settings(self):
+        query = parse_select("SELECT job_id FROM preaggregation_results")
+        assert isinstance(query, ast.SelectQuery)
+        query.settings = HogQLQuerySettings(load_balancing="in_order")
+        printed, _ = prepare_and_print_ast(
+            query,
+            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            "clickhouse",
+        )
+        assert "load_balancing='in_order'" in printed
+        assert printed.count("load_balancing") == 1
+
+    def test_table_top_level_settings_with_global_settings_single_clause(self):
+        query = parse_select("SELECT job_id FROM preaggregation_results")
+        printed, _ = prepare_and_print_ast(
+            query,
+            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            "clickhouse",
+            settings=HogQLGlobalSettings(max_execution_time=30),
+        )
+        assert "load_balancing='in_order'" in printed
+        assert printed.count("SETTINGS") == 1
+        assert printed.count("load_balancing") == 1
+
+    def test_subquery_table_settings_bubble_up(self):
+        printed = self._print("SELECT job_id FROM (SELECT job_id FROM preaggregation_results)")
+        assert "load_balancing='in_order'" in printed
+
     def test_pretty_print(self):
         printed = self._pretty("SELECT 1, event FROM events")
         self.assertEqual(

@@ -511,7 +511,7 @@ export function OverViewTab({
             />
             <div>{filtersSection}</div>
             <LemonDivider className="my-0" />
-            <div className="flex items-center justify-between min-h-8">
+            <div className="flex items-center justify-between min-h-9">
                 <span
                     className={cn('text-secondary transition-opacity', filtersChanged && 'opacity-50')}
                     aria-busy={filtersChanged}

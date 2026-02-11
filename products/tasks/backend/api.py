@@ -1,10 +1,12 @@
 import os
+import json
 import uuid
 import logging
 import traceback
+from datetime import datetime
 from typing import cast
 
-from django.http import HttpResponse
+from django.http import HttpResponse, JsonResponse
 from django.utils import timezone
 
 from drf_spectacular.utils import OpenApiResponse, extend_schema
@@ -17,6 +19,7 @@ from rest_framework.response import Response
 
 from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.utils import ServerTimingsGathered
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission
 from posthog.storage import object_storage
@@ -31,6 +34,7 @@ from .serializers import (
     TaskRunArtifactsUploadRequestSerializer,
     TaskRunArtifactsUploadResponseSerializer,
     TaskRunDetailSerializer,
+    TaskRunSessionLogsQuerySerializer,
     TaskRunUpdateSerializer,
     TaskSerializer,
 )
@@ -245,6 +249,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "partial_update",
             "set_output",
             "append_log",
+            "session_logs",
         ]
     }
     http_method_names = ["get", "post", "patch", "head", "options"]
@@ -375,11 +380,15 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @action(detail=True, methods=["post"], url_path="append_log", required_scopes=["task:write"])
     def append_log(self, request, pk=None, **kwargs):
         task_run = cast(TaskRun, self.get_object())
+        timer = ServerTimingsGathered()
 
         entries = request.validated_data["entries"]
-        task_run.append_log(entries)
+        with timer("s3_append"):
+            task_run.append_log(entries)
 
-        return Response(TaskRunDetailSerializer(task_run, context=self.get_serializer_context()).data)
+        response = Response(TaskRunDetailSerializer(task_run, context=self.get_serializer_context()).data)
+        response["Server-Timing"] = timer.to_header_string()
+        return response
 
     @validated_request(
         request_serializer=TaskRunArtifactsUploadRequestSerializer,
@@ -513,7 +522,114 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @action(detail=True, methods=["get"], url_path="logs", required_scopes=["task:read"])
     def logs(self, request, pk=None, **kwargs):
         task_run = cast(TaskRun, self.get_object())
-        log_content = object_storage.read(task_run.log_url, missing_ok=True) or ""
+        timer = ServerTimingsGathered()
+
+        with timer("s3_read"):
+            log_content = object_storage.read(task_run.log_url, missing_ok=True) or ""
+
         response = HttpResponse(log_content, content_type="application/jsonl")
         response["Cache-Control"] = "no-cache"
+        response["Server-Timing"] = timer.to_header_string()
         return response
+
+    @validated_request(
+        query_serializer=TaskRunSessionLogsQuerySerializer,
+        responses={
+            200: OpenApiResponse(description="Filtered log events as JSON array"),
+            404: OpenApiResponse(description="Task run not found"),
+        },
+        summary="Get filtered task run session logs",
+        description="Fetch session log entries for a task run with optional filtering by timestamp, event type, and limit.",
+    )
+    @action(detail=True, methods=["get"], url_path="session_logs", required_scopes=["task:read"])
+    def session_logs(self, request, pk=None, **kwargs):
+        task_run = cast(TaskRun, self.get_object())
+        timer = ServerTimingsGathered()
+
+        with timer("s3_read"):
+            log_content = object_storage.read(task_run.log_url, missing_ok=True) or ""
+
+        if not log_content.strip():
+            response = JsonResponse([], safe=False)
+            response["X-Total-Count"] = "0"
+            response["X-Filtered-Count"] = "0"
+            response["Cache-Control"] = "no-cache"
+            response["Server-Timing"] = timer.to_header_string()
+            return response
+
+        # Parse all JSONL entries
+        all_entries = []
+        for line in log_content.strip().split("\n"):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                all_entries.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
+
+        total_count = len(all_entries)
+
+        # Apply filters from validated query params
+        params = request.validated_query_data
+        after = params.get("after")
+        event_types_str = params.get("event_types")
+        exclude_types_str = params.get("exclude_types")
+        limit = params.get("limit", 1000)
+
+        event_types = {t.strip() for t in event_types_str.split(",") if t.strip()} if event_types_str else None
+        exclude_types = {t.strip() for t in exclude_types_str.split(",") if t.strip()} if exclude_types_str else None
+
+        with timer("filter"):
+            filtered = []
+            for entry in all_entries:
+                # Filter by timestamp (parse to avoid Z vs +00:00 and fractional second mismatches)
+                if after:
+                    entry_ts = entry.get("timestamp", "")
+                    if not entry_ts:
+                        continue  # Skip entries without timestamps
+                    try:
+                        entry_dt = datetime.fromisoformat(entry_ts.replace("Z", "+00:00"))
+                        if entry_dt <= after:
+                            continue
+                    except (ValueError, TypeError):
+                        continue  # Skip entries with unparseable timestamps
+
+                # Determine the event type for filtering
+                event_type = self._get_event_type(entry)
+
+                if event_types and event_type not in event_types:
+                    continue
+                if exclude_types and event_type in exclude_types:
+                    continue
+
+                filtered.append(entry)
+
+                if len(filtered) >= limit:
+                    break
+
+        response = JsonResponse(filtered, safe=False)
+        response["X-Total-Count"] = str(total_count)
+        response["X-Filtered-Count"] = str(len(filtered))
+        response["Cache-Control"] = "no-cache"
+        response["Server-Timing"] = timer.to_header_string()
+        return response
+
+    @staticmethod
+    def _get_event_type(entry: dict) -> str:
+        """Extract the event type from a log entry for filtering purposes.
+
+        For _posthog/* events, returns the notification method (e.g., '_posthog/console').
+        For session/update events, returns the sessionUpdate value (e.g., 'agent_message_chunk').
+        """
+        notification = entry.get("notification", {})
+        if not isinstance(notification, dict):
+            return ""
+        method = notification.get("method", "")
+
+        if method == "session/update":
+            params = notification.get("params", {})
+            update = params.get("update", {}) if isinstance(params, dict) else {}
+            return str(update.get("sessionUpdate", method)) if isinstance(update, dict) else method
+
+        return method

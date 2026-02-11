@@ -1,5 +1,9 @@
 # posthog-cli
 
+# 0.5.28
+
+- chore: introduce `--release-name` and `--release-version` options (backwards compatible)
+
 # 0.5.27
 
 - fix: only warns on release id mismatch errors

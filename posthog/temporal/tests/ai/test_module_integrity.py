@@ -52,7 +52,7 @@ class TestAITemporalModuleIntegrity:
             "validate_llm_single_session_summary_with_videos_activity",
             "summarize_llm_traces_activity",
             "process_slack_conversation_activity",
-            "export_session_video_activity",
+            "prep_session_video_asset_activity",
             "upload_video_to_gemini_activity",
             "analyze_video_segment_activity",
             "consolidate_video_segments_activity",

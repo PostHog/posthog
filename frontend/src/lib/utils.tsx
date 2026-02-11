@@ -416,12 +416,7 @@ export function chooseOperatorMap(propertyType: PropertyType | undefined): Recor
 }
 
 export function isOperatorMulti(operator: PropertyOperator): boolean {
-    return [
-        PropertyOperator.Exact,
-        PropertyOperator.IsNot,
-        PropertyOperator.IContains,
-        PropertyOperator.NotIContains,
-    ].includes(operator)
+    return [PropertyOperator.Exact, PropertyOperator.IsNot].includes(operator)
 }
 
 export function isOperatorFlag(operator: PropertyOperator): boolean {
@@ -1313,7 +1308,11 @@ export function dateFilterToText(
             return formatDateRange(dayjs(dateFrom, 'YYYY-MM-DD'), dayjs(dateTo, 'YYYY-MM-DD'))
         }
         if (dateFrom?.includes('T') || dateTo?.includes('T')) {
-            return formatDateTimeRange(dayjs(dateFrom, 'YYYY-MM-DD HH:mm'), dayjs(dateTo, 'YYYY-MM-DD HH:mm'))
+            // Parse each date individually - ISO 8601 datetimes (with T) use native parsing
+            // to correctly handle seconds/milliseconds, plain dates use 'YYYY-MM-DD'
+            const parsedFrom = dateFrom?.includes('T') ? dayjs(dateFrom) : dayjs(dateFrom, 'YYYY-MM-DD')
+            const parsedTo = dateTo?.includes('T') ? dayjs(dateTo) : dayjs(dateTo, 'YYYY-MM-DD')
+            return formatDateTimeRange(parsedFrom, parsedTo)
         }
         return `${dateFrom} - ${dateTo}`
     }
