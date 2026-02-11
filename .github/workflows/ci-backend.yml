@@ -422,6 +422,11 @@ jobs:
                   DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_persons" \
                     sqlx migrate run --source rust/persons_migrations/
 
+            - name: Verify wait_for_migrations command
+              run: |
+                  # Smoke test: with all migrations applied, should exit immediately
+                  python manage.py wait_for_migrations --skip-async --timeout=5
+
             - name: Dump migrated schema
               if: github.event_name == 'push'
               run: |
