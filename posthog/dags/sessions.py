@@ -387,7 +387,7 @@ ORDER BY event_time DESC;
 # Create a copy of the sessions backfill job to be used for backfilling experimental setups
 
 EXPERIMENTAL_CONCURRENCY_TAG = {
-    "sessions_backfill_concurrency": "experimental_sessions_v3",
+    "experimental_sessions_backfill_concurrency": "experimental_sessions_v3",
 }
 
 
