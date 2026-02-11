@@ -12,7 +12,7 @@ import { PipelineResult, drop, isOkResult } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
 
 export interface EventPipelineRunnerHeatmapStepInput {
-    normalizedEvent: PipelineEvent
+    event: PipelineEvent
     timestamp: DateTime
     team: Team
     headers: EventHeaders
@@ -34,7 +34,7 @@ export function createEventPipelineRunnerHeatmapStep<TInput extends EventPipelin
     return async function eventPipelineRunnerHeatmapStep(
         input: TInput
     ): Promise<PipelineResult<EventPipelineRunnerHeatmapStepResult<TInput>>> {
-        const { normalizedEvent, timestamp, team, headers, groupStoreForBatch } = input
+        const { event, timestamp, team, headers, groupStoreForBatch } = input
 
         // Skip heatmap processing if team has explicitly opted out
         if (team.heatmaps_opt_in === false) {
@@ -46,13 +46,13 @@ export function createEventPipelineRunnerHeatmapStep<TInput extends EventPipelin
             kafkaProducer,
             teamManager,
             groupTypeManager,
-            normalizedEvent,
+            event,
             hogTransformer,
             personsStore,
             groupStoreForBatch,
             headers
         )
-        const result = await runner.runHeatmapPipeline(normalizedEvent, timestamp, team)
+        const result = await runner.runHeatmapPipeline(event, timestamp, team)
 
         if (!isOkResult(result)) {
             return result

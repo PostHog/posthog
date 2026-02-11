@@ -61,8 +61,8 @@ describe('normalizeEventStep wrapper', () => {
 
             expect(result.type).toBe(PipelineResultType.OK)
             if (result.type === PipelineResultType.OK) {
-                expect(result.value.normalizedEvent.distinct_id).toBe('123')
-                expect(typeof result.value.normalizedEvent.distinct_id).toBe('string')
+                expect(result.value.event.distinct_id).toBe('123')
+                expect(typeof result.value.event.distinct_id).toBe('string')
             }
         })
 
@@ -91,8 +91,8 @@ describe('normalizeEventStep wrapper', () => {
 
             expect(result.type).toBe(PipelineResultType.OK)
             if (result.type === PipelineResultType.OK) {
-                expect(result.value.normalizedEvent.distinct_id).toBe('true')
-                expect(typeof result.value.normalizedEvent.distinct_id).toBe('string')
+                expect(result.value.event.distinct_id).toBe('true')
+                expect(typeof result.value.event.distinct_id).toBe('string')
             }
         })
     })
@@ -123,8 +123,8 @@ describe('normalizeEventStep wrapper', () => {
 
         expect(result.type).toBe(PipelineResultType.OK)
         if (result.type === PipelineResultType.OK) {
-            expect(result.value.normalizedEvent.properties).toBeDefined()
-            expect(typeof result.value.normalizedEvent.properties).toBe('object')
+            expect(result.value.event.properties).toBeDefined()
+            expect(typeof result.value.event.properties).toBe('object')
         }
     })
 
@@ -154,7 +154,7 @@ describe('normalizeEventStep wrapper', () => {
 
         expect(result.type).toBe(PipelineResultType.OK)
         if (result.type === PipelineResultType.OK) {
-            expect(result.value.normalizedEvent.token).toBe('\uFFFDtoken')
+            expect(result.value.event.token).toBe('\uFFFDtoken')
         }
     })
 
@@ -188,7 +188,7 @@ describe('normalizeEventStep wrapper', () => {
         expect(result.type).toBe(PipelineResultType.OK)
         if (result.type === PipelineResultType.OK) {
             // Root level $set should override properties.$set for same keys
-            expect(result.value.normalizedEvent.properties!.$set).toEqual({
+            expect(result.value.event.properties!.$set).toEqual({
                 key1: 'value1',
                 key2: 'value2', // overridden from root level
                 key3: 'value4',
@@ -226,7 +226,7 @@ describe('normalizeEventStep wrapper', () => {
         expect(result.type).toBe(PipelineResultType.OK)
         if (result.type === PipelineResultType.OK) {
             // Root level $set_once should override properties.$set_once for same keys
-            expect(result.value.normalizedEvent.properties!.$set_once).toEqual({
+            expect(result.value.event.properties!.$set_once).toEqual({
                 key1_once: 'value1',
                 key2_once: 'value2', // overridden from root level
                 key3_once: 'value4',
@@ -269,7 +269,7 @@ describe('normalizeEventStep wrapper', () => {
         expect(result.type).toBe(PipelineResultType.OK)
         if (result.type === PipelineResultType.OK) {
             // Since processPerson=true, person properties should be preserved and merged
-            expect(result.value.normalizedEvent).toEqual({
+            expect(result.value.event).toEqual({
                 ...event,
                 properties: {
                     $browser: 'Chrome',
@@ -320,7 +320,7 @@ describe('normalizeEventStep wrapper', () => {
 
         expect(result.type).toBe(PipelineResultType.OK)
         if (result.type === PipelineResultType.OK) {
-            expect(result.value.normalizedEvent).toEqual({
+            expect(result.value.event).toEqual({
                 ...event,
                 distinct_id: '\uFFFDfoo',
                 properties: {},
@@ -379,7 +379,7 @@ describe('normalizeEventStep wrapper', () => {
         expect(result.type).toBe(PipelineResultType.OK)
         if (result.type === PipelineResultType.OK) {
             // The step always uses processPerson=false, so person-related properties should be dropped
-            expect(result.value.normalizedEvent).toEqual({
+            expect(result.value.event).toEqual({
                 ...event,
                 // $set and $set_once at root level should be gone
                 $set: undefined,
@@ -435,7 +435,7 @@ describe('normalizeEventStep wrapper', () => {
         expect(result.type).toBe(PipelineResultType.OK)
         if (result.type === PipelineResultType.OK) {
             // Root level $set should merge into properties.$set
-            expect(result.value.normalizedEvent.properties!.$set).toEqual({
+            expect(result.value.event.properties!.$set).toEqual({
                 propA: 'valueA',
                 propB: 'valueB',
             })
@@ -476,7 +476,7 @@ describe('normalizeEventStep wrapper', () => {
         expect(result.type).toBe(PipelineResultType.OK)
         if (result.type === PipelineResultType.OK) {
             // Root level $set_once should merge into properties.$set_once
-            expect(result.value.normalizedEvent.properties!.$set_once).toEqual({
+            expect(result.value.event.properties!.$set_once).toEqual({
                 onceA: 'valueA',
                 onceB: 'valueB',
             })
@@ -509,9 +509,9 @@ describe('normalizeEventStep wrapper', () => {
 
         expect(result.type).toBe(PipelineResultType.OK)
         if (result.type === PipelineResultType.OK) {
-            expect(result.value.normalizedEvent.properties!.$ip).toBe('192.168.1.1')
+            expect(result.value.event.properties!.$ip).toBe('192.168.1.1')
             // ip field should be set to null
-            expect(result.value.normalizedEvent.ip).toBe(null)
+            expect(result.value.event.ip).toBe(null)
         }
     })
 
@@ -544,7 +544,7 @@ describe('normalizeEventStep wrapper', () => {
         expect(result.type).toBe(PipelineResultType.OK)
         if (result.type === PipelineResultType.OK) {
             // Should keep the original $ip from properties
-            expect(result.value.normalizedEvent.properties!.$ip).toBe('10.0.0.1')
+            expect(result.value.event.properties!.$ip).toBe('10.0.0.1')
         }
     })
 
@@ -575,7 +575,7 @@ describe('normalizeEventStep wrapper', () => {
 
         expect(result.type).toBe(PipelineResultType.OK)
         if (result.type === PipelineResultType.OK) {
-            expect(result.value.normalizedEvent.properties!.$sent_at).toBe('2020-02-23T02:14:00Z')
+            expect(result.value.event.properties!.$sent_at).toBe('2020-02-23T02:14:00Z')
         }
     })
 
@@ -608,7 +608,7 @@ describe('normalizeEventStep wrapper', () => {
         expect(result.type).toBe(PipelineResultType.OK)
         if (result.type === PipelineResultType.OK) {
             // $unset should be removed for processPerson=false
-            expect(result.value.normalizedEvent.properties!.$unset).toBeUndefined()
+            expect(result.value.event.properties!.$unset).toBeUndefined()
         }
     })
 
@@ -646,10 +646,10 @@ describe('normalizeEventStep wrapper', () => {
         expect(result.type).toBe(PipelineResultType.OK)
         if (result.type === PipelineResultType.OK) {
             // $groupidentify always has person properties removed
-            expect(result.value.normalizedEvent.$set).toBeUndefined()
-            expect(result.value.normalizedEvent.properties!.$set).toBeUndefined()
+            expect(result.value.event.$set).toBeUndefined()
+            expect(result.value.event.properties!.$set).toBeUndefined()
             // But $process_person_profile is not added since processPerson=true
-            expect(result.value.normalizedEvent.properties!.$process_person_profile).toBeUndefined()
+            expect(result.value.event.properties!.$process_person_profile).toBeUndefined()
         }
     })
 
@@ -683,8 +683,8 @@ describe('normalizeEventStep wrapper', () => {
         expect(result.type).toBe(PipelineResultType.OK)
         if (result.type === PipelineResultType.OK) {
             // $process_person_profile should be removed when processPerson=true (it's the default)
-            expect(result.value.normalizedEvent.properties!.$process_person_profile).toBeUndefined()
-            expect(result.value.normalizedEvent.properties!.other).toBe('value')
+            expect(result.value.event.properties!.$process_person_profile).toBeUndefined()
+            expect(result.value.event.properties!.other).toBe('value')
         }
     })
 
@@ -724,7 +724,7 @@ describe('normalizeEventStep wrapper', () => {
             expect('event' in result.value).toBe(false)
 
             // Verify normalized fields are added
-            expect(result.value.normalizedEvent).toBeDefined()
+            expect(result.value.event).toBeDefined()
             expect(result.value.timestamp).toBeDefined()
         }
     })
