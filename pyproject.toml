@@ -95,7 +95,7 @@ dependencies = [
     "pandas~=2.2.2",
     "paramiko==3.4.0",
     "phonenumberslite==8.13.6",
-    "pillow==12.1.0",
+    "pillow==12.1.1",
     "posthoganalytics==7.4.3",
     "polars==1.37.1",
     "psutil==6.0.0",
