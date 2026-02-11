@@ -69,7 +69,7 @@ class TestBuildResourceDuplicationGraph(BaseTest):
 
     def test_exclude_set_prevents_revisiting_resources(self) -> None:
         insight = Insight.objects.create(team=self.team, name="My insight")
-        exclude: set[tuple[type, Any]] = {(Insight, insight.pk)}
+        exclude: set[tuple[str, Any]] = {("Insight", insight.pk)}
 
         graph = list(build_resource_duplication_graph(insight, exclude))
         assert len(graph) == 0
@@ -256,4 +256,5 @@ class TestResourceTransferRecordCreation(BaseTest):
             destination_team=dest_team,
             resource_kind=type(resource).__name__,
         )
-        assert transfer.resource_id == str(new_resource.pk)
+        assert transfer.resource_id == str(resource.pk)
+        assert transfer.duplicated_resource_id == str(new_resource.pk)

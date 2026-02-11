@@ -20,7 +20,11 @@ from posthog.models.resource_transfer.visitors import ResourceTransferVisitor
 MAX_RELATIONAL_RECURSION_DEPTH = 20
 
 
-def duplicate_resource_to_new_team(resource: Any, team: Team) -> list[Any]:
+def duplicate_resource_to_new_team(
+    resource: Any,
+    team: Team,
+    substitutions: list[tuple[ResourceTransferKey, ResourceTransferKey]] | None = None,
+) -> list[Any]:
     """
     Duplicate a resource and any relations it depends on to another team.
 
@@ -33,10 +37,15 @@ def duplicate_resource_to_new_team(resource: Any, team: Team) -> list[Any]:
     with transaction.atomic():
         graph = list(build_resource_duplication_graph(resource, set()))
         dag = dag_sort_duplication_graph(graph)
-        return duplicate_resources_from_dag(dag, source_team, team)
+        return duplicate_resources_from_dag(dag, source_team, team, substitutions if substitutions is not None else [])
 
 
-def duplicate_resources_from_dag(dag: Iterable[ResourceTransferVertex], source_team: Team, new_team: Team) -> list[Any]:
+def duplicate_resources_from_dag(
+    dag: Iterable[ResourceTransferVertex],
+    source_team: Team,
+    new_team: Team,
+    substitutions: list[tuple[ResourceTransferKey, ResourceTransferKey]],
+) -> list[Any]:
     """
     Given a DAG of vertices, execute the database operations to copy the resources described by each vertex into the new team.
     Also records a ResourceTransfer for each mutable resource that is created.
@@ -47,9 +56,9 @@ def duplicate_resources_from_dag(dag: Iterable[ResourceTransferVertex], source_t
     """
     consumed_vertices: ResourceMap = {}
     transfer_records: list[ResourceTransfer] = []
+    mapped_substitutions = _get_mapped_substitutions(substitutions)
 
     for vertex in dag:
-        payload = {}
         visitor = ResourceTransferVisitor.get_visitor(vertex.model)
 
         if visitor is None:
@@ -60,24 +69,14 @@ def duplicate_resources_from_dag(dag: Iterable[ResourceTransferVertex], source_t
             consumed_vertices[vertex.key] = vertex
             continue
 
-        # handle primitives
-        for attribute_name, attribute_value in vertex.source_resource.__dict__.items():
-            if not visitor.should_touch_field(attribute_name) or visitor.is_relation(attribute_name):
-                continue
+        if (substitution := mapped_substitutions.get(vertex.key, None)) is not None:
+            vertex.duplicated_resource = substitution
+        else:
+            vertex.duplicated_resource = _duplicate_vertex(vertex, visitor, new_team, consumed_vertices)
 
-            # anything past this point must be a non-relational column that we can safely copy
-            payload[attribute_name] = attribute_value
+        if vertex.duplicated_resource is None:
+            raise ValueError("Resource should have been duplicated, but was null")
 
-        # handle relations
-        for edge in vertex.edges:
-            if edge.target_model is Team:
-                payload[edge.name] = new_team
-            elif edge.target_model is Project:
-                payload[edge.name] = new_team.project
-            else:
-                payload = edge.rewrite_relation(payload, consumed_vertices)
-
-        vertex.duplicated_resource = visitor.get_model().objects.create(**payload)
         consumed_vertices[vertex.key] = vertex
 
         transfer_records.append(
@@ -85,7 +84,8 @@ def duplicate_resources_from_dag(dag: Iterable[ResourceTransferVertex], source_t
                 source_team=source_team,
                 destination_team=new_team,
                 resource_kind=visitor.kind,
-                resource_id=str(vertex.duplicated_resource.pk),
+                resource_id=str(vertex.source_resource.pk),
+                duplicated_resource_id=str(vertex.duplicated_resource.pk),
             )
         )
 
@@ -135,10 +135,10 @@ def build_resource_duplication_graph(
 
     model = visitor.get_model()
 
-    if (model, resource.pk) in exclude_set:
+    if (visitor.kind, resource.pk) in exclude_set:
         return
 
-    exclude_set.add((model, resource.pk))
+    exclude_set.add((visitor.kind, resource.pk))
 
     if visitor.is_immutable():
         # this is a model that we never ever ever want to copy so we won't recurse on it
@@ -194,7 +194,12 @@ def _make_relation_rewriter(
     relation_name: str, related_model: type[models.Model], related_pk: Any
 ) -> RewriteRelationFn:
     def _rewrite_relation(payload: ResourcePayload, resource_map: ResourceMap) -> ResourcePayload:
-        related_vertex = resource_map.get((related_model, related_pk))
+        related_visitor = ResourceTransferVisitor.get_visitor(related_model)
+
+        if related_visitor is None:
+            raise TypeError(f"Model has no configured visitor: {related_model.__name__}")
+
+        related_vertex = resource_map.get((related_visitor.kind, related_pk))
 
         if related_vertex is None:
             raise ValueError(
@@ -204,3 +209,115 @@ def _make_relation_rewriter(
         return {**payload, relation_name: related_vertex.duplicated_resource}
 
     return _rewrite_relation
+
+
+def get_suggested_substitutions(
+    dag: Iterable[ResourceTransferVertex], new_team: Team
+) -> list[tuple[ResourceTransferKey, ResourceTransferKey]]:
+    """
+    Return a list of (source_key, destination_key) pairs representing suggested substitutions
+    based on past transfers to the destination team.
+    """
+    recommendations: list[tuple[ResourceTransferKey, ResourceTransferKey]] = []
+
+    for vertex in dag:
+        visitor = ResourceTransferVisitor.get_visitor(vertex.model)
+
+        if visitor is None:
+            raise TypeError(f"Model has no configured visitor: {vertex.model.__name__}")
+
+        if visitor.is_immutable():
+            continue
+
+        transfer_record = (
+            ResourceTransfer.objects.filter(
+                resource_kind=visitor.kind,
+                resource_id=str(vertex.source_resource.pk),
+                destination_team=new_team,
+            )
+            .order_by("-last_transferred_at")
+            .first()
+        )
+
+        if transfer_record is None:
+            continue
+
+        model = visitor.get_model()
+        try:
+            previously_duplicated_resource = model.objects.get(pk=transfer_record.duplicated_resource_id)
+        except model.DoesNotExist:
+            continue
+
+        source_key: ResourceTransferKey = (visitor.kind, vertex.source_resource.pk)
+        dest_key: ResourceTransferKey = (transfer_record.resource_kind, previously_duplicated_resource.pk)
+        recommendations.append((source_key, dest_key))
+
+    return recommendations
+
+
+def _get_mapped_substitutions(
+    substitutions: list[tuple[ResourceTransferKey, ResourceTransferKey]],
+) -> dict[ResourceTransferKey, Any]:
+    """
+    Build a mapping from source resource keys to destination resource instances.
+
+    Each substitution is a pair of (source_key, destination_key) where:
+    - source_key identifies the resource in the source team's DAG
+    - destination_key identifies the existing resource in the destination team to use instead
+    """
+    mapped_substitutions: dict[ResourceTransferKey, Any] = {}
+
+    for (source_kind, source_pk), (dest_kind, dest_pk) in substitutions:
+        source_visitor = ResourceTransferVisitor.get_visitor(source_kind)
+        if source_visitor is None:
+            raise TypeError(f"Received invalid kind for substitution source: {source_kind}")
+
+        dest_visitor = ResourceTransferVisitor.get_visitor(dest_kind)
+        if dest_visitor is None:
+            raise TypeError(f"Received invalid kind for substitution destination: {dest_kind}")
+
+        # resolve the source resource to get the correct pk type (int vs uuid)
+        source_model = source_visitor.get_model()
+        try:
+            source_resource = source_model.objects.get(pk=source_pk)
+        except source_model.DoesNotExist:
+            raise ValueError(f"Could not find source resource: {source_kind} {source_pk}")
+
+        dest_model = dest_visitor.get_model()
+        try:
+            dest_resource = dest_model.objects.get(pk=dest_pk)
+        except dest_model.DoesNotExist:
+            raise ValueError(f"Could not find substituted resource: {dest_kind} {dest_pk}")
+
+        normalized_key: ResourceTransferKey = (source_kind, source_resource.pk)
+        mapped_substitutions[normalized_key] = dest_resource
+
+    return mapped_substitutions
+
+
+def _duplicate_vertex(
+    vertex: ResourceTransferVertex,
+    visitor: type[ResourceTransferVisitor],
+    new_team: Team,
+    consumed_vertices: dict[ResourceTransferKey, ResourceTransferVertex],
+) -> Any:
+    payload = {}
+    # handle primitives
+    for attribute_name, attribute_value in vertex.source_resource.__dict__.items():
+        if not visitor.should_touch_field(attribute_name) or visitor.is_relation(attribute_name):
+            continue
+
+        # anything past this point must be a non-relational column that we can safely copy
+        payload[attribute_name] = attribute_value
+
+    # handle relations
+    for edge in vertex.edges:
+        if edge.target_model is Team:
+            payload[edge.name] = new_team
+        elif edge.target_model is Project:
+            payload[edge.name] = new_team.project
+        else:
+            payload = edge.rewrite_relation(payload, consumed_vertices)
+
+    # yolo
+    return visitor.get_model().objects.create(**payload)
