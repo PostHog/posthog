@@ -195,7 +195,10 @@ class TaskRun(models.Model):
 
     branch = models.CharField(max_length=255, blank=True, null=True, help_text="Branch name for the run")
     environment = models.CharField(
-        max_length=10, choices=Environment.choices, default=Environment.CLOUD, help_text="Execution environment"
+        max_length=10,
+        choices=Environment.choices,
+        default=Environment.CLOUD,
+        help_text="Execution environment",
     )
 
     # Stage tracking
@@ -253,8 +256,24 @@ class TaskRun(models.Model):
         tasks_folder = settings.OBJECT_STORAGE_TASKS_FOLDER
         return f"{tasks_folder}/artifacts/team_{self.team_id}/task_{self.task_id}/run_{self.id}"
 
+    @staticmethod
+    def _is_agent_message_chunk(entry: dict) -> bool:
+        """Check if an entry is an agent_message_chunk event."""
+        notification = entry.get("notification", {})
+        if not isinstance(notification, dict):
+            return False
+        if notification.get("method") != "session/update":
+            return False
+        params = notification.get("params", {})
+        update = params.get("update", {}) if isinstance(params, dict) else {}
+        return update.get("sessionUpdate") == "agent_message_chunk" if isinstance(update, dict) else False
+
     def append_log(self, entries: list[dict]):
         """Append log entries to S3 storage."""
+        entries = [e for e in entries if not self._is_agent_message_chunk(e)]
+        if not entries:
+            return
+
         existing_content = object_storage.read(self.log_url, missing_ok=True) or ""
         is_new_file = not existing_content
 
@@ -349,7 +368,10 @@ class SandboxSnapshot(UUIDModel):
     )
 
     external_id = models.CharField(
-        max_length=255, blank=True, help_text="Snapshot ID from external provider.", unique=True
+        max_length=255,
+        blank=True,
+        help_text="Snapshot ID from external provider.",
+        unique=True,
     )
 
     repos = ArrayField(

@@ -2,18 +2,17 @@ import { afterMount, connect, kea, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { userLogic } from 'scenes/userLogic'
 
-import { ApprovalPolicy } from '~/types'
+import { ApprovalPolicy, AvailableFeature } from '~/types'
 
-import { FEATURE_FLAGS } from '../constants'
 import type { approvalsGateLogicType } from './approvalsGateLogicType'
 
 export const approvalsGateLogic = kea<approvalsGateLogicType>([
     path(['lib', 'approvals', 'approvalsGateLogic']),
 
     connect(() => ({
-        values: [featureFlagLogic, ['featureFlags']],
+        values: [userLogic, ['hasAvailableFeature']],
     })),
 
     loaders(({ values }) => ({
@@ -21,8 +20,7 @@ export const approvalsGateLogic = kea<approvalsGateLogicType>([
             [] as ApprovalPolicy[],
             {
                 loadActivePolicies: async () => {
-                    // Don't load if FF is disabled
-                    if (!values.featureFlags[FEATURE_FLAGS.APPROVALS]) {
+                    if (!values.hasAvailableFeature(AvailableFeature.APPROVALS)) {
                         return []
                     }
 
@@ -39,8 +37,8 @@ export const approvalsGateLogic = kea<approvalsGateLogicType>([
 
     selectors({
         isApprovalsFeatureEnabled: [
-            (s) => [s.featureFlags],
-            (featureFlags: Record<string, boolean | string>): boolean => !!featureFlags[FEATURE_FLAGS.APPROVALS],
+            (s) => [s.hasAvailableFeature],
+            (hasAvailableFeature): boolean => hasAvailableFeature(AvailableFeature.APPROVALS),
         ],
 
         isApprovalRequired: [
