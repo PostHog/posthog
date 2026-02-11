@@ -101,16 +101,15 @@ def emit_cache_sync_metrics(
         namespace: Cache namespace (e.g., "feature_flags")
         value: Cache value identifier (e.g., "flags_with_cohorts.json")
         duration: Time taken in seconds; pass None to skip duration metric
-        size: Cache entry size in bytes; pass None or 0 to skip size metric
+        size: Cache entry size in bytes; pass None to skip size metric
         increment_counter: Whether to increment the sync counter (default True)
 
     Duration and size histograms are only observed when their respective values
-    are provided (size must also be > 0). The counter is incremented unless
-    increment_counter is False.
+    are provided. The counter is incremented unless increment_counter is False.
     """
     if duration is not None:
         CACHE_SYNC_DURATION_HISTOGRAM.labels(result=result, namespace=namespace, value=value).observe(duration)
-    if size is not None and size > 0:
+    if size is not None:
         CACHE_SYNC_SIZE_HISTOGRAM.labels(result=result, namespace=namespace, value=value).observe(size)
     if increment_counter:
         CACHE_SYNC_COUNTER.labels(result=result, namespace=namespace, value=value).inc()
@@ -342,7 +341,7 @@ class HyperCache:
 
         start_time = time.time()
         success = False
-        size = 0
+        size: int | None = None
         try:
             data = self.load_fn(key)
             size = self.set_cache_value(key, data, ttl=ttl)
@@ -359,9 +358,11 @@ class HyperCache:
 
     def set_cache_value(
         self, key: KeyType, data: dict | None | HyperCacheStoreMissing, ttl: Optional[int] = None
-    ) -> int:
+    ) -> int | None:
         """
         Set cache value in Redis and S3, returning the serialized size in bytes.
+
+        Returns None for None/missing values.
         """
         size = self._set_cache_value_redis(key, data, ttl=ttl)
         self._set_cache_value_s3(key, data, ttl=ttl)
@@ -384,11 +385,11 @@ class HyperCache:
 
     def _set_cache_value_redis(
         self, key: KeyType, data: dict | None | HyperCacheStoreMissing, ttl: Optional[int] = None
-    ) -> int:
+    ) -> int | None:
         """
         Set cache value in Redis and return the serialized size in bytes.
 
-        Returns 0 for None/missing values, otherwise returns len(json_data).
+        Returns None for None/missing values, otherwise returns len(json_data).
         """
         cache_key = self.get_cache_key(key)
         etag_key = self.get_etag_key(key)
@@ -396,7 +397,7 @@ class HyperCache:
             self.cache_client.set(cache_key, _HYPER_CACHE_EMPTY_VALUE, timeout=self.cache_miss_ttl)
             # Always delete ETag key to clean up stale ETags from when enable_etag was True
             self.cache_client.delete(etag_key)
-            return 0
+            return None
         else:
             timeout = ttl if ttl is not None else self.cache_ttl
             # Use sort_keys for deterministic serialization (consistent ETags)
