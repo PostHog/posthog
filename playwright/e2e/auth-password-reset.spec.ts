@@ -1,5 +1,5 @@
 import { LoginPage } from '../page-models/loginPage'
-import { disableAnimations } from '../utils/pagePerformance'
+import { disableAnimations, hideBillingAlerts } from '../utils/pagePerformance'
 import { expect, test } from '../utils/playwright-test-base'
 
 const VALID_PASSWORD = 'hedgE-hog-123%'
@@ -9,6 +9,7 @@ test.describe('Password Reset', () => {
 
     test.beforeEach(async ({ page }) => {
         await disableAnimations(page)
+        await hideBillingAlerts(page)
         await page.click('[data-attr=menu-item-me]')
         await page.click('[data-attr=top-menu-item-logout]')
         await expect(page).toHaveURL('/login')

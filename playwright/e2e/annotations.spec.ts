@@ -1,10 +1,11 @@
 import { waitForPageLoaded } from '../utils/navigation'
-import { disableAnimations } from '../utils/pagePerformance'
+import { disableAnimations, hideBillingAlerts } from '../utils/pagePerformance'
 import { expect, test } from '../utils/playwright-test-base'
 
 test.describe('Annotations', () => {
     test.beforeEach(async ({ page }) => {
         await disableAnimations(page)
+        await hideBillingAlerts(page)
         await page.goToMenuItem('datamanagement')
         await page.goToMenuItem('annotations')
         await waitForPageLoaded(page)
