@@ -82,8 +82,9 @@ class WorkflowsConsumer(Consumer):
         topic: str,
         hosts: collections.abc.Sequence[str],
         security_protocol: str = "PLAINTEXT",
+        model: str = "events",
     ):
-        super().__init__()
+        super().__init__(model=model)
         self.producer = aiokafka.AIOKafkaProducer(
             bootstrap_servers=hosts,
             security_protocol=security_protocol,
@@ -164,6 +165,7 @@ async def insert_into_kafka_activity_from_stage(inputs: WorkflowsInsertInputs) -
             topic=inputs.topic or KAFKA_CDP_BACKFILL_EVENTS,
             hosts=settings.KAFKA_HOSTS,
             security_protocol=settings.KAFKA_SECURITY_PROTOCOL or "PLAINTEXT",
+            model=inputs.batch_export.batch_export_model.name if inputs.batch_export.batch_export_model else "events",
         )
         result = await run_consumer_from_stage(
             queue=queue,
