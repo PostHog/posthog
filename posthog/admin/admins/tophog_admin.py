@@ -58,12 +58,14 @@ def tophog_dashboard_view(request):
 
     metrics: dict[str, list[dict]] = defaultdict(list)
     for metric, key, total, pipeline, lane in rows:
-        metrics[metric].append({
-            "key": key,
-            "value": total,
-            "pipeline": pipeline,
-            "lane": lane,
-        })
+        metrics[metric].append(
+            {
+                "key": key,
+                "value": total,
+                "pipeline": pipeline,
+                "lane": lane,
+            }
+        )
 
     context = {
         **admin.site.each_context(request),
