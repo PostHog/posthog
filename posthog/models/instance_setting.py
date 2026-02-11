@@ -17,7 +17,11 @@ class InstanceSetting(models.Model):
 
     @property
     def value(self):
-        return json.loads(self.raw_value)
+        try:
+            return json.loads(self.raw_value)
+        except (json.JSONDecodeError, ValueError):
+            # raw_value may be a bare string (e.g. saved via Django admin without json.dumps wrapping)
+            return self.raw_value
 
 
 @lru_cache
