@@ -174,7 +174,7 @@ class EncryptedBlockStorage:
 
         match = re.match(r"^range=bytes=(\d+)-(\d+)$", parsed.query)
         if not match:
-            raise ValueError(f"Invalid range format: {parsed.query}")
+            raise BlockFetchError(f"Invalid range format: {parsed.query}")
 
         return key, int(match.group(1)), int(match.group(2))
 
