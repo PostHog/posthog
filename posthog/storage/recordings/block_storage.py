@@ -12,7 +12,7 @@ import aioboto3
 import structlog
 from botocore.client import Config
 
-from posthog.storage.recordings.errors import BlockFetchError, RecordingDeletedError
+from posthog.storage.recordings.errors import BlockDeletionNotSupportedError, BlockFetchError, RecordingDeletedError
 
 logger = structlog.get_logger(__name__)
 
@@ -83,10 +83,7 @@ class ClearTextBlockStorage:
 
         return compressed_block
 
-    async def fetch_decompressed_block(
-        self, block_url: str, session_id: str | None = None, team_id: int | None = None
-    ) -> str:
-        # session_id and team_id are accepted for interface compatibility but not used for S3 storage
+    async def fetch_decompressed_block(self, block_url: str, session_id: str, team_id: int) -> str:
         try:
             compressed_block = await self._fetch_compressed_block(block_url)
             decompressed_block = snappy.decompress(compressed_block).decode("utf-8")
@@ -106,10 +103,7 @@ class ClearTextBlockStorage:
             )
             raise BlockFetchError(f"Failed to read and decompress block: {str(e)}")
 
-    async def fetch_compressed_block(
-        self, block_url: str, session_id: str | None = None, team_id: int | None = None
-    ) -> bytes:
-        # session_id and team_id are accepted for interface compatibility but not used for S3 storage
+    async def fetch_compressed_block(self, block_url: str, session_id: str, team_id: int) -> bytes:
         try:
             return await self._fetch_compressed_block(block_url)
         except BlockFetchError:
@@ -278,9 +272,11 @@ class EncryptedBlockStorage:
                         deleted_at=deleted_at,
                     )
                     raise RecordingDeletedError("Recording has already been deleted", deleted_at=deleted_at)
+                if response.status == 501:
+                    raise BlockDeletionNotSupportedError("Recording deletion is not supported for this deployment")
                 response.raise_for_status()
                 return True
-        except (RecordingDeletedError, BlockFetchError):
+        except (RecordingDeletedError, BlockFetchError, BlockDeletionNotSupportedError):
             raise
         except aiohttp.ClientError as e:
             logger.exception(

@@ -12,12 +12,8 @@ from posthog.settings.session_replay_v2 import (
     SESSION_RECORDING_V2_S3_REGION,
     SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY,
 )
-from posthog.storage.recordings.block_storage import (
-    ClearTextBlockStorage,
-    EncryptedBlockStorage,
-    cleartext_block_storage,
-)
-from posthog.storage.recordings.errors import BlockFetchError, RecordingDeletedError
+from posthog.storage.recordings.block_storage import ClearTextBlockStorage, cleartext_block_storage
+from posthog.storage.recordings.errors import BlockFetchError
 
 TEST_BUCKET = "test_session_recording_v2_bucket"
 
@@ -100,7 +96,7 @@ class TestAsyncSessionRecordingV2Storage(APIBaseTest):
         storage = ClearTextBlockStorage(mock_client, TEST_BUCKET)
 
         block_url = f"s3://bucket/key1?range=bytes=0-{len(compressed_data) - 1}"
-        result = await storage.fetch_decompressed_block(block_url)
+        result = await storage.fetch_decompressed_block(block_url, "session-123", 1)
 
         assert result == test_data
         mock_client.get_object.assert_called_with(
@@ -117,7 +113,7 @@ class TestAsyncSessionRecordingV2Storage(APIBaseTest):
         storage = ClearTextBlockStorage(AsyncMock(), TEST_BUCKET)
 
         with self.assertRaises(BlockFetchError) as cm:
-            await storage.fetch_decompressed_block(invalid_url)
+            await storage.fetch_decompressed_block(invalid_url, "session-123", 1)
         assert expected_error in str(cm.exception)
 
     async def test_fetch_block_content_not_found(self):
@@ -126,7 +122,7 @@ class TestAsyncSessionRecordingV2Storage(APIBaseTest):
         storage = ClearTextBlockStorage(mock_client, TEST_BUCKET)
 
         with self.assertRaises(BlockFetchError) as cm:
-            await storage.fetch_decompressed_block("s3://bucket/key1?range=bytes=0-100")
+            await storage.fetch_decompressed_block("s3://bucket/key1?range=bytes=0-100", "session-123", 1)
         assert "Block content not found" in str(cm.exception)
 
     async def test_fetch_block_wrong_content_length(self):
@@ -137,7 +133,7 @@ class TestAsyncSessionRecordingV2Storage(APIBaseTest):
         storage = ClearTextBlockStorage(mock_client, TEST_BUCKET)
 
         with self.assertRaises(BlockFetchError) as cm:
-            await storage.fetch_decompressed_block("s3://bucket/key1?range=bytes=0-100")
+            await storage.fetch_decompressed_block("s3://bucket/key1?range=bytes=0-100", "session-123", 1)
         assert "Unexpected data length" in str(cm.exception)
 
     async def test_fetch_compressed_block_success(self):
@@ -150,7 +146,7 @@ class TestAsyncSessionRecordingV2Storage(APIBaseTest):
         storage = ClearTextBlockStorage(mock_client, TEST_BUCKET)
 
         block_url = f"s3://bucket/key1?range=bytes=0-{len(compressed_data) - 1}"
-        result = await storage.fetch_compressed_block(block_url)
+        result = await storage.fetch_compressed_block(block_url, "session-123", 1)
 
         assert result == compressed_data
         mock_client.get_object.assert_called_with(
@@ -167,177 +163,9 @@ class TestAsyncSessionRecordingV2Storage(APIBaseTest):
         storage = ClearTextBlockStorage(mock_client, TEST_BUCKET)
 
         block_url = f"s3://bucket/key1?range=bytes=0-{len(compressed_data) - 1}"
-        result = await storage.fetch_compressed_block(block_url)
+        result = await storage.fetch_compressed_block(block_url, "session-123", 1)
 
         # Verify it returns compressed bytes, not decompressed string
         assert isinstance(result, bytes)
         assert result == compressed_data
         assert result != test_data.encode("utf-8")  # Should NOT be decompressed
-
-
-class MockResponse:
-    def __init__(self, status: int, data: bytes | dict | None = None):
-        self.status = status
-        self._data = data
-
-    async def read(self) -> bytes:
-        if isinstance(self._data, bytes):
-            return self._data
-        return b""
-
-    async def json(self) -> dict:
-        if isinstance(self._data, dict):
-            return self._data
-        return {}
-
-    def raise_for_status(self):
-        if self.status >= 400:
-            raise Exception(f"HTTP {self.status}")
-
-    async def __aenter__(self):
-        return self
-
-    async def __aexit__(self, exc_type, exc, tb):
-        pass
-
-
-def create_mock_session(method: str, response: MockResponse):
-    """Create a mock aiohttp session with a properly configured async context manager."""
-    mock_session = MagicMock()
-    mock_method = MagicMock(return_value=response)
-    setattr(mock_session, method, mock_method)
-    return mock_session, mock_method
-
-
-class TestEncryptedBlockStorage(APIBaseTest):
-    def teardown_method(self, method) -> None:
-        pass
-
-    async def test_fetch_compressed_block_success(self):
-        compressed_data = snappy.compress(b"test data")
-        mock_session, mock_get = create_mock_session("get", MockResponse(200, compressed_data))
-
-        storage = EncryptedBlockStorage(mock_session, "http://localhost:8000")
-
-        result = await storage.fetch_compressed_block(
-            "s3://bucket/key1?range=bytes=0-100", session_id="session-123", team_id=1
-        )
-
-        assert result == compressed_data
-        mock_get.assert_called_once_with(
-            "http://localhost:8000/api/projects/1/recordings/session-123/block",
-            params={"key": "key1", "start": 0, "end": 100},
-        )
-
-    async def test_fetch_compressed_block_404_raises_fetch_error(self):
-        mock_session, _ = create_mock_session("get", MockResponse(404))
-
-        storage = EncryptedBlockStorage(mock_session, "http://localhost:8000")
-
-        with self.assertRaises(BlockFetchError) as cm:
-            await storage.fetch_compressed_block(
-                "s3://bucket/key1?range=bytes=0-100", session_id="session-123", team_id=1
-            )
-        assert "Block not found" in str(cm.exception)
-
-    async def test_fetch_compressed_block_410_raises_deleted_error(self):
-        deleted_at = 1700000000
-        mock_session, _ = create_mock_session(
-            "get", MockResponse(410, {"error": "Recording has been deleted", "deleted_at": deleted_at})
-        )
-
-        storage = EncryptedBlockStorage(mock_session, "http://localhost:8000")
-
-        with self.assertRaises(RecordingDeletedError) as cm:
-            await storage.fetch_compressed_block(
-                "s3://bucket/key1?range=bytes=0-100", session_id="session-123", team_id=1
-            )
-        assert "Recording has been deleted" in str(cm.exception)
-        assert cm.exception.deleted_at == deleted_at
-
-    async def test_fetch_compressed_block_410_raises_deleted_error_with_none_deleted_at(self):
-        mock_session, _ = create_mock_session(
-            "get", MockResponse(410, {"error": "Recording has been deleted", "deleted_at": None})
-        )
-
-        storage = EncryptedBlockStorage(mock_session, "http://localhost:8000")
-
-        with self.assertRaises(RecordingDeletedError) as cm:
-            await storage.fetch_compressed_block(
-                "s3://bucket/key1?range=bytes=0-100", session_id="session-123", team_id=1
-            )
-        assert "Recording has been deleted" in str(cm.exception)
-        assert cm.exception.deleted_at is None
-
-    async def test_fetch_block_410_raises_deleted_error(self):
-        deleted_at = 1700000000
-        mock_session, _ = create_mock_session(
-            "get", MockResponse(410, {"error": "Recording has been deleted", "deleted_at": deleted_at})
-        )
-
-        storage = EncryptedBlockStorage(mock_session, "http://localhost:8000")
-
-        with self.assertRaises(RecordingDeletedError) as cm:
-            await storage.fetch_decompressed_block(
-                "s3://bucket/key1?range=bytes=0-100", session_id="session-123", team_id=1
-            )
-        assert "Recording has been deleted" in str(cm.exception)
-        assert cm.exception.deleted_at == deleted_at
-
-    async def test_fetch_block_410_raises_deleted_error_with_none_deleted_at(self):
-        mock_session, _ = create_mock_session(
-            "get", MockResponse(410, {"error": "Recording has been deleted", "deleted_at": None})
-        )
-
-        storage = EncryptedBlockStorage(mock_session, "http://localhost:8000")
-
-        with self.assertRaises(RecordingDeletedError) as cm:
-            await storage.fetch_decompressed_block(
-                "s3://bucket/key1?range=bytes=0-100", session_id="session-123", team_id=1
-            )
-        assert "Recording has been deleted" in str(cm.exception)
-        assert cm.exception.deleted_at is None
-
-    async def test_delete_recording_success(self):
-        mock_session, mock_delete = create_mock_session("delete", MockResponse(200, {"status": "deleted"}))
-
-        storage = EncryptedBlockStorage(mock_session, "http://localhost:8000")
-
-        result = await storage.delete_recording(session_id="session-123", team_id=1)
-
-        assert result is True
-        mock_delete.assert_called_once_with("http://localhost:8000/api/projects/1/recordings/session-123")
-
-    async def test_delete_recording_404_raises_fetch_error(self):
-        mock_session, _ = create_mock_session("delete", MockResponse(404))
-
-        storage = EncryptedBlockStorage(mock_session, "http://localhost:8000")
-
-        with self.assertRaises(BlockFetchError) as cm:
-            await storage.delete_recording(session_id="session-123", team_id=1)
-        assert "Recording key not found" in str(cm.exception)
-
-    async def test_delete_recording_410_raises_deleted_error(self):
-        deleted_at = 1700000000
-        mock_session, _ = create_mock_session(
-            "delete", MockResponse(410, {"error": "Recording has already been deleted", "deleted_at": deleted_at})
-        )
-
-        storage = EncryptedBlockStorage(mock_session, "http://localhost:8000")
-
-        with self.assertRaises(RecordingDeletedError) as cm:
-            await storage.delete_recording(session_id="session-123", team_id=1)
-        assert "Recording has already been deleted" in str(cm.exception)
-        assert cm.exception.deleted_at == deleted_at
-
-    async def test_delete_recording_410_raises_deleted_error_with_none_deleted_at(self):
-        mock_session, _ = create_mock_session(
-            "delete", MockResponse(410, {"error": "Recording has already been deleted", "deleted_at": None})
-        )
-
-        storage = EncryptedBlockStorage(mock_session, "http://localhost:8000")
-
-        with self.assertRaises(RecordingDeletedError) as cm:
-            await storage.delete_recording(session_id="session-123", team_id=1)
-        assert "Recording has already been deleted" in str(cm.exception)
-        assert cm.exception.deleted_at is None

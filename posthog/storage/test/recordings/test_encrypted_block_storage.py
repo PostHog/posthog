@@ -5,7 +5,7 @@ import snappy
 import aiohttp
 
 from posthog.storage.recordings.block_storage import EncryptedBlockStorage, encrypted_block_storage
-from posthog.storage.recordings.errors import BlockFetchError
+from posthog.storage.recordings.errors import BlockDeletionNotSupportedError, BlockFetchError, RecordingDeletedError
 
 
 class TestEncryptedBlockStorage:
@@ -72,6 +72,25 @@ class TestFetchBlockBytes:
                 "session-123",
                 1,
             )
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("deleted_at", [1700000000, None])
+    async def test_410_raises_recording_deleted_error(self, client, mock_session, deleted_at):
+        mock_response = AsyncMock()
+        mock_response.status = 410
+        mock_response.json = AsyncMock(return_value={"error": "Recording has been deleted", "deleted_at": deleted_at})
+        mock_response.__aenter__ = AsyncMock(return_value=mock_response)
+        mock_response.__aexit__ = AsyncMock(return_value=None)
+
+        mock_session.get = MagicMock(return_value=mock_response)
+
+        with pytest.raises(RecordingDeletedError, match="Recording has been deleted") as exc_info:
+            await client.fetch_compressed_block(
+                "s3://bucket/key?range=bytes=0-100",
+                "session-123",
+                1,
+            )
+        assert exc_info.value.deleted_at == deleted_at
 
     @pytest.mark.asyncio
     async def test_client_error_raises_error(self, client, mock_session):
@@ -184,6 +203,25 @@ class TestFetchBlock:
                 1,
             )
 
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("deleted_at", [1700000000, None])
+    async def test_410_raises_recording_deleted_error(self, client, mock_session, deleted_at):
+        mock_response = AsyncMock()
+        mock_response.status = 410
+        mock_response.json = AsyncMock(return_value={"error": "Recording has been deleted", "deleted_at": deleted_at})
+        mock_response.__aenter__ = AsyncMock(return_value=mock_response)
+        mock_response.__aexit__ = AsyncMock(return_value=None)
+
+        mock_session.get = MagicMock(return_value=mock_response)
+
+        with pytest.raises(RecordingDeletedError, match="Recording has been deleted") as exc_info:
+            await client.fetch_decompressed_block(
+                "s3://bucket/key?range=bytes=0-100",
+                "session-123",
+                1,
+            )
+        assert exc_info.value.deleted_at == deleted_at
+
 
 class TestDeleteRecording:
     @pytest.fixture
@@ -219,6 +257,35 @@ class TestDeleteRecording:
         mock_session.delete = MagicMock(return_value=mock_response)
 
         with pytest.raises(BlockFetchError, match="Recording key not found"):
+            await client.delete_recording("session-123", 1)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("deleted_at", [1700000000, None])
+    async def test_410_raises_recording_deleted_error(self, client, mock_session, deleted_at):
+        mock_response = AsyncMock()
+        mock_response.status = 410
+        mock_response.json = AsyncMock(
+            return_value={"error": "Recording has already been deleted", "deleted_at": deleted_at}
+        )
+        mock_response.__aenter__ = AsyncMock(return_value=mock_response)
+        mock_response.__aexit__ = AsyncMock(return_value=None)
+
+        mock_session.delete = MagicMock(return_value=mock_response)
+
+        with pytest.raises(RecordingDeletedError, match="Recording has already been deleted") as exc_info:
+            await client.delete_recording("session-123", 1)
+        assert exc_info.value.deleted_at == deleted_at
+
+    @pytest.mark.asyncio
+    async def test_501_raises_not_supported_error(self, client, mock_session):
+        mock_response = AsyncMock()
+        mock_response.status = 501
+        mock_response.__aenter__ = AsyncMock(return_value=mock_response)
+        mock_response.__aexit__ = AsyncMock(return_value=None)
+
+        mock_session.delete = MagicMock(return_value=mock_response)
+
+        with pytest.raises(BlockDeletionNotSupportedError, match="not supported"):
             await client.delete_recording("session-123", 1)
 
     @pytest.mark.asyncio
