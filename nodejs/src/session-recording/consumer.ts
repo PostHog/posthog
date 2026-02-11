@@ -74,6 +74,9 @@ export type SessionRecordingIngesterHub = SessionRecordingConfig &
         | 'POSTHOG_REDIS_HOST'
         | 'POSTHOG_REDIS_PORT'
         | 'POSTHOG_REDIS_PASSWORD'
+        // For encryption key management
+        | 'SESSION_RECORDING_KMS_ENDPOINT'
+        | 'SESSION_RECORDING_DYNAMODB_ENDPOINT'
     >
 
 export class SessionRecordingIngester {

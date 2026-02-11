@@ -267,7 +267,7 @@ describe('RecordingService', () => {
                 mockKeyStore,
                 mockDecryptor
             )
-            mockKeyStore.deleteKey.mockResolvedValue(true)
+            mockKeyStore.deleteKey.mockResolvedValue({ deleted: true })
 
             const result = await serviceWithoutMetadata.deleteRecording('session-123', 1)
 
