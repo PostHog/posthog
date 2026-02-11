@@ -116,13 +116,14 @@ class TestExports(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         data = response.json()
+        created_date = datetime.fromisoformat(data["created_at"]).strftime("%Y-%m-%d")
         assert data == {
             "id": data["id"],
             "created_at": data["created_at"],
             "dashboard": self.dashboard.id,
             "exception": None,
             "export_format": "image/png",
-            "filename": "export-example-dashboard.png",
+            "filename": f"export-example-dashboard-{created_date}.png",
             "has_content": False,
             "insight": None,
             "export_context": None,
@@ -157,13 +158,14 @@ class TestExports(APIBaseTest):
             .replace("+00:00", "Z")
         )
 
+        created_date = datetime.fromisoformat(data["created_at"]).strftime("%Y-%m-%d")
         assert data == {
             "id": data["id"],
             "created_at": data["created_at"],
             "dashboard": self.dashboard.id,
             "exception": None,
             "export_format": "image/png",
-            "filename": "export-example-dashboard.png",
+            "filename": f"export-example-dashboard-{created_date}.png",
             "has_content": False,
             "insight": None,
             "export_context": None,
@@ -212,7 +214,7 @@ class TestExports(APIBaseTest):
                 "created_at": data["created_at"],
                 "insight": self.insight.id,
                 "export_format": "image/png",
-                "filename": "export-example-insight.png",
+                "filename": "export-example-insight-2021-08-25.png",
                 "has_content": False,
                 "dashboard": None,
                 "exception": None,

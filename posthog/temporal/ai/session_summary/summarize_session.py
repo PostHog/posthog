@@ -20,6 +20,7 @@ from temporalio.exceptions import ApplicationError, WorkflowAlreadyStartedError
 
 from posthog.schema import ReplayInactivityPeriod
 
+from posthog.exceptions_capture import capture_exception
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.redis import get_client
@@ -30,7 +31,7 @@ from posthog.temporal.ai.session_summary.activities import (
     capture_timing_activity,
     consolidate_video_segments_activity,
     embed_and_store_segments_activity,
-    export_session_video_activity,
+    prep_session_video_asset_activity,
     store_video_session_summary_activity,
     upload_video_to_gemini_activity,
 )
@@ -53,6 +54,7 @@ from posthog.temporal.ai.session_summary.types.video import (
 )
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import async_connect
+from posthog.temporal.exports_video.workflow import VideoExportInputs
 
 from ee.hogai.session_summaries import ExceptionToRetry
 from ee.hogai.session_summaries.constants import (
@@ -82,6 +84,8 @@ logger = structlog.get_logger(__name__)
 SESSION_SUMMARIES_STREAM_INTERVAL = 0.1  # 100ms
 # How large the chunks should be when analyzing videos
 SESSION_VIDEO_CHUNK_DURATION_S = 60
+# How large should the active period be, so we still analyze it (or skip it, if it's smaller)
+MIN_SESSION_PERIOD_DURATION_S = 1
 
 
 @temporalio.activity.defn
@@ -467,6 +471,16 @@ def _validate_period(
     session_period_end = period.ts_to_s
     recording_period_start = period.recording_ts_from_s
     recording_period_end = period.recording_ts_to_s
+    # Skip periods that are too short, as they won't bring any value to the summary
+    # Checking for >= 0 to still fail on negative durations
+    recording_period_duration = recording_period_end - recording_period_start
+    if recording_period_duration >= 0 and recording_period_duration < MIN_SESSION_PERIOD_DURATION_S:
+        logger.warning(
+            f"Skipping period {index} of {inactivity_periods_count - 1} because it's too short: {recording_period_end - recording_period_start}s < {MIN_SESSION_PERIOD_DURATION_S}s",
+            signals_type="session-summaries",
+        )
+        return None
+    # Incorrect time ranges
     if round(recording_period_end, 2) <= round(recording_period_start, 2):
         msg = f"Invalid recording period time range: recording_ts_from_s={recording_period_start}, recording_ts_to_s={recording_period_end}"
         logger.error(msg, signals_type="session-summaries")
@@ -496,13 +510,29 @@ def _validate_period(
 def calculate_video_segment_specs(
     video_duration: float,
     chunk_duration: float,
+    inputs: SingleSessionSummaryInputs,
     inactivity_periods: list[ReplayInactivityPeriod] | None = None,
 ) -> list[VideoSegmentSpec]:
     # Assume that inactivity data should be successfully collected for any session, so no need to split into random chunks
     if not inactivity_periods:
-        msg = "Inactivity periods are required to calculate video segment specs"
-        logger.error(msg, signals_type="session-summaries")
-        raise ValueError(msg)
+        msg = f"Inactivity periods were not provided to calculate video segment specs"
+        logger.error(
+            msg,
+            session_id=inputs.session_id,
+            team_id=inputs.team_id,
+            user_id=inputs.user_id,
+            signals_type="session-summaries",
+        )
+        err = ValueError(msg)
+        capture_exception(
+            err,
+            additional_properties={
+                "session_id": inputs.session_id,
+                "team_id": inputs.team_id,
+                "user_id": inputs.user_id,
+            },
+        )
+        raise err
     # If inactivity data is present - only analyze "active" periods (when user was interacting)
     segments: list[VideoSegmentSpec] = []
     segment_index = 0
@@ -510,6 +540,7 @@ def calculate_video_segment_specs(
     for i, period in enumerate(inactivity_periods):
         validation = _validate_period(period, video_duration, i, len(inactivity_periods))
         if validation is None:
+            # Skip the periods that are too short or failed validation
             continue
         session_period_start, session_period_end, recording_period_start, recording_period_end = validation
         # Start either after the rendering delay, or at the previous chunk end
@@ -591,17 +622,32 @@ async def ensure_llm_single_session_summary(inputs: SingleSessionSummaryInputs):
         extra_summary_context=inputs.extra_summary_context,
     )
 
-    # Activity 1: Export full session video
-    asset_id = await temporalio.workflow.execute_activity(
-        export_session_video_activity,
+    # Activity 1: Prepare video export (find or create ExportedAsset)
+    export_result = await temporalio.workflow.execute_activity(
+        prep_session_video_asset_activity,
         video_inputs,
-        start_to_close_timeout=timedelta(minutes=300),
+        start_to_close_timeout=timedelta(minutes=3),
         retry_policy=retry_policy,
     )
 
-    # Skip video-based summarization if session is too short
-    if asset_id is None:
+    # Skip video-based summarization if session is too short or summary already exists
+    if export_result is None:
         return
+
+    asset_id = export_result.asset_id
+
+    # If the asset needs rendering, run the video export as a child workflow
+    if export_result.needs_export:
+        workflow_id = f"session-video-summary-export_{video_inputs.team_id}_{video_inputs.session_id}"
+        await temporalio.workflow.execute_child_workflow(
+            "export-video",
+            VideoExportInputs(exported_asset_id=asset_id, use_puppeteer=True),
+            id=workflow_id,
+            task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+            retry_policy=RetryPolicy(maximum_attempts=int(settings.TEMPORAL_WORKFLOW_MAX_ATTEMPTS)),
+            id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+            execution_timeout=timedelta(hours=3),
+        )
 
     # Activity 2: Upload full video to Gemini (single upload)
     upload_result = await temporalio.workflow.execute_activity(
@@ -618,6 +664,7 @@ async def ensure_llm_single_session_summary(inputs: SingleSessionSummaryInputs):
     segment_specs = calculate_video_segment_specs(
         video_duration=uploaded_video.duration,
         chunk_duration=SESSION_VIDEO_CHUNK_DURATION_S,
+        inputs=inputs,
         inactivity_periods=inactivity_periods,
     )
 
@@ -780,7 +827,7 @@ def _prepare_execution(
         video_validation_enabled=video_validation_enabled,
     )
     workflow_id = (
-        f"session-summary:single:{'stream' if stream else 'direct'}:{session_id}:{user.id}:{shared_id}:{uuid.uuid4()}"
+        f"session-summary:single:{'stream' if stream else 'direct'}:{team.id}:{session_id}:{shared_id}:{uuid.uuid4()}"
     )
     return redis_client, redis_input_key, redis_output_key, session_input, workflow_id
 
@@ -798,6 +845,14 @@ async def execute_summarize_session(
     Start the direct summarization workflow (no streaming) and return the summary.
     Intended to use as a part of other tools or workflows to get more context on summary, so implemented async.
     """
+    # Check if summary already exists before starting the Temporal workflow
+    existing_summary = await database_sync_to_async(SingleSessionSummary.objects.get_summary, thread_sensitive=False)(
+        team_id=team.id,
+        session_id=session_id,
+        extra_summary_context=extra_summary_context,
+    )
+    if existing_summary is not None:
+        return existing_summary.summary
     if model_to_use is None:
         model_to_use = (
             SESSION_SUMMARIES_SYNC_MODEL if video_validation_enabled != "full" else DEFAULT_VIDEO_UNDERSTANDING_MODEL
@@ -820,7 +875,7 @@ async def execute_summarize_session(
         client = await async_connect()
         handle = client.get_workflow_handle(workflow_id)
         await handle.result()
-    # Get the summary from the DB
+    # Get the ready summary from the DB
     summary_row = await database_sync_to_async(SingleSessionSummary.objects.get_summary, thread_sensitive=False)(
         team_id=team.id,
         session_id=session_id,
