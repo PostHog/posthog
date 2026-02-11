@@ -84,8 +84,39 @@ capabilities:
         docker_profiles: []
 
     cyclotron:
-        description: 'Cyclotron janitor service'
+        description: 'Cyclotron job queue infrastructure (includes shadow for testing)'
         requires: [core_infra]
+        docker_profiles: []
+
+    # Node.js capability groups - control which consumers run to reduce event loop contention
+    nodejs_cdp:
+        description: 'Node.js CDP - destinations, webhooks, and realtime alerts'
+        requires: [event_ingestion]
+        docker_profiles: []
+
+    nodejs_cdp_workflows:
+        description: 'Node.js CDP + Workflows - full CDP with HogFlow workflow automation'
+        requires: [event_ingestion]
+        docker_profiles: []
+
+    nodejs_realtime_cohorts:
+        description: 'Node.js Realtime Cohorts - precalculated filters and cohort membership'
+        requires: [event_ingestion]
+        docker_profiles: []
+
+    nodejs_session_replay:
+        description: 'Node.js Session Replay - recording ingestion'
+        requires: [event_ingestion]
+        docker_profiles: [replay]
+
+    nodejs_logs:
+        description: 'Node.js Logs - log ingestion'
+        requires: [event_ingestion]
+        docker_profiles: []
+
+    nodejs_feature_flags:
+        description: 'Node.js Feature Flags - evaluation scheduler'
+        requires: [flag_evaluation]
         docker_profiles: []
 
     batch_imports:
@@ -103,31 +134,44 @@ capabilities:
         requires: [core_infra]
         docker_profiles: [dev_tools]
 
+    mcp_server:
+        description: 'MCP server for AI assistant integration'
+        requires: [core_infra]
+        docker_profiles: []
+
 # Intents map to products/features developers work on
 intents:
     product_analytics:
         description: 'Core product analytics - insights, funnels, trends'
-        capabilities: [event_ingestion, property_definitions, celery_workers]
+        capabilities: [event_ingestion, property_definitions, celery_workers, nodejs_cdp]
 
     error_tracking:
         description: 'Track and analyze application errors'
-        capabilities: [event_ingestion, error_symbolication, property_definitions]
+        capabilities: [event_ingestion, error_symbolication, property_definitions, nodejs_cdp]
 
     session_replay:
         description: 'Record and replay user sessions'
-        capabilities: [event_ingestion, replay_storage, property_definitions, celery_workers]
+        capabilities: [event_ingestion, replay_storage, property_definitions, celery_workers, nodejs_session_replay]
 
     feature_flags:
         description: 'Feature flag management and evaluation'
-        capabilities: [flag_evaluation, celery_workers, celery_scheduler]
+        capabilities: [flag_evaluation, celery_workers, celery_scheduler, nodejs_feature_flags]
 
     experiments:
         description: 'A/B testing and experimentation'
-        capabilities: [event_ingestion, flag_evaluation, property_definitions, celery_workers]
+        capabilities:
+            [
+                event_ingestion,
+                flag_evaluation,
+                property_definitions,
+                celery_workers,
+                nodejs_feature_flags,
+                dagster_pipelines,
+            ]
 
     llm_analytics:
         description: 'LLM/AI observability and analytics'
-        capabilities: [event_ingestion, ai_capture, llm_gateway, property_definitions]
+        capabilities: [event_ingestion, ai_capture, llm_gateway, property_definitions, temporal_workflows]
 
     web_analytics:
         description: 'Web analytics, traffic analysis, and heatmaps'
@@ -135,7 +179,7 @@ intents:
 
     surveys:
         description: 'User surveys and feedback collection'
-        capabilities: [event_ingestion, property_definitions, celery_workers, celery_scheduler]
+        capabilities: [event_ingestion, property_definitions, celery_workers, celery_scheduler, nodejs_cdp]
 
     data_warehouse:
         description: 'Data warehouse queries and saved queries'
@@ -143,11 +187,12 @@ intents:
 
     cohorts:
         description: 'User cohort management'
-        capabilities: [event_ingestion, property_definitions, celery_workers, celery_scheduler]
+        capabilities: [event_ingestion, property_definitions, celery_workers, celery_scheduler, nodejs_realtime_cohorts]
 
     pipelines:
         description: 'Data pipeline transformations and destinations'
-        capabilities: [event_ingestion, property_definitions, celery_workers, temporal_workflows]
+        capabilities:
+            [event_ingestion, property_definitions, celery_workers, temporal_workflows, nodejs_cdp_workflows, cyclotron]
 
     ai_features:
         description: 'AI features'
@@ -155,11 +200,11 @@ intents:
 
     logs:
         description: 'Log aggregation and viewing'
-        capabilities: [event_ingestion, property_definitions]
+        capabilities: [event_ingestion, property_definitions, nodejs_logs]
 
     workflows:
         description: 'Workflow automation and orchestration'
-        capabilities: [event_ingestion, property_definitions, temporal_workflows]
+        capabilities: [event_ingestion, property_definitions, temporal_workflows, nodejs_cdp_workflows, cyclotron]
 
     tracing:
         description: 'OpenTelemetry tracing with Jaeger UI'
@@ -169,6 +214,10 @@ intents:
         description: 'Kafka UI, Flower (Celery), maildev, webhook tester'
         capabilities: [dev_tools]
 
+    mcp:
+        description: 'MCP server for AI assistant integration'
+        capabilities: [mcp_server]
+
 # Always-required processes regardless of intent
 # This is the core stack needed for any development
 always_required:
@@ -176,6 +225,11 @@ always_required:
     - frontend
     - typegen
     - docker-compose
+    # Migrations (DBs created by postgres init scripts, run for everyone)
+    - migrate-postgres
+    - migrate-clickhouse
+    - migrate-persons-db
+    - migrate-behavioral-cohorts
     # Core services
     - celery-worker
     - celery-beat

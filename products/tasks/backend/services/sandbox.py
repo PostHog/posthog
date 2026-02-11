@@ -9,6 +9,7 @@ This module exports:
 - ExecutionResult: Result of command execution
 """
 
+from collections.abc import Iterable
 from enum import Enum
 from types import TracebackType
 from typing import Protocol
@@ -33,6 +34,12 @@ class ExecutionResult(BaseModel):
     stderr: str
     exit_code: int
     error: str | None = None
+
+
+class ExecutionStream(Protocol):
+    def iter_stdout(self) -> Iterable[str]: ...
+
+    def wait(self) -> ExecutionResult: ...
 
 
 class SandboxConfig(BaseModel):
@@ -64,6 +71,10 @@ class SandboxProtocol(Protocol):
     def get_status(self) -> SandboxStatus: ...
 
     def execute(self, command: str, timeout_seconds: int | None = None) -> ExecutionResult: ...
+
+    def execute_stream(self, command: str, timeout_seconds: int | None = None) -> ExecutionStream: ...
+
+    def write_file(self, path: str, payload: bytes) -> ExecutionResult: ...
 
     def clone_repository(self, repository: str, github_token: str | None = "") -> ExecutionResult: ...
 
@@ -134,6 +145,7 @@ __all__ = [
     "SandboxStatus",
     "SandboxTemplate",
     "ExecutionResult",
+    "ExecutionStream",
     "SandboxProtocol",
     "get_sandbox_class",
     "get_sandbox_class_for_backend",

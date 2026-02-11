@@ -16,9 +16,10 @@ use crate::{
         SYMBOL_SET_FETCH_RETRY, SYMBOL_SET_SAVED,
     },
     posthog_utils::{capture_symbol_set_deleted, capture_symbol_set_saved},
+    symbol_store::BlobClient,
 };
 
-use super::{Fetcher, Parser, S3Client};
+use super::{Fetcher, Parser};
 
 const MAX_REF_BYTES: usize = 2048;
 
@@ -40,7 +41,7 @@ fn truncate_ref(s: &str) -> &str {
 // source bytes into s3, and the storage pointer into a postgres database.
 pub struct Saving<F> {
     inner: F,
-    s3_client: Arc<S3Client>,
+    s3_client: Arc<dyn BlobClient>,
     pool: PgPool,
     bucket: String,
     prefix: String,
@@ -75,7 +76,7 @@ impl<F> Saving<F> {
     pub fn new(
         inner: F,
         pool: sqlx::PgPool,
-        s3_client: Arc<S3Client>,
+        s3_client: Arc<dyn BlobClient>,
         bucket: String,
         prefix: String,
     ) -> Self {
@@ -407,7 +408,7 @@ mod test {
         symbol_store::{
             saving::{truncate_ref, Saving, SymbolSetRecord, MAX_REF_BYTES},
             sourcemap::SourcemapProvider,
-            Provider, S3Client,
+            MockS3Client, Provider,
         },
     };
 
@@ -473,7 +474,7 @@ mod test {
             then.status(200).body(MAP);
         });
 
-        let mut client = S3Client::default();
+        let mut client = MockS3Client::default();
         // Expected: we'll hit the backend and store the data in s3.
         client
             .expect_put()
@@ -530,7 +531,7 @@ mod test {
         });
 
         // We don't expect any S3 operations since we won't get any valid data
-        let client = S3Client::default();
+        let client = MockS3Client::default();
 
         let smp = SourcemapProvider::new(&config);
         let saving_smp = Saving::new(
@@ -580,7 +581,7 @@ mod test {
         });
 
         // We don't expect any S3 operations since we won't get any valid data
-        let client = S3Client::default();
+        let client = MockS3Client::default();
 
         let smp = SourcemapProvider::new(&config);
         let saving_smp = Saving::new(

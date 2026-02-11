@@ -334,6 +334,9 @@ export const billingJson: BillingType = {
             projected_amount_usd: '960.00',
             projected_amount_usd_with_limit: '960.00',
             unit: 'event',
+            display_unit: null,
+            display_decimals: null,
+            display_divisor: null,
             addons: [
                 {
                     name: 'Group analytics',
@@ -425,6 +428,9 @@ export const billingJson: BillingType = {
                     included_with_main_product: false,
                     subscribed: true,
                     unit: 'event',
+                    display_unit: null,
+                    display_decimals: null,
+                    display_divisor: null,
                     unit_amount_usd: null,
                     current_amount_usd: null,
                     current_usage: 882128,
@@ -1082,6 +1088,9 @@ export const billingJson: BillingType = {
             projected_amount_usd: '775.00',
             projected_amount_usd_with_limit: '775.00',
             unit: 'recording',
+            display_unit: null,
+            display_decimals: null,
+            display_divisor: null,
             addons: [
                 {
                     name: 'Mobile session replay',
@@ -1151,6 +1160,9 @@ export const billingJson: BillingType = {
                     included_with_main_product: false,
                     subscribed: true,
                     unit: 'mobile recording',
+                    display_unit: null,
+                    display_decimals: null,
+                    display_divisor: null,
                     unit_amount_usd: null,
                     current_amount_usd: '100.00',
                     current_usage: 0,
@@ -1854,6 +1866,9 @@ export const billingJson: BillingType = {
             projected_amount_usd: '235.00',
             projected_amount_usd_with_limit: '235.00',
             unit: 'request',
+            display_unit: null,
+            display_decimals: null,
+            display_divisor: null,
             addons: [],
             contact_support: false,
             inclusion_only: false,
@@ -2319,6 +2334,9 @@ export const billingJson: BillingType = {
             projected_amount_usd: null,
             projected_amount_usd_with_limit: null,
             unit: 'survey response',
+            display_unit: null,
+            display_decimals: null,
+            display_divisor: null,
             addons: [],
             contact_support: false,
             inclusion_only: false,
@@ -2618,6 +2636,9 @@ export const billingJson: BillingType = {
             projected_amount_usd: null,
             projected_amount_usd_with_limit: null,
             unit: null,
+            display_unit: null,
+            display_decimals: null,
+            display_divisor: null,
             addons: [],
             contact_support: false,
             inclusion_only: true,
@@ -2725,15 +2746,6 @@ export const billingJson: BillingType = {
                             note: null,
                         },
                         {
-                            key: 'environments',
-                            name: 'Environments',
-                            description:
-                                'Create separate silos of data within a project. Data belongs to a single environment and all queries are environment-specific.',
-                            unit: 'environment',
-                            limit: 1,
-                            note: null,
-                        },
-                        {
                             key: 'api_access',
                             name: 'API access',
                             description: 'Access your data via our developer-friendly API.',
@@ -2806,15 +2818,6 @@ export const billingJson: BillingType = {
                             description:
                                 'Organize environments within a project. Share dashboards, insights and more across environments without duplicating work.',
                             unit: 'projects',
-                            limit: 2,
-                            note: null,
-                        },
-                        {
-                            key: 'environments',
-                            name: 'Environments',
-                            description:
-                                'Create separate silos of data within a project. Data belongs to a single environment and all queries are environment-specific.',
-                            unit: 'environment',
                             limit: 2,
                             note: null,
                         },
@@ -2900,15 +2903,6 @@ export const billingJson: BillingType = {
                             name: 'Projects',
                             description:
                                 'Organize environments within a project. Share dashboards, insights and more across environments without duplicating work.',
-                            unit: null,
-                            limit: null,
-                            note: 'Unlimited',
-                        },
-                        {
-                            key: 'environments',
-                            name: 'Environments',
-                            description:
-                                'Create separate silos of data within a project. Data belongs to a single environment and all queries are environment-specific.',
                             unit: null,
                             limit: null,
                             note: 'Unlimited',
@@ -3125,6 +3119,9 @@ export const billingJson: BillingType = {
             projected_amount_usd: null,
             projected_amount_usd_with_limit: null,
             unit: null,
+            display_unit: null,
+            display_decimals: null,
+            display_divisor: null,
             addons: [
                 {
                     name: 'Teams',
@@ -3140,6 +3137,9 @@ export const billingJson: BillingType = {
                     included_with_main_product: false,
                     subscribed: false,
                     unit: null,
+                    display_unit: null,
+                    display_decimals: null,
+                    display_divisor: null,
                     unit_amount_usd: null,
                     current_amount_usd: null,
                     current_usage: 0,
@@ -3164,15 +3164,6 @@ export const billingJson: BillingType = {
                                     name: 'Projects',
                                     description:
                                         'Organize environments within a project. Share dashboards, insights and more across environments without duplicating work.',
-                                    unit: null,
-                                    limit: null,
-                                    note: 'Unlimited',
-                                },
-                                {
-                                    key: 'environments',
-                                    name: 'Environments',
-                                    description:
-                                        'Create separate silos of data within a project. Data belongs to a single environment and all queries are environment-specific.',
                                     unit: null,
                                     limit: null,
                                     note: 'Unlimited',
@@ -3418,15 +3409,6 @@ export const billingJson: BillingType = {
                             type: null,
                         },
                         {
-                            key: 'environments',
-                            name: 'Environments',
-                            description:
-                                'Create separate silos of data within a project. Data belongs to a single environment and all queries are environment-specific.',
-                            unit: null,
-                            limit: null,
-                            note: 'Unlimited',
-                        },
-                        {
                             key: 'support_response_time',
                             name: 'Support response time',
                             description: 'Get help from our team!',
@@ -3492,15 +3474,6 @@ export const billingJson: BillingType = {
                     images: null,
                     icon_key: null,
                     type: null,
-                },
-                {
-                    key: 'environments',
-                    name: 'Environments',
-                    description:
-                        'Create separate silos of data within a project. Data belongs to a single environment and all queries are environment-specific.',
-                    unit: null,
-                    limit: null,
-                    note: 'Unlimited',
                 },
                 {
                     key: 'social_sso',

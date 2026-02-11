@@ -42,14 +42,13 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.hogql_queries.insights.funnels.funnel import FunnelUDF
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
-from posthog.kafka_client.client import _KafkaProducer
-from posthog.kafka_client.topics import KAFKA_DWH_CDP_RAW_TABLE
 from posthog.models import DataWarehouseTable
 from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.team.team import Team
 from posthog.temporal.common.shutdown import ShutdownMonitor, WorkerShuttingDownError
 from posthog.temporal.data_imports.cdp_producer_job import CDPProducerJobWorkflow
 from posthog.temporal.data_imports.external_data_job import ExternalDataJobWorkflow
+from posthog.temporal.data_imports.pipelines.pipeline.cdp_producer import FakeKafka
 from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
 from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import DeltaTableHelper
 from posthog.temporal.data_imports.pipelines.pipeline.pipeline import PipelineNonDLT
@@ -74,6 +73,7 @@ from posthog.temporal.data_imports.sources.stripe.constants import (
 )
 from posthog.temporal.data_imports.sources.stripe.custom import InvoiceListWithAllLines
 from posthog.temporal.data_imports.workflow_activities.sync_new_schemas import ExternalDataSourceType
+from posthog.temporal.ducklake.ducklake_copy_data_imports_workflow import DuckLakeCopyDataImportsWorkflow
 from posthog.temporal.utils import ExternalDataWorkflowInputs
 
 from products.data_warehouse.backend.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
@@ -347,7 +347,7 @@ async def _execute_run(workflow_id: str, inputs: ExternalDataWorkflowInputs, moc
             async with Worker(
                 activity_environment.client,
                 task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
-                workflows=[ExternalDataJobWorkflow, CDPProducerJobWorkflow],
+                workflows=[ExternalDataJobWorkflow, CDPProducerJobWorkflow, DuckLakeCopyDataImportsWorkflow],
                 activities=ACTIVITIES,  # type: ignore
                 workflow_runner=UnsandboxedWorkflowRunner(),
                 activity_executor=ThreadPoolExecutor(max_workers=50),
@@ -1457,7 +1457,7 @@ async def test_postgres_nan_numerical_values(team, postgres_config, postgres_con
 @pytest.mark.asyncio
 async def test_delete_table_on_reset(team, stripe_balance_transaction, mock_stripe_client):
     with (
-        mock.patch.object(s3fs.S3FileSystem, "delete") as mock_s3_delete,
+        mock.patch.object(s3fs.S3FileSystem, "_rm") as mock_s3_delete,
     ):
         workflow_id, inputs = await _run(
             team=team,
@@ -1965,7 +1965,7 @@ async def test_partition_folders_with_existing_table(team, postgres_config, post
     )
     await postgres_connection.commit()
 
-    def mock_setup_partitioning(pa_table, existing_delta_table, schema, resource, logger):
+    async def mock_setup_partitioning(pa_table, existing_delta_table, schema, resource, logger):
         return pa_table
 
     # Emulate an existing table with no partitions
@@ -2054,7 +2054,7 @@ async def test_partition_folders_with_existing_table_and_pipeline_reset(
     )
     await postgres_connection.commit()
 
-    def mock_setup_partitioning(pa_table, existing_delta_table, schema, resource, logger):
+    async def mock_setup_partitioning(pa_table, existing_delta_table, schema, resource, logger):
         return pa_table
 
     # Emulate an existing table with no partitions
@@ -2259,7 +2259,7 @@ async def test_row_tracking_incrementing(team, postgres_config, postgres_connect
         DATA_WAREHOUSE_REDIS_HOST="localhost",
         DATA_WAREHOUSE_REDIS_PORT="6379",
     ):
-        row_count_in_redis = get_rows(team.id, schema_id)
+        row_count_in_redis = await get_rows(team.id, schema_id)
 
     assert row_count_in_redis == 1
 
@@ -3023,7 +3023,7 @@ async def test_cdp_producer_push_to_kafka(team, stripe_customer, mock_stripe_cli
     )
 
     with (
-        mock.patch.object(_KafkaProducer, "produce") as mock_produce,
+        mock.patch.object(FakeKafka, "produce") as mock_produce,
         mock.patch(
             "posthog.temporal.data_imports.pipelines.pipeline.pipeline.time.time_ns", return_value=1768828644858352000
         ),
@@ -3038,7 +3038,7 @@ async def test_cdp_producer_push_to_kafka(team, stripe_customer, mock_stripe_cli
         )
 
     mock_produce.assert_called_with(
-        topic=KAFKA_DWH_CDP_RAW_TABLE,
+        topic="",
         data={
             "team_id": team.id,
             "properties": {

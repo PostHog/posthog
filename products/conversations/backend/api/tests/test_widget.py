@@ -1,6 +1,7 @@
 import uuid
 
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from rest_framework import status
 from rest_framework.test import APIClient
@@ -241,6 +242,31 @@ class TestWidgetAPI(BaseTest):
         self.assertEqual(len(response.json()["messages"]), 1)
         self.assertEqual(response.json()["messages"][0]["content"], "Public message")
 
+    def test_get_messages_does_not_expose_is_private_field(self):
+        """Verify is_private field is never sent to widget, even for public messages."""
+        ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            widget_session_id=self.widget_session_id,
+            distinct_id=self.distinct_id,
+            channel_source="widget",
+        )
+        Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(ticket.id),
+            content="Public message",
+            item_context={"author_type": "customer", "is_private": False},
+        )
+
+        response = self.client.get(
+            f"/api/conversations/v1/widget/messages/{ticket.id}?widget_session_id={self.widget_session_id}",
+            **self._get_headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()["messages"]), 1)
+        # is_private should NOT be present in the response
+        self.assertNotIn("is_private", response.json()["messages"][0])
+
     def test_get_messages_wrong_widget_session_forbidden(self):
         ticket = Ticket.objects.create_with_number(
             team=self.team,
@@ -394,3 +420,58 @@ class TestWidgetAPI(BaseTest):
             **self._get_headers(),
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+class TestWidgetCacheInvalidation(BaseTest):
+    """Test that widget message creation invalidates unread count cache."""
+
+    def setUp(self):
+        super().setUp()
+        self.widget_token = "test_widget_token_123"
+        self.team.conversations_enabled = True
+        self.team.conversations_settings = {"widget_public_token": self.widget_token}
+        self.team.save()
+
+        self.widget_session_id = str(uuid.uuid4())
+        self.distinct_id = "user-123"
+
+        self.client = APIClient()
+
+    def _get_headers(self):
+        return {"HTTP_X_CONVERSATIONS_TOKEN": self.widget_token}
+
+    def test_create_message_new_ticket_invalidates_cache(self):
+        with patch("products.conversations.backend.api.widget.invalidate_unread_count_cache") as mock_invalidate:
+            response = self.client.post(
+                "/api/conversations/v1/widget/message",
+                {
+                    "message": "Hello, I need help!",
+                    "widget_session_id": self.widget_session_id,
+                    "distinct_id": self.distinct_id,
+                },
+                **self._get_headers(),
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            mock_invalidate.assert_called_once_with(self.team.id)
+
+    def test_create_message_existing_ticket_invalidates_cache(self):
+        ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            widget_session_id=self.widget_session_id,
+            distinct_id=self.distinct_id,
+            channel_source="widget",
+        )
+
+        with patch("products.conversations.backend.api.widget.invalidate_unread_count_cache") as mock_invalidate:
+            response = self.client.post(
+                "/api/conversations/v1/widget/message",
+                {
+                    "message": "Follow up message",
+                    "widget_session_id": self.widget_session_id,
+                    "distinct_id": self.distinct_id,
+                    "ticket_id": str(ticket.id),
+                },
+                **self._get_headers(),
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            mock_invalidate.assert_called_once_with(self.team.id)

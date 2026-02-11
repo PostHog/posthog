@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PostHog Demo Page</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: #EEEFE9;
+            color: #151515;
+            line-height: 1.6;
+            max-height: 800px;
+            overflow: hidden;
+        }
+
+        .navbar {
+            background: #151515;
+            padding: 16px 32px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .logo {
+            color: #F9BD2B;
+            font-weight: bold;
+            font-size: 20px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .nav-links {
+            display: flex;
+            gap: 24px;
+        }
+
+        .nav-links a {
+            color: #fff;
+            text-decoration: none;
+            font-size: 14px;
+        }
+
+        .hero {
+            padding: 80px 32px;
+            text-align: center;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        .hero h1 {
+            font-size: 48px;
+            margin-bottom: 16px;
+            color: #151515;
+        }
+
+        .hero p {
+            font-size: 18px;
+            color: #4B4B4B;
+            margin-bottom: 32px;
+        }
+
+        .cta-button {
+            background: #F54E00;
+            color: white;
+            border: none;
+            padding: 16px 32px;
+            font-size: 16px;
+            font-weight: 600;
+            border-radius: 8px;
+            cursor: pointer;
+        }
+
+        .features {
+            padding: 64px 32px;
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 32px;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .feature-card {
+            background: white;
+            padding: 32px;
+            border-radius: 12px;
+            border: 1px solid #E5E5E5;
+        }
+
+        .feature-card h3 {
+            font-size: 20px;
+            margin-bottom: 12px;
+            color: #151515;
+        }
+
+        .feature-card p {
+            font-size: 14px;
+            color: #4B4B4B;
+        }
+
+        .footer {
+            background: #151515;
+            color: #fff;
+            padding: 32px;
+            text-align: center;
+            font-size: 14px;
+        }
+    </style>
+</head>
+
+<body>
+    <nav class="navbar">
+        <div class="logo">
+            <svg width="24" height="24" viewBox="0 0 128 128" fill="none">
+                <rect width="128" height="128" rx="16" fill="#151515"/>
+                <path d="M64 32L96 64L64 96L32 64L64 32Z" fill="#F54E00"/>
+            </svg>
+            PostHog
+        </div>
+        <div class="nav-links">
+            <a href="#">Product</a>
+            <a href="#">Pricing</a>
+            <a href="#">Docs</a>
+            <a href="#">Blog</a>
+        </div>
+    </nav>
+
+    <section class="hero">
+        <h1>Build better products</h1>
+        <p>PostHog is the all-in-one platform for building better products. Get the tools you need to understand your users and ship faster.</p>
+        <button class="cta-button">Get started - free</button>
+    </section>
+
+    <section class="features">
+        <div class="feature-card">
+            <h3>Product analytics</h3>
+            <p>Understand user behavior with funnels, trends, paths, and retention analysis.</p>
+        </div>
+        <div class="feature-card">
+            <h3>Session replay</h3>
+            <p>Watch real user sessions to see exactly how people use your product.</p>
+        </div>
+        <div class="feature-card">
+            <h3>Feature flags</h3>
+            <p>Roll out features safely with targeting rules and percentage rollouts.</p>
+        </div>
+    </section>
+
+    <footer class="footer">
+        <p>Mock page for heatmap testing</p>
+    </footer>
+</body>
+
+</html>

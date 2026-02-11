@@ -28,6 +28,7 @@ import { workflowsLogic } from './workflowsLogic'
 
 export interface WorkflowLogicProps {
     id?: string
+    tabId?: string
     templateId?: string
     editTemplateId?: string
 }
@@ -37,7 +38,7 @@ export const EXIT_NODE_ID = 'exit_node'
 
 export type TriggerAction = Extract<HogFlowAction, { type: 'trigger' }>
 
-const NEW_WORKFLOW: HogFlow = {
+export const NEW_WORKFLOW: HogFlow = {
     id: 'new',
     name: 'New workflow',
     actions: [
@@ -113,8 +114,8 @@ export function sanitizeWorkflow(
 
 export const workflowLogic = kea<workflowLogicType>([
     path(['products', 'workflows', 'frontend', 'Workflows', 'workflowLogic']),
-    props({ id: 'new' } as WorkflowLogicProps),
-    key((props) => props.id || 'new'),
+    props({ id: 'new', tabId: 'default' } as WorkflowLogicProps),
+    key((props) => `workflow-${props.id || 'new'}-${props.tabId}`),
     connect(() => ({
         values: [userLogic, ['user'], projectLogic, ['currentProjectId']],
         actions: [workflowsLogic, ['archiveWorkflow']],
@@ -297,9 +298,15 @@ export const workflowLogic = kea<workflowLogicType>([
                             const emailTemplating = action.config.inputs?.email?.templating
 
                             const emailTemplateErrors: Partial<EmailTemplate> = {
-                                html: !emailValue?.html
-                                    ? 'HTML is required'
-                                    : getTemplatingError(emailValue?.html, emailTemplating),
+                                html:
+                                    !emailValue?.html && !emailValue?.text
+                                        ? 'HTML or plain text is required'
+                                        : emailValue?.html
+                                          ? getTemplatingError(emailValue?.html, emailTemplating)
+                                          : undefined,
+                                text: emailValue?.text
+                                    ? getTemplatingError(emailValue?.text, emailTemplating)
+                                    : undefined,
                                 subject: !emailValue?.subject
                                     ? 'Subject is required'
                                     : getTemplatingError(emailValue?.subject, emailTemplating),

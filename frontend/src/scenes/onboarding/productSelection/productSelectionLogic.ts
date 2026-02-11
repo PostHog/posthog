@@ -35,7 +35,7 @@ export const productSelectionLogic = kea<productSelectionLogicType>([
             onboardingLogic,
             ['setOnCompleteOnboardingRedirectUrl'],
             eventUsageLogic,
-            ['reportOnboardingStarted', 'reportOnboardingProductSelectionPath'],
+            ['reportOnboardingStarted', 'reportOnboardingProductSelectionPath', 'reportOnboardingProductToggled'],
         ],
         values: [teamLogic, ['currentTeam']],
     })),
@@ -283,7 +283,10 @@ export const productSelectionLogic = kea<productSelectionLogicType>([
             if (aiRecommendation) {
                 actions.setRecommendationSource('ai')
 
-                const products = mapAIProductsToProductKeys(aiRecommendation.products)
+                let products = mapAIProductsToProductKeys(aiRecommendation.products)
+                if (products.length === 0) {
+                    products = [ProductKey.PRODUCT_ANALYTICS]
+                }
                 actions.setSelectedProducts(products)
                 actions.setStep('product_selection')
 
@@ -304,6 +307,8 @@ export const productSelectionLogic = kea<productSelectionLogicType>([
                 const remaining = values.selectedProducts.filter((k) => k !== productKey)
                 actions.setFirstProductOnboarding(remaining[0] || null)
             }
+
+            actions.reportOnboardingProductToggled(productKey, isNowSelected, values.recommendationSource)
         },
 
         handleStartOnboarding: () => {

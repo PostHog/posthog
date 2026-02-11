@@ -418,11 +418,6 @@ def get_context_for_template(
         if posthoganalytics.api_key:
             context["js_posthog_api_key"] = posthoganalytics.api_key
             context["js_posthog_host"] = ""  # Becomes location.origin in the frontend
-        # In development (not test mode), point ui_host to the Vite dev server so the toolbar loads from there with hot reload
-        if settings.DEBUG and not settings.TEST and settings.JS_URL == "http://localhost:8234":
-            context["js_posthog_ui_host"] = settings.JS_URL
-        else:
-            context["js_posthog_ui_host"] = ""
     else:
         context["js_posthog_api_key"] = "sTMFPsFhdP1Ssg"
         context["js_posthog_host"] = "https://internal-j.posthog.com"
@@ -623,13 +618,22 @@ async def initialize_self_capture_api_token():
         posthoganalytics.host = settings.SITE_URL
 
 
-def get_default_event_name(team: "Team"):
+def get_default_event_name(team: "Team") -> str | None:
     from posthog.models import EventDefinition
 
     if EventDefinition.objects.filter(team=team, name="$pageview").exists():
         return "$pageview"
     elif EventDefinition.objects.filter(team=team, name="$screen").exists():
         return "$screen"
+
+    # Only default to "all events" (None) if the team has other events
+    # This avoids the race condition where a new user sends their first pageview
+    # but we've already computed the default as "all events"
+    has_any_events = EventDefinition.objects.filter(team=team).exists()
+    if has_any_events:
+        return None  # None means "all events"
+
+    # No events at all - default to $pageview (most common case for new teams)
     return "$pageview"
 
 

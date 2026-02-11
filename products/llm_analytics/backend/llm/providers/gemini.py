@@ -13,8 +13,14 @@ from google import genai
 from google.genai.errors import APIError
 from google.genai.types import GenerateContentConfig, HttpOptions
 from posthoganalytics.ai.gemini import genai as posthog_genai
+from pydantic import BaseModel
 
-from products.llm_analytics.backend.llm.errors import AuthenticationError
+from products.llm_analytics.backend.llm.errors import (
+    AuthenticationError,
+    QuotaExceededError,
+    RateLimitError,
+    StructuredOutputParseError,
+)
 from products.llm_analytics.backend.llm.types import (
     AnalyticsContext,
     CompletionRequest,
@@ -56,8 +62,9 @@ class GeminiAdapter:
         request: CompletionRequest,
         api_key: str | None,
         analytics: AnalyticsContext,
+        _base_url: str | None = None,
     ) -> CompletionResponse:
-        """Non-streaming completion."""
+        """Non-streaming completion with optional structured output."""
         effective_api_key = api_key or self._get_default_api_key()
 
         posthog_client = posthoganalytics.default_client
@@ -77,6 +84,11 @@ class GeminiAdapter:
             tools=request.tools,
         )
 
+        # Handle structured output using Gemini's JSON mode
+        if request.response_format and issubclass(request.response_format, BaseModel):
+            config_kwargs["response_mime_type"] = "application/json"
+            config_kwargs["response_schema"] = request.response_format
+
         try:
             contents = convert_anthropic_messages_to_gemini(request.messages)
 
@@ -94,14 +106,31 @@ class GeminiAdapter:
                     output_tokens=response.usage_metadata.candidates_token_count or 0,
                     total_tokens=response.usage_metadata.total_token_count or 0,
                 )
+
+            # Parse structured output if response_format was specified
+            parsed: BaseModel | None = None
+            if request.response_format and issubclass(request.response_format, BaseModel):
+                try:
+                    parsed = request.response_format.model_validate_json(content)
+                except Exception as e:
+                    logger.warning(f"Failed to parse structured output from Gemini: {e}")
+                    raise StructuredOutputParseError(f"Failed to parse structured output: {e}") from e
+
             return CompletionResponse(
                 content=content,
                 model=request.model,
                 usage=usage,
+                parsed=parsed,
             )
-        except Exception as e:
-            if "authentication" in str(e).lower() or "api key" in str(e).lower():
+        except APIError as e:
+            error_message = str(e).lower()
+            status_code = getattr(e, "code", None) or getattr(e, "status_code", None)
+            if status_code == 401 or "authentication" in error_message or "api key" in error_message:
                 raise AuthenticationError(str(e))
+            if status_code == 429 or "rate limit" in error_message or "resource exhausted" in error_message:
+                if "quota" in error_message or "billing" in error_message:
+                    raise QuotaExceededError(str(e))
+                raise RateLimitError(str(e))
             raise
 
     def stream(
@@ -109,6 +138,7 @@ class GeminiAdapter:
         request: CompletionRequest,
         api_key: str | None,
         analytics: AnalyticsContext,
+        _base_url: str | None = None,
     ) -> Generator[StreamChunk, None, None]:
         """Streaming completion."""
         effective_api_key = api_key or self._get_default_api_key()

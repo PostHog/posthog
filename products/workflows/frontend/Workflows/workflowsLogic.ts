@@ -1,5 +1,5 @@
 import FuseClass from 'fuse.js'
-import { actions, afterMount, kea, path, reducers, selectors } from 'kea'
+import { actions, kea, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
@@ -208,8 +208,5 @@ export const workflowsLogic = kea<workflowsLogicType>([
                 return Array.from(uniqueCreators.values())
             },
         ],
-    }),
-    afterMount(({ actions }) => {
-        actions.loadWorkflows()
     }),
 ])

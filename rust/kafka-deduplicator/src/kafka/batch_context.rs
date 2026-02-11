@@ -4,17 +4,18 @@ use tokio::sync::mpsc;
 
 use crate::kafka::rebalance_handler::RebalanceHandler;
 use crate::kafka::types::Partition;
+use crate::metrics_const::REBALANCE_EMPTY_SKIPPED;
 use rdkafka::consumer::{BaseConsumer, Consumer, ConsumerContext, Rebalance};
 use rdkafka::{ClientContext, TopicPartitionList};
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 
 /// Events sent to the async rebalance worker
 #[derive(Debug, Clone)]
 pub enum RebalanceEvent {
-    /// Partitions are being revoked
+    /// Partitions are being revoked - includes partition list for worker shutdown
     Revoke(Vec<Partition>),
-    /// Partitions have been assigned
-    Assign(Vec<Partition>),
+    /// Partitions have been assigned - handler uses get_owned_partitions() for definitive list
+    Assign,
 }
 
 /// Commands sent from rebalance handler to consumer for partition control
@@ -84,39 +85,29 @@ impl BatchConsumerContext {
                         tpl.add_partition(partition.topic(), partition.partition_number());
                     }
 
-                    // Call cleanup handler (drains queues, deletes files)
+                    // Call cleanup handler (drains queues, clears offsets)
                     // Note: setup_revoked_partitions was already called synchronously
+                    // Note: File deletion happens in finalize_rebalance_cycle at end of cycle
                     if let Err(e) = handler.cleanup_revoked_partitions(&tpl).await {
                         error!("Partition revocation cleanup failed: {}", e);
                     }
                 }
-                RebalanceEvent::Assign(partitions) => {
-                    info!(
-                        "Rebalance worker: setting up {} assigned partitions (async)",
-                        partitions.len()
-                    );
-
-                    // Create TopicPartitionList for handler
-                    let mut tpl = TopicPartitionList::new();
-                    for partition in &partitions {
-                        tpl.add_partition(partition.topic(), partition.partition_number());
-                    }
+                RebalanceEvent::Assign => {
+                    info!("Rebalance worker: processing assign event (async)");
 
                     // Call async setup handler (downloads checkpoints, creates stores)
+                    // Handler uses rebalance_tracker.get_owned_partitions() for the definitive list
                     // Note: setup_assigned_partitions was already called synchronously
                     // Note: Partitions were paused in post_rebalance, will be resumed after this completes
+                    // Note: Resume is now handled inside async_setup_assigned_partitions,
+                    // only when all overlapping rebalances are complete (counter == 0)
                     if let Err(e) = handler
-                        .async_setup_assigned_partitions(&tpl, &consumer_command_tx)
+                        .async_setup_assigned_partitions(&consumer_command_tx)
                         .await
                     {
-                        // Note: This error path is rare - async_setup_assigned_partitions
-                        // returns Ok(()) for normal scenarios (cancellation, revoked partitions).
-                        // It only errors if the consumer command channel is broken.
+                        // This error only occurs if the consumer command channel is broken.
+                        // Resume is handled by async_setup_assigned_partitions when appropriate.
                         error!("Partition assignment async setup failed: {}", e);
-                        // Try to resume anyway as a fallback (will likely also fail if channel is broken)
-                        if let Err(e) = consumer_command_tx.send(ConsumerCommand::Resume(tpl)) {
-                            error!("Failed to send resume command after setup failure: {}", e);
-                        }
                     }
                 }
             }
@@ -143,6 +134,16 @@ impl ConsumerContext for BatchConsumerContext {
         // Handle partition revocation if applicable
         match rebalance {
             Rebalance::Revoke(partitions) => {
+                // Short-circuit for empty TPL (cooperative-sticky sends these frequently)
+                // With cooperative-sticky protocol, the broker triggers rebalances for all
+                // consumers when any group membership changes, even if partitions don't move.
+                if partitions.count() == 0 {
+                    debug!("Skipping empty revoke rebalance (cooperative-sticky no-op)");
+                    metrics::counter!(REBALANCE_EMPTY_SKIPPED, "event_type" => "revoke")
+                        .increment(1);
+                    return;
+                }
+
                 info!("Revoking {} partitions", partitions.count());
 
                 // SYNC: Call setup handler directly within callback
@@ -180,6 +181,16 @@ impl ConsumerContext for BatchConsumerContext {
         // Handle partition assignment if applicable
         match rebalance {
             Rebalance::Assign(partitions) => {
+                // Short-circuit for empty TPL (cooperative-sticky sends these frequently)
+                // With cooperative-sticky protocol, the broker triggers rebalances for all
+                // consumers when any group membership changes, even if partitions don't move.
+                if partitions.count() == 0 {
+                    debug!("Skipping empty assign rebalance (cooperative-sticky no-op)");
+                    metrics::counter!(REBALANCE_EMPTY_SKIPPED, "event_type" => "assign")
+                        .increment(1);
+                    return;
+                }
+
                 info!("Assigned {} partitions", partitions.count());
 
                 // PAUSE partitions IMMEDIATELY to prevent message delivery
@@ -211,13 +222,8 @@ impl ConsumerContext for BatchConsumerContext {
 
                 // ASYNC: Send event to worker for slow operations
                 // (downloading checkpoints, creating stores, then RESUME)
-                let partitions: Vec<Partition> = partitions
-                    .elements()
-                    .into_iter()
-                    .map(Partition::from)
-                    .collect();
-
-                if let Err(e) = self.rebalance_tx.send(RebalanceEvent::Assign(partitions)) {
+                // Handler uses rebalance_tracker.get_owned_partitions() for definitive list
+                if let Err(e) = self.rebalance_tx.send(RebalanceEvent::Assign) {
                     error!("Failed to send assign event to rebalance worker: {}", e);
                 }
             }
@@ -254,5 +260,58 @@ impl ConsumerContext for BatchConsumerContext {
                 warn!("Failed to commit offsets: {}", e);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use rdkafka::{Offset, TopicPartitionList};
+
+    /// Verify that empty TopicPartitionList has count() == 0.
+    /// This is the behavior we rely on for short-circuiting empty rebalances.
+    #[test]
+    fn test_empty_topic_partition_list_count_is_zero() {
+        let tpl = TopicPartitionList::new();
+        assert_eq!(tpl.count(), 0, "Empty TPL should have count == 0");
+    }
+
+    /// Verify that non-empty TopicPartitionList has count() > 0.
+    #[test]
+    fn test_non_empty_topic_partition_list_count() {
+        let mut tpl = TopicPartitionList::new();
+        tpl.add_partition_offset("test-topic", 0, Offset::Beginning)
+            .unwrap();
+        assert_eq!(
+            tpl.count(),
+            1,
+            "TPL with one partition should have count == 1"
+        );
+
+        tpl.add_partition_offset("test-topic", 1, Offset::Beginning)
+            .unwrap();
+        assert_eq!(
+            tpl.count(),
+            2,
+            "TPL with two partitions should have count == 2"
+        );
+    }
+
+    /// Verify that our short-circuit condition works correctly.
+    /// This simulates the check we do in pre_rebalance and post_rebalance.
+    #[test]
+    fn test_empty_tpl_short_circuit_condition() {
+        let empty_tpl = TopicPartitionList::new();
+        let should_skip = empty_tpl.count() == 0;
+        assert!(should_skip, "Empty TPL should trigger short-circuit");
+
+        let mut non_empty_tpl = TopicPartitionList::new();
+        non_empty_tpl
+            .add_partition_offset("test-topic", 0, Offset::Beginning)
+            .unwrap();
+        let should_not_skip = non_empty_tpl.count() == 0;
+        assert!(
+            !should_not_skip,
+            "Non-empty TPL should not trigger short-circuit"
+        );
     }
 }

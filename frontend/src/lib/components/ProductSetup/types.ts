@@ -13,11 +13,16 @@ export enum SetupTaskId {
 
     // Product Analytics
     CreateFirstInsight = 'create_first_insight',
-    CreateFunnel = 'create_funnel',
     CreateFirstDashboard = 'create_first_dashboard',
     TrackCustomEvents = 'track_custom_events',
     DefineActions = 'define_actions',
     SetUpCohorts = 'set_up_cohorts',
+    ExploreTrendsInsight = 'explore_trends_insight',
+    ExploreFunnelInsight = 'create_funnel', // Keep different name for backwards compatibility
+    ExploreRetentionInsight = 'explore_retention_insight',
+    ExplorePathsInsight = 'explore_paths_insight',
+    ExploreStickinessInsight = 'explore_stickiness_insight',
+    ExploreLifecycleInsight = 'explore_lifecycle_insight',
 
     // Web Analytics
     AddAuthorizedDomain = 'add_authorized_domain',
@@ -80,10 +85,10 @@ export enum SetupTaskId {
     // Logs
     EnableLogCapture = 'enable_log_capture',
     ViewFirstLogs = 'view_first_logs',
-    SetUpLogAlerts = 'set_up_log_alerts',
 
     // Workflows
     CreateFirstWorkflow = 'create_first_workflow',
+    SetUpFirstWorkflowChannel = 'set_up_first_workflow_channel',
     ConfigureWorkflowTrigger = 'configure_workflow_trigger',
     AddWorkflowAction = 'add_workflow_action',
     LaunchWorkflow = 'launch_workflow',

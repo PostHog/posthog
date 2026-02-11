@@ -49,6 +49,10 @@ class TestCheckProductAccess:
             ("django", "personal_api_key", None, "gpt-4.1-mini", True, None),
             ("django", "personal_api_key", None, "claude-3-opus", True, None),
             ("django", "oauth_access_token", "any-app-id", "gpt-4.1-mini", True, None),
+            # llma_translation allows API keys but only gpt-4.1-mini
+            ("llma_translation", "personal_api_key", None, "gpt-4.1-mini", True, None),
+            ("llma_translation", "personal_api_key", None, "claude-3-opus", False, "not allowed"),
+            ("llma_translation", "oauth_access_token", "any-app-id", "gpt-4.1-mini", True, None),
             # unknown product
             ("unknown", "personal_api_key", None, None, False, "Unknown product"),
         ],
@@ -72,8 +76,10 @@ class TestCheckProductAccess:
         "model",
         [
             "claude-opus-4-5",
+            "claude-opus-4-6",
             "claude-sonnet-4-5",
             "claude-haiku-4-5",
+            "gpt-5.3-codex",
             "gpt-5.2",
             "gpt-5-mini",
         ],
@@ -103,8 +109,10 @@ class TestCheckProductAccess:
         "model",
         [
             "claude-opus-4-5",
+            "claude-opus-4-6",
             "claude-sonnet-4-5",
             "claude-haiku-4-5",
+            "gpt-5.3-codex",
             "gpt-5.2",
             "gpt-5-mini",
             "claude-opus-4-5-20260101",

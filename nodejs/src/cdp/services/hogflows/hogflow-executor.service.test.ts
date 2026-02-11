@@ -161,6 +161,7 @@ describe('Hogflow Executor', () => {
                     properties: {
                         name: 'John Doe',
                     },
+                    timestamp: '2026-01-30T20:20:20.200Z',
                 },
             })
 
@@ -211,7 +212,8 @@ describe('Hogflow Executor', () => {
                 logs: [
                     {
                         level: 'debug',
-                        message: 'Starting workflow execution at trigger for [Person:person_id|John Doe]',
+                        message:
+                            'Starting workflow execution at trigger for [Person:person_id|John Doe] on [Event:uuid|test|2026-01-30T20:20:20.200Z]',
                         timestamp: expect.any(DateTime),
                     },
                     {
@@ -289,6 +291,7 @@ describe('Hogflow Executor', () => {
                     properties: {
                         name: 'John Doe',
                     },
+                    timestamp: '2026-01-30T20:20:20.200Z',
                 },
             })
 
@@ -299,7 +302,7 @@ describe('Hogflow Executor', () => {
             expect(result.invocation.queueScheduledAt).toEqual(expect.any(DateTime))
             expect(result.logs.map((log) => log.message)).toMatchInlineSnapshot(`
                 [
-                  "Starting workflow execution at trigger for [Person:person_id|John Doe]",
+                  "Starting workflow execution at trigger for [Person:person_id|John Doe] on [Event:uuid|test|2026-01-30T20:20:20.200Z]",
                   "Executing action [Action:function_id_1]",
                   "[Action:function_id_1] Hello, Mr John Doe!",
                   "[Action:function_id_1] Fetch 1, 200",
@@ -313,7 +316,7 @@ describe('Hogflow Executor', () => {
             expect(result2.invocation.state.currentAction!.hogFunctionState).toEqual(expect.any(Object))
             expect(result2.logs.map((log) => log.message)).toMatchInlineSnapshot(`
                 [
-                  "Resuming workflow execution at [Action:function_id_1]",
+                  "Resuming workflow execution at [Action:function_id_1] on [Event:uuid|test|2026-01-30T20:20:20.200Z]",
                   "Executing action [Action:function_id_1]",
                   "[Action:function_id_1] Fetch 2, 200",
                   "Workflow will pause until 2025-01-01T00:00:00.000Z",
@@ -325,7 +328,7 @@ describe('Hogflow Executor', () => {
             expect(result3.finished).toEqual(true)
             expect(cleanLogs(result3.logs.map((log) => log.message))).toMatchInlineSnapshot(`
                 [
-                  "Resuming workflow execution at [Action:function_id_1]",
+                  "Resuming workflow execution at [Action:function_id_1] on [Event:uuid|test|2026-01-30T20:20:20.200Z]",
                   "Executing action [Action:function_id_1]",
                   "[Action:function_id_1] Fetch 3, 200",
                   "[Action:function_id_1] All fetches done!",
@@ -398,6 +401,7 @@ describe('Hogflow Executor', () => {
                         properties: {
                             name: 'Debug User',
                         },
+                        timestamp: '2026-01-30T20:20:20.200Z',
                     },
                 })
 
@@ -422,7 +426,7 @@ describe('Hogflow Executor', () => {
                 expect(result2.finished).toBe(true)
                 expect(result2.invocation.state.currentAction?.id).toBe('exit')
                 expect(result2.logs.map((log) => log.message)).toEqual([
-                    'Resuming workflow execution at [Action:function_id_1]',
+                    'Resuming workflow execution at [Action:function_id_1] on [Event:uuid|test|2026-01-30T20:20:20.200Z]',
                     'Executing action [Action:function_id_1]',
                     '[Action:function_id_1] Hello, Mr Debug User!',
                     '[Action:function_id_1] Fetch 1, 200',

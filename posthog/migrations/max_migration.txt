@@ -1,1 +1,1 @@
-0987_add_column_configuration_constraints
+1001_fix_person_property_in_operator

@@ -1,8 +1,10 @@
 import os
 import uuid
+import shlex
 import logging
+from collections.abc import Iterable
 from functools import lru_cache
-from typing import cast
+from typing import Any, cast
 
 from django.conf import settings
 
@@ -22,7 +24,7 @@ from products.tasks.backend.temporal.exceptions import (
     SnapshotCreationError,
 )
 
-from .sandbox import ExecutionResult, SandboxConfig, SandboxStatus, SandboxTemplate
+from .sandbox import ExecutionResult, ExecutionStream, SandboxConfig, SandboxStatus, SandboxTemplate
 
 logger = logging.getLogger(__name__)
 
@@ -248,6 +250,100 @@ class ModalSandbox:
             raise SandboxExecutionError(
                 f"Failed to execute command",
                 {"sandbox_id": self.id, "command": command, "error": str(e)},
+                cause=e,
+            )
+
+    def execute_stream(
+        self,
+        command: str,
+        timeout_seconds: int | None = None,
+    ) -> ExecutionStream:
+        if not self.is_running():
+            raise SandboxExecutionError(
+                f"Sandbox not in running state.",
+                {"sandbox_id": self.id},
+                cause=RuntimeError(f"Sandbox {self.id} is not running"),
+            )
+
+        if timeout_seconds is None:
+            timeout_seconds = self.config.default_execution_timeout_seconds
+
+        try:
+            process = self._sandbox.exec("bash", "-c", command, timeout=timeout_seconds)
+        except TimeoutError as e:
+            capture_exception(e)
+            raise SandboxTimeoutError(
+                f"Execution timed out after {timeout_seconds} seconds",
+                {"sandbox_id": self.id, "timeout_seconds": timeout_seconds},
+                cause=e,
+            )
+        except Exception as e:
+            capture_exception(e)
+            logger.exception(f"Failed to execute command: {e}")
+            raise SandboxExecutionError(
+                f"Failed to execute command",
+                {"sandbox_id": self.id, "command": command, "error": str(e)},
+                cause=e,
+            )
+
+        class _ModalExecutionStream:
+            def __init__(self, process: Any):
+                self._process = process
+                self._stdout_buffer: list[str] = []
+                self._stdout_iterated = False
+
+            def iter_stdout(self) -> Iterable[str]:
+                self._stdout_iterated = True
+                for line in self._process.stdout:
+                    output = line.decode("utf-8") if isinstance(line, bytes) else line
+                    self._stdout_buffer.append(output)
+                    yield output
+
+            def wait(self) -> ExecutionResult:
+                self._process.wait()
+                if not self._stdout_iterated:
+                    stdout = self._process.stdout.read()
+                    stdout_text = stdout.decode("utf-8") if isinstance(stdout, bytes) else stdout
+                else:
+                    stdout_text = "".join(self._stdout_buffer)
+
+                stderr = self._process.stderr.read()
+                stderr_text = stderr.decode("utf-8") if isinstance(stderr, bytes) else stderr
+                return ExecutionResult(
+                    stdout=stdout_text,
+                    stderr=stderr_text,
+                    exit_code=self._process.returncode,
+                    error=None,
+                )
+
+        return _ModalExecutionStream(process)
+
+    def write_file(self, path: str, payload: bytes) -> ExecutionResult:
+        if not self.is_running():
+            raise SandboxExecutionError(
+                "Sandbox not in running state.",
+                {"sandbox_id": self.id},
+                cause=RuntimeError(f"Sandbox {self.id} is not running"),
+            )
+
+        temp_path = f"{path}.tmp-{uuid.uuid4().hex}"
+        try:
+            with self._sandbox.open(temp_path, "wb") as file_handle:
+                file_handle.write(payload)
+            mv_command = f"mv {shlex.quote(temp_path)} {shlex.quote(path)}"
+            result = self.execute(mv_command, timeout_seconds=self.config.default_execution_timeout_seconds)
+            if result.exit_code != 0:
+                logger.warning(
+                    "sandbox_write_failed",
+                    extra={"stdout": result.stdout, "stderr": result.stderr, "sandbox_id": self.id},
+                )
+            return result
+        except Exception as e:
+            capture_exception(e)
+            logger.exception(f"Failed to write file to sandbox: {e}")
+            raise SandboxExecutionError(
+                "Failed to write file",
+                {"sandbox_id": self.id, "path": path, "error": str(e)},
                 cause=e,
             )
 

@@ -9,7 +9,7 @@ import { ToolbarMenu } from '~/toolbar/bar/ToolbarMenu'
 import { productToursLogic } from './productToursLogic'
 
 export function ProductToursToolbarMenu(): JSX.Element {
-    const { startCreation, selectTour } = useActions(productToursLogic)
+    const { newTour, selectTour } = useActions(productToursLogic)
     const { tours, toursLoading } = useValues(productToursLogic)
 
     return (
@@ -19,7 +19,7 @@ export function ProductToursToolbarMenu(): JSX.Element {
             </ToolbarMenu.Header>
             <ToolbarMenu.Body>
                 <div className="p-2 space-y-3">
-                    <LemonButton type="primary" fullWidth onClick={() => startCreation()}>
+                    <LemonButton type="primary" fullWidth onClick={() => newTour()}>
                         Create new tour
                     </LemonButton>
 

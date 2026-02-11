@@ -6,6 +6,7 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 
 from products.llm_analytics.backend.llm.client import Client
+from products.llm_analytics.backend.llm.config import ProviderConfig
 from products.llm_analytics.backend.llm.errors import ProviderMismatchError, UnsupportedProviderError
 from products.llm_analytics.backend.llm.types import CompletionRequest
 
@@ -65,7 +66,7 @@ class TestProviderMismatchValidation(SimpleTestCase):
         client = Client(provider_key=mock_key)
 
         request = CompletionRequest(
-            model="claude-3-5-sonnet-20241022",
+            model="claude-sonnet-4-5",
             messages=[{"role": "user", "content": "hi"}],
             provider="anthropic",
         )
@@ -103,3 +104,42 @@ class TestApiKeyExtraction(SimpleTestCase):
     def test_get_api_key_without_provider_key(self):
         client = Client()
         assert client._get_api_key() is None
+
+
+class TestEffectiveCredentials(SimpleTestCase):
+    def test_credentials_from_config_take_precedence(self):
+        config = ProviderConfig(api_key="config-key", base_url="https://config.example.com")
+        client = Client(config=config)
+
+        api_key, base_url = client._resolve_credentials()
+
+        assert api_key == "config-key"
+        assert base_url == "https://config.example.com"
+
+    def test_credentials_from_provider_key_when_no_config(self):
+        mock_key = MagicMock()
+        mock_key.encrypted_config = {"api_key": "provider-key"}
+
+        client = Client(provider_key=mock_key)
+
+        api_key, base_url = client._resolve_credentials()
+
+        assert api_key == "provider-key"
+        assert base_url is None
+
+    def test_no_credentials_when_neither_config_nor_provider_key(self):
+        client = Client()
+
+        api_key, base_url = client._resolve_credentials()
+
+        assert api_key is None
+        assert base_url is None
+
+    def test_config_with_none_base_url(self):
+        config = ProviderConfig(api_key="config-key")
+        client = Client(config=config)
+
+        api_key, base_url = client._resolve_credentials()
+
+        assert api_key == "config-key"
+        assert base_url is None

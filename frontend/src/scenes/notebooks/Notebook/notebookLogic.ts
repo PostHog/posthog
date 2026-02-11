@@ -31,6 +31,7 @@ import {
 import {
     buildNotebookDependencyGraph,
     collectDuckSqlNodes,
+    collectHogqlSqlNodes,
     collectNodeIndices,
     collectPythonNodes,
 } from '../Nodes/notebookNodeContent'
@@ -166,7 +167,6 @@ export const notebookLogic = kea<notebookLogicType>([
         setAccessDeniedToNotebook: true,
     }),
     reducers(({ props }) => ({
-        canvasFiltersOverride: [props.canvasFiltersOverride ?? ([] as AnyPropertyFilter[])],
         isShareModalOpen: [
             false,
             {
@@ -438,6 +438,7 @@ export const notebookLogic = kea<notebookLogicType>([
         ],
     })),
     selectors({
+        canvasFiltersOverride: [() => [(_, props) => props], (props) => props.canvasFiltersOverride || []],
         shortId: [(_, p) => [p.shortId], (shortId) => shortId],
         mode: [() => [(_, props) => props], (props): NotebookLogicMode => props.mode ?? 'notebook'],
         isTemplate: [(s) => [s.shortId], (shortId): boolean => shortId.startsWith('template-')],
@@ -538,6 +539,7 @@ export const notebookLogic = kea<notebookLogicType>([
 
         pythonNodeSummaries: [(s) => [s.content], (content) => collectPythonNodes(content)],
         duckSqlNodeSummaries: [(s) => [s.content], (content) => collectDuckSqlNodes(content)],
+        hogqlSqlNodeSummaries: [(s) => [s.content], (content) => collectHogqlSqlNodes(content)],
         dependencyGraph: [(s) => [s.content], (content) => buildNotebookDependencyGraph(content)],
 
         pythonNodeIndices: [
@@ -559,6 +561,10 @@ export const notebookLogic = kea<notebookLogicType>([
         duckSqlNodeIndices: [
             (s) => [s.content],
             (content) => collectNodeIndices(content, (node) => node.type === NotebookNodeType.DuckSQL),
+        ],
+        hogqlSqlNodeIndices: [
+            (s) => [s.content],
+            (content) => collectNodeIndices(content, (node) => node.type === NotebookNodeType.HogQLSQL),
         ],
 
         isShowingLeftColumn: [

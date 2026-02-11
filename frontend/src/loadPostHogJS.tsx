@@ -4,7 +4,7 @@ import { sampleOnProperty } from 'posthog-js/lib/src/extensions/sampling'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils'
 
-export const SDK_DEFAULTS_DATE = '2025-11-30'
+export const SDK_DEFAULTS_DATE = '2026-01-30'
 
 const shouldDefer = (): boolean => {
     const sessionId = posthog.get_session_id()
@@ -25,6 +25,7 @@ export function loadPostHogJS(): void {
             bootstrap: window.POSTHOG_USER_IDENTITY_WITH_FLAGS ? window.POSTHOG_USER_IDENTITY_WITH_FLAGS : {},
             opt_in_site_apps: true,
             disable_surveys: window.IMPERSONATED_SESSION,
+            disable_product_tours: window.IMPERSONATED_SESSION,
             __preview_deferred_init_extensions: shouldDefer(),
             error_tracking: {
                 __capturePostHogExceptions: true,

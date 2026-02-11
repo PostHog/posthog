@@ -24,6 +24,10 @@ procs:
     nodejs:
         shell: 'bin/check_postgres_up && bin/check_kafka_clickhouse_up && bin/check_ducklake_up && ./bin/posthog-node'
         capability: event_ingestion
+        # Node.js capabilities are controlled via NODEJS_CAPABILITY_GROUPS env var
+        # Set by hogli dev:generate based on selected nodejs_* capabilities
+        # Valid groups: cdp_workflows, realtime_cohorts, session_replay, logs, feature_flags
+        # Example: NODEJS_CAPABILITY_GROUPS=cdp_workflows,session_replay
 
     frontend:
         shell: './bin/start-frontend'
@@ -40,7 +44,7 @@ procs:
             bin/check_kafka_clickhouse_up && \
             bin/check_temporal_up && \
             bin/check_ducklake_up && \
-            if [ -n "$TEMPORAL_DISABLE_HOT_RELOAD" ]; then \
+            if [ -n "$TEMPORAL_DISABLE_HOT_RELOAD" ] || ! command -v nodemon >/dev/null 2>&1; then \
                 python manage.py start_temporal_worker --task-queue development-task-queue; \
             else \
                 nodemon -w common -w dags -w ee -w posthog -w products -w pyproject.toml -e py --signal SIGTERM --exec "python manage.py start_temporal_worker --task-queue development-task-queue"; \
@@ -64,6 +68,17 @@ procs:
         shell: |-
             bin/check_postgres_up cyclotron && \
             bin/check_kafka_clickhouse_up && \
+            bin/start-rust-service cyclotron-janitor
+        capability: cyclotron
+
+    cyclotron-janitor-shadow:
+        shell: |-
+            bin/check_postgres_up cyclotron_shadow && \
+            bin/check_kafka_clickhouse_up && \
+            DATABASE_URL=postgres://posthog:posthog@localhost:5432/cyclotron_shadow \
+            BIND_PORT=3304 \
+            JANITOR_ID=shadow-janitor \
+            SHARD_ID=shadow \
             bin/start-rust-service cyclotron-janitor
         capability: cyclotron
 
@@ -140,8 +155,11 @@ procs:
 
     mcp:
         shell: 'bin/start-mcp-server'
-        autostart: false
-        # no capability - manual start
+        capability: mcp_server
+
+    mcp-ui-apps:
+        shell: 'cd services/mcp && pnpm run build:ui-apps -- --watch'
+        capability: mcp_server
 
     migrate-postgres:
         shell: 'bin/check_postgres_up && bin/check_ducklake_up && bin/migrate --scope=postgres'
@@ -150,6 +168,14 @@ procs:
     migrate-clickhouse:
         shell: 'bin/check_kafka_clickhouse_up && bin/check_ducklake_up && bin/migrate --scope=clickhouse'
         capability: core_infra
+
+    migrate-cyclotron:
+        shell: 'bin/check_postgres_up cyclotron && bin/migrate --scope=cyclotron'
+        capability: cyclotron
+
+    migrate-cyclotron-shadow:
+        shell: 'bin/check_postgres_up cyclotron_shadow && bin/migrate --scope=cyclotron-shadow'
+        capability: cyclotron
 
     migrate-persons-db:
         shell: 'bin/check_postgres_up posthog_persons && bin/migrate --scope=persons'

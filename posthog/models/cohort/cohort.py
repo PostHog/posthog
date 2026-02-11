@@ -12,7 +12,9 @@ from django.dispatch import receiver
 from django.utils import timezone
 
 import structlog
+import posthoganalytics
 
+from posthog.clickhouse.client import sync_execute
 from posthog.constants import PropertyOperatorType
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.batch_iterators import ArrayBatchIterator, BatchIterator, FunctionBatchIterator
@@ -467,13 +469,26 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             # Make sure persons are created in tests before running this
             flush_persons_and_events()
 
+        # Check feature flag once for the entire import process
+        use_clickhouse = posthoganalytics.feature_enabled(
+            "cohort-email-lookup-clickhouse",
+            str(team_id),
+            groups={"project": str(team_id)},
+            group_properties={
+                "project": {
+                    "id": str(team_id),
+                }
+            },
+            send_feature_flag_events=False,
+        )
+
         # Process emails in batches to avoid memory issues
         def create_uuid_batch(batch_index: int, batch_size: int) -> list[str]:
             """Create a batch of UUIDs from email addresses, excluding those already in cohort."""
             start_idx = batch_index * batch_size
             end_idx = start_idx + batch_size
             batch_emails = items[start_idx:end_idx]
-            uuids = self._get_uuids_for_emails_batch(batch_emails, team_id)
+            uuids = self._get_uuids_for_emails_batch(batch_emails, team_id, use_clickhouse=use_clickhouse)
             return uuids
 
         # Use FunctionBatchIterator to process emails in batches
@@ -482,16 +497,37 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         # Call the batching method with ClickHouse insertion enabled
         return self._insert_users_list_with_batching(batch_iterator, insert_in_clickhouse=True, team_id=team_id)
 
-    def _get_uuids_for_emails_batch(self, emails: list[str], team_id: int) -> list[str]:
+    def _get_uuids_for_emails_batch(self, emails: list[str], team_id: int, use_clickhouse: bool = False) -> list[str]:
         """
         Get UUIDs for a batch of email addresses, excluding those already in this cohort.
 
         Args:
             emails: List of email addresses to convert to UUIDs
             team_id: Team ID to filter by
+            use_clickhouse: Whether to use ClickHouse instead of PostgreSQL
 
         Returns:
             List of UUIDs for persons with the given email addresses who are not already in this cohort
+        """
+        if not emails:
+            return []
+
+        if use_clickhouse:
+            return self._get_uuids_for_emails_batch_ch(emails, team_id)
+
+        # Default to PostgreSQL method
+        return self._get_uuids_for_emails_batch_pg(emails, team_id)
+
+    def _get_uuids_for_emails_batch_pg(self, emails: list[str], team_id: int) -> list[str]:
+        """
+        Get UUIDs for email addresses using PostgreSQL (fallback path).
+
+        Args:
+            emails: List of email addresses to convert to UUIDs
+            team_id: Team ID to filter by
+
+        Returns:
+            List of UUIDs for persons with the given email addresses
         """
         if not emails:
             return []
@@ -503,8 +539,47 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             .filter(properties__email__in=emails)
             .values_list("uuid", flat=True)
         ]
-
         return uuids
+
+    def _get_uuids_for_emails_batch_ch(self, emails: list[str], team_id: int) -> list[str]:
+        """
+        Get UUIDs for email addresses using ClickHouse (fast path).
+        Uses direct ClickHouse SQL for optimal performance.
+
+        Args:
+            emails: List of email addresses to convert to UUIDs
+            team_id: Team ID to filter by
+
+        Returns:
+            List of UUIDs for persons with the given email addresses
+        """
+        if not emails:
+            return []
+
+        try:
+            # Use optimized ClickHouse query with GROUP BY HAVING
+            query = """
+            SELECT person.id
+            FROM person
+            WHERE person.team_id = %(team_id)s
+              AND person.pmat_email IN %(emails)s
+            GROUP BY person.id
+            HAVING argMax(person.is_deleted, person.version) = 0
+            SETTINGS optimize_aggregation_in_order = 1
+            """
+
+            result = sync_execute(query, {"team_id": team_id, "emails": emails})
+            return [str(row[0]) for row in result]
+
+        except Exception:
+            # Log error before falling back to PostgreSQL
+            logger.exception(
+                "ClickHouse email lookup failed, falling back to PostgreSQL",
+                team_id=team_id,
+                email_count=len(emails),
+            )
+            # Fallback to PostgreSQL method
+            return self._get_uuids_for_emails_batch_pg(emails, team_id)
 
     def insert_users_list_by_uuid_into_pg_only(
         self,
