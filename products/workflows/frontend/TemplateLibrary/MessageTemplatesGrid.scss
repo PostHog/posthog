@@ -36,9 +36,8 @@
 
 .MessageTemplatesGrid {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(auto-fill, 340px);
     gap: 0.75em;
-    max-width: 1100px;
 
     .MessageTemplateItem {
         width: 340px;

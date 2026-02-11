@@ -34,3 +34,25 @@ class NewReportMatch:
 
 
 MatchResult = ExistingReportMatch | NewReportMatch
+
+
+@dataclass
+class SignalResearchWorkflowInputs:
+    """Inputs for the signal research workflow."""
+
+    team_id: int
+    report_id: str
+
+
+@dataclass
+class SignalData:
+    """Data about a signal fetched from ClickHouse."""
+
+    signal_id: str
+    content: str
+    source_product: str
+    source_type: str
+    source_id: str
+    weight: float
+    timestamp: str
+    extra: dict = field(default_factory=dict)
