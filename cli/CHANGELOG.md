@@ -2,7 +2,7 @@
 
 # 0.5.29
 
-- chore: introduce env variable `POSTHOG_CLI_API_KEY` and `POSTHOG_PROJECT_ID` (backwards compatible)
+- chore: introduce env variable `POSTHOG_CLI_API_KEY` and `POSTHOG_CLI_PROJECT_ID` (backwards compatible)
 
 # 0.5.28
 
