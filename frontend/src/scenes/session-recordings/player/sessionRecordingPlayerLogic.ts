@@ -1430,12 +1430,14 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             // Add events in batches, yielding between batches to keep the UI responsive
             // during large snapshot loads.
             if (values.player?.replayer) {
-                const EVENTS_PER_BATCH = 100
+                const YIELD_AFTER_MS = 50
+                let lastYield = performance.now()
                 for (let i = 0; i < eventsToAdd.length; i++) {
-                    if (i > 0 && i % EVENTS_PER_BATCH === 0) {
-                        await new Promise<void>((r) => setTimeout(r, 0))
-                    }
                     values.player?.replayer?.addEvent(eventsToAdd[i])
+                    if (performance.now() - lastYield > YIELD_AFTER_MS) {
+                        await new Promise<void>((r) => setTimeout(r, 0))
+                        lastYield = performance.now()
+                    }
                 }
             }
 

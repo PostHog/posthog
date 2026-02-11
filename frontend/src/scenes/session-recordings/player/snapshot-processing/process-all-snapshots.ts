@@ -141,8 +141,8 @@ export async function processAllSnapshots(
         seenHashes: new Set<number>(),
     }
 
-    const YIELD_EVERY = 500
-    let processedCount = 0
+    const YIELD_AFTER_MS = 50
+    let lastYield = performance.now()
 
     for (let sourceIdx = 0; sourceIdx < sources.length; sourceIdx++) {
         const source = sources[sourceIdx]
@@ -181,9 +181,9 @@ export async function processAllSnapshots(
                 sessionRecordingId,
                 sourceKey
             )
-            processedCount++
-            if (processedCount % YIELD_EVERY === 0) {
+            if (performance.now() - lastYield > YIELD_AFTER_MS) {
                 await new Promise<void>((r) => setTimeout(r, 0))
+                lastYield = performance.now()
             }
         }
 
