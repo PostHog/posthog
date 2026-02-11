@@ -1,6 +1,6 @@
 import { Handle, Position } from '@xyflow/react'
 import clsx from 'clsx'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import React from 'react'
 
 import { LemonDivider } from '@posthog/lemon-ui'
@@ -12,6 +12,8 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { getActionFilterFromFunnelStep } from 'scenes/insights/views/Funnels/funnelStepTableUtils'
 
 import { FunnelStepMore } from '../FunnelStepMore'
+import { ValueInspectorButton } from '../ValueInspectorButton'
+import { funnelPersonsModalLogic } from '../funnelPersonsModalLogic'
 import {
     formatConvertedCount,
     formatConvertedPercentage,
@@ -34,12 +36,14 @@ export const FunnelFlowNode = React.memo(function FunnelFlowNode({ data }: { dat
     const isFirstStep = stepIndex === 0
     const { insightProps } = useValues(insightLogic)
     const { aggregationTargetLabel } = useValues(funnelDataLogic(insightProps))
+    const { canOpenPersonModal } = useValues(funnelPersonsModalLogic(insightProps))
+    const { openPersonsModalForStep } = useActions(funnelPersonsModalLogic(insightProps))
 
     return (
         <div
             className={clsx(
-                'relative rounded-lg border bg-bg-light p-1',
-                isOptional ? 'border-dashed border-border' : 'border-border'
+                'relative rounded-lg border p-1',
+                isOptional ? 'border-dashed border-border bg-fill-highlight-50' : 'border-border bg-bg-light'
             )}
             // eslint-disable-next-line react/forbid-dom-props
             style={{ width: NODE_WIDTH, height: NODE_HEIGHT }}
@@ -66,13 +70,30 @@ export const FunnelFlowNode = React.memo(function FunnelFlowNode({ data }: { dat
                 {/* Stats */}
                 <div className="flex flex-col gap-0.5">
                     <span className="text-xs text-muted">
-                        {formatConvertedCount(step, aggregationTargetLabel)} entered
+                        <ValueInspectorButton
+                            onClick={
+                                canOpenPersonModal
+                                    ? () => openPersonsModalForStep({ step, stepIndex, converted: true })
+                                    : undefined
+                            }
+                        >
+                            {formatConvertedCount(step, aggregationTargetLabel)}
+                        </ValueInspectorButton>{' '}
+                        entered
                     </span>
                     {!isFirstStep && (
                         <>
                             <span className="text-xs text-muted">
-                                {formatDroppedOffCount(step, aggregationTargetLabel)} dropped off (
-                                {formatDroppedOffPercentage(step)})
+                                <ValueInspectorButton
+                                    onClick={
+                                        canOpenPersonModal
+                                            ? () => openPersonsModalForStep({ step, stepIndex, converted: false })
+                                            : undefined
+                                    }
+                                >
+                                    {formatDroppedOffCount(step, aggregationTargetLabel)}
+                                </ValueInspectorButton>{' '}
+                                dropped off ({formatDroppedOffPercentage(step)})
                             </span>
                             <span className="text-xs font-semibold">{formatConvertedPercentage(step)} converted</span>
                             {step.median_conversion_time != null && (
