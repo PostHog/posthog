@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { combineUrl } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 import { useMemo, useState } from 'react'
 
 import { IconInfo, IconPlus } from '@posthog/icons'
@@ -104,15 +104,19 @@ export function RolesAccessControls(): JSX.Element {
                 if (!role) {
                     return null
                 }
+                const manageAccessUrl = combineUrl(urls.settings('environment-access-control'), {
+                    access_tab: 'roles',
+                    access_role_id: role.id,
+                }).url
                 return (
                     <LemonButton
                         type="tertiary"
                         size="small"
-                        to={
-                            combineUrl(urls.settings('environment-access-control'), {
-                                access_tab: 'roles',
-                                access_role_id: role.id,
-                            }).url
+                        className="whitespace-nowrap"
+                        onClick={() =>
+                            guardAvailableFeature(AvailableFeature.ROLE_BASED_ACCESS, () => {
+                                router.actions.push(manageAccessUrl)
+                            })
                         }
                     >
                         Manage access
