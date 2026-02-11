@@ -403,6 +403,11 @@ django_settings_module = "posthog.settings"
 sort_baseline = true
 ignore_categories = ["note"]
 
+[tool.pyright]
+venvPath = ".flox/cache"
+venv = "venv"
+pythonVersion = "3.12"
+
 [tool.ty.environment]
 python-version = "3.12"
 
