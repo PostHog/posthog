@@ -15,6 +15,8 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from .max_search_tool import max_search_tool
+
 logger = logging.getLogger("django")
 
 TARGET_AREAS = {
@@ -101,6 +103,27 @@ def _build_prompt() -> str:
     )
 
 
+def _search_docs(message: str) -> str:
+    """Search PostHog docs for context relevant to the ticket message."""
+    try:
+        search_results = max_search_tool(message)
+        if not isinstance(search_results, list):
+            return ""
+
+        lines = []
+        for result in search_results[:5]:
+            title = result.get("page_title", "Untitled")
+            url = result.get("url", "")
+            passages = result.get("relevant_passages", [])
+            snippet = passages[0]["text"][:200] if passages else ""
+            lines.append(f"- {title} ({url}): {snippet}")
+
+        return "\n".join(lines)
+    except Exception as e:
+        logger.warning(f"Doc search for classification failed: {e}")
+        return ""
+
+
 @api_view(["POST"])
 @authentication_classes([SessionAuthentication])
 @permission_classes([IsAuthenticated])
@@ -110,10 +133,20 @@ def classify_ticket(request: Request) -> Response:
         return Response({"error": "No message provided"}, status=status.HTTP_400_BAD_REQUEST)
 
     url_hint = request.data.get("url", "")
+    use_docs = request.data.get("use_docs", False)
 
     user_content = message
     if url_hint:
         user_content = f"Page URL: {url_hint}\n\nMessage:\n{message}"
+
+    # Optionally enrich with doc search context
+    doc_context = ""
+    if use_docs:
+        logger.info("[Support classify] Doc search enabled, searching...")
+        doc_context = _search_docs(message)
+        if doc_context:
+            user_content = f"Relevant PostHog docs:\n{doc_context}\n\n{user_content}"
+            logger.info(f"[Support classify] Found doc context ({len(doc_context)} chars)")
 
     try:
         client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
@@ -136,6 +169,7 @@ def classify_ticket(request: Request) -> Response:
         if result.get("kind") not in KINDS:
             result["kind"] = "support"
 
+        result["used_docs"] = use_docs and bool(doc_context)
         return Response(result)
 
     except (json.JSONDecodeError, IndexError, KeyError) as e:
