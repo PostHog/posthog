@@ -159,7 +159,12 @@ class PipelineV3(Generic[ResumableData]):
             validate_incremental_sync(self._is_incremental, self._resource)
 
             await setup_row_tracking_with_billing_check(
-                self._job.team_id, self._schema, self._resource, self._logger, billable=bool(self._job.billable)
+                self._job.team_id,
+                self._schema,
+                self._resource,
+                self._source,
+                self._logger,
+                billable=self._job.billable,
             )
 
             py_table = None
@@ -167,12 +172,7 @@ class PipelineV3(Generic[ResumableData]):
             chunk_index = 0
 
             await handle_reset_or_full_refresh(
-                self._reset_pipeline,
-                should_resume,
-                self._schema,
-                self._s3_batch_writer.cleanup,
-                self._logger,
-                log_prefix="V3 Pipeline: ",
+                self._reset_pipeline, should_resume, self._schema, self._delta_table_helper, self._logger
             )
 
             for item in self._resource.items():

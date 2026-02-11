@@ -22,6 +22,8 @@ if TYPE_CHECKING:
     from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import DeltaTableHelper
     from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 
+    from products.data_warehouse.backend.models import ExternalDataSource
+
 LOGGER = get_logger(__name__)
 
 
@@ -65,42 +67,49 @@ def supports_partial_data_loading(schema: ExternalDataSchema) -> bool:
     return schema.source.source_type == ExternalDataSourceType.STRIPE
 
 
-def notify_revenue_analytics_sync_completed(schema: ExternalDataSchema, logger: FilteringBoundLogger) -> None:
-    """Notify users that revenue analytics data is ready (Stripe-specific)."""
+async def notify_revenue_analytics_that_sync_has_completed(
+    schema: ExternalDataSchema, source: "ExternalDataSource", logger: FilteringBoundLogger
+) -> None:
     from posthog.temporal.data_imports.sources.stripe.constants import (
         CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
     )
 
     try:
-        if (
-            schema.name == STRIPE_CHARGE_RESOURCE_NAME
-            and schema.source.source_type == ExternalDataSourceType.STRIPE
-            and schema.source.revenue_analytics_config.enabled
-            and not schema.team.revenue_analytics_config.notified_first_sync
-        ):
-            # For every admin in the org, send a revenue analytics ready event
-            # This will trigger a Campaign in PostHog and send an email
-            for user in schema.team.all_users_with_access():
-                if user.distinct_id is not None:
-                    posthoganalytics.capture(
-                        distinct_id=user.distinct_id,
-                        event="revenue_analytics_ready",
-                        properties={"source_type": schema.source.source_type},
-                    )
 
-            # Mark the team as notified, avoiding spamming emails
-            schema.team.revenue_analytics_config.notified_first_sync = True
-            schema.team.revenue_analytics_config.save()
+        @database_sync_to_async_pool
+        def _check_and_notify():
+            if (
+                schema.name == STRIPE_CHARGE_RESOURCE_NAME
+                and source.source_type == ExternalDataSourceType.STRIPE
+                and source.revenue_analytics_config.enabled
+                and not schema.team.revenue_analytics_config.notified_first_sync
+            ):
+                # For every admin in the org, send a revenue analytics ready event
+                # This will trigger a Campaign in PostHog and send an email
+                for user in schema.team.all_users_with_access():
+                    if user.distinct_id is not None:
+                        posthoganalytics.capture(
+                            distinct_id=user.distinct_id,
+                            event="revenue_analytics_ready",
+                            properties={"source_type": source.source_type},
+                        )
+
+                # Mark the team as notified, avoiding spamming emails
+                schema.team.revenue_analytics_config.notified_first_sync = True
+                schema.team.revenue_analytics_config.save()
+
+        await _check_and_notify()
     except Exception as e:
         # Silently fail, we don't want this to crash the pipeline
         # Sending an email is not critical to the pipeline
-        logger.exception(f"Error notifying revenue analytics that sync has completed: {e}")
+        await logger.aexception(f"Error notifying revenue analytics that sync has completed: {e}")
         capture_exception(e)
 
 
-def run_post_load_operations(
+async def run_post_load_operations(
     job: ExternalDataJob,
     schema: ExternalDataSchema,
+    source: "ExternalDataSource",
     delta_table_helper: "Optional[DeltaTableHelper]",
     row_count: int,
     file_uris: list[str],
@@ -121,8 +130,8 @@ def run_post_load_operations(
     """
     from posthog.temporal.data_imports.pipelines.common.extract import finalize_desc_sort_incremental_value
     from posthog.temporal.data_imports.pipelines.pipeline_sync import (
-        update_last_synced_at_sync,
-        validate_schema_and_update_table_sync,
+        update_last_synced_at,
+        validate_schema_and_update_table,
     )
 
     if delta_table_helper is None or delta_table_helper.get_delta_table() is None:
@@ -147,16 +156,16 @@ def run_post_load_operations(
     )
 
     logger.debug("Updating last synced at timestamp on schema")
-    update_last_synced_at_sync(job_id=str(job.id), schema_id=str(schema.id), team_id=job.team_id)
+    await update_last_synced_at(job_id=str(job.id), schema_id=str(schema.id), team_id=job.team_id)
 
     logger.debug("Notifying revenue analytics that sync has completed")
-    notify_revenue_analytics_sync_completed(schema, logger)
+    await notify_revenue_analytics_that_sync_has_completed(schema, source, logger)
 
     if resource is not None:
-        finalize_desc_sort_incremental_value(resource, schema, last_incremental_field_value, logger)
+        await finalize_desc_sort_incremental_value(resource, schema, last_incremental_field_value, logger)
 
     logger.debug("Validating schema and updating table")
-    validate_schema_and_update_table_sync(
+    await validate_schema_and_update_table(
         run_id=str(job.id),
         team_id=job.team_id,
         schema_id=schema.id,

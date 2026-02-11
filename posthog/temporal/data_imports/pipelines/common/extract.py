@@ -1,5 +1,3 @@
-import gc
-from collections.abc import Callable
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any, NoReturn
 
@@ -15,6 +13,7 @@ from posthog.redis import get_async_client
 from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.data_imports.pipelines.common.load import get_incremental_field_value
 from posthog.temporal.data_imports.pipelines.pipeline.cdp_producer import CDPProducer
+from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import DeltaTableHelper
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     BillingLimitsWillBeReachedException,
@@ -228,20 +227,19 @@ async def handle_reset_or_full_refresh(
     reset_pipeline: bool,
     should_resume: bool,
     schema: "ExternalDataSchema",
-    reset_callback: Callable[[], None],
+    delta_table_helper: DeltaTableHelper,
     logger: FilteringBoundLogger,
-    log_prefix: str = "",
 ) -> None:
-    from products.data_warehouse.backend.models import ExternalDataSchema as ExternalDataSchemaModel
+    from products.data_warehouse.backend.models import ExternalDataSchema
 
     if reset_pipeline and not should_resume:
-        await logger.adebug(f"{log_prefix}Cleaning up previous data due to reset_pipeline")
-        await reset_callback()
+        await logger.adebug("Deleting existing table due to reset_pipeline being set")
+        await delta_table_helper.reset_table()
         await database_sync_to_async_pool(schema.update_sync_type_config_for_reset_pipeline)()
-    elif schema.sync_type == ExternalDataSchemaModel.SyncType.FULL_REFRESH and not should_resume:
+    elif schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH and not should_resume:
         # Avoid schema mismatches from existing data about to be overwritten
-        await logger.adebug(f"{log_prefix}Cleaning up previous data due to full refresh sync")
-        await reset_callback()
+        await logger.adebug("Deleting existing table due to sync being full refresh")
+        await delta_table_helper.reset_table()
         await database_sync_to_async_pool(schema.update_sync_type_config_for_reset_pipeline)()
 
 
@@ -249,7 +247,6 @@ def cleanup_memory(pa_memory_pool: pa.MemoryPool, py_table: pa.Table | None = No
     if py_table is not None:
         del py_table
     pa_memory_pool.release_unused()
-    gc.collect()
 
 
 async def update_incremental_field_values(
@@ -315,6 +312,8 @@ def should_check_shutdown(
     # Only raise if we're not running in descending order, otherwise we'll often not
     # complete the job before the incremental value can be updated. Or if the source is
     # resumable
+    # TODO: raise when we're within `x` time of the worker being forced to shutdown
+    # Raising during a full reset will reset our progress back to 0 rows
     incremental_sync_raise_during_shutdown = (
         schema.should_use_incremental_field and resource.sort_mode != "desc" and not reset_pipeline
     )

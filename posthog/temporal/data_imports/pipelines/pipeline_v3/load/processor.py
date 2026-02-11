@@ -7,7 +7,7 @@ from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KE
 from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import DeltaTableHelper
 from posthog.temporal.data_imports.pipelines.pipeline.hogql_schema import HogQLSchema
 from posthog.temporal.data_imports.pipelines.pipeline.utils import append_partition_key_to_table
-from posthog.temporal.data_imports.pipelines.pipeline_sync import validate_schema_and_update_table_sync
+from posthog.temporal.data_imports.pipelines.pipeline_sync import validate_schema_and_update_table
 from posthog.temporal.data_imports.pipelines.pipeline_v3.kafka.common import ExportSignalMessage, SyncTypeLiteral
 from posthog.temporal.data_imports.pipelines.pipeline_v3.load.idempotency import (
     is_batch_already_processed,
@@ -80,7 +80,7 @@ def _apply_partitioning(
     return pa_table
 
 
-def _handle_partial_data_loading(
+async def _handle_partial_data_loading(
     export_signal: ExportSignalMessage,
     job: ExternalDataJob,
     schema: Any,
@@ -103,24 +103,24 @@ def _handle_partial_data_loading(
         new_file_uris = list(set(current_file_uris) - set(previous_file_uris))
         modified_files = set(previous_file_uris) - set(current_file_uris)
         if modified_files:
-            logger.warning(
+            await logger.awarning(
                 "Found modified files during first sync, skipping partial data loading",
                 modified_count=len(modified_files),
             )
             return
 
     if not new_file_uris:
-        logger.debug("No new files to make queryable")
+        await logger.adebug("No new files to make queryable")
         return
 
-    logger.debug(
+    await logger.adebug(
         "partial_data_loading",
         batch_index=export_signal.batch_index,
         new_file_count=len(new_file_uris),
         cumulative_row_count=export_signal.cumulative_row_count,
     )
 
-    queryable_folder = prepare_s3_files_for_querying(
+    queryable_folder = await prepare_s3_files_for_querying(
         folder_path=job.folder_path(),
         table_name=export_signal.resource_name,
         file_uris=new_file_uris,
@@ -129,7 +129,7 @@ def _handle_partial_data_loading(
         logger=logger,
     )
 
-    validate_schema_and_update_table_sync(
+    await validate_schema_and_update_table(
         run_id=str(job.id),
         team_id=job.team_id,
         schema_id=schema.id,
@@ -166,6 +166,7 @@ def _run_post_load_for_already_processed_batch(export_signal: ExportSignalMessag
     run_post_load_operations(
         job=job,
         schema=schema,
+        source=schema.source,
         delta_table_helper=delta_table_helper,
         row_count=export_signal.total_rows or 0,
         file_uris=delta_table.file_uris(),
@@ -294,6 +295,7 @@ def process_message(message: Any) -> None:
         run_post_load_operations(
             job=job,
             schema=schema,
+            source=schema.source,
             delta_table_helper=delta_table_helper,
             row_count=export_signal.total_rows or 0,
             file_uris=delta_table.file_uris(),

@@ -8,7 +8,6 @@ from typing import Any, Generic, Literal, TypeVar
 
 import pyarrow as pa
 import deltalake as deltalake
-import posthoganalytics
 from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions_capture import capture_exception
@@ -27,7 +26,10 @@ from posthog.temporal.data_imports.pipelines.common.extract import (
     validate_incremental_sync,
     write_chunk_for_cdp_producer,
 )
-from posthog.temporal.data_imports.pipelines.common.load import supports_partial_data_loading
+from posthog.temporal.data_imports.pipelines.common.load import (
+    notify_revenue_analytics_that_sync_has_completed,
+    supports_partial_data_loading,
+)
 from posthog.temporal.data_imports.pipelines.pipeline.batcher import Batcher
 from posthog.temporal.data_imports.pipelines.pipeline.cdp_producer import CDPProducer
 from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import DeltaTableHelper
@@ -45,7 +47,6 @@ from posthog.temporal.data_imports.pipelines.pipeline_sync import (
     validate_schema_and_update_table,
 )
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from posthog.temporal.data_imports.sources.stripe.constants import CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME
 from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
 
 from products.data_warehouse.backend.models import (
@@ -55,7 +56,6 @@ from products.data_warehouse.backend.models import (
     ExternalDataSource,
 )
 from products.data_warehouse.backend.models.external_data_schema import process_incremental_value
-from products.data_warehouse.backend.types import ExternalDataSourceType
 
 T = TypeVar("T")
 
@@ -183,7 +183,7 @@ class PipelineNonDLT(Generic[ResumableData]):
             chunk_index = 0
 
             await handle_reset_or_full_refresh(
-                self._reset_pipeline, should_resume, self._schema, self._delta_table_helper.reset_table, self._logger
+                self._reset_pipeline, should_resume, self._schema, self._delta_table_helper, self._logger
             )
 
             # If the schema has no DWH table, it's a first ever sync
@@ -385,7 +385,7 @@ class PipelineNonDLT(Generic[ResumableData]):
         await update_last_synced_at(job_id=self._job.id, schema_id=self._schema.id, team_id=self._job.team_id)
 
         await self._logger.adebug("Notifying revenue analytics that sync has completed")
-        await _notify_revenue_analytics_that_sync_has_completed(self._schema, self._source, self._logger)
+        await notify_revenue_analytics_that_sync_has_completed(self._schema, self._source, self._logger)
 
         await finalize_desc_sort_incremental_value(
             self._resource, self._schema, self._last_incremental_field_value, self._logger
@@ -402,41 +402,6 @@ class PipelineNonDLT(Generic[ResumableData]):
             table_format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
         )
         await self._logger.adebug("Finished validating schema and updating table")
-
-
-async def _notify_revenue_analytics_that_sync_has_completed(
-    schema: ExternalDataSchema, source: ExternalDataSource, logger: FilteringBoundLogger
-) -> None:
-    try:
-
-        @database_sync_to_async_pool
-        def _check_and_notify():
-            if (
-                schema.name == STRIPE_CHARGE_RESOURCE_NAME
-                and source.source_type == ExternalDataSourceType.STRIPE
-                and source.revenue_analytics_config.enabled
-                and not schema.team.revenue_analytics_config.notified_first_sync
-            ):
-                # For every admin in the org, send a revenue analytics ready event
-                # This will trigger a Campaign in PostHog and send an email
-                for user in schema.team.all_users_with_access():
-                    if user.distinct_id is not None:
-                        posthoganalytics.capture(
-                            distinct_id=user.distinct_id,
-                            event="revenue_analytics_ready",
-                            properties={"source_type": source.source_type},
-                        )
-
-                # Mark the team as notified, avoiding spamming emails
-                schema.team.revenue_analytics_config.notified_first_sync = True
-                schema.team.revenue_analytics_config.save()
-
-        await _check_and_notify()
-    except Exception as e:
-        # Silently fail, we don't want this to crash the pipeline
-        # Sending an email is not critical to the pipeline
-        await logger.aexception(f"Error notifying revenue analytics that sync has completed: {e}")
-        capture_exception(e)
 
 
 def _estimate_size(obj: Any) -> int:
