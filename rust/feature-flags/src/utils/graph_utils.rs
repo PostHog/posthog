@@ -317,6 +317,29 @@ where
         Self::compute_stages(&self.graph, &mut out_degree)
     }
 
+    /// Like `evaluation_stages`, but consumes the graph and returns owned values.
+    /// Avoids cloning flags when they need to be moved into another context (e.g. rayon).
+    pub fn into_evaluation_stages(self) -> Result<Vec<Vec<T>>, T::Error> {
+        let mut out_degree = self.build_evaluation_maps()?;
+        let stage_indices = Self::compute_stage_indices(&self.graph, &mut out_degree)?;
+        let (nodes, _) = self.graph.into_nodes_edges();
+        let mut node_slots: Vec<Option<T>> = nodes.into_iter().map(|n| Some(n.weight)).collect();
+
+        Ok(stage_indices
+            .into_iter()
+            .map(|stage| {
+                stage
+                    .into_iter()
+                    .map(|idx| {
+                        node_slots[idx.index()]
+                            .take()
+                            .expect("node used in multiple stages")
+                    })
+                    .collect()
+            })
+            .collect())
+    }
+
     /// Returns an iterator over all nodes (items) in the graph.
     pub fn iter_nodes(&self) -> impl Iterator<Item = &T> {
         self.graph.node_indices().map(|idx| &self.graph[idx])
@@ -333,35 +356,43 @@ where
         Ok(out_degree)
     }
 
-    fn compute_stages<'a>(
-        graph: &'a DiGraph<T, ()>,
+    fn compute_stage_indices(
+        graph: &DiGraph<T, ()>,
         out_degree: &mut HashMap<NodeIndex, usize>,
-    ) -> Result<Vec<Vec<&'a T>>, T::Error> {
+    ) -> Result<Vec<Vec<NodeIndex>>, T::Error> {
         use petgraph::Direction::Incoming;
-        let node_count = graph.node_count();
-        let mut stages = Vec::with_capacity(node_count);
+        let mut stages = Vec::new();
         while !out_degree.is_empty() {
-            let mut current_stage = Vec::new();
-            for (&node_idx, &deg) in out_degree.iter() {
-                if deg == 0 {
-                    current_stage.push(node_idx);
-                }
-            }
+            let current_stage: Vec<NodeIndex> = out_degree
+                .iter()
+                .filter(|(_, &deg)| deg == 0)
+                .map(|(&idx, _)| idx)
+                .collect();
             if current_stage.is_empty() {
                 return Err(FlagError::DependencyCycle(T::dependency_type(), -1).into());
             }
-            let stage_items: Vec<&'a T> = current_stage.iter().map(|idx| &graph[*idx]).collect();
-            stages.push(stage_items);
-            for node_idx in &current_stage {
-                for parent in graph.neighbors_directed(*node_idx, Incoming) {
+            for &node_idx in &current_stage {
+                for parent in graph.neighbors_directed(node_idx, Incoming) {
                     if let Some(deg) = out_degree.get_mut(&parent) {
                         *deg -= 1;
                     }
                 }
-                out_degree.remove(node_idx);
+                out_degree.remove(&node_idx);
             }
+            stages.push(current_stage);
         }
         Ok(stages)
+    }
+
+    fn compute_stages<'a>(
+        graph: &'a DiGraph<T, ()>,
+        out_degree: &mut HashMap<NodeIndex, usize>,
+    ) -> Result<Vec<Vec<&'a T>>, T::Error> {
+        let stage_indices = Self::compute_stage_indices(graph, out_degree)?;
+        Ok(stage_indices
+            .into_iter()
+            .map(|stage| stage.into_iter().map(|idx| &graph[idx]).collect())
+            .collect())
     }
 
     /// Helper to get a node's ID as an i64
