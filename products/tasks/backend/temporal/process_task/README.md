@@ -79,13 +79,13 @@ Inside the sandbox, `npx agent-server` starts an HTTP server on the configured p
 
 Environment variables consumed inside the sandbox:
 
-| Variable | Purpose |
-|----------|---------|
-| `GITHUB_TOKEN` | GitHub installation access token for repo operations |
-| `POSTHOG_PERSONAL_API_KEY` | OAuth access token (6h TTL) for PostHog API |
-| `POSTHOG_API_URL` | PostHog instance URL |
-| `POSTHOG_PROJECT_ID` | Team ID for API scoping |
-| `JWT_PUBLIC_KEY` | Public key for verifying sandbox connection tokens |
+| Variable                   | Purpose                                              |
+| -------------------------- | ---------------------------------------------------- |
+| `GITHUB_TOKEN`             | GitHub installation access token for repo operations |
+| `POSTHOG_PERSONAL_API_KEY` | OAuth access token (6h TTL) for PostHog API          |
+| `POSTHOG_API_URL`          | PostHog instance URL                                 |
+| `POSTHOG_PROJECT_ID`       | Team ID for API scoping                              |
+| `JWT_PUBLIC_KEY`           | Public key for verifying sandbox connection tokens   |
 
 ## End-to-end flow
 
@@ -120,24 +120,24 @@ Per-team configuration for sandbox execution: network access level (trusted/full
 
 ## Authentication and security
 
-| Mechanism | Details |
-|-----------|---------|
-| Feature flag | `tasks` — checked in `client.py` before starting workflow |
+| Mechanism       | Details                                                                                                           |
+| --------------- | ----------------------------------------------------------------------------------------------------------------- |
+| Feature flag    | `tasks` — checked in `client.py` before starting workflow                                                         |
 | Array OAuth app | Region-specific client IDs (US/EU/DEV) in `backend/temporal/oauth.py`. Creates scoped OAuth tokens with 6h expiry |
-| Sandbox JWT | RS256 tokens from `backend/services/connection_token.py`. 24h expiry, audience `posthog:sandbox_connection` |
-| GitHub App | Installation access tokens via the team's GitHub integration |
-| API permissions | `PostHogFeatureFlagPermission` + `APIScopePermission` on all endpoints |
+| Sandbox JWT     | RS256 tokens from `backend/services/connection_token.py`. 24h expiry, audience `posthog:sandbox_connection`       |
+| GitHub App      | Installation access tokens via the team's GitHub integration                                                      |
+| API permissions | `PostHogFeatureFlagPermission` + `APIScopePermission` on all endpoints                                            |
 
 ## Sandbox providers
 
-| | DockerSandbox | ModalSandbox |
-|---|---|---|
-| Use case | Local development | Production |
-| Port | 47821 | 8080 |
-| Isolation | Standard Docker container | gVisor kernel-level sandboxing |
-| Auth | No token needed | Modal connect token |
-| Image source | Local Dockerfile build | `ghcr.io/posthog/posthog-sandbox-base` |
-| Snapshots | Docker commit/tag | Modal `snapshot_filesystem()` |
+|              | DockerSandbox             | ModalSandbox                           |
+| ------------ | ------------------------- | -------------------------------------- |
+| Use case     | Local development         | Production                             |
+| Port         | 47821                     | 8080                                   |
+| Isolation    | Standard Docker container | gVisor kernel-level sandboxing         |
+| Auth         | No token needed           | Modal connect token                    |
+| Image source | Local Dockerfile build    | `ghcr.io/posthog/posthog-sandbox-base` |
+| Snapshots    | Docker commit/tag         | Modal `snapshot_filesystem()`          |
 
 ### Images
 
@@ -153,21 +153,21 @@ Per-team configuration for sandbox execution: network access level (trusted/full
 
 ## Key files
 
-| File | Role |
-|------|------|
-| `backend/api.py` | REST API — TaskViewSet, TaskRunViewSet |
-| `backend/models.py` | Task, TaskRun, SandboxSnapshot, SandboxEnvironment |
-| `backend/temporal/client.py` | Workflow triggering, feature flag check |
-| `backend/temporal/process_task/workflow.py` | ProcessTaskWorkflow orchestration |
+| File                                        | Role                                                          |
+| ------------------------------------------- | ------------------------------------------------------------- |
+| `backend/api.py`                            | REST API — TaskViewSet, TaskRunViewSet                        |
+| `backend/models.py`                         | Task, TaskRun, SandboxSnapshot, SandboxEnvironment            |
+| `backend/temporal/client.py`                | Workflow triggering, feature flag check                       |
+| `backend/temporal/process_task/workflow.py` | ProcessTaskWorkflow orchestration                             |
 | `backend/temporal/process_task/activities/` | Workflow activities (context, sandbox, agent server, cleanup) |
-| `backend/services/sandbox.py` | Sandbox protocol and provider selection |
-| `backend/services/docker_sandbox.py` | DockerSandbox implementation |
-| `backend/services/modal_sandbox.py` | ModalSandbox implementation |
-| `backend/services/connection_token.py` | JWT token generation |
-| `backend/temporal/oauth.py` | Array OAuth app, token creation |
-| `backend/sandbox/images/` | Dockerfiles for sandbox images |
-| `scripts/runAgent.mjs` | Agent runner entrypoint in sandbox |
-| `scripts/run_agent_in_docker.py` | Local test script |
-| `frontend/components/TaskDetailPage.tsx` | Task detail UI |
-| `frontend/components/TaskSessionView.tsx` | Live log streaming UI |
-| `posthog/settings/temporal.py` | Temporal and sandbox settings |
+| `backend/services/sandbox.py`               | Sandbox protocol and provider selection                       |
+| `backend/services/docker_sandbox.py`        | DockerSandbox implementation                                  |
+| `backend/services/modal_sandbox.py`         | ModalSandbox implementation                                   |
+| `backend/services/connection_token.py`      | JWT token generation                                          |
+| `backend/temporal/oauth.py`                 | Array OAuth app, token creation                               |
+| `backend/sandbox/images/`                   | Dockerfiles for sandbox images                                |
+| `scripts/runAgent.mjs`                      | Agent runner entrypoint in sandbox                            |
+| `scripts/run_agent_in_docker.py`            | Local test script                                             |
+| `frontend/components/TaskDetailPage.tsx`    | Task detail UI                                                |
+| `frontend/components/TaskSessionView.tsx`   | Live log streaming UI                                         |
+| `posthog/settings/temporal.py`              | Temporal and sandbox settings                                 |
