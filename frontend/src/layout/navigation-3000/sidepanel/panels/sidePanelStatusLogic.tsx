@@ -2,6 +2,7 @@ import { actions, afterMount, connect, kea, listeners, path, reducers, selectors
 import { loaders } from 'kea-loaders'
 
 import { superpowersLogic } from 'lib/components/Superpowers/superpowersLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { sidePanelStateLogic } from '../sidePanelStateLogic'
 import type { sidePanelStatusLogicType } from './sidePanelStatusLogicType'
@@ -96,7 +97,7 @@ export const sidePanelStatusLogic = kea<sidePanelStatusLogicType>([
     path(['scenes', 'navigation', 'sidepanel', 'sidePanelStatusLogic']),
     connect(() => ({
         actions: [sidePanelStateLogic, ['openSidePanel', 'closeSidePanel']],
-        values: [superpowersLogic, ['fakeStatusOverride', 'superpowersEnabled']],
+        values: [superpowersLogic, ['fakeStatusOverride', 'superpowersEnabled'], preflightLogic, ['isCloudOrDev']],
     })),
 
     actions({
@@ -140,11 +141,14 @@ export const sidePanelStatusLogic = kea<sidePanelStatusLogicType>([
         ],
     }),
 
-    loaders(() => ({
+    loaders(({ values }) => ({
         statusPage: [
             null as SPSummary | null,
             {
                 loadStatusPage: async () => {
+                    if (!values.isCloudOrDev) {
+                        return null
+                    }
                     const response = await fetch(`${STATUS_PAGE_BASE}/api/v2/summary.json`)
                     const data: SPSummary = await response.json()
 

@@ -2,6 +2,7 @@ import { actions, afterMount, connect, kea, listeners, path, selectors } from 'k
 import { loaders } from 'kea-loaders'
 
 import { superpowersLogic } from 'lib/components/Superpowers/superpowersLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import type { sidePanelStatusIncidentIoLogicType } from './sidePanelStatusIncidentIoLogicType'
 
@@ -128,18 +129,21 @@ export const sidePanelStatusIncidentIoLogic = kea<sidePanelStatusIncidentIoLogic
     path(['scenes', 'navigation', 'sidepanel', 'sidePanelStatusIncidentIoLogic']),
 
     connect(() => ({
-        values: [superpowersLogic, ['fakeStatusOverride', 'superpowersEnabled']],
+        values: [superpowersLogic, ['fakeStatusOverride', 'superpowersEnabled'], preflightLogic, ['isCloudOrDev']],
     })),
 
     actions({
         setPageVisibility: (visible: boolean) => ({ visible }),
     }),
 
-    loaders(() => ({
+    loaders(({ values }) => ({
         summary: [
             null as IncidentIoSummary | null,
             {
                 loadSummary: async () => {
+                    if (!values.isCloudOrDev) {
+                        return null
+                    }
                     const response = await fetch(`${INCIDENT_IO_STATUS_PAGE_BASE}/api/v1/summary`)
                     const data: IncidentIoSummary = await response.json()
                     return data
