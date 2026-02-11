@@ -8,7 +8,7 @@
                                                  FROM events
                                                  WHERE and(equals(events.team_id, 99999), equals(events.event, '$pageview'), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-12 23:59:59.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-12 00:00:00.000000', 6, 'UTC')))
                                                  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
-                                                 LIMIT 101)), and(equals(events.event, '$pageview'), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-12 23:59:59.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-12 00:00:00.000000', 6, 'UTC'))))
+                                                 LIMIT 2001)), and(equals(events.event, '$pageview'), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-12 23:59:59.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-12 00:00:00.000000', 6, 'UTC'))))
   ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -33,7 +33,7 @@
                                                  FROM events
                                                  WHERE and(equals(events.team_id, 99999), equals(events.event, '$pageview'), less(toTimeZone(events.timestamp, 'America/Phoenix'), toDateTime64('2020-01-12 23:59:59.000000', 6, 'America/Phoenix')), greater(toTimeZone(events.timestamp, 'America/Phoenix'), toDateTime64('2020-01-12 00:00:00.000000', 6, 'America/Phoenix')))
                                                  ORDER BY toTimeZone(events.timestamp, 'America/Phoenix') ASC
-                                                 LIMIT 101)), and(equals(events.event, '$pageview'), less(toTimeZone(events.timestamp, 'America/Phoenix'), toDateTime64('2020-01-12 23:59:59.000000', 6, 'America/Phoenix')), greater(toTimeZone(events.timestamp, 'America/Phoenix'), toDateTime64('2020-01-12 00:00:00.000000', 6, 'America/Phoenix'))))
+                                                 LIMIT 2001)), and(equals(events.event, '$pageview'), less(toTimeZone(events.timestamp, 'America/Phoenix'), toDateTime64('2020-01-12 23:59:59.000000', 6, 'America/Phoenix')), greater(toTimeZone(events.timestamp, 'America/Phoenix'), toDateTime64('2020-01-12 00:00:00.000000', 6, 'America/Phoenix'))))
   ORDER BY toTimeZone(events.timestamp, 'America/Phoenix') ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -58,7 +58,7 @@
                                                  FROM events
                                                  WHERE and(equals(events.team_id, 99999), equals(events.event, '$pageview'), less(toTimeZone(events.timestamp, 'Asia/Tokyo'), toDateTime64('2020-01-12 23:59:59.000000', 6, 'Asia/Tokyo')), greater(toTimeZone(events.timestamp, 'Asia/Tokyo'), toDateTime64('2020-01-12 00:00:00.000000', 6, 'Asia/Tokyo')))
                                                  ORDER BY toTimeZone(events.timestamp, 'Asia/Tokyo') ASC
-                                                 LIMIT 101)), and(equals(events.event, '$pageview'), less(toTimeZone(events.timestamp, 'Asia/Tokyo'), toDateTime64('2020-01-12 23:59:59.000000', 6, 'Asia/Tokyo')), greater(toTimeZone(events.timestamp, 'Asia/Tokyo'), toDateTime64('2020-01-12 00:00:00.000000', 6, 'Asia/Tokyo'))))
+                                                 LIMIT 2001)), and(equals(events.event, '$pageview'), less(toTimeZone(events.timestamp, 'Asia/Tokyo'), toDateTime64('2020-01-12 23:59:59.000000', 6, 'Asia/Tokyo')), greater(toTimeZone(events.timestamp, 'Asia/Tokyo'), toDateTime64('2020-01-12 00:00:00.000000', 6, 'Asia/Tokyo'))))
   ORDER BY toTimeZone(events.timestamp, 'Asia/Tokyo') ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -83,7 +83,7 @@
                                                  FROM events
                                                  WHERE and(equals(events.team_id, 99999), notILike(toString(events.elements_chain), '%div%'), equals(events.event, '$autocapture'), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-21 00:00:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-20 00:00:00.000000', 6, 'UTC')))
                                                  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
-                                                 LIMIT 101)), and(notILike(toString(events.elements_chain), '%div%'), equals(events.event, '$autocapture'), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-21 00:00:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-20 00:00:00.000000', 6, 'UTC'))))
+                                                 LIMIT 2001)), and(notILike(toString(events.elements_chain), '%div%'), equals(events.event, '$autocapture'), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-21 00:00:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-20 00:00:00.000000', 6, 'UTC'))))
   ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -108,7 +108,7 @@
                                                  FROM events
                                                  WHERE and(equals(events.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'some_prop'), ''), 'null'), '^"|"$', ''), 'a'), 0), equals(events.event, '$pageview'), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-21 00:00:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')))
                                                  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
-                                                 LIMIT 101)), and(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'some_prop'), ''), 'null'), '^"|"$', ''), 'a'), 0), equals(events.event, '$pageview'), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-21 00:00:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC'))))
+                                                 LIMIT 2001)), and(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'some_prop'), ''), 'null'), '^"|"$', ''), 'a'), 0), equals(events.event, '$pageview'), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-21 00:00:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC'))))
   ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -133,7 +133,7 @@
                                                  FROM events
                                                  WHERE and(equals(events.team_id, 99999), equals(events.event, '$pageview'), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-21 00:00:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')))
                                                  ORDER BY toTimeZone(events.timestamp, 'UTC') DESC, events.event ASC
-                                                 LIMIT 101)), and(equals(events.event, '$pageview'), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-21 00:00:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC'))))
+                                                 LIMIT 2001)), and(equals(events.event, '$pageview'), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-21 00:00:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC'))))
   ORDER BY toTimeZone(events.timestamp, 'UTC') DESC, events.event ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -158,7 +158,7 @@
                                                  FROM events
                                                  WHERE and(equals(events.team_id, 99999), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-21 00:00:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')))
                                                  ORDER BY events.event ASC
-                                                 LIMIT 101)), and(less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-21 00:00:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC'))))
+                                                 LIMIT 2001)), and(less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-21 00:00:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC'))))
   ORDER BY events.event ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -183,7 +183,7 @@
                                                  FROM events
                                                  WHERE and(equals(events.team_id, 99999), equals(events.event, '$pageview'), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-21 00:00:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')))
                                                  ORDER BY replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'priority'), ''), 'null'), '^"|"$', '') ASC
-                                                 LIMIT 101)), and(equals(events.event, '$pageview'), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-21 00:00:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC'))))
+                                                 LIMIT 2001)), and(equals(events.event, '$pageview'), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-21 00:00:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC'))))
   ORDER BY replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'priority'), ''), 'null'), '^"|"$', '') ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
