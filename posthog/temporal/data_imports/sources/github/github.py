@@ -264,9 +264,15 @@ def github_source(
     if endpoint == "stargazers":
         headers["Accept"] = "application/vnd.github.star+json"
 
+    # The actual sort mode matches the endpoint config only when
+    # we have a cutoff value; otherwise get_resource defaults to asc.
+    actual_sort_mode = (
+        endpoint_config.sort_mode if should_use_incremental_field and db_incremental_field_last_value else "asc"
+    )
+
     paginator_incremental_field = None
     paginator_db_incremental_field_last_value = None
-    if endpoint_config.sort_mode == "desc" and should_use_incremental_field:
+    if actual_sort_mode == "desc" and should_use_incremental_field:
         paginator_incremental_field = incremental_field or endpoint_config.default_incremental_field
         paginator_db_incremental_field_last_value = db_incremental_field_last_value
 
@@ -281,7 +287,7 @@ def github_source(
             "paginator": GithubPaginator(
                 incremental_field=paginator_incremental_field,
                 db_incremental_field_last_value=paginator_db_incremental_field_last_value,
-                sort_mode=endpoint_config.sort_mode,
+                sort_mode=actual_sort_mode,
             ),
         },
         "resource_defaults": {
@@ -323,7 +329,7 @@ def github_source(
         name=endpoint,
         items=lambda: resource,
         primary_keys=[endpoint_config.primary_key],
-        sort_mode=endpoint_config.sort_mode,
+        sort_mode=actual_sort_mode,
         partition_count=1,
         partition_size=1,
         partition_mode="datetime" if endpoint_config.partition_key else None,

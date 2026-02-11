@@ -14,6 +14,7 @@ from posthog.temporal.data_imports.sources.github.github import (
     _format_incremental_value,
     _is_issue_not_pr,
     get_resource,
+    github_source,
     validate_credentials,
 )
 
@@ -412,3 +413,41 @@ class TestValidateCredentials:
         headers = call_kwargs.kwargs["headers"]
         assert headers["Authorization"] == "Bearer my-token"
         assert headers["X-GitHub-Api-Version"] == "2022-11-28"
+
+
+class TestGithubSourceSortMode:
+    """SourceResponse.sort_mode must match the actual API request direction."""
+
+    def _make_source(self, endpoint, should_use_incremental_field, db_incremental_field_last_value=None):
+        with mock.patch("posthog.temporal.data_imports.sources.github.github.rest_api_resources") as mock_resources:
+            mock_resource = mock.MagicMock()
+            mock_resources.return_value = [mock_resource]
+            return github_source(
+                personal_access_token="token",
+                repository="owner/repo",
+                endpoint=endpoint,
+                team_id=1,
+                job_id="job-1",
+                should_use_incremental_field=should_use_incremental_field,
+                db_incremental_field_last_value=db_incremental_field_last_value,
+            )
+
+    @parameterized.expand(
+        [
+            ("pull_requests_first_sync_no_cutoff", "pull_requests", True, None, "asc"),
+            ("pull_requests_full_refresh", "pull_requests", False, None, "asc"),
+            (
+                "pull_requests_incremental_with_cutoff",
+                "pull_requests",
+                True,
+                datetime(2026, 1, 15, tzinfo=UTC),
+                "desc",
+            ),
+            ("commits_first_sync_no_cutoff", "commits", True, None, "asc"),
+            ("commits_incremental_with_cutoff", "commits", True, datetime(2026, 1, 15, tzinfo=UTC), "desc"),
+            ("issues_always_asc", "issues", True, datetime(2026, 1, 15, tzinfo=UTC), "asc"),
+        ]
+    )
+    def test_sort_mode(self, _name, endpoint, incremental, cutoff, expected_sort_mode):
+        response = self._make_source(endpoint, incremental, cutoff)
+        assert response.sort_mode == expected_sort_mode
