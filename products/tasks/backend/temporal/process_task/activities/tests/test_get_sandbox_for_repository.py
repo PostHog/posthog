@@ -2,7 +2,6 @@ import os
 import uuid
 
 import pytest
-from unittest.mock import patch
 
 from asgiref.sync import async_to_sync
 
@@ -41,29 +40,27 @@ class TestGetSandboxForRepositoryActivity:
             status=SandboxSnapshot.Status.COMPLETE,
         )
 
+        sandbox_id = None
         try:
             context = self._create_context(github_integration, test_task, test_task_run)
             input_data = GetSandboxForRepositoryInput(context=context)
 
-            mock_sandbox = Sandbox.__new__(Sandbox)
-            mock_sandbox.id = f"mock-sandbox-{uuid.uuid4().hex[:8]}"
+            result = async_to_sync(activity_environment.run)(get_sandbox_for_repository, input_data)
 
-            with patch(
-                "products.tasks.backend.temporal.process_task.activities.get_sandbox_for_repository.Sandbox.create",
-                return_value=mock_sandbox,
-            ) as mock_create:
-                result = async_to_sync(activity_environment.run)(get_sandbox_for_repository, input_data)
+            assert result.sandbox_id is not None
+            assert result.used_snapshot is True
+            assert result.should_create_snapshot is False
 
-                assert result.sandbox_id == mock_sandbox.id
-                assert result.used_snapshot is True
-                assert result.should_create_snapshot is False
-
-                call_args = mock_create.call_args
-                config = call_args[0][0]
-                assert config.snapshot_id == str(snapshot.id)
+            sandbox_id = result.sandbox_id
 
         finally:
             snapshot.delete()
+            if sandbox_id:
+                try:
+                    sandbox = Sandbox.get_by_id(sandbox_id)
+                    sandbox.destroy()
+                except Exception:
+                    pass
 
     @pytest.mark.django_db
     def test_get_sandbox_without_snapshot_returns_should_create_snapshot(

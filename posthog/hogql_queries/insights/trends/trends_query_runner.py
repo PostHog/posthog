@@ -622,7 +622,11 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                     series_object["breakdown_value"] = remapped_label
                 elif self.query.breakdownFilter.breakdown_type == "cohort":
                     cohort_id = get_value("breakdown_value", val)
-                    cohort_name = "all users" if str(cohort_id) == "0" else Cohort.objects.get(pk=cohort_id).name
+                    cohort_name = (
+                        "all users"
+                        if str(cohort_id) == "0"
+                        else Cohort.objects.get(pk=cohort_id, team__project_id=self.team.project_id).name
+                    )
 
                     if real_series_count > 1:
                         series_object["label"] = "{} - {}".format(series_object["label"], cohort_name)

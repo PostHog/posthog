@@ -285,7 +285,8 @@ class TestCSVExporter(APIBaseTest):
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
             csv_exporter.export_tabular(exported_asset)
 
-            assert exported_asset.filename == "export.xlsx"
+            created_date = exported_asset.created_at.strftime("%Y-%m-%d")
+            assert exported_asset.filename == f"export-{created_date}.xlsx"
             assert exported_asset.content_location is None
 
             wb = load_workbook(filename=BytesIO(exported_asset.content))

@@ -6,11 +6,13 @@ import {
     IconBook,
     IconBug,
     IconCircleDashed,
+    IconClock,
     IconCode,
     IconCode2,
     IconDashboard,
     IconDatabase,
     IconDecisionTree,
+    IconDownload,
     IconExternal,
     IconFeatures,
     IconFlask,
@@ -189,6 +191,9 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     action: {
         icon: <IconPlay />,
     },
+    activity: {
+        icon: <IconClock />,
+    },
     comment: {
         icon: <IconNotification />,
     },
@@ -303,6 +308,9 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     llm_clusters: {
         icon: <IconPeople />,
         iconColor: ['var(--color-product-llm-clusters-light)'],
+    },
+    exports: {
+        icon: <IconDownload />,
     },
 }
 

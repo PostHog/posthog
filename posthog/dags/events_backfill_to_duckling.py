@@ -31,16 +31,15 @@ Partition Strategy:
 """
 
 import json
+import time
 import calendar
 from datetime import date, datetime, timedelta
 from typing import Any
 
 from django.utils import timezone
 
-import boto3
 import duckdb
 import structlog
-from botocore.exceptions import ClientError
 from clickhouse_driver import Client
 from clickhouse_driver.errors import Error as ClickHouseError
 from dagster import (
@@ -57,10 +56,10 @@ from dagster import (
     define_asset_job,
     sensor,
 )
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential, wait_fixed
 
 from posthog.clickhouse.client.connection import NodeRole, Workload
-from posthog.clickhouse.cluster import get_cluster
+from posthog.clickhouse.cluster import ClickhouseCluster, get_cluster
 from posthog.clickhouse.query_tagging import tags_context
 from posthog.cloud_utils import is_cloud
 from posthog.dags.common.common import JobOwners, dagster_tags, settings_with_log_comment
@@ -74,6 +73,35 @@ from posthog.ducklake.models import DuckLakeCatalog
 from posthog.ducklake.storage import configure_cross_account_connection
 
 logger = structlog.get_logger(__name__)
+
+# DuckDB memory limit for Dagster pod operations.
+# The Dagster pod has 16Gi total; we cap DuckDB at 4Gi to leave headroom
+# for Python, Dagster framework, and ClickHouse client overhead.
+DUCKDB_MEMORY_LIMIT = "4GB"
+
+
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_fixed(5),
+    retry=retry_if_exception_type((TimeoutError, OSError)),
+    reraise=True,
+)
+def _get_cluster() -> ClickhouseCluster:
+    """get_cluster() with retry for transient bootstrap timeouts.
+
+    Retries the cluster discovery query only — does not affect subsequent
+    per-host query execution, avoiding stacked retries with Tenacity
+    export retry decorators.
+    """
+    return get_cluster()
+
+
+def _connect_duckdb() -> duckdb.DuckDBPyConnection:
+    """Create a DuckDB connection with memory limits appropriate for the Dagster pod."""
+    conn = duckdb.connect(config={"memory_limit": DUCKDB_MEMORY_LIMIT})
+    conn.execute("SET temp_directory = '/tmp/duckdb_temp'")
+    return conn
+
 
 # Columns to export from ClickHouse events table for duckling backfill.
 # ClickHouse exports DateTime64 as TIMESTAMP WITH TIME ZONE in Parquet.
@@ -108,10 +136,6 @@ EVENTS_COLUMNS = """
 
 BACKFILL_EVENTS_S3_PREFIX = "backfill/events"
 BACKFILL_PERSONS_S3_PREFIX = "backfill/persons"
-
-# Maximum partitions to create per sensor evaluation to avoid OOM/timeout
-# The sensor runs daily, so this limits how fast full backfills progress
-MAX_PARTITIONS_PER_FULL_BACKFILL_EVALUATION = 100
 
 EVENTS_CONCURRENCY_TAG = {
     "duckling_events_backfill_concurrency": "duckling_events_v1",
@@ -214,7 +238,7 @@ class DucklingBackfillConfig(Config):
     clickhouse_settings: dict[str, Any] | None = None
     skip_ducklake_registration: bool = False
     skip_schema_validation: bool = False
-    cleanup_prior_run_files: bool = True
+    cleanup_existing_partition_data: bool = True  # Delete existing DuckLake data for partition before registering
     create_tables_if_missing: bool = True
     delete_tables: bool = False  # Danger: drops and recreates tables, losing all data
     dry_run: bool = False
@@ -318,7 +342,7 @@ def get_earliest_event_date_for_team(team_id: int) -> datetime | None:
     Returns:
         The date of the earliest event, or None if no events exist for this team.
     """
-    cluster = get_cluster()
+    cluster = _get_cluster()
     workload = Workload.OFFLINE if is_cloud() else Workload.DEFAULT
 
     def query_earliest(client: Client) -> datetime | None:
@@ -358,7 +382,7 @@ def get_earliest_person_date_for_team(team_id: int) -> datetime | None:
     Returns:
         The date of the earliest person modification, or None if no persons exist.
     """
-    cluster = get_cluster()
+    cluster = _get_cluster()
     workload = Workload.OFFLINE if is_cloud() else Workload.DEFAULT
 
     def query_earliest(client: Client) -> datetime | None:
@@ -460,16 +484,18 @@ def _set_table_partitioning(
         conn.execute(f"ALTER TABLE {alias}.posthog.{table} SET PARTITIONED BY ({partition_expr})")
         context.log.info(f"Successfully set partitioning on {table} table")
         logger.info(
-            f"duckling_{table}_partitioning_set",
+            "duckling_table_partitioning_set",
             team_id=team_id,
+            table=table,
             partition_expr=partition_expr,
         )
         return True
     except Exception as exc:
         context.log.warning(f"Failed to set partitioning on {table} table: {exc}")
         logger.warning(
-            f"duckling_{table}_partitioning_failed",
+            "duckling_table_partitioning_failed",
             team_id=team_id,
+            table=table,
             partition_expr=partition_expr,
             error=str(exc),
             error_type=type(exc).__name__,
@@ -495,7 +521,7 @@ def ensure_events_table_exists(
     catalog_config = get_team_config(catalog.team_id)
     alias = "ducklake"
 
-    conn = duckdb.connect()
+    conn = _connect_duckdb()
     try:
         configure_cross_account_connection(conn, destinations=[destination])
         attach_catalog(conn, catalog_config, alias=alias)
@@ -564,7 +590,7 @@ def ensure_persons_table_exists(
     catalog_config = get_team_config(catalog.team_id)
     alias = "ducklake"
 
-    conn = duckdb.connect()
+    conn = _connect_duckdb()
     try:
         configure_cross_account_connection(conn, destinations=[destination])
         attach_catalog(conn, catalog_config, alias=alias)
@@ -627,7 +653,7 @@ def delete_events_table(
     catalog_config = get_team_config(catalog.team_id)
     alias = "ducklake"
 
-    conn = duckdb.connect()
+    conn = _connect_duckdb()
     try:
         configure_cross_account_connection(conn, destinations=[destination])
         attach_catalog(conn, catalog_config, alias=alias)
@@ -665,7 +691,7 @@ def delete_persons_table(
     catalog_config = get_team_config(catalog.team_id)
     alias = "ducklake"
 
-    conn = duckdb.connect()
+    conn = _connect_duckdb()
     try:
         configure_cross_account_connection(conn, destinations=[destination])
         attach_catalog(conn, catalog_config, alias=alias)
@@ -702,7 +728,7 @@ def validate_duckling_schema(
     catalog_config = get_team_config(catalog.team_id)
     alias = "ducklake"
 
-    conn = duckdb.connect()
+    conn = _connect_duckdb()
     try:
         configure_cross_account_connection(conn, destinations=[destination])
         attach_catalog(conn, catalog_config, alias=alias)
@@ -751,7 +777,7 @@ def validate_duckling_persons_schema(
     catalog_config = get_team_config(catalog.team_id)
     alias = "ducklake"
 
-    conn = duckdb.connect()
+    conn = _connect_duckdb()
     try:
         configure_cross_account_connection(conn, destinations=[destination])
         attach_catalog(conn, catalog_config, alias=alias)
@@ -791,181 +817,6 @@ def validate_duckling_persons_schema(
         conn.close()
 
 
-def cleanup_prior_run_files(
-    context: AssetExecutionContext,
-    catalog: DuckLakeCatalog,
-    team_id: int,
-    partition_date: datetime,
-    current_run_id: str,
-    s3_prefix: str,
-) -> int:
-    """Clean up S3 files from prior failed runs for this partition.
-
-    This prevents orphaned files from accumulating when runs fail partway through.
-    Only deletes files that don't match the current run_id.
-
-    Uses cross-account role assumption to access the duckling's S3 bucket.
-
-    Args:
-        context: Dagster asset execution context.
-        catalog: The DuckLakeCatalog for this duckling.
-        team_id: Team ID for the partition.
-        partition_date: Date for the partition.
-        current_run_id: Current Dagster run ID (files with this ID are preserved).
-        s3_prefix: S3 prefix for the backfill (e.g., "backfill/events" or "backfill/persons").
-
-    Returns the number of files deleted.
-    """
-    destination = catalog.to_cross_account_destination()
-
-    # Assume the cross-account role to access the duckling's bucket
-    sts_client = boto3.client("sts")
-    assume_kwargs: dict[str, Any] = {
-        "RoleArn": destination.role_arn,
-        "RoleSessionName": "duckling-cleanup",
-        "DurationSeconds": 900,  # 15 minutes
-    }
-    if destination.external_id:
-        assume_kwargs["ExternalId"] = destination.external_id
-
-    response = sts_client.assume_role(**assume_kwargs)
-    credentials = response["Credentials"]
-
-    s3_client = boto3.client(
-        "s3",
-        region_name=destination.region or "us-east-1",
-        aws_access_key_id=credentials["AccessKeyId"],
-        aws_secret_access_key=credentials["SecretAccessKey"],
-        aws_session_token=credentials["SessionToken"],
-    )
-
-    year = partition_date.strftime("%Y")
-    month = partition_date.strftime("%m")
-    day = partition_date.strftime("%d")
-
-    # List objects under the backfill prefix for this team and date
-    prefix = f"{s3_prefix}/team_id={team_id}/year={year}/month={month}/day={day}/"
-
-    deleted_count = 0
-    paginator = s3_client.get_paginator("list_objects_v2")
-
-    for page in paginator.paginate(Bucket=catalog.bucket, Prefix=prefix):
-        for obj in page.get("Contents", []):
-            key = obj["Key"]
-            # Check if this file is not from our current run
-            if not key.endswith(f"/{current_run_id}.parquet"):
-                context.log.info(f"Deleting orphaned file: {key}")
-                logger.info("duckling_cleanup_orphaned_file", key=key, bucket=catalog.bucket, team_id=team_id)
-                try:
-                    s3_client.delete_object(Bucket=catalog.bucket, Key=key)
-                    deleted_count += 1
-                except ClientError as e:
-                    # Log and continue - don't fail the whole job for cleanup failures
-                    context.log.warning(f"Failed to delete orphaned file {key}: {e}")
-                    logger.warning(
-                        "duckling_cleanup_delete_failed",
-                        key=key,
-                        bucket=catalog.bucket,
-                        team_id=team_id,
-                        error=str(e),
-                    )
-
-    if deleted_count > 0:
-        context.log.info(f"Cleaned up {deleted_count} orphaned files from prior runs")
-        logger.info(
-            "duckling_cleanup_complete",
-            deleted_count=deleted_count,
-            team_id=team_id,
-            partition_date=partition_date.isoformat(),
-        )
-
-    return deleted_count
-
-
-def cleanup_full_export_files(
-    context: AssetExecutionContext,
-    catalog: DuckLakeCatalog,
-    team_id: int,
-    current_run_id: str,
-) -> int:
-    """Clean up S3 files from prior full export runs.
-
-    This prevents orphaned files from accumulating when runs fail partway through.
-    Only deletes files that don't match the current run_id.
-
-    Uses cross-account role assumption to access the duckling's S3 bucket.
-
-    Args:
-        context: Dagster asset execution context.
-        catalog: The DuckLakeCatalog for this duckling.
-        team_id: Team ID for the partition.
-        current_run_id: Current Dagster run ID (files with this ID are preserved).
-
-    Returns the number of files deleted.
-    """
-    destination = catalog.to_cross_account_destination()
-
-    # Assume the cross-account role to access the duckling's bucket
-    sts_client = boto3.client("sts")
-    assume_kwargs: dict[str, Any] = {
-        "RoleArn": destination.role_arn,
-        "RoleSessionName": "duckling-cleanup",
-        "DurationSeconds": 900,  # 15 minutes
-    }
-    if destination.external_id:
-        assume_kwargs["ExternalId"] = destination.external_id
-
-    response = sts_client.assume_role(**assume_kwargs)
-    credentials = response["Credentials"]
-
-    s3_client = boto3.client(
-        "s3",
-        region_name=destination.region or "us-east-1",
-        aws_access_key_id=credentials["AccessKeyId"],
-        aws_secret_access_key=credentials["SecretAccessKey"],
-        aws_session_token=credentials["SessionToken"],
-    )
-
-    # List objects under the full export prefix for this team
-    prefix = f"{BACKFILL_PERSONS_S3_PREFIX}/team_id={team_id}/full/"
-
-    deleted_count = 0
-    paginator = s3_client.get_paginator("list_objects_v2")
-
-    for page in paginator.paginate(Bucket=catalog.bucket, Prefix=prefix):
-        for obj in page.get("Contents", []):
-            key = obj["Key"]
-            # Check if this file is not from our current run
-            if not key.endswith(f"/{current_run_id}.parquet"):
-                context.log.info(f"Deleting orphaned full export file: {key}")
-                logger.info(
-                    "duckling_cleanup_orphaned_full_export_file", key=key, bucket=catalog.bucket, team_id=team_id
-                )
-                try:
-                    s3_client.delete_object(Bucket=catalog.bucket, Key=key)
-                    deleted_count += 1
-                except ClientError as e:
-                    # Log and continue - don't fail the whole job for cleanup failures
-                    context.log.warning(f"Failed to delete orphaned file {key}: {e}")
-                    logger.warning(
-                        "duckling_cleanup_full_export_delete_failed",
-                        key=key,
-                        bucket=catalog.bucket,
-                        team_id=team_id,
-                        error=str(e),
-                    )
-
-    if deleted_count > 0:
-        context.log.info(f"Cleaned up {deleted_count} orphaned full export files from prior runs")
-        logger.info(
-            "duckling_cleanup_full_export_complete",
-            deleted_count=deleted_count,
-            team_id=team_id,
-        )
-
-    return deleted_count
-
-
 @retry(
     stop=stop_after_attempt(MAX_RETRY_ATTEMPTS),
     wait=wait_exponential(multiplier=1, min=4, max=60),
@@ -989,6 +840,200 @@ def _execute_export_with_retry(
             error_type=type(e).__name__,
         )
         raise
+
+
+def _is_transaction_conflict(exc: BaseException) -> bool:
+    """Check if exception is a DuckLake transaction conflict (retryable)."""
+    return isinstance(exc, duckdb.TransactionException) and "Transaction conflict" in str(exc)
+
+
+def delete_events_partition_data(
+    context: AssetExecutionContext,
+    catalog: DuckLakeCatalog,
+    team_id: int,
+    partition_date: datetime,
+) -> int:
+    """Delete existing events data for a specific team_id and date from DuckLake.
+
+    This enables idempotent re-processing of partitions by removing existing data
+    before registering new files.
+
+    Includes retry logic for DuckLake transaction conflicts, which can occur when
+    multiple concurrent jobs attempt to modify the same table.
+
+    Returns the number of rows deleted.
+    """
+    destination = catalog.to_cross_account_destination()
+    catalog_config = get_team_config(catalog.team_id)
+    alias = "ducklake"
+    date_str = partition_date.strftime("%Y-%m-%d")
+
+    # Range predicate enables DuckLake partition pruning.
+    # The table is partitioned by year(timestamp), month(timestamp), day(timestamp).
+    # A half-open range [start_of_day, start_of_next_day) allows DuckDB to prune
+    # to a single day's partition instead of scanning all data files.
+    next_date_str = (partition_date + timedelta(days=1)).strftime("%Y-%m-%d")
+    delete_sql = f"""
+    DELETE FROM {alias}.posthog.events
+    WHERE team_id = $1
+      AND timestamp >= $2
+      AND timestamp < $3
+    """
+
+    last_exception: Exception | None = None
+    for attempt in range(MAX_RETRY_ATTEMPTS):
+        conn = _connect_duckdb()
+        try:
+            configure_cross_account_connection(conn, destinations=[destination])
+            attach_catalog(conn, catalog_config, alias=alias)
+
+            result = conn.execute(delete_sql, [team_id, date_str, next_date_str]).fetchone()
+            deleted_count = result[0] if result else 0
+
+            if deleted_count > 0:
+                context.log.info(f"Deleted {deleted_count} existing events for team_id={team_id}, date={date_str}")
+                logger.info(
+                    "duckling_events_partition_deleted",
+                    team_id=team_id,
+                    date=date_str,
+                    deleted_count=deleted_count,
+                )
+            return deleted_count
+
+        except duckdb.CatalogException:
+            context.log.debug(
+                f"Events table doesn't exist yet, nothing to delete for team_id={team_id}, date={date_str}"
+            )
+            return 0
+
+        except Exception as e:
+            last_exception = e
+            if _is_transaction_conflict(e) and attempt < MAX_RETRY_ATTEMPTS - 1:
+                wait_time = min(4 * (2**attempt), 60)
+                context.log.warning(
+                    f"DuckLake transaction conflict on delete attempt {attempt + 1}, retrying in {wait_time}s..."
+                )
+                logger.warning(
+                    "duckling_events_delete_transaction_conflict",
+                    team_id=team_id,
+                    date=date_str,
+                    attempt=attempt + 1,
+                    wait_time=wait_time,
+                )
+                time.sleep(wait_time)
+                continue
+
+            context.log.exception(f"Failed to delete events for team_id={team_id}, date={date_str}")
+            logger.exception(
+                "duckling_events_delete_failed",
+                team_id=team_id,
+                date=date_str,
+            )
+            raise
+
+        finally:
+            conn.close()
+
+    if last_exception:
+        raise last_exception
+    return 0
+
+
+def delete_persons_partition_data(
+    context: AssetExecutionContext,
+    catalog: DuckLakeCatalog,
+    team_id: int,
+    partition_date: datetime | None = None,
+) -> int:
+    """Delete existing persons data for a specific team_id (and optionally date) from DuckLake.
+
+    For full exports (partition_date=None), deletes all persons for the team.
+    For daily exports, deletes persons modified on that date.
+
+    Includes retry logic for DuckLake transaction conflicts, which can occur when
+    multiple concurrent jobs attempt to modify the same table.
+
+    Returns the number of rows deleted.
+    """
+    destination = catalog.to_cross_account_destination()
+    catalog_config = get_team_config(catalog.team_id)
+    alias = "ducklake"
+    date_label = partition_date.strftime("%Y-%m-%d") if partition_date else "full"
+
+    if partition_date is None:
+        delete_sql = f"""
+        DELETE FROM {alias}.posthog.persons
+        WHERE team_id = $1
+        """
+        delete_params: list[Any] = [team_id]
+    else:
+        date_str = partition_date.strftime("%Y-%m-%d")
+        next_date_str = (partition_date + timedelta(days=1)).strftime("%Y-%m-%d")
+        delete_sql = f"""
+        DELETE FROM {alias}.posthog.persons
+        WHERE team_id = $1
+          AND _timestamp >= $2
+          AND _timestamp < $3
+        """
+        delete_params = [team_id, date_str, next_date_str]
+
+    last_exception: Exception | None = None
+    for attempt in range(MAX_RETRY_ATTEMPTS):
+        conn = _connect_duckdb()
+        try:
+            configure_cross_account_connection(conn, destinations=[destination])
+            attach_catalog(conn, catalog_config, alias=alias)
+
+            if partition_date is None:
+                context.log.info(f"Deleting all existing persons for team_id={team_id}")
+            result = conn.execute(delete_sql, delete_params).fetchone()
+            deleted_count = result[0] if result else 0
+
+            if deleted_count > 0:
+                context.log.info(f"Deleted {deleted_count} existing persons for team_id={team_id}, date={date_label}")
+                logger.info(
+                    "duckling_persons_partition_deleted",
+                    team_id=team_id,
+                    date=date_label,
+                    deleted_count=deleted_count,
+                )
+            return deleted_count
+
+        except duckdb.CatalogException:
+            context.log.debug(f"Persons table doesn't exist yet, nothing to delete for team_id={team_id}")
+            return 0
+
+        except Exception as e:
+            last_exception = e
+            if _is_transaction_conflict(e) and attempt < MAX_RETRY_ATTEMPTS - 1:
+                wait_time = min(4 * (2**attempt), 60)
+                context.log.warning(
+                    f"DuckLake transaction conflict on delete attempt {attempt + 1}, retrying in {wait_time}s..."
+                )
+                logger.warning(
+                    "duckling_persons_delete_transaction_conflict",
+                    team_id=team_id,
+                    date=date_label,
+                    attempt=attempt + 1,
+                    wait_time=wait_time,
+                )
+                time.sleep(wait_time)
+                continue
+
+            context.log.exception(f"Failed to delete persons for team_id={team_id}, date={date_label}")
+            logger.exception(
+                "duckling_persons_delete_failed",
+                team_id=team_id,
+                date=date_label,
+            )
+            raise
+
+        finally:
+            conn.close()
+
+    if last_exception:
+        raise last_exception
+    return 0
 
 
 def export_events_to_duckling_s3(
@@ -1077,6 +1122,9 @@ def register_file_with_duckling(
     Uses cross-account role assumption via IRSA. The Dagster worker's IAM role
     has permission to assume the duckling's cross-account S3 role.
 
+    Includes retry logic for DuckLake transaction conflicts, which can occur when
+    multiple concurrent jobs attempt to register files with the same table.
+
     Args:
         context: Dagster asset execution context.
         catalog: The DuckLakeCatalog for this duckling.
@@ -1096,38 +1144,50 @@ def register_file_with_duckling(
 
     destination = catalog.to_cross_account_destination()
     alias = "ducklake"
+    catalog_config = get_team_config(catalog.team_id)
 
-    conn = duckdb.connect()
+    last_exception: Exception | None = None
+    for attempt in range(MAX_RETRY_ATTEMPTS):
+        conn = _connect_duckdb()
+        try:
+            configure_cross_account_connection(conn, destinations=[destination])
+            attach_catalog(conn, catalog_config, alias=alias)
 
-    try:
-        # Configure cross-account S3 access using IRSA
-        # Dagster's IAM role can assume the duckling's cross-account role
-        configure_cross_account_connection(
-            conn,
-            destinations=[destination],
-        )
+            context.log.info(f"Registering file with DuckLake: {s3_path}")
+            conn.execute(f"CALL ducklake_add_data_files('{alias}', 'events', '{escape(s3_path)}', schema => 'posthog')")
 
-        # Get the catalog config including password for RDS connection
-        catalog_config = get_team_config(catalog.team_id)
+            context.log.info(f"Successfully registered: {s3_path}")
+            logger.info("duckling_file_registered", s3_path=s3_path, team_id=catalog.team_id)
+            return True
 
-        # Attach the duckling's catalog
-        attach_catalog(conn, catalog_config, alias=alias)
+        except Exception as e:
+            last_exception = e
+            if _is_transaction_conflict(e) and attempt < MAX_RETRY_ATTEMPTS - 1:
+                wait_time = min(4 * (2**attempt), 60)  # Exponential backoff: 4, 8, 16, ... capped at 60s
+                context.log.warning(
+                    f"DuckLake transaction conflict on attempt {attempt + 1}, retrying in {wait_time}s..."
+                )
+                logger.warning(
+                    "duckling_registration_transaction_conflict",
+                    s3_path=s3_path,
+                    team_id=catalog.team_id,
+                    attempt=attempt + 1,
+                    wait_time=wait_time,
+                )
+                time.sleep(wait_time)
+                continue
 
-        # Register the file
-        context.log.info(f"Registering file with DuckLake: {s3_path}")
-        conn.execute(f"CALL ducklake_add_data_files('{alias}', 'events', '{escape(s3_path)}', schema => 'posthog')")
+            context.log.exception(f"Failed to register file {s3_path}")
+            logger.exception("duckling_file_registration_failed", s3_path=s3_path, team_id=catalog.team_id)
+            raise
 
-        context.log.info(f"Successfully registered: {s3_path}")
-        logger.info("duckling_file_registered", s3_path=s3_path, team_id=catalog.team_id)
-        return True
+        finally:
+            conn.close()
 
-    except Exception:
-        context.log.exception(f"Failed to register file {s3_path}")
-        logger.exception("duckling_file_registration_failed", s3_path=s3_path, team_id=catalog.team_id)
-        raise
-
-    finally:
-        conn.close()
+    # Should not reach here, but just in case
+    if last_exception:
+        raise last_exception
+    return False
 
 
 def export_persons_to_duckling_s3(
@@ -1289,7 +1349,11 @@ def register_persons_file_with_duckling(
     s3_path: str,
     config: DucklingBackfillConfig,
 ) -> bool:
-    """Register an exported persons Parquet file with the duckling's DuckLake catalog."""
+    """Register an exported persons Parquet file with the duckling's DuckLake catalog.
+
+    Includes retry logic for DuckLake transaction conflicts, which can occur when
+    multiple concurrent jobs attempt to register files with the same table.
+    """
     if config.skip_ducklake_registration:
         context.log.info("Skipping DuckLake registration (skip_ducklake_registration=True)")
         return False
@@ -1300,32 +1364,51 @@ def register_persons_file_with_duckling(
 
     destination = catalog.to_cross_account_destination()
     alias = "ducklake"
+    catalog_config = get_team_config(catalog.team_id)
 
-    conn = duckdb.connect()
+    last_exception: Exception | None = None
+    for attempt in range(MAX_RETRY_ATTEMPTS):
+        conn = _connect_duckdb()
+        try:
+            configure_cross_account_connection(conn, destinations=[destination])
+            attach_catalog(conn, catalog_config, alias=alias)
 
-    try:
-        configure_cross_account_connection(
-            conn,
-            destinations=[destination],
-        )
+            context.log.info(f"Registering persons file with DuckLake: {s3_path}")
+            conn.execute(
+                f"CALL ducklake_add_data_files('{alias}', 'persons', '{escape(s3_path)}', schema => 'posthog')"
+            )
 
-        catalog_config = get_team_config(catalog.team_id)
-        attach_catalog(conn, catalog_config, alias=alias)
+            context.log.info(f"Successfully registered persons: {s3_path}")
+            logger.info("duckling_persons_file_registered", s3_path=s3_path, team_id=catalog.team_id)
+            return True
 
-        context.log.info(f"Registering persons file with DuckLake: {s3_path}")
-        conn.execute(f"CALL ducklake_add_data_files('{alias}', 'persons', '{escape(s3_path)}', schema => 'posthog')")
+        except Exception as e:
+            last_exception = e
+            if _is_transaction_conflict(e) and attempt < MAX_RETRY_ATTEMPTS - 1:
+                wait_time = min(4 * (2**attempt), 60)
+                context.log.warning(
+                    f"DuckLake transaction conflict on attempt {attempt + 1}, retrying in {wait_time}s..."
+                )
+                logger.warning(
+                    "duckling_persons_registration_transaction_conflict",
+                    s3_path=s3_path,
+                    team_id=catalog.team_id,
+                    attempt=attempt + 1,
+                    wait_time=wait_time,
+                )
+                time.sleep(wait_time)
+                continue
 
-        context.log.info(f"Successfully registered persons: {s3_path}")
-        logger.info("duckling_persons_file_registered", s3_path=s3_path, team_id=catalog.team_id)
-        return True
+            context.log.exception(f"Failed to register persons file {s3_path}")
+            logger.exception("duckling_persons_file_registration_failed", s3_path=s3_path, team_id=catalog.team_id)
+            raise
 
-    except Exception:
-        context.log.exception(f"Failed to register persons file {s3_path}")
-        logger.exception("duckling_persons_file_registration_failed", s3_path=s3_path, team_id=catalog.team_id)
-        raise
+        finally:
+            conn.close()
 
-    finally:
-        conn.close()
+    if last_exception:
+        raise last_exception
+    return False
 
 
 @asset(
@@ -1345,7 +1428,7 @@ def duckling_events_backfill(context: AssetExecutionContext, config: DucklingBac
     3. Creates the events table if it doesn't exist (optional, enabled by default)
     4. Validates the duckling's schema compatibility (optional)
     5. For each date in the partition:
-       a. Cleans up orphaned files from prior failed runs (optional)
+       a. Deletes existing DuckLake data for this partition (idempotent re-processing)
        b. Exports events to the duckling's S3 bucket (ClickHouse EC2 role has bucket access)
        c. Registers the Parquet file with the duckling's DuckLake catalog (via cross-account role)
     """
@@ -1389,7 +1472,7 @@ def duckling_events_backfill(context: AssetExecutionContext, config: DucklingBac
         merged_settings.update(config.clickhouse_settings)
         context.log.info(f"Using custom ClickHouse settings: {config.clickhouse_settings}")
 
-    cluster = get_cluster()
+    cluster = _get_cluster()
     tags = dagster_tags(context)
     workload = Workload.OFFLINE if is_cloud() else Workload.DEFAULT
 
@@ -1402,9 +1485,9 @@ def duckling_events_backfill(context: AssetExecutionContext, config: DucklingBac
         date_str = partition_date.strftime("%Y-%m-%d")
         context.log.info(f"Processing date {date_str}...")
 
-        # Clean up orphaned files from prior failed runs
-        if config.cleanup_prior_run_files and not config.dry_run:
-            cleanup_prior_run_files(context, catalog, team_id, partition_date, run_id, BACKFILL_EVENTS_S3_PREFIX)
+        # Delete existing DuckLake data for this partition before re-processing
+        if config.cleanup_existing_partition_data and not config.dry_run and not config.skip_ducklake_registration:
+            delete_events_partition_data(context, catalog, team_id, partition_date)
 
         def do_export(client: Client, date: datetime = partition_date) -> str | None:
             with tags_context(kind="dagster", dagster=tags):
@@ -1525,7 +1608,7 @@ def duckling_persons_backfill(context: AssetExecutionContext, config: DucklingBa
         merged_settings.update(config.clickhouse_settings)
         context.log.info(f"Using custom ClickHouse settings: {config.clickhouse_settings}")
 
-    cluster = get_cluster()
+    cluster = _get_cluster()
     tags = dagster_tags(context)
     workload = Workload.OFFLINE if is_cloud() else Workload.DEFAULT
 
@@ -1533,8 +1616,9 @@ def duckling_persons_backfill(context: AssetExecutionContext, config: DucklingBa
         # FULL EXPORT MODE - single query for all persons
         context.log.info(f"Full export mode: exporting all persons for team_id={team_id}")
 
-        if config.cleanup_prior_run_files and not config.dry_run:
-            cleanup_full_export_files(context, catalog, team_id, run_id)
+        # Delete all existing persons data for this team before full re-export
+        if config.cleanup_existing_partition_data and not config.dry_run and not config.skip_ducklake_registration:
+            delete_persons_partition_data(context, catalog, team_id, partition_date=None)
 
         def do_full_export(client: Client) -> str | None:
             with tags_context(kind="dagster", dagster=tags):
@@ -1591,8 +1675,9 @@ def duckling_persons_backfill(context: AssetExecutionContext, config: DucklingBa
             date_str = partition_date.strftime("%Y-%m-%d")
             context.log.info(f"Processing persons for date {date_str}...")
 
-            if config.cleanup_prior_run_files and not config.dry_run:
-                cleanup_prior_run_files(context, catalog, team_id, partition_date, run_id, BACKFILL_PERSONS_S3_PREFIX)
+            # Delete existing DuckLake data for this partition before re-processing
+            if config.cleanup_existing_partition_data and not config.dry_run and not config.skip_ducklake_registration:
+                delete_persons_partition_data(context, catalog, team_id, partition_date)
 
             def do_export(client: Client, date: datetime = partition_date) -> str | None:
                 with tags_context(kind="dagster", dagster=tags):
@@ -1645,11 +1730,11 @@ def duckling_persons_backfill(context: AssetExecutionContext, config: DucklingBa
 
 
 @sensor(
-    name="duckling_backfill_discovery_sensor",
+    name="duckling_events_daily_backfill_sensor",
     minimum_interval_seconds=3600,  # Run hourly
     job_name="duckling_events_backfill_job",
 )
-def duckling_backfill_discovery_sensor(context: SensorEvaluationContext) -> SensorResult:
+def duckling_events_daily_backfill_sensor(context: SensorEvaluationContext) -> SensorResult:
     """Discover teams with DuckLakeCatalog entries and create daily backfill partitions.
 
     This sensor runs periodically to:
@@ -1743,6 +1828,9 @@ def duckling_backfill_discovery_sensor(context: SensorEvaluationContext) -> Sens
 # Number of monthly partitions to create per sensor tick (to avoid timeout)
 BACKFILL_MONTHS_PER_TICK = 3
 
+# Ignore events before this date — pre-2015 data is typically junk timestamps
+EARLIEST_BACKFILL_DATE = datetime(2015, 1, 1)
+
 
 def get_months_in_range(start_date: date, end_date: date) -> list[str]:
     """Generate list of month strings (YYYY-MM) between start and end dates."""
@@ -1762,12 +1850,12 @@ def get_months_in_range(start_date: date, end_date: date) -> list[str]:
 
 
 @sensor(
-    name="duckling_full_backfill_sensor",
-    minimum_interval_seconds=60,  # Run frequently to process backlog quickly
+    name="duckling_events_full_backfill_sensor",
+    minimum_interval_seconds=600,  # Run every 10 minutes
     job_name="duckling_events_backfill_job",
     default_status=DefaultSensorStatus.RUNNING,
 )
-def duckling_full_backfill_sensor(context: SensorEvaluationContext) -> SensorResult:
+def duckling_events_full_backfill_sensor(context: SensorEvaluationContext) -> SensorResult:
     """Full historical backfill sensor - creates MONTHLY partitions for efficiency.
 
     Uses monthly partitions (YYYY-MM) instead of daily to reduce partition count.
@@ -1780,7 +1868,7 @@ def duckling_full_backfill_sensor(context: SensorEvaluationContext) -> SensorRes
 
     Manual trigger:
         To restart from scratch, reset the cursor in Dagster UI:
-        Sensors -> duckling_full_backfill_sensor -> Reset cursor
+        Sensors -> duckling_events_full_backfill_sensor -> Reset cursor
     """
     yesterday = (timezone.now() - timedelta(days=1)).date()
 
@@ -1813,6 +1901,7 @@ def duckling_full_backfill_sensor(context: SensorEvaluationContext) -> SensorRes
 
     new_partitions: list[str] = []
     run_requests: list[RunRequest] = []
+    existing_partitions = set(context.instance.get_dynamic_partitions("duckling_events_backfill"))
 
     # Process catalogs starting from where we left off
     for catalog_idx, catalog in enumerate(catalogs[start_idx:], start=start_idx):
@@ -1832,6 +1921,7 @@ def duckling_full_backfill_sensor(context: SensorEvaluationContext) -> SensorRes
             if earliest_dt is None:
                 context.log.info(f"No events found for team_id={team_id}, skipping")
                 continue
+            earliest_dt = max(earliest_dt, EARLIEST_BACKFILL_DATE)
             earliest_month = earliest_dt.strftime("%Y-%m")
             current_month = earliest_month
 
@@ -1844,14 +1934,18 @@ def duckling_full_backfill_sensor(context: SensorEvaluationContext) -> SensorRes
                 break
 
             partition_key = f"{team_id}_{month}"
+            current_month = month
+
+            # Skip partitions that already exist — advance cursor past them
+            if partition_key in existing_partitions:
+                continue
+
             new_partitions.append(partition_key)
             run_requests.append(
                 RunRequest(
                     partition_key=partition_key,
-                    run_key=f"{partition_key}_full_backfill",
                 )
             )
-            current_month = month
 
         # Update cursor for next tick
         # Move to next month after the last one we processed
@@ -1912,14 +2006,14 @@ duckling_events_backfill_job = define_asset_job(
 
 
 @sensor(
-    name="duckling_persons_discovery_sensor",
+    name="duckling_persons_daily_backfill_sensor",
     minimum_interval_seconds=3600,  # Run hourly
     job_name="duckling_persons_backfill_job",
 )
-def duckling_persons_discovery_sensor(context: SensorEvaluationContext) -> SensorResult:
+def duckling_persons_daily_backfill_sensor(context: SensorEvaluationContext) -> SensorResult:
     """Discover teams with DuckLakeCatalog entries and create daily persons partitions.
 
-    Similar to duckling_backfill_discovery_sensor but for persons data.
+    Similar to duckling_events_daily_backfill_sensor but for persons data.
     Uses _timestamp (Kafka ingestion time) for date filtering.
     """
     yesterday = (timezone.now() - timedelta(days=1)).strftime("%Y-%m-%d")
@@ -1997,7 +2091,7 @@ def duckling_persons_discovery_sensor(context: SensorEvaluationContext) -> Senso
 
 @sensor(
     name="duckling_persons_full_backfill_sensor",
-    minimum_interval_seconds=60,  # Run frequently to process backlog quickly
+    minimum_interval_seconds=600,  # Run every 10 minutes
     job_name="duckling_persons_backfill_job",
     default_status=DefaultSensorStatus.RUNNING,
 )
@@ -2041,7 +2135,6 @@ def duckling_persons_full_backfill_sensor(context: SensorEvaluationContext) -> S
             run_requests.append(
                 RunRequest(
                     partition_key=partition_key,
-                    run_key=f"{partition_key}_persons_full_backfill",
                 )
             )
             context.log.info(f"Creating full persons backfill partition for team_id={team_id}")

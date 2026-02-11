@@ -29,7 +29,7 @@ from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models.exported_asset import ExportedAsset, save_content_from_file
 from posthog.utils import absolute_uri
 
-from ...exceptions import QuerySizeExceeded
+from ...exceptions import ClickHouseQuerySizeExceeded
 from ...hogql.constants import CSV_EXPORT_BREAKDOWN_LIMIT_INITIAL, CSV_EXPORT_BREAKDOWN_LIMIT_LOW, CSV_EXPORT_LIMIT
 from ...hogql.query import LimitContext
 from ...hogql_queries.insights.trends.breakdown import (
@@ -479,7 +479,7 @@ def get_from_query(exported_asset: ExportedAsset, limit: int, resource: dict) ->
                 limit_context=LimitContext.EXPORT,
                 execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
             )
-        except QuerySizeExceeded:
+        except ClickHouseQuerySizeExceeded:
             if "breakdownFilter" not in query or limit <= CSV_EXPORT_BREAKDOWN_LIMIT_LOW:
                 raise
 

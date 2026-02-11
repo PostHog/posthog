@@ -2,5 +2,17 @@
     "enabledPlugins": {
         "pyright-lsp@claude-plugins-official": true,
         "typescript-lsp@claude-plugins-official": true
+    },
+    "hooks": {
+        "SessionStart": [
+            {
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/setup-cloud.sh"
+                    }
+                ]
+            }
+        ]
     }
 }

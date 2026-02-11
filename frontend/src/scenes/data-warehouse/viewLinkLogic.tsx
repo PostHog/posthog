@@ -69,7 +69,7 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
         setSourceTablePreviewData: (data: Record<string, any>[]) => ({ data }),
         setJoiningTablePreviewData: (data: Record<string, any>[]) => ({ data }),
         setIsJoinValid: (isValid: boolean) => ({ isValid }),
-        setValidationError: (errorMessage: string) => ({ errorMessage }),
+        setValidationError: (errorMessage: string | null) => ({ errorMessage }),
         setValidationWarning: (validationWarning: string | null) => ({ validationWarning }),
         validateJoin: () => {},
         checkKeyTypeMismatch: () => {},
@@ -309,6 +309,12 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
     listeners(({ actions, values }) => ({
         toggleNewJoinModal: ({ join }) => {
             actions.setViewLinkValues(join ?? NEW_VIEW_LINK)
+            if (join?.source_table_name) {
+                actions.loadSourceTablePreview(join.source_table_name)
+            }
+            if (join?.joining_table_name) {
+                actions.loadJoiningTablePreview(join.joining_table_name)
+            }
         },
         toggleEditJoinModal: ({ join }) => {
             actions.setViewLinkValues(join)
@@ -327,6 +333,14 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
         selectExperimentsTimestampKey: ({ experimentsTimestampKey }) => {
             if (experimentsTimestampKey) {
                 actions.setExperimentsOptimized(true)
+            }
+        },
+        setViewLinkValue: ({ name }) => {
+            const fieldName = Array.isArray(name) ? name[0] : name
+            if (fieldName === 'joining_table_key' || fieldName === 'source_table_key') {
+                actions.setIsJoinValid(false)
+                actions.setValidationError(null)
+                actions.setValidationWarning(null)
             }
         },
         selectSourceTable: async ({ selectedTableName }) => {

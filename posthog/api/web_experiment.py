@@ -12,6 +12,7 @@ from rest_framework.request import Request
 
 from posthog.api.feature_flag import FeatureFlagSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.survey import nh3_clean_with_allow_list
 from posthog.api.utils import get_token
 from posthog.auth import TemporaryTokenAuthentication
 from posthog.exceptions import generate_exception_response
@@ -130,6 +131,12 @@ class WebExperimentsAPISerializer(serializers.ModelSerializer):
                         raise ValidationError(
                             f"Experiment transform [${idx}] variant '{name}' does not have a valid selector"
                         )
+
+                    # Sanitize text and html fields to prevent XSS attacks
+                    if "text" in transform and isinstance(transform["text"], str):
+                        transform["text"] = nh3_clean_with_allow_list(transform["text"])
+                    if "html" in transform and isinstance(transform["html"], str):
+                        transform["html"] = nh3_clean_with_allow_list(transform["html"])
 
         return attrs
 

@@ -10,6 +10,7 @@ This module exports:
 """
 
 from collections.abc import Iterable
+from dataclasses import dataclass
 from enum import Enum
 from types import TracebackType
 from typing import Protocol
@@ -17,6 +18,14 @@ from typing import Protocol
 from django.conf import settings
 
 from pydantic import BaseModel
+
+
+@dataclass
+class AgentServerResult:
+    """Result from starting an agent server in a sandbox."""
+
+    url: str
+    token: str | None = None
 
 
 class SandboxStatus(str, Enum):
@@ -59,6 +68,11 @@ class SandboxProtocol(Protocol):
     id: str
     config: SandboxConfig
 
+    @property
+    def sandbox_url(self) -> str | None:
+        """Return the URL for connecting to the agent server, or None if not available."""
+        ...
+
     @staticmethod
     def create(config: SandboxConfig) -> "SandboxProtocol": ...
 
@@ -74,6 +88,8 @@ class SandboxProtocol(Protocol):
 
     def execute_stream(self, command: str, timeout_seconds: int | None = None) -> ExecutionStream: ...
 
+    def write_file(self, path: str, payload: bytes) -> ExecutionResult: ...
+
     def clone_repository(self, repository: str, github_token: str | None = "") -> ExecutionResult: ...
 
     def setup_repository(self, repository: str) -> ExecutionResult: ...
@@ -81,6 +97,22 @@ class SandboxProtocol(Protocol):
     def is_git_clean(self, repository: str) -> tuple[bool, str]: ...
 
     def execute_task(self, task_id: str, run_id: str, repository: str, create_pr: bool = True) -> ExecutionResult: ...
+
+    def get_connect_credentials(self) -> AgentServerResult:
+        """Get connect credentials (URL and token) for this sandbox.
+
+        Should be called after sandbox creation to get the URL and authentication
+        token needed to connect to the sandbox.
+        """
+        ...
+
+    def start_agent_server(self, repository: str, task_id: str, run_id: str, mode: str = "background") -> None:
+        """Start the agent-server HTTP server in the sandbox.
+
+        The sandbox URL and token should be obtained via get_connect_credentials()
+        before calling this method.
+        """
+        ...
 
     def create_snapshot(self) -> str: ...
 
@@ -138,6 +170,7 @@ def get_sandbox_class_for_backend(backend: str) -> SandboxClass:
 Sandbox: SandboxClass = get_sandbox_class()
 
 __all__ = [
+    "AgentServerResult",
     "Sandbox",
     "SandboxConfig",
     "SandboxStatus",
