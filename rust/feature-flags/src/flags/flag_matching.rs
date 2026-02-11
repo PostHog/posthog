@@ -990,27 +990,35 @@ impl FeatureFlagMatcher {
 
         rx.await.unwrap_or_else(|_| {
             error!("Rayon parallel evaluation task was dropped (likely panicked)");
-            flag_snapshots
-                .into_iter()
-                .map(|(key, id, active, version)| {
-                    let stub = FeatureFlag {
-                        id,
-                        key,
-                        active,
-                        version,
-                        filters: FlagFilters::default(),
-                        team_id: 0,
-                        name: None,
-                        deleted: false,
-                        ensure_experience_continuity: None,
-                        evaluation_runtime: None,
-                        evaluation_tags: None,
-                        bucketing_identifier: None,
-                    };
-                    (stub, Err(FlagError::BatchEvaluationPanicked))
-                })
-                .collect()
+            Self::build_panic_fallback(flag_snapshots)
         })
+    }
+
+    /// Constructs per-flag error results from lightweight snapshots when the
+    /// rayon task panics and drops the oneshot sender.
+    fn build_panic_fallback(
+        snapshots: Vec<(String, FeatureFlagId, bool, Option<i32>)>,
+    ) -> Vec<(FeatureFlag, Result<FeatureFlagMatch, FlagError>)> {
+        snapshots
+            .into_iter()
+            .map(|(key, id, active, version)| {
+                let stub = FeatureFlag {
+                    id,
+                    key,
+                    active,
+                    version,
+                    filters: FlagFilters::default(),
+                    team_id: 0,
+                    name: None,
+                    deleted: false,
+                    ensure_experience_continuity: None,
+                    evaluation_runtime: None,
+                    evaluation_tags: None,
+                    bucketing_identifier: None,
+                };
+                (stub, Err(FlagError::BatchEvaluationPanicked))
+            })
+            .collect()
     }
 
     fn evaluate_single_flag(
@@ -1956,5 +1964,52 @@ impl FeatureFlagMatcher {
             .fin();
 
         errors_while_computing_flags
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_panic_fallback_preserves_flag_identity() {
+        let snapshots = vec![
+            ("flag_a".to_string(), 10, true, Some(3)),
+            ("flag_b".to_string(), 20, false, None),
+            ("flag_c".to_string(), 30, true, Some(1)),
+        ];
+
+        let results = FeatureFlagMatcher::build_panic_fallback(snapshots);
+
+        assert_eq!(results.len(), 3);
+
+        let (stub_a, err_a) = &results[0];
+        assert_eq!(stub_a.key, "flag_a");
+        assert_eq!(stub_a.id, 10);
+        assert!(stub_a.active);
+        assert_eq!(stub_a.version, Some(3));
+        assert!(matches!(err_a, Err(FlagError::BatchEvaluationPanicked)));
+
+        let (stub_b, err_b) = &results[1];
+        assert_eq!(stub_b.key, "flag_b");
+        assert_eq!(stub_b.id, 20);
+        assert!(!stub_b.active);
+        assert_eq!(stub_b.version, None);
+        assert!(matches!(err_b, Err(FlagError::BatchEvaluationPanicked)));
+
+        let (stub_c, err_c) = &results[2];
+        assert_eq!(stub_c.key, "flag_c");
+        assert_eq!(stub_c.id, 30);
+        assert!(stub_c.active);
+        assert_eq!(stub_c.version, Some(1));
+        assert!(matches!(err_c, Err(FlagError::BatchEvaluationPanicked)));
+
+        // Verify non-essential fields are defaulted
+        for (stub, _) in &results {
+            assert_eq!(stub.team_id, 0);
+            assert_eq!(stub.name, None);
+            assert!(!stub.deleted);
+            assert!(stub.filters.groups.is_empty());
+        }
     }
 }
