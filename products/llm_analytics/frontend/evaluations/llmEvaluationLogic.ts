@@ -52,7 +52,6 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         setAllowsNA: (allowsNA: boolean) => ({ allowsNA }),
         setTriggerConditions: (conditions: EvaluationConditionSet[]) => ({ conditions }),
         setModelConfiguration: (modelConfiguration: ModelConfiguration | null) => ({ modelConfiguration }),
-        setBaseUrl: (baseUrl: string) => ({ baseUrl }),
 
         // Evaluation management actions
         saveEvaluation: true,
