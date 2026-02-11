@@ -286,7 +286,6 @@ export function OverViewTab({
         totalMatchingCount,
         allMatchingSelected,
         matchingFlagIdsLoading,
-        bulkDeleteProgress,
     } = useValues(flagSelectionLogic)
     const { toggleFlagSelection, selectAll, selectAllMatching, clearSelection, bulkDeleteFlags } =
         useActions(flagSelectionLogic)
@@ -582,9 +581,7 @@ export function OverViewTab({
                                 })
                             }}
                         >
-                            {bulkDeleteProgress
-                                ? `Deleting… ${bulkDeleteProgress.current}/${bulkDeleteProgress.total}`
-                                : 'Delete selected'}
+                            {bulkDeleteResponseLoading ? 'Deleting…' : 'Delete selected'}
                         </LemonButton>
                     </div>
                 )}

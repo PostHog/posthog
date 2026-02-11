@@ -1,5 +1,6 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { beforeUnload } from 'kea-router'
 
 import api from 'lib/api'
 import { toParams } from 'lib/utils'
@@ -24,9 +25,6 @@ export interface BulkDeleteResult {
     errors: Array<{ id: number; key?: string; reason: string }>
 }
 
-// Maximum flags that can be deleted in a single API call
-const BULK_DELETE_BATCH_SIZE = 100
-
 export const flagSelectionLogic = kea<flagSelectionLogicType>([
     path(['scenes', 'feature-flags', 'flagSelectionLogic']),
 
@@ -37,7 +35,7 @@ export const flagSelectionLogic = kea<flagSelectionLogicType>([
             featureFlagsLogic({}),
             ['displayedFlags', 'count', 'paramsFromFilters'],
         ],
-        actions: [featureFlagsLogic({}), ['loadFeatureFlags', 'setFeatureFlagsFilters']],
+        actions: [featureFlagsLogic({}), ['loadFeatureFlags']],
     })),
 
     actions({
@@ -51,7 +49,6 @@ export const flagSelectionLogic = kea<flagSelectionLogicType>([
         showResultsModal: (result: BulkDeleteResult) => ({ result }),
         hideResultsModal: true,
         setAllMatchingSelected: (allMatchingSelected: boolean) => ({ allMatchingSelected }),
-        setBulkDeleteProgress: (progress: { current: number; total: number } | null) => ({ progress }),
     }),
 
     reducers({
@@ -93,18 +90,9 @@ export const flagSelectionLogic = kea<flagSelectionLogicType>([
                 selectAll: () => false,
             },
         ],
-        // Progress indicator for batched deletion
-        bulkDeleteProgress: [
-            null as { current: number; total: number } | null,
-            {
-                setBulkDeleteProgress: (_, { progress }) => progress,
-                bulkDeleteFlagsSuccess: () => null,
-                bulkDeleteFlagsFailure: () => null,
-            },
-        ],
     }),
 
-    loaders(({ values, actions }) => ({
+    loaders(({ values }) => ({
         matchingFlagIds: [
             null as { ids: number[]; total: number } | null,
             {
@@ -122,40 +110,22 @@ export const flagSelectionLogic = kea<flagSelectionLogicType>([
             null as BulkDeleteResult | null,
             {
                 bulkDeleteFlags: async () => {
-                    const idsToDelete = values.selectedFlagIds
-                    const totalFlags = idsToDelete.length
+                    const { allMatchingSelected, selectedFlagIds, paramsFromFilters, currentProjectId } = values
 
-                    // If more than batch size, delete in batches
-                    if (totalFlags > BULK_DELETE_BATCH_SIZE) {
-                        const allDeleted: DeletedFlagInfo[] = []
-                        const allErrors: Array<{ id: number; key?: string; reason: string }> = []
-
-                        try {
-                            for (let i = 0; i < totalFlags; i += BULK_DELETE_BATCH_SIZE) {
-                                const batch = idsToDelete.slice(i, i + BULK_DELETE_BATCH_SIZE)
-
-                                const response = (await api.create(
-                                    `api/projects/${values.currentProjectId}/feature_flags/bulk_delete/`,
-                                    { ids: batch }
-                                )) as BulkDeleteResult
-
-                                allDeleted.push(...response.deleted)
-                                allErrors.push(...response.errors)
-
-                                // Update progress after each batch completes (shows completed count)
-                                actions.setBulkDeleteProgress({ current: allDeleted.length, total: totalFlags })
-                            }
-                        } finally {
-                            actions.setBulkDeleteProgress(null)
-                        }
-
-                        return { deleted: allDeleted, errors: allErrors }
+                    if (allMatchingSelected) {
+                        // Use filter-based deletion - backend handles all matching flags
+                        const { limit, offset, ...filters } = paramsFromFilters
+                        const response = await api.create(
+                            `api/projects/${currentProjectId}/feature_flags/bulk_delete_by_filter/`,
+                            { filters }
+                        )
+                        return response as BulkDeleteResult
                     }
 
-                    // Single batch
+                    // Use ID-based deletion (explicit selection)
                     const response = await api.create(
-                        `api/projects/${values.currentProjectId}/feature_flags/bulk_delete/`,
-                        { ids: idsToDelete }
+                        `api/projects/${currentProjectId}/feature_flags/bulk_delete_by_filter/`,
+                        { ids: selectedFlagIds }
                     )
                     return response as BulkDeleteResult
                 },
@@ -270,9 +240,8 @@ export const flagSelectionLogic = kea<flagSelectionLogicType>([
             // Reset to page-only selection on failure
             actions.setAllMatchingSelected(false)
         },
-        setFeatureFlagsFilters: () => {
-            actions.clearSelection()
-        },
+        // Note: Selection is intentionally preserved across filter/pagination changes
+        // to allow users to select flags across multiple pages. Use clearSelection to reset.
         bulkDeleteFlagsSuccess: ({ bulkDeleteResponse }) => {
             if (bulkDeleteResponse) {
                 actions.showResultsModal(bulkDeleteResponse)
@@ -280,6 +249,12 @@ export const flagSelectionLogic = kea<flagSelectionLogicType>([
                 actions.loadFeatureFlags()
             }
         },
+    })),
+
+    // Warn user if they try to leave during bulk deletion
+    beforeUnload(({ values }) => ({
+        enabled: () => values.bulkDeleteResponseLoading,
+        message: 'Bulk delete is in progress. Leaving may result in incomplete deletion.',
     })),
 
     afterMount(({ actions, cache }) => {
