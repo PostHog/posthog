@@ -3,6 +3,8 @@ import { useActions, useValues } from 'kea'
 
 import { IconSparkles, IconX } from '@posthog/icons'
 
+import { RenderKeybind } from 'lib/components/AppShortcuts/AppShortcutMenu'
+import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { cn } from 'lib/utils/css-classes'
 
@@ -85,7 +87,12 @@ export function SidePanelNavigation({ activeTab, onTabChange, children }: SidePa
                     onClick={() => {
                         closeSidePanel()
                     }}
-                    tooltip="Close side panel"
+                    tooltip={
+                        <>
+                            Close scene panel{' '}
+                            <RenderKeybind className="relative -top-px" keybind={[keyBinds.toggleRightNav]} />
+                        </>
+                    }
                     tooltipPlacement="bottom-end"
                     iconOnly
                     className="group size-[33px] ml-auto"

@@ -498,7 +498,14 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                 'p-1 items-start pb-2': isRemovingSidePanelFlag,
                             })}
                         >
-                            <DebugNotice isCollapsed={isLayoutNavCollapsed} />
+                            <div
+                                className={cn('flex flex-col gap-px w-full', {
+                                    'items-center': isLayoutNavCollapsed,
+                                })}
+                            >
+                                <DebugNotice isCollapsed={isLayoutNavCollapsed} />
+                            </div>
+
                             <NavPanelAdvertisement />
 
                             {!isRemovingSidePanelFlag ? (
@@ -599,10 +606,16 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                     />
                                 </>
                             ) : (
-                                <div className="flex flex-col gap-px w-full">
+                                <div
+                                    className={cn('flex flex-col gap-px w-full', {
+                                        'items-center': isLayoutNavCollapsed,
+                                    })}
+                                >
                                     <Link
                                         to={urls.settings('project')}
                                         buttonProps={{ menuItem: isLayoutNavCollapsed ? false : true }}
+                                        tooltip={isLayoutNavCollapsed ? 'Settings' : undefined}
+                                        tooltipPlacement="right"
                                     >
                                         <IconGear />
                                         {!isLayoutNavCollapsed && 'Settings'}
@@ -610,6 +623,8 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                     <Link
                                         to={urls.exports()}
                                         buttonProps={{ menuItem: isLayoutNavCollapsed ? false : true }}
+                                        tooltip={isLayoutNavCollapsed ? 'Exports' : undefined}
+                                        tooltipPlacement="right"
                                     >
                                         <IconDownload />
                                         {!isLayoutNavCollapsed && 'Exports'}

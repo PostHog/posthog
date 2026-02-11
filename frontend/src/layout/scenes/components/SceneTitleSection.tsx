@@ -2,10 +2,10 @@ import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 
-import { IconEllipsis, IconPencil, IconSparkles, IconX } from '@posthog/icons'
+import { IconEllipsis, IconPencil, IconSidePanel, IconSparkles, IconX } from '@posthog/icons'
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
-import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
+import { RenderKeybind } from 'lib/components/AppShortcuts/AppShortcutMenu'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { ProductSetupButton } from 'lib/components/ProductSetup'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -58,28 +58,27 @@ export function SceneTitlePanelButton({ inPanel = false }: { inPanel?: boolean }
                 >
                     <IconSparkles className="text-ai" />
                 </ButtonPrimitive>
-                <AppShortcut
-                    name="OpenSidePanel"
-                    keybind={[keyBinds.toggleRightNav]}
-                    intent="Open side panel"
-                    interaction="click"
+
+                {/* Size to mimic lemon button small */}
+                <ButtonPrimitive
+                    className="size-[33px] group -mr-[2px]"
+                    onClick={(e) => {
+                        e.stopPropagation()
+                        e.preventDefault()
+                        openSidePanel(defaultTab)
+                    }}
+                    tooltip={
+                        <>
+                            {sidePanelOpen ? 'Close scene panel' : 'Open scene panel'}{' '}
+                            <RenderKeybind className="relative -top-px" keybind={[keyBinds.toggleRightNav]} />
+                        </>
+                    }
+                    tooltipPlacement="bottom-end"
+                    tooltipCloseDelayMs={0}
+                    iconOnly
                 >
-                    {/* Size to mimic lemon button small */}
-                    <ButtonPrimitive
-                        className="size-[33px] group -mr-[2px]"
-                        onClick={(e) => {
-                            e.stopPropagation()
-                            e.preventDefault()
-                            openSidePanel(defaultTab)
-                        }}
-                        tooltip={sidePanelOpen ? 'Close side panel' : 'Open side panel'}
-                        tooltipPlacement="bottom-end"
-                        tooltipCloseDelayMs={0}
-                        iconOnly
-                    >
-                        <IconEllipsis className="text-primary group-hover:text-primary z-10" />
-                    </ButtonPrimitive>
-                </AppShortcut>
+                    <IconSidePanel className="text-primary group-hover:text-primary z-10" />
+                </ButtonPrimitive>
             </>
         )
     }

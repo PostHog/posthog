@@ -66,7 +66,7 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                         <ButtonPrimitive
                             {...props}
                             iconOnly={isLayoutNavCollapsed}
-                            className={cn('flex-1', {
+                            className={cn('flex-1 py-1', {
                                 'pl-[3px] gap-[6px]': !isLayoutNavCollapsed,
                             })}
                             variant="panel"
@@ -86,7 +86,7 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                             }
                         >
                             {isAuthenticatedTeam(currentTeam) && (
-                                <div className="flex items-center gap-2">
+                                <>
                                     {currentOrganization ? (
                                         <UploadedLogo
                                             name={currentOrganization.name}
@@ -101,7 +101,7 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                     {!isLayoutNavCollapsed && (
                                         <span className="truncate">{projectNameWithoutFirstEmoji ?? 'Project'}</span>
                                     )}
-                                </div>
+                                </>
                             )}
                             {!isLayoutNavCollapsed && <MenuOpenIndicator />}
                         </ButtonPrimitive>
@@ -348,16 +348,6 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                         </Menu.Popup>
                     </Menu.Positioner>
                 </Menu.Portal>
-                {/* 
-                <DropdownMenuContent
-                    side="bottom"
-                    align="start"
-                    collisionPadding={{ bottom: 0 }}
-                    className="min-w-[var(--project-panel-width)]"
-                >
-                    <DropdownMenuGroup>
-                    </DropdownMenuGroup>
-                </DropdownMenuContent> */}
             </Menu.Root>
 
             <ProjectModal />

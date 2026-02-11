@@ -66,7 +66,7 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
                 render={
                     <ButtonPrimitive
                         tooltip={
-                            !iconOnly ? (
+                            iconOnly ? (
                                 <>
                                     Help menu
                                     <RenderKeybind keybind={[keyBinds.helpMenu]} className="ml-1" />

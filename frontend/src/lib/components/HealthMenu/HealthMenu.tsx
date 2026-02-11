@@ -58,7 +58,7 @@ export function HealthMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.El
                 render={
                     <ButtonPrimitive
                         tooltip={
-                            !iconOnly ? (
+                            iconOnly ? (
                                 <>
                                     Health menu
                                     <RenderKeybind keybind={[keyBinds.healthMenu]} className="ml-1" />
