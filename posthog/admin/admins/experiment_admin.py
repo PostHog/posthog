@@ -47,11 +47,82 @@ def has_legacy_metric(metrics):
     return False
 
 
+def _is_malformed_properties(properties):
+    """Check if properties are in old-style dict format instead of list format."""
+    if properties is None or isinstance(properties, list):
+        return False
+    if isinstance(properties, dict):
+        if "AND" in properties or "OR" in properties or "type" in properties:
+            return False
+        if len(properties) > 0:
+            return True
+    return False
+
+
+def has_malformed_properties(metrics):
+    """Check if any metric has dict-style properties instead of list format."""
+    if not metrics:
+        return False
+    for metric in metrics:
+        for step in metric.get("series", []):
+            if _is_malformed_properties(step.get("properties")):
+                return True
+        source = metric.get("source")
+        if isinstance(source, dict) and _is_malformed_properties(source.get("properties")):
+            return True
+        for field in ["numerator", "denominator", "start_event", "completion_event"]:
+            node = metric.get(field)
+            if isinstance(node, dict) and _is_malformed_properties(node.get("properties")):
+                return True
+    return False
+
+
+def transform_old_style_properties(properties):
+    """Convert old-style dict properties to list format."""
+    if properties is None or isinstance(properties, list):
+        return properties
+    if isinstance(properties, dict):
+        if "AND" in properties or "OR" in properties or "type" in properties:
+            return properties
+        if len(properties) > 0:
+            result = []
+            for key, value in properties.items():
+                key_parts = key.rsplit("__", 1)
+                result.append(
+                    {
+                        "key": key_parts[0],
+                        "value": value,
+                        "operator": key_parts[1] if len(key_parts) > 1 else "exact",
+                        "type": "event",
+                    }
+                )
+            return result
+    return properties
+
+
+def fix_metric_properties(metric):
+    """Transform old-style properties in all metric fields."""
+    if not metric:
+        return metric
+    for step in metric.get("series", []):
+        if "properties" in step:
+            step["properties"] = transform_old_style_properties(step.get("properties"))
+    if "source" in metric and isinstance(metric.get("source"), dict):
+        if "properties" in metric["source"]:
+            metric["source"]["properties"] = transform_old_style_properties(metric["source"]["properties"])
+    for field in ["numerator", "denominator", "start_event", "completion_event"]:
+        if field in metric and isinstance(metric.get(field), dict):
+            if "properties" in metric[field]:
+                metric[field]["properties"] = transform_old_style_properties(metric[field]["properties"])
+    return metric
+
+
 class ExperimentAdmin(admin.ModelAdmin):
     form = ExperimentAdminForm
     list_display = (
         "id",
         "name",
+        "status_indicator",
         "engine",
         "migrated_links",
         "team_link",
@@ -63,6 +134,7 @@ class ExperimentAdmin(admin.ModelAdmin):
     search_fields = ("id", "name", "team__name", "team__organization__name")
     autocomplete_fields = ("team", "created_by")
     ordering = ("-created_at",)
+    actions = ["fix_malformed_properties_bulk"]
 
     @admin.display(description="Team")
     def team_link(self, experiment: Experiment):
@@ -71,6 +143,20 @@ class ExperimentAdmin(admin.ModelAdmin):
             reverse("admin:posthog_team_change", args=[experiment.team.pk]),
             experiment.team.name,
         )
+
+    @admin.display(description="Status")
+    def status_indicator(self, experiment: Experiment):
+        issues = []
+        all_metrics = (experiment.metrics or []) + (experiment.metrics_secondary or [])
+        if has_malformed_properties(all_metrics):
+            issues.append("malformed properties")
+        # Add more issue checks here as needed
+        if issues:
+            return format_html(
+                '<span style="color: #dc3545;" title="{}">⚠️</span>',
+                ", ".join(issues),
+            )
+        return ""
 
     @admin.display(description="Engine")
     def engine(self, experiment: Experiment):
@@ -107,6 +193,7 @@ class ExperimentAdmin(admin.ModelAdmin):
 
         all_metrics = (obj.metrics or []) + (obj.metrics_secondary or [])
         extra_context["show_migration"] = has_legacy_metric(all_metrics)
+        extra_context["show_fix_properties"] = has_malformed_properties(all_metrics)
 
         # Get all related ExperimentSavedMetric objects
         shared_metrics = obj.saved_metrics.all()
@@ -135,6 +222,11 @@ class ExperimentAdmin(admin.ModelAdmin):
                 "<path:object_id>/migrate/",
                 self.admin_site.admin_view(self.migrate_experiment),
                 name="experiment_migrate",
+            ),
+            path(
+                "<path:object_id>/fix-properties/",
+                self.admin_site.admin_view(self.fix_malformed_properties),
+                name="experiment_fix_properties",
             ),
         ]
         return custom_urls + urls
@@ -215,3 +307,56 @@ class ExperimentAdmin(admin.ModelAdmin):
         except Exception as e:
             messages.error(request, f"Error migrating experiment: {e}")
             return redirect("admin:posthog_experiment_change", object_id)
+
+    def fix_malformed_properties(self, request, object_id):
+        try:
+            experiment = Experiment.objects.get(pk=object_id)
+
+            all_metrics = (experiment.metrics or []) + (experiment.metrics_secondary or [])
+            if not has_malformed_properties(all_metrics):
+                messages.info(request, "No malformed properties found")
+                return redirect("admin:posthog_experiment_change", object_id)
+
+            # Fix metrics
+            if experiment.metrics:
+                experiment.metrics = [fix_metric_properties(copy.deepcopy(m)) for m in experiment.metrics]
+            if experiment.metrics_secondary:
+                experiment.metrics_secondary = [
+                    fix_metric_properties(copy.deepcopy(m)) for m in experiment.metrics_secondary
+                ]
+
+            experiment.save(update_fields=["metrics", "metrics_secondary"])
+            messages.success(request, "Fixed malformed properties in experiment metrics")
+            return redirect("admin:posthog_experiment_change", object_id)
+        except Experiment.DoesNotExist:
+            messages.error(request, "Experiment not found")
+            return redirect("admin:posthog_experiment_changelist")
+        except Exception as e:
+            messages.error(request, f"Error fixing properties: {e}")
+            return redirect("admin:posthog_experiment_change", object_id)
+
+    @admin.action(description="Fix malformed metric properties")
+    def fix_malformed_properties_bulk(self, request, queryset):
+        fixed_count = 0
+        skipped_count = 0
+
+        for experiment in queryset:
+            all_metrics = (experiment.metrics or []) + (experiment.metrics_secondary or [])
+            if not has_malformed_properties(all_metrics):
+                skipped_count += 1
+                continue
+
+            if experiment.metrics:
+                experiment.metrics = [fix_metric_properties(copy.deepcopy(m)) for m in experiment.metrics]
+            if experiment.metrics_secondary:
+                experiment.metrics_secondary = [
+                    fix_metric_properties(copy.deepcopy(m)) for m in experiment.metrics_secondary
+                ]
+
+            experiment.save(update_fields=["metrics", "metrics_secondary"])
+            fixed_count += 1
+
+        if fixed_count > 0:
+            messages.success(request, f"Fixed malformed properties in {fixed_count} experiment(s)")
+        if skipped_count > 0:
+            messages.info(request, f"Skipped {skipped_count} experiment(s) with no malformed properties")
