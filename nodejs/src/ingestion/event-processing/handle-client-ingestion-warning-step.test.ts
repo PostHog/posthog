@@ -1,8 +1,10 @@
 import { Message } from 'node-rdkafka'
 import { v4 } from 'uuid'
 
+import { PluginEvent } from '@posthog/plugin-scaffold'
+
 import { createTestEventHeaders } from '../../../tests/helpers/event-headers'
-import { PipelineEvent, ProjectId, Team } from '../../types'
+import { ProjectId, Team } from '../../types'
 import { PipelineResultType } from '../pipelines/results'
 import { EventPipelineRunnerInput } from './event-pipeline-runner-v1-step'
 import { createHandleClientIngestionWarningStep } from './handle-client-ingestion-warning-step'
@@ -33,7 +35,7 @@ describe('handleClientIngestionWarningStep', () => {
     const team = createTestTeam()
     const eventUuid = v4()
 
-    const baseEvent: PipelineEvent = {
+    const baseEvent: PluginEvent = {
         distinct_id: 'my_id',
         ip: null,
         site_url: '',

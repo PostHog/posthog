@@ -1,8 +1,10 @@
 import { DateTime } from 'luxon'
 import { v4 } from 'uuid'
 
+import { PluginEvent } from '@posthog/plugin-scaffold'
+
 import { createTestEventHeaders } from '../../../tests/helpers/event-headers'
-import { PipelineEvent, ProjectId, Team } from '../../types'
+import { ProjectId, Team } from '../../types'
 import { UUIDT } from '../../utils/utils'
 import { PipelineResultType } from '../pipelines/results'
 import { createNormalizeEventStep } from './normalize-event-step'
@@ -36,7 +38,7 @@ describe('normalizeEventStep wrapper', () => {
     describe('distinctId conversion', () => {
         it('converts number distinct_id to string', async () => {
             const uuid = new UUIDT().toString()
-            const event: PipelineEvent = {
+            const event: PluginEvent = {
                 distinct_id: 123 as any,
                 ip: null,
                 site_url: 'http://localhost',
@@ -66,7 +68,7 @@ describe('normalizeEventStep wrapper', () => {
 
         it('converts boolean distinct_id to string', async () => {
             const uuid = new UUIDT().toString()
-            const event: PipelineEvent = {
+            const event: PluginEvent = {
                 distinct_id: true as any,
                 ip: null,
                 site_url: 'http://localhost',
@@ -97,7 +99,7 @@ describe('normalizeEventStep wrapper', () => {
 
     it('initializes empty properties object when missing', async () => {
         const uuid = new UUIDT().toString()
-        const event: PipelineEvent = {
+        const event: PluginEvent = {
             distinct_id: 'my_id',
             ip: null,
             site_url: 'http://localhost',
@@ -128,7 +130,7 @@ describe('normalizeEventStep wrapper', () => {
 
     it('sanitizes token with null bytes', async () => {
         const uuid = new UUIDT().toString()
-        const event: PipelineEvent = {
+        const event = {
             distinct_id: 'my_id',
             ip: null,
             site_url: 'http://localhost',
@@ -138,7 +140,7 @@ describe('normalizeEventStep wrapper', () => {
             timestamp: '2020-02-23T02:15:00Z',
             event: 'test event',
             uuid: uuid,
-        }
+        } as PluginEvent
 
         const step = createNormalizeEventStep(timestampComparisonLoggingSampleRate)
         const input = {
@@ -158,7 +160,7 @@ describe('normalizeEventStep wrapper', () => {
 
     it('merges $set with priority: root level overrides properties', async () => {
         const uuid = new UUIDT().toString()
-        const event: PipelineEvent = {
+        const event: PluginEvent = {
             distinct_id: 'my_id',
             ip: null,
             site_url: 'http://localhost',
@@ -196,7 +198,7 @@ describe('normalizeEventStep wrapper', () => {
 
     it('merges $set_once with priority: root level overrides properties', async () => {
         const uuid = new UUIDT().toString()
-        const event: PipelineEvent = {
+        const event: PluginEvent = {
             distinct_id: 'my_id',
             ip: null,
             site_url: 'http://localhost',
@@ -234,7 +236,7 @@ describe('normalizeEventStep wrapper', () => {
 
     it('normalizes with processPerson=true and preserves person properties', async () => {
         const uuid = new UUIDT().toString()
-        const event: PipelineEvent = {
+        const event: PluginEvent = {
             distinct_id: 'my_id',
             ip: null,
             site_url: 'http://localhost',
@@ -295,7 +297,7 @@ describe('normalizeEventStep wrapper', () => {
 
     it('replaces null byte with unicode replacement character in distinct_id (processPerson=true)', async () => {
         const uuid = new UUIDT().toString()
-        const event: PipelineEvent = {
+        const event: PluginEvent = {
             distinct_id: '\u0000foo',
             ip: null,
             site_url: 'http://localhost',
@@ -337,7 +339,7 @@ describe('normalizeEventStep wrapper', () => {
 
     it('normalizes events with processPerson=false by dropping person-related properties', async () => {
         const uuid = new UUIDT().toString()
-        const event: PipelineEvent = {
+        const event: PluginEvent = {
             distinct_id: 'my_id',
             ip: null,
             site_url: 'http://localhost',
@@ -401,7 +403,7 @@ describe('normalizeEventStep wrapper', () => {
 
     it('merges $set from root level into properties.$set', async () => {
         const uuid = new UUIDT().toString()
-        const event: PipelineEvent = {
+        const event: PluginEvent = {
             distinct_id: 'my_id',
             ip: null,
             site_url: 'http://localhost',
@@ -442,7 +444,7 @@ describe('normalizeEventStep wrapper', () => {
 
     it('merges $set_once from root level into properties.$set_once', async () => {
         const uuid = new UUIDT().toString()
-        const event: PipelineEvent = {
+        const event: PluginEvent = {
             distinct_id: 'my_id',
             ip: null,
             site_url: 'http://localhost',
@@ -483,7 +485,7 @@ describe('normalizeEventStep wrapper', () => {
 
     it('adds $ip from event.ip to properties if not already present', async () => {
         const uuid = new UUIDT().toString()
-        const event: PipelineEvent = {
+        const event: PluginEvent = {
             distinct_id: 'my_id',
             ip: '192.168.1.1',
             site_url: 'http://localhost',
@@ -515,7 +517,7 @@ describe('normalizeEventStep wrapper', () => {
 
     it('does not override existing $ip in properties', async () => {
         const uuid = new UUIDT().toString()
-        const event: PipelineEvent = {
+        const event: PluginEvent = {
             distinct_id: 'my_id',
             ip: '192.168.1.1',
             site_url: 'http://localhost',
@@ -548,7 +550,7 @@ describe('normalizeEventStep wrapper', () => {
 
     it('adds $sent_at to properties from event.sent_at', async () => {
         const uuid = new UUIDT().toString()
-        const event: PipelineEvent = {
+        const event: PluginEvent = {
             distinct_id: 'my_id',
             ip: null,
             site_url: 'http://localhost',
@@ -579,7 +581,7 @@ describe('normalizeEventStep wrapper', () => {
 
     it('deletes $unset for processPerson=false', async () => {
         const uuid = new UUIDT().toString()
-        const event: PipelineEvent = {
+        const event: PluginEvent = {
             distinct_id: 'my_id',
             ip: null,
             site_url: 'http://localhost',
@@ -612,7 +614,7 @@ describe('normalizeEventStep wrapper', () => {
 
     it('handles $groupidentify event with processPerson=true by removing person properties', async () => {
         const uuid = new UUIDT().toString()
-        const event: PipelineEvent = {
+        const event: PluginEvent = {
             distinct_id: 'my_id',
             ip: null,
             site_url: 'http://localhost',
@@ -653,7 +655,7 @@ describe('normalizeEventStep wrapper', () => {
 
     it('removes $process_person_profile when processPerson=true', async () => {
         const uuid = new UUIDT().toString()
-        const event: PipelineEvent = {
+        const event: PluginEvent = {
             distinct_id: 'my_id',
             ip: null,
             site_url: 'http://localhost',
@@ -688,7 +690,7 @@ describe('normalizeEventStep wrapper', () => {
 
     it('passes through additional input fields to the output', async () => {
         const uuid = new UUIDT().toString()
-        const event: PipelineEvent = {
+        const event: PluginEvent = {
             distinct_id: 'my_id',
             ip: null,
             site_url: 'http://localhost',

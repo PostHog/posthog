@@ -1,17 +1,18 @@
-import { IncomingEventWithTeam } from '../../types'
+import { Message } from 'node-rdkafka'
+
+import { PluginEvent } from '@posthog/plugin-scaffold'
+
+import { EventHeaders, Team } from '../../types'
 import { CookielessManager } from '../cookieless/cookieless-manager'
 import { PipelineResult, isOkResult, ok } from '../pipelines/results'
 
-type ApplyCookielessProcessingInput = { eventWithTeam: IncomingEventWithTeam }
-type ApplyCookielessProcessingOutput = { eventWithTeam: IncomingEventWithTeam }
+type ApplyCookielessProcessingInput = { event: PluginEvent; team: Team; message: Message; headers: EventHeaders }
 
 export function createApplyCookielessProcessingStep<T extends ApplyCookielessProcessingInput>(
     cookielessManager: CookielessManager
 ) {
-    return async function applyCookielessProcessingStep(
-        events: T[]
-    ): Promise<PipelineResult<T & ApplyCookielessProcessingOutput>[]> {
-        const cookielessResults = await cookielessManager.doBatch(events.map((x) => x.eventWithTeam))
+    return async function applyCookielessProcessingStep(events: T[]): Promise<PipelineResult<T>[]> {
+        const cookielessResults = await cookielessManager.doBatch(events)
 
         return events.map((event, index) => {
             const cookielessResult = cookielessResults[index]
@@ -19,10 +20,9 @@ export function createApplyCookielessProcessingStep<T extends ApplyCookielessPro
             if (isOkResult(cookielessResult)) {
                 return ok({
                     ...event,
-                    eventWithTeam: cookielessResult.value,
+                    event: cookielessResult.value.event,
                 })
             } else {
-                // Return the drop/dlq/redirect result from cookieless processing
                 return cookielessResult
             }
         })

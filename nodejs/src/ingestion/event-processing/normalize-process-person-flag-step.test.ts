@@ -1,8 +1,10 @@
 import { Message } from 'node-rdkafka'
 import { v4 } from 'uuid'
 
+import { PluginEvent } from '@posthog/plugin-scaffold'
+
 import { createTestEventHeaders } from '../../../tests/helpers/event-headers'
-import { PipelineEvent, ProjectId, Team } from '../../types'
+import { ProjectId, Team } from '../../types'
 import { PerDistinctIdPipelineInput } from '../analytics'
 import { PipelineResultType } from '../pipelines/results'
 import { createNormalizeProcessPersonFlagStep } from './normalize-process-person-flag-step'
@@ -32,7 +34,7 @@ const createTestTeam = (overrides: Partial<Team> = {}): Team => ({
 describe('normalizeProcessPersonFlagStep', () => {
     const team = createTestTeam()
 
-    const baseEvent: PipelineEvent = {
+    const baseEvent: PluginEvent = {
         distinct_id: 'my_id',
         ip: null,
         site_url: '',

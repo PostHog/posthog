@@ -1,5 +1,4 @@
 import { DateTime } from 'luxon'
-import { Message } from 'node-rdkafka'
 import { v4 } from 'uuid'
 
 import { EventHeaders, PipelineEvent, ProjectId, Team } from '../../types'
@@ -34,7 +33,7 @@ describe('createDropOldEventsStep', () => {
         expect(result.warnings[0]).toMatchObject({
             type: 'event_dropped_too_old',
             details: {
-                eventUuid: input.eventWithTeam.event.uuid,
+                eventUuid: input.event.uuid,
                 event: '$pageview',
                 distinctId: 'user-1',
                 dropThresholdSeconds: 3600,
@@ -173,12 +172,8 @@ function createTestInput(options: {
           })
 
     return {
-        eventWithTeam: {
-            message: createTestMessage(),
-            event: createTestEvent(event),
-            team: createTestTeam({ drop_events_older_than_seconds: dropThreshold, ...team }),
-            headers: createTestHeaders(),
-        },
+        event: createTestEvent(event),
+        team: createTestTeam({ drop_events_older_than_seconds: dropThreshold, ...team }),
         headers: resolvedHeaders,
     }
 }
@@ -216,17 +211,6 @@ function createTestEvent(overrides: Partial<PipelineEvent> = {}): PipelineEvent 
         site_url: 'https://test.posthog.com',
         now: DateTime.utc().toISO()!,
         properties: {},
-        ...overrides,
-    }
-}
-
-function createTestMessage(overrides: Partial<Message> = {}): Message {
-    return {
-        value: Buffer.from('{}'),
-        size: 2,
-        topic: 'test-topic',
-        offset: 0,
-        partition: 0,
         ...overrides,
     }
 }

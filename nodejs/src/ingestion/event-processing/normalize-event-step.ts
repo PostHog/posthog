@@ -8,22 +8,17 @@ import { PipelineResult, ok } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
 
 export function createNormalizeEventStep<
-    TInput extends { event: PipelineEvent; headers: EventHeaders; team: Team; processPerson: boolean },
+    TInput extends { event: PluginEvent; headers: EventHeaders; team: Team; processPerson: boolean },
 >(
     timestampComparisonLoggingSampleRate: number
-): ProcessingStep<TInput, Omit<TInput, 'event'> & { normalizedEvent: PipelineEvent; timestamp: DateTime }> {
+): ProcessingStep<TInput, Omit<TInput, 'event'> & { event: PipelineEvent; timestamp: DateTime }> {
     return async function normalizeEventStepWrapper(
         input: TInput
-    ): Promise<PipelineResult<Omit<TInput, 'event'> & { normalizedEvent: PipelineEvent; timestamp: DateTime }>> {
-        const { event: event, ...restInput } = input
-
-        const pluginEvent: PluginEvent = {
-            ...event,
-            team_id: input.team.id,
-        }
+    ): Promise<PipelineResult<Omit<TInput, 'event'> & { event: PipelineEvent; timestamp: DateTime }>> {
+        const { event, ...restInput } = input
 
         const [normalizedEvent, timestamp] = await normalizeEventStep(
-            pluginEvent,
+            event,
             input.processPerson,
             input.headers,
             timestampComparisonLoggingSampleRate
@@ -31,7 +26,7 @@ export function createNormalizeEventStep<
 
         return ok({
             ...restInput,
-            normalizedEvent,
+            event: normalizedEvent,
             timestamp,
         })
     }

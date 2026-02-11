@@ -1,5 +1,4 @@
-import { createTestMessage } from '../../../tests/helpers/kafka-message'
-import { EventHeaders, PipelineEvent, Team } from '../../types'
+import { PipelineEvent } from '../../types'
 import { PipelineResultType } from '../pipelines/results'
 import { OverflowRedirectService } from '../utils/overflow-redirect/overflow-redirect-service'
 import { createOverflowLaneTTLRefreshStep } from './overflow-lane-ttl-refresh-step'
@@ -13,12 +12,7 @@ const createMockEvent = (token: string, distinctId: string, now?: Date): RateLim
         force_disable_person_processing: false,
         historical_migration: false,
     },
-    eventWithTeam: {
-        message: createTestMessage(),
-        event: { distinct_id: distinctId, token } as PipelineEvent,
-        team: { id: 1 } as Team,
-        headers: {} as EventHeaders,
-    },
+    event: { distinct_id: distinctId, token } as PipelineEvent,
 })
 
 const createMockService = (): jest.Mocked<OverflowRedirectService> => ({

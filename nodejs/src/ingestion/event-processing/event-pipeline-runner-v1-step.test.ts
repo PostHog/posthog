@@ -1,9 +1,11 @@
 import { Message } from 'node-rdkafka'
 import { v4 } from 'uuid'
 
+import { PluginEvent } from '@posthog/plugin-scaffold'
+
 import { HogTransformerService } from '../../cdp/hog-transformations/hog-transformer.service'
 import { KafkaProducerWrapper } from '../../kafka/producer'
-import { PipelineEvent, ProjectId, Team, TimestampFormat } from '../../types'
+import { ProjectId, Team, TimestampFormat } from '../../types'
 import { TeamManager } from '../../utils/team-manager'
 import { castTimestampOrNow } from '../../utils/utils'
 import {
@@ -89,7 +91,7 @@ describe('event-pipeline-runner-v1-step', () => {
     let mockGroupStore: GroupStoreForBatch
     let mockEventPipelineRunner: jest.Mocked<EventPipelineRunner>
     let mockMessage: Message
-    let mockEvent: PipelineEvent
+    let mockEvent: PluginEvent
     let mockTeam: Team
     let mockHeaders: any
 
@@ -127,12 +129,13 @@ describe('event-pipeline-runner-v1-step', () => {
             uuid: 'test-uuid',
             event: 'test-event',
             distinct_id: 'test-distinct-id',
+            team_id: 1,
             properties: { test: 'property' },
             timestamp: '2023-01-01T00:00:00.000Z',
             ip: '127.0.0.1',
             site_url: 'https://test.com',
             now: '2023-01-01T00:00:00.000Z',
-        } as PipelineEvent
+        } as PluginEvent
 
         mockTeam = createTestTeam()
 
