@@ -2,15 +2,16 @@ from typing import Optional, cast
 
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
+    Option,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
     SourceFieldOauthConfig,
+    SourceFieldSelectConfig,
 )
 
 from posthog.models.integration import GitHubIntegration, Integration
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
-from posthog.temporal.data_imports.sources.common import config
 from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
@@ -24,16 +25,8 @@ from posthog.temporal.data_imports.sources.github.settings import ENDPOINTS, INC
 from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
-@config.config
-class GithubSourcePATConfig(config.Config):
-    """Legacy config for PAT-based authentication (backward compatibility only)"""
-
-    personal_access_token: str
-    repository: str
-
-
 @SourceRegistry.register
-class GithubSource(SimpleSource[GithubSourceConfig | GithubSourcePATConfig]):
+class GithubSource(SimpleSource[GithubSourceConfig]):
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.GITHUB
@@ -44,17 +37,50 @@ class GithubSource(SimpleSource[GithubSourceConfig | GithubSourcePATConfig]):
             name=SchemaExternalDataSourceType.GITHUB,
             label="GitHub",
             betaSource=True,
-            caption="Select an existing GitHub account to link to PostHog or create a new connection",
+            caption="Connect your GitHub repository to sync issues, pull requests, commits, and more.",
             iconPath="/static/services/github.png",
             iconClassName="dark:bg-white rounded",
             fields=cast(
                 list[FieldType],
                 [
-                    SourceFieldOauthConfig(
-                        name="github_integration_id",
-                        label="GitHub account",
+                    SourceFieldSelectConfig(
+                        name="auth_type",
+                        label="Authentication type",
                         required=True,
-                        kind="github",
+                        defaultValue="oauth",
+                        options=[
+                            Option(
+                                label="OAuth (GitHub App)",
+                                value="oauth",
+                                fields=cast(
+                                    list[FieldType],
+                                    [
+                                        SourceFieldOauthConfig(
+                                            name="github_integration_id",
+                                            label="GitHub account",
+                                            required=True,
+                                            kind="github",
+                                        ),
+                                    ],
+                                ),
+                            ),
+                            Option(
+                                label="Personal access token",
+                                value="pat",
+                                fields=cast(
+                                    list[FieldType],
+                                    [
+                                        SourceFieldInputConfig(
+                                            name="personal_access_token",
+                                            label="Personal access token",
+                                            type=SourceFieldInputConfigType.PASSWORD,
+                                            required=True,
+                                            placeholder="github_pat_...",
+                                        ),
+                                    ],
+                                ),
+                            ),
+                        ],
                     ),
                     SourceFieldInputConfig(
                         name="repository",
@@ -91,14 +117,20 @@ class GithubSource(SimpleSource[GithubSourceConfig | GithubSourcePATConfig]):
 
         return integration
 
-    def parse_config(self, job_inputs: dict) -> GithubSourceConfig | GithubSourcePATConfig:
-        if "personal_access_token" in job_inputs and "github_integration_id" not in job_inputs:
-            return GithubSourcePATConfig.from_dict(job_inputs)
-        return GithubSourceConfig.from_dict(job_inputs)
+    def _get_access_token(self, config: GithubSourceConfig, team_id: int) -> str:
+        if config.auth_type.selection == "pat":
+            if not config.auth_type.personal_access_token:
+                raise ValueError("Missing personal access token")
+            return config.auth_type.personal_access_token
 
-    def get_schemas(
-        self, config: GithubSourceConfig | GithubSourcePATConfig, team_id: int, with_counts: bool = False
-    ) -> list[SourceSchema]:
+        if not config.auth_type.github_integration_id:
+            raise ValueError("Missing GitHub integration ID")
+        integration = self._get_github_integration(config.auth_type.github_integration_id, team_id)
+        if not integration.access_token:
+            raise ValueError("GitHub access token not found")
+        return integration.access_token
+
+    def get_schemas(self, config: GithubSourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
         return [
             SourceSchema(
                 name=endpoint,
@@ -110,33 +142,16 @@ class GithubSource(SimpleSource[GithubSourceConfig | GithubSourcePATConfig]):
         ]
 
     def validate_credentials(
-        self, config: GithubSourceConfig | GithubSourcePATConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: GithubSourceConfig, team_id: int, schema_name: Optional[str] = None
     ) -> tuple[bool, str | None]:
-        # Handle legacy PAT config (backward compatibility)
-        if isinstance(config, GithubSourcePATConfig):
-            return validate_github_credentials(config.personal_access_token, config.repository)
-
-        # GitHub App integration path
         try:
-            integration = self._get_github_integration(config.github_integration_id, team_id)
-            if not integration.access_token:
-                return False, "GitHub access token not found"
-            return validate_github_credentials(integration.access_token, config.repository)
+            access_token = self._get_access_token(config, team_id)
+            return validate_github_credentials(access_token, config.repository)
         except Exception as e:
             return False, str(e)
 
-    def source_for_pipeline(
-        self, config: GithubSourceConfig | GithubSourcePATConfig, inputs: SourceInputs
-    ) -> SourceResponse:
-        # Handle legacy PAT config (backward compatibility)
-        if isinstance(config, GithubSourcePATConfig):
-            access_token = config.personal_access_token
-        else:
-            # GitHub App integration path
-            integration = self._get_github_integration(config.github_integration_id, inputs.team_id)
-            if not integration.access_token:
-                raise ValueError(f"GitHub access token not found for job {inputs.job_id}")
-            access_token = integration.access_token
+    def source_for_pipeline(self, config: GithubSourceConfig, inputs: SourceInputs) -> SourceResponse:
+        access_token = self._get_access_token(config, inputs.team_id)
 
         return github_source(
             personal_access_token=access_token,
