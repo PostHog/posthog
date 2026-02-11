@@ -161,22 +161,16 @@ export const flagSelectionLogic = kea<flagSelectionLogicType>([
             },
         ],
         resultsModalVisible: [(s) => [s.bulkDeleteResult], (result: BulkDeleteResult | null) => result !== null],
-        // Show the "select all matching" banner when all page items are selected
-        // and there are more flags matching the filter than currently displayed
+        // Show the "select all matching" banner when at least one page worth of flags is selected
+        // and there are more total matching flags than currently selected
         showSelectAllMatchingBanner: [
-            (s) => [s.isAllSelected, s.displayedFlags, s.count, s.allMatchingSelected],
-            (
-                isAllSelected: boolean,
-                displayedFlags: FeatureFlagType[],
-                totalCount: number,
-                allMatchingSelected: boolean
-            ) => {
+            (s) => [s.selectedCount, s.count, s.allMatchingSelected],
+            (selectedCount: number, totalCount: number, allMatchingSelected: boolean) => {
                 if (allMatchingSelected) {
                     return false // Already selected all matching
                 }
-                const editableOnPage = displayedFlags.filter((f) => f.can_edit).length
-                // Show banner if all on page are selected and there are more flags than the page size
-                return isAllSelected && editableOnPage > 0 && totalCount > FLAGS_PER_PAGE
+                // Show banner if at least 100 flags are selected and there are more total flags
+                return selectedCount >= FLAGS_PER_PAGE && totalCount > selectedCount
             },
         ],
         // Total matching count for the banner
@@ -219,13 +213,17 @@ export const flagSelectionLogic = kea<flagSelectionLogicType>([
             actions.setPreviouslyCheckedIndex(index)
         },
         selectAll: () => {
-            const { selectedFlagIds, displayedFlags, isAllSelected } = values
+            const { selectedFlagIds, displayedFlags } = values
             const pageIds = displayedFlags
                 .filter((f: FeatureFlagType) => f.can_edit)
                 .map((f: FeatureFlagType) => f.id)
                 .filter((id: number | null): id is number => id !== null)
 
-            if (isAllSelected) {
+            // Compute inline to avoid any selector caching issues
+            const selectedIdSet = new Set(selectedFlagIds)
+            const allPageFlagsSelected = pageIds.length > 0 && pageIds.every((id) => selectedIdSet.has(id))
+
+            if (allPageFlagsSelected) {
                 // All page flags are selected, so deselect them (toggle off)
                 const pageIdSet = new Set(pageIds)
                 actions.setSelectedFlagIds(selectedFlagIds.filter((id: number) => !pageIdSet.has(id)))
