@@ -1954,11 +1954,17 @@ class FeatureFlagViewSet(
         deleted = []
         errors = []
 
-        # Add errors for invalid IDs (only for ID-based deletion)
+        # Add errors for invalid or missing IDs (only for ID-based deletion)
         if explicit_ids:
+            found_ids = {flag.id for flag in flags_list}
             for flag_id in explicit_ids:
                 if not isinstance(flag_id, int) and not (isinstance(flag_id, str) and flag_id.isdigit()):
                     errors.append({"id": flag_id, "reason": "Invalid flag ID format"})
+                else:
+                    # Convert to int for comparison if it's a string
+                    numeric_id = int(flag_id) if isinstance(flag_id, str) else flag_id
+                    if numeric_id not in found_ids:
+                        errors.append({"id": numeric_id, "reason": "Flag not found"})
 
         # Process each flag
         for flag in flags_list:

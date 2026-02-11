@@ -9560,6 +9560,11 @@ class TestFeatureFlagBulkDelete(APIBaseTest):
         assert len(data["deleted"]) == 1
         assert data["deleted"][0]["id"] == my_flag.id
 
+        # The other team's flag should be reported as not found
+        assert len(data["errors"]) == 1
+        assert data["errors"][0]["id"] == other_flag.id
+        assert data["errors"][0]["reason"] == "Flag not found"
+
         # Verify the other team's flag is NOT deleted
         other_flag.refresh_from_db()
         assert other_flag.deleted is False
