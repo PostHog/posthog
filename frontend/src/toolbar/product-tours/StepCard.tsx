@@ -119,10 +119,10 @@ export function StepCard({
                     {isMissingElement && (
                         <span className="text-[10px] text-danger flex items-center gap-1">
                             <IconWarning className="w-3 h-3" />{' '}
-                            {step.useManualSelector ? 'Enter a selector' : 'Select an element'}
+                            {step.elementTargeting === 'manual' ? 'Enter a selector' : 'Select an element'}
                         </span>
                     )}
-                    {hasTarget && step.useManualSelector && step.selector && !isExpanded && (
+                    {hasTarget && step.elementTargeting === 'manual' && step.selector && !isExpanded && (
                         <span
                             title={step.selector}
                             className="text-[10px] font-mono text-muted-3000 overflow-hidden text-ellipsis whitespace-nowrap"
@@ -132,7 +132,7 @@ export function StepCard({
                     )}
                 </div>
 
-                {!step.useManualSelector && screenshotUrl && !isExpanded && (
+                {step.elementTargeting !== 'manual' && screenshotUrl && !isExpanded && (
                     <div className="w-8 h-6 rounded overflow-hidden border border-border-3000 flex-shrink-0 bg-secondary-3000">
                         <img
                             src={screenshotUrl}
@@ -156,7 +156,7 @@ export function StepCard({
 
             {isExpanded && (
                 <div className="px-3 pb-3 pt-1 flex flex-col gap-3">
-                    {!step.useManualSelector && screenshotUrl && (
+                    {step.elementTargeting !== 'manual' && screenshotUrl && (
                         <div className="rounded-md overflow-hidden border border-border-3000 bg-secondary-3000">
                             <img
                                 src={screenshotUrl}
@@ -184,7 +184,7 @@ export function StepCard({
                                 <LemonSegmentedButton
                                     size="xsmall"
                                     fullWidth
-                                    value={step.useManualSelector ? 'manual' : 'auto'}
+                                    value={step.elementTargeting ?? 'auto'}
                                     onChange={(value) => setStepTargetingMode(index, value === 'manual')}
                                     options={[
                                         { value: 'auto', label: 'Auto' },
@@ -193,7 +193,7 @@ export function StepCard({
                                 />
                             </div>
 
-                            {step.useManualSelector && (
+                            {step.elementTargeting === 'manual' && (
                                 <div>
                                     <label className="block text-[11px] font-medium text-muted-3000 mb-1.5">
                                         CSS selector

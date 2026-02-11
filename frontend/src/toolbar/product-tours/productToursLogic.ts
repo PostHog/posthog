@@ -94,9 +94,7 @@ export function getStepElement(step: TourStep): HTMLElement | null {
         return step.element
     }
 
-    const useManualSelector = step.useManualSelector ?? false
-
-    if (useManualSelector) {
+    if (step.elementTargeting === 'manual') {
         if (!step.selector) {
             return null
         }
@@ -354,7 +352,7 @@ export const productToursLogic = kea<productToursLogicType>([
                 const { id, name, steps } = formValues
                 const isUpdate = !!id
 
-                // Strip element references and add pre-computed HTML for SDK consumption
+                // Strip element references and add pre-computed HTML
                 const stepsForApi = steps.map(({ element: _, ...step }) => prepareStepForRender(step))
 
                 // Get existing step_order_history if updating an existing tour
@@ -529,6 +527,7 @@ export const productToursLogic = kea<productToursLogicType>([
                 element,
                 inferenceData,
                 useManualSelector: false,
+                elementTargeting: 'auto',
                 progressionTrigger: existingStep?.progressionTrigger ?? 'button',
                 ...(screenshot ? { screenshotMediaId: screenshot.mediaId } : {}),
             }
@@ -570,7 +569,7 @@ export const productToursLogic = kea<productToursLogicType>([
 
             steps[index] = {
                 ...step,
-                useManualSelector: useManual,
+                elementTargeting: useManual ? 'manual' : 'auto',
             }
             actions.setTourFormValue('steps', steps)
         },
@@ -614,6 +613,7 @@ export const productToursLogic = kea<productToursLogicType>([
                 inferenceData: undefined,
                 screenshotMediaId: undefined,
                 useManualSelector: undefined,
+                elementTargeting: undefined,
                 element: undefined,
             }
             actions.setTourFormValue('steps', steps)
