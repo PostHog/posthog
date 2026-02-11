@@ -123,7 +123,6 @@ class Resolver(CloningVisitor):
         self.dialect = dialect
         self.database = context.database
         self.cte_counter = 0
-        self.inside_union = False
 
     def visit(self, node: ast.AST | None):
         if isinstance(node, ast.Expr) and node.type is not None:
@@ -133,11 +132,8 @@ class Resolver(CloningVisitor):
         return super().visit(node)
 
     def visit_select_set_query(self, node: ast.SelectSetQuery):
-        # For UNION ALL queries, CTEs from all parts should be accumulated and available to all parts
         parent_ctes = self.ctes
-        parent_inside_union = self.inside_union
         self.ctes = dict(parent_ctes)
-        self.inside_union = True
 
         node = super().visit_select_set_query(node)
         node.type = ast.SelectSetQueryType(
@@ -145,7 +141,6 @@ class Resolver(CloningVisitor):
         )
 
         self.ctes = parent_ctes
-        self.inside_union = parent_inside_union
 
         return node
 
@@ -182,25 +177,20 @@ class Resolver(CloningVisitor):
         # We will add fields to it when we encounter them. This is used to resolve fields later.
         node_type = ast.SelectQueryType()
 
-        # Save parent CTEs for nested queries (unless we're in a UNION where CTEs should accumulate)
-        parent_ctes = self.ctes if not self.inside_union else {}
+        parent_ctes = self.ctes
 
         # Track CTEs defined at this level (will be attached to new_node)
         current_level_ctes: dict[str, ast.CTE] | None = None
 
         # First step: resolve all the "WITH" CTEs onto "self.ctes" if there are any
         if node.ctes:
-            # If not in a UNION, start with parent CTEs so this query can reference them
-            if not self.inside_union:
-                self.ctes = dict(parent_ctes)
-            # If in a UNION, CTEs accumulate in the shared union scope (don't create new dict)
+            self.ctes = dict(parent_ctes)
             current_level_ctes = {}
             for cte in node.ctes.values():
                 resolved_cte = self.visit(cte)
                 current_level_ctes[cte.name] = resolved_cte
             node_type.ctes = current_level_ctes
-        elif not self.inside_union:
-            # No CTEs in this query, but inherit parent CTEs (if not in UNION)
+        else:
             self.ctes = dict(parent_ctes)
 
         # Append the "scope" onto the stack early, so that nodes we "self.visit" below can access it.
@@ -308,9 +298,7 @@ class Resolver(CloningVisitor):
 
         self.scopes.pop()
 
-        # Restore parent CTEs (unless we're in a UNION where CTEs should accumulate)
-        if not self.inside_union:
-            self.ctes = parent_ctes
+        self.ctes = parent_ctes
 
         return new_node
 
