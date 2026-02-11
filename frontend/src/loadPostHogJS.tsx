@@ -43,8 +43,8 @@ export function loadPostHogJS(): void {
                     loadedInstance.opt_in_capturing()
 
                     if (
-                        sampleOnProperty(loadedInstance.get_session_id(), 0.1) ||
-                        loadedInstance.getFeatureFlag(FEATURE_FLAGS.TRACK_REACT_FRAMERATE)
+                        loadedInstance.getFeatureFlag(FEATURE_FLAGS.TRACK_REACT_FRAMERATE) &&
+                        sampleOnProperty(loadedInstance.get_session_id(), 0.1)
                     ) {
                         startFramerateTracking(loadedInstance)
                     }
