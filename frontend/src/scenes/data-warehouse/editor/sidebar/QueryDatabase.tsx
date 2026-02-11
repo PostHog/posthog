@@ -15,7 +15,7 @@ import {
 } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
 
-import { LemonTree, LemonTreeRef } from 'lib/lemon-ui/LemonTree/LemonTree'
+import { LemonTree, LemonTreeRef, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { TreeNodeDisplayIcon } from 'lib/lemon-ui/LemonTree/LemonTreeUtils'
 import { IconTextSize } from 'lib/lemon-ui/icons'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -137,6 +137,50 @@ export const QueryDatabase = (): JSX.Element => {
         }
     }
 
+    const getTableKindLabel = (item: TreeDataItem): string | null => {
+        if (!item.record) {
+            return null
+        }
+
+        switch (item.record.traversedFieldType ?? item.record.type) {
+            case 'lazy-table':
+                return 'join'
+            case 'virtual-table':
+                return 'virtual table'
+            case 'materialized_view':
+                return 'materialized view'
+            case 'managed-view':
+                return 'managed view'
+            case 'endpoint':
+                return 'endpoint'
+            case 'view':
+            case 'view-table':
+                return item.record.view?.is_materialized ? 'materialized view' : 'view'
+            case 'table': {
+                const tableType = item.record.table?.type
+                switch (tableType) {
+                    case 'materialized_view':
+                        return 'mat view'
+                    case 'batch_export':
+                        return 'batch export'
+                    case 'data_warehouse':
+                        // Return "" to not clutter the interface
+                        return ''
+                    case 'posthog':
+                        // Return "" to not clutter the interface
+                        return ''
+                    case 'system':
+                        // Return "" to not clutter the interface
+                        return ''
+                    default:
+                        return null
+                }
+            }
+            default:
+                return null
+        }
+    }
+
     const treeRef = useRef<LemonTreeRef>(null)
     useEffect(() => {
         setTreeRef(treeRef)
@@ -188,6 +232,7 @@ export const QueryDatabase = (): JSX.Element => {
                 const isColumn = item.record?.type === 'column'
                 const columnType = isColumn ? item.record?.field?.type : null
                 const columnKey = isColumn && item.record ? `${item.record.table}.${item.record.columnName}` : null
+                const tableKindLabel = !isColumn && item.children?.length ? getTableKindLabel(item) : null
 
                 return (
                     <span className="truncate">
@@ -222,7 +267,13 @@ export const QueryDatabase = (): JSX.Element => {
                                 )}
                                 {isColumn && columnType ? (
                                     <span className="shrink rounded px-1.5 py-0.5 text-xs text-muted-alt">
-                                        {columnType}
+                                        {columnType === 'field_traverser' && item?.record?.field.chain
+                                            ? formatTraversalChain(item.record.field.chain)
+                                            : columnType}
+                                    </span>
+                                ) : tableKindLabel ? (
+                                    <span className="shrink rounded px-1.5 py-0.5 text-xs text-muted-alt">
+                                        {tableKindLabel}
                                     </span>
                                 ) : null}
                             </div>

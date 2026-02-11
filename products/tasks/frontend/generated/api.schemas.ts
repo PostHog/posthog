@@ -398,3 +398,26 @@ export type TasksRunsListParams = {
      */
     offset?: number
 }
+
+export type TasksRunsSessionLogsRetrieveParams = {
+    /**
+     * Only return events after this ISO8601 timestamp
+     */
+    after?: string
+    /**
+     * Comma-separated list of event types to include
+     * @minLength 1
+     */
+    event_types?: string
+    /**
+     * Comma-separated list of event types to exclude
+     * @minLength 1
+     */
+    exclude_types?: string
+    /**
+     * Maximum number of entries to return (default 1000, max 5000)
+     * @minimum 1
+     * @maximum 5000
+     */
+    limit?: number
+}

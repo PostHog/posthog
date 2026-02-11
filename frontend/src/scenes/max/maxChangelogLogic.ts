@@ -118,9 +118,9 @@ function clearDismissedFromStorage(): void {
 export const maxChangelogLogic = kea<maxChangelogLogicType>([
     path(['scenes', 'max', 'maxChangelogLogic']),
 
-    connect({
+    connect(() => ({
         values: [featureFlagLogic, ['featureFlags']],
-    }),
+    })),
 
     actions({
         openChangelog: true,

@@ -580,6 +580,242 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
 
+class TestTaskRunSessionLogsAPI(BaseTaskAPITest):
+    """Tests for the GET .../session_logs/ endpoint that returns filtered log entries."""
+
+    def _make_session_update_entry(self, session_update_type: str, timestamp: str, **extra) -> dict:
+        """Build a log entry with session/update notification."""
+        return {
+            "type": "notification",
+            "timestamp": timestamp,
+            "notification": {
+                "jsonrpc": "2.0",
+                "method": "session/update",
+                "params": {
+                    "update": {
+                        "sessionUpdate": session_update_type,
+                        **extra,
+                    }
+                },
+            },
+        }
+
+    def _make_posthog_entry(self, method: str, timestamp: str, **params) -> dict:
+        """Build a log entry with a _posthog/* notification."""
+        return {
+            "type": "notification",
+            "timestamp": timestamp,
+            "notification": {
+                "jsonrpc": "2.0",
+                "method": method,
+                "params": params,
+            },
+        }
+
+    def _seed_log(self, task, run, entries: list[dict]):
+        """Write entries directly to S3 as JSONL (bypasses append_log filtering)."""
+        content = "\n".join(json.dumps(e) for e in entries)
+        object_storage.write(run.log_url, content.encode("utf-8"))
+
+    def _events_url(self, task, run):
+        return f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/session_logs/"
+
+    def test_session_logs_returns_all_entries_unfiltered(self):
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+        entries = [
+            self._make_session_update_entry("user_message", "2026-01-01T00:00:01Z"),
+            self._make_session_update_entry("agent_message", "2026-01-01T00:00:02Z"),
+            self._make_session_update_entry("tool_call", "2026-01-01T00:00:03Z"),
+        ]
+        self._seed_log(task, run, entries)
+
+        response = self.client.get(self._events_url(task, run))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        data = response.json()
+        self.assertEqual(len(data), 3)
+        self.assertEqual(response["X-Total-Count"], "3")
+        self.assertEqual(response["X-Filtered-Count"], "3")
+
+    def test_session_logs_empty_log(self):
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+        # No log written to S3
+
+        response = self.client.get(self._events_url(task, run))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        data = response.json()
+        self.assertEqual(len(data), 0)
+        self.assertEqual(response["X-Total-Count"], "0")
+        self.assertEqual(response["X-Filtered-Count"], "0")
+
+    def test_session_logs_filter_by_event_types(self):
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+        entries = [
+            self._make_session_update_entry("user_message", "2026-01-01T00:00:01Z"),
+            self._make_session_update_entry("agent_message", "2026-01-01T00:00:02Z"),
+            self._make_session_update_entry("tool_call", "2026-01-01T00:00:03Z"),
+            self._make_session_update_entry("tool_result", "2026-01-01T00:00:04Z"),
+            self._make_session_update_entry("agent_message", "2026-01-01T00:00:05Z"),
+        ]
+        self._seed_log(task, run, entries)
+
+        response = self.client.get(self._events_url(task, run) + "?event_types=tool_call,tool_result")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        data = response.json()
+        self.assertEqual(len(data), 2)
+        self.assertEqual(response["X-Total-Count"], "5")
+        self.assertEqual(response["X-Filtered-Count"], "2")
+        types = [e["notification"]["params"]["update"]["sessionUpdate"] for e in data]
+        self.assertEqual(types, ["tool_call", "tool_result"])
+
+    def test_session_logs_filter_by_exclude_types(self):
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+        entries = [
+            self._make_session_update_entry("user_message", "2026-01-01T00:00:01Z"),
+            self._make_session_update_entry("agent_message", "2026-01-01T00:00:02Z"),
+            self._make_session_update_entry("tool_call", "2026-01-01T00:00:03Z"),
+        ]
+        self._seed_log(task, run, entries)
+
+        response = self.client.get(self._events_url(task, run) + "?exclude_types=agent_message")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        data = response.json()
+        self.assertEqual(len(data), 2)
+        self.assertEqual(response["X-Filtered-Count"], "2")
+        types = [e["notification"]["params"]["update"]["sessionUpdate"] for e in data]
+        self.assertEqual(types, ["user_message", "tool_call"])
+
+    def test_session_logs_filter_by_after_timestamp(self):
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+        entries = [
+            self._make_session_update_entry("user_message", "2026-01-01T10:00:00Z"),
+            self._make_session_update_entry("agent_message", "2026-01-01T10:05:00Z"),
+            self._make_session_update_entry("tool_call", "2026-01-01T10:10:00Z"),
+            self._make_session_update_entry("tool_result", "2026-01-01T10:15:00Z"),
+        ]
+        self._seed_log(task, run, entries)
+
+        # After the second entry — should return only the last two
+        response = self.client.get(self._events_url(task, run) + "?after=2026-01-01T10:05:00Z")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        data = response.json()
+        self.assertEqual(len(data), 2)
+        self.assertEqual(response["X-Total-Count"], "4")
+        self.assertEqual(response["X-Filtered-Count"], "2")
+        types = [e["notification"]["params"]["update"]["sessionUpdate"] for e in data]
+        self.assertEqual(types, ["tool_call", "tool_result"])
+
+    def test_session_logs_filter_after_handles_z_and_offset_formats(self):
+        """Timestamps with Z suffix and +00:00 suffix should compare correctly."""
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+        entries = [
+            self._make_session_update_entry("user_message", "2026-01-01T10:00:00Z"),
+            self._make_session_update_entry("agent_message", "2026-01-01T10:00:00.500Z"),
+            self._make_session_update_entry("tool_call", "2026-01-01T10:00:01Z"),
+        ]
+        self._seed_log(task, run, entries)
+
+        # Use +00:00 format for the after param — should still match Z-format timestamps
+        response = self.client.get(self._events_url(task, run) + "?after=2026-01-01T10:00:00%2B00:00")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        data = response.json()
+        self.assertEqual(len(data), 2)
+        types = [e["notification"]["params"]["update"]["sessionUpdate"] for e in data]
+        self.assertEqual(types, ["agent_message", "tool_call"])
+
+    def test_session_logs_limit(self):
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+        entries = [self._make_session_update_entry("user_message", f"2026-01-01T00:00:{i:02d}Z") for i in range(10)]
+        self._seed_log(task, run, entries)
+
+        response = self.client.get(self._events_url(task, run) + "?limit=3")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        data = response.json()
+        self.assertEqual(len(data), 3)
+        self.assertEqual(response["X-Total-Count"], "10")
+        self.assertEqual(response["X-Filtered-Count"], "3")
+
+    def test_session_logs_combined_filters(self):
+        """Test after + event_types + limit together."""
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+        entries = [
+            self._make_session_update_entry("user_message", "2026-01-01T10:00:00Z"),
+            self._make_session_update_entry("tool_call", "2026-01-01T10:01:00Z"),
+            self._make_session_update_entry("agent_message", "2026-01-01T10:02:00Z"),
+            self._make_session_update_entry("tool_call", "2026-01-01T10:03:00Z"),
+            self._make_session_update_entry("agent_message", "2026-01-01T10:04:00Z"),
+            self._make_session_update_entry("tool_call", "2026-01-01T10:05:00Z"),
+        ]
+        self._seed_log(task, run, entries)
+
+        # After 10:01, only tool_call, limit 1
+        response = self.client.get(
+            self._events_url(task, run) + "?after=2026-01-01T10:01:00Z&event_types=tool_call&limit=1"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        data = response.json()
+        self.assertEqual(len(data), 1)
+        self.assertEqual(data[0]["timestamp"], "2026-01-01T10:03:00Z")
+
+    def test_session_logs_posthog_method_filtering(self):
+        """_posthog/* events should be filterable by their method name."""
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+        entries = [
+            self._make_session_update_entry("user_message", "2026-01-01T00:00:01Z"),
+            self._make_posthog_entry("_posthog/sdk_session", "2026-01-01T00:00:02Z", sessionId="s1"),
+            self._make_posthog_entry("_posthog/session/resume", "2026-01-01T00:00:03Z", sessionId="s1"),
+            self._make_session_update_entry("agent_message", "2026-01-01T00:00:04Z"),
+        ]
+        self._seed_log(task, run, entries)
+
+        response = self.client.get(
+            self._events_url(task, run) + "?event_types=_posthog/sdk_session,_posthog/session/resume"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        data = response.json()
+        self.assertEqual(len(data), 2)
+        methods = [e["notification"]["method"] for e in data]
+        self.assertEqual(methods, ["_posthog/sdk_session", "_posthog/session/resume"])
+
+    def test_session_logs_server_timing_header(self):
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+        entries = [self._make_session_update_entry("user_message", "2026-01-01T00:00:01Z")]
+        self._seed_log(task, run, entries)
+
+        response = self.client.get(self._events_url(task, run))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("Server-Timing", response)
+        self.assertIn("s3_read", response["Server-Timing"])
+        self.assertIn("filter", response["Server-Timing"])
+
+
 class TestTasksAPIPermissions(BaseTaskAPITest):
     def setUp(self):
         super().setUp()

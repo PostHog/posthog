@@ -5,16 +5,15 @@ use std::time::Duration;
 use anyhow::{Context, Result};
 use common_kafka::config::KafkaConfig;
 use common_kafka::kafka_producer::create_kafka_producer;
-use common_types::CapturedEvent;
 
 use health::{HealthHandle, HealthRegistry};
 use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info};
 
-use crate::pipelines::ingestion_events::{
-    DeduplicationConfig, DuplicateEventProducerWrapper, IngestionEventsBatchProcessor,
-};
+use crate::config::PipelineType;
+use crate::pipelines::ingestion_events::{DeduplicationConfig, DuplicateEventProducerWrapper};
+use crate::pipelines::{PipelineBuilder, PipelineConsumer};
 use crate::{
     checkpoint::{
         config::CheckpointConfig, export::CheckpointExporter, import::CheckpointImporter,
@@ -22,11 +21,7 @@ use crate::{
     },
     checkpoint_manager::CheckpointManager,
     config::Config,
-    kafka::{
-        batch_consumer::BatchConsumer, ConsumerConfigBuilder, OffsetTracker, PartitionRouter,
-        PartitionRouterConfig, PartitionWorkerConfig, RoutingProcessor,
-    },
-    processor_rebalance_handler::ProcessorRebalanceHandler,
+    kafka::{ConsumerConfigBuilder, PartitionRouterConfig, PartitionWorkerConfig},
     rebalance_tracker::RebalanceTracker,
     store::DeduplicationStoreConfig,
     store_manager::{CleanupTaskHandle, StoreManager},
@@ -35,7 +30,7 @@ use crate::{
 /// The main Kafka Deduplicator service that encapsulates all components
 pub struct KafkaDeduplicatorService {
     config: Config,
-    consumer: Option<BatchConsumer<CapturedEvent>>,
+    consumer: Option<PipelineConsumer>,
     store_manager: Arc<StoreManager>,
     checkpoint_manager: Option<CheckpointManager>,
     checkpoint_importer: Option<Arc<CheckpointImporter>>,
@@ -220,136 +215,6 @@ impl KafkaDeduplicatorService {
             return Err(anyhow::anyhow!("Service already initialized"));
         }
 
-        // Create deduplication config (store config already in store_manager)
-        let dedup_config = DeduplicationConfig {
-            output_topic: self.config.output_topic.clone(),
-            duplicate_events_topic: self.config.duplicate_events_topic.clone(),
-            producer_config: self.config.build_producer_config(),
-            store_config: DeduplicationStoreConfig {
-                path: self.config.store_path_buf(),
-                max_capacity: self
-                    .config
-                    .parse_storage_capacity()
-                    .context("Failed to parse max_store_capacity")?,
-            },
-            producer_send_timeout: self.config.producer_send_timeout(),
-            flush_interval: self.config.flush_interval(),
-        };
-
-        // Create KafkaConfig from our Config (used for both producers)
-        let kafka_config = KafkaConfig {
-            kafka_hosts: self.config.kafka_hosts.clone(),
-            kafka_producer_linger_ms: self.config.kafka_producer_linger_ms,
-            kafka_producer_queue_mib: self.config.kafka_producer_queue_mib,
-            kafka_producer_queue_messages: self.config.kafka_producer_queue_messages,
-            kafka_message_timeout_ms: self.config.kafka_message_timeout_ms,
-            kafka_compression_codec: self.config.kafka_compression_codec.clone(),
-            kafka_tls: self.config.kafka_tls,
-        };
-
-        // Create main producer for output topic if configured
-        let main_producer = match &self.config.output_topic {
-            Some(topic) => {
-                info!("Creating Kafka producer for output topic: {}", topic);
-
-                // Create a health handle for the main producer
-                let main_producer_health = self
-                    .liveness
-                    .register(format!("main_producer_{topic}"), Duration::from_secs(30))
-                    .await;
-
-                // Create the producer using common module's function
-                let producer = create_kafka_producer(&kafka_config, main_producer_health)
-                    .await
-                    .with_context(|| {
-                        format!("Failed to create Kafka producer for output topic '{topic}'")
-                    })?;
-
-                Some(Arc::new(producer))
-            }
-            None => None,
-        };
-
-        // Create duplicate events producer if configured
-        let duplicate_producer = match &self.config.duplicate_events_topic {
-            Some(topic) => {
-                info!(
-                    "Creating Kafka producer for duplicate events topic: {}",
-                    topic
-                );
-
-                // Create a health handle for the duplicate producer
-                let duplicate_producer_health = self
-                    .liveness
-                    .register(
-                        format!("duplicate_producer_{topic}"),
-                        Duration::from_secs(30),
-                    )
-                    .await;
-
-                // Create the producer using common module's function
-                let producer = create_kafka_producer(&kafka_config, duplicate_producer_health)
-                    .await
-                    .with_context(|| {
-                        format!(
-                            "Failed to create Kafka producer for duplicate events topic '{topic}'"
-                        )
-                    })?;
-
-                // Wrap in DuplicateEventProducerWrapper
-                Some(DuplicateEventProducerWrapper::new(
-                    topic.clone(),
-                    Arc::new(producer),
-                )?)
-            }
-            None => None,
-        };
-
-        // Create a processor with the store manager and both producers
-        let processor = Arc::new(
-            IngestionEventsBatchProcessor::new(
-                dedup_config,
-                self.store_manager.clone(),
-                main_producer,
-                duplicate_producer,
-            )
-            .with_context(|| "Failed to create deduplication processor")?,
-        );
-
-        // Create partition router for parallel processing across partitions
-        let router_config = PartitionRouterConfig {
-            worker_config: PartitionWorkerConfig {
-                channel_buffer_size: self.config.partition_worker_channel_buffer_size,
-            },
-        };
-
-        // Get rebalance coordinator from store manager (created in new())
-        let rebalance_tracker = self.store_manager.rebalance_tracker().clone();
-
-        // Create offset tracker for tracking processed offsets
-        let offset_tracker = Arc::new(OffsetTracker::new(rebalance_tracker.clone()));
-
-        let router = Arc::new(PartitionRouter::new(
-            processor,
-            offset_tracker.clone(),
-            router_config,
-        ));
-
-        // Create routing processor that distributes messages to partition workers
-        let routing_processor = Arc::new(RoutingProcessor::new(
-            router.clone(),
-            offset_tracker.clone(),
-        ));
-
-        // Create rebalance handler with the router for partition worker management
-        let rebalance_handler = Arc::new(ProcessorRebalanceHandler::with_router(
-            self.store_manager.clone(),
-            rebalance_tracker,
-            router,
-            offset_tracker.clone(),
-            self.checkpoint_importer.clone(),
-        ));
-
         // Create consumer config using the kafka module's builder
         let consumer_config =
             ConsumerConfigBuilder::new(&self.config.kafka_hosts, &self.config.kafka_consumer_group)
@@ -377,6 +242,13 @@ impl KafkaDeduplicatorService {
                 .with_session_timeout_ms(self.config.kafka_session_timeout_ms)
                 .with_heartbeat_interval_ms(self.config.kafka_heartbeat_interval_ms)
                 .build();
+
+        // Create partition router for parallel processing across partitions
+        let router_config = PartitionRouterConfig {
+            worker_config: PartitionWorkerConfig {
+                channel_buffer_size: self.config.partition_worker_channel_buffer_size,
+            },
+        };
 
         // Create shutdown channel
         let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
@@ -421,28 +293,58 @@ impl KafkaDeduplicatorService {
             self.config.checkpoint_interval(),
         );
 
-        // Create stateful Kafka consumer that routes to partition workers
-        let kafka_consumer = BatchConsumer::new(
-            &consumer_config,
-            rebalance_handler,
-            routing_processor,
-            offset_tracker,
-            shutdown_rx,
-            &self.config.kafka_consumer_topic,
+        // Build pipeline consumer using the builder
+        let mut builder = PipelineBuilder::new(
+            self.config.pipeline_type,
+            self.store_manager.clone(),
+            consumer_config,
+            router_config,
+            self.config.kafka_consumer_topic.clone(),
             self.config.kafka_consumer_batch_size,
             self.config.kafka_consumer_batch_timeout(),
             self.config.commit_interval(),
+            self.config.rebalance_cleanup_parallelism,
         )
-        .with_context(|| {
-            format!(
-                "Failed to create Kafka consumer for topic '{}' with group '{}'",
-                self.config.kafka_consumer_topic, self.config.kafka_consumer_group
-            )
-        })?;
+        .with_checkpoint_importer(self.checkpoint_importer.clone());
+
+        // Configure pipeline-specific options for ingestion events
+        if self.config.pipeline_type == PipelineType::IngestionEvents {
+            let (main_producer, duplicate_producer) =
+                self.create_producers_for_ingestion_pipeline().await?;
+
+            // Normalize empty strings to None for optional topic configs
+            let output_topic = self
+                .config
+                .output_topic
+                .as_ref()
+                .filter(|s| !s.is_empty())
+                .cloned();
+            let duplicate_events_topic = self
+                .config
+                .duplicate_events_topic
+                .as_ref()
+                .filter(|s| !s.is_empty())
+                .cloned();
+
+            // Create deduplication config (store config already in store_manager)
+            let dedup_config = DeduplicationConfig {
+                output_topic,
+                duplicate_events_topic,
+                producer_config: self.config.build_producer_config(),
+                store_config: self.store_manager.config().clone(),
+                producer_send_timeout: self.config.producer_send_timeout(),
+                flush_interval: self.config.flush_interval(),
+            };
+
+            builder =
+                builder.with_ingestion_config(dedup_config, main_producer, duplicate_producer);
+        }
+
+        let pipeline_consumer = builder.build(shutdown_rx)?;
 
         info!(
-            "Initialized consumer for topic '{}', publishing to '{:?}'",
-            self.config.kafka_consumer_topic, self.config.output_topic
+            "Initialized {:?} pipeline for topic '{}'",
+            self.config.pipeline_type, self.config.kafka_consumer_topic
         );
 
         // Register health check for the service
@@ -452,8 +354,109 @@ impl KafkaDeduplicatorService {
                 .await,
         );
 
-        self.consumer = Some(kafka_consumer);
+        self.consumer = Some(pipeline_consumer);
         Ok(())
+    }
+
+    /// Create Kafka producers for the ingestion events pipeline
+    async fn create_producers_for_ingestion_pipeline(
+        &self,
+    ) -> Result<(
+        Option<Arc<rdkafka::producer::FutureProducer<common_kafka::kafka_producer::KafkaContext>>>,
+        Option<DuplicateEventProducerWrapper>,
+    )> {
+        // Create KafkaConfig from our Config (used for both producers)
+        let kafka_config = KafkaConfig {
+            kafka_hosts: self.config.kafka_hosts.clone(),
+            kafka_producer_linger_ms: self.config.kafka_producer_linger_ms,
+            kafka_producer_queue_mib: self.config.kafka_producer_queue_mib,
+            kafka_producer_queue_messages: self.config.kafka_producer_queue_messages,
+            kafka_message_timeout_ms: self.config.kafka_message_timeout_ms,
+            kafka_compression_codec: self.config.kafka_compression_codec.clone(),
+            kafka_tls: self.config.kafka_tls,
+        };
+
+        // Normalize empty strings to None for optional topic configs
+        let output_topic = self
+            .config
+            .output_topic
+            .as_ref()
+            .filter(|s| !s.is_empty())
+            .cloned();
+        let duplicate_events_topic = self
+            .config
+            .duplicate_events_topic
+            .as_ref()
+            .filter(|s| !s.is_empty())
+            .cloned();
+
+        // Create main producer for output topic if configured
+        let main_producer = match &output_topic {
+            Some(topic) => {
+                info!("Creating Kafka producer for output topic: {}", topic);
+
+                // Create a health handle for the main producer
+                let main_producer_health = self
+                    .liveness
+                    .register(format!("main_producer_{topic}"), Duration::from_secs(30))
+                    .await;
+
+                // Create the producer using common module's function
+                let producer = create_kafka_producer(&kafka_config, main_producer_health)
+                    .await
+                    .with_context(|| {
+                        format!("Failed to create Kafka producer for output topic '{topic}'")
+                    })?;
+
+                Some(Arc::new(producer))
+            }
+            None => {
+                info!("Output topic not configured, skipping main producer creation");
+                None
+            }
+        };
+
+        // Create duplicate events producer if configured
+        let duplicate_producer = match &duplicate_events_topic {
+            Some(topic) => {
+                info!(
+                    "Creating Kafka producer for duplicate events topic: {}",
+                    topic
+                );
+
+                // Create a health handle for the duplicate producer
+                let duplicate_producer_health = self
+                    .liveness
+                    .register(
+                        format!("duplicate_producer_{topic}"),
+                        Duration::from_secs(30),
+                    )
+                    .await;
+
+                // Create the producer using common module's function
+                let producer = create_kafka_producer(&kafka_config, duplicate_producer_health)
+                    .await
+                    .with_context(|| {
+                        format!(
+                            "Failed to create Kafka producer for duplicate events topic '{topic}'"
+                        )
+                    })?;
+
+                // Wrap in DuplicateEventProducerWrapper
+                Some(DuplicateEventProducerWrapper::new(
+                    topic.clone(),
+                    Arc::new(producer),
+                )?)
+            }
+            None => {
+                info!(
+                    "Duplicate events topic not configured, skipping duplicate producer creation"
+                );
+                None
+            }
+        };
+
+        Ok((main_producer, duplicate_producer))
     }
 
     /// Run the service (blocking until shutdown)

@@ -189,6 +189,8 @@ frontend/src/layout/navigation-3000/sidepanel/panels/SdkDoctor @PostHog/team-gro
 posthog/temporal/weekly-digest @PostHog/team-growth
 
 # DevEx-adjacent files - owned by @PostHog/team-devex
+.github/workflows/** @PostHog/team-devex
+.github/actions/** @PostHog/team-devex
 .github/dependabot.yml @PostHog/team-devex
 Dockerfile @PostHog/team-devex
 docker-compose\*.yml @PostHog/team-devex
@@ -203,3 +205,8 @@ common/hogli/ @PostHog/team-devex
 bin/ @PostHog/team-devex
 CODEOWNERS-soft @PostHog/team-devex
 CODEOWNERS @PostHog/team-devex
+CLAUDE.md @PostHog/team-devex
+AGENTS.md @PostHog/team-devex
+.claude/ @PostHog/team-devex
+greptile.json @PostHog/team-devex
+docs/published/developing-locally.md @PostHog/team-devex

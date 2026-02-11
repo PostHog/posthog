@@ -27,7 +27,7 @@ from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models.exported_asset import ExportedAsset, save_content_from_file
 from posthog.utils import absolute_uri
 
-from ...exceptions import QuerySizeExceeded
+from ...exceptions import ClickHouseQuerySizeExceeded
 from ...hogql.constants import CSV_EXPORT_BREAKDOWN_LIMIT_INITIAL, CSV_EXPORT_BREAKDOWN_LIMIT_LOW, CSV_EXPORT_LIMIT
 from ...hogql.query import LimitContext
 from ...hogql_queries.insights.trends.breakdown import (
@@ -471,7 +471,7 @@ def get_from_query(exported_asset: ExportedAsset, limit: int, resource: dict) ->
                 limit_context=LimitContext.EXPORT,
                 execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
             )
-        except QuerySizeExceeded:
+        except ClickHouseQuerySizeExceeded:
             if "breakdownFilter" not in query or limit <= CSV_EXPORT_BREAKDOWN_LIMIT_LOW:
                 raise
 
@@ -558,16 +558,19 @@ def _determine_columns(user_columns: list[str], all_keys: list[str], seen_keys: 
 
     columns = []
     for col in user_columns:
+        # Always check for nested keys that start with this prefix
+        # This handles the case where some rows have null values (adding 'col' to seen_keys)
+        # while others have nested objects (adding 'col.nested.path' to all_keys)
+        nested_keys = [key for key in all_keys if key.startswith(col + ".")]
+        if nested_keys:
+            # Include nested keys to capture the expanded data
+            columns.extend(nested_keys)
         if col in seen_keys:
+            # Also include the base column if it exists (for rows with null/primitive values)
             columns.append(col)
-        else:
-            # Check if there are nested keys that start with this prefix
-            nested_keys = [key for key in all_keys if key.startswith(col + ".")]
-            if nested_keys:
-                columns.extend(nested_keys)
-            else:
-                # Include the column even if it doesn't exist in data (will be empty)
-                columns.append(col)
+        elif not nested_keys:
+            # Include the column even if it doesn't exist in data (will be empty)
+            columns.append(col)
     return columns
 
 

@@ -61,11 +61,14 @@ class ClusterContext:
 
 @dataclass
 class Cluster:
-    """A cluster of similar video segments."""
+    """A cluster of similar video segments.
+
+    Note: Centroids are stored in Redis via centroid_cache module to avoid
+    large Temporal payloads. Use centroid_cache.get_centroids() to retrieve.
+    """
 
     cluster_id: int
     segment_ids: list[str]  # document_ids of segments in this cluster
-    centroid: list[float]  # 3072-dim embedding centroid
     size: int
 
 
@@ -231,6 +234,15 @@ class PrimeSessionEmbeddingsResult:
     session_ids_found: int
     sessions_summarized: int
     sessions_failed: int
+
+
+@dataclass
+class GetSessionsToPrimeResult:
+    """Result from the activity that identifies sessions needing summarization."""
+
+    session_ids_to_summarize: list[str]
+    user_id: int | None
+    user_distinct_id: str | None
 
 
 @dataclass

@@ -285,7 +285,8 @@ class TestCSVExporter(APIBaseTest):
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
             csv_exporter.export_tabular(exported_asset)
 
-            assert exported_asset.filename == "export.xlsx"
+            created_date = exported_asset.created_at.strftime("%Y-%m-%d")
+            assert exported_asset.filename == f"export-{created_date}.xlsx"
             assert exported_asset.content_location is None
 
             wb = load_workbook(filename=BytesIO(exported_asset.content))
@@ -1551,3 +1552,182 @@ class TestCSVExporter(APIBaseTest):
 
         assert os.path.exists(path)
         os.unlink(path)
+
+
+@override_settings(SITE_URL="http://testserver")
+class TestNestedColumnExport(APIBaseTest):
+    """
+    Test CSV export handles mixed null/nested data correctly.
+    """
+
+    @patch("posthog.models.exported_asset.UUIDT")
+    @patch("posthog.models.exported_asset.object_storage.write_from_file")
+    @patch("posthog.tasks.exports.csv_exporter.get_from_query")
+    def test_nested_columns_included_when_some_rows_are_null(
+        self,
+        mocked_get_from_query: Any,
+        mocked_object_storage_write_from_file: Any,
+        mocked_uuidt: Any,
+    ) -> None:
+        """
+        When some rows have null inputState and others have nested objects,
+        the export should include the nested column keys (not just 'inputState').
+        """
+        mocked_get_from_query.return_value = iter(
+            [
+                {
+                    "id": "trace-with-state",
+                    "inputState": {"messages": [{"role": "user", "content": "Hello world"}]},
+                    "outputState": {"messages": [{"role": "assistant", "content": "Hi there!"}]},
+                },
+                {
+                    "id": "trace-without-state",
+                    "inputState": None,
+                    "outputState": None,
+                },
+            ]
+        )
+
+        exported_asset = ExportedAsset(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.CSV,
+            export_context={
+                "columns": ["id", "inputState", "outputState"],
+                "source": {"kind": "TracesQuery"},
+            },
+        )
+        exported_asset.save()
+        mocked_uuidt.return_value = "test-guid"
+        mocked_object_storage_write_from_file.side_effect = ObjectStorageError("mock write failed")
+
+        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
+            csv_exporter.export_tabular(exported_asset)
+
+            assert exported_asset.content is not None
+            assert b"Hello world" in exported_asset.content, f"Nested input content missing"
+            assert b"Hi there!" in exported_asset.content, f"Nested output content missing"
+
+    @patch("posthog.models.exported_asset.UUIDT")
+    @patch("posthog.models.exported_asset.object_storage.write_from_file")
+    @patch("posthog.tasks.exports.csv_exporter.get_from_query")
+    def test_null_rows_first_still_includes_nested_columns(
+        self,
+        mocked_get_from_query: Any,
+        mocked_object_storage_write_from_file: Any,
+        mocked_uuidt: Any,
+    ) -> None:
+        """
+        Even when null rows come first (adding base key to seen_keys),
+        nested keys from later rows should still be included.
+        """
+        mocked_get_from_query.return_value = iter(
+            [
+                {"id": "null-first", "inputState": None},
+                {"id": "nested-second", "inputState": {"messages": [{"role": "user", "content": "Test message"}]}},
+            ]
+        )
+
+        exported_asset = ExportedAsset(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.CSV,
+            export_context={
+                "columns": ["id", "inputState"],
+                "source": {"kind": "TracesQuery"},
+            },
+        )
+        exported_asset.save()
+        mocked_uuidt.return_value = "test-guid"
+        mocked_object_storage_write_from_file.side_effect = ObjectStorageError("mock write failed")
+
+        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
+            csv_exporter.export_tabular(exported_asset)
+
+            assert exported_asset.content is not None
+            assert b"Test message" in exported_asset.content, f"Nested content missing when null row came first"
+
+    @patch("posthog.models.exported_asset.UUIDT")
+    @patch("posthog.models.exported_asset.object_storage.write_from_file")
+    @patch("posthog.tasks.exports.csv_exporter.get_from_query")
+    def test_all_null_rows_still_includes_requested_column(
+        self,
+        mocked_get_from_query: Any,
+        mocked_object_storage_write_from_file: Any,
+        mocked_uuidt: Any,
+    ) -> None:
+        """When all rows have null for a requested column, the column header should still appear."""
+        mocked_get_from_query.return_value = iter(
+            [
+                {"id": "trace-1", "inputState": None},
+                {"id": "trace-2", "inputState": None},
+            ]
+        )
+
+        exported_asset = ExportedAsset(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.CSV,
+            export_context={
+                "columns": ["id", "inputState"],
+                "source": {"kind": "TracesQuery"},
+            },
+        )
+        exported_asset.save()
+        mocked_uuidt.return_value = "test-guid"
+        mocked_object_storage_write_from_file.side_effect = ObjectStorageError("mock write failed")
+
+        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
+            csv_exporter.export_tabular(exported_asset)
+
+            assert exported_asset.content is not None
+            # Header should contain inputState column even when all values are null
+            assert b"inputState" in exported_asset.content
+            # Verify both data rows are present
+            assert b"trace-1" in exported_asset.content
+            assert b"trace-2" in exported_asset.content
+
+    @patch("posthog.models.exported_asset.UUIDT")
+    @patch("posthog.models.exported_asset.object_storage.write_from_file")
+    @patch("posthog.tasks.exports.csv_exporter.get_from_query")
+    def test_deeply_nested_objects_are_flattened(
+        self,
+        mocked_get_from_query: Any,
+        mocked_object_storage_write_from_file: Any,
+        mocked_uuidt: Any,
+    ) -> None:
+        """Deeply nested objects should be flattened to dot-notation columns."""
+        mocked_get_from_query.return_value = iter(
+            [
+                {
+                    "id": "trace-1",
+                    "inputState": {
+                        "messages": [
+                            {"role": "user", "content": "First message"},
+                            {"role": "user", "content": "Second message"},
+                        ],
+                        "metadata": {"source": "web"},
+                    },
+                },
+            ]
+        )
+
+        exported_asset = ExportedAsset(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.CSV,
+            export_context={
+                "columns": ["id", "inputState"],
+                "source": {"kind": "TracesQuery"},
+            },
+        )
+        exported_asset.save()
+        mocked_uuidt.return_value = "test-guid"
+        mocked_object_storage_write_from_file.side_effect = ObjectStorageError("mock write failed")
+
+        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
+            csv_exporter.export_tabular(exported_asset)
+
+            assert exported_asset.content is not None
+            assert b"First message" in exported_asset.content
+            assert b"Second message" in exported_asset.content
+            assert b"web" in exported_asset.content
+            # Nested objects should be flattened to dot-notation columns
+            assert b"inputState.messages.0.content" in exported_asset.content
+            assert b"inputState.messages.1.content" in exported_asset.content

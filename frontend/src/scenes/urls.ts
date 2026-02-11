@@ -8,7 +8,6 @@ import { ActivityTab, AnnotationType, CommentType, OnboardingStepKey, SDKKey } f
 
 import type { BillingSectionId } from './billing/types'
 import { DataPipelinesNewSceneKind } from './data-pipelines/DataPipelinesNewScene'
-import type { DataPipelinesSceneTab } from './data-pipelines/DataPipelinesScene'
 import { OutputTab } from './data-warehouse/editor/outputPaneLogic'
 import type { DataWarehouseSourceSceneTab } from './data-warehouse/settings/DataWarehouseSourceScene'
 import type { HogFunctionSceneTab } from './hog-functions/HogFunctionScene'
@@ -42,6 +41,12 @@ export const urls = {
     dataManagementHistory: (): string => '/data-management/history',
     database: (): string => '/data-management/database',
     dataWarehouseManagedViewsets: (): string => '/data-management/managed-viewsets',
+    apps: (): string => '/apps',
+    appsNew: (): string => '/apps/new',
+    destinations: (): string => '/data-management/destinations',
+    models: (): string => '/models',
+    sources: (): string => '/data-management/sources',
+    transformations: (): string => '/data-management/transformations',
     activity: (tab: ActivityTab | ':tab' = ActivityTab.ExploreEvents): string => `/activity/${tab}`,
     event: (id: string, timestamp: string): string =>
         `/events/${encodeURIComponent(id)}/${encodeURIComponent(timestamp)}`,
@@ -191,6 +196,7 @@ export const urls = {
     debugQuery: (query?: string | Record<string, any>): string =>
         combineUrl('/debug', {}, query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {}).url,
     debugHog: (): string => '/debug/hog',
+    signalsDebug: (): string => '/debug/signals',
     moveToPostHogCloud: (): string => '/move-to-cloud',
     heatmaps: (params?: string): string =>
         `/heatmaps${params ? `?${params.startsWith('?') ? params.slice(1) : params}` : ''}`,
@@ -208,10 +214,9 @@ export const urls = {
     coupons: (campaign: string): string => `/coupons/${campaign}`,
     startups: (referrer?: string): string => `/startups${referrer ? `/${referrer}` : ''}`,
     oauthAuthorize: (): string => '/oauth/authorize',
-    dataPipelines: (kind: DataPipelinesSceneTab = 'overview'): string => `/pipeline/${kind}`,
     dataPipelinesNew: (kind?: DataPipelinesNewSceneKind): string => `/pipeline/new/${kind ?? ''}`,
     dataWarehouseSource: (id: string, tab?: DataWarehouseSourceSceneTab): string =>
-        `/data-warehouse/sources/${id}/${tab ?? 'schemas'}`,
+        `/data-management/sources/${id}/${tab ?? 'schemas'}`,
     dataWarehouseSourceNew: (kind?: string): string => `/data-warehouse/new-source${kind ? `?kind=${kind}` : ''}`,
     batchExportNew: (service: string): string => `/pipeline/batch-exports/new/${service}`,
     batchExport: (id: string): string => `/pipeline/batch-exports/${id}`,
@@ -227,6 +232,7 @@ export const urls = {
     health: (): string => '/health',
     pipelineStatus: (): string => '/health/pipeline-status',
     sdkDoctor: (): string => '/health/sdk-doctor',
+    exports: (): string => '/exports',
 }
 
 export interface UrlMatcher {

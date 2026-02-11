@@ -68,6 +68,9 @@ jobs:
             - name: Install pnpm
               uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.2.0
 
+            - name: Fix node-gyp permissions
+              run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
+
             - name: Set up Node.js
               uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
               with:
@@ -101,6 +104,9 @@ jobs:
 
             - name: Install pnpm
               uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.2.0
+
+            - name: Fix node-gyp permissions
+              run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
 
             - name: Set up Node.js
               uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
@@ -175,7 +181,7 @@ jobs:
 
             - name: Install uv
               id: setup-uv
-              uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b # v7.2.0
+              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
               with:
                   enable-cache: true
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
@@ -210,6 +216,9 @@ jobs:
             - name: Install pnpm
               uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.2.0
 
+            - name: Fix node-gyp permissions
+              run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
+
             - name: Set up Node.js
               uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
               with:
@@ -233,11 +242,15 @@ jobs:
                   docker compose -f docker-compose.dev.yml up kafka redis7 clickhouse maildev -d --wait
                   bin/check_kafka_clickhouse_up
 
+            - name: Fetch base branch for diff
+              if: github.event_name == 'pull_request'
+              run: git fetch origin ${{ github.base_ref }} --depth=1
+
             - name: Check for migrations in this PR
               id: check_migrations
               if: github.event_name == 'pull_request'
               run: |
-                  if git diff --name-only origin/${{ github.base_ref }}...HEAD | grep -E '(migrations/|rust/.*migrate)'; then
+                  if git diff --name-only origin/${{ github.base_ref }}..HEAD | grep -E '(migrations/|rust/.*migrate)'; then
                     echo "has_migrations=true" >> $GITHUB_OUTPUT
                   else
                     echo "has_migrations=false" >> $GITHUB_OUTPUT

@@ -16,7 +16,8 @@ const numberOpsForSchema = ['gt', 'gte', 'lt', 'lte', 'min', 'max']
 const numberOps = [...base, ...numberOpsForSchema] as const
 const booleanOps = [...base] as const
 
-const arrayOps = ['in', 'not_in'] as const
+// Note: 'exact' and 'is_not' support arrays too (checks if value is contained in array)
+const arrayOps = ['exact', 'is_not'] as const
 
 const operatorValues = [...new Set([...stringOps, ...numberOps, ...booleanOps, ...arrayOps])] as [string, ...string[]]
 
@@ -47,13 +48,6 @@ export const PersonPropertyFilterSchema = z
                 message: `operator "${operator}" is not valid for value type "${isArray ? 'array' : typeof value}"`,
             })
         }
-
-        if (!isArray && arrayOps.includes(operator as any)) {
-            ctx.addIssue({
-                code: z.ZodIssueCode.custom,
-                message: `operator "${operator}" requires an array value`,
-            })
-        }
     })
     .transform((data) => {
         // when using is_set or is_not_set, set the value the same as the operator
@@ -72,13 +66,70 @@ export type PersonPropertyFilter = z.infer<typeof PersonPropertyFilterSchema>
 export const FiltersSchema = z.object({
     properties: z.array(PersonPropertyFilterSchema),
     rollout_percentage: z.number(),
+    variant: z.string().nullish().describe('Variant key to serve for this condition (for multivariate flags)'),
 })
 
 export type Filters = z.infer<typeof FiltersSchema>
 
-export const FilterGroupsSchema = z.object({
-    groups: z.array(FiltersSchema).min(1, 'At least one group is required'),
+export const VariantSchema = z.object({
+    key: z.string().describe('Unique identifier for this variant (e.g., "control", "test", "variant_a")'),
+    name: z.string().optional().describe('Human-readable name for this variant'),
+    rollout_percentage: z
+        .number()
+        .int()
+        .min(0)
+        .max(100)
+        .describe('Percentage of users who will see this variant (0-100). Must be an integer.'),
 })
+
+export type Variant = z.infer<typeof VariantSchema>
+
+export const MultivariateSchema = z
+    .object({
+        variants: z.array(VariantSchema).min(2, 'At least 2 variants required for multivariate flags'),
+    })
+    .superRefine((data, ctx) => {
+        const sum = data.variants.reduce((acc, v) => acc + v.rollout_percentage, 0)
+        if (sum !== 100) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                message: 'Variant rollout percentages must sum to 100',
+                path: ['variants'],
+            })
+        }
+
+        const keys = data.variants.map((v) => v.key)
+        const duplicates = keys.filter((key, idx) => keys.indexOf(key) !== idx)
+        if (duplicates.length > 0) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                message: `Duplicate variant keys: ${[...new Set(duplicates)].join(', ')}`,
+                path: ['variants'],
+            })
+        }
+    })
+
+export type Multivariate = z.infer<typeof MultivariateSchema>
+
+export const FilterGroupsSchema = z
+    .object({
+        groups: z.array(FiltersSchema).min(1, 'At least one group is required'),
+        multivariate: MultivariateSchema.optional().describe('Multivariate configuration with variant definitions'),
+    })
+    .superRefine((data, ctx) => {
+        if (data.multivariate) {
+            const variantKeys = new Set(data.multivariate.variants.map((v) => v.key))
+            data.groups.forEach((group, idx) => {
+                if (group.variant && !variantKeys.has(group.variant)) {
+                    ctx.addIssue({
+                        code: z.ZodIssueCode.custom,
+                        message: `Group ${idx} references variant '${group.variant}' which does not exist in multivariate.variants`,
+                        path: ['groups', idx, 'variant'],
+                    })
+                }
+            })
+        }
+    })
 
 export type FilterGroups = z.infer<typeof FilterGroupsSchema>
 
@@ -107,6 +158,7 @@ export const FeatureFlagSchema = z.object({
     filters: z.any().nullish(),
     active: z.boolean(),
     tags: z.array(z.string()).optional(),
+    updated_at: z.string().nullish(),
 })
 
 export type FeatureFlag = z.infer<typeof FeatureFlagSchema>

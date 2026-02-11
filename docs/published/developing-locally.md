@@ -102,7 +102,7 @@ git clone --filter=blob:none https://github.com/PostHog/posthog && cd posthog/
 **Performance tip:** The `--filter=blob:none` flag downloads all commit history and tree structure, but defers file contents (blobs) until needed. This reduces the clone from ~3 GB to a few hundred MB and makes the initial clone **15-17x faster**. You still get full git history for commands like `git log` and `git diff` – blobs are fetched on demand as you use them.
 
 > The `feature-flags` container relies on the presence of the GeoLite cities
-> database in the `/share` directory. If you haven't run `./bin/start` this database may not exist.
+> database in the `/share` directory. If you haven't run `hogli start` this database may not exist.
 > You can explicitly download it by running `./bin/download-mmdb`. You may also need to modify the
 > file permissions of the database with:
 >
@@ -132,7 +132,7 @@ To get PostHog running in a dev environment:
 
    > Note on app dependencies: Python requirements get updated every time the environment is activated (`uv sync` is lightning fast). JS dependencies only get installed if `node_modules/` is not present (`pnpm install` still takes a couple lengthy seconds). Dependencies for other languages currently don't get auto-installed.
 
-3. After successful environment activation, just look at its welcome message in the terminal. It contains all the commands for running the stack. Run those commands in the suggested order.
+3. After successful environment activation, run `hogli start`. This launches the Docker infrastructure and all PostHog processes together via mprocs — a terminal UI that shows logs from every service side by side.
 
 This is it – you should be seeing the PostHog app at <a href="http://localhost:8010" target="_blank">http://localhost:8010</a>.
 
@@ -140,13 +140,7 @@ You can now change PostHog in any way you want. See [Project structure](/handboo
 
 ### Customizing which services run
 
-By default, `hogli start` runs a minimal set of services (enough for product analytics). To customize which services start, use `hogli dev:setup`:
-
-```bash
-hogli dev:setup
-```
-
-This interactive wizard lets you pick a preset (minimal, backend-focused, etc.) or select individual capabilities. Your choices are saved and used automatically by `hogli start`.
+By default, `hogli start` runs a minimal set of services (enough for product analytics). To customize which services start, run `hogli dev:setup` which lets you select intents based on the products you're working on. Your choices are saved and used automatically by `hogli start`.
 
 ### Manual setup
 
@@ -193,7 +187,7 @@ If the nodejs won't start, try `cd nodejs && pnpm rebuild && pnpm i`.
 If you see `import gyp  # noqa: E402` during nodejs install, run `brew install python-setuptools`.
 
 **OpenSSL certificate verification error**
-If you get `Configuration property "enable.ssl.certificate.verification" not supported in this build: OpenSSL not available at build time` when running `./bin/start`, set the right OpenSSL environment variables as described in [this issue](https://github.com/xmlsec/python-xmlsec/issues/261#issuecomment-1630889826) and try again.
+If you get `Configuration property "enable.ssl.certificate.verification" not supported in this build: OpenSSL not available at build time` when running `hogli start`, set the right OpenSSL environment variables as described in [this issue](https://github.com/xmlsec/python-xmlsec/issues/261#issuecomment-1630889826) and try again.
 
 **pyproject.toml parse warnings**
 When running `uv sync`, you may see a `Failed to parse` warning related to `pyproject.toml`. This is usually harmless – if you see the `Activate with:` line at the end, your environment was created successfully.
@@ -214,7 +208,7 @@ This is a faster option to get up and running if you can't or don't want to set 
 7. Install `sqlx-cli` with `cargo install sqlx-cli` (install Cargo following the [Cargo getting started guide](https://doc.rust-lang.org/cargo/getting-started/installation.html) if needed)
 8. Now run `DEBUG=1 ./bin/migrate`
 9. Install [mprocs](https://github.com/pvolok/mprocs#installation) (`cargo install mprocs`)
-10. Run `./bin/start`.
+10. Run `hogli start`.
 11. Open browser to <http://localhost:8010/>.
 12. To get some practical test data into your brand-new instance of PostHog, run `DEBUG=1 ./manage.py generate_demo_data`.
 
@@ -227,7 +221,7 @@ For a PostHog PR to be merged, all tests must be green, and ideally you should b
 For frontend unit tests, run:
 
 ```bash
-pnpm test:unit
+pnpm --filter=@posthog/frontend test
 ```
 
 You can narrow the run down to only files under matching paths:
@@ -309,7 +303,7 @@ Backend side flags are only evaluated locally, which requires the `POSTHOG_PERSO
 
 The PostHog repository includes [VS Code launch options for debugging](https://github.com/PostHog/posthog/blob/master/.vscode/launch.json). Simply go to the `Run and Debug` tab in VS Code, select the desired service you want to debug, and run it. Once it starts up, you can set breakpoints and step through code to see exactly what is happening. There are also debug launch options for frontend and backend tests if you're dealing with a tricky test failure.
 
-> **Note:** You can debug all services using the main "PostHog" launch option. Otherwise, if you are running most of the PostHog services locally with `./bin/start`, for example if you only want to debug the backend, make sure to comment out that service from the [start script temporarily](https://github.com/PostHog/posthog/blob/master/bin/start#L22).
+> **Note:** You can debug all services using the main "PostHog" launch option. Otherwise, if you are running most of the PostHog services locally with `hogli start`, for example if you only want to debug the backend, make sure to comment out that service from the [start script temporarily](https://github.com/PostHog/posthog/blob/master/bin/start#L22).
 
 ## Extra: Debugging the backend in PyCharm
 
@@ -389,10 +383,10 @@ When creating the slack integration it will redirect you to `https://localhost..
 
 ## Extra: Use tracing with Jaeger
 
-Jaeger is enabled by default after running `./bin/start`. To disable tracing (e.g. for faster startup or reduced resource usage), use:
+Tracing is disabled by default. To enable it (requires the `tracing` intent in your dev setup), use:
 
 ```bash
-./bin/start --no-tracing
+hogli start --tracing
 ```
 
 Jaeger will be available at [http://localhost:16686](http://localhost:16686).
@@ -460,7 +454,7 @@ If you need to start fresh with a clean database (for example, if your local dat
 
 3. Wait for all migrations to complete. You can monitor the logs to ensure migrations have finished running.
 
-4. Once PostHog is running, click the **generate-demo-data** button in the UI, then type `r` to generate test data.
+4. Once PostHog is running, click the **generate-demo-data** service in the mprocs terminal UI (you may have to scroll), then type `r` to start the service and generate test data.
 
 > **Note:** This process will completely wipe your local database. Make sure you don't have any important local data before proceeding.
 
