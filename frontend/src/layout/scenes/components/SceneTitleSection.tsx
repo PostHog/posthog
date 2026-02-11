@@ -372,7 +372,8 @@ function SceneName({
                         value={name || ''}
                         onChange={(e) => {
                             setName(e.target.value)
-                            if (!saveOnBlur) {
+                            if (!saveOnBlur || forceEdit) {
+                                // Call onChange immediately if not using saveOnBlur, or if in forceEdit mode
                                 debouncedOnChange(e.target.value)
                             }
                         }}
@@ -505,7 +506,8 @@ function SceneDescription({
                         value={description || ''}
                         onChange={(e) => {
                             setDescription(e.target.value)
-                            if (!saveOnBlur) {
+                            if (!saveOnBlur || forceEdit) {
+                                // Call onChange immediately if not using saveOnBlur, or if in forceEdit mode
                                 debouncedOnDescriptionChange(e.target.value)
                             }
                         }}

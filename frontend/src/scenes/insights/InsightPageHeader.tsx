@@ -103,9 +103,8 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
         insightLoading,
         derivedName,
     } = useValues(insightLogic(insightLogicProps))
-    const { setInsightMetadata, saveAs, saveInsight, duplicateInsight, reloadSavedInsights } = useActions(
-        insightLogic(insightLogicProps)
-    )
+    const { setInsightMetadata, setInsightMetadataLocal, saveAs, saveInsight, duplicateInsight, reloadSavedInsights } =
+        useActions(insightLogic(insightLogicProps))
 
     // insightDataLogic
     const {
@@ -536,10 +535,18 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                     type: getInsightIconTypeFromQuery(query),
                 }}
                 onNameChange={(name) => {
-                    setInsightMetadata({ name })
+                    if (insightMode === ItemMode.Edit) {
+                        setInsightMetadataLocal({ name })
+                    } else {
+                        setInsightMetadata({ name })
+                    }
                 }}
                 onDescriptionChange={(description) => {
-                    setInsightMetadata({ description })
+                    if (insightMode === ItemMode.Edit) {
+                        setInsightMetadataLocal({ description })
+                    } else {
+                        setInsightMetadata({ description })
+                    }
                 }}
                 canEdit={canEditInsight}
                 isLoading={insightLoading && !insight?.id}
