@@ -16,7 +16,7 @@ export const NODE_WIDTH = 300
 export const ELK_OPTIONS = {
     'elk.algorithm': 'layered',
     'elk.direction': 'RIGHT',
-    'elk.layered.spacing.nodeNodeBetweenLayers': '80',
+    'elk.layered.spacing.nodeNodeBetweenLayers': '140',
     'elk.spacing.nodeNode': '40',
     'elk.spacing.edgeEdge': '30',
     'elk.spacing.edgeNode': '30',
@@ -30,6 +30,11 @@ export interface FunnelFlowNodeData extends Record<string, unknown> {
     step: FunnelStepWithConversionMetrics
     stepIndex: number
     isOptional: boolean
+}
+
+export interface FunnelFlowEdgeData extends Record<string, unknown> {
+    step: FunnelStepWithConversionMetrics
+    stepIndex: number
 }
 
 const elk = new ELK()
@@ -116,16 +121,23 @@ export const funnelFlowGraphLogic = kea<funnelFlowGraphLogicType>([
         edges: [
             (s) => [s.nodes],
             (nodes): Edge[] =>
-                nodes.slice(0, -1).map((node, index) => ({
-                    id: `edge-${index}`,
-                    source: node.id,
-                    target: `step-${index + 1}`,
-                    type: 'smoothstep',
-                    sourceHandle: `${node.id}-source`,
-                    targetHandle: `step-${index + 1}-target`,
-                    markerEnd: { type: MarkerType.ArrowClosed },
-                    deletable: false,
-                })),
+                nodes.slice(0, -1).map((node, index) => {
+                    const targetNode = nodes[index + 1]
+                    return {
+                        id: `edge-${index}`,
+                        source: node.id,
+                        target: targetNode.id,
+                        type: 'funnelFlow',
+                        sourceHandle: `${node.id}-source`,
+                        targetHandle: `${targetNode.id}-target`,
+                        markerEnd: { type: MarkerType.ArrowClosed },
+                        deletable: false,
+                        data: {
+                            step: targetNode.data.step,
+                            stepIndex: targetNode.data.stepIndex,
+                        },
+                    }
+                }),
         ],
     }),
 
