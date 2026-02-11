@@ -868,7 +868,7 @@ export function initializeMetricOrdering(experiment: Experiment): Experiment {
  * Maps metrics to their results and errors in the correct display order
  * This handles the complex logic of:
  * 1. Mapping results by index to original metrics array (including shared metrics)
- * 2. Enriching shared metrics with metadata
+ * 2. Enriching shared metrics with metadata, including breakdowns
  * 3. Reordering everything according to the ordered UUIDs
  */
 export function getOrderedMetricsWithResults(
@@ -901,6 +901,11 @@ export function getOrderedMetricsWithResults(
             name: sharedMetric.name,
             sharedMetricId: sharedMetric.saved_metric,
             isSharedMetric: true,
+            // Merge breakdowns from metadata into breakdownFilter
+            breakdownFilter: {
+                ...sharedMetric.query?.breakdownFilter,
+                breakdowns: sharedMetric.metadata?.breakdowns || [],
+            },
         })) as ExperimentMetric[]
 
     const allMetrics = [...regularMetrics, ...enrichedSharedMetrics]
