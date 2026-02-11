@@ -14,6 +14,7 @@ import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { objectsEqual } from 'lib/utils'
 import { EventDetails } from 'scenes/activity/explore/EventDetails'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
@@ -113,20 +114,36 @@ function LLMAnalyticsDashboard(): JSX.Element {
         () => dashboardLogic({ id: 0, placement: DashboardPlacement.Builtin }),
         []
     )
+    const { externalFilters } = useValues(dashboardLogicInstance || fallbackLogicInstance)
     const dashboardActions = useActions(dashboardLogicInstance || fallbackLogicInstance)
     const setExternalFilters =
         dashboardLogicInstance && dashboardActions?.setExternalFilters ? dashboardActions.setExternalFilters : () => {}
+    useAttachedLogic(dashboardLogicInstance || fallbackLogicInstance, llmAnalyticsSharedLogic)
+
+    const nextExternalFilters = React.useMemo(
+        () => ({
+            date_from: dashboardDateFilter.dateFrom,
+            date_to: dashboardDateFilter.dateTo,
+            properties: propertyFilters.length > 0 ? propertyFilters : null,
+        }),
+        [dashboardDateFilter.dateFrom, dashboardDateFilter.dateTo, propertyFilters]
+    )
+
+    const currentExternalFilters = React.useMemo(
+        () => ({
+            date_from: externalFilters?.date_from ?? null,
+            date_to: externalFilters?.date_to ?? null,
+            properties: (externalFilters?.properties as unknown) ?? null,
+        }),
+        [externalFilters]
+    )
 
     // Set filters using useLayoutEffect to ensure they're set before Dashboard's afterMount event fires
     React.useLayoutEffect(() => {
-        if (selectedDashboardId && setExternalFilters) {
-            setExternalFilters({
-                date_from: dashboardDateFilter.dateFrom,
-                date_to: dashboardDateFilter.dateTo,
-                properties: propertyFilters.length > 0 ? propertyFilters : null,
-            })
+        if (selectedDashboardId && setExternalFilters && !objectsEqual(currentExternalFilters, nextExternalFilters)) {
+            setExternalFilters(nextExternalFilters)
         }
-    }, [dashboardDateFilter, propertyFilters, selectedDashboardId, setExternalFilters])
+    }, [currentExternalFilters, nextExternalFilters, selectedDashboardId, setExternalFilters])
 
     return (
         <LLMAnalyticsSetupPrompt>
@@ -185,6 +202,7 @@ function LLMAnalyticsGenerations(): JSX.Element {
 
     return (
         <DataTable
+            attachTo={llmAnalyticsSharedLogic}
             query={{
                 ...generationsQuery,
                 showSavedFilters: true,
@@ -500,8 +518,14 @@ export function LLMAnalyticsScene(): JSX.Element {
         ].filter(Boolean) as JSX.Element[]
     }, [featureFlags, toggleProduct])
 
+    const dataCollectionLogic = useMemo(
+        () => dataNodeCollectionLogic({ key: LLM_ANALYTICS_DATA_COLLECTION_NODE_ID }),
+        []
+    )
+    useAttachedLogic(dataCollectionLogic, llmAnalyticsSharedLogic)
+
     return (
-        <BindLogic logic={dataNodeCollectionLogic} props={{ key: LLM_ANALYTICS_DATA_COLLECTION_NODE_ID }}>
+        <BindLogic logic={dataCollectionLogic}>
             <SceneContent>
                 <SceneTitleSection
                     name={sceneConfigurations[Scene.LLMAnalytics].name}

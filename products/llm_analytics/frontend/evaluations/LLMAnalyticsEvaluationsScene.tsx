@@ -1,5 +1,6 @@
-import { BindLogic, useActions, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
+import { useMemo } from 'react'
 
 import { IconCopy, IconPencil, IconPlus, IconSearch, IconTrash } from '@posthog/icons'
 import {
@@ -17,6 +18,7 @@ import {
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -265,6 +267,9 @@ function LLMAnalyticsEvaluationsContent(): JSX.Element {
 
 export function LLMAnalyticsEvaluationsScene(): JSX.Element {
     const { searchParams } = useValues(router)
+    const evaluationMetrics = useMemo(() => evaluationMetricsLogic({}), [])
+
+    useAttachedLogic(evaluationMetrics, llmEvaluationsLogic)
 
     const activeTab = searchParams.tab || 'evaluations'
 
@@ -272,13 +277,7 @@ export function LLMAnalyticsEvaluationsScene(): JSX.Element {
         {
             key: 'evaluations',
             label: 'Evaluations',
-            content: (
-                <BindLogic logic={llmEvaluationsLogic} props={{}}>
-                    <BindLogic logic={evaluationMetricsLogic} props={{}}>
-                        <LLMAnalyticsEvaluationsContent />
-                    </BindLogic>
-                </BindLogic>
-            ),
+            content: <LLMAnalyticsEvaluationsContent />,
             link: combineUrl(urls.llmAnalyticsEvaluations(), { ...searchParams, tab: undefined }).url,
             'data-attr': 'evaluations-tab',
         },
