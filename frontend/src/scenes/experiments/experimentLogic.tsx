@@ -290,6 +290,21 @@ function convertToTypedExperimentResponse(response: CachedExperimentQueryRespons
     return null
 }
 
+const sharedMetricsToExperimentMetrics = (
+    sharedMetrics: ExperimentSavedMetric[],
+    type: 'primary' | 'secondary'
+): ExperimentMetric[] =>
+    sharedMetrics
+        .filter(({ metadata }) => metadata.type === type)
+        .map(({ query, metadata }) => ({
+            ...query,
+            // Merge breakdowns from metadata into the query
+            breakdownFilter: {
+                ...query?.breakdownFilter,
+                breakdowns: metadata?.breakdowns || [],
+            },
+        }))
+
 /**
  * We need a proper Saved Metric type. This is what comes back from the API.
  * TODO: We should probably refactor this for more general use.
@@ -1561,21 +1576,12 @@ export const experimentLogic = kea<experimentLogicType>([
             actions.setLegacyPrimaryMetricsResults([])
             actions.setPrimaryMetricsResults([])
 
-            let metrics = values.experiment?.metrics || []
-            const sharedMetrics: ExperimentMetric[] = (values.experiment?.saved_metrics as ExperimentSavedMetric[])
-                .filter(({ metadata }) => metadata.type === 'primary')
-                .map(({ query, metadata }) => ({
-                    ...query,
-                    // Merge breakdowns from metadata into the query
-                    breakdownFilter: {
-                        ...query?.breakdownFilter,
-                        breakdowns: metadata?.breakdowns || [],
-                    },
-                }))
+            const sharedMetrics: ExperimentMetric[] = sharedMetricsToExperimentMetrics(
+                values.experiment?.saved_metrics as ExperimentSavedMetric[],
+                'primary'
+            )
 
-            if (sharedMetrics) {
-                metrics = [...metrics, ...sharedMetrics]
-            }
+            const metrics = [...(values.experiment?.metrics || []), ...sharedMetrics]
 
             await loadMetrics({
                 metrics,
@@ -1599,21 +1605,11 @@ export const experimentLogic = kea<experimentLogicType>([
             actions.setLegacySecondaryMetricsResults([])
             actions.setSecondaryMetricsResults([])
 
-            let secondaryMetrics = values.experiment?.metrics_secondary || []
-            const sharedMetrics: ExperimentMetric[] = (values.experiment?.saved_metrics as ExperimentSavedMetric[])
-                .filter(({ metadata }) => metadata.type === 'secondary')
-                .map(({ query, metadata }) => ({
-                    ...query,
-                    // Merge breakdowns from metadata into the query
-                    breakdownFilter: {
-                        ...query?.breakdownFilter,
-                        breakdowns: metadata?.breakdowns || [],
-                    },
-                }))
-
-            if (sharedMetrics) {
-                secondaryMetrics = [...secondaryMetrics, ...sharedMetrics]
-            }
+            const sharedMetrics: ExperimentMetric[] = sharedMetricsToExperimentMetrics(
+                values.experiment?.saved_metrics as ExperimentSavedMetric[],
+                'secondary'
+            )
+            const secondaryMetrics = [...(values.experiment?.metrics_secondary || []), ...sharedMetrics]
 
             await loadMetrics({
                 metrics: secondaryMetrics,
@@ -1634,21 +1630,13 @@ export const experimentLogic = kea<experimentLogicType>([
             actions.setPrimaryMetricsResultsErrors(currentErrors)
 
             // Get the metric to retry
-            let metrics = values.experiment?.metrics || []
-            const sharedMetrics: ExperimentMetric[] = (values.experiment?.saved_metrics as ExperimentSavedMetric[])
-                .filter(({ metadata }) => metadata.type === 'primary')
-                .map(({ query, metadata }) => ({
-                    ...query,
-                    // Merge breakdowns from metadata into the query
-                    breakdownFilter: {
-                        ...query?.breakdownFilter,
-                        breakdowns: metadata?.breakdowns || [],
-                    },
-                }))
 
-            if (sharedMetrics) {
-                metrics = [...metrics, ...sharedMetrics]
-            }
+            const sharedMetrics: ExperimentMetric[] = sharedMetricsToExperimentMetrics(
+                values.experiment?.saved_metrics as ExperimentSavedMetric[],
+                'primary'
+            )
+
+            const metrics = [...(values.experiment?.metrics || []), ...sharedMetrics]
 
             const metricToRetry = metrics[index]
             if (!metricToRetry) {
@@ -1687,21 +1675,12 @@ export const experimentLogic = kea<experimentLogicType>([
             actions.setSecondaryMetricsResultsErrors(currentErrors)
 
             // Get the metric to retry
-            let secondaryMetrics = values.experiment?.metrics_secondary || []
-            const sharedMetrics: ExperimentMetric[] = (values.experiment?.saved_metrics as ExperimentSavedMetric[])
-                .filter(({ metadata }) => metadata.type === 'secondary')
-                .map(({ query, metadata }) => ({
-                    ...query,
-                    // Merge breakdowns from metadata into the query
-                    breakdownFilter: {
-                        ...query?.breakdownFilter,
-                        breakdowns: metadata?.breakdowns || [],
-                    },
-                }))
+            const sharedMetrics: ExperimentMetric[] = sharedMetricsToExperimentMetrics(
+                values.experiment?.saved_metrics as ExperimentSavedMetric[],
+                'secondary'
+            )
 
-            if (sharedMetrics) {
-                secondaryMetrics = [...secondaryMetrics, ...sharedMetrics]
-            }
+            const secondaryMetrics = [...(values.experiment?.metrics_secondary || []), ...sharedMetrics]
 
             const metricToRetry = secondaryMetrics[index]
             if (!metricToRetry) {
