@@ -51,7 +51,7 @@
         "summary": "Get a specific dashboard by ID, including insights that are on the dashboard.",
         "title": "Get dashboard",
         "required_scopes": ["dashboard:read"],
-        "new_mcp": false,
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
