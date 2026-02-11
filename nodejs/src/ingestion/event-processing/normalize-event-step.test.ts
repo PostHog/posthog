@@ -289,9 +289,6 @@ describe('normalizeEventStep wrapper', () => {
             // Verify required fields are present
             expect(result.value.team).toBe(team)
             expect(result.value.headers).toEqual(createTestEventHeaders())
-
-            // Verify event field is removed
-            expect('event' in result.value).toBe(false)
         }
     })
 
@@ -331,9 +328,6 @@ describe('normalizeEventStep wrapper', () => {
             // Verify required fields are present
             expect(result.value.team).toBe(team)
             expect(result.value.headers).toEqual(createTestEventHeaders())
-
-            // Verify event field is removed
-            expect('event' in result.value).toBe(false)
         }
     })
 
@@ -395,9 +389,6 @@ describe('normalizeEventStep wrapper', () => {
             // Verify required fields are present
             expect(result.value.team).toBe(team)
             expect(result.value.headers).toEqual(createTestEventHeaders())
-
-            // Verify event field is removed
-            expect('event' in result.value).toBe(false)
         }
     })
 
@@ -720,10 +711,7 @@ describe('normalizeEventStep wrapper', () => {
             expect((result.value as any).customField).toBe('custom value')
             expect((result.value as any).anotherField).toBe(123)
 
-            // Verify event field is removed
-            expect('event' in result.value).toBe(false)
-
-            // Verify normalized fields are added
+            // Verify normalized event is present
             expect(result.value.event).toBeDefined()
             expect(result.value.timestamp).toBeDefined()
         }

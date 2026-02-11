@@ -105,8 +105,7 @@ describe('createResolveTeamStep()', () => {
         const response = await step(input)
         expect(response).toEqual(
             ok({
-                message: input.message,
-                headers: input.headers,
+                ...input,
                 event: { ...pipelineEvent, token: teamTwoToken, team_id: teamTwo.id },
                 team: teamTwo,
             })
@@ -148,8 +147,7 @@ describe('createResolveTeamStep()', () => {
         const response = await step(input)
         expect(response).toEqual(
             ok({
-                message: input.message,
-                headers: input.headers,
+                ...input,
                 event: { ...pipelineEvent, team_id: teamTwo.id, token: teamTwoToken },
                 team: teamTwo,
             })

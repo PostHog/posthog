@@ -23,6 +23,7 @@ export function createApplyCookielessProcessingStep<T extends ApplyCookielessPro
                     event: cookielessResult.value.event,
                 })
             } else {
+                // Return the drop/dlq/redirect result from cookieless processing
                 return cookielessResult
             }
         })
