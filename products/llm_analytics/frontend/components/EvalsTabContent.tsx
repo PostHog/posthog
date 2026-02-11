@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { useMemo } from 'react'
 
 import { IconCheckCircle, IconRefresh } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonSelect } from '@posthog/lemon-ui'
@@ -23,7 +22,7 @@ export function EvalsTabContent({
     event: string
     distinctId?: string
 }): JSX.Element {
-    const generationRunsLogic = useMemo(() => generationEvaluationRunsLogic({ generationEventId }), [generationEventId])
+    const generationRunsLogic = generationEvaluationRunsLogic({ generationEventId })
 
     useAttachedLogic(generationRunsLogic, llmAnalyticsTraceLogic)
 

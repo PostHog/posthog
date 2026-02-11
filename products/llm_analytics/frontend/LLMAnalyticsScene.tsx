@@ -518,10 +518,7 @@ export function LLMAnalyticsScene(): JSX.Element {
         ].filter(Boolean) as JSX.Element[]
     }, [featureFlags, toggleProduct])
 
-    const dataCollectionLogic = useMemo(
-        () => dataNodeCollectionLogic({ key: LLM_ANALYTICS_DATA_COLLECTION_NODE_ID }),
-        []
-    )
+    const dataCollectionLogic = dataNodeCollectionLogic({ key: LLM_ANALYTICS_DATA_COLLECTION_NODE_ID })
     useAttachedLogic(dataCollectionLogic, llmAnalyticsSharedLogic)
 
     return (

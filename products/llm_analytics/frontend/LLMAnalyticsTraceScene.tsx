@@ -147,10 +147,7 @@ export const scene: SceneExport = {
 
 export function LLMAnalyticsTraceScene(): JSX.Element {
     const { traceId, query } = useValues(llmAnalyticsTraceLogic)
-    const traceDataLogic = React.useMemo(
-        () => llmAnalyticsTraceDataLogic({ traceId, query, cachedResults: null }),
-        [traceId, query]
-    )
+    const traceDataLogic = llmAnalyticsTraceDataLogic({ traceId, query, cachedResults: null })
 
     useAttachedLogic(traceDataLogic, llmAnalyticsTraceLogic)
 

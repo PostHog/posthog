@@ -217,9 +217,6 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
             if (dateFrom !== values.dateFilter.dateFrom || dateTo !== values.dateFilter.dateTo) {
                 actions.setDates(dateFrom, dateTo)
             }
-
-            // Scene logic persists across internal tab switches, so refresh when entering the list route.
-            actions.loadEvaluations()
         },
     })),
 

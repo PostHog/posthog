@@ -1,6 +1,5 @@
 import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
-import { useMemo } from 'react'
 
 import { IconCopy, IconPencil, IconPlus, IconSearch, IconTrash } from '@posthog/icons'
 import {
@@ -267,7 +266,7 @@ function LLMAnalyticsEvaluationsContent(): JSX.Element {
 
 export function LLMAnalyticsEvaluationsScene(): JSX.Element {
     const { searchParams } = useValues(router)
-    const evaluationMetrics = useMemo(() => evaluationMetricsLogic({}), [])
+    const evaluationMetrics = evaluationMetricsLogic({})
 
     useAttachedLogic(evaluationMetrics, llmEvaluationsLogic)
 
