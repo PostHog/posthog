@@ -187,58 +187,7 @@ static PyMethodDef parser_methods[] = {
 
     {NULL, NULL, 0, NULL}
 };
-static int parser_modexec(PyObject* module) {
-  parser_state* state = get_module_state(module);
-  state->ast_module = PyImport_ImportModule("posthog.hogql.ast");
-  if (!state->ast_module) {
-    return -1;
-  }
-  state->base_module = PyImport_ImportModule("posthog.hogql.base");
-  if (!state->base_module) {
-    return -1;
-  }
-  state->errors_module = PyImport_ImportModule("posthog.hogql.errors");
-  if (!state->errors_module) {
-    return -1;
-  }
-  return 0;
-}
 
-static PyModuleDef_Slot parser_slots[] = {
-    {Py_mod_exec, (void*)parser_modexec},  // If Python were written in C++, then Py_mod_exec would be typed better, but
-                                           // because it's in C, it expects a void pointer
-    {0, NULL}
-};
-
-static int parser_traverse(PyObject* module, visitproc visit, void* arg) {
-  parser_state* state = get_module_state(module);
-  Py_VISIT(state->ast_module);
-  Py_VISIT(state->base_module);
-  Py_VISIT(state->errors_module);
-  return 0;
-}
-
-static int parser_clear(PyObject* module) {
-  parser_state* state = get_module_state(module);
-  Py_CLEAR(state->ast_module);
-  Py_CLEAR(state->base_module);
-  Py_CLEAR(state->errors_module);
-  return 0;
-}
-
-static struct PyModuleDef parser = {
-    .m_base = PyModuleDef_HEAD_INIT,
-    .m_name = "hogql_parser",
-    .m_doc = "HogQL parsing",
-    .m_size = sizeof(parser_state),
-    .m_methods = parser_methods,
-    .m_slots = parser_slots,
-    .m_traverse = parser_traverse,
-    .m_clear = parser_clear,
-};
-
-PyMODINIT_FUNC PyInit_hogql_parser(void) {
-  return PyModuleDef_Init(&parser);
 static int parser_modexec(PyObject* module) {
   parser_state* state = get_module_state(module);
   state->errors_module = PyImport_ImportModule("posthog.hogql.errors");
