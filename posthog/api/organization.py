@@ -144,6 +144,13 @@ class OrganizationSerializer(
             },  # slug is not required here as it's generated automatically for new organizations
         }
 
+    def validate_logo_media_id(self, value: UploadedMedia | None) -> UploadedMedia | None:
+        if value is None:
+            return value
+        if self.instance and value.team.organization_id != self.instance.id:
+            raise serializers.ValidationError("This media does not belong to this organization.")
+        return value
+
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Organization:
         serializers.raise_errors_on_nested_writes("create", self, validated_data)
         user = self.context["request"].user
