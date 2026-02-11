@@ -532,21 +532,18 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
 
                 feature_flag_filters = feature_flag.filters
 
-                # Release conditions (groups) are only set during creation.
-                # After that, they're managed via the feature flag page.
-                # If this behavior is changed consider that a feature flag
-                # created though an experiment will only have 1 group, but the
-                # feature flag might have been adjusted individually and have
-                # multiple release condition groups. The following check is just
-                # to catch a change in frontend behavior to avoid silently ignoring
-                # changes to rollout percentage in the experiment parameters.
-                if validated_data["parameters"].get("rollout_percentage") is not None:
-                    raise ValidationError(
-                        "rollout_percentage cannot be updated from the experiment. "
-                        "Use the feature flag's release conditions instead.",
-                        code="invalid_input",
-                    )
-                feature_flag_filters["groups"] = feature_flag.filters.get("groups", [])
+                # When experiments are edited, they have already a linked feature flag. That feature flag can me modified to have
+                # complex release conditions across multiple groups. An initial backend implementation rejected updates with the
+                # rollout_percentage, as the the frontend shows such linked feature flag as display (not a form). That way the backend
+                # would have notified about a change of implementation. However, the frontend still carries the param in the state.
+                # To be consistent with the current frontend/backend interaction, we allow receiving rollout_percentage and default
+                # to the first group of release conditions.
+                existing_groups = feature_flag.filters.get("groups", [])
+                experiment_rollout_percentage = validated_data["parameters"].get("rollout_percentage")
+                if experiment_rollout_percentage is not None and existing_groups:
+                    existing_groups[0]["rollout_percentage"] = experiment_rollout_percentage
+
+                feature_flag_filters["groups"] = existing_groups
                 feature_flag_filters["multivariate"] = {"variants": variants or default_variants}
                 feature_flag_filters["aggregation_group_type_index"] = aggregation_group_type_index
                 feature_flag_filters["holdout_groups"] = holdout_groups
