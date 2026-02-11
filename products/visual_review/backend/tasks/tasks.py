@@ -43,7 +43,7 @@ def _process_diffs(run_id: UUID) -> None:
     Process diffs for all changed snapshots in a run.
     """
     from .. import logic
-    from ..domain_types import SnapshotResult
+    from ..facade.enums import SnapshotResult
 
     snapshots = logic.get_run_snapshots(run_id)
 

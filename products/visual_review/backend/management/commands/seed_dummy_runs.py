@@ -10,7 +10,7 @@ from django.utils import timezone
 
 from posthog.models.team import Team
 
-from products.visual_review.backend.domain_types import ReviewState, RunStatus, RunType, SnapshotResult
+from products.visual_review.backend.facade.enums import ReviewState, RunStatus, RunType, SnapshotResult
 from products.visual_review.backend.models import Artifact, Repo, Run, RunSnapshot
 from products.visual_review.backend.storage import ArtifactStorage
 

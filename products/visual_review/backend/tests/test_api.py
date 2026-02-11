@@ -6,15 +6,15 @@ import pytest
 from unittest.mock import patch
 
 from products.visual_review.backend import logic
-from products.visual_review.backend.api import api
-from products.visual_review.backend.api.dtos import (
+from products.visual_review.backend.facade import api
+from products.visual_review.backend.facade.contracts import (
     ApproveRunInput,
     ApproveSnapshotInput,
     CreateRunInput,
     SnapshotManifestItem,
     UpdateRepoInput,
 )
-from products.visual_review.backend.domain_types import RunType, SnapshotResult
+from products.visual_review.backend.facade.enums import RunType, SnapshotResult
 
 
 @pytest.mark.django_db

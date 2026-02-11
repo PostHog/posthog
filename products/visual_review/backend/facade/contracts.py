@@ -1,8 +1,8 @@
 """
-DTOs for visual_review API.
+Contract types for visual_review.
 
-Stable, framework-free dataclasses that serve as internal contracts.
-No Django imports. Immutable (frozen=True).
+Stable, framework-free frozen dataclasses that define what this product
+exposes to the rest of the codebase. No Django imports.
 """
 
 from dataclasses import dataclass, field

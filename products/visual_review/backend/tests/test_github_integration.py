@@ -20,7 +20,7 @@ import yaml
 import responses
 
 from products.visual_review.backend import logic
-from products.visual_review.backend.domain_types import RunStatus, SnapshotResult
+from products.visual_review.backend.facade.enums import RunStatus, SnapshotResult
 from products.visual_review.backend.models import Artifact, Repo, Run, RunSnapshot
 
 # --- Fixtures ---

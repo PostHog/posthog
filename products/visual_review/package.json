@@ -1,7 +1,5 @@
 {
-    "name": "@posthog/products-visual_review",
-    "version": "0.0.0",
-    "private": true,
+    "name": "@posthog/products-visual-review",
     "scripts": {
         "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/tests -v --tb=short",
         "backend:test:unit": "pytest -c ../../pytest.ini --rootdir ../.. backend/tests -v -m 'not integration' --tb=short",
@@ -26,9 +24,9 @@
         "tasks": {
             "backend:contract-check": {
                 "inputs": [
-                    "backend/api/api.py",
-                    "backend/api/dtos.py",
-                    "backend/domain_types.py"
+                    "backend/facade/api.py",
+                    "backend/facade/contracts.py",
+                    "backend/facade/enums.py"
                 ],
                 "outputs": [],
                 "cache": true

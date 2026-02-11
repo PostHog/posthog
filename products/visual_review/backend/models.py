@@ -7,7 +7,7 @@ from django.db import models
 from posthog.models.team import Team
 from posthog.models.user import User
 
-from .domain_types import ReviewState, RunStatus, RunType, SnapshotResult
+from .facade.enums import ReviewState, RunStatus, RunType, SnapshotResult
 
 
 class Repo(models.Model):

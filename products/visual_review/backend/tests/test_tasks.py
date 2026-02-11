@@ -4,9 +4,9 @@ import pytest
 from unittest.mock import patch
 
 from products.visual_review.backend import logic
-from products.visual_review.backend.api import api
-from products.visual_review.backend.api.dtos import CreateRunInput, SnapshotManifestItem
-from products.visual_review.backend.domain_types import RunStatus, RunType, SnapshotResult
+from products.visual_review.backend.facade import api
+from products.visual_review.backend.facade.contracts import CreateRunInput, SnapshotManifestItem
+from products.visual_review.backend.facade.enums import RunStatus, RunType, SnapshotResult
 from products.visual_review.backend.tasks.tasks import _process_diffs, process_run_diffs
 
 

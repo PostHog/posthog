@@ -6,9 +6,9 @@ from unittest.mock import patch
 from rest_framework import status
 
 from products.visual_review.backend import logic
-from products.visual_review.backend.api import api
-from products.visual_review.backend.api.dtos import CreateRunInput, SnapshotManifestItem
-from products.visual_review.backend.domain_types import RunType
+from products.visual_review.backend.facade import api
+from products.visual_review.backend.facade.contracts import CreateRunInput, SnapshotManifestItem
+from products.visual_review.backend.facade.enums import RunType
 
 
 class TestRepoViewSet(APIBaseTest):
