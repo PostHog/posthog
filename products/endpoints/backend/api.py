@@ -896,12 +896,16 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         column: str,
         value: str,
         op: ast.CompareOperationOp = ast.CompareOperationOp.Eq,
+        value_wrapper_fns: builtins.list[str] | None = None,
     ) -> None:
         """Add a comparison filter to WHERE clause."""
+        right_expr: ast.Expr = ast.Constant(value=value)
+        for fn in reversed(value_wrapper_fns or []):
+            right_expr = ast.Call(name=fn, args=[right_expr])
         condition = ast.CompareOperation(
             left=ast.Field(chain=[column]),
             op=op,
-            right=ast.Constant(value=value),
+            right=right_expr,
         )
         if select_query.where:
             select_query.where = ast.And(exprs=[select_query.where, condition])
@@ -1086,7 +1090,13 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                     for mat_var in materialized_vars:
                         var_value = data.variables.get(mat_var.code_name)
                         if var_value is not None:
-                            self._apply_where_filter(select_query, mat_var.code_name, var_value, op=mat_var.operator)
+                            self._apply_where_filter(
+                                select_query,
+                                mat_var.code_name,
+                                var_value,
+                                op=mat_var.operator,
+                                value_wrapper_fns=mat_var.value_wrapper_fns,
+                            )
                 else:
                     # Insight: filter by breakdown property name
                     breakdown_filter = query.get("breakdownFilter") or {}
