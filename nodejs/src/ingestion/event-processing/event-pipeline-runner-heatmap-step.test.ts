@@ -119,7 +119,7 @@ describe('event-pipeline-runner-heatmap-step', () => {
         )
 
         const input = {
-            event: mockEvent,
+            normalizedEvent: mockEvent,
             timestamp: mockTimestamp,
             team: mockTeam,
             headers: mockHeaders,
@@ -162,7 +162,7 @@ describe('event-pipeline-runner-heatmap-step', () => {
         )
 
         const input = {
-            event: mockEvent,
+            normalizedEvent: mockEvent,
             timestamp: mockTimestamp,
             team: mockTeam,
             headers: mockHeaders,
@@ -191,7 +191,7 @@ describe('event-pipeline-runner-heatmap-step', () => {
         )
 
         const input = {
-            event: mockEvent,
+            normalizedEvent: mockEvent,
             timestamp: mockTimestamp,
             team: mockTeam,
             headers: mockHeaders,
@@ -221,7 +221,7 @@ describe('event-pipeline-runner-heatmap-step', () => {
         )
 
         const input = {
-            event: mockEvent,
+            normalizedEvent: mockEvent,
             timestamp: mockTimestamp,
             team: mockTeam,
             headers: customHeaders,
@@ -257,7 +257,7 @@ describe('event-pipeline-runner-heatmap-step', () => {
         )
 
         const input = {
-            event: mockEvent,
+            normalizedEvent: mockEvent,
             timestamp: mockTimestamp,
             team: teamWithOptOut,
             headers: mockHeaders,
@@ -289,7 +289,7 @@ describe('event-pipeline-runner-heatmap-step', () => {
         )
 
         const input = {
-            event: mockEvent,
+            normalizedEvent: mockEvent,
             timestamp: mockTimestamp,
             team: teamWithNull,
             headers: mockHeaders,
