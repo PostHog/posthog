@@ -1348,14 +1348,11 @@ class HogQLPrinter(Visitor[str]):
                 )
             self._table_top_level_settings[key] = value
 
-    def _merge_table_top_level_settings(self, settings: HogQLQuerySettings | None) -> dict | None:
-        """Copy settings and merge in collected table-level settings with conflict detection.
-
-        Returns a merged {key: value} dict, or None if there are no table settings to merge.
-        """
+    def _merge_table_top_level_settings(self, settings: HogQLQuerySettings | None) -> dict[str, Any] | None:
+        merged = dict(settings.model_dump()) if settings else {}
         if not self._table_top_level_settings:
-            return None
-        merged = {k: v for k, v in settings.model_dump().items() if v is not None} if settings else {}
+            # if there weren't any settings at the top level, stop here
+            return merged
         for key, value in self._table_top_level_settings.items():
             existing = merged.get(key)
             if existing is not None and existing != value:
