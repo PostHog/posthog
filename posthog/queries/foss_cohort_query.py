@@ -74,7 +74,7 @@ def relative_date_is_greater(date_1: Relative_Date, date_2: Relative_Date) -> bo
     return relative_date_to_seconds(date_1) > relative_date_to_seconds(date_2)
 
 
-def convert_to_entity_params(events: list[Event]) -> tuple[list, list]:
+def convert_to_entity_params(events: list[Event], team_id: int) -> tuple[list, list]:
     res_events = []
     res_actions = []
 
@@ -85,7 +85,7 @@ def convert_to_entity_params(events: list[Event]) -> tuple[list, list]:
         if event_type == "events":
             res_events.append({"id": event_val, "name": event_val, "order": idx, "type": event_type})
         elif event_type == "actions":
-            action = Action.objects.get(id=event_val)
+            action = Action.objects.get(id=event_val, team_id=team_id)
             res_actions.append({"id": event_val, "name": action.name, "order": idx, "type": event_type})
 
     return res_events, res_actions
@@ -477,7 +477,7 @@ class FOSSCohortQuery(EventQuery):
         # If we reach this stage, it means there are no cyclic dependencies
         # They should've been caught by API update validation
         # and if not there, `simplifyFilter` would've failed
-        cohort = Cohort.objects.get(pk=cast(int, prop.value))
+        cohort = Cohort.objects.get(pk=cast(int, prop.value), team_id=self._team_id)
         query, params = format_static_cohort_query(cohort, idx, prepend)
         return f"id {'NOT' if prop.negation else ''} IN ({query})", params
 
@@ -664,7 +664,7 @@ class FOSSCohortQuery(EventQuery):
         return res, params
 
     def _add_action(self, action_id: int) -> None:
-        action = Action.objects.get(id=action_id)
+        action = Action.objects.get(id=action_id, team_id=self._team_id)
         for step in action.steps:
             if step.event:
                 self._events.append(step.event)

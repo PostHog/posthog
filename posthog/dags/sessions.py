@@ -18,13 +18,20 @@ from dagster import (
 )
 
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.client.connection import NodeRole, Workload
+from posthog.clickhouse.client.connection import (
+    ClickHouseUser,
+    NodeRole,
+    Workload,
+    get_http_client,
+    get_kwargs_for_client,
+)
 from posthog.clickhouse.cluster import get_cluster
 from posthog.clickhouse.query_tagging import tags_context
 from posthog.cloud_utils import is_cloud
 from posthog.dags.common.common import JobOwners, dagster_tags
 from posthog.git import get_git_commit_short
 from posthog.models.raw_sessions.sessions_v3 import (
+    DISTRIBUTED_RAW_SESSIONS_TABLE_V3,
     GET_NUM_SHARDED_RAW_SESSIONS_ACTIVE_PARTS,
     RAW_SESSION_TABLE_BACKFILL_RECORDINGS_SQL_V3,
     RAW_SESSION_TABLE_BACKFILL_SQL_V3,
@@ -107,6 +114,15 @@ class SessionsBackfillConfig(Config):
     parts_check_max_wait_seconds: int = 3600
 
 
+class ExperimentalSessionsBackfillConfig(Config):
+    clickhouse_settings: dict[str, Any] | None = None
+    team_id_chunks: int | None = 16
+    max_unmerged_parts: int = 100
+    parts_check_poll_frequency_seconds: int = 30
+    parts_check_max_wait_seconds: int = 3600
+    client_overrides: dict[str, Any]
+
+
 daily_partitions = DailyPartitionsDefinition(
     start_date="2019-01-01",  # this is a year before posthog was founded, so should be early enough even including data imports
     timezone="UTC",
@@ -165,7 +181,7 @@ def get_db_partitions_to_check(context: AssetExecutionContext) -> list[str]:
 
 def wait_for_parts_to_merge(
     context: AssetExecutionContext,
-    config: SessionsBackfillConfig,
+    config: SessionsBackfillConfig | ExperimentalSessionsBackfillConfig,
     sync_client: Optional[Client] = None,
 ) -> None:
     """Check for unmerged parts and wait if there are too many.
@@ -366,3 +382,89 @@ WHERE
 ORDER BY event_time DESC;
 """
     return f"http://localhost:8123/play?user=default#{base64.b64encode(sql.encode('utf-8')).decode('utf-8')}"
+
+
+# Create a copy of the sessions backfill job to be used for backfilling experimental setups
+
+
+@asset(
+    partitions_def=daily_partitions,
+    name="experimental_sessions_v3_backfill",
+    backfill_policy=BackfillPolicy.multi_run(max_partitions_per_run=MAX_PARTITIONS_PER_RUN),
+    tags={"owner": JobOwners.TEAM_ANALYTICS_PLATFORM.value, **CONCURRENCY_TAG},
+)
+def experimental_sessions_v3_backfill(
+    context: AssetExecutionContext, config: ExperimentalSessionsBackfillConfig
+) -> None:
+    _do_experimental_backfill(
+        timestamp_field="timestamp", sql_template=RAW_SESSION_TABLE_BACKFILL_SQL_V3, config=config, context=context
+    )
+
+
+experimental_sessions_backfill_job = define_asset_job(
+    name="experimental_sessions_v3_backfill_job",
+    selection=["experimental_sessions_v3_backfill"],
+    config=sessions_backfill_partitioned_config,
+    tags={"owner": JobOwners.TEAM_ANALYTICS_PLATFORM.value, **CONCURRENCY_TAG},
+)
+
+
+def _do_experimental_backfill(
+    sql_template: Callable,
+    timestamp_field: str,
+    context: AssetExecutionContext,
+    config: ExperimentalSessionsBackfillConfig,
+):
+    where_clause = get_partition_where_clause(context, timestamp_field=timestamp_field)
+
+    partition_range = context.partition_key_range
+    partition_range_str = f"{partition_range.start} to {partition_range.end}"
+
+    context.log.info(f"Config: {config}")
+
+    # Merge custom clickhouse settings with defaults
+    merged_settings = clickhouse_settings.copy()
+    if config.clickhouse_settings:
+        merged_settings.update(config.clickhouse_settings)
+        context.log.info(f"Using custom ClickHouse settings: {config.clickhouse_settings}")
+
+    team_id_chunks = max(1, config.team_id_chunks or 1)
+
+    context.log.info(
+        f"Running backfill for Dagster partitions {partition_range_str} "
+        f"(where='{where_clause}') "
+        f"using commit {get_git_commit_short() or 'unknown'}"
+    )
+    if debug_url := metabase_debug_query_url(context.run_id):
+        context.log.info(f"Debug query: {debug_url}")
+
+    kwargs = get_kwargs_for_client(
+        workload=Workload.OFFLINE, team_id=None, readonly=False, ch_user=ClickHouseUser.DEFAULT
+    )
+    with get_http_client(**kwargs, **config.client_overrides) as client:
+        tags = dagster_tags(context)
+        with tags_context(kind="dagster", dagster=tags):
+            # this loop is largely copied from _do_backfill, but not writing per shard
+            for chunk_i in range(team_id_chunks):
+                wait_for_parts_to_merge(context, config, sync_client=client)
+
+                if team_id_chunks > 1:
+                    chunk_where_clause = f"({where_clause}) AND team_id % {team_id_chunks} = {chunk_i}"
+                    context.log.info(
+                        f"Processing chunk {chunk_i + 1}/{team_id_chunks} (team_id % {team_id_chunks} = {chunk_i})"
+                    )
+                else:
+                    chunk_where_clause = where_clause
+
+                backfill_sql = sql_template(
+                    where=chunk_where_clause,
+                    target_table=DISTRIBUTED_RAW_SESSIONS_TABLE_V3(),  # this is just what the table is called in the experimental cluster, it's not actually distributed
+                    include_session_timestamp=True,
+                )
+                context.log.info(backfill_sql)
+                sync_execute(backfill_sql, settings=merged_settings, sync_client=client)
+
+                if team_id_chunks > 1:
+                    context.log.info(f"Completed chunk {chunk_i + 1}/{team_id_chunks}")
+
+            context.log.info(f"Successfully backfilled sessions_v3 for Dagster partitions {partition_range_str}")

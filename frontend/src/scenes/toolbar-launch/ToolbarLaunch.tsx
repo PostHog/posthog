@@ -1,6 +1,6 @@
 import './ToolbarLaunch.scss'
 
-import { IconFlag, IconPieChart, IconSearch, IconTestTube } from '@posthog/icons'
+import { IconFlag, IconFlask, IconPieChart, IconSearch } from '@posthog/icons'
 import { LemonBanner } from '@posthog/lemon-ui'
 
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
@@ -55,7 +55,7 @@ export function ToolbarLaunch(): JSX.Element {
                   {
                       title: 'Experiments',
                       caption: 'Run experiments and A/B test your website.',
-                      icon: <IconTestTube />,
+                      icon: <IconFlask />,
                   },
               ]
             : []),

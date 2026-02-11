@@ -30,7 +30,7 @@
         FROM
           (SELECT toTimeZone(e.created, 'UTC') AS timestamp,
                   e.user_id AS aggregation_target,
-                  tupleElement(tuple(throwIf(isNull(e.uuid), 'Encountered a null value in posthog_test_test_table_1.uuid, but a non-null value is required. Please ensure this column contains no null values, or add a filter to exclude rows with null values.'), toUUIDOrDefault(e.uuid, reinterpretAsUUID(hex(MD5(concat('posthog_test_test_table_1_', ifNull(toString(e.uuid), ''))))))), 2) AS uuid,
+                  tupleElement(tuple(throwIf(isNull(e.uuid), 'Encountered a null value in posthog_test_test_table_1.uuid, but a non-null value is required. Please ensure this column contains no null values, or add a filter to exclude rows with null values.'), toUUIDOrDefault(e.uuid, reinterpretAsUUID(hex(MD5(concat('posthog_test_test_table_1_0_', ifNull(toString(e.uuid), ''))))))), 2) AS uuid,
                   NULL AS `$session_id`,
                   NULL AS `$window_id`,
                   if(1, 1, 0) AS step_0,
@@ -40,7 +40,8 @@
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      GROUP BY breakdown
-     ORDER BY step_2 DESC, step_1 DESC)
+     ORDER BY step_2 DESC,
+              step_1 DESC)
   GROUP BY final_prop
   ORDER BY step_2 DESC,
            step_1 DESC
@@ -114,7 +115,7 @@
               WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('$pageview'))), ifNull(equals(step_0, 1), 0))
               UNION ALL SELECT toTimeZone(e.created, 'UTC') AS timestamp,
                                accurateCastOrNull(e.user_id, 'UUID') AS aggregation_target,
-                               tupleElement(tuple(throwIf(isNull(e.uuid), 'Encountered a null value in posthog_test_test_table_1.uuid, but a non-null value is required. Please ensure this column contains no null values, or add a filter to exclude rows with null values.'), toUUIDOrDefault(e.uuid, reinterpretAsUUID(hex(MD5(concat('posthog_test_test_table_1_', ifNull(toString(e.uuid), ''))))))), 2) AS uuid,
+                               tupleElement(tuple(throwIf(isNull(e.uuid), 'Encountered a null value in posthog_test_test_table_1.uuid, but a non-null value is required. Please ensure this column contains no null values, or add a filter to exclude rows with null values.'), toUUIDOrDefault(e.uuid, reinterpretAsUUID(hex(MD5(concat('posthog_test_test_table_1_0_', ifNull(toString(e.uuid), ''))))))), 2) AS uuid,
                                NULL AS `$session_id`,
                                NULL AS `$window_id`,
                                0 AS step_0,
@@ -124,7 +125,8 @@
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      GROUP BY breakdown
-     ORDER BY step_2 DESC, step_1 DESC)
+     ORDER BY step_2 DESC,
+              step_1 DESC)
   GROUP BY final_prop
   ORDER BY step_2 DESC,
            step_1 DESC
@@ -174,7 +176,7 @@
         FROM
           (SELECT toTimeZone(e.created, 'UTC') AS timestamp,
                   e.user_id AS aggregation_target,
-                  tupleElement(tuple(throwIf(isNull(e.id), 'Encountered a null value in posthog_test_test_table_1.id, but a non-null value is required. Please ensure this column contains no null values, or add a filter to exclude rows with null values.'), toUUIDOrDefault(e.id, reinterpretAsUUID(hex(MD5(concat('posthog_test_test_table_1_', ifNull(toString(e.id), ''))))))), 2) AS uuid,
+                  tupleElement(tuple(throwIf(isNull(e.id), 'Encountered a null value in posthog_test_test_table_1.id, but a non-null value is required. Please ensure this column contains no null values, or add a filter to exclude rows with null values.'), toUUIDOrDefault(e.id, reinterpretAsUUID(hex(MD5(concat('posthog_test_test_table_1_0_', ifNull(toString(e.id), ''))))))), 2) AS uuid,
                   NULL AS `$session_id`,
                   NULL AS `$window_id`,
                   if(1, 1, 0) AS step_0,
@@ -184,7 +186,8 @@
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      GROUP BY breakdown
-     ORDER BY step_2 DESC, step_1 DESC)
+     ORDER BY step_2 DESC,
+              step_1 DESC)
   GROUP BY final_prop
   ORDER BY step_2 DESC,
            step_1 DESC
@@ -234,7 +237,7 @@
         FROM
           (SELECT toTimeZone(e.created, 'UTC') AS timestamp,
                   e.user_id AS aggregation_target,
-                  tupleElement(tuple(throwIf(isNull(e.id_with_nulls), 'Encountered a null value in posthog_test_test_table_1.id_with_nulls, but a non-null value is required. Please ensure this column contains no null values, or add a filter to exclude rows with null values.'), toUUIDOrDefault(e.id_with_nulls, reinterpretAsUUID(hex(MD5(concat('posthog_test_test_table_1_', ifNull(toString(e.id_with_nulls), ''))))))), 2) AS uuid,
+                  tupleElement(tuple(throwIf(isNull(e.id_with_nulls), 'Encountered a null value in posthog_test_test_table_1.id_with_nulls, but a non-null value is required. Please ensure this column contains no null values, or add a filter to exclude rows with null values.'), toUUIDOrDefault(e.id_with_nulls, reinterpretAsUUID(hex(MD5(concat('posthog_test_test_table_1_0_', ifNull(toString(e.id_with_nulls), ''))))))), 2) AS uuid,
                   NULL AS `$session_id`,
                   NULL AS `$window_id`,
                   if(1, 1, 0) AS step_0,
@@ -244,7 +247,8 @@
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      GROUP BY breakdown
-     ORDER BY step_2 DESC, step_1 DESC)
+     ORDER BY step_2 DESC,
+              step_1 DESC)
   GROUP BY final_prop
   ORDER BY step_2 DESC,
            step_1 DESC
@@ -294,7 +298,7 @@
         FROM
           (SELECT toTimeZone(e.created, 'UTC') AS timestamp,
                   e.user_id AS aggregation_target,
-                  tupleElement(tuple(throwIf(isNull(e.id_with_nulls), 'Encountered a null value in posthog_test_test_table_1.id_with_nulls, but a non-null value is required. Please ensure this column contains no null values, or add a filter to exclude rows with null values.'), toUUIDOrDefault(e.id_with_nulls, reinterpretAsUUID(hex(MD5(concat('posthog_test_test_table_1_', ifNull(toString(e.id_with_nulls), ''))))))), 2) AS uuid,
+                  tupleElement(tuple(throwIf(isNull(e.id_with_nulls), 'Encountered a null value in posthog_test_test_table_1.id_with_nulls, but a non-null value is required. Please ensure this column contains no null values, or add a filter to exclude rows with null values.'), toUUIDOrDefault(e.id_with_nulls, reinterpretAsUUID(hex(MD5(concat('posthog_test_test_table_1_0_', ifNull(toString(e.id_with_nulls), ''))))))), 2) AS uuid,
                   NULL AS `$session_id`,
                   NULL AS `$window_id`,
                   if(isNotNull(e.id_with_nulls), 1, 0) AS step_0,
@@ -304,7 +308,8 @@
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      GROUP BY breakdown
-     ORDER BY step_2 DESC, step_1 DESC)
+     ORDER BY step_2 DESC,
+              step_1 DESC)
   GROUP BY final_prop
   ORDER BY step_2 DESC,
            step_1 DESC
@@ -327,20 +332,25 @@
   '''
   SELECT sum(step_1) AS step_1,
          sum(step_2) AS step_2,
+         sum(step_3) AS step_3,
          arrayMap(x -> if(isNaN(x), NULL, x), [avgArrayOrNull(step_1_conversion_times)])[1] AS step_1_average_conversion_time,
+         arrayMap(x -> if(isNaN(x), NULL, x), [avgArrayOrNull(step_2_conversion_times)])[1] AS step_2_average_conversion_time,
          arrayMap(x -> if(isNaN(x), NULL, x), [medianArrayOrNull(step_1_conversion_times)])[1] AS step_1_median_conversion_time,
+         arrayMap(x -> if(isNaN(x), NULL, x), [medianArrayOrNull(step_2_conversion_times)])[1] AS step_2_median_conversion_time,
          groupArray(row_number) AS row_number,
          final_prop AS final_prop
   FROM
     (SELECT countIf(ifNull(notEquals(bitAnd(steps_bitfield, 1), 0), 1)) AS step_1,
             countIf(ifNull(notEquals(bitAnd(steps_bitfield, 2), 0), 1)) AS step_2,
+            countIf(ifNull(notEquals(bitAnd(steps_bitfield, 4), 0), 1)) AS step_3,
             groupArrayIf(timings[1], ifNull(greater(timings[1], 0), 0)) AS step_1_conversion_times,
+            groupArrayIf(timings[2], ifNull(greater(timings[2], 0), 0)) AS step_2_conversion_times,
             rowNumberInAllBlocks() AS row_number,
             breakdown AS final_prop
      FROM
-       (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
+       (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))) AS events_array,
                [''] AS prop,
-               arrayJoin(aggregate_funnel(2, 2592000, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+               arrayJoin(aggregate_funnel(3, 2592000, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                         and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                         and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                        and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -358,32 +368,48 @@
                   e.`$session_id` AS `$session_id`,
                   e.`$window_id` AS `$window_id`,
                   e.step_0 AS step_0,
-                  e.step_1 AS step_1
+                  e.step_1 AS step_1,
+                  e.step_2 AS step_2
            FROM
              (SELECT toTimeZone(e.created_date, 'UTC') AS timestamp,
                      coalesce(e.converted_opportunity_id, e.id) AS aggregation_target,
-                     tupleElement(tuple(throwIf(isNull(e.id), 'Encountered a null value in posthog_test_salesforce_lead.id, but a non-null value is required. Please ensure this column contains no null values, or add a filter to exclude rows with null values.'), toUUIDOrDefault(e.id, reinterpretAsUUID(hex(MD5(concat('posthog_test_salesforce_lead_', ifNull(toString(e.id), ''))))))), 2) AS uuid,
+                     tupleElement(tuple(throwIf(isNull(e.id), 'Encountered a null value in posthog_test_salesforce_lead.id, but a non-null value is required. Please ensure this column contains no null values, or add a filter to exclude rows with null values.'), toUUIDOrDefault(e.id, reinterpretAsUUID(hex(MD5(concat('posthog_test_salesforce_lead_0_', ifNull(toString(e.id), ''))))))), 2) AS uuid,
                      NULL AS `$session_id`,
                      NULL AS `$window_id`,
                      if(1, 1, 0) AS step_0,
-                     0 AS step_1
+                     0 AS step_1,
+                     0 AS step_2
               FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql_queries.insights.funnels.funnel_data_warehouse/posthog_test_salesforce_lead/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `created_date` DateTime64(3, \'UTC\'), `converted_opportunity_id` Nullable(String)') AS e
               WHERE and(and(greaterOrEquals(timestamp, toDateTime64('2024-05-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(timestamp, toDateTime64('2024-06-30 23:59:59.999999', 6, 'UTC'))), ifNull(equals(step_0, 1), 0))
               UNION ALL SELECT toTimeZone(e.created_date, 'UTC') AS timestamp,
                                e.id AS aggregation_target,
-                               tupleElement(tuple(throwIf(isNull(e.id), 'Encountered a null value in posthog_test_salesforce_opportunity.id, but a non-null value is required. Please ensure this column contains no null values, or add a filter to exclude rows with null values.'), toUUIDOrDefault(e.id, reinterpretAsUUID(hex(MD5(concat('posthog_test_salesforce_opportunity_', ifNull(toString(e.id), ''))))))), 2) AS uuid,
+                               tupleElement(tuple(throwIf(isNull(e.id), 'Encountered a null value in posthog_test_salesforce_opportunity.id, but a non-null value is required. Please ensure this column contains no null values, or add a filter to exclude rows with null values.'), toUUIDOrDefault(e.id, reinterpretAsUUID(hex(MD5(concat('posthog_test_salesforce_opportunity_1_', ifNull(toString(e.id), ''))))))), 2) AS uuid,
                                NULL AS `$session_id`,
                                NULL AS `$window_id`,
                                0 AS step_0,
-                               if(1, 1, 0) AS step_1
+                               if(1, 1, 0) AS step_1,
+                               0 AS step_2
               FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql_queries.insights.funnels.funnel_data_warehouse/posthog_test_salesforce_opportunity/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `close_date` Nullable(Date), `created_date` DateTime64(3, \'UTC\')') AS e
-              WHERE and(and(greaterOrEquals(timestamp, toDateTime64('2024-05-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(timestamp, toDateTime64('2024-06-30 23:59:59.999999', 6, 'UTC'))), ifNull(equals(step_1, 1), 0))) AS e)
+              WHERE and(and(greaterOrEquals(timestamp, toDateTime64('2024-05-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(timestamp, toDateTime64('2024-06-30 23:59:59.999999', 6, 'UTC'))), ifNull(equals(step_1, 1), 0))
+              UNION ALL SELECT e.close_date AS timestamp,
+                               e.id AS aggregation_target,
+                               tupleElement(tuple(throwIf(isNull(e.id), 'Encountered a null value in posthog_test_salesforce_opportunity.id, but a non-null value is required. Please ensure this column contains no null values, or add a filter to exclude rows with null values.'), toUUIDOrDefault(e.id, reinterpretAsUUID(hex(MD5(concat('posthog_test_salesforce_opportunity_2_', ifNull(toString(e.id), ''))))))), 2) AS uuid,
+                               NULL AS `$session_id`,
+                               NULL AS `$window_id`,
+                               0 AS step_0,
+                               0 AS step_1,
+                               if(1, 1, 0) AS step_2
+              FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql_queries.insights.funnels.funnel_data_warehouse/posthog_test_salesforce_opportunity/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `close_date` Nullable(Date), `created_date` DateTime64(3, \'UTC\')') AS e
+              WHERE and(and(ifNull(greaterOrEquals(timestamp, toDateTime64('2024-05-01 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(timestamp, toDateTime64('2024-06-30 23:59:59.999999', 6, 'UTC')), 0)), ifNull(equals(step_2, 1), 0))) AS e)
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      GROUP BY breakdown
-     ORDER BY step_2 DESC, step_1 DESC)
+     ORDER BY step_3 DESC,
+              step_2 DESC,
+              step_1 DESC)
   GROUP BY final_prop
-  ORDER BY step_2 DESC,
+  ORDER BY step_3 DESC,
+           step_2 DESC,
            step_1 DESC
   LIMIT 100 SETTINGS join_algorithm='auto',
                      readonly=2,

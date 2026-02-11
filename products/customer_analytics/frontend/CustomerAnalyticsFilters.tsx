@@ -7,6 +7,7 @@ import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
 import { FilterBar } from 'lib/components/FilterBar'
+import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { dayjs } from 'lib/dayjs'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { formatDateRange } from 'lib/utils'
@@ -84,9 +85,11 @@ export function CustomerAnalyticsFilters(): JSX.Element {
         dateFilter: { dateTo, dateFrom },
         groupOptions,
         selectedGroupType,
+        filterTestAccounts,
     } = useValues(customerAnalyticsSceneLogic)
 
-    const { setBusinessType, setDates, setSelectedGroupType } = useActions(customerAnalyticsSceneLogic)
+    const { setBusinessType, setDates, setSelectedGroupType, setFilterTestAccounts } =
+        useActions(customerAnalyticsSceneLogic)
     const { reportCustomerAnalyticsDashboardBusinessModeChanged, reportCustomerAnalyticsDashboardDateFilterApplied } =
         useActions(eventUsageLogic)
     const { addProductIntent } = useActions(teamLogic)
@@ -142,17 +145,20 @@ export function CustomerAnalyticsFilters(): JSX.Element {
                 </div>
             }
             right={
-                <AppShortcut
-                    name="CustomerAnalyticsRefresh"
-                    keybind={[keyBinds.refresh]}
-                    intent="Refresh data"
-                    interaction="click"
-                    scope={Scene.CustomerAnalytics}
-                >
-                    <Tooltip title="Refresh data">
-                        <ReloadAll />
-                    </Tooltip>
-                </AppShortcut>
+                <div className="flex flex-row items-center gap-2">
+                    <TestAccountFilterSwitch checked={filterTestAccounts} onChange={setFilterTestAccounts} />
+                    <AppShortcut
+                        name="CustomerAnalyticsRefresh"
+                        keybind={[keyBinds.refresh]}
+                        intent="Refresh data"
+                        interaction="click"
+                        scope={Scene.CustomerAnalytics}
+                    >
+                        <Tooltip title="Refresh data">
+                            <ReloadAll />
+                        </Tooltip>
+                    </AppShortcut>
+                </div>
             }
         />
     )

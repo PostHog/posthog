@@ -147,11 +147,14 @@ export const QueryDatabase = (): JSX.Element => {
                 return 'join'
             case 'virtual-table':
                 return 'virtual table'
+            case 'materialized_view':
+                return 'materialized view'
             case 'managed-view':
                 return 'managed view'
             case 'endpoint':
                 return 'endpoint'
             case 'view':
+            case 'view-table':
                 return item.record.view?.is_materialized ? 'materialized view' : 'view'
             case 'table': {
                 const tableType = item.record.table?.type
