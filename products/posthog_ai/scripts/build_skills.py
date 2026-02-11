@@ -43,9 +43,8 @@ MANIFEST_VERSION = "1.0.0"
 _ZIP_FIXED_TIME = (2025, 1, 1, 0, 0, 0)
 
 _FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
-_TEST_DIR_NAMES = {"test", "tests"}
-_TEST_FILE_RE = re.compile(r"^test_.*\.py$|.*_test\.py$")
 _BINARY_CHECK_SIZE = 8192
+_ALLOWED_SUBDIRS = {"references", "scripts"}
 
 
 def _create_jinja_env(**extra_globals: object) -> Environment:
@@ -224,45 +223,44 @@ class SkillBuilder:
         self.discoverer = SkillDiscoverer(products_dir)
 
     def collect_skill_files(self, skill_dir: Path, renderer: SkillRenderer) -> list[SkillFile]:
-        """Collect and render all files from a skill directory.
+        """Collect and render files from a skill directory using an explicit allowlist.
 
-        Walks the directory recursively, excluding test directories and test files.
-        Validates that .j2 files are at most 1 level deep within the skill dir.
+        Only collects from three sources:
+        1. Entry point: SKILL.md.j2 (preferred) or SKILL.md
+        2. references/ directory (recursive)
+        3. scripts/ directory (recursive)
+
+        .j2 files are rendered through Jinja2 and have the .j2 extension stripped.
         Returns a list of SkillFile with SKILL.md always first.
         """
-        files: list[SkillFile] = []
-        entry_point: SkillFile | None = None
-
-        for root, dirs, filenames in os.walk(skill_dir):
-            dirs[:] = [d for d in sorted(dirs) if d not in _TEST_DIR_NAMES]
-            rel_root = Path(root).relative_to(skill_dir)
-            depth = len(rel_root.parts)
-
-            for filename in sorted(filenames):
-                if _TEST_FILE_RE.match(filename):
-                    continue
-
-                file_path = Path(root) / filename
-                rel_path = file_path.relative_to(skill_dir)
-
-                _assert_text_file(file_path)
-
-                if filename.endswith(".j2") and depth > 1:
-                    raise ValueError(f"Jinja2 template too deep (max 1 level): {rel_path} in {skill_dir.name}")
-
-                content = renderer.render(file_path)
-                out_path = str(rel_path)
-                if out_path.endswith(".j2"):
-                    out_path = out_path.removesuffix(".j2")
-
-                skill_file = SkillFile(path=out_path, content=content)
-                if out_path == "SKILL.md":
-                    entry_point = skill_file
-                else:
-                    files.append(skill_file)
-
-        if entry_point is None:
+        j2_entry = skill_dir / "SKILL.md.j2"
+        md_entry = skill_dir / "SKILL.md"
+        if j2_entry.exists():
+            entry_path = j2_entry
+        elif md_entry.exists():
+            entry_path = md_entry
+        else:
             raise ValueError(f"Missing SKILL.md entry point in {skill_dir.name}")
+
+        _assert_text_file(entry_path)
+        entry_content = renderer.render(entry_path)
+        entry_point = SkillFile(path="SKILL.md", content=entry_content)
+
+        files: list[SkillFile] = []
+        for subdir_name in sorted(_ALLOWED_SUBDIRS):
+            subdir = skill_dir / subdir_name
+            if not subdir.is_dir():
+                continue
+            for root, dirs, filenames in os.walk(subdir):
+                dirs[:] = sorted(dirs)
+                for filename in sorted(filenames):
+                    file_path = Path(root) / filename
+                    _assert_text_file(file_path)
+                    content = renderer.render(file_path)
+                    rel_path = str(file_path.relative_to(skill_dir))
+                    if rel_path.endswith(".j2"):
+                        rel_path = rel_path.removesuffix(".j2")
+                    files.append(SkillFile(path=rel_path, content=content))
 
         return [entry_point, *files]
 
@@ -331,24 +329,24 @@ class SkillBuilder:
                     zf.writestr(info, file_path.read_text())
         return zip_path
 
-    def _collect_lint_files(self, skill: DiscoveredSkill) -> list[tuple[Path, int]]:
-        """Collect all files for linting from a skill, with their depth relative to skill dir.
+    def _collect_lint_files(self, skill: DiscoveredSkill) -> list[Path]:
+        """Collect all files for linting from a skill using the allowlist.
 
-        Returns list of (file_path, depth) tuples. Excludes test dirs/files.
+        Only collects SKILL.md(.j2), references/, and scripts/.
         """
         if skill.depth == 0:
-            return [(skill.source_file, 0)]
+            return [skill.source_file]
 
         skill_dir = skill.source_file.parent
-        result: list[tuple[Path, int]] = []
-        for root, dirs, filenames in os.walk(skill_dir):
-            dirs[:] = [d for d in sorted(dirs) if d not in _TEST_DIR_NAMES]
-            rel_root = Path(root).relative_to(skill_dir)
-            depth = len(rel_root.parts)
-            for filename in sorted(filenames):
-                if _TEST_FILE_RE.match(filename):
-                    continue
-                result.append((Path(root) / filename, depth))
+        result: list[Path] = [skill.source_file]
+        for subdir_name in sorted(_ALLOWED_SUBDIRS):
+            subdir = skill_dir / subdir_name
+            if not subdir.is_dir():
+                continue
+            for root, dirs, filenames in os.walk(subdir):
+                dirs[:] = sorted(dirs)
+                for filename in sorted(filenames):
+                    result.append(Path(root) / filename)
         return result
 
     def lint_all(self) -> bool:
@@ -358,7 +356,6 @@ class SkillBuilder:
         - Binary file detection (only text files allowed)
         - Duplicate skill name detection (across products)
         - Jinja2 syntax validation via parse-only (all .j2 files)
-        - Jinja2 template depth validation (.j2 files must be at most 1 level deep)
         - Frontmatter validation for static .md entry points (required: name, description)
 
         Returns True if all checks pass, False otherwise.
@@ -383,7 +380,7 @@ class SkillBuilder:
         for skill in skills:
             lint_files = self._collect_lint_files(skill)
 
-            for file_path, depth in lint_files:
+            for file_path in lint_files:
                 source_label = str(file_path.relative_to(self.repo_root))
 
                 try:
@@ -393,15 +390,12 @@ class SkillBuilder:
                     continue
 
                 if file_path.suffix == ".j2":
-                    if depth > 1:
-                        errors.append(f"Jinja2 template too deep (max 1 level): {source_label}")
                     raw = file_path.read_text()
                     try:
                         jinja_env.parse(raw)
                     except TemplateSyntaxError as e:
                         errors.append(f"Jinja2 syntax error in {source_label}: {e}")
 
-            # Frontmatter validation only on the entry point when it's a static .md
             if skill.source_file.suffix != ".j2":
                 raw = skill.source_file.read_text()
                 source_label = str(skill.source_file.relative_to(self.repo_root))

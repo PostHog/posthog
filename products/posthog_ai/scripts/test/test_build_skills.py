@@ -228,7 +228,6 @@ def test_build_skill_collects_all_files(tmp_path: Path) -> None:
     refs = skill_dir / "references"
     refs.mkdir()
     (refs / "example.md").write_text("# Example reference\n")
-    (skill_dir / "helper.py").write_text("print('hello')\n")
 
     renderer = SkillRenderer()
     skill = DiscoveredSkill(
@@ -239,25 +238,22 @@ def test_build_skill_collects_all_files(tmp_path: Path) -> None:
 
     paths = [f.path for f in result.files]
     assert paths[0] == "SKILL.md"
-    assert "helper.py" in paths
     assert "references/example.md" in paths
-    assert len(result.files) == 3
+    assert len(result.files) == 2
 
 
-def test_build_skill_excludes_test_dirs(tmp_path: Path) -> None:
-    skill_dir = tmp_path / "products" / "alpha" / "skills" / "with-tests"
+def test_build_skill_ignores_non_allowed_subdirs(tmp_path: Path) -> None:
+    skill_dir = tmp_path / "products" / "alpha" / "skills" / "with-extras"
     skill_dir.mkdir(parents=True)
     (skill_dir / "SKILL.md").write_text("---\nname: t\ndescription: T\n---\n# Body\n")
-    test_dir = skill_dir / "test"
-    test_dir.mkdir()
-    (test_dir / "test_something.py").write_text("assert True")
-    tests_dir = skill_dir / "tests"
-    tests_dir.mkdir()
-    (tests_dir / "test_other.py").write_text("assert True")
+    for subdir in ("test", "tests", "utils", "lib"):
+        d = skill_dir / subdir
+        d.mkdir()
+        (d / "something.py").write_text("x = 1")
 
     renderer = SkillRenderer()
     skill = DiscoveredSkill(
-        name="with-tests", source_file=skill_dir / "SKILL.md", product_dir=tmp_path / "products" / "alpha", depth=1
+        name="with-extras", source_file=skill_dir / "SKILL.md", product_dir=tmp_path / "products" / "alpha", depth=1
     )
     builder = SkillBuilder(repo_root=tmp_path, products_dir=tmp_path / "products", output_dir=tmp_path / "output")
     result = builder.build_skill(skill, renderer)
@@ -266,25 +262,22 @@ def test_build_skill_excludes_test_dirs(tmp_path: Path) -> None:
     assert paths == ["SKILL.md"]
 
 
-def test_build_skill_excludes_test_files(tmp_path: Path) -> None:
-    skill_dir = tmp_path / "products" / "alpha" / "skills" / "test-files"
+def test_build_skill_ignores_root_files(tmp_path: Path) -> None:
+    skill_dir = tmp_path / "products" / "alpha" / "skills" / "root-files"
     skill_dir.mkdir(parents=True)
-    (skill_dir / "SKILL.md").write_text("---\nname: tf\ndescription: TF\n---\n# Body\n")
-    (skill_dir / "test_foo.py").write_text("assert True")
-    (skill_dir / "bar_test.py").write_text("assert True")
+    (skill_dir / "SKILL.md").write_text("---\nname: rf\ndescription: RF\n---\n# Body\n")
     (skill_dir / "helper.py").write_text("x = 1")
+    (skill_dir / "notes.txt").write_text("some notes")
 
     renderer = SkillRenderer()
     skill = DiscoveredSkill(
-        name="test-files", source_file=skill_dir / "SKILL.md", product_dir=tmp_path / "products" / "alpha", depth=1
+        name="root-files", source_file=skill_dir / "SKILL.md", product_dir=tmp_path / "products" / "alpha", depth=1
     )
     builder = SkillBuilder(repo_root=tmp_path, products_dir=tmp_path / "products", output_dir=tmp_path / "output")
     result = builder.build_skill(skill, renderer)
 
     paths = [f.path for f in result.files]
-    assert "test_foo.py" not in paths
-    assert "bar_test.py" not in paths
-    assert "helper.py" in paths
+    assert paths == ["SKILL.md"]
 
 
 def test_build_skill_renders_j2_references(tmp_path: Path) -> None:
@@ -309,24 +302,6 @@ def test_build_skill_renders_j2_references(tmp_path: Path) -> None:
     assert "Rendered value" in ref_file.content
 
 
-def test_build_skill_rejects_deep_j2(tmp_path: Path) -> None:
-    skill_dir = tmp_path / "products" / "alpha" / "skills" / "deep-j2"
-    skill_dir.mkdir(parents=True)
-    (skill_dir / "SKILL.md").write_text("---\nname: dj\ndescription: DJ\n---\n# Body\n")
-    deep = skill_dir / "a" / "b"
-    deep.mkdir(parents=True)
-    (deep / "template.md.j2").write_text("deep template")
-
-    renderer = SkillRenderer()
-    skill = DiscoveredSkill(
-        name="deep-j2", source_file=skill_dir / "SKILL.md", product_dir=tmp_path / "products" / "alpha", depth=1
-    )
-    builder = SkillBuilder(repo_root=tmp_path, products_dir=tmp_path / "products", output_dir=tmp_path / "output")
-
-    with pytest.raises(ValueError, match="Jinja2 template too deep"):
-        builder.build_skill(skill, renderer)
-
-
 def test_build_skill_validates_entry_point(tmp_path: Path) -> None:
     skill_dir = tmp_path / "products" / "alpha" / "skills" / "no-entry"
     skill_dir.mkdir(parents=True)
@@ -346,8 +321,10 @@ def test_build_skill_entry_point_first(tmp_path: Path) -> None:
     skill_dir = tmp_path / "products" / "alpha" / "skills" / "ordered"
     skill_dir.mkdir(parents=True)
     (skill_dir / "SKILL.md").write_text("---\nname: ord\ndescription: Ord\n---\n# Main\n")
-    (skill_dir / "aaa.md").write_text("first alphabetically")
-    (skill_dir / "zzz.md").write_text("last alphabetically")
+    refs = skill_dir / "references"
+    refs.mkdir()
+    (refs / "aaa.md").write_text("first alphabetically")
+    (refs / "zzz.md").write_text("last alphabetically")
 
     renderer = SkillRenderer()
     skill = DiscoveredSkill(
@@ -357,6 +334,7 @@ def test_build_skill_entry_point_first(tmp_path: Path) -> None:
     result = builder.build_skill(skill, renderer)
 
     assert result.files[0].path == "SKILL.md"
+    assert len(result.files) == 3
 
 
 def test_build_manifest_produces_valid_structure(tmp_path: Path) -> None:
@@ -529,7 +507,9 @@ def test_build_skill_rejects_binary_file(tmp_path: Path) -> None:
     skill_dir = tmp_path / "products" / "alpha" / "skills" / "has-binary"
     skill_dir.mkdir(parents=True)
     (skill_dir / "SKILL.md").write_text("---\nname: hb\ndescription: HB\n---\n# Body\n")
-    (skill_dir / "image.png").write_bytes(b"\x89PNG\r\n\x1a\n\x00\x00\x00")
+    refs = skill_dir / "references"
+    refs.mkdir()
+    (refs / "image.png").write_bytes(b"\x89PNG\r\n\x1a\n\x00\x00\x00")
 
     renderer = SkillRenderer()
     skill = DiscoveredSkill(
@@ -545,7 +525,9 @@ def test_lint_catches_binary_file(tmp_path: Path) -> None:
     skill_dir = tmp_path / "products" / "alpha" / "skills" / "has-binary"
     skill_dir.mkdir(parents=True)
     (skill_dir / "SKILL.md").write_text("---\nname: hb\ndescription: HB\n---\n# Body\n")
-    (skill_dir / "image.png").write_bytes(b"\x89PNG\r\n\x1a\n\x00\x00\x00")
+    refs = skill_dir / "references"
+    refs.mkdir()
+    (refs / "image.png").write_bytes(b"\x89PNG\r\n\x1a\n\x00\x00\x00")
 
     builder = SkillBuilder(
         repo_root=tmp_path,
@@ -555,17 +537,45 @@ def test_lint_catches_binary_file(tmp_path: Path) -> None:
     assert builder.lint_all() is False
 
 
-def test_lint_catches_deep_j2(tmp_path: Path) -> None:
-    skill_dir = tmp_path / "products" / "alpha" / "skills" / "deep-j2"
+def test_build_skill_collects_scripts(tmp_path: Path) -> None:
+    skill_dir = tmp_path / "products" / "alpha" / "skills" / "with-scripts"
     skill_dir.mkdir(parents=True)
-    (skill_dir / "SKILL.md").write_text("---\nname: dj\ndescription: DJ\n---\n# Body\n")
-    deep = skill_dir / "a" / "b"
-    deep.mkdir(parents=True)
-    (deep / "template.md.j2").write_text("deep template")
+    (skill_dir / "SKILL.md").write_text("---\nname: ws\ndescription: WS\n---\n# Body\n")
+    scripts = skill_dir / "scripts"
+    scripts.mkdir()
+    (scripts / "setup.sh").write_text("#!/bin/bash\necho hello\n")
+    (scripts / "run.py").write_text("print('hi')\n")
 
-    builder = SkillBuilder(
-        repo_root=tmp_path,
-        products_dir=tmp_path / "products",
-        output_dir=tmp_path / "output",
+    renderer = SkillRenderer()
+    skill = DiscoveredSkill(
+        name="with-scripts", source_file=skill_dir / "SKILL.md", product_dir=tmp_path / "products" / "alpha", depth=1
     )
-    assert builder.lint_all() is False
+    builder = SkillBuilder(repo_root=tmp_path, products_dir=tmp_path / "products", output_dir=tmp_path / "output")
+    result = builder.build_skill(skill, renderer)
+
+    paths = [f.path for f in result.files]
+    assert paths[0] == "SKILL.md"
+    assert "scripts/setup.sh" in paths
+    assert "scripts/run.py" in paths
+    assert len(result.files) == 3
+
+
+def test_build_skill_renders_j2_scripts(tmp_path: Path) -> None:
+    skill_dir = tmp_path / "products" / "alpha" / "skills" / "j2-scripts"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text("---\nname: js\ndescription: JS\n---\n# Body\n")
+    scripts = skill_dir / "scripts"
+    scripts.mkdir()
+    (scripts / "template.sh.j2").write_text("echo {{ 'rendered' }}\n")
+
+    renderer = SkillRenderer()
+    skill = DiscoveredSkill(
+        name="j2-scripts", source_file=skill_dir / "SKILL.md", product_dir=tmp_path / "products" / "alpha", depth=1
+    )
+    builder = SkillBuilder(repo_root=tmp_path, products_dir=tmp_path / "products", output_dir=tmp_path / "output")
+    result = builder.build_skill(skill, renderer)
+
+    paths = [f.path for f in result.files]
+    assert "scripts/template.sh" in paths
+    script_file = next(f for f in result.files if f.path == "scripts/template.sh")
+    assert "echo rendered" in script_file.content
