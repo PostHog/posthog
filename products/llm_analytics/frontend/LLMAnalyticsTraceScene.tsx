@@ -57,6 +57,7 @@ import { MetadataHeader } from './ConversationDisplay/MetadataHeader'
 import { ParametersHeader } from './ConversationDisplay/ParametersHeader'
 import { LLMInputOutput } from './LLMInputOutput'
 import { SearchHighlight } from './SearchHighlight'
+import { clustersExistenceLogic } from './clusters/clustersExistenceLogic'
 import { ClustersTabContent } from './components/ClustersTabContent'
 import { EvalsTabContent } from './components/EvalsTabContent'
 import { EventContentDisplayAsync, EventContentGeneration } from './components/EventContentWithAsyncData'
@@ -757,6 +758,7 @@ const EventContent = React.memo(
         const { featureFlags } = useValues(featureFlagLogic)
         const { displayOption, lineNumber, initialTab, viewMode } = useValues(llmAnalyticsTraceLogic)
         const { handleTextViewFallback, copyLinePermalink, setViewMode } = useActions(llmAnalyticsTraceLogic)
+        const { hasClustersData } = useValues(clustersExistenceLogic)
 
         const node = event && isLLMEvent(event) ? findNodeForEvent(tree, event.id) : null
         const aggregation = node?.aggregation || null
@@ -780,7 +782,7 @@ const EventContent = React.memo(
             featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SUMMARIZATION] ||
             featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
 
-        const showClustersTab = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_CLUSTERS_TAB]
+        const showClustersTab = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_CLUSTERS_TAB] && !!hasClustersData
 
         const showFeedbackTab = true
 

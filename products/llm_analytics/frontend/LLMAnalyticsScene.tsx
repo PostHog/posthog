@@ -40,6 +40,7 @@ import { LLMAnalyticsSessionsScene } from './LLMAnalyticsSessionsScene'
 import { LLMAnalyticsSetupPrompt } from './LLMAnalyticsSetupPrompt'
 import { LLMAnalyticsTraces } from './LLMAnalyticsTracesScene'
 import { LLMAnalyticsUsers } from './LLMAnalyticsUsers'
+import { clustersExistenceLogic } from './clusters/clustersExistenceLogic'
 import { useSortableColumns } from './hooks/useSortableColumns'
 import { llmAnalyticsColumnRenderers } from './llmAnalyticsColumnRenderers'
 import { LLM_ANALYTICS_DATA_COLLECTION_NODE_ID, llmAnalyticsSharedLogic } from './llmAnalyticsSharedLogic'
@@ -348,6 +349,7 @@ export function LLMAnalyticsScene(): JSX.Element {
     const { activeTab } = useValues(llmAnalyticsSharedLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { searchParams } = useValues(router)
+    const { hasClustersData } = useValues(clustersExistenceLogic)
 
     const { push } = useActions(router)
     const { toggleProduct, openModal: openEditCustomProductsModal } = useActions(editCustomProductsModalLogic)
@@ -477,7 +479,7 @@ export function LLMAnalyticsScene(): JSX.Element {
 
     const availableItemsInSidebar = useMemo(() => {
         return [
-            featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_CLUSTERS_TAB] ? (
+            featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_CLUSTERS_TAB] && hasClustersData ? (
                 <Link to={urls.llmAnalyticsClusters()} onClick={() => toggleProduct('Clusters', true)}>
                     clusters
                 </Link>
@@ -498,7 +500,7 @@ export function LLMAnalyticsScene(): JSX.Element {
                 </Link>
             ) : null,
         ].filter(Boolean) as JSX.Element[]
-    }, [featureFlags, toggleProduct])
+    }, [featureFlags, hasClustersData, toggleProduct])
 
     return (
         <BindLogic logic={dataNodeCollectionLogic} props={{ key: LLM_ANALYTICS_DATA_COLLECTION_NODE_ID }}>
