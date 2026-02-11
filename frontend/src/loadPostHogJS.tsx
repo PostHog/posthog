@@ -71,7 +71,7 @@ export function loadPostHogJS(): void {
                             }
                             const elapsed = performance.now() - measurementStart
                             const avgFrameTime = frameTimeSum / frameCount
-                            loadedInstance.capture('$$framerate', {
+                            loadedInstance.capture('react_framerate', {
                                 avg_fps: Math.round((frameCount / elapsed) * 1000),
                                 avg_frame_time_ms: Math.round(avgFrameTime * 100) / 100,
                                 min_frame_time_ms: Math.round(shortestFrame * 100) / 100,
