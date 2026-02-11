@@ -5,7 +5,7 @@
         "kea-loaders": "catalog:",
         "kea-router": "catalog:",
         "kea-subscriptions": "catalog:",
-        "posthog-js": "1.345.4",
+        "posthog-js": "1.345.5",
         "ts-pattern": "catalog:"
     },
     "peerDependencies": {
