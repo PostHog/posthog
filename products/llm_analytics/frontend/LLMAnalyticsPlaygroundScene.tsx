@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { useRef, useState } from 'react'
 
 import { IconGear, IconMessage, IconPencil, IconPlay, IconPlus, IconTrash } from '@posthog/icons'
@@ -41,6 +41,8 @@ export const scene: SceneExport = {
 }
 
 export function LLMAnalyticsPlaygroundScene(): JSX.Element {
+    useMountedLogic(llmAnalyticsPlaygroundLogic)
+
     return <PlaygroundLayout />
 }
 

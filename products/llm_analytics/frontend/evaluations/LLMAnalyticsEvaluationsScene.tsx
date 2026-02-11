@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
 import { IconCopy, IconPencil, IconPlus, IconSearch, IconTrash } from '@posthog/icons'
@@ -266,9 +266,10 @@ function LLMAnalyticsEvaluationsContent(): JSX.Element {
 
 export function LLMAnalyticsEvaluationsScene(): JSX.Element {
     const { searchParams } = useValues(router)
+    const evaluationsLogic = useMountedLogic(llmEvaluationsLogic)
     const evaluationMetrics = evaluationMetricsLogic({})
 
-    useAttachedLogic(evaluationMetrics, llmEvaluationsLogic)
+    useAttachedLogic(evaluationMetrics, evaluationsLogic)
 
     const activeTab = searchParams.tab || 'evaluations'
 
