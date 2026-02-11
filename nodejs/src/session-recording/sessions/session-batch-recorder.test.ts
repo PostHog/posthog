@@ -2035,6 +2035,65 @@ describe('SessionBatchRecorder', () => {
         })
     })
 
+    describe('encryption key handling', () => {
+        it('should drop messages for sessions with deleted encryption keys', async () => {
+            mockSessionTracker.trackSession.mockResolvedValue(false)
+            mockKeyStore.getKey.mockResolvedValue({
+                plaintextKey: Buffer.alloc(0),
+                encryptedKey: Buffer.alloc(0),
+                sessionState: 'deleted',
+                deletedAt: 1700000000,
+            })
+
+            const message = createMessage(
+                'session1',
+                [{ type: EventType.FullSnapshot, timestamp: 1000, data: { source: 1 } }],
+                { partition: 1, offset: 42 }
+            )
+
+            const bytesWritten = await recorder.record(message)
+
+            expect(bytesWritten).toBe(0)
+            expect(mockOffsetManager.trackOffset).toHaveBeenCalledWith({ partition: 1, offset: 42 })
+        })
+
+        it('should drop messages when session key changes between calls', async () => {
+            const keyA = Buffer.from('key-a')
+            const keyB = Buffer.from('key-b')
+
+            mockSessionTracker.trackSession.mockResolvedValueOnce(true).mockResolvedValueOnce(false)
+
+            mockKeyStore.generateKey.mockResolvedValue({
+                plaintextKey: Buffer.alloc(0),
+                encryptedKey: keyA,
+                sessionState: 'cleartext',
+            })
+            mockKeyStore.getKey.mockResolvedValue({
+                plaintextKey: Buffer.alloc(0),
+                encryptedKey: keyB,
+                sessionState: 'cleartext',
+            })
+
+            const message1 = createMessage(
+                'session1',
+                [{ type: EventType.FullSnapshot, timestamp: 1000, data: { source: 1 } }],
+                { partition: 1, offset: 0 }
+            )
+            const message2 = createMessage(
+                'session1',
+                [{ type: EventType.IncrementalSnapshot, timestamp: 2000, data: { source: 2 } }],
+                { partition: 1, offset: 1 }
+            )
+
+            const bytes1 = await recorder.record(message1)
+            const bytes2 = await recorder.record(message2)
+
+            expect(bytes1).toBeGreaterThan(0)
+            expect(bytes2).toBe(0)
+            expect(mockOffsetManager.trackOffset).toHaveBeenCalledWith({ partition: 1, offset: 1 })
+        })
+    })
+
     describe('new session rate limiting', () => {
         it('should call handleNewSession for new sessions', async () => {
             mockSessionTracker.trackSession.mockResolvedValue(true)
