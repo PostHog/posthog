@@ -28,6 +28,7 @@ import {
 } from '~/types'
 
 import type { productToursLogicType } from './productToursLogicType'
+import { getExplainerStepContent } from './stepUtils'
 
 export const BUTTON_ACTION_OPTIONS: { value: ProductTourButtonAction; label: string }[] = [
     { value: 'dismiss', label: 'Dismiss' },
@@ -196,6 +197,23 @@ function createDefaultBannerContent(): ProductTourContent {
     }
 }
 
+function createDefaultTourContent(): ProductTourContent {
+    return {
+        type: 'tour',
+        steps: [
+            {
+                id: uuid(),
+                type: 'modal',
+                content: getExplainerStepContent(),
+            },
+        ],
+        appearance: {
+            showOverlay: true,
+            dismissOnClickOutside: true,
+        },
+    }
+}
+
 export enum ProductToursTabs {
     Active = 'active',
     Archived = 'archived',
@@ -237,6 +255,7 @@ export const productToursLogic = kea<productToursLogicType>([
         setTab: (tab: ProductToursTabs) => ({ tab }),
         createAnnouncement: (name: string) => ({ name }),
         createBanner: (name: string) => ({ name }),
+        createTour: (name: string) => ({ name }),
     }),
     loaders(({ values }) => ({
         productTours: {
@@ -297,7 +316,7 @@ export const productToursLogic = kea<productToursLogicType>([
                 })
                 actions.reportProductTourCreated(announcement, 'app')
                 actions.loadProductTours()
-                router.actions.push(urls.productTour(announcement.id, 'edit=true&tab=steps'))
+                router.actions.push(urls.productTour(announcement.id, 'edit=true'))
             } catch {
                 lemonToast.error('Failed to create announcement')
             }
@@ -314,9 +333,26 @@ export const productToursLogic = kea<productToursLogicType>([
                 })
                 actions.reportProductTourCreated(banner, 'app')
                 actions.loadProductTours()
-                router.actions.push(urls.productTour(banner.id, 'edit=true&tab=steps'))
+                router.actions.push(urls.productTour(banner.id, 'edit=true'))
             } catch {
                 lemonToast.error('Failed to create banner')
+            }
+        },
+        createTour: async ({ name }) => {
+            try {
+                const tour = await api.productTours.create({
+                    name,
+                    content: createDefaultTourContent(),
+                })
+                void addProductIntent({
+                    product_type: ProductKey.PRODUCT_TOURS,
+                    intent_context: ProductIntentContext.PRODUCT_TOUR_CREATED,
+                })
+                actions.reportProductTourCreated(tour, 'app')
+                actions.loadProductTours()
+                router.actions.push(urls.productTour(tour.id, 'edit=true'))
+            } catch {
+                lemonToast.error('Failed to create tour')
             }
         },
         loadProductToursSuccess: () => {
