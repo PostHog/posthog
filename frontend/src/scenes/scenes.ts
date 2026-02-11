@@ -227,7 +227,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'Activity',
         defaultDocsPath: '/docs/data/events',
         description: 'Explore your events or see real-time events from your app or website.',
-        iconType: 'event',
+        iconType: 'activity',
     },
     [Scene.ExploreEvents]: {
         projectBased: true,
