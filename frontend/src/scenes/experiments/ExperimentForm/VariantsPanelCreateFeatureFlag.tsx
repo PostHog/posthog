@@ -81,7 +81,8 @@ export const VariantsPanelCreateFeatureFlag = ({
     const ensureExperienceContinuity =
         (experiment.parameters as { ensure_experience_continuity?: boolean })?.ensure_experience_continuity ?? false
 
-    const rolloutPercentage = experiment.parameters?.rollout_percentage ?? NEW_EXPERIMENT.parameters.rollout_percentage
+    const rolloutPercentage =
+        experiment.parameters?.rollout_percentage ?? NEW_EXPERIMENT.parameters.rollout_percentage ?? 100
 
     const updateRolloutPercentage = (value: number): void => {
         onChange({
