@@ -82,6 +82,16 @@ if (action == 'track') {
     }
     payload['groupId'] := inputs.groupId
     let traits := {}
+    if (inputs.include_all_properties) {
+        let groupSet := event.properties.$group_set
+        if (not empty(groupSet)) {
+            for (let key, value in groupSet) {
+                if (not key like '$%') {
+                    traits[key] := value
+                }
+            }
+        }
+    }
     for (let key, value in inputs.properties) {
         if (not empty(value)) {
             traits[key] := value
@@ -160,7 +170,7 @@ if (res.status >= 400) {
             "key": "include_all_properties",
             "type": "boolean",
             "label": "Include all properties",
-            "description": "If set, all event properties (for track) or person properties (for identify) will be included. Individual properties can be overridden below.",
+            "description": "If set, all event properties (for track), person properties (for identify), or group properties (for group) will be included. Individual properties can be overridden below.",
             "default": False,
             "secret": False,
             "required": True,
@@ -176,10 +186,7 @@ if (res.status >= 400) {
         },
     ],
     filters={
-        "events": [
-            {"id": "$identify", "name": "$identify", "type": "events", "order": 0},
-            {"id": "$pageview", "name": "$pageview", "type": "events", "order": 0},
-        ],
+        "events": [],
         "actions": [],
         "filter_test_accounts": True,
     },

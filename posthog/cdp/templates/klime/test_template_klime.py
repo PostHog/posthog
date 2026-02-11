@@ -125,6 +125,26 @@ class TestTemplateKlime(BaseHogFunctionTemplateTest):
         batch_event = self.get_mock_fetch_calls()[0][1]["body"]["batch"][0]
         assert batch_event["traits"] == {"email": "test@klime.com"}
 
+    def test_include_all_properties_group(self):
+        self.run_function(
+            inputs=create_inputs(action="group", groupId="org-456", include_all_properties=True),
+            globals={
+                "event": {
+                    "uuid": "uuid-1",
+                    "event": "$group_identify",
+                    "properties": {
+                        "$group_type": "account",
+                        "$group_key": "org-456",
+                        "$group_set": {"name": "Acme Inc", "plan": "enterprise", "$initial_os": "Mac OS X"},
+                    },
+                    "timestamp": "2024-01-01T00:00:00Z",
+                },
+            },
+        )
+
+        batch_event = self.get_mock_fetch_calls()[0][1]["body"]["batch"][0]
+        assert batch_event["traits"] == {"name": "Acme Inc", "plan": "enterprise"}
+
     def test_custom_property_mapping(self):
         self.run_function(
             inputs=create_inputs(properties={"plan": "enterprise", "source": "posthog"}),
