@@ -19,7 +19,13 @@ import {
 import { BaseMathType, LiveEvent } from '~/types'
 
 import { LiveMetricsSlidingWindow } from './LiveMetricsSlidingWindow'
-import { ChartDataPoint, DeviceBreakdownItem, PathItem, SlidingWindowBucket } from './LiveWebAnalyticsMetricsTypes'
+import {
+    BrowserBreakdownItem,
+    ChartDataPoint,
+    DeviceBreakdownItem,
+    PathItem,
+    SlidingWindowBucket,
+} from './LiveWebAnalyticsMetricsTypes'
 import type { liveWebAnalyticsMetricsLogicType } from './liveWebAnalyticsMetricsLogicType'
 
 const ERROR_TOAST_ID = 'live-pageviews-error'
@@ -66,6 +72,7 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                             const pathname = event.properties?.$pathname
                             const deviceType = event.properties?.$device_type
                             const deviceId = event.properties?.$device_id
+                            const browser = event.properties?.$browser
 
                             // For cookieless events, device_id isn't set before preprocessing
                             // so we create a device key from IP + user agent
@@ -78,7 +85,8 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
 
                             window.addDataPoint(eventTs, event.distinct_id, {
                                 pageviews: event.event === '$pageview' ? 1 : 0,
-                                device: deviceKey && deviceType ? { deviceId: deviceKey, deviceType } : undefined,
+                                device: deviceType ? { deviceId: deviceKey, deviceType } : undefined,
+                                browser: browser ? { deviceId: deviceKey, browserType: browser } : undefined,
                                 pathname: event.event === '$pageview' ? pathname : undefined,
                             })
                         }
@@ -110,17 +118,33 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
             (slidingWindow: LiveMetricsSlidingWindow): ChartDataPoint[] => {
                 const bucketMap = new Map(slidingWindow.getSortedBuckets())
                 const result: ChartDataPoint[] = []
+                const seenUsers = new Set<string>()
 
-                // Generate all minute buckets for the window
                 const currentBucketTs = Math.floor(Date.now() / 60000) * 60
                 for (let i = BUCKET_WINDOW_MINUTES - 1; i >= 0; i--) {
                     const ts = currentBucketTs - i * 60
                     const bucket = bucketMap.get(ts)
 
+                    let newUsers = 0
+                    let returningUsers = 0
+
+                    if (bucket) {
+                        for (const userId of bucket.uniqueUsers) {
+                            if (seenUsers.has(userId)) {
+                                returningUsers++
+                            } else {
+                                newUsers++
+                                seenUsers.add(userId)
+                            }
+                        }
+                    }
+
                     result.push({
                         minute: dayjs.unix(ts).format('HH:mm'),
                         timestamp: ts * 1000,
                         users: bucket?.uniqueUsers.size ?? 0,
+                        newUsers,
+                        returningUsers,
                         pageviews: bucket?.pageviews ?? 0,
                     })
                 }
@@ -131,6 +155,10 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
         deviceBreakdown: [
             (s) => [s.slidingWindow, s.windowVersion],
             (slidingWindow: LiveMetricsSlidingWindow): DeviceBreakdownItem[] => slidingWindow.getDeviceBreakdown(),
+        ],
+        browserBreakdown: [
+            (s) => [s.slidingWindow, s.windowVersion],
+            (slidingWindow: LiveMetricsSlidingWindow): BrowserBreakdownItem[] => slidingWindow.getBrowserBreakdown(6),
         ],
         topPaths: [
             (s) => [s.slidingWindow, s.windowVersion],
@@ -144,9 +172,9 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
             (s) => [s.slidingWindow, s.windowVersion],
             (slidingWindow: LiveMetricsSlidingWindow): number => slidingWindow.getTotalUniqueUsers(),
         ],
-        totalDevices: [
+        totalBrowsers: [
             (s) => [s.slidingWindow, s.windowVersion],
-            (slidingWindow: LiveMetricsSlidingWindow): number => slidingWindow.getTotalDeviceCount(),
+            (slidingWindow: LiveMetricsSlidingWindow): number => slidingWindow.getTotalBrowsers(),
         ],
     }),
     listeners(({ actions, values, cache }) => ({
@@ -179,12 +207,16 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                 cache.newerThan = handoff
 
                 actions.updateConnection()
-                const [usersPageviewsResponse, deviceResponse, pathsResponse] = await loadQueryData(dateFrom, handoff)
+                const [usersPageviewsResponse, deviceResponse, browserResponse, pathsResponse] = await loadQueryData(
+                    dateFrom,
+                    handoff
+                )
 
                 const bucketMap = new Map<number, SlidingWindowBucket>()
 
                 addUserDataToBuckets(usersPageviewsResponse, bucketMap)
-                addDeviceDataToBuckets(deviceResponse, bucketMap)
+                addBreakdownDataToBuckets(deviceResponse, bucketMap, (b) => b.devices)
+                addBreakdownDataToBuckets(browserResponse, bucketMap, (b) => b.browsers)
                 addPathDataToBuckets(pathsResponse, bucketMap)
 
                 actions.setInitialData([...bucketMap.entries()].map(([timestamp, bucket]) => ({ timestamp, bucket })))
@@ -213,9 +245,7 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
             }
 
             const url = new URL(`${host}/events`)
-
-            // Filter for only the columns we need
-            url.searchParams.append('columns', '$pathname,$device_type,$device_id,$ip,$raw_user_agent')
+            url.searchParams.append('columns', '$pathname,$device_type,$device_id,$browser,$ip,$raw_user_agent')
 
             cache.batch = [] as LiveEvent[]
             cache.lastBatchTime = performance.now()
@@ -300,7 +330,7 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
 const loadQueryData = async (
     dateFrom: Date,
     dateTo: Date
-): Promise<[HogQLQueryResponse, HogQLQueryResponse, TrendsQueryResponse]> => {
+): Promise<[HogQLQueryResponse, HogQLQueryResponse, HogQLQueryResponse, TrendsQueryResponse]> => {
     const usersPageviewsQuery: HogQLQuery = {
         kind: NodeKind.HogQLQuery,
         query: `SELECT
@@ -321,31 +351,51 @@ const loadQueryData = async (
         },
     }
 
-    const deviceQuery: HogQLQuery = {
+    const createBreakdownQuery = (property: string, alias: string): HogQLQuery => ({
         kind: NodeKind.HogQLQuery,
         query: `SELECT
-                    toStartOfMinute(timestamp) AS minute_bucket,
-                    ifNull(properties.$device_type, 'Unknown') AS device_type,
-                    arrayDistinct(groupArray(
-                        if(
-                            properties.$device_id IS NULL OR properties.$device_id = '$posthog_cookieless',
-                            concat('cookieless_transform|||', ifNull(properties.$ip, ''), '|||', ifNull(properties.$raw_user_agent, '')),
-                            properties.$device_id
-                        )
-                    )) AS device_ids
-                FROM events
-                WHERE
-                    timestamp >= toDateTime({dateFrom})
-                    AND timestamp <= toDateTime({dateTo})
-                GROUP BY minute_bucket, device_type
-                ORDER BY minute_bucket ASC`,
+                    minute_bucket,
+                    mapFromArrays(
+                        groupArray(${alias}),
+                        groupArray(device_ids)
+                    ) AS ids_by_type
+                FROM
+                (
+                    SELECT
+                        toStartOfMinute(timestamp) AS minute_bucket,
+                        ifNull(properties.${property}, 'Unknown') AS ${alias},
+                        arrayDistinct(groupArray(
+                            if(
+                                properties.$device_id IS NULL OR properties.$device_id = '$posthog_cookieless',
+                                concat(
+                                    'cookieless_transform|||',
+                                    ifNull(properties.$ip, ''),
+                                    '|||',
+                                    ifNull(properties.$raw_user_agent, '')
+                                ),
+                                properties.$device_id
+                            )
+                        )) AS device_ids
+                    FROM events
+                    WHERE
+                        timestamp >= toDateTime({dateFrom})
+                        AND timestamp <= toDateTime({dateTo})
+                    GROUP BY
+                        minute_bucket,
+                        ${alias}
+                )
+                GROUP BY
+                    minute_bucket
+                ORDER BY
+                    minute_bucket ASC`,
         values: {
             dateFrom: dateFrom.toISOString(),
             dateTo: dateTo.toISOString(),
-            cookielessPrefix: COOKIELESS_TRANSFORM_PREFIX,
-            cookielessSeparator: COOKIELESS_TRANSFORM_SEPARATOR,
         },
-    }
+    })
+
+    const deviceQuery = createBreakdownQuery('$device_type', 'device_type')
+    const browserQuery = createBreakdownQuery('$browser', 'browser_type')
 
     const pathsQuery: TrendsQuery = {
         kind: NodeKind.TrendsQuery,
@@ -363,7 +413,12 @@ const loadQueryData = async (
         },
     }
 
-    return await Promise.all([performQuery(usersPageviewsQuery), performQuery(deviceQuery), performQuery(pathsQuery)])
+    return await Promise.all([
+        performQuery(usersPageviewsQuery),
+        performQuery(deviceQuery),
+        performQuery(browserQuery),
+        performQuery(pathsQuery),
+    ])
 }
 
 const addUserDataToBuckets = (
@@ -389,21 +444,25 @@ const transformDeviceId = (deviceId: string): string => {
     return deviceId
 }
 
-const addDeviceDataToBuckets = (
-    deviceResponse: HogQLQueryResponse,
-    bucketMap: Map<number, SlidingWindowBucket>
+const addBreakdownDataToBuckets = (
+    response: HogQLQueryResponse,
+    bucketMap: Map<number, SlidingWindowBucket>,
+    getBucketMap: (bucket: SlidingWindowBucket) => Map<string, Set<string>>
 ): void => {
-    const results = deviceResponse.results as [string, string, string[]][]
+    const results = response.results as [string, Record<string, string[]>][]
 
-    for (const [timestampStr, deviceType, deviceIds] of results) {
+    for (const [timestampStr, idsByType] of results) {
         const timestamp = Date.parse(timestampStr)
         const bucket = getOrCreateBucket(bucketMap, timestamp)
 
-        const devices = bucket.devices.get(deviceType) ?? new Set<string>()
-        for (const id of deviceIds) {
-            devices.add(transformDeviceId(id))
+        const map = getBucketMap(bucket)
+        for (const [breakdownType, deviceIds] of Object.entries(idsByType)) {
+            const ids = map.get(breakdownType) ?? new Set<string>()
+            for (const id of deviceIds) {
+                ids.add(transformDeviceId(id))
+            }
+            map.set(breakdownType, ids)
         }
-        bucket.devices.set(deviceType, devices)
     }
 }
 
@@ -436,6 +495,7 @@ const createEmptyBucket = (): SlidingWindowBucket => {
     return {
         pageviews: 0,
         devices: new Map<string, Set<string>>(),
+        browsers: new Map<string, Set<string>>(),
         paths: new Map<string, number>(),
         uniqueUsers: new Set<string>(),
     }

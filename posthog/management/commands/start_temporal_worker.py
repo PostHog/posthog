@@ -74,6 +74,10 @@ from posthog.temporal.import_recording import (
     ACTIVITIES as IMPORT_RECORDING_ACTIVITIES,
     WORKFLOWS as IMPORT_RECORDING_WORKFLOWS,
 )
+from posthog.temporal.ingestion_acceptance_test import (
+    ACTIVITIES as INGESTION_ACCEPTANCE_TEST_ACTIVITIES,
+    WORKFLOWS as INGESTION_ACCEPTANCE_TEST_WORKFLOWS,
+)
 from posthog.temporal.llm_analytics import (
     ACTIVITIES as LLM_ANALYTICS_ACTIVITIES,
     EVAL_ACTIVITIES as LLM_ANALYTICS_EVAL_ACTIVITIES,
@@ -125,6 +129,10 @@ from products.batch_exports.backend.temporal import (
     ACTIVITIES as BATCH_EXPORTS_ACTIVITIES,
     WORKFLOWS as BATCH_EXPORTS_WORKFLOWS,
 )
+from products.signals.backend.temporal import (
+    ACTIVITIES as SIGNALS_ACTIVITIES,
+    WORKFLOWS as SIGNALS_WORKFLOWS,
+)
 from products.tasks.backend.temporal import (
     ACTIVITIES as TASKS_ACTIVITIES,
     WORKFLOWS as TASKS_WORKFLOWS,
@@ -169,7 +177,8 @@ _task_queue_specs = [
         + DLQ_REPLAY_WORKFLOWS
         + SYNC_PERSON_DISTINCT_IDS_WORKFLOWS
         + EXPERIMENTS_WORKFLOWS
-        + CLEANUP_PROPDEFS_WORKFLOWS,
+        + CLEANUP_PROPDEFS_WORKFLOWS
+        + INGESTION_ACCEPTANCE_TEST_WORKFLOWS,
         PROXY_SERVICE_ACTIVITIES
         + DELETE_PERSONS_ACTIVITIES
         + USAGE_REPORTS_ACTIVITIES
@@ -180,7 +189,8 @@ _task_queue_specs = [
         + DLQ_REPLAY_ACTIVITIES
         + SYNC_PERSON_DISTINCT_IDS_ACTIVITIES
         + EXPERIMENTS_ACTIVITIES
-        + CLEANUP_PROPDEFS_ACTIVITIES,
+        + CLEANUP_PROPDEFS_ACTIVITIES
+        + INGESTION_ACCEPTANCE_TEST_ACTIVITIES,
     ),
     (
         settings.DUCKLAKE_TASK_QUEUE,
@@ -214,8 +224,8 @@ _task_queue_specs = [
     ),
     (
         settings.VIDEO_EXPORT_TASK_QUEUE,
-        VIDEO_EXPORT_WORKFLOWS,
-        VIDEO_EXPORT_ACTIVITIES,
+        VIDEO_EXPORT_WORKFLOWS + SIGNALS_WORKFLOWS,
+        VIDEO_EXPORT_ACTIVITIES + SIGNALS_ACTIVITIES,
     ),
     (
         settings.SESSION_REPLAY_TASK_QUEUE,
@@ -242,6 +252,11 @@ _task_queue_specs = [
         settings.LLMA_EVALS_TASK_QUEUE,
         LLM_ANALYTICS_EVAL_WORKFLOWS,
         LLM_ANALYTICS_EVAL_ACTIVITIES,
+    ),
+    (
+        settings.LLMA_TASK_QUEUE,
+        LLM_ANALYTICS_WORKFLOWS,
+        LLM_ANALYTICS_ACTIVITIES,
     ),
 ]
 

@@ -2,11 +2,11 @@
     "name": "@posthog/products-logs",
     "scripts": {},
     "dependencies": {
-        "kea": "^3.1.7",
-        "kea-loaders": "^3.1.1",
-        "kea-router": "^3.4.1",
-        "kea-subscriptions": "^3.0.1",
-        "posthog-js": "1.335.3"
+        "kea": "catalog:",
+        "kea-loaders": "catalog:",
+        "kea-router": "catalog:",
+        "kea-subscriptions": "catalog:",
+        "posthog-js": "1.345.4"
     },
     "peerDependencies": {
         "@posthog/icons": "*",
@@ -17,7 +17,6 @@
         "@testing-library/user-event": "*",
         "@types/papaparse": "*",
         "@types/react": "*",
-        "@types/react-virtualized": "*",
         "ansi-colors": "*",
         "classnames": "*",
         "clsx": "*",
@@ -27,12 +26,12 @@
         "papaparse": "*",
         "prettier": "*",
         "react": "*",
-        "react-virtualized": "*",
+        "react-window": "*",
         "stylelint": "*",
         "typescript": "*",
         "use-debounce": "*"
     },
     "devDependencies": {
-        "kea-test-utils": "*"
+        "kea-test-utils": "catalog:"
     }
 }

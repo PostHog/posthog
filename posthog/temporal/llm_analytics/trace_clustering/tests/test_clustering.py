@@ -5,7 +5,26 @@ import pytest
 import numpy as np
 from parameterized import parameterized
 
-from posthog.temporal.llm_analytics.trace_clustering.clustering import (
+
+# Check if UMAP threading backend is available (required for UMAP tests)
+def _umap_threading_available() -> bool:
+    """Check if UMAP can run without threading errors."""
+    try:
+        import umap
+
+        # Try to create a small UMAP instance - this will fail if TBB is missing
+        reducer = umap.UMAP(n_components=2, n_neighbors=2, random_state=42)
+        reducer.fit_transform(np.random.randn(5, 10))
+        return True
+    except (ValueError, ImportError):
+        return False
+
+
+umap_available = _umap_threading_available()
+skip_without_umap = pytest.mark.skipif(not umap_available, reason="UMAP threading backend (TBB) not available")
+
+
+from posthog.temporal.llm_analytics.trace_clustering.clustering import (  # noqa: E402
     calculate_distances_to_cluster_means,
     calculate_trace_distances,
     compute_2d_coordinates,
@@ -92,6 +111,10 @@ class TestCalculateTraceDistances:
 class TestCompute2DCoordinates:
     @parameterized.expand([("umap",), ("pca",), ("tsne",)])
     def test_output_shape_is_2d(self, method):
+        # Skip UMAP test if threading backend isn't available
+        if method == "umap" and not umap_available:
+            pytest.skip("UMAP threading backend (TBB) not available")
+
         np.random.seed(42)
         embeddings = np.random.randn(20, 50)
         centroids = np.random.randn(3, 50)
@@ -136,6 +159,7 @@ class TestCompute2DCoordinates:
         assert centroid_coords.shape == (1, 2)
 
 
+@skip_without_umap
 class TestReduceDimensionsForClustering:
     def test_reduces_to_target_dimensions(self):
         np.random.seed(42)

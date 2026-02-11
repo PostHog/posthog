@@ -5,7 +5,7 @@ import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
 import { IconPlusSmall } from '@posthog/icons'
-import { LemonButton, LemonDropdown } from '@posthog/lemon-ui'
+import { LemonButton, LemonDropdown, Link } from '@posthog/lemon-ui'
 
 import { OperatorValueSelect } from 'lib/components/PropertyFilters/components/OperatorValueSelect'
 import { PropertyFilterInternalProps } from 'lib/components/PropertyFilters/types'
@@ -296,8 +296,20 @@ export function TaxonomicPropertyFilter({
                                     sideIcon={null} // The null sideIcon is here on purpose - it prevents the dropdown caret
                                     onClick={() => (dropdownOpen ? closeDropdown() : openDropdown())}
                                     size={size}
-                                    tooltipDocLink={addFilterDocLink}
                                     truncate={true}
+                                    tooltip={
+                                        <>
+                                            {filterContent ?? (addText || 'Add filter')}
+                                            {addFilterDocLink && (
+                                                <>
+                                                    <br />
+                                                    <Link to={addFilterDocLink} target="_blank">
+                                                        Read the docs
+                                                    </Link>
+                                                </>
+                                            )}
+                                        </>
+                                    }
                                 >
                                     {filterContent ?? (addText || 'Add filter')}
                                 </LemonButton>

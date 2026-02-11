@@ -1,7 +1,7 @@
 import json
 import base64
 import datetime as dt
-from typing import cast
+from typing import TYPE_CHECKING, cast
 from zoneinfo import ZoneInfo
 
 from posthog.schema import (
@@ -26,6 +26,9 @@ from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.filters.mixins.utils import cached_property
+
+if TYPE_CHECKING:
+    from posthog.models import User
 
 
 def _generate_resource_attribute_filters(
@@ -252,6 +255,14 @@ class LogsQueryRunnerMixin(QueryRunner):
                 )
             )
 
+        if self.query.resourceFingerprint:
+            exprs.append(
+                parse_expr(
+                    "resource_fingerprint = {resourceFingerprint}",
+                    placeholders={"resourceFingerprint": ast.Constant(value=str(self.query.resourceFingerprint))},
+                )
+            )
+
         if self.query.filterGroup:
             exprs.append(self.resource_filter(existing_filters=exprs))
 
@@ -362,6 +373,15 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunnerMi
     cached_response: CachedLogsQueryResponse
     paginator: HogQLHasMorePaginator
 
+    def validate_query_runner_access(self, user: "User") -> bool:
+        # LogsQuery is registered in get_query_runner solely for server-side CSV export
+        # (via ExportedAsset + Celery, which runs without a user context and skips this check).
+        # Block all user-initiated queries via the generic /api/projects/:id/query/ endpoint
+        # until the LogsQuery schema is stable and ready to be a public API.
+        from posthog.rbac.user_access_control import UserAccessControlError
+
+        raise UserAccessControlError("logs", "viewer")
+
     def _calculate(self) -> LogsQueryResponse:
         response = self.paginator.execute_hogql_query(
             query_type="LogsQuery",
@@ -389,9 +409,10 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunnerMi
                     "severity_number": result[8],
                     "level": result[9],
                     "resource_attributes": result[10],
-                    "instrumentation_scope": result[11],
-                    "event_name": result[12],
-                    "live_logs_checkpoint": result[13],
+                    "resource_fingerprint": str(result[11]),
+                    "instrumentation_scope": result[12],
+                    "event_name": result[13],
+                    "live_logs_checkpoint": result[14],
                 }
             )
 
@@ -410,8 +431,8 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunnerMi
                 """
             SELECT
                 uuid,
-                hex(trace_id),
-                hex(span_id),
+                hex(tryBase64Decode(trace_id)),
+                hex(tryBase64Decode(span_id)),
                 body,
                 attributes,
                 timestamp,
@@ -420,6 +441,7 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunnerMi
                 severity_number,
                 severity_text as level,
                 resource_attributes,
+                resource_fingerprint,
                 instrumentation_scope,
                 event_name,
                 (select min(max_observed_timestamp) from logs_kafka_metrics) as live_logs_checkpoint

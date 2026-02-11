@@ -1,6 +1,8 @@
 syntax = "proto3";
 package personhog.types.v1;
 
+import "personhog/types/v1/common.proto";
+
 // CohortMembership indicates whether a person belongs to a cohort
 message CohortMembership {
   int64 cohort_id = 1;
@@ -10,6 +12,7 @@ message CohortMembership {
 message CheckCohortMembershipRequest {
   int64 person_id = 1;
   repeated int64 cohort_ids = 2;
+  ReadOptions read_options = 3;
 }
 
 message CohortMembershipResponse {

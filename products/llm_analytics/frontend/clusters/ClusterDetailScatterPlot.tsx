@@ -12,11 +12,12 @@ interface ScatterPoint {
     x: number
     y: number
     traceId?: string
+    generationId?: string
     timestamp?: string
 }
 
 export function ClusterDetailScatterPlot(): JSX.Element {
-    const { cluster, traceSummaries, scatterPlotDatasets } = useValues(clusterDetailLogic)
+    const { cluster, traceSummaries, scatterPlotDatasets, clusteringLevel } = useValues(clusterDetailLogic)
 
     const handleClick = (
         _event: MouseEvent,
@@ -38,6 +39,9 @@ export function ClusterDetailScatterPlot(): JSX.Element {
             router.actions.push(
                 urls.llmAnalyticsTrace(point.traceId, {
                     tab: 'summary',
+                    // For generation-level, highlight the specific generation
+                    ...(clusteringLevel === 'generation' && point.generationId ? { event: point.generationId } : {}),
+                    // timestamp is the trace's first_timestamp for both levels
                     ...(point.timestamp ? { timestamp: point.timestamp } : {}),
                 })
             )
@@ -104,12 +108,20 @@ export function ClusterDetailScatterPlot(): JSX.Element {
                                     }
 
                                     const point = context.raw as ScatterPoint
-                                    if (point.traceId) {
-                                        const summary = traceSummaries[point.traceId]
+                                    // For generation-level, summaries are keyed by generation_id
+                                    // For trace-level, summaries are keyed by trace_id
+                                    const summaryKey =
+                                        clusteringLevel === 'generation' ? point.generationId : point.traceId
+                                    if (summaryKey) {
+                                        const summary = traceSummaries[summaryKey]
                                         if (summary?.title) {
                                             return summary.title
                                         }
-                                        return `Trace ${point.traceId.slice(0, 8)}...`
+                                    }
+                                    if (point.traceId) {
+                                        return clusteringLevel === 'generation'
+                                            ? `Generation ${(point.generationId || point.traceId).slice(0, 8)}...`
+                                            : `Trace ${point.traceId.slice(0, 8)}...`
                                     }
                                     return undefined
                                 },
@@ -120,7 +132,9 @@ export function ClusterDetailScatterPlot(): JSX.Element {
                                     }
                                     const point = context[0]?.raw as ScatterPoint
                                     if (point?.traceId) {
-                                        return 'click to view trace'
+                                        return clusteringLevel === 'generation'
+                                            ? 'click to view generation'
+                                            : 'click to view trace'
                                     }
                                     return ''
                                 },

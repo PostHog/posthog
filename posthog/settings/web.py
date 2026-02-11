@@ -55,6 +55,7 @@ PRODUCTS_APPS = [
     "products.product_tours.backend.apps.ProductToursConfig",
     "products.workflows.backend.apps.WorkflowsConfig",
     "products.posthog_ai.backend.apps.PosthogAiConfig",
+    "products.signals.backend.apps.SignalsConfig",
 ]
 
 INSTALLED_APPS = [

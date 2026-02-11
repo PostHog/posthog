@@ -1,7 +1,8 @@
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
 
-import { IconComment } from '@posthog/icons'
-import { LemonDivider, Link } from '@posthog/lemon-ui'
+import { IconComment, IconGitBranch } from '@posthog/icons'
+import { LemonButton, LemonDivider, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { IconAreaChart, IconGridView, IconLink, IconListView } from 'lib/lemon-ui/icons'
@@ -15,6 +16,8 @@ import { SURVEY_TYPE_LABEL_MAP, SurveyQuestionLabel } from 'scenes/surveys/const
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
 
 import { SurveyQuestionType, SurveySchedule as SurveyScheduleEnum, SurveyType } from '~/types'
+
+import { SurveyBranchingFlowModal } from './branching-flow/SurveyBranchingFlowModal'
 
 function SurveySchedule(): JSX.Element {
     const { survey } = useValues(surveyLogic)
@@ -54,12 +57,18 @@ const QuestionIconMap = {
 }
 
 export function SurveyOverview({ onTabChange }: { onTabChange?: (tab: string) => void }): JSX.Element {
-    const { survey, selectedPageIndex, targetingFlagFilters } = useValues(surveyLogic)
+    const {
+        survey,
+        selectedPageIndex,
+        targetingFlagFilters,
+        surveyUsesLimit,
+        surveyUsesAdaptiveLimit,
+        hasBranchingLogic,
+    } = useValues(surveyLogic)
     const { setSelectedPageIndex } = useActions(surveyLogic)
+    const [showFlowModal, setShowFlowModal] = useState(false)
 
     const isExternalSurvey = survey.type === SurveyType.ExternalSurvey
-
-    const { surveyUsesLimit, surveyUsesAdaptiveLimit } = useValues(surveyLogic)
 
     return (
         <div className="flex flex-col gap-8">
@@ -95,19 +104,36 @@ export function SurveyOverview({ onTabChange }: { onTabChange?: (tab: string) =>
                         </div>
                     </SurveyOption>
                     <SurveyOption label={pluralize(survey.questions.length, 'Question', 'Questions', false)}>
-                        {survey.questions.map((q, idx) => {
-                            return (
-                                <div key={q.id ?? idx} className="flex flex-col lg:gap-4 lg:flex-row justify-between">
-                                    <span className="flex-1 truncate">
-                                        {idx + 1}. {q.question}
-                                    </span>
-                                    <span className="flex items-center gap-1 text-xs text-muted">
-                                        {QuestionIconMap[q.type]}
-                                        {SurveyQuestionLabel[q.type]}
-                                    </span>
+                        <div className="flex flex-col gap-2">
+                            {survey.questions.map((q, idx) => {
+                                return (
+                                    <div
+                                        key={q.id ?? idx}
+                                        className="flex flex-col lg:gap-4 lg:flex-row justify-between"
+                                    >
+                                        <span className="flex-1 truncate">
+                                            {idx + 1}. {q.question}
+                                        </span>
+                                        <span className="flex items-center gap-1 text-xs text-muted">
+                                            {QuestionIconMap[q.type]}
+                                            {SurveyQuestionLabel[q.type]}
+                                        </span>
+                                    </div>
+                                )
+                            })}
+                            {hasBranchingLogic && (
+                                <div>
+                                    <LemonButton
+                                        type="secondary"
+                                        size="small"
+                                        icon={<IconGitBranch />}
+                                        onClick={() => setShowFlowModal(true)}
+                                    >
+                                        View branching flow
+                                    </LemonButton>
                                 </div>
-                            )
-                        })}
+                            )}
+                        </div>
                     </SurveyOption>
                     {(survey.start_date || survey.end_date) && (
                         <div className="flex gap-16">
@@ -173,6 +199,8 @@ export function SurveyOverview({ onTabChange }: { onTabChange?: (tab: string) =>
                     </div>
                 )}
             </div>
+
+            <SurveyBranchingFlowModal survey={survey} isOpen={showFlowModal} onClose={() => setShowFlowModal(false)} />
         </div>
     )
 }

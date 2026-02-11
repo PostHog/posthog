@@ -1,5 +1,6 @@
 from typing import TYPE_CHECKING
 
+from django.contrib.postgres.fields import ArrayField
 from django.db import models
 
 import structlog
@@ -38,6 +39,7 @@ class HogFlowTemplate(UUIDTModel):
     name = models.CharField(max_length=400)
     description = models.TextField(blank=True, default="")
     image_url = models.CharField(max_length=8201, null=True, blank=True)
+    tags = ArrayField(models.CharField(max_length=255), blank=True, default=list)
     scope = models.CharField(max_length=24, choices=Scope.choices)
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
 

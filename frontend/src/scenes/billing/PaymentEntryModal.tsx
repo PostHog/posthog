@@ -45,8 +45,8 @@ export const PaymentForm = (): JSX.Element => {
         <div>
             <PaymentElement />
             <p className="text-xs text-secondary mt-0.5">
-                Your card will not be charged but we place a $0.50 hold on it to verify your card that will be released
-                in 7 days.
+                A temporary $0.50 authorization hold will be placed on your card to verify it. This hold will be
+                automatically released within 7 days and you will not be charged.
             </p>
             {stripeError && <LemonBanner type="error">{stripeError}</LemonBanner>}
             <div className="flex justify-end deprecated-space-x-2 mt-2">

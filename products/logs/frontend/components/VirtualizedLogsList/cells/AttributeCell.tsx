@@ -53,6 +53,7 @@ export const AttributeCell = memo(function AttributeCell({
                             label={value}
                             variant={ViewRecordingButtonVariant.Link}
                             className="font-mono text-xs whitespace-nowrap pr-24"
+                            checkRecordingExists
                         />
                     ) : (
                         <span className="font-mono text-xs text-muted whitespace-nowrap pr-24" title={value}>

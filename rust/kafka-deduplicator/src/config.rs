@@ -5,10 +5,28 @@ use bytesize::ByteSize;
 use common_continuous_profiling::ContinuousProfilingConfig;
 use envconfig::Envconfig;
 
+/// Pipeline type for the deduplicator service.
+///
+/// Each pipeline type handles a different event format:
+/// - `IngestionEvents`: Events from capture (CapturedEvent/RawEvent format)
+/// - `ClickHouseEvents`: Events from ingestion pipeline (ClickHouseEvent format)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, strum_macros::EnumString)]
+#[strum(serialize_all = "snake_case")]
+pub enum PipelineType {
+    #[default]
+    IngestionEvents,
+    ClickHouseEvents,
+}
+
 #[derive(Envconfig, Clone, Debug)]
 pub struct Config {
     #[envconfig(nested = true)]
     pub continuous_profiling: ContinuousProfilingConfig,
+
+    /// Pipeline type determines the event format and processing logic.
+    /// Valid values: "ingestion_events" (default), "clickhouse_events"
+    #[envconfig(default = "ingestion_events")]
+    pub pipeline_type: PipelineType,
 
     // Kafka configuration
     #[envconfig(default = "localhost:9092")]
@@ -25,6 +43,17 @@ pub struct Config {
 
     #[envconfig(default = "30000")] // 30 seconds
     pub kafka_metadata_max_age_ms: u32,
+
+    // Session timeout: how long broker waits for heartbeats before declaring consumer dead.
+    // With static membership (group.instance.id), broker holds partition assignments for this
+    // duration after a consumer disappears. Should be longer than typical pod restart time.
+    #[envconfig(default = "60000")] // 60 seconds - covers slow pod restarts
+    pub kafka_session_timeout_ms: u32,
+
+    // Heartbeat interval: how often consumer sends heartbeats to broker.
+    // With 60s session timeout and 5s heartbeat, 12 heartbeats can miss before timeout.
+    #[envconfig(default = "5000")] // 5 seconds
+    pub kafka_heartbeat_interval_ms: u32,
 
     // supplied by k8s deploy env, used as part of kafka
     // consumer client ID for sticky partition mappings
@@ -80,6 +109,10 @@ pub struct Config {
     #[envconfig(default = "900")]
     // 15 minutes default - minimum staleness (no recent WAL activity) before orphan directories can be deleted
     pub orphan_cleanup_min_staleness_secs: u64,
+
+    #[envconfig(default = "16")]
+    // Max parallel directory deletions during rebalance cleanup (bounded scatter-gather)
+    pub rebalance_cleanup_parallelism: usize,
 
     // Consumer processing configuration
     #[envconfig(default = "100")]
@@ -161,6 +194,11 @@ pub struct Config {
     #[envconfig(default = "20")] // 20 seconds
     pub s3_attempt_timeout_secs: u64,
 
+    /// Maximum number of retries for S3 operations before giving up.
+    /// Works in conjunction with s3_operation_timeout which provides the total retry budget.
+    #[envconfig(default = "3")]
+    pub s3_max_retries: usize,
+
     /// S3 endpoint URL (for non-AWS S3-compatible stores like MinIO)
     pub s3_endpoint: Option<String>,
 
@@ -220,6 +258,24 @@ pub struct Config {
     // will search for valid checkpoint attempts in a DR recovery scenario
     #[envconfig(default = "24")]
     pub checkpoint_import_window_hours: u32,
+
+    // Maximum concurrent S3 file downloads during checkpoint import
+    // Limits memory usage by bounding the number of in-flight HTTP connections
+    // Critical during rebalance when many partitions are assigned simultaneously
+    // Higher values speed up rebalance; streaming bounds memory per download to ~8KB
+    #[envconfig(default = "50")]
+    pub max_concurrent_checkpoint_file_downloads: usize,
+
+    // Maximum concurrent S3 file uploads during checkpoint export
+    // Less critical than downloads since uploads are bounded by max_concurrent_checkpoints
+    #[envconfig(default = "25")]
+    pub max_concurrent_checkpoint_file_uploads: usize,
+
+    // Maximum time allowed for a complete checkpoint import for a single partition (seconds).
+    // This includes listing checkpoints, downloading metadata, and downloading all files.
+    // Should be less than kafka max.poll.interval.ms to prevent consumer group kicks.
+    #[envconfig(default = "240")]
+    pub checkpoint_partition_import_timeout_secs: u64,
 
     //// End checkpoint configuration ////
     #[envconfig(default = "true")]
@@ -403,6 +459,11 @@ impl Config {
     /// Get S3 per-attempt timeout as Duration
     pub fn s3_attempt_timeout(&self) -> Duration {
         Duration::from_secs(self.s3_attempt_timeout_secs)
+    }
+
+    /// Get checkpoint partition import timeout as Duration
+    pub fn checkpoint_partition_import_timeout(&self) -> Duration {
+        Duration::from_secs(self.checkpoint_partition_import_timeout_secs)
     }
 
     /// Build Kafka producer configuration

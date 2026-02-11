@@ -187,7 +187,7 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                     onPinnedChange={onPinnedChange}
                     pinnedRecordings={pinnedRecordings ?? []}
                     updateSearchParams={true}
-                    type="collection"
+                    type={playlist.type === 'filters' ? 'filters' : 'collection'}
                     isSynthetic={playlist.is_synthetic}
                     description={playlist.description}
                 />

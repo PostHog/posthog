@@ -1,5 +1,6 @@
 import { pickBy } from 'lodash'
 import { DateTime } from 'luxon'
+import { AsyncLocalStorage } from 'node:async_hooks'
 import { Counter, Histogram } from 'prom-client'
 
 import { ExecResult, convertHogToJS } from '@posthog/hogvm'
@@ -43,7 +44,7 @@ export type CdpFetchConfig = Pick<Hub, 'CDP_FETCH_RETRIES' | 'CDP_FETCH_BACKOFF_
 export type HogExecutorServiceHub = CdpFetchConfig &
     HogInputsServiceHub &
     EmailServiceHub &
-    Pick<Hub, 'CDP_WATCHER_HOG_COST_TIMING_UPPER_MS' | 'CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN'>
+    Pick<Hub, 'CDP_WATCHER_HOG_COST_TIMING_UPPER_MS' | 'CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN' | 'teamManager'>
 
 const cdpHttpRequests = new Counter({
     name: 'cdp_http_requests',
@@ -57,6 +58,8 @@ const cdpHttpRequestTiming = new Histogram({
     buckets: [0, 10, 20, 50, 100, 200, 500, 1000, 2000, 3000, 5000, 10000],
 })
 
+export const shadowFetchContext = new AsyncLocalStorage<boolean>()
+
 export async function cdpTrackedFetch({
     url,
     fetchParams,
@@ -66,6 +69,20 @@ export async function cdpTrackedFetch({
     fetchParams: FetchOptions
     templateId: string
 }): Promise<{ fetchError: Error | null; fetchResponse: FetchResponse | null; fetchDuration: number }> {
+    if (shadowFetchContext.getStore()) {
+        return {
+            fetchError: null,
+            fetchResponse: {
+                status: 200,
+                headers: {},
+                text: () => Promise.resolve(''),
+                json: () => Promise.resolve(null),
+                dump: () => Promise.resolve(),
+            },
+            fetchDuration: 0,
+        }
+    }
+
     const start = performance.now()
     const [fetchError, fetchResponse] = await tryCatch(async () => await fetch(url, fetchParams))
     const fetchDuration = performance.now() - start
@@ -130,7 +147,7 @@ const hogFunctionStateMemory = new Histogram({
 
 export type HogExecutorExecuteOptions = {
     functions?: Record<string, (args: unknown[]) => unknown>
-    asyncFunctionsNames?: ('fetch' | 'sendEmail')[]
+    asyncFunctionsNames?: ('fetch' | 'sendEmail' | 'postHogGetTicket' | 'postHogUpdateTicket')[]
 }
 
 export type HogExecutorExecuteAsyncOptions = HogExecutorExecuteOptions & {
@@ -336,7 +353,7 @@ export class HogExecutorService {
         return result
     }
 
-    @instrumented('hog-executor.execute')
+    @instrumented({ key: 'hog-executor.execute', sendException: false })
     async execute(
         invocation: CyclotronJobInvocationHogFunction,
         options: HogExecutorExecuteOptions = {},
@@ -385,7 +402,12 @@ export class HogExecutorService {
             try {
                 let hogLogs = 0
 
-                const asyncFunctionsNames = options.asyncFunctionsNames ?? ['fetch', 'sendEmail']
+                const asyncFunctionsNames = options.asyncFunctionsNames ?? [
+                    'fetch',
+                    'sendEmail',
+                    'postHogGetTicket',
+                    'postHogUpdateTicket',
+                ]
                 const asyncFunctions = asyncFunctionsNames.reduce(
                     (acc, fn) => {
                         acc[fn] = async () => Promise.resolve()
@@ -451,10 +473,10 @@ export class HogExecutorService {
                                 const givenCount = globals.event.properties?.$hog_function_execution_count
                                 const executionCount = typeof givenCount === 'number' ? givenCount : 0
 
-                                if (executionCount > 0) {
+                                if (executionCount > 9) {
                                     addLog(
                                         'warn',
-                                        `postHogCapture was called from an event that already executed this function. To prevent infinite loops, the event was not captured.`
+                                        `postHogCapture was called from an event that already executed this function 10 times previously. To prevent unbounded infinite loops, the event was not captured.`
                                     )
                                     return
                                 }
@@ -546,6 +568,56 @@ export class HogExecutorService {
                             })
                             break
                         }
+
+                        case 'postHogGetTicket': {
+                            const [opts] = args as [Record<string, any> | undefined]
+                            const ticketId = opts?.ticket_id
+
+                            if (!ticketId || typeof ticketId !== 'string') {
+                                throw new Error("[HogFunction] - postHogGetTicket call missing 'ticket_id' property")
+                            }
+
+                            const team = await this.hub.teamManager.getTeam(invocation.teamId)
+                            if (!team) {
+                                throw new Error(`Team ${invocation.teamId} not found`)
+                            }
+
+                            result.invocation.queueParameters = CyclotronInvocationQueueParametersFetchSchema.parse({
+                                type: 'fetch',
+                                url: `${this.hub.SITE_URL}/api/conversations/external/ticket/${ticketId}`,
+                                method: 'GET',
+                                headers: { Authorization: `Bearer ${team.api_token}` },
+                            })
+                            break
+                        }
+
+                        case 'postHogUpdateTicket': {
+                            const [opts] = args as [Record<string, any> | undefined]
+                            const ticketId = opts?.ticket_id
+                            const updates = opts?.updates || {}
+
+                            if (!ticketId || typeof ticketId !== 'string') {
+                                throw new Error("[HogFunction] - postHogUpdateTicket call missing 'ticket_id' property")
+                            }
+
+                            const updateTeam = await this.hub.teamManager.getTeam(invocation.teamId)
+                            if (!updateTeam) {
+                                throw new Error(`Team ${invocation.teamId} not found`)
+                            }
+
+                            result.invocation.queueParameters = CyclotronInvocationQueueParametersFetchSchema.parse({
+                                type: 'fetch',
+                                url: `${this.hub.SITE_URL}/api/conversations/external/ticket/${ticketId}`,
+                                method: 'PATCH',
+                                body: JSON.stringify(updates),
+                                headers: {
+                                    'Content-Type': 'application/json',
+                                    Authorization: `Bearer ${updateTeam.api_token}`,
+                                },
+                            })
+                            break
+                        }
+
                         default:
                             throw new Error(`Unknown async function '${execRes.asyncFunctionName}'`)
                     }

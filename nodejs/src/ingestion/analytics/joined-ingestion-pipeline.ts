@@ -14,7 +14,7 @@ import { BatchPipelineBuilder } from '../pipelines/builders/batch-pipeline-build
 import { OkResultWithContext } from '../pipelines/filter-ok-batch-pipeline'
 import { PipelineConfig } from '../pipelines/result-handling-pipeline'
 import { ok } from '../pipelines/results'
-import { MemoryRateLimiter } from '../utils/overflow-detector'
+import { OverflowRedirectService } from '../utils/overflow-redirect/overflow-redirect-service'
 import { PerEventProcessingConfig, PerEventProcessingInput } from './per-event-processing-subpipeline'
 import { createPerEventProcessingSubpipeline } from './per-event-processing-subpipeline'
 import { PostTeamPreprocessingSubpipelineInput } from './post-team-preprocessing-subpipeline'
@@ -27,11 +27,12 @@ export interface JoinedIngestionPipelineConfig {
     personsStore: PersonsStore
     hogTransformer: HogTransformerService
     eventIngestionRestrictionManager: EventIngestionRestrictionManager
-    overflowRateLimiter: MemoryRateLimiter
     overflowEnabled: boolean
     overflowTopic: string
     dlqTopic: string
     promiseScheduler: PromiseScheduler
+    overflowRedirectService?: OverflowRedirectService
+    overflowLaneTTLRefreshService?: OverflowRedirectService
 
     // Per-distinct-id config
     perDistinctIdOptions: EventPipelineRunnerOptions & {
@@ -88,11 +89,12 @@ export function createJoinedIngestionPipeline<
         personsStore,
         hogTransformer,
         eventIngestionRestrictionManager,
-        overflowRateLimiter,
         overflowEnabled,
         overflowTopic,
         dlqTopic,
         promiseScheduler,
+        overflowRedirectService,
+        overflowLaneTTLRefreshService,
         perDistinctIdOptions,
         teamManager,
         groupTypeManager,
@@ -105,11 +107,12 @@ export function createJoinedIngestionPipeline<
         personsStore,
         hogTransformer,
         eventIngestionRestrictionManager,
-        overflowRateLimiter,
         overflowEnabled,
         overflowTopic,
         dlqTopic,
         promiseScheduler,
+        overflowRedirectService,
+        overflowLaneTTLRefreshService,
     }
 
     const pipelineConfig: PipelineConfig = {

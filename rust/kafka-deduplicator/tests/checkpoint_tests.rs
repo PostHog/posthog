@@ -5,23 +5,27 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use chrono::Utc;
+use tokio_util::sync::CancellationToken;
 
 use kafka_deduplicator::checkpoint::{
-    CheckpointConfig, CheckpointExporter, CheckpointMetadata, CheckpointPlan, CheckpointUploader,
-    CheckpointWorker,
+    hash_prefix_for_partition, CheckpointConfig, CheckpointExporter, CheckpointMetadata,
+    CheckpointPlan, CheckpointUploader, CheckpointWorker,
 };
 use kafka_deduplicator::kafka::types::Partition;
-use kafka_deduplicator::store::{DeduplicationStore, DeduplicationStoreConfig, TimestampMetadata};
-
-use common_types::RawEvent;
+use kafka_deduplicator::store::TimestampMetadata;
+use kafka_deduplicator::test_utils::test_helpers::{create_test_dedup_store, TestRawEventBuilder};
 
 use anyhow::{Context, Result};
 use tempfile::TempDir;
 use tracing::info;
 
-/// Mock uploader for testing that stores files in local filesystem
+/// Mock uploader for testing that stores files in local filesystem.
+/// Holds ownership of TempDir via Arc to ensure the directory persists for the uploader's lifetime
+/// and survives cloning (multiple references share the same temp directory).
 #[derive(Debug, Clone)]
 pub struct MockUploader {
+    /// TempDir that owns the upload directory (shared across clones, dropped when all refs gone)
+    _temp_dir: Arc<TempDir>,
     /// Local directory where uploaded files are stored
     upload_dir: PathBuf,
     /// Whether the uploader should simulate being available
@@ -31,16 +35,20 @@ pub struct MockUploader {
 impl MockUploader {
     pub fn new() -> Result<Self> {
         let temp_dir = TempDir::new()?;
+        let upload_dir = temp_dir.path().to_path_buf();
         Ok(Self {
-            upload_dir: temp_dir.path().to_path_buf(),
+            _temp_dir: Arc::new(temp_dir),
+            upload_dir,
             available: true,
         })
     }
 
     pub fn new_unavailable() -> Result<Self> {
         let temp_dir = TempDir::new()?;
+        let upload_dir = temp_dir.path().to_path_buf();
         Ok(Self {
-            upload_dir: temp_dir.path().to_path_buf(),
+            _temp_dir: Arc::new(temp_dir),
+            upload_dir,
             available: false,
         })
     }
@@ -93,19 +101,6 @@ impl MockUploader {
         let files = self.get_stored_files().await?;
         Ok(files.len())
     }
-
-    async fn upload_files(&self, files_to_upload: Vec<(PathBuf, String)>) -> Result<Vec<String>> {
-        let mut uploaded_keys = Vec::new();
-
-        for (local_file_path, remote_file_path_str) in files_to_upload {
-            let remote_file_path = self.upload_dir.join(&remote_file_path_str);
-            // Copy the file to the upload directory
-            tokio::fs::copy(&local_file_path, &remote_file_path).await?;
-            uploaded_keys.push(remote_file_path_str);
-        }
-
-        Ok(uploaded_keys)
-    }
 }
 
 impl Default for MockUploader {
@@ -116,7 +111,19 @@ impl Default for MockUploader {
 
 #[async_trait]
 impl CheckpointUploader for MockUploader {
-    async fn upload_checkpoint_with_plan(&self, plan: &CheckpointPlan) -> Result<Vec<String>> {
+    async fn upload_checkpoint_with_plan_cancellable(
+        &self,
+        plan: &CheckpointPlan,
+        cancel_token: Option<&CancellationToken>,
+    ) -> Result<Vec<String>> {
+        // Check cancellation before starting (matching real S3Uploader behavior)
+        if let Some(token) = cancel_token {
+            if token.is_cancelled() {
+                info!("Mock uploader: cancelled before starting");
+                return Err(anyhow::anyhow!("Upload cancelled before starting"));
+            }
+        }
+
         info!(
             "Mock uploading checkpoint with plan: {} files to upload to remote path: {}",
             plan.files_to_upload.len(),
@@ -134,7 +141,30 @@ impl CheckpointUploader for MockUploader {
             ));
         }
 
-        let mut uploaded_keys = self.upload_files(files_to_upload).await?;
+        // Check cancellation before each file upload (simulating real behavior)
+        let mut uploaded_keys = Vec::new();
+        for (local_file_path, remote_file_path_str) in files_to_upload {
+            if let Some(token) = cancel_token {
+                if token.is_cancelled() {
+                    info!("Mock uploader: cancelled during file upload");
+                    return Err(anyhow::anyhow!("Upload cancelled during file upload"));
+                }
+            }
+            let remote_file_path = self.upload_dir.join(&remote_file_path_str);
+            if let Some(parent) = remote_file_path.parent() {
+                tokio::fs::create_dir_all(parent).await?;
+            }
+            tokio::fs::copy(&local_file_path, &remote_file_path).await?;
+            uploaded_keys.push(remote_file_path_str);
+        }
+
+        // Check cancellation before metadata upload (final gate, matching S3Uploader)
+        if let Some(token) = cancel_token {
+            if token.is_cancelled() {
+                info!("Mock uploader: cancelled before metadata upload");
+                return Err(anyhow::anyhow!("Upload cancelled before metadata upload"));
+            }
+        }
 
         let metadata_key = self.upload_dir.join(plan.info.get_metadata_key());
         let metadata_json = &plan
@@ -154,33 +184,6 @@ impl CheckpointUploader for MockUploader {
     }
 }
 
-fn create_test_dedup_store(tmp_dir: &TempDir, topic: &str, partition: i32) -> DeduplicationStore {
-    let config = DeduplicationStoreConfig {
-        path: tmp_dir.path().to_path_buf(),
-        max_capacity: 1_000_000,
-    };
-
-    DeduplicationStore::new(config, topic.to_string(), partition).unwrap()
-}
-
-fn create_test_raw_event(distinct_id: &str, token: &str, event_name: &str) -> RawEvent {
-    RawEvent {
-        uuid: None,
-        event: event_name.to_string(),
-        distinct_id: Some(serde_json::Value::String(distinct_id.to_string())),
-        token: Some(token.to_string()),
-        properties: std::collections::HashMap::new(),
-        timestamp: Some(
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_secs()
-                .to_string(),
-        ),
-        ..Default::default()
-    }
-}
-
 #[tokio::test]
 async fn test_checkpoint_exporter_creation() {
     let uploader = MockUploader::new().unwrap();
@@ -193,12 +196,22 @@ async fn test_unavailable_uploader() {
     let tmp_store_dir = TempDir::new().unwrap();
     let test_topic = "test_unavailable_uploader";
     let test_partition = 0;
-    let store = create_test_dedup_store(&tmp_store_dir, test_topic, test_partition);
+    let store = create_test_dedup_store(tmp_store_dir.path(), test_topic, test_partition);
 
     // Add some test data
     let events = vec![
-        create_test_raw_event("user1", "token1", "event1"),
-        create_test_raw_event("user2", "token1", "event2"),
+        TestRawEventBuilder::new()
+            .distinct_id("user1")
+            .token("token1")
+            .event("event1")
+            .current_timestamp()
+            .build(),
+        TestRawEventBuilder::new()
+            .distinct_id("user2")
+            .token("token1")
+            .event("event2")
+            .current_timestamp()
+            .build(),
     ];
     for event in &events {
         let key = event.into();
@@ -252,12 +265,22 @@ async fn test_unpopulated_exporter() {
     let tmp_store_dir = TempDir::new().unwrap();
     let test_topic = "test_unpopulated_exporter";
     let test_partition = 0;
-    let store = create_test_dedup_store(&tmp_store_dir, test_topic, test_partition);
+    let store = create_test_dedup_store(tmp_store_dir.path(), test_topic, test_partition);
 
     // Add some test data
     let events = vec![
-        create_test_raw_event("user1", "token1", "event1"),
-        create_test_raw_event("user2", "token1", "event2"),
+        TestRawEventBuilder::new()
+            .distinct_id("user1")
+            .token("token1")
+            .event("event1")
+            .current_timestamp()
+            .build(),
+        TestRawEventBuilder::new()
+            .distinct_id("user2")
+            .token("token1")
+            .event("event2")
+            .current_timestamp()
+            .build(),
     ];
     for event in &events {
         let key = event.into();
@@ -303,12 +326,22 @@ async fn test_checkpoint_from_plan_with_no_previous_metadata() {
     let test_topic = "manual_cp_incremental";
     let test_partition = 0;
     let tmp_store_dir = TempDir::new().unwrap();
-    let store = create_test_dedup_store(&tmp_store_dir, test_topic, test_partition);
+    let store = create_test_dedup_store(tmp_store_dir.path(), test_topic, test_partition);
 
     // Add some test data
     let events = vec![
-        create_test_raw_event("user1", "token1", "event1"),
-        create_test_raw_event("user2", "token1", "event2"),
+        TestRawEventBuilder::new()
+            .distinct_id("user1")
+            .token("token1")
+            .event("event1")
+            .current_timestamp()
+            .build(),
+        TestRawEventBuilder::new()
+            .distinct_id("user2")
+            .token("token1")
+            .event("event2")
+            .current_timestamp()
+            .build(),
     ];
     for event in &events {
         let key = event.into();
@@ -352,8 +385,7 @@ async fn test_checkpoint_from_plan_with_no_previous_metadata() {
     assert!(result.is_some());
     let info = result.unwrap();
 
-    // manually construct expected remote attempt path as CheckpointInfo
-    // would have to apply to all *new* files tracked in metadata.files
+    // manually construct expected remote attempt path (unhashed, for metadata.json)
     let expected_remote_path = format!(
         "{}/{}/{}/{}",
         config.s3_key_prefix,
@@ -365,9 +397,29 @@ async fn test_checkpoint_from_plan_with_no_previous_metadata() {
 
     let remote_checkpoint_files = uploader.get_stored_files().await.unwrap();
     assert!(!remote_checkpoint_files.is_empty());
-    assert!(remote_checkpoint_files
-        .keys()
-        .all(|k| k.contains(&expected_remote_path)));
+    // metadata.json at unhashed path; object files at hashed path
+    let hash = hash_prefix_for_partition(partition.topic(), partition.partition_number());
+    let expected_object_prefix = format!(
+        "{}/{}/{}/{}/{}",
+        hash,
+        config.s3_key_prefix,
+        partition.topic(),
+        partition.partition_number(),
+        CheckpointMetadata::generate_id(attempt_timestamp),
+    );
+    for k in remote_checkpoint_files.keys() {
+        if k.ends_with("metadata.json") {
+            assert!(
+                !k.contains(&hash),
+                "metadata.json must not contain hash, got: {k}"
+            );
+        } else {
+            assert!(
+                k.starts_with(&expected_object_prefix),
+                "object file key must have hashed path, got: {k}"
+            );
+        }
+    }
 
     // Verify exported files contain expected RocksDB checkpoint files
     assert!(remote_checkpoint_files
@@ -389,13 +441,15 @@ async fn test_checkpoint_from_plan_with_previous_metadata() {
     let test_topic = "test_cp_from_plan_with_prev_metadata";
     let test_partition = 0;
     let tmp_store_dir = TempDir::new().unwrap();
-    let store = create_test_dedup_store(&tmp_store_dir, test_topic, test_partition);
+    let store = create_test_dedup_store(tmp_store_dir.path(), test_topic, test_partition);
 
     // Add some test data
-    let events = vec![
-        create_test_raw_event("user1", "token1", "event1"),
-        //create_test_raw_event("user2", "token1", "event2"),
-    ];
+    let events = vec![TestRawEventBuilder::new()
+        .distinct_id("user1")
+        .token("token1")
+        .event("event1")
+        .current_timestamp()
+        .build()];
     for event in &events {
         let key = event.into();
         let metadata = TimestampMetadata::new(event);
@@ -437,8 +491,7 @@ async fn test_checkpoint_from_plan_with_previous_metadata() {
     assert!(result.is_some());
     let orig_info = result.unwrap();
 
-    // manually construct expected remote attempt path as CheckpointInfo
-    // would have to apply to all *new* files tracked in metadata.files
+    // manually construct expected remote attempt path (unhashed)
     let orig_expected_remote_path = format!(
         "{}/{}/{}/{}",
         config.s3_key_prefix,
@@ -453,9 +506,28 @@ async fn test_checkpoint_from_plan_with_previous_metadata() {
 
     let orig_remote_checkpoint_files = uploader.get_stored_files().await.unwrap();
     assert!(!orig_remote_checkpoint_files.is_empty());
-    assert!(orig_remote_checkpoint_files
-        .keys()
-        .all(|k| k.contains(&orig_expected_remote_path)));
+    let hash = hash_prefix_for_partition(partition.topic(), partition.partition_number());
+    let orig_expected_object_prefix = format!(
+        "{}/{}/{}/{}/{}",
+        hash,
+        config.s3_key_prefix,
+        partition.topic(),
+        partition.partition_number(),
+        CheckpointMetadata::generate_id(attempt_timestamp),
+    );
+    for k in orig_remote_checkpoint_files.keys() {
+        if k.ends_with("metadata.json") {
+            assert!(
+                !k.contains(&hash),
+                "metadata.json must not contain hash, got: {k}"
+            );
+        } else {
+            assert!(
+                k.starts_with(&orig_expected_object_prefix),
+                "object file key must have hashed path, got: {k}"
+            );
+        }
+    }
 
     // Verify exported files contain expected RocksDB checkpoint files, including SSTs
     assert!(orig_remote_checkpoint_files
@@ -487,6 +559,14 @@ async fn test_checkpoint_from_plan_with_previous_metadata() {
         partition.partition_number(),
         next_checkpoint_id,
     );
+    let next_expected_object_prefix = format!(
+        "{}/{}/{}/{}/{}",
+        hash,
+        config.s3_key_prefix,
+        partition.topic(),
+        partition.partition_number(),
+        next_checkpoint_id,
+    );
 
     assert!(uploader.clear().await.is_ok());
 
@@ -512,9 +592,19 @@ async fn test_checkpoint_from_plan_with_previous_metadata() {
     let next_remote_checkpoint_files = uploader.get_stored_files().await.unwrap();
 
     assert!(!next_remote_checkpoint_files.is_empty());
-    assert!(next_remote_checkpoint_files
-        .keys()
-        .all(|k| k.contains(&next_expected_remote_path)));
+    for k in next_remote_checkpoint_files.keys() {
+        if k.ends_with("metadata.json") {
+            assert!(
+                !k.contains(&hash),
+                "metadata.json must not contain hash, got: {k}"
+            );
+        } else {
+            assert!(
+                k.starts_with(&next_expected_object_prefix),
+                "object file key must have hashed path, got: {k}"
+            );
+        }
+    }
 
     // there should be no new SST files uploaded in this checkpoint
     // because the original checkpoint uploaded them already
@@ -538,4 +628,201 @@ async fn test_checkpoint_from_plan_with_previous_metadata() {
     assert!(next_remote_checkpoint_files
         .keys()
         .all(|k| !k.ends_with(".log")));
+}
+
+// ============================================================
+// Cancellation Tests
+// ============================================================
+
+#[tokio::test]
+async fn test_checkpoint_with_pre_cancelled_token_fails() {
+    let test_topic = "test_pre_cancelled";
+    let test_partition = 0;
+    let tmp_store_dir = TempDir::new().unwrap();
+    let store = create_test_dedup_store(tmp_store_dir.path(), test_topic, test_partition);
+
+    // Add test data
+    let event = TestRawEventBuilder::new()
+        .distinct_id("user1")
+        .token("token1")
+        .event("event1")
+        .current_timestamp()
+        .build();
+    let key = (&event).into();
+    let metadata = TimestampMetadata::new(&event);
+    store.put_timestamp_record(&key, &metadata).unwrap();
+
+    let tmp_checkpoint_dir = TempDir::new().unwrap();
+    let config = CheckpointConfig {
+        checkpoint_interval: Duration::from_secs(60),
+        local_checkpoint_dir: tmp_checkpoint_dir.path().to_string_lossy().to_string(),
+        s3_bucket: "test-bucket".to_string(),
+        s3_key_prefix: "test-prefix".to_string(),
+        aws_region: Some("us-east-1".to_string()),
+        ..Default::default()
+    };
+
+    let uploader = Box::new(MockUploader::new().unwrap());
+    let exporter = Some(Arc::new(CheckpointExporter::new(uploader.clone())));
+
+    let partition = Partition::new(test_topic.to_string(), test_partition);
+    let attempt_timestamp = Utc::now();
+
+    let worker = CheckpointWorker::new(
+        1,
+        Path::new(&config.local_checkpoint_dir),
+        config.s3_key_prefix.clone(),
+        partition.clone(),
+        attempt_timestamp,
+        exporter.clone(),
+        None,
+    );
+
+    // Create pre-cancelled token
+    let cancel_token = CancellationToken::new();
+    cancel_token.cancel();
+
+    // Checkpoint should fail with cancellation error
+    let result = worker
+        .checkpoint_partition_cancellable(&store, None, Some(&cancel_token), Some("test"))
+        .await;
+
+    assert!(result.is_err(), "Checkpoint should fail when pre-cancelled");
+    let err_msg = result.unwrap_err().to_string();
+    assert!(
+        err_msg.to_lowercase().contains("cancelled"),
+        "Error should mention cancellation: {}",
+        err_msg
+    );
+
+    // Verify no files were uploaded
+    let file_count = uploader.file_count().await.unwrap();
+    assert_eq!(
+        file_count, 0,
+        "No files should be uploaded when pre-cancelled"
+    );
+}
+
+#[tokio::test]
+async fn test_checkpoint_with_active_token_succeeds() {
+    let test_topic = "test_active_token";
+    let test_partition = 0;
+    let tmp_store_dir = TempDir::new().unwrap();
+    let store = create_test_dedup_store(tmp_store_dir.path(), test_topic, test_partition);
+
+    // Add test data
+    let event = TestRawEventBuilder::new()
+        .distinct_id("user1")
+        .token("token1")
+        .event("event1")
+        .current_timestamp()
+        .build();
+    let key = (&event).into();
+    let metadata = TimestampMetadata::new(&event);
+    store.put_timestamp_record(&key, &metadata).unwrap();
+
+    let tmp_checkpoint_dir = TempDir::new().unwrap();
+    let config = CheckpointConfig {
+        checkpoint_interval: Duration::from_secs(60),
+        local_checkpoint_dir: tmp_checkpoint_dir.path().to_string_lossy().to_string(),
+        s3_bucket: "test-bucket".to_string(),
+        s3_key_prefix: "test-prefix".to_string(),
+        aws_region: Some("us-east-1".to_string()),
+        ..Default::default()
+    };
+
+    let uploader = Box::new(MockUploader::new().unwrap());
+    let exporter = Some(Arc::new(CheckpointExporter::new(uploader.clone())));
+
+    let partition = Partition::new(test_topic.to_string(), test_partition);
+    let attempt_timestamp = Utc::now();
+
+    let worker = CheckpointWorker::new(
+        1,
+        Path::new(&config.local_checkpoint_dir),
+        config.s3_key_prefix.clone(),
+        partition.clone(),
+        attempt_timestamp,
+        exporter.clone(),
+        None,
+    );
+
+    // Create active (non-cancelled) token
+    let cancel_token = CancellationToken::new();
+
+    // Checkpoint should succeed with active token
+    let result = worker
+        .checkpoint_partition_cancellable(&store, None, Some(&cancel_token), None)
+        .await;
+
+    assert!(
+        result.is_ok(),
+        "Checkpoint should succeed with active token"
+    );
+    let info = result.unwrap();
+    assert!(info.is_some(), "Should return CheckpointInfo");
+
+    // Verify files were uploaded
+    let file_count = uploader.file_count().await.unwrap();
+    assert!(
+        file_count > 0,
+        "Files should be uploaded when token is active"
+    );
+}
+
+#[tokio::test]
+async fn test_checkpoint_without_token_succeeds() {
+    // Verify the legacy non-cancellable path still works
+    let test_topic = "test_no_token";
+    let test_partition = 0;
+    let tmp_store_dir = TempDir::new().unwrap();
+    let store = create_test_dedup_store(tmp_store_dir.path(), test_topic, test_partition);
+
+    // Add test data
+    let event = TestRawEventBuilder::new()
+        .distinct_id("user1")
+        .token("token1")
+        .event("event1")
+        .current_timestamp()
+        .build();
+    let key = (&event).into();
+    let metadata = TimestampMetadata::new(&event);
+    store.put_timestamp_record(&key, &metadata).unwrap();
+
+    let tmp_checkpoint_dir = TempDir::new().unwrap();
+    let config = CheckpointConfig {
+        checkpoint_interval: Duration::from_secs(60),
+        local_checkpoint_dir: tmp_checkpoint_dir.path().to_string_lossy().to_string(),
+        s3_bucket: "test-bucket".to_string(),
+        s3_key_prefix: "test-prefix".to_string(),
+        aws_region: Some("us-east-1".to_string()),
+        ..Default::default()
+    };
+
+    let uploader = Box::new(MockUploader::new().unwrap());
+    let exporter = Some(Arc::new(CheckpointExporter::new(uploader.clone())));
+
+    let partition = Partition::new(test_topic.to_string(), test_partition);
+    let attempt_timestamp = Utc::now();
+
+    let worker = CheckpointWorker::new(
+        1,
+        Path::new(&config.local_checkpoint_dir),
+        config.s3_key_prefix.clone(),
+        partition.clone(),
+        attempt_timestamp,
+        exporter.clone(),
+        None,
+    );
+
+    // Use legacy non-cancellable method (no token)
+    let result = worker.checkpoint_partition(&store, None).await;
+
+    assert!(result.is_ok(), "Legacy checkpoint should succeed");
+    let info = result.unwrap();
+    assert!(info.is_some(), "Should return CheckpointInfo");
+
+    // Verify files were uploaded
+    let file_count = uploader.file_count().await.unwrap();
+    assert!(file_count > 0, "Files should be uploaded");
 }
