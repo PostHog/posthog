@@ -5,8 +5,9 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api, { CountedPaginatedResponse } from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
+import { userLogic } from 'scenes/userLogic'
 
-import { ChangeRequest, ChangeRequestState } from '~/types'
+import { AvailableFeature, ChangeRequest, ChangeRequestState } from '~/types'
 
 import type { approvalsLogicType } from './approvalsLogicType'
 
@@ -45,7 +46,7 @@ function mergeChangeRequestsData(
 export const approvalsLogic = kea<approvalsLogicType>([
     path(['scenes', 'approvals', 'approvalsLogic']),
     connect(() => ({
-        values: [teamLogic, ['currentTeamId']],
+        values: [teamLogic, ['currentTeamId'], userLogic, ['hasAvailableFeature']],
     })),
     actions({
         setFilters: (filters: Partial<ApprovalsFilters>) => ({ filters }),
@@ -59,7 +60,7 @@ export const approvalsLogic = kea<approvalsLogicType>([
             { changeRequests: [], changeRequestsCount: 0 } as ApprovalDataState,
             {
                 loadChangeRequests: async ({ url }, breakpoint) => {
-                    if (!values.currentTeamId) {
+                    if (!values.currentTeamId || !values.hasAvailableFeature(AvailableFeature.APPROVALS)) {
                         return values.changeRequestsData
                     }
 
