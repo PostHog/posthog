@@ -387,7 +387,10 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             ordering_changed = False
 
             saved_metric_ids = [sm["id"] for sm in saved_metrics_data]
-            saved_metrics_map = {sm.id: sm for sm in ExperimentSavedMetric.objects.filter(id__in=saved_metric_ids)}
+            saved_metrics_map = {
+                sm.id: sm
+                for sm in ExperimentSavedMetric.objects.filter(id__in=saved_metric_ids, team_id=self.context["team_id"])
+            }
 
             for sm_data in saved_metrics_data:
                 saved_metric = saved_metrics_map.get(sm_data["id"])
@@ -687,7 +690,12 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
 
         saved_metric_ids_list = [sm["id"] for sm in saved_metrics_data]
         if saved_metric_ids_list:
-            saved_metrics = {sm.id: sm for sm in ExperimentSavedMetric.objects.filter(id__in=saved_metric_ids_list)}
+            saved_metrics = {
+                sm.id: sm
+                for sm in ExperimentSavedMetric.objects.filter(
+                    id__in=saved_metric_ids_list, team_id=self.context["team_id"]
+                )
+            }
 
             for sm_data in saved_metrics_data:
                 saved_metric = saved_metrics.get(sm_data["id"])

@@ -5,6 +5,9 @@ import { hash } from '@/lib/utils'
 import type { CloudRegion } from '@/tools/types'
 
 import { MCP, RequestProperties } from './mcp'
+import RAW_LANDING_HTML from './static/landing.html'
+
+const PARSED_LANDING_HTML = RAW_LANDING_HTML.replace('{{DOCS_URL}}', MCP_DOCS_URL)
 
 // Helper to get the public-facing URL, respecting reverse proxy headers
 // This is needed for local development with ngrok/cloudflared where request.url
@@ -67,10 +70,9 @@ const handleRequest = async (
     log.extend({ route: url.pathname })
 
     if (url.pathname === '/') {
-        return new Response(
-            `<p>Welcome to the PostHog MCP Server. For setup and usage instructions, see: <a href="${MCP_DOCS_URL}">${MCP_DOCS_URL}</a></p>`,
-            { headers: { 'content-type': 'text/html' } }
-        )
+        return new Response(PARSED_LANDING_HTML, {
+            headers: { 'content-type': 'text/html; charset=utf-8' },
+        })
     }
 
     // Detect region from hostname (mcp-eu.posthog.com) or query param (?region=eu)

@@ -12,6 +12,7 @@ import {
     LemonTag,
 } from '@posthog/lemon-ui'
 
+import { CLICK_OUTSIDE_BLOCK_CLASS } from 'lib/hooks/useOutsideClickHandler'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { urls } from 'scenes/urls'
 
@@ -98,7 +99,7 @@ const buildVariableMenuItems = (
                     ? {
                           custom: true,
                           label: () => (
-                              <div className="p-2 w-full border-b mb-1">
+                              <div className={`p-2 w-full border-b mb-1 ${CLICK_OUTSIDE_BLOCK_CLASS}`}>
                                   <VariableInput
                                       variable={variable}
                                       showEditingUI={false}
