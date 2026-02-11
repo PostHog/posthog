@@ -24,6 +24,7 @@ import type {
     TaskRunDetailApi,
     TasksListParams,
     TasksRunsListParams,
+    TasksRunsSessionLogsRetrieveParams,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -359,6 +360,44 @@ export const tasksRunsConnectionTokenRetrieve = async (
     options?: RequestInit
 ): Promise<ConnectionTokenResponseApi> => {
     return apiMutator<ConnectionTokenResponseApi>(getTasksRunsConnectionTokenRetrieveUrl(projectId, taskId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+/**
+ * Fetch session log entries for a task run with optional filtering by timestamp, event type, and limit.
+ * @summary Get filtered task run session logs
+ */
+export const getTasksRunsSessionLogsRetrieveUrl = (
+    projectId: string,
+    taskId: string,
+    id: string,
+    params?: TasksRunsSessionLogsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/session_logs/?${stringifiedParams}`
+        : `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/session_logs/`
+}
+
+export const tasksRunsSessionLogsRetrieve = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    params?: TasksRunsSessionLogsRetrieveParams,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getTasksRunsSessionLogsRetrieveUrl(projectId, taskId, id, params), {
         ...options,
         method: 'GET',
     })
