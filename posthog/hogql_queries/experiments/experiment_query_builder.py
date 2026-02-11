@@ -1184,11 +1184,19 @@ class ExperimentQueryBuilder:
             parse_expr("toUUID(t.entity_id)") if self.entity_key == "person_id" else parse_expr("t.entity_id")
         )
 
+        if self.multiple_variant_handling == MultipleVariantHandling.FIRST_SEEN:
+            variant_expr = parse_expr("argMin(t.variant, t.first_exposure_time)")
+        else:
+            variant_expr = parse_expr(
+                "if(uniqExact(t.variant) > 1, {multiple_key}, argMin(t.variant, t.first_exposure_time))",
+                placeholders={"multiple_key": ast.Constant(value=MULTIPLE_VARIANT_KEY)},
+            )
+
         query = parse_select(
             """
                 SELECT
                     {entity_id_expr} AS entity_id,
-                    argMin(t.variant, t.first_exposure_time) AS variant,
+                    {variant_expr} AS variant,
                     min(t.first_exposure_time) AS first_exposure_time,
                     max(t.last_exposure_time) AS last_exposure_time,
                     argMin(t.exposure_event_uuid, t.first_exposure_time) AS exposure_event_uuid,
@@ -1200,6 +1208,7 @@ class ExperimentQueryBuilder:
             """,
             placeholders={
                 "entity_id_expr": entity_id_expr,
+                "variant_expr": variant_expr,
                 "job_ids": ast.Constant(value=job_ids),
                 "team_id": ast.Constant(value=self.team.id),
             },
