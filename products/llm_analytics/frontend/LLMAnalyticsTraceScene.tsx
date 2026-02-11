@@ -68,6 +68,7 @@ import { useAIData } from './hooks/useAIData'
 import { llmAnalyticsPlaygroundLogic } from './llmAnalyticsPlaygroundLogic'
 import { EnrichedTraceTreeNode, llmAnalyticsTraceDataLogic } from './llmAnalyticsTraceDataLogic'
 import { DisplayOption, TraceViewMode, llmAnalyticsTraceLogic } from './llmAnalyticsTraceLogic'
+import { llmPersonsLazyLoaderLogic } from './llmPersonsLazyLoaderLogic'
 import { SummaryViewDisplay } from './summary-view/SummaryViewDisplay'
 import { TextViewDisplay } from './text-view/TextViewDisplay'
 import { exportTraceToClipboard } from './traceExportUtils'
@@ -82,7 +83,6 @@ import {
     getSessionStartTimestamp,
     getTraceTimestamp,
     isLLMEvent,
-    isTraceLevel,
     removeMilliseconds,
 } from './utils'
 
@@ -299,6 +299,19 @@ function TraceMetadata({
     showBillingInfo?: boolean
 }): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
+    const { personsCache, isDistinctIdLoading } = useValues(llmPersonsLazyLoaderLogic)
+    const { ensurePersonLoaded } = useActions(llmPersonsLazyLoaderLogic)
+
+    const cached = personsCache[trace.distinctId]
+    const loading = isDistinctIdLoading(trace.distinctId)
+
+    if (cached === undefined && !loading) {
+        ensurePersonLoaded(trace.distinctId)
+    }
+
+    const personData = cached
+        ? { distinct_id: cached.distinct_id, properties: cached.properties }
+        : { distinct_id: trace.distinctId }
 
     const getSessionUrl = (sessionId: string): string => {
         if (
@@ -323,11 +336,9 @@ function TraceMetadata({
 
     return (
         <header className="flex gap-1.5 flex-wrap">
-            {'person' in trace && (
-                <Chip title="Person">
-                    <PersonDisplay withIcon="sm" person={trace.person} />
-                </Chip>
-            )}
+            <Chip title="Person">
+                <PersonDisplay withIcon="sm" person={personData} />
+            </Chip>
             {trace.aiSessionId && (
                 <Chip
                     title={
@@ -783,9 +794,9 @@ const EventContent = React.memo(
             featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SUMMARIZATION] ||
             featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
 
-        const showClustersTab = !!event && isTraceLevel(event) && featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_CLUSTERS_TAB]
+        const showClustersTab = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_CLUSTERS_TAB]
 
-        const showFeedbackTab = !!event && isTraceLevel(event)
+        const showFeedbackTab = true
 
         // Check if we're viewing a trace with actual content vs. a pseudo-trace (grouping of generations w/o input/output state)
         const isTopLevelTraceWithoutContent = !event || (!isLLMEvent(event) && !event.inputState && !event.outputState)
@@ -1068,7 +1079,7 @@ const EventContent = React.memo(
                                                       generationEventId={event.id}
                                                       timestamp={event.createdAt}
                                                       event={event.event}
-                                                      distinctId={trace.person.distinct_id}
+                                                      distinctId={trace.distinctId}
                                                   />
                                               ),
                                           },

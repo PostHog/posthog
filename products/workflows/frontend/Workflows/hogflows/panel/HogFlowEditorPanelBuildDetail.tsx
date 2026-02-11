@@ -95,6 +95,9 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                                             config: {
                                                 ...action.config,
                                                 message_category_id: categoryId,
+                                                message_category_type: categoryId
+                                                    ? categories.find((cat) => cat.id === categoryId)?.category_type
+                                                    : undefined,
                                             },
                                         } as Extract<HogFlowAction, { type: 'function_email' | 'function_sms' }>)
                                     }}

@@ -12,7 +12,7 @@ import { useMaxTool } from './useMaxTool'
 
 export interface MaxToolProps extends Omit<ToolRegistration, 'name' | 'description'> {
     /** The child element(s) that will be wrapped by this component */
-    children: React.ReactElement | (({ toolAvailable }: { toolAvailable: boolean }) => React.ReactElement)
+    children: React.ReactNode | (({ toolAvailable }: { toolAvailable: boolean }) => React.ReactNode)
     /** Whether MaxTool functionality is active. When false, just renders children without MaxTool wrapper. */
     active?: boolean
     initialMaxPrompt?: string
