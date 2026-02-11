@@ -1207,9 +1207,7 @@
                                                         "lt",
                                                         "lte",
                                                         "min",
-                                                        "max",
-                                                        "in",
-                                                        "not_in"
+                                                        "max"
                                                     ]
                                                 }
                                             },
@@ -1396,9 +1394,7 @@
                                                                 "lt",
                                                                 "lte",
                                                                 "min",
-                                                                "max",
-                                                                "in",
-                                                                "not_in"
+                                                                "max"
                                                             ]
                                                         }
                                                     },
@@ -3730,9 +3726,7 @@
                                                         "lt",
                                                         "lte",
                                                         "min",
-                                                        "max",
-                                                        "in",
-                                                        "not_in"
+                                                        "max"
                                                     ]
                                                 }
                                             },
@@ -4619,9 +4613,7 @@
                                                         "lt",
                                                         "lte",
                                                         "min",
-                                                        "max",
-                                                        "in",
-                                                        "not_in"
+                                                        "max"
                                                     ]
                                                 }
                                             },

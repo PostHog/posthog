@@ -32,6 +32,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.Destinations]: () => import('./data-pipelines/DestinationsScene'),
     [Scene.DebugHog]: () => import('./debug/hog/HogRepl'),
     [Scene.DebugQuery]: () => import('./debug/DebugScene'),
+    [Scene.SignalsDebug]: () => import('./debug/SignalsDebug'),
     [Scene.Error404]: () => ({ default: preloadedScenes[Scene.Error404].component }),
     [Scene.ErrorNetwork]: () => ({ default: preloadedScenes[Scene.ErrorNetwork].component }),
     [Scene.ErrorProjectUnavailable]: () => ({ default: preloadedScenes[Scene.ErrorProjectUnavailable].component }),

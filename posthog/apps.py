@@ -10,7 +10,7 @@ from posthoganalytics.client import Client
 
 from posthog.git import get_git_branch, get_git_commit_short
 from posthog.tasks.tasks import sync_all_organization_available_product_features
-from posthog.utils import get_instance_region, get_machine_id, initialize_self_capture_api_token
+from posthog.utils import get_instance_region, get_machine_id, initialize_self_capture_api_token, str_to_bool
 
 logger = structlog.get_logger(__name__)
 
@@ -31,7 +31,11 @@ class PostHogConfig(AppConfig):
             "service": settings.OTEL_SERVICE_NAME,
             "environment": os.getenv("SENTRY_ENVIRONMENT"),
         }
-        posthoganalytics.capture_exception_code_variables = True
+
+        if str_to_bool(os.environ.get("TEMPORAL_DISABLE_EXCEPTION_VARIABLE_CAPTURE", "false")):
+            posthoganalytics.capture_exception_code_variables = False
+        else:
+            posthoganalytics.capture_exception_code_variables = True
 
         if settings.E2E_TESTING:
             posthoganalytics.api_key = "phc_ex7Mnvi4DqeB6xSQoXU1UVPzAmUIpiciRKQQXGGTYQO"

@@ -2,7 +2,7 @@ import equal from 'fast-deep-equal'
 import { actions, afterMount, connect, isBreakpoint, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { DeepPartialMap, ValidationErrorType, forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
-import { beforeUnload, router } from 'kea-router'
+import { beforeUnload, router, urlToAction } from 'kea-router'
 import { CombinedLocation } from 'kea-router/lib/utils'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
@@ -444,11 +444,12 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             },
         ],
     })),
-    loaders(({ actions, props, values }) => ({
+    loaders(({ actions, props, values, cache }) => ({
         template: [
             null as HogFunctionTemplateType | null,
             {
                 loadTemplate: async () => {
+                    cache.configFromUrl = router.values.hashParams.configuration
                     if (!props.templateId) {
                         return null
                     }
@@ -1473,6 +1474,16 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     actions: [],
                     data_warehouse: [],
                 })
+            }
+        },
+    })),
+
+    urlToAction(({ actions, values, cache }) => ({
+        [urls.hogFunctionNew(':templateId')]: (_, __, hashParams) => {
+            const newConfig = hashParams?.configuration
+            if (values.template && !equal(newConfig, cache.configFromUrl)) {
+                cache.configFromUrl = newConfig
+                actions.resetForm()
             }
         },
     })),

@@ -159,10 +159,18 @@ export class CdpApi {
         router.get('/api/hog_function_templates', this.getHogFunctionTemplates)
         router.post('/api/messaging/generate_preferences_token', asyncHandler(this.generatePreferencesToken()))
         router.get('/api/messaging/validate_preferences_token/:token', asyncHandler(this.validatePreferencesToken()))
-        router.post('/public/webhooks/:webhook_id', asyncHandler(this.handleWebhook()))
+        const publicBodySizeLimit = (req: ModifiedRequest, res: express.Response, next: express.NextFunction): void => {
+            if (req.rawBody && req.rawBody.length > 512_000) {
+                res.status(413).json({ error: 'Request entity too large' })
+                return
+            }
+            next()
+        }
+
+        router.post('/public/webhooks/:webhook_id', publicBodySizeLimit, asyncHandler(this.handleWebhook()))
         router.get('/public/webhooks/:webhook_id', asyncHandler(this.handleWebhook()))
         router.get('/public/m/pixel', asyncHandler(this.getEmailTrackingPixel()))
-        router.post('/public/m/ses_webhook', express.text(), asyncHandler(this.postSesWebhook()))
+        router.post('/public/m/ses_webhook', publicBodySizeLimit, express.text(), asyncHandler(this.postSesWebhook()))
         router.get('/public/m/redirect', asyncHandler(this.getEmailTrackingRedirect()))
 
         return router
@@ -706,6 +714,51 @@ const buildHogExecutorAsyncOptions = (
 
                       return {
                           success: true,
+                      }
+                  },
+                  postHogGetTicket: (...args: any[]) => {
+                      logs.push({
+                          level: 'info',
+                          timestamp: DateTime.now(),
+                          message: `Async function 'postHogGetTicket' was mocked with arguments:`,
+                      })
+                      logs.push({
+                          level: 'info',
+                          timestamp: DateTime.now(),
+                          message: `postHogGetTicket(${JSON.stringify(args[0], null, 2)})`,
+                      })
+
+                      return {
+                          status: 200,
+                          body: {
+                              id: args[0]?.ticket_id ?? 'mock-ticket-id',
+                              status: 'new',
+                              priority: null,
+                              ticket_number: 1,
+                              channel_source: 'widget',
+                              message_count: 0,
+                              last_message_at: null,
+                              last_message_text: null,
+                              unread_team_count: 0,
+                              unread_customer_count: 0,
+                          },
+                      }
+                  },
+                  postHogUpdateTicket: (...args: any[]) => {
+                      logs.push({
+                          level: 'info',
+                          timestamp: DateTime.now(),
+                          message: `Async function 'postHogUpdateTicket' was mocked with arguments:`,
+                      })
+                      logs.push({
+                          level: 'info',
+                          timestamp: DateTime.now(),
+                          message: `postHogUpdateTicket(${JSON.stringify(args[0], null, 2)})`,
+                      })
+
+                      return {
+                          status: 200,
+                          body: { ok: true },
                       }
                   },
               }
