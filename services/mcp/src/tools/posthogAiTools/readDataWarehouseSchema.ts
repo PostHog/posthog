@@ -1,9 +1,9 @@
-import { MaxReadDataWarehouseSchemaSchema } from '@/schema/tool-inputs'
+import { ReadDataWarehouseSchemaSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
 
-import { invokeMcpTool } from './invokeMaxTool'
+import { invokeMcpTool } from './invokeTool'
 
-const schema = MaxReadDataWarehouseSchemaSchema
+const schema = ReadDataWarehouseSchemaSchema
 
 export const readDataWarehouseSchemaHandler: ToolBase<typeof schema>['handler'] = async (context: Context) => {
     const result = await invokeMcpTool(context, 'read_data_warehouse_schema', {

@@ -47,12 +47,12 @@ import logsListAttributeValues from './logs/listAttributeValues'
 import logsListAttributes from './logs/listAttributes'
 // Logs
 import logsQuery from './logs/query'
-// Max Tools
-import { executeSql, readDataSchema, readDataWarehouseSchema } from './maxTools'
 // Organizations
 import getOrganizationDetails from './organizations/getDetails'
 import getOrganizations from './organizations/getOrganizations'
 import setActiveOrganization from './organizations/setActive'
+// PostHog AI tools
+import { executeSql, readDataSchema, readDataWarehouseSchema } from './posthogAiTools'
 // Projects
 import eventDefinitions from './projects/eventDefinitions'
 import getProjects from './projects/getProjects'
@@ -167,7 +167,7 @@ const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     // Demo
     'demo-mcp-ui-apps': demoMcpUiApps,
 
-    // Max Tools
+    // PostHog AI tools
     'execute-sql': executeSql,
     'read-data-schema': readDataSchema,
     'read-data-warehouse-schema': readDataWarehouseSchema,

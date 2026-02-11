@@ -2003,7 +2003,7 @@
             "required": ["dateFrom", "dateTo"],
             "additionalProperties": false
         },
-        "MaxExecuteSQLSchema": {
+        "ExecuteSQLSchema": {
             "type": "object",
             "properties": {
                 "query": {
@@ -2015,7 +2015,7 @@
             "required": ["query"],
             "additionalProperties": false
         },
-        "MaxReadDataSchemaSchema": {
+        "ReadDataSchemaSchema": {
             "type": "object",
             "properties": {
                 "query": {
@@ -2140,7 +2140,7 @@
             "required": ["query"],
             "additionalProperties": false
         },
-        "MaxReadDataWarehouseSchemaSchema": {
+        "ReadDataWarehouseSchemaSchema": {
             "type": "object",
             "properties": {},
             "additionalProperties": false,

@@ -1,11 +1,11 @@
 import type { z } from 'zod'
 
-import { MaxReadDataSchemaSchema } from '@/schema/tool-inputs'
+import { ReadDataSchemaSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
 
-import { invokeMcpTool } from './invokeMaxTool'
+import { invokeMcpTool } from './invokeTool'
 
-const schema = MaxReadDataSchemaSchema
+const schema = ReadDataSchemaSchema
 
 type Params = z.infer<typeof schema>
 

@@ -461,12 +461,12 @@ export const DemoMcpUiAppsSchema = z.object({
     message: z.string().optional().describe('Optional message to include in the demo data'),
 })
 
-// Max Tools
-export const MaxExecuteSQLSchema = z.object({
+// PostHog AI tools
+export const ExecuteSQLSchema = z.object({
     query: z.string().min(1).describe('The final SQL query to be executed.'),
 })
 
-export const MaxReadDataWarehouseSchemaSchema = z
+export const ReadDataWarehouseSchemaSchema = z
     .object({})
     .describe('No input required. Returns core data warehouse schemas.')
 
@@ -507,7 +507,7 @@ const ReadActionSamplePropertyValuesQuerySchema = z.object({
     property_name: z.string().describe('Verified property name of an action.'),
 })
 
-export const MaxReadDataSchemaSchema = z.object({
+export const ReadDataSchemaSchema = z.object({
     query: z
         .discriminatedUnion('kind', [
             ReadEventsQuerySchema,

@@ -1,11 +1,11 @@
 import type { z } from 'zod'
 
-import { MaxExecuteSQLSchema } from '@/schema/tool-inputs'
+import { ExecuteSQLSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
 
-import { invokeMcpTool } from './invokeMaxTool'
+import { invokeMcpTool } from './invokeTool'
 
-const schema = MaxExecuteSQLSchema
+const schema = ExecuteSQLSchema
 
 type Params = z.infer<typeof schema>
 
