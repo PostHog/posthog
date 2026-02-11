@@ -962,6 +962,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 assert mock_patch.call_count == 1
                 mock_patch.assert_called_once_with(
                     f"http://localhost:6738/api/projects/{self.team.id}/hog_functions/{response.json()['id']}/status",
+                    headers={},
                     json={"state": 2},
                 )
 
