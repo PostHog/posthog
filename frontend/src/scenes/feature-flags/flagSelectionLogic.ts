@@ -40,8 +40,8 @@ export const flagSelectionLogic = kea<flagSelectionLogicType>([
 
     actions({
         setSelectedFlagIds: (ids: number[]) => ({ ids }),
-        toggleFlagSelection: (id: number, index: number) => ({ id, index }),
-        selectAll: true,
+        toggleFlagSelection: (id: number, index: number, pageFlags: FeatureFlagType[]) => ({ id, index, pageFlags }),
+        selectAllOnPage: (flags: FeatureFlagType[]) => ({ flags }),
         selectAllMatching: true,
         clearSelection: true,
         setShiftKeyHeld: (shiftKeyHeld: boolean) => ({ shiftKeyHeld }),
@@ -87,7 +87,7 @@ export const flagSelectionLogic = kea<flagSelectionLogicType>([
                 clearSelection: () => false,
                 // When manually toggling selection, exit "all matching" mode
                 toggleFlagSelection: () => false,
-                selectAll: () => false,
+                selectAllOnPage: () => false,
             },
         ],
     }),
@@ -180,17 +180,14 @@ export const flagSelectionLogic = kea<flagSelectionLogicType>([
     }),
 
     listeners(({ values, actions }) => ({
-        toggleFlagSelection: ({ id, index }) => {
+        toggleFlagSelection: ({ id, index, pageFlags }) => {
             const { selectedFlagIds, shiftKeyHeld, previouslyCheckedIndex } = values
-            // Access featureFlagsLogic directly to ensure we get current page data
-            const { featureFlags } = featureFlagsLogic({}).values
-            const currentPageFlags = featureFlags?.results || []
 
             if (shiftKeyHeld && previouslyCheckedIndex !== null) {
                 // Shift-click: select range, following the anchor's direction
                 const start = Math.min(previouslyCheckedIndex, index)
                 const end = Math.max(previouslyCheckedIndex, index)
-                const flagIdsInRange = currentPageFlags
+                const flagIdsInRange = pageFlags
                     .slice(start, end + 1)
                     .filter((f: FeatureFlagType) => f.can_edit)
                     .map((f: FeatureFlagType) => f.id)
@@ -217,18 +214,14 @@ export const flagSelectionLogic = kea<flagSelectionLogicType>([
 
             actions.setPreviouslyCheckedIndex(index)
         },
-        selectAll: () => {
+        selectAllOnPage: ({ flags }) => {
             const { selectedFlagIds } = values
-            // Access featureFlagsLogic directly to ensure we get current page data
-            const { featureFlags } = featureFlagsLogic({}).values
-            const currentPageFlags = featureFlags?.results || []
-
-            const pageIds = currentPageFlags
+            // flags is passed directly from the UI - exactly what's visible on the page
+            const pageIds = flags
                 .filter((f: FeatureFlagType) => f.can_edit)
                 .map((f: FeatureFlagType) => f.id)
                 .filter((id: number | null): id is number => id !== null)
 
-            // Compute inline to avoid any selector caching issues
             const selectedIdSet = new Set(selectedFlagIds)
             const allPageFlagsSelected = pageIds.length > 0 && pageIds.every((id) => selectedIdSet.has(id))
 

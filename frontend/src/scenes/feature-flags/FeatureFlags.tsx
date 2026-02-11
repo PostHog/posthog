@@ -287,7 +287,7 @@ export function OverViewTab({
         allMatchingSelected,
         matchingFlagIdsLoading,
     } = useValues(flagSelectionLogic)
-    const { toggleFlagSelection, selectAll, selectAllMatching, clearSelection, bulkDeleteFlags } =
+    const { toggleFlagSelection, selectAllOnPage, selectAllMatching, clearSelection, bulkDeleteFlags } =
         useActions(flagSelectionLogic)
 
     const page = filters.page || 1
@@ -303,14 +303,8 @@ export function OverViewTab({
             title: (
                 <LemonCheckbox
                     checked={isSomeSelected ? 'indeterminate' : isAllSelected}
-                    onChange={(checked: boolean) => {
-                        if (checked) {
-                            selectAll()
-                        } else {
-                            clearSelection()
-                        }
-                    }}
-                    aria-label="Select all feature flags"
+                    onChange={() => selectAllOnPage(displayedFlags)}
+                    aria-label="Select all feature flags on this page"
                 />
             ),
             render: function Render(_: unknown, featureFlag: FeatureFlagType, index: number) {
@@ -321,7 +315,7 @@ export function OverViewTab({
                 return (
                     <LemonCheckbox
                         checked={selectedFlagIds.includes(flagId)}
-                        onChange={() => toggleFlagSelection(flagId, index)}
+                        onChange={() => toggleFlagSelection(flagId, index, displayedFlags)}
                         disabled={!featureFlag.can_edit}
                         disabledReason={
                             !featureFlag.can_edit ? "You don't have permission to edit this feature flag." : undefined
