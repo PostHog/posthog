@@ -12,6 +12,7 @@ import { urls } from 'scenes/urls'
 import type { FileSystemImport } from '~/queries/schema/schema-general'
 import {
     DashboardFilter,
+    DateRange,
     ExperimentMetric,
     FileSystemIconType,
     HogQLFilters,
@@ -33,6 +34,7 @@ import {
     InsightType,
     RecordingUniversalFilters,
     ReplayTabs,
+    UniversalFiltersGroup,
 } from './types'
 
 /** This const is auto-generated, as is the whole file */
@@ -552,6 +554,9 @@ export const productUrls = {
         params: {
             timestamp?: string
             fingerprint?: string
+            searchQuery?: string
+            dateRange?: DateRange
+            filterGroup?: UniversalFiltersGroup
         } = {}
     ): string => combineUrl(`/error_tracking/${id}`, params).url,
     errorTrackingIssueFingerprints: (id: string): string => `/error_tracking/${id}/fingerprints`,

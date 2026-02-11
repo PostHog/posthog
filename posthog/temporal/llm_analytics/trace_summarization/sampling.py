@@ -47,7 +47,11 @@ async def sample_items_in_window_activity(inputs: BatchSummarizationInputs) -> l
     def _sample_items(
         team_id: int, window_start: str, window_end: str, max_items: int, analysis_level: str
     ) -> list[SampledItem]:
-        team = Team.objects.get(id=team_id)
+        try:
+            team = Team.objects.get(id=team_id)
+        except Team.DoesNotExist:
+            logger.info("Team not found in local database, skipping", team_id=team_id)
+            return []
 
         start_dt_str = format_datetime_for_clickhouse(window_start)
         end_dt_str = format_datetime_for_clickhouse(window_end)
