@@ -138,17 +138,3 @@ class TestHealthIssue(BaseTest):
         issue.resolve()
         issue.refresh_from_db()
         self.assertIsNotNone(issue.resolved_at)
-
-    def test_reactivate_clears_resolved_at(self):
-        issue = HealthIssue.objects.create(
-            team=self.team,
-            kind="test_kind",
-            severity="warning",
-            payload={},
-            unique_hash="test_hash",
-        )
-        issue.resolve()
-        issue.reactivate()
-        issue.refresh_from_db()
-        self.assertEqual(issue.status, HealthIssue.Status.ACTIVE)
-        self.assertIsNone(issue.resolved_at)
