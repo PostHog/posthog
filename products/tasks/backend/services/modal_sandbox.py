@@ -145,13 +145,16 @@ class ModalSandbox:
     def create(config: SandboxConfig) -> "ModalSandbox":
         try:
             app = ModalSandbox._get_app_for_template(config.template)
-            image = _get_template_image(config.template)
+            base_image = _get_template_image(config.template)
+            image = base_image
+            used_snapshot_image = False
 
             if config.snapshot_id:
                 snapshot = SandboxSnapshot.objects.get(id=config.snapshot_id)
                 if snapshot.status == SandboxSnapshot.Status.COMPLETE:
                     try:
                         image = modal.Image.from_id(snapshot.external_id)
+                        used_snapshot_image = True
                     except Exception as e:
                         logger.warning(f"Failed to load snapshot image {snapshot.external_id}: {e}")
                         capture_exception(e)
@@ -177,7 +180,15 @@ class ModalSandbox:
             if secrets:
                 create_kwargs["secrets"] = secrets
 
-            sb = modal.Sandbox.create(**create_kwargs)  # type: ignore[arg-type]
+            try:
+                sb = modal.Sandbox.create(**create_kwargs)  # type: ignore[arg-type]
+            except Exception as e:
+                if not used_snapshot_image:
+                    raise
+                logger.warning(f"Failed to create sandbox with snapshot image, falling back to base image: {e}")
+                capture_exception(e)
+                create_kwargs["image"] = base_image
+                sb = modal.Sandbox.create(**create_kwargs)  # type: ignore[arg-type]
 
             if config.metadata:
                 sb.set_tags(config.metadata)

@@ -136,7 +136,8 @@ class TestModalSandboxAgentServer:
         mock_modal_sandbox.create_connect_token.return_value = mock_credentials
 
         config = SandboxConfig(name="test-sandbox")
-        return ModalSandbox(sandbox=mock_modal_sandbox, config=config)
+        with patch.object(ModalSandbox, "_get_app_for_template", return_value=MagicMock()):
+            return ModalSandbox(sandbox=mock_modal_sandbox, config=config)
 
     def test_get_connect_credentials_success(self, mock_sandbox: Any):
         result = mock_sandbox.get_connect_credentials()
