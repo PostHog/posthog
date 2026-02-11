@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { LemonSelect, LemonSelectOption } from '@posthog/lemon-ui'
 
@@ -20,6 +20,7 @@ export function RetentionAggregationSelector(): JSX.Element {
 
     const aggregationType = retentionFilter?.aggregationType || 'count'
     const aggregationProperty = retentionFilter?.aggregationProperty
+    const isPropertyValueAggregation = aggregationType === 'sum' || aggregationType === 'avg'
 
     // Local state to track which property math type to show in the dropdown label
     // This mirrors the behavior in Trends where the "Property value" option remembers the last selected math type
@@ -30,6 +31,14 @@ export function RetentionAggregationSelector(): JSX.Element {
               ? PropertyMathType.Average
               : PropertyMathType.Average
     )
+
+    useEffect(() => {
+        if (aggregationType === 'sum') {
+            setPropertyMathTypeShown(PropertyMathType.Sum)
+        } else if (aggregationType === 'avg') {
+            setPropertyMathTypeShown(PropertyMathType.Average)
+        }
+    }, [aggregationType])
 
     const options: LemonSelectOption<string>[] = [
         {
@@ -96,7 +105,7 @@ export function RetentionAggregationSelector(): JSX.Element {
                 data-attr="retention-aggregation-type-selector"
             />
 
-            {(aggregationType === 'sum' || aggregationType === 'avg') && (
+            {isPropertyValueAggregation && (
                 <TaxonomicStringPopover
                     groupType={TaxonomicFilterGroupType.NumericalEventProperties}
                     groupTypes={[TaxonomicFilterGroupType.NumericalEventProperties]}

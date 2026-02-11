@@ -146,6 +146,11 @@ export const retentionLogic = kea<retentionLogicType>([
     }),
     selectors({
         hasValidBreakdown: [(s) => [s.breakdownFilter], (breakdownFilter) => isValidBreakdown(breakdownFilter)],
+        isPropertyValueAggregation: [
+            (s) => [s.retentionFilter],
+            (retentionFilter: RetentionFilter | undefined) =>
+                retentionFilter?.aggregationType === 'sum' || retentionFilter?.aggregationType === 'avg',
+        ],
         results: [
             (s) => [s.insightQuery, s.insightData, s.retentionFilter, s.timezone],
             (insightQuery, insightData, retentionFilter, timezone): ProcessedRetentionPayload[] => {

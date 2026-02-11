@@ -35,6 +35,7 @@ export function RetentionTable({
         breakdownDisplayNames,
         tableHeaders,
         retentionFilter,
+        isPropertyValueAggregation,
     } = useValues(retentionTableLogic(insightProps))
     const { toggleBreakdown, setHoveredColumn } = useActions(retentionTableLogic(insightProps))
     const { hoveredColumn } = useValues(retentionTableLogic(insightProps))
@@ -52,7 +53,7 @@ export function RetentionTable({
     const isSingleBreakdown = Object.keys(tableRowsSplitByBreakdownValue).length === 1
 
     const aggregationType = retentionFilter?.aggregationType
-    const showSizeColumn = (!hideSizeColumn && !aggregationType) || aggregationType === 'count'
+    const showSizeColumn = !hideSizeColumn && (!aggregationType || aggregationType === 'count')
 
     return (
         <table
@@ -159,11 +160,10 @@ export function RetentionTable({
                                         <CohortDay
                                             percentage={meanData?.meanPercentages?.[interval] ?? 0}
                                             value={
-                                                aggregationType === 'sum' || aggregationType === 'avg'
+                                                isPropertyValueAggregation
                                                     ? (meanData?.meanValues?.[interval] ?? 0)
                                                     : undefined
                                             }
-                                            aggregationType={aggregationType}
                                             clickable={false}
                                             backgroundColor={backgroundColorMean}
                                         />
@@ -212,11 +212,8 @@ export function RetentionTable({
                                                         <CohortDay
                                                             percentage={column.percentage}
                                                             value={
-                                                                aggregationType === 'sum' || aggregationType === 'avg'
-                                                                    ? column.count
-                                                                    : undefined
+                                                                isPropertyValueAggregation ? column.count : undefined
                                                             }
-                                                            aggregationType={aggregationType}
                                                             clickable={true}
                                                             isCurrentPeriod={column.isCurrentPeriod}
                                                             backgroundColor={backgroundColor}
@@ -238,14 +235,12 @@ export function RetentionTable({
 function CohortDay({
     percentage,
     value,
-    aggregationType,
     clickable,
     backgroundColor,
     isCurrentPeriod,
 }: {
     percentage: number
     value?: number
-    aggregationType?: 'count' | 'sum' | 'avg'
     clickable: boolean
     backgroundColor: string
     isCurrentPeriod?: boolean
@@ -263,9 +258,7 @@ function CohortDay({
             // eslint-disable-next-line react/forbid-dom-props
             style={!isCurrentPeriod ? { backgroundColor: saturatedBackgroundColor, color: textColor } : undefined}
         >
-            {(aggregationType === 'sum' || aggregationType === 'avg') && value !== undefined
-                ? humanFriendlyNumber(value)
-                : `${percentage.toFixed(1)}%`}
+            {value !== undefined ? humanFriendlyNumber(value) : `${percentage.toFixed(1)}%`}
         </div>
     )
     return isCurrentPeriod ? <Tooltip title="Period in progress">{numberCell}</Tooltip> : numberCell
