@@ -132,6 +132,7 @@ jobs:
                     - hook-worker
                     - kafka-deduplicator
                     - limiters
+                    - personhog-replica
                     - posthog-symbol-data
                     - property-defs-rs
                     - serve-metrics

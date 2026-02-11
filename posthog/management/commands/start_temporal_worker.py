@@ -129,6 +129,10 @@ from products.batch_exports.backend.temporal import (
     ACTIVITIES as BATCH_EXPORTS_ACTIVITIES,
     WORKFLOWS as BATCH_EXPORTS_WORKFLOWS,
 )
+from products.signals.backend.temporal import (
+    ACTIVITIES as SIGNALS_ACTIVITIES,
+    WORKFLOWS as SIGNALS_WORKFLOWS,
+)
 from products.tasks.backend.temporal import (
     ACTIVITIES as TASKS_ACTIVITIES,
     WORKFLOWS as TASKS_WORKFLOWS,
@@ -220,8 +224,8 @@ _task_queue_specs = [
     ),
     (
         settings.VIDEO_EXPORT_TASK_QUEUE,
-        VIDEO_EXPORT_WORKFLOWS,
-        VIDEO_EXPORT_ACTIVITIES,
+        VIDEO_EXPORT_WORKFLOWS + SIGNALS_WORKFLOWS,
+        VIDEO_EXPORT_ACTIVITIES + SIGNALS_ACTIVITIES,
     ),
     (
         settings.SESSION_REPLAY_TASK_QUEUE,

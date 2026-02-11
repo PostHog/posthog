@@ -16436,6 +16436,10 @@
                     "description": "Customizations for the appearance of result datasets.",
                     "type": "object"
                 },
+                "showTrendLines": {
+                    "description": "Display linear regression trend lines on the chart (only for historical trends viz)",
+                    "type": "boolean"
+                },
                 "showValuesOnSeries": {
                     "default": false,
                     "type": "boolean"

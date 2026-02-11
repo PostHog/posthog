@@ -5,10 +5,28 @@ use bytesize::ByteSize;
 use common_continuous_profiling::ContinuousProfilingConfig;
 use envconfig::Envconfig;
 
+/// Pipeline type for the deduplicator service.
+///
+/// Each pipeline type handles a different event format:
+/// - `IngestionEvents`: Events from capture (CapturedEvent/RawEvent format)
+/// - `ClickHouseEvents`: Events from ingestion pipeline (ClickHouseEvent format)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, strum_macros::EnumString)]
+#[strum(serialize_all = "snake_case")]
+pub enum PipelineType {
+    #[default]
+    IngestionEvents,
+    ClickHouseEvents,
+}
+
 #[derive(Envconfig, Clone, Debug)]
 pub struct Config {
     #[envconfig(nested = true)]
     pub continuous_profiling: ContinuousProfilingConfig,
+
+    /// Pipeline type determines the event format and processing logic.
+    /// Valid values: "ingestion_events" (default), "clickhouse_events"
+    #[envconfig(default = "ingestion_events")]
+    pub pipeline_type: PipelineType,
 
     // Kafka configuration
     #[envconfig(default = "localhost:9092")]

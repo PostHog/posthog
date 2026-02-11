@@ -75,23 +75,25 @@ SAMPLE_HEARTBEAT_TIMEOUT = timedelta(seconds=120)  # 2 minutes - sampling has lo
 # Schedule-to-close timeouts - caps total time including all retry attempts,
 # backoff intervals, and queue time. Prevents runaway retries from blocking
 # the workflow indefinitely when something is fundamentally broken.
-SAMPLE_SCHEDULE_TO_CLOSE_TIMEOUT = timedelta(seconds=1800)  # 30 min total for sampling (3 attempts * 900s + backoff)
+SAMPLE_SCHEDULE_TO_CLOSE_TIMEOUT = timedelta(seconds=1200)  # 20 min total for sampling (2 attempts * 900s + backoff)
 
 # Activity 1: Fetch + format + store in Redis (fast, ClickHouse-bound)
 FETCH_AND_FORMAT_START_TO_CLOSE_TIMEOUT = timedelta(seconds=120)
-FETCH_AND_FORMAT_SCHEDULE_TO_CLOSE_TIMEOUT = timedelta(seconds=600)
+FETCH_AND_FORMAT_SCHEDULE_TO_CLOSE_TIMEOUT = timedelta(
+    seconds=360
+)  # 6 min total for fetch+format (2 attempts * 120s + backoff)
 FETCH_AND_FORMAT_HEARTBEAT_TIMEOUT = timedelta(seconds=60)
 FETCH_AND_FORMAT_RETRY_POLICY = RetryPolicy(
-    maximum_attempts=3,
+    maximum_attempts=2,
     non_retryable_error_types=["ValueError", "TypeError"],
 )
 
 # Activity 2: Summarize + save (slow, I/O-bound LLM call - heartbeats work)
 SUMMARIZE_AND_SAVE_START_TO_CLOSE_TIMEOUT = timedelta(seconds=900)
-SUMMARIZE_AND_SAVE_SCHEDULE_TO_CLOSE_TIMEOUT = timedelta(seconds=2700)
+SUMMARIZE_AND_SAVE_SCHEDULE_TO_CLOSE_TIMEOUT = timedelta(seconds=1200)  # 20 min total (2 attempts * 900s + backoff)
 SUMMARIZE_AND_SAVE_HEARTBEAT_TIMEOUT = timedelta(seconds=60)
 SUMMARIZE_AND_SAVE_RETRY_POLICY = RetryPolicy(
-    maximum_attempts=4,
+    maximum_attempts=2,
     initial_interval=timedelta(seconds=15),
     backoff_coefficient=2.0,
     maximum_interval=timedelta(seconds=60),
@@ -104,10 +106,10 @@ COORDINATOR_EXECUTION_TIMEOUT_MINUTES = 55  # Must finish before next hourly tri
 
 # Retry policies
 SAMPLE_RETRY_POLICY = RetryPolicy(
-    maximum_attempts=3,
+    maximum_attempts=2,
     non_retryable_error_types=["ValueError", "TypeError"],
 )
-COORDINATOR_CHILD_WORKFLOW_RETRY_POLICY = RetryPolicy(maximum_attempts=2)
+COORDINATOR_CHILD_WORKFLOW_RETRY_POLICY = RetryPolicy(maximum_attempts=1)
 
 # Event schema
 EVENT_NAME_TRACE_SUMMARY = "$ai_trace_summary"
