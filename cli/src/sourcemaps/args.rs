@@ -53,14 +53,14 @@ pub struct ReleaseArgs {
     /// The project name associated with the uploaded chunks. Required to have the uploaded chunks associated with
     /// a specific release. We will try to auto-derive this from git information if not provided. Strongly recommended
     /// to be set explicitly during release CD workflows
-    #[arg(long, name = "release-name", alias = "project")]
+    #[arg(long = "release-name", alias = "project")]
     // deprecated alias for backwards compatibility
     pub name: Option<String>,
 
     /// The version of the project - this can be a version number, semantic version, or a git commit hash. Required
     /// to have the uploaded chunks associated with a specific release. We will try to auto-derive this from git information
     /// if not provided.
-    #[arg(long, name = "release-version", alias = "version")]
+    #[arg(long = "release-version", alias = "version")]
     // deprecated alias for backwards compatibility
     pub version: Option<String>,
 
