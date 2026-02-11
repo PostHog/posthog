@@ -853,7 +853,7 @@ def ensure_preaggregated(
             table=table,
             base_placeholders=base_placeholders,
         )
-        sync_execute(insert_sql, values, settings={"load_balancing": "in_order"})
+    sync_execute(insert_sql, values, settings=HogQLQuerySettings(load_balancing="in_order"))
 
     executor = PreaggregationExecutor(ttl_seconds=ttl_seconds)
     return executor.execute(team, query_info, time_range_start, time_range_end, run_insert=_run_manual_insert)
