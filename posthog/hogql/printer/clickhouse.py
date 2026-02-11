@@ -68,7 +68,7 @@ class ClickHousePrinter(HogQLPrinter):
             if not isinstance(node, ast.SelectQuery) and not isinstance(node, ast.SelectSetQuery):
                 raise QueryError("Settings can only be applied to SELECT queries")
             merged = self._merge_table_top_level_settings(self.settings)
-            printed = self._print_settings(merged if merged is not None else self.settings)
+            printed = self._print_settings(merged)
             if printed is not None:
                 response += " " + printed
 
