@@ -168,6 +168,10 @@ export const settingsLogic = kea<settingsLogicType>([
 
     listeners({
         selectSection: () => {
+            // Don't scroll to top if there's a hash - let useAnchor handle it
+            if (router.values.location.hash) {
+                return
+            }
             setTimeout(() => {
                 const mainElement = document.querySelector('main')
                 if (mainElement) {
