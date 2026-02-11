@@ -130,6 +130,29 @@ export interface PatchedTaskApi {
 }
 
 /**
+ * * `interactive` - interactive
+ * `background` - background
+ */
+export type TaskRunCreateRequestModeEnumApi =
+    (typeof TaskRunCreateRequestModeEnumApi)[keyof typeof TaskRunCreateRequestModeEnumApi]
+
+export const TaskRunCreateRequestModeEnumApi = {
+    interactive: 'interactive',
+    background: 'background',
+} as const
+
+/**
+ * Request body for creating a new task run
+ */
+export interface TaskRunCreateRequestApi {
+    /** Execution mode: 'interactive' for user-connected runs, 'background' for autonomous runs
+
+* `interactive` - interactive
+* `background` - background */
+    mode?: TaskRunCreateRequestModeEnumApi
+}
+
+/**
  * * `not_started` - Not Started
  * `queued` - Queued
  * `in_progress` - In Progress
@@ -351,6 +374,14 @@ export interface TaskRunArtifactPresignResponseApi {
     url: string
     /** URL expiry in seconds */
     expires_in: number
+}
+
+/**
+ * Response containing a JWT token for direct sandbox connection
+ */
+export interface ConnectionTokenResponseApi {
+    /** JWT token for authenticating with the sandbox */
+    token: string
 }
 
 export type TasksListParams = {
