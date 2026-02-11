@@ -81,8 +81,10 @@ Choose the severity:
 Choose the ticket type:
 {kinds}
 
+For each field, also provide a confidence score from 0.0 to 1.0.
+
 Respond with ONLY valid JSON matching this exact schema:
-{{"target_area": "<key>", "severity_level": "<key>", "kind": "<key>"}}
+{{"target_area": "<key>", "target_area_confidence": <float>, "severity_level": "<key>", "severity_level_confidence": <float>, "kind": "<key>", "kind_confidence": <float>}}
 
 Do not include any explanation or other text."""
 
