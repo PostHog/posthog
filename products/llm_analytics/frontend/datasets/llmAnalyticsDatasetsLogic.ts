@@ -190,6 +190,9 @@ export const llmAnalyticsDatasetsLogic = kea<llmAnalyticsDatasetsLogicType>([
             const newFilters = cleanFilters(searchParams)
             if (values.rawFilters === null || !objectsEqual(values.filters, newFilters)) {
                 actions.setFilters(newFilters, false)
+            } else {
+                // Scene logic persists across internal tab switches, so refresh when re-entering the list route.
+                actions.loadDatasets(false)
             }
         },
     })),
