@@ -12,18 +12,6 @@ from posthog.hogql.database.models import (
 )
 from posthog.hogql.database.postgres_table import PostgresTable
 
-from posthog.scopes import APIScopeObject
-
-# Map system table names to ACCESS_CONTROL_RESOURCES
-SYSTEM_TABLE_TO_RESOURCE: dict[str, APIScopeObject] = {
-    "dashboards": "dashboard",
-    "insights": "insight",
-    "experiments": "experiment",
-    "feature_flags": "feature_flag",
-    "surveys": "survey",
-    "data_warehouse_sources": "external_data_source",
-}
-
 
 class IngestionWarningsTable(Table):
     fields: dict[str, FieldOrTable] = {
@@ -68,6 +56,7 @@ cohorts: PostgresTable = PostgresTable(
 dashboards: PostgresTable = PostgresTable(
     name="dashboards",
     postgres_table_name="posthog_dashboard",
+    access_scope="dashboard",
     fields={
         "id": IntegerDatabaseField(name="id"),
         "team_id": IntegerDatabaseField(name="team_id"),
@@ -84,6 +73,7 @@ dashboards: PostgresTable = PostgresTable(
 insights: PostgresTable = PostgresTable(
     name="insights",
     postgres_table_name="posthog_dashboarditem",
+    access_scope="insight",
     fields={
         "id": IntegerDatabaseField(name="id"),
         "short_id": StringDatabaseField(name="short_id"),
@@ -105,6 +95,7 @@ insights: PostgresTable = PostgresTable(
 experiments: PostgresTable = PostgresTable(
     name="experiments",
     postgres_table_name="posthog_experiment",
+    access_scope="experiment",
     fields={
         "id": IntegerDatabaseField(name="id"),
         "team_id": IntegerDatabaseField(name="team_id"),
@@ -127,6 +118,7 @@ experiments: PostgresTable = PostgresTable(
 data_warehouse_sources: PostgresTable = PostgresTable(
     name="data_warehouse_sources",
     postgres_table_name="posthog_externaldatasource",
+    access_scope="external_data_source",
     fields={
         "id": IntegerDatabaseField(name="id"),
         "team_id": IntegerDatabaseField(name="team_id"),
@@ -143,6 +135,7 @@ data_warehouse_sources: PostgresTable = PostgresTable(
 feature_flags: PostgresTable = PostgresTable(
     name="feature_flags",
     postgres_table_name="posthog_featureflag",
+    access_scope="feature_flag",
     fields={
         "id": IntegerDatabaseField(name="id"),
         "team_id": IntegerDatabaseField(name="team_id"),
@@ -198,6 +191,7 @@ insight_variables: PostgresTable = PostgresTable(
 surveys: PostgresTable = PostgresTable(
     name="surveys",
     postgres_table_name="posthog_survey",
+    access_scope="survey",
     fields={
         "id": IntegerDatabaseField(name="id"),
         "team_id": IntegerDatabaseField(name="team_id"),

@@ -1,7 +1,6 @@
 from typing import TYPE_CHECKING, Optional
 
 from posthog.hogql import ast
-from posthog.hogql.database.schema.system import SYSTEM_TABLE_TO_RESOURCE
 
 if TYPE_CHECKING:
     from posthog.hogql.context import HogQLContext
@@ -52,7 +51,7 @@ def build_access_control_guard(
     Build access control WHERE clause for system tables.
     Returns None if no filtering needed.
     """
-    resource = SYSTEM_TABLE_TO_RESOURCE.get(table.name)
+    resource = table.access_scope
     if not resource:
         return None
 

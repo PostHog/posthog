@@ -358,7 +358,7 @@ class Database(BaseModel):
 
     def _filter_system_tables_for_user(self, user: "User", team: "Team") -> None:
         """Remove system tables user doesn't have resource access to."""
-        from posthog.hogql.database.schema.system import SYSTEM_TABLE_TO_RESOURCE
+        from posthog.hogql.database.postgres_table import PostgresTable
 
         from posthog.models import OrganizationMembership
         from posthog.rbac.user_access_control import NO_ACCESS_LEVEL, UserAccessControl
@@ -374,18 +374,18 @@ class Database(BaseModel):
             return
 
         denied: set[str] = set()
-        for table_name in list(system_node.children.keys()):
-            resource = SYSTEM_TABLE_TO_RESOURCE.get(table_name)
-            if resource is None:
+        for table_node in list(system_node.children.values()):
+            table = table_node.table
+            if not isinstance(table, PostgresTable) or table.access_scope is None:
                 continue  # Not access-controlled, keep it
 
-            access_level = self.user_access_control.access_level_for_resource(resource)
+            access_level = self.user_access_control.access_level_for_resource(table.access_scope)
             if access_level and access_level != NO_ACCESS_LEVEL:
                 continue  # User has access, keep it
 
             # No access — remove from schema
-            del system_node.children[table_name]
-            denied.add(f"system.{table_name}")
+            del system_node.children[table_node.name]
+            denied.add(f"system.{table_node.name}")
 
         self._denied_tables = denied
 
