@@ -3,7 +3,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import React from 'react'
 
-import { LemonDivider } from '@posthog/lemon-ui'
+import { LemonDivider, Tooltip } from '@posthog/lemon-ui'
 
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { Lettermark, LettermarkColor } from 'lib/lemon-ui/Lettermark'
@@ -98,7 +98,12 @@ export const FunnelFlowNode = React.memo(function FunnelFlowNode({ data }: { dat
                             <span className="text-xs font-semibold">{formatConvertedPercentage(step)} converted</span>
                             {step.median_conversion_time != null && (
                                 <span className="text-xs text-muted">
-                                    Median time: {formatMedianConversionTime(step)}
+                                    <Tooltip
+                                        title="Median time of conversion from previous step"
+                                        placement="bottom-start"
+                                    >
+                                        Median time: {formatMedianConversionTime(step)}
+                                    </Tooltip>
                                 </span>
                             )}
                         </>
