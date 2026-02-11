@@ -1,10 +1,13 @@
 // Inspired by https://github.com/soverenio/framerate-react (MIT)
-import type { PostHog } from 'posthog-js'
 
 const LONG_FRAME_THRESHOLD_MS = 50
 const CAPTURE_INTERVAL_MS = 30_000
 
-export function startFramerateTracking(posthog: PostHog): void {
+interface Capturable {
+    capture: (event: string, properties?: Record<string, unknown>) => void
+}
+
+export function startFramerateTracking(posthog: Capturable): void {
     let rafId: number | null = null
     let captureIntervalId: number | null = null
     let previousTimestamp: number | null = null
