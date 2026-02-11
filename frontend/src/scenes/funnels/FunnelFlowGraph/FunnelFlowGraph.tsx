@@ -2,6 +2,7 @@ import '@xyflow/react/dist/style.css'
 
 import { Background, BackgroundVariant, Controls, NodeTypes, ReactFlow, ReactFlowProvider } from '@xyflow/react'
 import { useValues } from 'kea'
+import { useCallback } from 'react'
 
 import { insightLogic } from 'scenes/insights/insightLogic'
 
@@ -25,6 +26,10 @@ function FunnelFlowGraphContent(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { layoutedNodes, edges } = useValues(funnelFlowGraphLogic(insightProps))
 
+    const closeOpenPopovers = useCallback(() => {
+        document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }))
+    }, [])
+
     return (
         <div className="relative w-full" style={{ height: 'var(--insight-viz-min-height)' }}>
             <ReactFlow
@@ -40,6 +45,8 @@ function FunnelFlowGraphContent(): JSX.Element {
                 elevateNodesOnSelect={false}
                 minZoom={0.25}
                 maxZoom={1.5}
+                onPaneClick={closeOpenPopovers}
+                onNodeClick={closeOpenPopovers}
             >
                 <Background gap={36} variant={BackgroundVariant.Dots} />
                 <Controls showInteractive={false} fitViewOptions={FIT_VIEW_OPTIONS} />
