@@ -1102,7 +1102,7 @@ class TestExperimentCRUD(APILicensedTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("unknown kind", response.json()["detail"].lower())
+        self.assertEqual(response.json()["attr"], "metrics")
 
     def test_accepts_metrics_with_array_properties(self):
         response = self.client.post(

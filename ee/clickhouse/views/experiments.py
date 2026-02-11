@@ -257,7 +257,7 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
                 try:
                     ExperimentMetric.model_validate(metric)
                 except pydantic.ValidationError as e:
-                    raise ValidationError(f"Invalid metric at index {i}: {e}")
+                    raise ValidationError(f"Invalid metric at index {i}: {e.errors()}")
 
         return metrics
 
