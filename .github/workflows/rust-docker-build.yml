@@ -99,6 +99,7 @@ jobs:
                   sparse-checkout-cone-mode: false
 
             - name: Copy proto files into rust build context
+              working-directory: .
               run: cp -r proto rust/proto
 
             - name: Set up Depot CLI
