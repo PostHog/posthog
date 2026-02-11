@@ -774,28 +774,21 @@ impl FeatureFlagMatcher {
 
         match eval_type {
             EvaluationType::Sequential => {
-                let results: Vec<_> = flags_to_evaluate
-                    .iter()
-                    .map(|flag| {
-                        let result = self.evaluate_single_flag(
-                            flag,
-                            &precomputed_property_overrides,
-                            flags_with_missing_deps,
-                            hash_key_overrides,
-                            request_hash_key_override,
-                        );
-                        (flag, result)
-                    })
-                    .collect();
-
-                for (flag, result) in &results {
+                flags_to_evaluate.iter().for_each(|flag| {
+                    let result = self.evaluate_single_flag(
+                        flag,
+                        &precomputed_property_overrides,
+                        flags_with_missing_deps,
+                        hash_key_overrides,
+                        request_hash_key_override,
+                    );
                     self.process_flag_result(
                         flag,
-                        result,
+                        &result,
                         &mut level_evaluated_flags_map,
                         &mut errors_while_computing_flags,
                     );
-                }
+                });
             }
             EvaluationType::Parallel => {
                 let results: Vec<_> = flags_to_evaluate
