@@ -316,6 +316,7 @@ async def execute_llm_judge_activity(evaluation: dict[str, Any], event_data: dic
         # TODO(llma): Remove after migration completes - legacy evals without model_configuration
         provider = "openai"
         model = DEFAULT_JUDGE_MODEL
+        base_url = None
         provider_key = await database_sync_to_async(_get_legacy_provider_key)()
 
     is_byok = provider_key is not None
