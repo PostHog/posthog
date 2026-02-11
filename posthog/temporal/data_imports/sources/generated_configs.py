@@ -258,6 +258,11 @@ class SnowflakeSourceConfig(config.Config):
 
 
 @config.config
+class StackAdaptAdsSourceConfig(config.Config):
+    api_token: str
+
+
+@config.config
 class StripeSourceConfig(config.Config):
     stripe_secret_key: str
     stripe_account_id: str | None = None
@@ -337,6 +342,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.SHOPIFY: ShopifySourceConfig,
         ExternalDataSourceType.SNAPCHATADS: SnapchatAdsSourceConfig,
         ExternalDataSourceType.SNOWFLAKE: SnowflakeSourceConfig,
+        ExternalDataSourceType.STACKADAPTADS: StackAdaptAdsSourceConfig,
         ExternalDataSourceType.STRIPE: StripeSourceConfig,
         ExternalDataSourceType.SUPABASE: SupabaseSourceConfig,
         ExternalDataSourceType.TEMPORALIO: TemporalIOSourceConfig,

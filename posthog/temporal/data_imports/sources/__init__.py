@@ -29,6 +29,7 @@ from .salesforce.source import SalesforceSource
 from .shopify.source import ShopifySource
 from .snapchat_ads.source import SnapchatAdsSource
 from .snowflake.source import SnowflakeSource
+from .stackadapt_ads.source import StackAdaptAdsSource
 from .stripe.source import StripeSource
 from .supabase.source import SupabaseSource
 from .temporalio.source import TemporalIOSource
@@ -69,6 +70,7 @@ __all__ = [
     "SalesforceSource",
     "ShopifySource",
     "SnapchatAdsSource",
+    "StackAdaptAdsSource",
     "SnowflakeSource",
     "StripeSource",
     "TemporalIOSource",
