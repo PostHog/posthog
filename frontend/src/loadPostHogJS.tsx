@@ -41,6 +41,109 @@ export function loadPostHogJS(): void {
                 } else {
                     loadedInstance.opt_in_capturing()
 
+                    if (loadedInstance.getFeatureFlag(FEATURE_FLAGS.TRACK_FRAMERATE)) {
+                        const LONG_FRAME_THRESHOLD_MS = 50
+                        const CAPTURE_INTERVAL_MS = 30_000
+
+                        let rafId: number | null = null
+                        let previousTimestamp: number | null = null
+                        let frameCount = 0
+                        let frameTimeSum = 0
+                        let shortestFrame = Infinity
+                        let longestFrame = 0
+                        let longFrameCount = 0
+                        let measurementStart = 0
+
+                        const resetStats = (): void => {
+                            previousTimestamp = null
+                            frameCount = 0
+                            frameTimeSum = 0
+                            shortestFrame = Infinity
+                            longestFrame = 0
+                            longFrameCount = 0
+                            measurementStart = performance.now()
+                        }
+
+                        const captureFramerate = (): void => {
+                            if (frameCount === 0) {
+                                return
+                            }
+                            const elapsed = performance.now() - measurementStart
+                            const avgFrameTime = frameTimeSum / frameCount
+                            loadedInstance.capture('$$framerate', {
+                                avg_fps: Math.round((frameCount / elapsed) * 1000),
+                                avg_frame_time_ms: Math.round(avgFrameTime * 100) / 100,
+                                min_frame_time_ms: Math.round(shortestFrame * 100) / 100,
+                                max_frame_time_ms: Math.round(longestFrame * 100) / 100,
+                                long_frame_count: longFrameCount,
+                                total_frames: frameCount,
+                                measurement_duration_ms: Math.round(elapsed),
+                            })
+                            resetStats()
+                        }
+
+                        const onAnimationFrame = (timestamp: number): void => {
+                            if (previousTimestamp !== null) {
+                                const delta = timestamp - previousTimestamp
+                                frameCount++
+                                frameTimeSum += delta
+                                if (delta < shortestFrame) {
+                                    shortestFrame = delta
+                                }
+                                if (delta > longestFrame) {
+                                    longestFrame = delta
+                                }
+                                if (delta > LONG_FRAME_THRESHOLD_MS) {
+                                    longFrameCount++
+                                }
+                            }
+                            previousTimestamp = timestamp
+                            rafId = requestAnimationFrame(onAnimationFrame)
+                        }
+
+                        let captureIntervalId: number | null = null
+
+                        const startTracking = (): void => {
+                            if (rafId !== null) {
+                                return
+                            }
+                            resetStats()
+                            rafId = requestAnimationFrame(onAnimationFrame)
+                            captureIntervalId = window.setInterval(captureFramerate, CAPTURE_INTERVAL_MS)
+                        }
+
+                        const stopTracking = (): void => {
+                            if (rafId !== null) {
+                                cancelAnimationFrame(rafId)
+                                rafId = null
+                            }
+                            if (captureIntervalId !== null) {
+                                clearInterval(captureIntervalId)
+                                captureIntervalId = null
+                            }
+                        }
+
+                        const onFramerateVisibilityChange = (): void => {
+                            if (document.hidden) {
+                                captureFramerate()
+                                stopTracking()
+                            } else {
+                                startTracking()
+                            }
+                        }
+
+                        document.addEventListener('visibilitychange', onFramerateVisibilityChange)
+
+                        if (!document.hidden) {
+                            startTracking()
+                        }
+
+                        window.addEventListener('beforeunload', () => {
+                            stopTracking()
+                            document.removeEventListener('visibilitychange', onFramerateVisibilityChange)
+                        })
+                    }
+
                     if (loadedInstance.getFeatureFlag(FEATURE_FLAGS.TRACK_MEMORY_USAGE)) {
                         const hasMemory = 'memory' in window.performance
                         if (!hasMemory) {
