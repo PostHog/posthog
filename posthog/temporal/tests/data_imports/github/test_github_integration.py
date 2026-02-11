@@ -116,10 +116,10 @@ async def test_github_issues_incremental(
 
     api_calls = mock_github_api.get_all_api_calls()
     assert len(api_calls) == 1
-    # First sync should not have a since param but should have sort params
+    # First sync uses created asc default for stable pagination
     first_call_params = parse_qs(urlparse(api_calls[0].url).query)
     assert "since" not in first_call_params
-    assert first_call_params.get("sort") == ["updated"]
+    assert first_call_params.get("sort") == ["created"]
     assert first_call_params.get("direction") == ["asc"]
 
     # Second sync: make all data visible
@@ -189,8 +189,7 @@ async def test_github_pull_requests_incremental(
     api_calls = mock_github_api.get_all_api_calls()
     assert len(api_calls) == 1
     first_call_params = parse_qs(urlparse(api_calls[0].url).query)
-    # First sync has no cutoff, so desc sort is skipped to avoid
-    # pagination instability from sorting by a mutable field
-    assert "sort" not in first_call_params
-    assert "direction" not in first_call_params
+    # First sync uses created asc for stable offset-based pagination
+    assert first_call_params.get("sort") == ["created"]
+    assert first_call_params.get("direction") == ["asc"]
     assert "since" not in first_call_params

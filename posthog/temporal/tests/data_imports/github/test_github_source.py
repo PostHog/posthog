@@ -112,7 +112,7 @@ class TestGetResource:
         assert params["direction"] == "desc"
         assert "since" not in params
 
-    def test_pull_requests_incremental_no_sort_without_cutoff(self):
+    def test_pull_requests_incremental_created_asc_without_cutoff(self):
         resource = get_resource(
             "pull_requests",
             "owner/repo",
@@ -121,15 +121,15 @@ class TestGetResource:
         )
         params = _endpoint_params(resource)
 
-        assert "sort" not in params
-        assert "direction" not in params
+        assert params["sort"] == "created"
+        assert params["direction"] == "asc"
 
-    def test_pull_requests_full_refresh_no_sort(self):
+    def test_pull_requests_full_refresh_created_asc(self):
         resource = get_resource("pull_requests", "owner/repo", should_use_incremental_field=False)
         params = _endpoint_params(resource)
 
-        assert "sort" not in params
-        assert "direction" not in params
+        assert params["sort"] == "created"
+        assert params["direction"] == "asc"
 
     def test_issues_incremental_no_since_without_last_value(self):
         resource = get_resource(
@@ -142,7 +142,7 @@ class TestGetResource:
 
         assert resource["write_disposition"] == {"disposition": "merge", "strategy": "upsert"}
         assert "since" not in params
-        assert params["sort"] == "updated"
+        assert params["sort"] == "created"
         assert params["direction"] == "asc"
 
 
