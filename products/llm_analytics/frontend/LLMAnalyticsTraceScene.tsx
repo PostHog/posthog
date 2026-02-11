@@ -82,7 +82,6 @@ import {
     getSessionStartTimestamp,
     getTraceTimestamp,
     isLLMEvent,
-    isTraceLevel,
     removeMilliseconds,
 } from './utils'
 
@@ -323,11 +322,9 @@ function TraceMetadata({
 
     return (
         <header className="flex gap-1.5 flex-wrap">
-            {'person' in trace && (
-                <Chip title="Person">
-                    <PersonDisplay withIcon="sm" person={trace.person} />
-                </Chip>
-            )}
+            <Chip title="Person">
+                <PersonDisplay withIcon="sm" person={trace.person ?? { distinct_id: trace.distinctId }} />
+            </Chip>
             {trace.aiSessionId && (
                 <Chip
                     title={
@@ -783,9 +780,9 @@ const EventContent = React.memo(
             featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SUMMARIZATION] ||
             featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
 
-        const showClustersTab = !!event && isTraceLevel(event) && featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_CLUSTERS_TAB]
+        const showClustersTab = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_CLUSTERS_TAB]
 
-        const showFeedbackTab = !!event && isTraceLevel(event)
+        const showFeedbackTab = true
 
         // Check if we're viewing a trace with actual content vs. a pseudo-trace (grouping of generations w/o input/output state)
         const isTopLevelTraceWithoutContent = !event || (!isLLMEvent(event) && !event.inputState && !event.outputState)
@@ -1068,7 +1065,7 @@ const EventContent = React.memo(
                                                       generationEventId={event.id}
                                                       timestamp={event.createdAt}
                                                       event={event.event}
-                                                      distinctId={trace.person.distinct_id}
+                                                      distinctId={trace.person?.distinct_id ?? trace.distinctId}
                                                   />
                                               ),
                                           },

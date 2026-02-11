@@ -60,6 +60,7 @@ export enum PluginServerMode {
     ingestion_logs = 'ingestion-logs',
     cdp_batch_hogflow_requests = 'cdp-batch-hogflow-requests',
     cdp_cyclotron_shadow_worker = 'cdp-cyclotron-shadow-worker',
+    recording_api = 'recording-api',
 }
 
 export const stringToPluginServerMode = Object.fromEntries(
@@ -191,6 +192,9 @@ export type CdpConfig = {
     CYCLOTRON_SHARD_DEPTH_LIMIT: number
     CYCLOTRON_SHADOW_DATABASE_URL: string
     CDP_CYCLOTRON_SHADOW_WRITE_ENABLED: boolean
+    CDP_CYCLOTRON_TEST_SEEK_LATENCY: boolean // When true, samples consumed messages and seeks back to verify read latency
+    CDP_CYCLOTRON_TEST_SEEK_SAMPLE_RATE: number // Fraction of messages to test (0.0-1.0, e.g. 0.01 = 1%)
+    CDP_CYCLOTRON_TEST_SEEK_MAX_OFFSET: number // Max offsets to seek back (e.g. 50000000 ≈ 14 days at current throughput)
 
     // SES (Workflows email sending)
     SES_ENDPOINT: string
@@ -314,6 +318,13 @@ export type LogsIngestionConsumerConfig = {
     LOGS_LIMITER_TEAM_REFILL_RATE_KB_PER_SECOND: string
 }
 
+export type SessionRecordingApiConfig = {
+    SESSION_RECORDING_API_REDIS_HOST: string
+    SESSION_RECORDING_API_REDIS_PORT: number
+    SESSION_RECORDING_KMS_ENDPOINT: string | undefined
+    SESSION_RECORDING_DYNAMODB_ENDPOINT: string | undefined
+}
+
 export type SessionRecordingConfig = {
     // local directory might be a volume mount or a directory on disk (e.g. in local dev)
     SESSION_RECORDING_LOCAL_DIRECTORY: string
@@ -370,7 +381,8 @@ export interface PluginsServerConfig
     extends CdpConfig,
         IngestionConsumerConfig,
         LogsIngestionConsumerConfig,
-        SessionRecordingConfig {
+        SessionRecordingConfig,
+        SessionRecordingApiConfig {
     CONTINUOUS_PROFILING_ENABLED: boolean
     PYROSCOPE_SERVER_ADDRESS: string
     PYROSCOPE_APPLICATION_NAME: string
@@ -555,6 +567,7 @@ export interface PluginServerCapabilities {
     appManagementSingleton?: boolean
     evaluationScheduler?: boolean
     cdpCyclotronShadowWorker?: boolean
+    recordingApi?: boolean
 }
 
 export type TeamId = Team['id']
@@ -855,12 +868,14 @@ export interface BasePerson {
 export interface RawPerson extends BasePerson {
     created_at: string
     version: string | null
+    last_seen_at: string | null
 }
 
 /** Usable Person model. */
 export interface InternalPerson extends BasePerson {
     created_at: DateTime
     version: number
+    last_seen_at: DateTime | null
 }
 
 /** Mutable fields that can be updated on a Person via updatePerson. */
@@ -871,6 +886,7 @@ export interface PersonUpdateFields {
     is_identified: boolean
     created_at: DateTime
     version?: number // Optional: allows forcing a specific version
+    last_seen_at?: DateTime | null
 }
 
 /** Person model exposed outside of person-specific DB logic. */

@@ -14,7 +14,7 @@ DEFAULT_MAX_K = 10
 MIN_TRACES_FOR_CLUSTERING = 20
 
 # Coordinator concurrency settings
-DEFAULT_MAX_CONCURRENT_TEAMS = 3  # Max teams to process in parallel
+DEFAULT_MAX_CONCURRENT_TEAMS = 4  # Max teams to process in parallel
 
 # Workflow timeouts
 WORKFLOW_EXECUTION_TIMEOUT = timedelta(minutes=30)
@@ -45,13 +45,13 @@ EMIT_HEARTBEAT_TIMEOUT = timedelta(seconds=30)  # 30 seconds - ClickHouse writes
 # Schedule-to-close timeouts - caps total time including all retry attempts,
 # backoff intervals, and queue time. Prevents runaway retries from blocking
 # the workflow indefinitely.
-COMPUTE_SCHEDULE_TO_CLOSE_TIMEOUT = timedelta(seconds=420)  # 7 min (3 attempts * 120s + backoff)
+COMPUTE_SCHEDULE_TO_CLOSE_TIMEOUT = timedelta(seconds=300)  # 5 min (2 attempts * 120s + backoff)
 LLM_SCHEDULE_TO_CLOSE_TIMEOUT = timedelta(seconds=900)  # 15 min (2 attempts * 600s + backoff, capped)
-EMIT_SCHEDULE_TO_CLOSE_TIMEOUT = timedelta(seconds=210)  # 3.5 min (3 attempts * 60s + backoff)
+EMIT_SCHEDULE_TO_CLOSE_TIMEOUT = timedelta(seconds=150)  # 2.5 min (2 attempts * 60s + backoff)
 
 # Compute activity - CPU bound, quick retries
 COMPUTE_ACTIVITY_RETRY_POLICY = RetryPolicy(
-    maximum_attempts=3,
+    maximum_attempts=2,
     initial_interval=timedelta(seconds=1),
     maximum_interval=timedelta(seconds=10),
     backoff_coefficient=2.0,
@@ -69,7 +69,7 @@ LLM_ACTIVITY_RETRY_POLICY = RetryPolicy(
 
 # Event emission - database write, quick retries
 EMIT_ACTIVITY_RETRY_POLICY = RetryPolicy(
-    maximum_attempts=3,
+    maximum_attempts=2,
     initial_interval=timedelta(seconds=1),
     maximum_interval=timedelta(seconds=10),
     backoff_coefficient=2.0,
@@ -77,7 +77,7 @@ EMIT_ACTIVITY_RETRY_POLICY = RetryPolicy(
 )
 
 # Coordinator retry policies
-COORDINATOR_CHILD_WORKFLOW_RETRY_POLICY = RetryPolicy(maximum_attempts=2)
+COORDINATOR_CHILD_WORKFLOW_RETRY_POLICY = RetryPolicy(maximum_attempts=1)
 
 # Event properties
 EVENT_NAME = "$ai_trace_clusters"

@@ -2044,8 +2044,15 @@
                     "type": "string"
                 },
                 "ui_payload": {
-                    "description": "Payload passed through to the frontend - specifically for calls of contextual tool. Tool call messages without a ui_payload are not passed through to the frontend.",
-                    "type": "object"
+                    "anyOf": [
+                        {
+                            "type": "object"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Payload passed through to the frontend - specifically for calls of contextual tool. Tool call messages without a ui_payload are not passed through to the frontend."
                 }
             },
             "required": ["type", "content", "tool_call_id"],
@@ -16429,6 +16436,10 @@
                     "description": "Customizations for the appearance of result datasets.",
                     "type": "object"
                 },
+                "showTrendLines": {
+                    "description": "Display linear regression trend lines on the chart (only for historical trends viz)",
+                    "type": "boolean"
+                },
                 "showValuesOnSeries": {
                     "default": false,
                     "type": "boolean"
@@ -18551,6 +18562,9 @@
                 "createdAt": {
                     "type": "string"
                 },
+                "distinctId": {
+                    "type": "string"
+                },
                 "errorCount": {
                     "type": "number"
                 },
@@ -18593,7 +18607,7 @@
                     "type": "string"
                 }
             },
-            "required": ["id", "createdAt", "person", "events"],
+            "required": ["id", "createdAt", "distinctId", "events"],
             "type": "object"
         },
         "LLMTraceEvent": {
@@ -18632,6 +18646,7 @@
                     "type": "string"
                 },
                 "properties": {
+                    "additionalProperties": {},
                     "type": "object"
                 },
                 "uuid": {
