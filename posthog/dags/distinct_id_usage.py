@@ -348,7 +348,7 @@ def send_alerts(
 
     try:
         slack_client = slack.get_client()
-        channel = settings.DAGSTER_DEFAULT_SLACK_ALERTS_CHANNEL
+        channel = "#alerts-ingestion"
 
         # Post the summary message
         slack_client.chat_postMessage(channel=channel, blocks=blocks)
