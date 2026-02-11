@@ -19,6 +19,7 @@ import { initHogQLLanguage } from 'lib/monaco/languages/hogQL'
 import { initHogTemplateLanguage } from 'lib/monaco/languages/hogTemplate'
 import { initLiquidLanguage } from 'lib/monaco/languages/liquid'
 import { inStorybookTestRunner } from 'lib/utils'
+import { type SqlStatementRange, getQueryAtCursor, splitSqlQueries } from 'scenes/data-warehouse/editor/sql-utils'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { AnyDataNode, HogLanguage, HogQLMetadataResponse, NodeKind } from '~/queries/schema/schema-general'
@@ -44,6 +45,8 @@ export interface CodeEditorProps extends Omit<EditorProps, 'loading' | 'theme'> 
     originalValue?: string
     /** Enable vim keybindings */
     enableVimMode?: boolean
+    /** Split by semicolons and execute/highlight the query at cursor */
+    enableQuerySplitting?: boolean
 }
 let codeEditorIndex = 0
 
@@ -136,6 +139,7 @@ export function CodeEditor({
     onMetadataLoading,
     originalValue,
     enableVimMode,
+    enableQuerySplitting,
     ...editorProps
 }: CodeEditorProps): JSX.Element {
     const { isDarkModeOn } = useValues(themeLogic)
@@ -335,14 +339,33 @@ export function CodeEditor({
                     label: 'Save and run query',
                     keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter],
                     run: () => {
-                        const selection = editor.getSelection()
                         const model = editor.getModel()
+
+                        // 1. If text is highlighted, run that
+                        const selection = editor.getSelection()
                         if (selection && model) {
                             const highlightedText = model.getValueInRange(selection)
-                            onPressCmdEnter(highlightedText, 'selection')
-                            return
+                            if (highlightedText.trim()) {
+                                onPressCmdEnter(highlightedText, 'selection')
+                                return
+                            }
                         }
 
+                        // 2. If query splitting is enabled, find the query at cursor
+                        if (enableQuerySplitting && model) {
+                            const fullText = model.getValue()
+                            const position = editor.getPosition()
+                            if (position && fullText.includes(';')) {
+                                const cursorOffset = model.getOffsetAt(position)
+                                const queryAtCursor = getQueryAtCursor(fullText, cursorOffset)
+                                if (queryAtCursor) {
+                                    onPressCmdEnter(queryAtCursor, 'selection')
+                                    return
+                                }
+                            }
+                        }
+
+                        // 3. Fallback: run the full editor content
                         onPressCmdEnter(editor.getValue(), 'full')
                     },
                 })
@@ -357,6 +380,112 @@ export function CodeEditor({
                     lineNumber: model.getLineCount(),
                 })
             }
+        }
+
+        if (enableQuerySplitting) {
+            const decorationsCollection = editor.createDecorationsCollection([])
+            let decorationTimer: ReturnType<typeof setTimeout> | null = null
+            let lastActiveKey = ''
+
+            const setDecorations = (
+                model: importedEditor.ITextModel,
+                fullText: string,
+                active: SqlStatementRange
+            ): void => {
+                const segmentText = fullText.slice(active.startOffset, active.endOffset)
+                const firstNonWs = segmentText.search(/\S/)
+                const lastNonWs = segmentText.search(/\S\s*$/)
+                if (firstNonWs === -1) {
+                    decorationsCollection.clear()
+                    return
+                }
+
+                const decorStartPos = model.getPositionAt(active.startOffset + firstNonWs)
+                const decorEndPos = model.getPositionAt(active.startOffset + lastNonWs + 1)
+
+                const decorations: importedEditor.IModelDeltaDecoration[] = []
+                for (let line = decorStartPos.lineNumber; line <= decorEndPos.lineNumber; line++) {
+                    const isFirst = line === decorStartPos.lineNumber
+                    const isLast = line === decorEndPos.lineNumber
+                    const classes = ['active-query-block-bg', 'active-query-block-visible']
+                    if (isFirst) {
+                        classes.push('active-query-block-first')
+                    }
+                    if (isLast) {
+                        classes.push('active-query-block-last')
+                    }
+                    const startCol = isFirst ? decorStartPos.column : 1
+                    const endCol = isLast ? decorEndPos.column : model.getLineMaxColumn(line)
+                    decorations.push({
+                        range: new monaco.Range(line, startCol, line, endCol),
+                        options: {
+                            className: classes.join(' '),
+                        },
+                    })
+                }
+                decorationsCollection.set(decorations)
+            }
+
+            const updateActiveQueryDecorations = (): void => {
+                const model = editor.getModel()
+                const position = editor.getPosition()
+                if (!model || !position) {
+                    decorationsCollection.clear()
+                    lastActiveKey = ''
+                    return
+                }
+
+                const fullText = model.getValue()
+                const statements = splitSqlQueries(fullText)
+
+                if (statements.length <= 1) {
+                    decorationsCollection.clear()
+                    lastActiveKey = ''
+                    return
+                }
+
+                const cursorOffset = model.getOffsetAt(position)
+                const active = statements.find(
+                    (s) => cursorOffset >= s.startOffset && cursorOffset <= s.endOffset && s.query.length > 0
+                )
+
+                if (!active) {
+                    decorationsCollection.clear()
+                    lastActiveKey = ''
+                    return
+                }
+
+                const activeKey = `${active.startOffset}:${active.endOffset}`
+                if (activeKey === lastActiveKey) {
+                    return
+                }
+                lastActiveKey = activeKey
+
+                // Clear old decorations immediately, then fade in new ones after a short delay
+                decorationsCollection.clear()
+                if (decorationTimer) {
+                    clearTimeout(decorationTimer)
+                }
+                decorationTimer = setTimeout(() => {
+                    setDecorations(model, fullText, active)
+                }, 300)
+            }
+
+            monacoDisposables.current.push(
+                editor.onDidChangeCursorPosition(updateActiveQueryDecorations),
+                editor.onDidChangeModelContent(updateActiveQueryDecorations),
+                {
+                    dispose: () => {
+                        if (decorationTimer) {
+                            clearTimeout(decorationTimer)
+                        }
+                        decorationsCollection.clear()
+                    },
+                }
+            )
+
+            // Set initial decorations
+            updateActiveQueryDecorations()
         }
 
         onMount?.(editor, monaco)

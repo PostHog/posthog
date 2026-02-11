@@ -273,6 +273,7 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
                 editorVimModeEnabled={vimModeFeatureEnabled && editorVimModeEnabled}
                 codeEditorProps={{
                     queryKey: codeEditorKey,
+                    enableQuerySplitting: true,
                     onChange: (v) => {
                         setQueryInput(v ?? '')
                     },

@@ -20,6 +20,24 @@
     border-radius: 0;
 }
 
+.active-query-block-bg {
+    background: var(--border-3000);
+    opacity: 0;
+    transition: opacity 200ms ease-in;
+}
+
+.active-query-block-bg.active-query-block-visible {
+    opacity: 0.5;
+}
+
+.active-query-block-first {
+    border-top: 1px solid var(--border-bold);
+}
+
+.active-query-block-last {
+    border-bottom: 1px solid var(--border-bold);
+}
+
 .CodeEditorResizeable,
 .CodeEditorInline {
     .monaco-editor {

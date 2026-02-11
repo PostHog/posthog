@@ -1,3 +1,154 @@
+export interface SqlStatementRange {
+    query: string
+    startOffset: number
+    endOffset: number
+    startLine: number
+    startColumn: number
+    endLine: number
+    endColumn: number
+}
+
+/**
+ * Splits SQL text into individual statements separated by semicolons,
+ * respecting strings, quoted identifiers, and comments.
+ */
+export const splitSqlQueries = (text: string): SqlStatementRange[] => {
+    const statements: SqlStatementRange[] = []
+    let segmentStart = 0
+    let i = 0
+
+    const enum State {
+        Normal,
+        SingleQuotedString,
+        DoubleQuotedString,
+        BacktickQuotedIdentifier,
+        LineComment,
+        BlockComment,
+    }
+
+    let state: State = State.Normal
+
+    while (i < text.length) {
+        const ch = text[i]
+        const next = i + 1 < text.length ? text[i + 1] : ''
+
+        switch (state) {
+            case State.Normal:
+                if (ch === ';') {
+                    statements.push(buildRange(text, segmentStart, i + 1))
+                    segmentStart = i + 1
+                } else if (ch === "'") {
+                    state = State.SingleQuotedString
+                } else if (ch === '"') {
+                    state = State.DoubleQuotedString
+                } else if (ch === '`') {
+                    state = State.BacktickQuotedIdentifier
+                } else if (ch === '-' && next === '-') {
+                    state = State.LineComment
+                    i++
+                } else if (ch === '/' && next === '*') {
+                    state = State.BlockComment
+                    i++
+                }
+                break
+
+            case State.SingleQuotedString:
+                if (ch === '\\') {
+                    i++
+                } else if (ch === "'" && next === "'") {
+                    i++
+                } else if (ch === "'") {
+                    state = State.Normal
+                }
+                break
+
+            case State.DoubleQuotedString:
+                if (ch === '\\') {
+                    i++
+                } else if (ch === '"' && next === '"') {
+                    i++
+                } else if (ch === '"') {
+                    state = State.Normal
+                }
+                break
+
+            case State.BacktickQuotedIdentifier:
+                if (ch === '\\') {
+                    i++
+                } else if (ch === '`') {
+                    state = State.Normal
+                }
+                break
+
+            case State.LineComment:
+                if (ch === '\n') {
+                    state = State.Normal
+                }
+                break
+
+            case State.BlockComment:
+                if (ch === '*' && next === '/') {
+                    state = State.Normal
+                    i++
+                }
+                break
+        }
+
+        i++
+    }
+
+    if (segmentStart <= text.length) {
+        statements.push(buildRange(text, segmentStart, text.length))
+    }
+
+    return statements
+}
+
+function buildRange(text: string, startOffset: number, endOffset: number): SqlStatementRange {
+    const segment = text.slice(startOffset, endOffset)
+    let startLine = 1
+    let startColumn = 1
+    for (let j = 0; j < startOffset; j++) {
+        if (text[j] === '\n') {
+            startLine++
+            startColumn = 1
+        } else {
+            startColumn++
+        }
+    }
+
+    let endLine = startLine
+    let endColumn = startColumn
+    for (let j = startOffset; j < endOffset; j++) {
+        if (text[j] === '\n') {
+            endLine++
+            endColumn = 1
+        } else {
+            endColumn++
+        }
+    }
+
+    return {
+        query: segment.trim().replace(/;$/, '').trim(),
+        startOffset,
+        endOffset,
+        startLine,
+        startColumn,
+        endLine,
+        endColumn,
+    }
+}
+
+export const getQueryAtCursor = (text: string, cursorOffset: number): string | null => {
+    const statements = splitSqlQueries(text)
+    for (const stmt of statements) {
+        if (cursorOffset >= stmt.startOffset && cursorOffset <= stmt.endOffset) {
+            return stmt.query || null
+        }
+    }
+    return null
+}
+
 export const normalizeIdentifier = (identifier: string): string => {
     return identifier.replace(/^[`"']|[`"']$/g, '').toLowerCase()
 }
