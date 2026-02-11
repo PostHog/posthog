@@ -15,6 +15,7 @@ import products.logs.backend.api as logs
 import products.links.backend.api as link
 import products.tasks.backend.api as tasks
 import products.endpoints.backend.api as endpoints
+import products.mcp_store.backend.api as mcp_store
 import products.signals.backend.views as signals
 import products.conversations.backend.api as conversations
 import products.live_debugger.backend.api as live_debugger
@@ -1215,5 +1216,19 @@ environments_router.register(
     r"mcp_tools",
     MCPToolsViewSet,
     "environment_mcp_tools",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"mcp_servers",
+    mcp_store.MCPServerViewSet,
+    "environment_mcp_servers",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"mcp_server_installations",
+    mcp_store.MCPServerInstallationViewSet,
+    "environment_mcp_server_installations",
     ["team_id"],
 )

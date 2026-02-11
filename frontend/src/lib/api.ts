@@ -653,6 +653,23 @@ export class ApiRequest {
         return this.links(teamId).addPathComponent(id)
     }
 
+    // # MCP Store
+    public mcpServers(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('mcp_servers')
+    }
+
+    public mcpServer(id: string, teamId?: TeamType['id']): ApiRequest {
+        return this.mcpServers(teamId).addPathComponent(id)
+    }
+
+    public mcpServerInstallations(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('mcp_server_installations')
+    }
+
+    public mcpServerInstallation(id: string, teamId?: TeamType['id']): ApiRequest {
+        return this.mcpServerInstallations(teamId).addPathComponent(id)
+    }
+
     // # Actions
     public actions(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('actions')
@@ -3376,6 +3393,30 @@ const api = {
         },
         async delete(id: LinkType['id']): Promise<void> {
             await new ApiRequest().link(id).delete()
+        },
+    },
+
+    mcpServers: {
+        async list(): Promise<CountedPaginatedResponse<Record<string, any>>> {
+            return await new ApiRequest().mcpServers().get()
+        },
+        async create(data: Record<string, any>): Promise<Record<string, any>> {
+            return await new ApiRequest().mcpServers().create({ data })
+        },
+        async delete(id: string): Promise<void> {
+            await new ApiRequest().mcpServer(id).delete()
+        },
+    },
+
+    mcpServerInstallations: {
+        async list(): Promise<CountedPaginatedResponse<Record<string, any>>> {
+            return await new ApiRequest().mcpServerInstallations().get()
+        },
+        async create(data: Record<string, any>): Promise<Record<string, any>> {
+            return await new ApiRequest().mcpServerInstallations().create({ data })
+        },
+        async delete(id: string): Promise<void> {
+            await new ApiRequest().mcpServerInstallation(id).delete()
         },
     },
 

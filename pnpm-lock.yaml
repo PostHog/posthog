@@ -2385,6 +2385,30 @@ importers:
         specifier: 18.3.1
         version: 18.3.1
 
+  products/mcp_store:
+    dependencies:
+      '@posthog/icons':
+        specifier: '*'
+        version: 0.36.5(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@types/react':
+        specifier: 18.3.27
+        version: 18.3.27
+      kea:
+        specifier: 'catalog:'
+        version: 3.1.7(react@18.3.1)
+      kea-forms:
+        specifier: 'catalog:'
+        version: 3.2.0(kea@3.1.7(react@18.3.1))
+      kea-loaders:
+        specifier: 'catalog:'
+        version: 3.1.1(kea@3.1.7(react@18.3.1))
+      kea-router:
+        specifier: 'catalog:'
+        version: 3.4.1(kea@3.1.7(react@18.3.1))
+      react:
+        specifier: 18.3.1
+        version: 18.3.1
+
   products/notebooks:
     dependencies:
       '@posthog/icons':
