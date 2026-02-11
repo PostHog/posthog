@@ -15,6 +15,7 @@ from django.utils import timezone as django_timezone
 from clickhouse_driver.errors import ServerException
 
 from posthog.hogql import ast
+from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
@@ -428,7 +429,9 @@ def run_preaggregation_insert(
         expires_at=job.expires_at,
     )
 
-    sync_execute(insert_sql, values, settings=HogQLQuerySettings(load_balancing="in_order"))
+    sync_execute(
+        insert_sql, values, settings=HogQLQuerySettings(load_balancing="in_order").model_dump(exclude_none=True)
+    )
 
 
 class PreaggregationExecutor:
@@ -853,7 +856,9 @@ def ensure_preaggregated(
             table=table,
             base_placeholders=base_placeholders,
         )
-    sync_execute(insert_sql, values, settings=HogQLQuerySettings(load_balancing="in_order"))
+        sync_execute(
+            insert_sql, values, settings=HogQLQuerySettings(load_balancing="in_order").model_dump(exclude_none=True)
+        )
 
     executor = PreaggregationExecutor(ttl_seconds=ttl_seconds)
     return executor.execute(team, query_info, time_range_start, time_range_end, run_insert=_run_manual_insert)
