@@ -971,6 +971,12 @@ impl FeatureFlagMatcher {
 
         let (tx, rx) = tokio::sync::oneshot::channel();
 
+        // TODO: Canonical log counters (cohorts_evaluated, flags_device_id_bucketing,
+        // property_cache_hits/misses, hash_key_override_status) are silently lost on rayon
+        // threads because CANONICAL_LOG uses tokio::task_local!. Fix by adding a thread_local!
+        // fallback: install a fresh FlagsCanonicalLogLine per flag eval, take it after, send
+        // deltas back through the oneshot channel, and merge into the real canonical log here.
+        // See: https://github.com/PostHog/posthog/issues/XXXXX
         rayon::spawn(move || {
             let results: Vec<_> = flags_to_evaluate
                 .into_par_iter()
