@@ -1087,6 +1087,23 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["attr"], "metrics")
 
+    def test_rejects_metrics_with_invalid_kind(self):
+        """Regression test: invalid metric kinds should be rejected, not silently skipped."""
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Invalid kind experiment",
+                "feature_flag_key": "invalid-kind-flag",
+                "parameters": {},
+                "filters": {},
+                "metrics": [{"kind": "ExperimentEventMetric", "event": "test"}],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("unknown kind", response.json()["detail"].lower())
+
     def test_accepts_metrics_with_array_properties(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/",
