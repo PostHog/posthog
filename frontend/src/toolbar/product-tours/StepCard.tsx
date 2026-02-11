@@ -8,7 +8,6 @@ import { getStepIcon, getStepTitle, hasElementTarget, hasIncompleteTargeting } f
 
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { joinWithUiHost } from '~/toolbar/utils'
-import { ProductTourProgressionTriggerType } from '~/types'
 
 import { TourStep, productToursLogic } from './productToursLogic'
 
@@ -37,14 +36,7 @@ export function StepCard({
 }: StepCardProps): JSX.Element {
     const { uiHost, temporaryToken } = useValues(toolbarConfigLogic)
     const { selectingStepIndex, expandedStepRect } = useValues(productToursLogic)
-    const {
-        removeStep,
-        setStepTargetingMode,
-        updateStepSelector,
-        updateStepProgressionTrigger,
-        setEditorState,
-        clearStepTargeting,
-    } = useActions(productToursLogic)
+    const { removeStep, updateStep, setEditorState } = useActions(productToursLogic)
 
     const hasTarget = hasElementTarget(step)
     const isSelecting = selectingStepIndex === index
@@ -185,7 +177,7 @@ export function StepCard({
                                     size="xsmall"
                                     fullWidth
                                     value={step.elementTargeting ?? 'auto'}
-                                    onChange={(value) => setStepTargetingMode(index, value === 'manual')}
+                                    onChange={(value) => updateStep(index, { elementTargeting: value })}
                                     options={[
                                         { value: 'auto', label: 'Auto' },
                                         { value: 'manual', label: 'Manual' },
@@ -201,7 +193,7 @@ export function StepCard({
                                     <LemonInput
                                         size="small"
                                         value={step.selector || ''}
-                                        onChange={(value) => updateStepSelector(index, value)}
+                                        onChange={(value) => updateStep(index, { selector: value, element: undefined })}
                                         placeholder="#my-element, .my-class"
                                         className="font-mono text-xs"
                                     />
@@ -216,9 +208,7 @@ export function StepCard({
                                     size="xsmall"
                                     fullWidth
                                     value={step.progressionTrigger || 'button'}
-                                    onChange={(value) =>
-                                        updateStepProgressionTrigger(index, value as ProductTourProgressionTriggerType)
-                                    }
+                                    onChange={(value) => updateStep(index, { progressionTrigger: value })}
                                     options={[
                                         { value: 'button', label: 'Next button' },
                                         { value: 'click', label: 'Element click' },
@@ -241,7 +231,17 @@ export function StepCard({
                                         size="small"
                                         type="tertiary"
                                         status="danger"
-                                        onClick={() => clearStepTargeting(index)}
+                                        onClick={() =>
+                                            updateStep(index, {
+                                                type: 'modal',
+                                                selector: undefined,
+                                                inferenceData: undefined,
+                                                screenshotMediaId: undefined,
+                                                useManualSelector: undefined,
+                                                element: undefined,
+                                                elementTargeting: undefined,
+                                            })
+                                        }
                                         icon={<IconTrash />}
                                     />
                                 )}
