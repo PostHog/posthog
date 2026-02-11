@@ -116,17 +116,16 @@ export const flagSelectionLogic = kea<flagSelectionLogicType>([
                         // Use filter-based deletion - backend handles all matching flags
                         const { limit, offset, ...filters } = paramsFromFilters
                         const response = await api.create(
-                            `api/projects/${currentProjectId}/feature_flags/bulk_delete_by_filter/`,
+                            `api/projects/${currentProjectId}/feature_flags/bulk_delete/`,
                             { filters }
                         )
                         return response as BulkDeleteResult
                     }
 
                     // Use ID-based deletion (explicit selection)
-                    const response = await api.create(
-                        `api/projects/${currentProjectId}/feature_flags/bulk_delete_by_filter/`,
-                        { ids: selectedFlagIds }
-                    )
+                    const response = await api.create(`api/projects/${currentProjectId}/feature_flags/bulk_delete/`, {
+                        ids: selectedFlagIds,
+                    })
                     return response as BulkDeleteResult
                 },
             },

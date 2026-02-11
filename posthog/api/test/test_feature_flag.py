@@ -9218,275 +9218,6 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
             assert result["status"] == "STALE"
 
 
-class TestFeatureFlagBulkDelete(APIBaseTest):
-    def test_bulk_delete_success(self):
-        # Create some flags to delete
-        flag1 = FeatureFlag.objects.create(
-            team=self.team,
-            created_by=self.user,
-            key="flag1",
-            filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
-        )
-        flag2 = FeatureFlag.objects.create(
-            team=self.team,
-            created_by=self.user,
-            key="flag2",
-            filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
-        )
-
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/feature_flags/bulk_delete/",
-            {"ids": [flag1.id, flag2.id]},
-            format="json",
-        )
-
-        assert response.status_code == 200
-        data = response.json()
-        assert len(data["deleted"]) == 2
-        assert len(data["errors"]) == 0
-
-        # Verify rollout state is included in response
-        for deleted_flag in data["deleted"]:
-            assert "rollout_state" in deleted_flag
-            assert "active_variant" in deleted_flag
-            assert deleted_flag["rollout_state"] == "partial"
-
-        # Verify flags are soft deleted
-        flag1.refresh_from_db()
-        flag2.refresh_from_db()
-        assert flag1.deleted is True
-        assert flag2.deleted is True
-
-    def test_bulk_delete_with_active_experiment(self):
-        flag = FeatureFlag.objects.create(
-            team=self.team,
-            created_by=self.user,
-            key="flag_with_experiment",
-            filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
-        )
-        Experiment.objects.create(team=self.team, created_by=self.user, feature_flag=flag)
-
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/feature_flags/bulk_delete/",
-            {"ids": [flag.id]},
-            format="json",
-        )
-
-        assert response.status_code == 200
-        data = response.json()
-        assert len(data["deleted"]) == 0
-        assert len(data["errors"]) == 1
-        assert "active experiment" in data["errors"][0]["reason"]
-
-        # Verify flag is not deleted
-        flag.refresh_from_db()
-        assert flag.deleted is False
-
-    def test_bulk_delete_with_dependent_flags(self):
-        # Create a flag that other flags depend on
-        base_flag = FeatureFlag.objects.create(
-            team=self.team,
-            created_by=self.user,
-            key="base_flag",
-            filters={"groups": [{"rollout_percentage": 100, "properties": []}]},
-        )
-        # Create a flag that depends on the base flag
-        FeatureFlag.objects.create(
-            team=self.team,
-            created_by=self.user,
-            key="dependent_flag",
-            filters={
-                "groups": [
-                    {
-                        "rollout_percentage": 100,
-                        "properties": [{"key": str(base_flag.id), "type": "flag", "value": "true"}],
-                    }
-                ]
-            },
-        )
-
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/feature_flags/bulk_delete/",
-            {"ids": [base_flag.id]},
-            format="json",
-        )
-
-        assert response.status_code == 200
-        data = response.json()
-        assert len(data["deleted"]) == 0
-        assert len(data["errors"]) == 1
-        assert "other flags depend on it" in data["errors"][0]["reason"]
-
-    def test_bulk_delete_mixed_success_and_failure(self):
-        # Create a deletable flag
-        deletable_flag = FeatureFlag.objects.create(
-            team=self.team,
-            created_by=self.user,
-            key="deletable_flag",
-            filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
-        )
-        # Create a flag with an experiment (not deletable)
-        flag_with_experiment = FeatureFlag.objects.create(
-            team=self.team,
-            created_by=self.user,
-            key="flag_with_experiment",
-            filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
-        )
-        Experiment.objects.create(team=self.team, created_by=self.user, feature_flag=flag_with_experiment)
-
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/feature_flags/bulk_delete/",
-            {"ids": [deletable_flag.id, flag_with_experiment.id, 99999]},  # 99999 doesn't exist
-            format="json",
-        )
-
-        assert response.status_code == 200
-        data = response.json()
-        assert len(data["deleted"]) == 1
-        assert data["deleted"][0]["key"] == "deletable_flag"
-        assert len(data["errors"]) == 2  # One for experiment, one for non-existent
-
-    def test_bulk_delete_no_ids(self):
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/feature_flags/bulk_delete/",
-            {"ids": []},
-            format="json",
-        )
-
-        assert response.status_code == 400
-        assert "No flag IDs provided" in response.json()["error"]
-
-    def test_bulk_delete_exceeds_limit(self):
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/feature_flags/bulk_delete/",
-            {"ids": list(range(101))},
-            format="json",
-        )
-
-        assert response.status_code == 400
-        assert "Cannot delete more than 100 flags" in response.json()["error"]
-
-    def test_bulk_delete_invalid_ids(self):
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/feature_flags/bulk_delete/",
-            {"ids": ["abc", "def"]},
-            format="json",
-        )
-
-        assert response.status_code == 400
-        assert "No valid flag IDs provided" in response.json()["error"]
-
-    def test_bulk_delete_renames_key_with_soft_deleted_experiment(self):
-        # Create flag with a soft-deleted experiment
-        flag = FeatureFlag.objects.create(
-            team=self.team,
-            created_by=self.user,
-            key="flag_with_deleted_exp",
-            filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
-        )
-        exp = Experiment.objects.create(team=self.team, created_by=self.user, feature_flag=flag)
-        exp.deleted = True
-        exp.save()
-
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/feature_flags/bulk_delete/",
-            {"ids": [flag.id]},
-            format="json",
-        )
-
-        assert response.status_code == 200
-        data = response.json()
-        assert len(data["deleted"]) == 1
-
-        # Verify flag key is renamed
-        flag.refresh_from_db()
-        assert flag.deleted is True
-        assert flag.key == f"flag_with_deleted_exp:deleted:{flag.id}"
-
-    def test_bulk_delete_cross_project_isolation(self):
-        other_team = Team.objects.create(
-            organization=self.organization, api_token="token_other_bulk", name="Other Team"
-        )
-        other_flag = FeatureFlag.objects.create(
-            team=other_team,
-            created_by=self.user,
-            key="other_team_flag",
-            filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
-        )
-
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/feature_flags/bulk_delete/",
-            {"ids": [other_flag.id]},
-            format="json",
-        )
-
-        assert response.status_code == 200
-        data = response.json()
-        assert len(data["deleted"]) == 0
-        assert len(data["errors"]) == 1
-        assert data["errors"][0]["reason"] == "Flag not found"
-
-        other_flag.refresh_from_db()
-        assert other_flag.deleted is False
-
-    def test_bulk_delete_includes_rollout_state(self):
-        # 100% boolean flag
-        fully_rolled_out = FeatureFlag.objects.create(
-            team=self.team,
-            created_by=self.user,
-            key="fully_rolled_out",
-            filters={"groups": [{"rollout_percentage": 100, "properties": []}]},
-        )
-        # 0% flag
-        zero_rollout = FeatureFlag.objects.create(
-            team=self.team,
-            created_by=self.user,
-            key="zero_rollout",
-            filters={"groups": [{"rollout_percentage": 0, "properties": []}]},
-        )
-        # Partial rollout flag
-        partial = FeatureFlag.objects.create(
-            team=self.team,
-            created_by=self.user,
-            key="partial_rollout",
-            filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
-        )
-        # Multivariate fully rolled out to one variant
-        multivariate = FeatureFlag.objects.create(
-            team=self.team,
-            created_by=self.user,
-            key="multivariate_full",
-            filters={
-                "groups": [{"rollout_percentage": 100, "properties": []}],
-                "multivariate": {"variants": [{"key": "winner", "rollout_percentage": 100}]},
-            },
-        )
-
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/feature_flags/bulk_delete/",
-            {"ids": [fully_rolled_out.id, zero_rollout.id, partial.id, multivariate.id]},
-            format="json",
-        )
-
-        assert response.status_code == 200
-        data = response.json()
-        assert len(data["deleted"]) == 4
-
-        by_key = {d["key"]: d for d in data["deleted"]}
-
-        assert by_key["fully_rolled_out"]["rollout_state"] == "fully_rolled_out"
-        assert by_key["fully_rolled_out"]["active_variant"] is None
-
-        assert by_key["zero_rollout"]["rollout_state"] == "not_rolled_out"
-        assert by_key["zero_rollout"]["active_variant"] is None
-
-        assert by_key["partial_rollout"]["rollout_state"] == "partial"
-        assert by_key["partial_rollout"]["active_variant"] is None
-
-        assert by_key["multivariate_full"]["rollout_state"] == "fully_rolled_out"
-        assert by_key["multivariate_full"]["active_variant"] == "winner"
-
-
 class TestFeatureFlagMatchingIds(APIBaseTest):
     def setUp(self):
         super().setUp()
@@ -9637,8 +9368,8 @@ class TestFeatureFlagMatchingIds(APIBaseTest):
         assert data["ids"] == [boolean_flag.id]
 
 
-class TestFeatureFlagBulkDeleteByFilter(APIBaseTest):
-    """Tests for the bulk_delete_by_filter endpoint that accepts filter criteria or explicit IDs."""
+class TestFeatureFlagBulkDelete(APIBaseTest):
+    """Tests for the bulk_delete endpoint that accepts filter criteria or explicit IDs."""
 
     def setUp(self):
         super().setUp()
@@ -9667,7 +9398,7 @@ class TestFeatureFlagBulkDeleteByFilter(APIBaseTest):
         )
 
         response = self.client.post(
-            f"/api/projects/{self.team.id}/feature_flags/bulk_delete_by_filter/",
+            f"/api/projects/{self.team.id}/feature_flags/bulk_delete/",
             {"filters": {"search": "test_feature"}},
         )
 
@@ -9703,7 +9434,7 @@ class TestFeatureFlagBulkDeleteByFilter(APIBaseTest):
         )
 
         response = self.client.post(
-            f"/api/projects/{self.team.id}/feature_flags/bulk_delete_by_filter/",
+            f"/api/projects/{self.team.id}/feature_flags/bulk_delete/",
             {"filters": {"active": "false"}},
         )
 
@@ -9732,7 +9463,7 @@ class TestFeatureFlagBulkDeleteByFilter(APIBaseTest):
             flags.append(flag)
 
         response = self.client.post(
-            f"/api/projects/{self.team.id}/feature_flags/bulk_delete_by_filter/",
+            f"/api/projects/{self.team.id}/feature_flags/bulk_delete/",
             {"ids": [f.id for f in flags]},
         )
 
@@ -9757,7 +9488,7 @@ class TestFeatureFlagBulkDeleteByFilter(APIBaseTest):
         )
 
         response = self.client.post(
-            f"/api/projects/{self.team.id}/feature_flags/bulk_delete_by_filter/",
+            f"/api/projects/{self.team.id}/feature_flags/bulk_delete/",
             {"ids": [flag.id]},
         )
 
@@ -9774,7 +9505,7 @@ class TestFeatureFlagBulkDeleteByFilter(APIBaseTest):
     def test_bulk_delete_requires_filters_or_ids(self):
         """Test validation error when neither filters nor ids provided."""
         response = self.client.post(
-            f"/api/projects/{self.team.id}/feature_flags/bulk_delete_by_filter/",
+            f"/api/projects/{self.team.id}/feature_flags/bulk_delete/",
             {},
         )
 
@@ -9791,7 +9522,7 @@ class TestFeatureFlagBulkDeleteByFilter(APIBaseTest):
         )
 
         response = self.client.post(
-            f"/api/projects/{self.team.id}/feature_flags/bulk_delete_by_filter/",
+            f"/api/projects/{self.team.id}/feature_flags/bulk_delete/",
             {"filters": {"search": "test"}, "ids": [flag.id]},
         )
 
@@ -9819,7 +9550,7 @@ class TestFeatureFlagBulkDeleteByFilter(APIBaseTest):
 
         # Try to delete the other team's flag from our team's endpoint
         response = self.client.post(
-            f"/api/projects/{self.team.id}/feature_flags/bulk_delete_by_filter/",
+            f"/api/projects/{self.team.id}/feature_flags/bulk_delete/",
             {"ids": [my_flag.id, other_flag.id]},
         )
 
@@ -9854,7 +9585,7 @@ class TestFeatureFlagBulkDeleteByFilter(APIBaseTest):
         )
 
         response = self.client.post(
-            f"/api/projects/{self.team.id}/feature_flags/bulk_delete_by_filter/",
+            f"/api/projects/{self.team.id}/feature_flags/bulk_delete/",
             {"filters": {"type": "boolean"}},
         )
 
