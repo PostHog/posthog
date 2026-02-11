@@ -781,16 +781,19 @@ class FeatureFlagSerializer(
         if not isinstance(payloads, dict):
             raise serializers.ValidationError("Payloads must be passed as a dictionary")
 
-        for value in payloads.values():
-            try:
-                if isinstance(value, str):
-                    json_value = json.loads(value)
-                else:
-                    json_value = value
-                json.dumps(json_value)
-
-            except json.JSONDecodeError:
-                raise serializers.ValidationError("Payload value is not valid JSON")
+        for key, value in payloads.items():
+            if isinstance(value, dict):
+                # Normalize JSON object payloads (e.g. from the API) to strings,
+                # matching what the UI sends.
+                try:
+                    payloads[key] = json.dumps(value)
+                except (TypeError, ValueError):
+                    raise serializers.ValidationError("Payload value is not valid JSON")
+            elif isinstance(value, str):
+                try:
+                    json.loads(value)
+                except json.JSONDecodeError:
+                    raise serializers.ValidationError("Payload value is not valid JSON")
 
         if filters.get("multivariate"):
             if not all(key in variants for key in payloads):
