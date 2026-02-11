@@ -123,10 +123,10 @@ impl ReleaseBuilder {
         let mut missing = Vec::new();
 
         if self.version.is_none() {
-            missing.push("version");
+            missing.push("release-version");
         }
         if self.name.is_none() {
-            missing.push("project");
+            missing.push("release-name");
         }
         missing
     }
