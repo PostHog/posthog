@@ -360,8 +360,8 @@ def update_flag_caches(team: Team):
 
     start_time = time.time()
     success = False
-    size_with_cohorts = 0
-    size_without_cohorts = 0
+    size_with_cohorts: int | None = None
+    size_without_cohorts: int | None = None
     try:
         with_cohorts, without_cohorts = _get_both_flags_responses_for_local_evaluation(team)
         size_with_cohorts = flags_hypercache.set_cache_value(team, with_cohorts)
