@@ -114,6 +114,16 @@ export class SessionBatchMetrics {
         help: 'Number of Redis errors in session filter (failed open)',
     })
 
+    private static readonly cryptoIntegrityChecks = new Counter({
+        name: 'recording_blob_ingestion_v2_crypto_integrity_checks_total',
+        help: 'Number of encrypt-decrypt round-trip integrity checks performed',
+    })
+
+    private static readonly cryptoIntegrityFailures = new Counter({
+        name: 'recording_blob_ingestion_v2_crypto_integrity_failures_total',
+        help: 'Number of encrypt-decrypt round-trip integrity checks that failed',
+    })
+
     public static incrementBatchesFlushed(): void {
         this.batchesFlushed.inc()
     }
@@ -201,5 +211,13 @@ export class SessionBatchMetrics {
 
     public static incrementSessionFilterRedisErrors(count: number = 1): void {
         this.sessionFilterRedisErrors.inc(count)
+    }
+
+    public static incrementCryptoIntegrityChecks(): void {
+        this.cryptoIntegrityChecks.inc()
+    }
+
+    public static incrementCryptoIntegrityFailures(): void {
+        this.cryptoIntegrityFailures.inc()
     }
 }

@@ -14,7 +14,8 @@ import {
 import { KafkaConsumer } from '../kafka/consumer'
 import { KafkaProducerWrapper } from '../kafka/producer'
 import { MemoryCachedKeyStore } from '../recording-api/cache'
-import { getBlockEncryptor } from '../recording-api/crypto'
+import { getBlockDecryptor, getBlockEncryptor } from '../recording-api/crypto'
+import { VerifyingEncryptor } from '../recording-api/crypto/verifying-encryptor'
 import { getKeyStore } from '../recording-api/keystore'
 import { KeyStore, RecordingEncryptor } from '../recording-api/types'
 import {
@@ -253,7 +254,9 @@ export class SessionRecordingIngester {
             dynamoDBEndpoint: hub.SESSION_RECORDING_DYNAMODB_ENDPOINT,
         })
         this.keyStore = new MemoryCachedKeyStore(keyStore)
-        this.encryptor = getBlockEncryptor(this.keyStore)
+        const encryptor = getBlockEncryptor(this.keyStore)
+        const decryptor = getBlockDecryptor(this.keyStore)
+        this.encryptor = new VerifyingEncryptor(encryptor, decryptor, hub.SESSION_RECORDING_CRYPTO_INTEGRITY_CHECK_RATE)
 
         this.sessionBatchManager = new SessionBatchManager({
             maxBatchSizeBytes: this.hub.SESSION_RECORDING_MAX_BATCH_SIZE_KB * 1024,
