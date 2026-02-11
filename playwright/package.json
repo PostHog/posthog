@@ -2,12 +2,11 @@
     "name": "@posthog/playwright",
     "scripts": {
         "build:products": "pnpm --filter=@posthog/frontend build:products",
-        "pretest:playwright:local": "pnpm --filter=@posthog/playwright exec playwright install",
-        "test:playwright:local": "BASE_URL='http://localhost:8010' pnpm --filter=@posthog/playwright exec playwright test --ui",
-        "pretest": "pnpm build:products",
+        "pretest": "pnpm build:products && pnpm --filter=@posthog/playwright exec playwright install",
         "test": "playwright test",
-        "test:headless": "BASE_URL='http://localhost:8000' PLAYWRIGHT_HEADLESS=true pnpm test playwright/e2e/auth.spec.ts",
-        "test:headed": "BASE_URL='http://localhost:8000' PLAYWRIGHT_HEADLESS=false pnpm build:products && playwright test"
+        "test:local": "BASE_URL='http://localhost:8000' pnpm run test",
+        "test:ui": "pnpm run test --ui",
+        "test:ui:local": "BASE_URL='http://localhost:8000' pnpm run test:ui"
     },
     "dependencies": {
         "@playwright/test": "1.45.0",

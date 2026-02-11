@@ -1,9 +1,11 @@
 procs:
     # E2E test runner with Playwright UI
     playwright:
-        shell: 'pnpm --filter=@posthog/frontend build:products && pnpm --filter=@posthog/playwright exec playwright test --ui'
+        # Playwright's package.json ensures that the products are built and Playwright browsers are installed before running tests
+        shell: 'pnpm --filter=@posthog/playwright test:ui'
         env:
             BASE_URL: 'http://localhost:8010'
+            DISABLE_ANIMATIONS: 'true'
 
     backend:
         shell: 'uv sync --active && bin/check_postgres_up && bin/check_kafka_clickhouse_up && ./bin/start-backend'
