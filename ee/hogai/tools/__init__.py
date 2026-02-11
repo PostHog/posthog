@@ -1,3 +1,4 @@
+from .call_mcp_server.tool import CallMCPServerTool
 from .create_form import CreateFormTool
 from .create_insight import CreateInsightTool
 
@@ -17,6 +18,7 @@ from .todo_write import TodoWriteTool
 from .upsert_dashboard import UpsertDashboardTool
 
 __all__ = [
+    "CallMCPServerTool",
     "CreateFormTool",
     "ManageMemoriesTool",
     "ListDataTool",

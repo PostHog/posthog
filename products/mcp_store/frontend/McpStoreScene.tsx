@@ -1,7 +1,8 @@
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
 
 import { IconPlus, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
@@ -18,9 +19,40 @@ export const scene: SceneExport = {
     logic: mcpStoreLogic,
 }
 
+function ServerConfigRow({ server }: { server: MCPServer }): JSX.Element {
+    const { installServer, setConfiguringServerId } = useActions(mcpStoreLogic)
+    const [apiKey, setApiKey] = useState('')
+
+    return (
+        <div className="flex items-center gap-2 py-1">
+            <LemonInput
+                value={apiKey}
+                onChange={setApiKey}
+                placeholder="Enter API key"
+                type="password"
+                fullWidth
+                size="small"
+            />
+            <LemonButton
+                type="primary"
+                size="small"
+                disabledReason={!apiKey ? 'API key is required' : undefined}
+                onClick={() => installServer({ serverId: server.id, configuration: { api_key: apiKey } })}
+            >
+                Install
+            </LemonButton>
+            <LemonButton type="secondary" size="small" onClick={() => setConfiguringServerId(null)}>
+                Cancel
+            </LemonButton>
+        </div>
+    )
+}
+
 export function McpStoreScene(): JSX.Element {
-    const { installations, installationsLoading, recommendedServers, serversLoading } = useValues(mcpStoreLogic)
-    const { installServer, uninstallServer, openAddCustomServerModal } = useActions(mcpStoreLogic)
+    const { installations, installationsLoading, recommendedServers, serversLoading, configuringServerId } =
+        useValues(mcpStoreLogic)
+    const { installServer, uninstallServer, openAddCustomServerModal, setConfiguringServerId } =
+        useActions(mcpStoreLogic)
 
     return (
         <SceneContent>
@@ -106,13 +138,29 @@ export function McpStoreScene(): JSX.Element {
                             },
                             {
                                 width: 0,
-                                render: (_: any, server: MCPServer) => (
-                                    <LemonButton type="secondary" size="small" onClick={() => installServer(server.id)}>
-                                        Install
-                                    </LemonButton>
-                                ),
+                                render: (_: any, server: MCPServer) =>
+                                    configuringServerId === server.id ? null : (
+                                        <LemonButton
+                                            type="secondary"
+                                            size="small"
+                                            onClick={() => {
+                                                if (server.auth_type === 'api_key') {
+                                                    setConfiguringServerId(server.id)
+                                                } else {
+                                                    installServer({ serverId: server.id })
+                                                }
+                                            }}
+                                        >
+                                            Install
+                                        </LemonButton>
+                                    ),
                             },
                         ]}
+                        expandable={{
+                            isRowExpanded: (server) => configuringServerId === server.id,
+                            expandedRowContent: (server) => <ServerConfigRow server={server} />,
+                            noIndent: true,
+                        }}
                     />
                 </>
             )}

@@ -34,6 +34,7 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
     actions({
         openAddCustomServerModal: true,
         closeAddCustomServerModal: true,
+        setConfiguringServerId: (serverId: string | null) => ({ serverId }),
     }),
 
     reducers({
@@ -44,9 +45,15 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
                 closeAddCustomServerModal: () => false,
             },
         ],
+        configuringServerId: [
+            null as string | null,
+            {
+                setConfiguringServerId: (_, { serverId }) => serverId,
+            },
+        ],
     }),
 
-    loaders(({ values }) => ({
+    loaders(({ values, actions }) => ({
         servers: [
             [] as MCPServer[],
             {
@@ -63,9 +70,19 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
                     const response = await api.mcpServerInstallations.list()
                     return response.results
                 },
-                installServer: async (serverId: string) => {
-                    const installation = await api.mcpServerInstallations.create({ server_id: serverId })
+                installServer: async ({
+                    serverId,
+                    configuration,
+                }: {
+                    serverId: string
+                    configuration?: Record<string, any>
+                }) => {
+                    const installation = await api.mcpServerInstallations.create({
+                        server_id: serverId,
+                        ...(configuration ? { configuration } : {}),
+                    })
                     lemonToast.success('Server installed')
+                    actions.setConfiguringServerId(null)
                     return [...values.installations, installation]
                 },
                 uninstallServer: async (installationId: string) => {

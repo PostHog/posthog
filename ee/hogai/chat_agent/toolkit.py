@@ -126,6 +126,19 @@ class ChatAgentToolkitManager(AgentToolkitManager):
             if tool.get_name() not in initialized_tool_names:
                 available_tools.append(tool)
 
+        # Add MCP server tool if user has installations
+        from ee.hogai.tools.call_mcp_server.tool import CallMCPServerTool
+
+        mcp_tool = await CallMCPServerTool.create_tool_class(
+            team=self._team,
+            user=self._user,
+            state=state,
+            config=config,
+            context_manager=self._context_manager,
+        )
+        if mcp_tool._installations:
+            available_tools.append(mcp_tool)
+
         # Final tools = available contextual tools + LLM provider server tools
         if has_web_search_feature_flag(self._team, self._user):
             available_tools.append({"type": "web_search_20250305", "name": "web_search", "max_uses": 5})

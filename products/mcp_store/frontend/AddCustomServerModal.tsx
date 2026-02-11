@@ -22,13 +22,21 @@ export function AddCustomServerModal(): JSX.Element {
     const [url, setUrl] = useState('')
     const [description, setDescription] = useState('')
     const [authType, setAuthType] = useState('none')
+    const [apiKey, setApiKey] = useState('')
     const [saving, setSaving] = useState(false)
 
     const handleSubmit = async (): Promise<void> => {
         setSaving(true)
         try {
             const server = await api.mcpServers.create({ name, url, description, auth_type: authType })
-            await api.mcpServerInstallations.create({ server_id: server.id })
+            const configuration: Record<string, any> = {}
+            if (authType === 'api_key' && apiKey) {
+                configuration.api_key = apiKey
+            }
+            await api.mcpServerInstallations.create({
+                server_id: server.id,
+                ...(Object.keys(configuration).length > 0 ? { configuration } : {}),
+            })
             lemonToast.success('Server added and installed')
             loadServers()
             loadInstallations()
@@ -37,6 +45,7 @@ export function AddCustomServerModal(): JSX.Element {
             setUrl('')
             setDescription('')
             setAuthType('none')
+            setApiKey('')
         } catch (e: any) {
             lemonToast.error(e.detail || 'Failed to add server')
         } finally {
@@ -86,11 +95,28 @@ export function AddCustomServerModal(): JSX.Element {
                     <label className="font-semibold">Auth type</label>
                     <LemonSelect
                         value={authType}
-                        onChange={(val) => setAuthType(val)}
+                        onChange={(val) => {
+                            setAuthType(val)
+                            if (val !== 'api_key') {
+                                setApiKey('')
+                            }
+                        }}
                         options={AUTH_TYPE_OPTIONS}
                         fullWidth
                     />
                 </div>
+                {authType === 'api_key' && (
+                    <div>
+                        <label className="font-semibold">API key</label>
+                        <LemonInput
+                            value={apiKey}
+                            onChange={setApiKey}
+                            placeholder="Enter API key"
+                            type="password"
+                            fullWidth
+                        />
+                    </div>
+                )}
             </div>
         </LemonModal>
     )
