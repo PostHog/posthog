@@ -34,7 +34,7 @@ class StackAdaptAdsSource(SimpleSource[StackAdaptAdsSourceConfig]):
             caption="Collect campaign data and advertising metrics from StackAdapt. Learn more in [the documentation](https://posthog.com/docs/cdp/sources/stackadapt-ads).",
             betaSource=True,
             featureFlag="stackadapt-ads-source",
-            iconPath="/static/services/stackadapt.png",
+            iconPath="/static/services/stackadapt.com.png",
             docsUrl="https://posthog.com/docs/cdp/sources/stackadapt-ads",
             fields=cast(
                 list[FieldType],
