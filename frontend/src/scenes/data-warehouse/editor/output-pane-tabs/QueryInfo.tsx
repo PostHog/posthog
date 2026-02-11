@@ -16,8 +16,8 @@ import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dat
 
 import { DataModelingJob, DataWarehouseSyncInterval, LineageNode, OrNever } from '~/types'
 
-import { multitabEditorLogic } from '../multitabEditorLogic'
 import { UpstreamGraph } from '../sidebar/graph/UpstreamGraph'
+import { sqlEditorLogic } from '../sqlEditorLogic'
 import { infoTabLogic } from './infoTabLogic'
 
 interface QueryInfoProps {
@@ -115,8 +115,8 @@ function getMaterializationDisabledReasons(
 
 export function QueryInfo({ tabId }: QueryInfoProps): JSX.Element {
     const { sourceTableItems } = useValues(infoTabLogic({ tabId }))
-    const { editingView, upstream, upstreamViewMode } = useValues(multitabEditorLogic)
-    const { runDataWarehouseSavedQuery, saveAsView, setUpstreamViewMode } = useActions(multitabEditorLogic)
+    const { editingView, upstream, upstreamViewMode } = useValues(sqlEditorLogic)
+    const { runDataWarehouseSavedQuery, saveAsView, setUpstreamViewMode } = useActions(sqlEditorLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     const isLineageDependencyViewEnabled = featureFlags[FEATURE_FLAGS.LINEAGE_DEPENDENCY_VIEW]

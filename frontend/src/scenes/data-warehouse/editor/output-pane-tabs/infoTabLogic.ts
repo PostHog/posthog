@@ -3,7 +3,7 @@ import { connect, kea, key, path, props, selectors } from 'kea'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 
-import { multitabEditorLogic } from '../multitabEditorLogic'
+import { sqlEditorLogic } from '../sqlEditorLogic'
 import type { infoTabLogicType } from './infoTabLogicType'
 
 export interface InfoTableRow {
@@ -24,7 +24,7 @@ export const infoTabLogic = kea<infoTabLogicType>([
     key((props) => props.tabId),
     connect((props: InfoTabLogicProps) => ({
         values: [
-            multitabEditorLogic({ tabId: props.tabId }),
+            sqlEditorLogic({ tabId: props.tabId }),
             ['metadata'],
             databaseTableListLogic,
             ['posthogTablesMap', 'dataWarehouseTablesMap'],

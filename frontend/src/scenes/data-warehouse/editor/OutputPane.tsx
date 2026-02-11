@@ -57,10 +57,10 @@ import { ChartDisplayType, ExporterFormat } from '~/types'
 import { copyTableToCsv, copyTableToExcel, copyTableToJson } from '../../../queries/nodes/DataTable/clipboardUtils'
 import TabScroller from './TabScroller'
 import { FixErrorButton } from './components/FixErrorButton'
-import { multitabEditorLogic } from './multitabEditorLogic'
 import { Endpoint } from './output-pane-tabs/Endpoint'
 import { QueryInfo } from './output-pane-tabs/QueryInfo'
 import { OutputTab, outputPaneLogic } from './outputPaneLogic'
+import { sqlEditorLogic } from './sqlEditorLogic'
 
 interface RowDetailsModalProps {
     isOpen: boolean
@@ -293,8 +293,8 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
 
     const { sourceQuery, exportContext, editingInsight, updateInsightButtonEnabled, showLegacyFilters, queryInput } =
-        useValues(multitabEditorLogic)
-    const { saveAsInsight, updateInsight, setSourceQuery, runQuery, shareTab } = useActions(multitabEditorLogic)
+        useValues(sqlEditorLogic)
+    const { saveAsInsight, updateInsight, setSourceQuery, runQuery, shareTab } = useActions(sqlEditorLogic)
     const { isDarkModeOn } = useValues(themeLogic)
     const {
         response: dataNodeResponse,

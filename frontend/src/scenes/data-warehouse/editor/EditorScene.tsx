@@ -25,11 +25,11 @@ import { displayLogic } from '~/queries/nodes/DataVisualization/displayLogic'
 import { ViewLinkModal } from '../ViewLinkModal'
 import { QueryWindow } from './QueryWindow'
 import { editorSizingLogic } from './editorSizingLogic'
-import { multitabEditorLogic } from './multitabEditorLogic'
 import { outputPaneLogic } from './outputPaneLogic'
+import { sqlEditorLogic } from './sqlEditorLogic'
 
 export const scene: SceneExport = {
-    logic: multitabEditorLogic,
+    logic: sqlEditorLogic,
     component: EditorScene,
 }
 
@@ -83,7 +83,7 @@ export function EditorScene({ tabId }: { tabId?: string }): JSX.Element {
         }
     })
 
-    const logic = multitabEditorLogic({
+    const logic = sqlEditorLogic({
         tabId: tabId || '',
         monaco,
         editor,
@@ -113,7 +113,7 @@ export function EditorScene({ tabId }: { tabId?: string }): JSX.Element {
         variablesOverride: undefined,
         autoLoad: false,
         onError: (error) => {
-            const mountedLogic = multitabEditorLogic.findMounted({
+            const mountedLogic = sqlEditorLogic.findMounted({
                 tabId: tabId || '',
                 monaco,
                 editor,
@@ -148,7 +148,7 @@ export function EditorScene({ tabId }: { tabId?: string }): JSX.Element {
                         <BindLogic logic={variablesLogic} props={variablesLogicProps}>
                             <BindLogic logic={variableModalLogic} props={{ key: dataVisualizationLogicProps.key }}>
                                 <BindLogic logic={outputPaneLogic} props={{ tabId }}>
-                                    <BindLogic logic={multitabEditorLogic} props={{ tabId, monaco, editor }}>
+                                    <BindLogic logic={sqlEditorLogic} props={{ tabId, monaco, editor }}>
                                         <div className="flex grow h-full">
                                             <DatabaseTree databaseTreeRef={databaseTreeRef} />
                                             <div
