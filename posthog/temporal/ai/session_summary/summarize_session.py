@@ -154,8 +154,6 @@ async def fetch_session_data_activity(inputs: SingleSessionSummaryInputs) -> Non
         data=input_data_str,
         label=StateActivitiesEnum.SESSION_DB_DATA,
     )
-    # Nothing to return if the fetch was successful, as the data is stored in Redis
-    return None
 
 
 def _store_final_summary_in_db_from_activity(
@@ -416,12 +414,6 @@ class SummarizeSingleSessionWorkflow(PostHogWorkflow):
     @temporalio.workflow.run
     async def run(self, inputs: SingleSessionSummaryInputs) -> None:
         start_time = temporalio.workflow.now()
-        await temporalio.workflow.execute_activity(
-            fetch_session_data_activity,
-            inputs,
-            start_to_close_timeout=timedelta(minutes=3),
-            retry_policy=RetryPolicy(maximum_attempts=3),
-        )
         await ensure_llm_single_session_summary(inputs)
         duration_seconds = (temporalio.workflow.now() - start_time).total_seconds()
         await temporalio.workflow.execute_activity(
@@ -595,6 +587,12 @@ async def ensure_llm_single_session_summary(inputs: SingleSessionSummaryInputs):
 
     if inputs.video_validation_enabled != "full":
         # Run "classic" event-based summarization
+        await temporalio.workflow.execute_activity(
+            fetch_session_data_activity,
+            inputs,
+            start_to_close_timeout=timedelta(minutes=3),
+            retry_policy=RetryPolicy(maximum_attempts=3),
+        )
         await temporalio.workflow.execute_activity(
             get_llm_single_session_summary_activity,
             inputs,

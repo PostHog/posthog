@@ -83,9 +83,11 @@ async def store_video_session_summary_activity(
 
         # Convert video segments to session summary format, using real events if available
         if llm_input is None:
-            msg = f"No LLM input found in Redis for session {inputs.session_id} when storing video-based summary"
-            logger.error(msg, session_id=inputs.session_id, signals_type="session-summaries")
-            raise ValueError(msg)
+            temporalio.activity.logger.warning(
+                f"No LLM input found in Redis for session {inputs.session_id} when storing video-based summary",
+                session_id=inputs.session_id,
+                signals_type="session-summaries",
+            )
 
         summary_dict = _convert_video_segments_to_session_summary(
             analysis=analysis,
@@ -148,29 +150,11 @@ async def store_video_session_summary_activity(
 def _convert_video_segments_to_session_summary(
     analysis: ConsolidatedVideoAnalysis,
     session_id: str,
-    llm_input: SingleSessionSummaryLlmInputs,
+    llm_input: SingleSessionSummaryLlmInputs | None = None,
 ) -> dict:
-    """Maps video segments to real events."""
+    """Maps video segments to real events. When llm_input is None, builds summary from video data only."""
     segments = analysis.segments
-    # Extract data from cached LLM input
-    simplified_events_mapping = llm_input.simplified_events_mapping
-    event_ids_mapping = llm_input.event_ids_mapping
-    simplified_events_columns = llm_input.simplified_events_columns
-    url_mapping_reversed = llm_input.url_mapping_reversed
-    window_mapping_reversed = llm_input.window_mapping_reversed
-    session_start_time_str = llm_input.session_start_time_str
-    session_duration = llm_input.session_duration
 
-    # Get column indices for event enrichment
-    timestamp_index = get_column_index(simplified_events_columns, "timestamp")
-    event_index_index = get_column_index(simplified_events_columns, "event_index")
-    event_name_index = get_column_index(simplified_events_columns, "event")
-    event_type_index = get_column_index(simplified_events_columns, "$event_type")
-    current_url_index = get_column_index(simplified_events_columns, "$current_url")
-    window_id_index = get_column_index(simplified_events_columns, "$window_id")
-    session_start_time = prepare_datetime(session_start_time_str)
-
-    total_events = len(simplified_events_mapping)
     summary_segments = []
     key_actions = []
     segment_outcomes = []
@@ -180,36 +164,41 @@ def _convert_video_segments_to_session_summary(
         start_ms = parse_str_timestamp_to_ms(segment.start_time)
         end_ms = parse_str_timestamp_to_ms(segment.end_time)
 
-        # Find events within this segment's time range
-        events_in_range = _find_events_in_time_range(
-            start_ms=start_ms,
-            end_ms=end_ms,
-            simplified_events_mapping=simplified_events_mapping,
-            simplified_events_columns=simplified_events_columns,
-            session_start_time_str=session_start_time_str,
-        )
+        events_in_range: list[tuple[str, list[Any]]] = []
 
-        # If no events found in range, find closest events to segment boundaries
-        if not events_in_range:
-            start_event = _find_closest_event(
-                target_ms=start_ms,
-                simplified_events_mapping=simplified_events_mapping,
-                simplified_events_columns=simplified_events_columns,
-                session_start_time_str=session_start_time_str,
+        if llm_input is not None:
+            # Find events within this segment's time range
+            events_in_range = _find_events_in_time_range(
+                start_ms=start_ms,
+                end_ms=end_ms,
+                simplified_events_mapping=llm_input.simplified_events_mapping,
+                simplified_events_columns=llm_input.simplified_events_columns,
+                session_start_time_str=llm_input.session_start_time_str,
             )
-            end_event = _find_closest_event(
-                target_ms=end_ms,
-                simplified_events_mapping=simplified_events_mapping,
-                simplified_events_columns=simplified_events_columns,
-                session_start_time_str=session_start_time_str,
-            )
-            if start_event:
-                events_in_range = [start_event]
-            if end_event and (not start_event or end_event[0] != start_event[0]):  # event[0] is the event_id
-                events_in_range.append(end_event)
+
+            # If no events found in range, find closest events to segment boundaries
+            if not events_in_range:
+                start_event = _find_closest_event(
+                    target_ms=start_ms,
+                    simplified_events_mapping=llm_input.simplified_events_mapping,
+                    simplified_events_columns=llm_input.simplified_events_columns,
+                    session_start_time_str=llm_input.session_start_time_str,
+                )
+                end_event = _find_closest_event(
+                    target_ms=end_ms,
+                    simplified_events_mapping=llm_input.simplified_events_mapping,
+                    simplified_events_columns=llm_input.simplified_events_columns,
+                    session_start_time_str=llm_input.session_start_time_str,
+                )
+                if start_event:
+                    events_in_range = [start_event]
+                if end_event and (not start_event or end_event[0] != start_event[0]):  # event[0] is the event_id
+                    events_in_range.append(end_event)
 
         # Get first and last events for segment boundaries
-        if events_in_range:
+        if events_in_range and llm_input is not None:
+            timestamp_index = get_column_index(llm_input.simplified_events_columns, "timestamp")
+
             first_event_id, first_event_data = events_in_range[0]
             last_event_id, last_event_data = events_in_range[-1]
 
@@ -219,16 +208,21 @@ def _convert_video_segments_to_session_summary(
             first_dt = prepare_datetime(first_timestamp)
             last_dt = prepare_datetime(last_timestamp)
             segment_duration = max(0, int((last_dt - first_dt).total_seconds()))
-            duration_percentage = round(segment_duration / session_duration, 4) if session_duration > 0 else 0.0
+            duration_percentage = (
+                round(segment_duration / llm_input.session_duration, 4) if llm_input.session_duration > 0 else 0.0
+            )
 
             # Calculate events count
+            total_events = len(llm_input.simplified_events_mapping)
             events_count = len(events_in_range)
             events_percentage = round(events_count / total_events, 4) if total_events > 0 else 0.0
         else:
             # No events found, use placeholders
             first_event_id = f"vid_{idx:04d}_start"
             last_event_id = f"vid_{idx:04d}_end"
-            segment_duration = 0
+            # Without event data, estimate duration from video segment timestamps;
+            # with event data but no matches, we can't estimate so default to 0
+            segment_duration = max(0, (end_ms - start_ms) // 1000) if llm_input is None else 0
             duration_percentage = 0.0
             events_count = 0
             events_percentage = 0.0
@@ -258,7 +252,16 @@ def _convert_video_segments_to_session_summary(
 
         # Build key action with enriched event data
         # Use the first event in range for the key action, or create a synthetic one
-        if events_in_range:
+        if events_in_range and llm_input is not None:
+            cols = llm_input.simplified_events_columns
+            timestamp_index = get_column_index(cols, "timestamp")
+            event_index_index = get_column_index(cols, "event_index")
+            event_name_index = get_column_index(cols, "event")
+            event_type_index = get_column_index(cols, "$event_type")
+            current_url_index = get_column_index(cols, "$current_url")
+            window_id_index = get_column_index(cols, "$window_id")
+            session_start_time = prepare_datetime(llm_input.session_start_time_str)
+
             representative_event_id, representative_event_data = events_in_range[0]
 
             # Calculate milliseconds since start
@@ -267,10 +270,10 @@ def _convert_video_segments_to_session_summary(
 
             # Get URL and window ID
             current_url_key = representative_event_data[current_url_index]
-            current_url = url_mapping_reversed.get(current_url_key) if current_url_key else None
+            current_url = llm_input.url_mapping_reversed.get(current_url_key) if current_url_key else None
 
             window_id_key = representative_event_data[window_id_index]
-            window_id = window_mapping_reversed.get(window_id_key) if window_id_key else None
+            window_id = llm_input.window_mapping_reversed.get(window_id_key) if window_id_key else None
 
             # Get event name and type
             event_name = representative_event_data[event_name_index]
@@ -278,7 +281,7 @@ def _convert_video_segments_to_session_summary(
             event_idx = representative_event_data[event_index_index]
 
             # Get real event UUID from mapping
-            full_event_id = event_ids_mapping.get(representative_event_id)
+            full_event_id = llm_input.event_ids_mapping.get(representative_event_id)
             if full_event_id:
                 try:
                     _, event_uuid = unpack_full_event_id(full_event_id, session_id)
@@ -304,7 +307,7 @@ def _convert_video_segments_to_session_summary(
                 "event_uuid": event_uuid,
             }
         else:
-            # Fallback to synthetic event
+            # Synthetic event from video data only
             key_action_event = {
                 "description": segment.description,
                 "abandonment": segment.abandonment_detected,
