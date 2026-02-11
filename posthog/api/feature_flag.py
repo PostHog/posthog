@@ -2016,7 +2016,7 @@ class FeatureFlagViewSet(
                 flag.key = f"{flag.key}:deleted:{flag.id}"
 
             flag.deleted = True
-            flag.last_modified_by = request.user
+            flag.last_modified_by = request.user if request.user.is_authenticated else None
             flag.save()
 
             # Log activity
