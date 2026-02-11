@@ -209,6 +209,7 @@ jobs:
         env:
             NODE_OPTIONS: --max-old-space-size=16384
             OPT_OUT_CAPTURE: 1
+            JEST_JUNIT_SUITE_NAME: '{filepath}'
         steps:
             - uses: actions/checkout@v6
               with:

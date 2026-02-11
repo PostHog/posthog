@@ -44,7 +44,7 @@ export type CdpFetchConfig = Pick<Hub, 'CDP_FETCH_RETRIES' | 'CDP_FETCH_BACKOFF_
 export type HogExecutorServiceHub = CdpFetchConfig &
     HogInputsServiceHub &
     EmailServiceHub &
-    Pick<Hub, 'CDP_WATCHER_HOG_COST_TIMING_UPPER_MS' | 'CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN'>
+    Pick<Hub, 'CDP_WATCHER_HOG_COST_TIMING_UPPER_MS' | 'CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN' | 'teamManager'>
 
 const cdpHttpRequests = new Counter({
     name: 'cdp_http_requests',
@@ -147,7 +147,7 @@ const hogFunctionStateMemory = new Histogram({
 
 export type HogExecutorExecuteOptions = {
     functions?: Record<string, (args: unknown[]) => unknown>
-    asyncFunctionsNames?: ('fetch' | 'sendEmail')[]
+    asyncFunctionsNames?: ('fetch' | 'sendEmail' | 'postHogGetTicket' | 'postHogUpdateTicket')[]
 }
 
 export type HogExecutorExecuteAsyncOptions = HogExecutorExecuteOptions & {
@@ -402,7 +402,12 @@ export class HogExecutorService {
             try {
                 let hogLogs = 0
 
-                const asyncFunctionsNames = options.asyncFunctionsNames ?? ['fetch', 'sendEmail']
+                const asyncFunctionsNames = options.asyncFunctionsNames ?? [
+                    'fetch',
+                    'sendEmail',
+                    'postHogGetTicket',
+                    'postHogUpdateTicket',
+                ]
                 const asyncFunctions = asyncFunctionsNames.reduce(
                     (acc, fn) => {
                         acc[fn] = async () => Promise.resolve()
@@ -563,6 +568,56 @@ export class HogExecutorService {
                             })
                             break
                         }
+
+                        case 'postHogGetTicket': {
+                            const [opts] = args as [Record<string, any> | undefined]
+                            const ticketId = opts?.ticket_id
+
+                            if (!ticketId || typeof ticketId !== 'string') {
+                                throw new Error("[HogFunction] - postHogGetTicket call missing 'ticket_id' property")
+                            }
+
+                            const team = await this.hub.teamManager.getTeam(invocation.teamId)
+                            if (!team) {
+                                throw new Error(`Team ${invocation.teamId} not found`)
+                            }
+
+                            result.invocation.queueParameters = CyclotronInvocationQueueParametersFetchSchema.parse({
+                                type: 'fetch',
+                                url: `${this.hub.SITE_URL}/api/conversations/external/ticket/${ticketId}`,
+                                method: 'GET',
+                                headers: { Authorization: `Bearer ${team.api_token}` },
+                            })
+                            break
+                        }
+
+                        case 'postHogUpdateTicket': {
+                            const [opts] = args as [Record<string, any> | undefined]
+                            const ticketId = opts?.ticket_id
+                            const updates = opts?.updates || {}
+
+                            if (!ticketId || typeof ticketId !== 'string') {
+                                throw new Error("[HogFunction] - postHogUpdateTicket call missing 'ticket_id' property")
+                            }
+
+                            const updateTeam = await this.hub.teamManager.getTeam(invocation.teamId)
+                            if (!updateTeam) {
+                                throw new Error(`Team ${invocation.teamId} not found`)
+                            }
+
+                            result.invocation.queueParameters = CyclotronInvocationQueueParametersFetchSchema.parse({
+                                type: 'fetch',
+                                url: `${this.hub.SITE_URL}/api/conversations/external/ticket/${ticketId}`,
+                                method: 'PATCH',
+                                body: JSON.stringify(updates),
+                                headers: {
+                                    'Content-Type': 'application/json',
+                                    Authorization: `Bearer ${updateTeam.api_token}`,
+                                },
+                            })
+                            break
+                        }
+
                         default:
                             throw new Error(`Unknown async function '${execRes.asyncFunctionName}'`)
                     }

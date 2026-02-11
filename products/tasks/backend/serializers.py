@@ -265,3 +265,27 @@ class TaskListQuerySerializer(serializers.Serializer):
         required=False, help_text="Filter by repository name (can include org/repo format)"
     )
     created_by = serializers.IntegerField(required=False, help_text="Filter by creator user ID")
+
+
+class TaskRunSessionLogsQuerySerializer(serializers.Serializer):
+    """Query parameters for filtering task run log events"""
+
+    after = serializers.DateTimeField(
+        required=False,
+        help_text="Only return events after this ISO8601 timestamp",
+    )
+    event_types = serializers.CharField(
+        required=False,
+        help_text="Comma-separated list of event types to include",
+    )
+    exclude_types = serializers.CharField(
+        required=False,
+        help_text="Comma-separated list of event types to exclude",
+    )
+    limit = serializers.IntegerField(
+        required=False,
+        default=1000,
+        min_value=1,
+        max_value=5000,
+        help_text="Maximum number of entries to return (default 1000, max 5000)",
+    )

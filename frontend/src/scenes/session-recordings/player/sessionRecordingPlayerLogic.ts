@@ -188,6 +188,24 @@ const ACTIVE_SOURCES = [
     IncrementalSource.Drag,
 ]
 
+/** Find events in allSnapshots that aren't already in currentEvents, using timestamp-count matching. */
+export function findNewEvents(allSnapshots: eventWithTime[], currentEvents: eventWithTime[]): eventWithTime[] {
+    const existingCounts = new Map<number, number>()
+    for (const event of currentEvents) {
+        existingCounts.set(event.timestamp, (existingCounts.get(event.timestamp) || 0) + 1)
+    }
+    const newEvents: eventWithTime[] = []
+    for (const snapshot of allSnapshots) {
+        const remaining = existingCounts.get(snapshot.timestamp) || 0
+        if (remaining > 0) {
+            existingCounts.set(snapshot.timestamp, remaining - 1)
+        } else {
+            newEvents.push(snapshot)
+        }
+    }
+    return newEvents
+}
+
 function isUserActivity(snapshot: eventWithTime): boolean {
     return (
         snapshot.type === INCREMENTAL_SNAPSHOT_EVENT_TYPE &&
@@ -349,7 +367,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
     connect((props: SessionRecordingPlayerLogicProps) => ({
         values: [
             snapshotDataLogic(props),
-            ['snapshotsLoaded', 'snapshotsLoading', 'snapshotSources'],
+            ['snapshotsLoaded', 'snapshotsLoading', 'snapshotSources', 'isWaitingForPlayableFullSnapshot'],
             sessionRecordingDataCoordinatorLogic(props),
             [
                 'urls',
@@ -374,7 +392,14 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         ],
         actions: [
             snapshotDataLogic(props),
-            ['loadSnapshots', 'loadSnapshotsForSourceFailure', 'loadSnapshotSourcesFailure', 'loadNextSnapshotSource'],
+            [
+                'loadSnapshots',
+                'loadSnapshotsForSourceFailure',
+                'loadSnapshotSourcesFailure',
+                'loadNextSnapshotSource',
+                'setTargetTimestamp',
+                'setLoadingPhase',
+            ],
             sessionRecordingDataCoordinatorLogic(props),
             ['loadRecordingData', 'loadRecordingMetaSuccess'],
             playerSettingsLogic,
@@ -1339,7 +1364,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             if (values.currentTimestamp === undefined) {
                 return
             }
-            const isBuffering = values.segmentForTimestamp(values.currentTimestamp)?.kind === 'buffer'
+            const isBufferingSegment = values.segmentForTimestamp(values.currentTimestamp)?.kind === 'buffer'
+            // Also consider buffering if we're doing timestamp-based loading and don't have a playable FullSnapshot yet
+            const isBuffering = isBufferingSegment || values.isWaitingForPlayableFullSnapshot
 
             if (values.currentPlayerState === SessionPlayerState.BUFFER && !isBuffering) {
                 actions.endBuffer()
@@ -1377,13 +1404,26 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         syncSnapshotsWithPlayer: async (_, breakpoint) => {
             // On loading more of the recording, trigger some state changes
             const currentEvents = values.player?.replayer?.service.state.context.events ?? []
-            const eventsToAdd = []
+            const eventsToAdd: eventWithTime[] = []
+
+            // For timestamp-based loading: don't add events until we have a playable FullSnapshot
+            // This prevents partial data from being added while we're loading blobs out of order
+            // Once we have coverage (FullSnapshot to target), we add all events at once
+            if (values.isWaitingForPlayableFullSnapshot) {
+                actions.checkBufferingCompleted()
+                breakpoint()
+                return
+            }
 
             if (values.currentSegment?.windowId !== undefined) {
                 const allSnapshots = values.sessionPlayerData.snapshotsByWindowId[values.currentSegment?.windowId] ?? []
-                const newSnapshots = allSnapshots.slice(currentEvents.length)
 
-                eventsToAdd.push(...newSnapshots)
+                const isTimestampBased = values.featureFlags[FEATURE_FLAGS.REPLAY_TIMESTAMP_BASED_LOADING] === 'test'
+                if (isTimestampBased && allSnapshots.length > currentEvents.length) {
+                    eventsToAdd.push(...findNewEvents(allSnapshots, currentEvents))
+                } else {
+                    eventsToAdd.push(...allSnapshots.slice(currentEvents.length))
+                }
             }
 
             // If replayer isn't initialized, it will be initialized with the already loaded snapshots
@@ -1507,6 +1547,12 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             cache.pausedMediaElements = []
             actions.setCurrentTimestamp(timestamp)
 
+            // For timestamp-based loading: set target timestamp first so selectors update
+            const isTimestampBased = values.featureFlags[FEATURE_FLAGS.REPLAY_TIMESTAMP_BASED_LOADING] === 'test'
+            if (isTimestampBased) {
+                actions.setTargetTimestamp(timestamp)
+            }
+
             // Check if we're seeking to a new segment
             const segment = values.segmentForTimestamp(timestamp)
 
@@ -1515,7 +1561,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             }
 
             // If next time is greater than last buffered time, set to buffering
-            else if (segment?.kind === 'buffer') {
+            // Also buffer if we're doing timestamp-based loading and don't have a playable FullSnapshot
+            else if (segment?.kind === 'buffer' || values.isWaitingForPlayableFullSnapshot) {
                 const isPastEnd = values.sessionPlayerData.end && timestamp >= values.sessionPlayerData.end.valueOf()
                 if (isPastEnd) {
                     actions.setEndReached(true)
@@ -1523,6 +1570,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     values.player?.replayer?.pause()
                     actions.startBuffer()
                     actions.clearPlayerError()
+
                     // if we're buffering, then be careful to ensure we're loading data
                     actions.loadNextSnapshotSource()
                 }

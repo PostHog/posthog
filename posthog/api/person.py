@@ -14,6 +14,7 @@ import structlog
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiExample, OpenApiParameter
 from loginas.utils import is_impersonated_session
+from opentelemetry import trace
 from prometheus_client import Counter
 from requests import HTTPError
 from rest_framework import request, response, serializers, viewsets
@@ -75,6 +76,7 @@ from posthog.temporal.delete_recordings.types import RecordingsWithPersonInput
 from posthog.utils import convert_property_value, format_query_params_absolute_url, is_anonymous_id
 
 logger = structlog.get_logger(__name__)
+tracer = trace.get_tracer(__name__)
 
 DEFAULT_PAGE_LIMIT = 100
 # Sync with .../lib/constants.tsx and .../ingestion/webhook-formatter.ts
@@ -505,24 +507,32 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     @action(methods=["GET"], detail=False, required_scopes=["person:read"])
     def values(self, request: request.Request, **kwargs) -> response.Response:
-        key = request.GET.get("key")
-        value = request.GET.get("value")
-        flattened = []
-        if key and not key.startswith("$virt"):
-            result = self._get_person_property_values_for_key(key, value)
+        with tracer.start_as_current_span("person_api_property_values") as span:
+            key = request.GET.get("key")
+            value = request.GET.get("value")
 
-            for value, count in result:
-                try:
-                    # Try loading as json for dicts or arrays
-                    flattened.append(
-                        {
-                            "name": convert_property_value(json.loads(value)),
-                            "count": count,
-                        }
-                    )
-                except json.decoder.JSONDecodeError:
-                    flattened.append({"name": convert_property_value(value), "count": count})
-        return response.Response(flattened)
+            span.set_attribute("team_id", self.team.pk)
+            span.set_attribute("property_key", key or "")
+            span.set_attribute("has_value_filter", value is not None)
+
+            flattened = []
+            if key and not key.startswith("$virt"):
+                result = self._get_person_property_values_for_key(key, value)
+
+                for value, count in result:
+                    try:
+                        # Try loading as json for dicts or arrays
+                        flattened.append(
+                            {
+                                "name": convert_property_value(json.loads(value)),
+                                "count": count,
+                            }
+                        )
+                    except json.decoder.JSONDecodeError:
+                        flattened.append({"name": convert_property_value(value), "count": count})
+
+            span.set_attribute("result_count", len(flattened))
+            return response.Response(flattened)
 
     @timed("get_person_property_values_for_key_timer")
     def _get_person_property_values_for_key(self, key, value):
