@@ -34,9 +34,11 @@ class Client:
         properties: dict[str, Any] | None = None,
         groups: dict[str, Any] | None = None,
         capture_analytics: bool = True,
+        base_url_override: str | None = None,
     ):
         self.provider_key = provider_key
         self.config = config
+        self.base_url_override = base_url_override
         self.analytics = AnalyticsContext(
             distinct_id=distinct_id,
             trace_id=trace_id or str(uuid.uuid4()),
@@ -73,8 +75,8 @@ class Client:
     def _resolve_credentials(self) -> tuple[str | None, str | None]:
         """Get api_key and base_url from config or provider_key."""
         if self.config:
-            return self.config.api_key, self.config.base_url
-        return self._get_api_key(), None
+            return self.config.api_key, self.base_url_override or self.config.base_url
+        return self._get_api_key(), self.base_url_override
 
     @classmethod
     def validate_key(cls, provider: str, api_key: str) -> tuple[str, str | None]:

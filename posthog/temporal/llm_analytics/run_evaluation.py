@@ -358,14 +358,12 @@ Output: {output_data}"""
 
     # Get eval-specific config when using PostHog defaults (no provider_key)
     config = get_eval_config(provider) if provider_key is None else None
-    # Override base_url if provided
-    if base_url:
-        config = config or {}
-        config["base_url"] = base_url
+
     # Create unified Client with analytics disabled to prevent eval loops
     client = Client(
         provider_key=provider_key,
         config=config,
+        base_url_override=base_url,
         capture_analytics=False,
     )
 
