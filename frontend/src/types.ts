@@ -5748,6 +5748,7 @@ export enum SDKKey {
     NEXT_JS = 'nextjs',
     NODE_JS = 'nodejs',
     NUXT_JS = 'nuxtjs',
+    NUXT_JS_36 = 'nuxtjs_36',
     OLLAMA = 'ollama',
     OPENAI = 'openai',
     OPENAI_AGENTS = 'openai_agents',
@@ -5781,6 +5782,7 @@ export enum SDKKey {
     WORDPRESS = 'wordpress',
     XAI = 'xai',
     ZAPIER = 'zapier',
+    HONO = 'hono',
 }
 
 export enum SDKTag {
