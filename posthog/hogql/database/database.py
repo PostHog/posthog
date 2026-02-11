@@ -260,7 +260,6 @@ class Database(BaseModel):
     _warehouse_self_managed_table_names: list[str] = []
     _view_table_names: list[str] = []
     _denied_tables: set[str] = set()  # Tables user doesn't have permission to access
-    user_access_control: Optional["UserAccessControl"] = None
 
     _timezone: str | None
     _week_start_day: WeekStartDay | None
@@ -274,6 +273,7 @@ class Database(BaseModel):
 
         self._week_start_day = week_start_day
         self._serialization_errors: dict[str, str] = {}  # table_key -> error_message
+        self.user_access_control: Optional[UserAccessControl] = None
 
     def get_timezone(self) -> str:
         return self._timezone or "UTC"
