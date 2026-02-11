@@ -134,10 +134,15 @@
   
   CREATE TABLE IF NOT EXISTS kafka_distinct_id_usage
   (
+      uuid UUID,
+      event VARCHAR,
+      properties VARCHAR,
+      timestamp DateTime64(6, 'UTC'),
       team_id Int64,
       distinct_id VARCHAR,
-      timestamp DateTime64(6, 'UTC')
-  ) ENGINE = Kafka(warpstream_ingestion, kafka_topic_list = 'distinct_id_usage_events_json_test', kafka_group_name = 'clickhouse_distinct_id_usage', kafka_format = 'JSONEachRow')
+      elements_chain VARCHAR,
+      created_at DateTime64(6, 'UTC')
+  ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_events_json_test', kafka_group_name = 'clickhouse_distinct_id_usage', kafka_format = 'JSONEachRow')
   SETTINGS kafka_skip_broken_messages = 100
   
   '''
@@ -1688,10 +1693,15 @@
   
   CREATE TABLE IF NOT EXISTS kafka_distinct_id_usage
   (
+      uuid UUID,
+      event VARCHAR,
+      properties VARCHAR,
+      timestamp DateTime64(6, 'UTC'),
       team_id Int64,
       distinct_id VARCHAR,
-      timestamp DateTime64(6, 'UTC')
-  ) ENGINE = Kafka(warpstream_ingestion, kafka_topic_list = 'distinct_id_usage_events_json_test', kafka_group_name = 'clickhouse_distinct_id_usage', kafka_format = 'JSONEachRow')
+      elements_chain VARCHAR,
+      created_at DateTime64(6, 'UTC')
+  ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_events_json_test', kafka_group_name = 'clickhouse_distinct_id_usage', kafka_format = 'JSONEachRow')
   SETTINGS kafka_skip_broken_messages = 100
   
   '''

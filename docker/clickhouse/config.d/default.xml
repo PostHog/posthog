@@ -48,9 +48,6 @@
         <msk_cluster>
             <kafka_broker_list from_env="KAFKA_HOSTS"/>
         </msk_cluster>
-        <warpstream_ingestion>
-            <kafka_broker_list from_env="KAFKA_HOSTS"/>
-        </warpstream_ingestion>
     </named_collections>
 
     <macros>
