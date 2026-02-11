@@ -17,6 +17,7 @@ export function FunnelFlowEdge({
     sourcePosition,
     targetPosition,
     markerEnd,
+    style,
     data,
 }: EdgeProps<Edge<FunnelFlowEdgeData>>): JSX.Element {
     const { insightProps } = useValues(insightLogic)
@@ -38,7 +39,7 @@ export function FunnelFlowEdge({
 
     return (
         <>
-            <BaseEdge path={edgePath} markerEnd={markerEnd} />
+            <BaseEdge path={edgePath} markerEnd={markerEnd} style={style} />
             <EdgeLabelRenderer>
                 <div
                     className="flex items-center gap-1 rounded bg-bg-light border border-border px-2 py-0.5 text-xs shadow-sm pointer-events-auto nopan"

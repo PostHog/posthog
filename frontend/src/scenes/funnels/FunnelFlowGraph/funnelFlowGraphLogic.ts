@@ -123,6 +123,7 @@ export const funnelFlowGraphLogic = kea<funnelFlowGraphLogicType>([
             (nodes): Edge[] =>
                 nodes.slice(0, -1).map((node, index) => {
                     const targetNode = nodes[index + 1]
+                    const touchesOptionalStep = targetNode.data.isOptional
                     return {
                         id: `edge-${index}`,
                         source: node.id,
@@ -132,6 +133,7 @@ export const funnelFlowGraphLogic = kea<funnelFlowGraphLogicType>([
                         targetHandle: `${targetNode.id}-target`,
                         markerEnd: { type: MarkerType.ArrowClosed },
                         deletable: false,
+                        style: touchesOptionalStep ? { strokeDasharray: '5 5' } : undefined,
                         data: {
                             step: targetNode.data.step,
                             stepIndex: targetNode.data.stepIndex,
