@@ -716,6 +716,51 @@ const buildHogExecutorAsyncOptions = (
                           success: true,
                       }
                   },
+                  postHogGetTicket: (...args: any[]) => {
+                      logs.push({
+                          level: 'info',
+                          timestamp: DateTime.now(),
+                          message: `Async function 'postHogGetTicket' was mocked with arguments:`,
+                      })
+                      logs.push({
+                          level: 'info',
+                          timestamp: DateTime.now(),
+                          message: `postHogGetTicket(${JSON.stringify(args[0], null, 2)})`,
+                      })
+
+                      return {
+                          status: 200,
+                          body: {
+                              id: args[0]?.ticket_id ?? 'mock-ticket-id',
+                              status: 'new',
+                              priority: null,
+                              ticket_number: 1,
+                              channel_source: 'widget',
+                              message_count: 0,
+                              last_message_at: null,
+                              last_message_text: null,
+                              unread_team_count: 0,
+                              unread_customer_count: 0,
+                          },
+                      }
+                  },
+                  postHogUpdateTicket: (...args: any[]) => {
+                      logs.push({
+                          level: 'info',
+                          timestamp: DateTime.now(),
+                          message: `Async function 'postHogUpdateTicket' was mocked with arguments:`,
+                      })
+                      logs.push({
+                          level: 'info',
+                          timestamp: DateTime.now(),
+                          message: `postHogUpdateTicket(${JSON.stringify(args[0], null, 2)})`,
+                      })
+
+                      return {
+                          status: 200,
+                          body: { ok: true },
+                      }
+                  },
               }
             : undefined,
     }

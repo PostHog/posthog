@@ -617,6 +617,11 @@ impl StoreManager {
         &self.store_config.path
     }
 
+    /// Get the store configuration
+    pub fn config(&self) -> &DeduplicationStoreConfig {
+        &self.store_config
+    }
+
     /// Cleanup old entries across all stores to maintain global capacity
     ///
     /// This method checks the total size across all stores and triggers cleanup

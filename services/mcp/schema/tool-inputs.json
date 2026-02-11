@@ -723,9 +723,53 @@
                                 "description": "For funnel metrics only: Array of event names for each funnel step (e.g., ['product_view', 'add_to_cart', 'checkout', 'purchase'])"
                             },
                             "properties": {
-                                "type": "object",
-                                "additionalProperties": {},
-                                "description": "Event properties to filter on"
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "key": {
+                                            "type": "string"
+                                        },
+                                        "value": {
+                                            "anyOf": [
+                                                {
+                                                    "anyOf": [
+                                                        {
+                                                            "type": "string"
+                                                        },
+                                                        {
+                                                            "type": "number"
+                                                        },
+                                                        {
+                                                            "type": "array",
+                                                            "items": {
+                                                                "type": "string"
+                                                            }
+                                                        },
+                                                        {
+                                                            "type": "array",
+                                                            "items": {
+                                                                "type": "number"
+                                                            }
+                                                        }
+                                                    ]
+                                                },
+                                                {
+                                                    "type": "null"
+                                                }
+                                            ]
+                                        },
+                                        "operator": {
+                                            "type": "string"
+                                        },
+                                        "type": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "required": ["key"],
+                                    "additionalProperties": false
+                                },
+                                "description": "Event property filters as an array, e.g. [{ key: \"$browser\", value: \"Chrome\", operator: \"exact\", type: \"event\" }]"
                             },
                             "description": {
                                 "type": "string",
@@ -763,9 +807,53 @@
                                 "description": "For funnel metrics only: Array of event names for each funnel step"
                             },
                             "properties": {
-                                "type": "object",
-                                "additionalProperties": {},
-                                "description": "Event properties to filter on"
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "key": {
+                                            "type": "string"
+                                        },
+                                        "value": {
+                                            "anyOf": [
+                                                {
+                                                    "anyOf": [
+                                                        {
+                                                            "type": "string"
+                                                        },
+                                                        {
+                                                            "type": "number"
+                                                        },
+                                                        {
+                                                            "type": "array",
+                                                            "items": {
+                                                                "type": "string"
+                                                            }
+                                                        },
+                                                        {
+                                                            "type": "array",
+                                                            "items": {
+                                                                "type": "number"
+                                                            }
+                                                        }
+                                                    ]
+                                                },
+                                                {
+                                                    "type": "null"
+                                                }
+                                            ]
+                                        },
+                                        "operator": {
+                                            "type": "string"
+                                        },
+                                        "type": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "required": ["key"],
+                                    "additionalProperties": false
+                                },
+                                "description": "Event property filters as an array, e.g. [{ key: \"$browser\", value: \"Chrome\", operator: \"exact\", type: \"event\" }]"
                             },
                             "description": {
                                 "type": "string",
@@ -924,9 +1012,53 @@
                                 "description": "For funnel metrics only: Array of event names for each funnel step"
                             },
                             "properties": {
-                                "type": "object",
-                                "additionalProperties": {},
-                                "description": "Event properties to filter on"
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "key": {
+                                            "type": "string"
+                                        },
+                                        "value": {
+                                            "anyOf": [
+                                                {
+                                                    "anyOf": [
+                                                        {
+                                                            "type": "string"
+                                                        },
+                                                        {
+                                                            "type": "number"
+                                                        },
+                                                        {
+                                                            "type": "array",
+                                                            "items": {
+                                                                "type": "string"
+                                                            }
+                                                        },
+                                                        {
+                                                            "type": "array",
+                                                            "items": {
+                                                                "type": "number"
+                                                            }
+                                                        }
+                                                    ]
+                                                },
+                                                {
+                                                    "type": "null"
+                                                }
+                                            ]
+                                        },
+                                        "operator": {
+                                            "type": "string"
+                                        },
+                                        "type": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "required": ["key"],
+                                    "additionalProperties": false
+                                },
+                                "description": "Event property filters as an array, e.g. [{ key: \"$browser\", value: \"Chrome\", operator: \"exact\", type: \"event\" }]"
                             },
                             "description": {
                                 "type": "string",
@@ -964,9 +1096,53 @@
                                 "description": "For funnel metrics only: Array of event names"
                             },
                             "properties": {
-                                "type": "object",
-                                "additionalProperties": {},
-                                "description": "Event properties to filter on"
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "key": {
+                                            "type": "string"
+                                        },
+                                        "value": {
+                                            "anyOf": [
+                                                {
+                                                    "anyOf": [
+                                                        {
+                                                            "type": "string"
+                                                        },
+                                                        {
+                                                            "type": "number"
+                                                        },
+                                                        {
+                                                            "type": "array",
+                                                            "items": {
+                                                                "type": "string"
+                                                            }
+                                                        },
+                                                        {
+                                                            "type": "array",
+                                                            "items": {
+                                                                "type": "number"
+                                                            }
+                                                        }
+                                                    ]
+                                                },
+                                                {
+                                                    "type": "null"
+                                                }
+                                            ]
+                                        },
+                                        "operator": {
+                                            "type": "string"
+                                        },
+                                        "type": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "required": ["key"],
+                                    "additionalProperties": false
+                                },
+                                "description": "Event property filters as an array, e.g. [{ key: \"$browser\", value: \"Chrome\", operator: \"exact\", type: \"event\" }]"
                             },
                             "description": {
                                 "type": "string",
@@ -1050,9 +1226,53 @@
                                         "description": "For funnel metrics only: Array of event names for each funnel step"
                                     },
                                     "properties": {
-                                        "type": "object",
-                                        "additionalProperties": {},
-                                        "description": "Event properties to filter on"
+                                        "type": "array",
+                                        "items": {
+                                            "type": "object",
+                                            "properties": {
+                                                "key": {
+                                                    "type": "string"
+                                                },
+                                                "value": {
+                                                    "anyOf": [
+                                                        {
+                                                            "anyOf": [
+                                                                {
+                                                                    "type": "string"
+                                                                },
+                                                                {
+                                                                    "type": "number"
+                                                                },
+                                                                {
+                                                                    "type": "array",
+                                                                    "items": {
+                                                                        "type": "string"
+                                                                    }
+                                                                },
+                                                                {
+                                                                    "type": "array",
+                                                                    "items": {
+                                                                        "type": "number"
+                                                                    }
+                                                                }
+                                                            ]
+                                                        },
+                                                        {
+                                                            "type": "null"
+                                                        }
+                                                    ]
+                                                },
+                                                "operator": {
+                                                    "type": "string"
+                                                },
+                                                "type": {
+                                                    "type": "string"
+                                                }
+                                            },
+                                            "required": ["key"],
+                                            "additionalProperties": false
+                                        },
+                                        "description": "Event property filters as an array, e.g. [{ key: \"$browser\", value: \"Chrome\", operator: \"exact\", type: \"event\" }]"
                                     },
                                     "description": {
                                         "type": "string",
@@ -1090,9 +1310,53 @@
                                         "description": "For funnel metrics only: Array of event names"
                                     },
                                     "properties": {
-                                        "type": "object",
-                                        "additionalProperties": {},
-                                        "description": "Event properties to filter on"
+                                        "type": "array",
+                                        "items": {
+                                            "type": "object",
+                                            "properties": {
+                                                "key": {
+                                                    "type": "string"
+                                                },
+                                                "value": {
+                                                    "anyOf": [
+                                                        {
+                                                            "anyOf": [
+                                                                {
+                                                                    "type": "string"
+                                                                },
+                                                                {
+                                                                    "type": "number"
+                                                                },
+                                                                {
+                                                                    "type": "array",
+                                                                    "items": {
+                                                                        "type": "string"
+                                                                    }
+                                                                },
+                                                                {
+                                                                    "type": "array",
+                                                                    "items": {
+                                                                        "type": "number"
+                                                                    }
+                                                                }
+                                                            ]
+                                                        },
+                                                        {
+                                                            "type": "null"
+                                                        }
+                                                    ]
+                                                },
+                                                "operator": {
+                                                    "type": "string"
+                                                },
+                                                "type": {
+                                                    "type": "string"
+                                                }
+                                            },
+                                            "required": ["key"],
+                                            "additionalProperties": false
+                                        },
+                                        "description": "Event property filters as an array, e.g. [{ key: \"$browser\", value: \"Chrome\", operator: \"exact\", type: \"event\" }]"
                                     },
                                     "description": {
                                         "type": "string",
@@ -1166,7 +1430,29 @@
                                                     "type": "string"
                                                 },
                                                 "value": {
-                                                    "type": ["string", "number", "boolean"]
+                                                    "anyOf": [
+                                                        {
+                                                            "type": "string"
+                                                        },
+                                                        {
+                                                            "type": "number"
+                                                        },
+                                                        {
+                                                            "type": "boolean"
+                                                        },
+                                                        {
+                                                            "type": "array",
+                                                            "items": {
+                                                                "type": "string"
+                                                            }
+                                                        },
+                                                        {
+                                                            "type": "array",
+                                                            "items": {
+                                                                "type": "number"
+                                                            }
+                                                        }
+                                                    ]
                                                 },
                                                 "operator": {
                                                     "type": "string",
@@ -1331,7 +1617,29 @@
                                                             "type": "string"
                                                         },
                                                         "value": {
-                                                            "type": ["string", "number", "boolean"]
+                                                            "anyOf": [
+                                                                {
+                                                                    "type": "string"
+                                                                },
+                                                                {
+                                                                    "type": "number"
+                                                                },
+                                                                {
+                                                                    "type": "boolean"
+                                                                },
+                                                                {
+                                                                    "type": "array",
+                                                                    "items": {
+                                                                        "type": "string"
+                                                                    }
+                                                                },
+                                                                {
+                                                                    "type": "array",
+                                                                    "items": {
+                                                                        "type": "number"
+                                                                    }
+                                                                }
+                                                            ]
                                                         },
                                                         "operator": {
                                                             "type": "string",
@@ -3641,7 +3949,29 @@
                                                     "type": "string"
                                                 },
                                                 "value": {
-                                                    "type": ["string", "number", "boolean"]
+                                                    "anyOf": [
+                                                        {
+                                                            "type": "string"
+                                                        },
+                                                        {
+                                                            "type": "number"
+                                                        },
+                                                        {
+                                                            "type": "boolean"
+                                                        },
+                                                        {
+                                                            "type": "array",
+                                                            "items": {
+                                                                "type": "string"
+                                                            }
+                                                        },
+                                                        {
+                                                            "type": "array",
+                                                            "items": {
+                                                                "type": "number"
+                                                            }
+                                                        }
+                                                    ]
                                                 },
                                                 "operator": {
                                                     "type": "string",
@@ -4506,7 +4836,29 @@
                                                     "type": "string"
                                                 },
                                                 "value": {
-                                                    "type": ["string", "number", "boolean"]
+                                                    "anyOf": [
+                                                        {
+                                                            "type": "string"
+                                                        },
+                                                        {
+                                                            "type": "number"
+                                                        },
+                                                        {
+                                                            "type": "boolean"
+                                                        },
+                                                        {
+                                                            "type": "array",
+                                                            "items": {
+                                                                "type": "string"
+                                                            }
+                                                        },
+                                                        {
+                                                            "type": "array",
+                                                            "items": {
+                                                                "type": "number"
+                                                            }
+                                                        }
+                                                    ]
                                                 },
                                                 "operator": {
                                                     "type": "string",
