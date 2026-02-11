@@ -112,9 +112,9 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
         fields = super().get_fields()
         team_id = self.context.get("team_id")
         if team_id:
-            fields["holdout_id"].queryset = ExperimentHoldout.objects.filter(team_id=team_id)
+            fields["holdout_id"].queryset = ExperimentHoldout.objects.filter(team_id=team_id)  # type: ignore[attr-defined]
         else:
-            fields["holdout_id"].queryset = ExperimentHoldout.objects.none()
+            fields["holdout_id"].queryset = ExperimentHoldout.objects.none()  # type: ignore[attr-defined]
         return fields
 
     def to_representation(self, instance):

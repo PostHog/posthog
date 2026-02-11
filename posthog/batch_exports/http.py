@@ -242,9 +242,9 @@ class BatchExportDestinationSerializer(serializers.ModelSerializer):
         fields = super().get_fields()
         team_id = self.context.get("team_id")
         if team_id:
-            fields["integration_id"].queryset = Integration.objects.filter(team_id=team_id)
+            fields["integration_id"].queryset = Integration.objects.filter(team_id=team_id)  # type: ignore[attr-defined]
         else:
-            fields["integration_id"].queryset = Integration.objects.none()
+            fields["integration_id"].queryset = Integration.objects.none()  # type: ignore[attr-defined]
         return fields
 
     def create(self, validated_data: collections.abc.Mapping[str, typing.Any]) -> BatchExportDestination:
