@@ -6,8 +6,7 @@ import { isValidClickHouseDateTime } from './clickhouse-datetime-parser'
 
 /**
  * Checks if a value can be coerced to the given PostHog property type.
- * This matches PostHog's query-time type coercion behavior.
- * See: posthog/hogql/transforms/property_types.py
+ * See: PropertySwapper._field_type_to_property_call in posthog/hogql/transforms/property_types.py
  */
 function canCoerceToType(value: unknown, propertyType: string): boolean {
     if (value === null || value === undefined) {
@@ -46,8 +45,6 @@ function canCoerceToType(value: unknown, propertyType: string): boolean {
             return isValidClickHouseDateTime(value)
 
         case 'Object':
-            // Accepts: plain objects and arrays (null is already handled above).
-            // Event properties come from JSON so we won't see Promises/Dates here.
             return typeof value === 'object'
 
         default:
