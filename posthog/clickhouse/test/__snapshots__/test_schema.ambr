@@ -635,6 +635,7 @@
       snapshot_source LowCardinality(Nullable(String)),
       snapshot_library Nullable(String),
       retention_period_days Nullable(Int64),
+      is_deleted UInt8,
   ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_session_replay_events_test', kafka_group_name = 'group1', kafka_format = 'JSONEachRow')
   
   '''
@@ -1387,9 +1388,7 @@
   group4_created_at,
   person_mode,
   _timestamp,
-  _timestamp_ms,
-  _offset,
-  _partition
+  _offset
   FROM posthog_test.kafka_events_recent_json
   
   '''
@@ -1474,6 +1473,34 @@
       version UInt32 DEFAULT toUnixTimestamp(now())
   ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.exchange_rate', '{replica}-{shard}', version)
   ORDER BY (date, currency);
+  
+  '''
+# ---
+# name: test_create_table_query[experiment_exposures_preaggregated]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS experiment_exposures_preaggregated
+  (
+      team_id Int64,
+      job_id UUID,
+  
+      -- Per-entity exposure data
+      entity_id String,
+      variant String,
+      first_exposure_time DateTime64(6, 'UTC'),
+      last_exposure_time DateTime64(6, 'UTC'),
+      exposure_event_uuid UUID,
+      exposure_session_id String,
+  
+      -- Breakdown dimensions (empty array if no breakdown)
+      breakdown_value Array(String),
+  
+      -- When this row was computed (used as ReplacingMergeTree version)
+      computed_at DateTime64(6, 'UTC') DEFAULT now(),
+  
+      -- TTL: rows are automatically deleted after expires_at
+      expires_at Date DEFAULT today() + INTERVAL 7 DAY
+  ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_experiment_exposures_preaggregated', cityHash64(entity_id))
   
   '''
 # ---
@@ -2167,6 +2194,7 @@
       snapshot_source LowCardinality(Nullable(String)),
       snapshot_library Nullable(String),
       retention_period_days Nullable(Int64),
+      is_deleted UInt8,
   ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_session_replay_events_test', kafka_group_name = 'group1', kafka_format = 'JSONEachRow')
   
   '''
@@ -2949,7 +2977,9 @@
   
       lc_dagster__job_name String,
       lc_dagster__run_id String,
-      lc_dagster__owner String
+      lc_dagster__owner String,
+  
+      lc_modifiers String
   ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.query_log_archive_new', '{replica}-{shard}')
   PARTITION BY toYYYYMM(event_date)
   ORDER BY (team_id, event_date, event_time, query_id)
@@ -3073,7 +3103,9 @@
   
       JSONExtractString(log_comment, 'dagster', 'job_name') as lc_dagster__job_name,
       JSONExtractString(log_comment, 'dagster', 'run_id') as lc_dagster__run_id,
-      JSONExtractString(log_comment, 'dagster', 'tags', 'owner') as lc_dagster__owner
+      JSONExtractString(log_comment, 'dagster', 'tags', 'owner') as lc_dagster__owner,
+  
+      if(is_initial_query, JSONExtractRaw(log_comment, 'modifiers'), '') as lc_modifiers
   FROM system.query_log
   WHERE
       type != 'QueryStart'
@@ -3489,6 +3521,7 @@
   SELECT
       team_id,
       `$session_id_uuid` AS session_id_v7,
+      
   
       initializeAggregation('argMaxState', source_table.distinct_id, timestamp) as distinct_id,
       initializeAggregation('groupUniqArrayState', source_table.distinct_id) as distinct_ids,
@@ -3583,7 +3616,7 @@
   SELECT
       team_id,
       toUInt128(accurateCast(session_id, 'UUID')) AS session_id_v7,
-  
+      fromUnixTimestamp64Milli(toUInt64(bitShiftRight(session_id_v7, 80))) AS session_timestamp,
       initializeAggregation('argMaxState', source_table.distinct_id, min_ts_64) as distinct_id,
       initializeAggregation('groupUniqArrayState', source_table.distinct_id) as distinct_ids,
   
@@ -3707,6 +3740,8 @@
       _timestamp SimpleAggregateFunction(max, DateTime),
       -- retention period for this session, in days. Useful to show TTL for the recording
       retention_period_days SimpleAggregateFunction(max, Nullable(Int64)),
+      -- marks the recording as deleted for crypto shredding; once 1, merges keep it as 1
+      is_deleted SimpleAggregateFunction(max, UInt8) DEFAULT 0,
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_session_replay_events', sipHash64(distinct_id))
   
   '''
@@ -3733,6 +3768,7 @@
   `snapshot_library` AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
   `_timestamp` Nullable(DateTime)
   ,`retention_period_days` SimpleAggregateFunction(max, Nullable(Int64))
+  ,`is_deleted` SimpleAggregateFunction(max, UInt8)
   )
   AS SELECT
   session_id,
@@ -3769,6 +3805,7 @@
   argMinState(snapshot_library, first_timestamp) as snapshot_library,
   max(_timestamp) as _timestamp
   ,max(retention_period_days) as retention_period_days
+  ,max(is_deleted) as is_deleted
   FROM posthog_test.kafka_session_replay_events
   group by session_id, team_id
   
@@ -4142,6 +4179,39 @@
   TTL toDateTime(inserted_at) + INTERVAL 7 DAY
   
   SETTINGS ttl_only_drop_parts = 1
+  
+  '''
+# ---
+# name: test_create_table_query[sharded_experiment_exposures_preaggregated]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_experiment_exposures_preaggregated
+  (
+      team_id Int64,
+      job_id UUID,
+  
+      -- Per-entity exposure data
+      entity_id String,
+      variant String,
+      first_exposure_time DateTime64(6, 'UTC'),
+      last_exposure_time DateTime64(6, 'UTC'),
+      exposure_event_uuid UUID,
+      exposure_session_id String,
+  
+      -- Breakdown dimensions (empty array if no breakdown)
+      breakdown_value Array(String),
+  
+      -- When this row was computed (used as ReplacingMergeTree version)
+      computed_at DateTime64(6, 'UTC') DEFAULT now(),
+  
+      -- TTL: rows are automatically deleted after expires_at
+      expires_at Date DEFAULT today() + INTERVAL 7 DAY
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.experiment_exposures_preaggregated', '{replica}', computed_at)
+  
+  PARTITION BY toYYYYMMDD(expires_at)
+  ORDER BY (team_id, job_id, entity_id, breakdown_value)
+  TTL expires_at
+  SETTINGS index_granularity=8192, ttl_only_drop_parts = 1
   
   '''
 # ---
@@ -4523,7 +4593,7 @@
       -- Ideally we would not need to store this separately, as the ID *is* the timestamp
       -- Unfortunately for now, chaining clickhouse functions to extract the timestamp will break indexes / partition pruning, so do this workaround
       -- again, when the new CH UUID type is released, we should try to switch to that and remove the separate timestamp column
-      session_timestamp DateTime64 MATERIALIZED fromUnixTimestamp64Milli(toUInt64(bitShiftRight(session_id_v7, 80))),
+      session_timestamp DateTime64 DEFAULT fromUnixTimestamp64Milli(toUInt64(bitShiftRight(session_id_v7, 80))),
   
       -- ClickHouse will pick the latest value of distinct_id for the session
       -- this is fine since even if the distinct_id changes during a session
@@ -4667,6 +4737,8 @@
       _timestamp SimpleAggregateFunction(max, DateTime),
       -- retention period for this session, in days. Useful to show TTL for the recording
       retention_period_days SimpleAggregateFunction(max, Nullable(Int64)),
+      -- marks the recording as deleted for crypto shredding; once 1, merges keep it as 1
+      is_deleted SimpleAggregateFunction(max, UInt8) DEFAULT 0,
   ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.session_replay_events', '{replica}')
   
       PARTITION BY toYYYYMM(min_first_timestamp)
@@ -5876,7 +5948,7 @@
       -- Ideally we would not need to store this separately, as the ID *is* the timestamp
       -- Unfortunately for now, chaining clickhouse functions to extract the timestamp will break indexes / partition pruning, so do this workaround
       -- again, when the new CH UUID type is released, we should try to switch to that and remove the separate timestamp column
-      session_timestamp DateTime64 MATERIALIZED fromUnixTimestamp64Milli(toUInt64(bitShiftRight(session_id_v7, 80))),
+      session_timestamp DateTime64 DEFAULT fromUnixTimestamp64Milli(toUInt64(bitShiftRight(session_id_v7, 80))),
   
       -- ClickHouse will pick the latest value of distinct_id for the session
       -- this is fine since even if the distinct_id changes during a session
@@ -6007,6 +6079,8 @@
       _timestamp SimpleAggregateFunction(max, DateTime),
       -- retention period for this session, in days. Useful to show TTL for the recording
       retention_period_days SimpleAggregateFunction(max, Nullable(Int64)),
+      -- marks the recording as deleted for crypto shredding; once 1, merges keep it as 1
+      is_deleted SimpleAggregateFunction(max, UInt8) DEFAULT 0,
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_session_replay_events', sipHash64(distinct_id))
   
   '''
@@ -6773,7 +6847,9 @@
   
       lc_dagster__job_name String,
       lc_dagster__run_id String,
-      lc_dagster__owner String
+      lc_dagster__owner String,
+  
+      lc_modifiers String
   ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.query_log_archive_new', '{replica}-{shard}')
   PARTITION BY toYYYYMM(event_date)
   ORDER BY (team_id, event_date, event_time, query_id)
@@ -7037,6 +7113,39 @@
   TTL toDateTime(inserted_at) + INTERVAL 7 DAY
   SETTINGS storage_policy = 'hot_to_cold'
   SETTINGS ttl_only_drop_parts = 1
+  
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[sharded_experiment_exposures_preaggregated]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_experiment_exposures_preaggregated
+  (
+      team_id Int64,
+      job_id UUID,
+  
+      -- Per-entity exposure data
+      entity_id String,
+      variant String,
+      first_exposure_time DateTime64(6, 'UTC'),
+      last_exposure_time DateTime64(6, 'UTC'),
+      exposure_event_uuid UUID,
+      exposure_session_id String,
+  
+      -- Breakdown dimensions (empty array if no breakdown)
+      breakdown_value Array(String),
+  
+      -- When this row was computed (used as ReplacingMergeTree version)
+      computed_at DateTime64(6, 'UTC') DEFAULT now(),
+  
+      -- TTL: rows are automatically deleted after expires_at
+      expires_at Date DEFAULT today() + INTERVAL 7 DAY
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.experiment_exposures_preaggregated', '{replica}', computed_at)
+  
+  PARTITION BY toYYYYMMDD(expires_at)
+  ORDER BY (team_id, job_id, entity_id, breakdown_value)
+  TTL expires_at
+  SETTINGS index_granularity=8192, ttl_only_drop_parts = 1
   
   '''
 # ---
@@ -7418,7 +7527,7 @@
       -- Ideally we would not need to store this separately, as the ID *is* the timestamp
       -- Unfortunately for now, chaining clickhouse functions to extract the timestamp will break indexes / partition pruning, so do this workaround
       -- again, when the new CH UUID type is released, we should try to switch to that and remove the separate timestamp column
-      session_timestamp DateTime64 MATERIALIZED fromUnixTimestamp64Milli(toUInt64(bitShiftRight(session_id_v7, 80))),
+      session_timestamp DateTime64 DEFAULT fromUnixTimestamp64Milli(toUInt64(bitShiftRight(session_id_v7, 80))),
   
       -- ClickHouse will pick the latest value of distinct_id for the session
       -- this is fine since even if the distinct_id changes during a session
@@ -7562,6 +7671,8 @@
       _timestamp SimpleAggregateFunction(max, DateTime),
       -- retention period for this session, in days. Useful to show TTL for the recording
       retention_period_days SimpleAggregateFunction(max, Nullable(Int64)),
+      -- marks the recording as deleted for crypto shredding; once 1, merges keep it as 1
+      is_deleted SimpleAggregateFunction(max, UInt8) DEFAULT 0,
   ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.session_replay_events', '{replica}')
   
       PARTITION BY toYYYYMM(min_first_timestamp)
@@ -8116,6 +8227,8 @@
       _timestamp SimpleAggregateFunction(max, DateTime),
       -- retention period for this session, in days. Useful to show TTL for the recording
       retention_period_days SimpleAggregateFunction(max, Nullable(Int64)),
+      -- marks the recording as deleted for crypto shredding; once 1, merges keep it as 1
+      is_deleted SimpleAggregateFunction(max, UInt8) DEFAULT 0,
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_session_replay_events', sipHash64(distinct_id))
   
   '''

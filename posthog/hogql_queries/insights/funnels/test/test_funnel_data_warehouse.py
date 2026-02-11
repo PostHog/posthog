@@ -12,6 +12,7 @@ from posthog.schema import (
     EventsNode,
     FunnelsFilter,
     FunnelsQuery,
+    StepOrderValue,
 )
 
 from posthog.errors import ExposedCHQueryError
@@ -101,6 +102,26 @@ class TestFunnelDataWarehouse(ClickhouseTestMixin, BaseTest):
         )
 
         return lead_table.name, opportunity_table.name
+
+    def setup_salesforce_opportunity_repeated_created_date_data_warehouse(self):
+        opportunity_table, _source, _credential, _df, self.cleanUpOpportunityWarehouse = (
+            create_data_warehouse_table_from_csv(
+                csv_path=Path(__file__).parent / "salesforce_opportunity_repeated_created_date_data.csv",
+                table_name="salesforce_opportunity_repeated_created_date",
+                table_columns={
+                    "id": {"clickhouse": "String", "hogql": "StringDatabaseField"},
+                    "created_date": {
+                        "clickhouse": "DateTime64(3, 'UTC')",
+                        "hogql": "DateTimeDatabaseField",
+                    },
+                    "close_date": {"clickhouse": "Nullable(Date)", "hogql": "DateDatabaseField"},
+                },
+                test_bucket=TEST_BUCKET,
+                team=self.team,
+            )
+        )
+
+        return opportunity_table.name
 
     @snapshot_clickhouse_queries
     def test_funnels_data_warehouse(self):
@@ -294,6 +315,13 @@ class TestFunnelDataWarehouse(ClickhouseTestMixin, BaseTest):
                     distinct_id_field="id",
                     timestamp_field="created_date",
                 ),
+                DataWarehouseNode(
+                    id=opportunity_table_name,
+                    table_name=opportunity_table_name,
+                    id_field="id",
+                    distinct_id_field="id",
+                    timestamp_field="close_date",
+                ),
             ],
             funnelsFilter=FunnelsFilter(funnelWindowInterval=30),
         )
@@ -305,3 +333,42 @@ class TestFunnelDataWarehouse(ClickhouseTestMixin, BaseTest):
         results = response.results
         assert results[0]["count"] == 5
         assert results[1]["count"] == 3
+        assert results[2]["count"] == 2
+
+    def test_funnels_same_data_warehouse_table_different_timestamp_fields(self):
+        """
+        Steps with the same table but different configurations (in this example, a different timestamp
+        field) must not cross-match. Repeated created_date rows with null close_date should never count
+        as completing step 2.
+        """
+        opportunity_table_name = self.setup_salesforce_opportunity_repeated_created_date_data_warehouse()
+
+        funnels_query = FunnelsQuery(
+            kind="FunnelsQuery",
+            dateRange=DateRange(date_from="2024-05-01"),
+            series=[
+                DataWarehouseNode(
+                    id=opportunity_table_name,
+                    table_name=opportunity_table_name,
+                    id_field="id",
+                    distinct_id_field="id",
+                    timestamp_field="created_date",
+                ),
+                DataWarehouseNode(
+                    id=opportunity_table_name,
+                    table_name=opportunity_table_name,
+                    id_field="id",
+                    distinct_id_field="id",
+                    timestamp_field="close_date",
+                ),
+            ],
+            funnelsFilter=FunnelsFilter(funnelWindowInterval=30, funnelOrderType=StepOrderValue.UNORDERED),
+        )
+
+        with freeze_time("2024-06-30"):
+            runner = FunnelsQueryRunner(query=funnels_query, team=self.team, just_summarize=True)
+            response = runner.calculate()
+
+        results = response.results
+        assert results[0]["count"] == 2
+        assert results[1]["count"] == 0

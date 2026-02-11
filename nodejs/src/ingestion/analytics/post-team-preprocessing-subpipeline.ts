@@ -8,6 +8,7 @@ import {
     createValidateEventSchemaStep,
     createValidateEventUuidStep,
 } from '../event-preprocessing'
+import { createDropOldEventsStep } from '../event-processing/drop-old-events-step'
 import { PipelineBuilder, StartPipelineBuilder } from '../pipelines/builders/pipeline-builders'
 
 export interface PostTeamPreprocessingSubpipelineInput {
@@ -33,4 +34,5 @@ export function createPostTeamPreprocessingSubpipeline<TInput extends PostTeamPr
         .pipe(createValidateEventSchemaStep(eventSchemaEnforcementManager))
         .pipe(createApplyPersonProcessingRestrictionsStep(eventIngestionRestrictionManager))
         .pipe(createValidateEventUuidStep())
+        .pipe(createDropOldEventsStep())
 }

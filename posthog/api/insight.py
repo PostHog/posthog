@@ -90,7 +90,13 @@ from posthog.queries.funnels.utils import get_funnel_order_class
 from posthog.queries.stickiness import Stickiness
 from posthog.queries.trends.trends import Trends
 from posthog.queries.util import get_earliest_timestamp
-from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
+from posthog.rate_limit import (
+    ClickHouseBurstRateThrottle,
+    ClickHouseSustainedRateThrottle,
+    LLMAnalyticsSummarizationBurstThrottle,
+    LLMAnalyticsSummarizationDailyThrottle,
+    LLMAnalyticsSummarizationSustainedThrottle,
+)
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlError, UserAccessControlSerializerMixin
 from posthog.schema_migrations.upgrade import upgrade
@@ -870,7 +876,6 @@ class InsightSerializer(InsightBasicSerializer):
                 logger.warn(
                     "concurrency_limit_exceeded_api", exception=e, insight_id=insight.id, team_id=insight.team_id
                 )
-
                 return InsightResult(
                     result=None,
                     last_refresh=now(),
@@ -882,6 +887,29 @@ class InsightSerializer(InsightBasicSerializer):
                             insight_id=str(insight.id),
                             dashboard_id=str(dashboard.id) if dashboard else None,
                             error_message="concurrency_limit_exceeded",
+                            error=True,
+                        )
+                    ),
+                    cache_key=None,
+                    hogql=None,
+                    columns=None,
+                    has_more=None,
+                    timezone=self.context["get_team"]().timezone,
+                )
+            except Exception as e:
+                # Capture unexpected crashes so the API list doesn't fail
+                logger.exception("insight_calculation_error", insight_id=insight.id, team_id=insight.team_id)
+                return InsightResult(
+                    result=None,
+                    last_refresh=None,
+                    is_cached=False,
+                    query_status=dict(
+                        QueryStatus(
+                            id=self.context["request"].query_params.get("client_query_id"),
+                            team_id=insight.team_id,
+                            insight_id=str(insight.id),
+                            dashboard_id=str(dashboard.id) if dashboard else None,
+                            error_message=str(e),
                             error=True,
                         )
                     ),
@@ -955,6 +983,21 @@ class InsightViewSet(
 
     stickiness_query_class = Stickiness
     parser_classes = (QuerySchemaParser,)
+
+    def get_throttles(self):
+        """Apply LLM-specific throttles to AI analysis endpoints."""
+        if self.action in ["analyze", "suggestions"]:
+            return [
+                LLMAnalyticsSummarizationBurstThrottle(),
+                LLMAnalyticsSummarizationSustainedThrottle(),
+                LLMAnalyticsSummarizationDailyThrottle(),
+            ]
+        return super().get_throttles()
+
+    def _validate_ai_feature_access(self) -> None:
+        """Validate that AI data processing is approved by the organization."""
+        if not self.organization.is_ai_data_processing_approved:
+            raise PermissionDenied("AI data processing must be approved by your organization before using AI analysis")
 
     def get_serializer_class(self) -> type[serializers.BaseSerializer]:
         if (self.action == "list" or self.action == "retrieve") and str_to_bool(
@@ -1247,6 +1290,8 @@ When set, the specified dashboard's filters and date range override will be appl
 
     @action(methods=["GET"], detail=True)
     def analyze(self, request: Request, **kwargs) -> Response:
+        self._validate_ai_feature_access()
+
         insight = self.get_object()
 
         if not insight.query:
@@ -1288,6 +1333,8 @@ When set, the specified dashboard's filters and date range override will be appl
 
     @action(methods=["GET", "POST"], detail=True)
     def suggestions(self, request: Request, **kwargs) -> Response:
+        self._validate_ai_feature_access()
+
         insight = self.get_object()
 
         if not insight.query:
