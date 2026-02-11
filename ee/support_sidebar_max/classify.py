@@ -169,6 +169,10 @@ def classify_ticket(request: Request) -> Response:
         if result.get("kind") not in KINDS:
             result["kind"] = "support"
 
+        # Null out low-confidence classifications
+        if result.get("target_area_confidence", 0) <= 0.7:
+            result["target_area"] = None
+
         result["used_docs"] = use_docs and bool(doc_context)
         return Response(result)
 
