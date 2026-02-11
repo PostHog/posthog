@@ -12,6 +12,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { insightsApi } from 'scenes/insights/utils/api'
 import { teamLogic } from 'scenes/teamLogic'
+import { userLogic } from 'scenes/userLogic'
 
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import type { QueryBasedInsightModel } from '~/types'
@@ -21,6 +22,9 @@ import { SavedInsightFilters, cleanFilters } from './savedInsightsLogic'
 
 export const INSIGHTS_PER_PAGE = 30
 const INSIGHTS_PER_PAGE_EXPERIMENT = 15
+
+export type CreatedByStrategy = 'none' | 'highlight' | 'filter'
+export const USER_INSIGHTS_HIGHLIGHT_THRESHOLD = 5
 
 export const addSavedInsightsModalLogic = kea<addSavedInsightsModalLogicType>([
     path(['scenes', 'saved-insights', 'addSavedInsightsModalLogic']),
@@ -45,6 +49,9 @@ export const addSavedInsightsModalLogic = kea<addSavedInsightsModalLogicType>([
         dashboardUpdateFailed: (insightId: number) => ({ insightId }),
 
         updateInsight: (insight: QueryBasedInsightModel) => ({ insight }),
+
+        initializeDefaultFilters: true,
+        setCreatedByStrategy: (strategy: CreatedByStrategy) => ({ strategy }),
     }),
     loaders(({ values }) => ({
         insights: {
@@ -92,6 +99,29 @@ export const addSavedInsightsModalLogic = kea<addSavedInsightsModalLogicType>([
                 }
             },
         },
+        userInsights: {
+            __default: [] as QueryBasedInsightModel[],
+            loadUserInsights: async (_, breakpoint) => {
+                const currentUserId = userLogic.values.user?.id
+                if (!currentUserId) {
+                    return []
+                }
+
+                const response = await api.get(
+                    `api/environments/${teamLogic.values.currentTeamId}/insights/?${toParams({
+                        created_by: [currentUserId],
+                        saved: true,
+                        basic: true,
+                        order: '-last_modified_at',
+                        limit: USER_INSIGHTS_HIGHLIGHT_THRESHOLD,
+                    })}`
+                )
+
+                breakpoint()
+
+                return response.results.map((rawInsight: any) => getQueryBasedInsightModel(rawInsight))
+            },
+        },
     })),
     reducers({
         rawModalFilters: [
@@ -119,6 +149,12 @@ export const addSavedInsightsModalLogic = kea<addSavedInsightsModalLogicType>([
                     ...state,
                     [insightId]: loading,
                 }),
+            },
+        ],
+        createdByStrategy: [
+            'none' as CreatedByStrategy,
+            {
+                setCreatedByStrategy: (_, { strategy }) => strategy,
             },
         ],
     }),
@@ -163,6 +199,38 @@ export const addSavedInsightsModalLogic = kea<addSavedInsightsModalLogicType>([
                 posthog.capture('insight dashboard modal searched', {
                     search_term: newFilters.search,
                 })
+            }
+        },
+
+        initializeDefaultFilters: async (_, breakpoint) => {
+            const currentUserId = userLogic.values.user?.id
+            if (!currentUserId) {
+                actions.loadInsights()
+                return
+            }
+
+            const response = await api.get(
+                `api/environments/${teamLogic.values.currentTeamId}/insights/?${toParams({
+                    created_by: [currentUserId],
+                    saved: true,
+                    limit: 1,
+                })}`
+            )
+
+            breakpoint()
+
+            const userInsightCount = response.count
+
+            if (userInsightCount === 0) {
+                actions.setCreatedByStrategy('none')
+                actions.loadInsights()
+            } else if (userInsightCount < USER_INSIGHTS_HIGHLIGHT_THRESHOLD) {
+                actions.setCreatedByStrategy('highlight')
+                actions.loadUserInsights()
+                actions.loadInsights()
+            } else {
+                actions.setCreatedByStrategy('filter')
+                actions.setModalFilters({ createdBy: [currentUserId] })
             }
         },
 
@@ -214,9 +282,15 @@ export const addSavedInsightsModalLogic = kea<addSavedInsightsModalLogicType>([
             }
         },
     })),
-    events(({ actions }) => ({
+    events(({ actions, values }) => ({
         afterMount: () => {
-            actions.loadInsights()
+            const isMyInsightsDefault =
+                values.featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_DASHBOARD_MODAL_DEFAULT_MY_INSIGHTS] === 'test'
+            if (isMyInsightsDefault) {
+                actions.initializeDefaultFilters()
+            } else {
+                actions.loadInsights()
+            }
         },
     })),
 ])

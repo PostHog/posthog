@@ -341,6 +341,7 @@ export const FEATURE_FLAGS = {
     PASSKEY_SIGNUP_ENABLED: 'passkey-signup-enabled', // owner: @reecejones #team-platform-features
     PASSWORD_PROTECTED_SHARES: 'password-protected-shares', // owner: @aspicer
     PRODUCT_ANALYTICS_ADD_INSIGHT_TO_DASHBOARD_MODAL: 'product-analytics-insight-to-dashboard-modal', // owner: @sam #team-product-analytics
+    PRODUCT_ANALYTICS_DASHBOARD_MODAL_DEFAULT_MY_INSIGHTS: 'product-analytics-dashboard-modal-default-my-insights', // owner: @sam #team-product-analytics
     PRODUCT_TOURS: 'product-tours-2025', // owner: @adboio #team-surveys
     PRODUCT_TOURS_RICH_TEXT: 'product-tours-rich-text', // owner: @adboio #team-surveys
     PROJECT_UPGRADE_MODAL_REDESIGN: 'project-upgrade-modal-redesign', // owner: @reecejones #team-platform-features

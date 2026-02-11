@@ -2,7 +2,7 @@ import './SavedInsights.scss'
 
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import { useEffect } from 'react'
+import { useEffect, useMemo } from 'react'
 
 import { IconCheck, IconPlus, IconX } from '@posthog/icons'
 
@@ -17,7 +17,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { pluralize } from 'lib/utils'
 import { SavedInsightsEmptyState } from 'scenes/insights/EmptyStates'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
-import { SavedInsightsFilters } from 'scenes/saved-insights/SavedInsightsFilters'
+import { CreatedByFilter, SavedInsightsFilters } from 'scenes/saved-insights/SavedInsightsFilters'
 import { urls } from 'scenes/urls'
 
 import { DashboardType, QueryBasedInsightModel } from '~/types'
@@ -33,8 +33,18 @@ interface SavedInsightsTableProps {
 
 export function SavedInsightsTable({ renderActionColumn, dashboard }: SavedInsightsTableProps): JSX.Element {
     const isExperimentEnabled = useFeatureFlag('PRODUCT_ANALYTICS_ADD_INSIGHT_TO_DASHBOARD_MODAL', 'test')
-    const { modalPage, insights, count, insightsLoading, filters, sorting, insightsPerPage } =
-        useValues(addSavedInsightsModalLogic)
+    const isMyInsightsDefaultEnabled = useFeatureFlag('PRODUCT_ANALYTICS_DASHBOARD_MODAL_DEFAULT_MY_INSIGHTS', 'test')
+    const {
+        modalPage,
+        insights,
+        count,
+        insightsLoading,
+        filters,
+        sorting,
+        insightsPerPage,
+        createdByStrategy,
+        userInsights,
+    } = useValues(addSavedInsightsModalLogic)
     const { setModalPage, setModalFilters } = useActions(addSavedInsightsModalLogic)
     const { dashboardUpdatesInProgress, isInsightInDashboard } = useValues(insightDashboardModalLogic)
     const { toggleInsightOnDashboard, syncOptimisticStateWithDashboard } = useActions(insightDashboardModalLogic)
@@ -42,6 +52,15 @@ export function SavedInsightsTable({ renderActionColumn, dashboard }: SavedInsig
 
     const startCount = (modalPage - 1) * insightsPerPage + 1
     const endCount = Math.min(modalPage * insightsPerPage, count)
+
+    const displayResults = useMemo(() => {
+        if (createdByStrategy !== 'highlight' || modalPage !== 1) {
+            return insights.results
+        }
+        const userInsightIds = new Set(userInsights.map((i) => i.id))
+        const otherInsights = insights.results.filter((i) => !userInsightIds.has(i.id))
+        return [...userInsights, ...otherInsights]
+    }, [createdByStrategy, userInsights, insights.results, modalPage])
 
     useEffect(() => {
         if (isExperimentEnabled && dashboard?.tiles) {
@@ -175,13 +194,15 @@ export function SavedInsightsTable({ renderActionColumn, dashboard }: SavedInsig
             {isExperimentEnabled ? (
                 <>
                     <SavedInsightsFilters filters={filters} setFilters={setModalFilters} showQuickFilters={false} />
-                    <LemonDivider className="my-4" />
-                    <div className="flex justify-between mb-4 gap-2 flex-wrap mt-2 items-center">
+                    <div className="flex justify-between mt-3 mb-2 gap-2 items-center">
                         <span className="text-secondary">
                             {count
-                                ? `${startCount}${endCount - startCount > 1 ? '-' + endCount : ''} of ${pluralize(count, 'insight')}`
+                                ? `${startCount}${endCount - startCount > 1 ? '-' + endCount : ''} of ${pluralize(count, 'insight')}${createdByStrategy === 'filter' && filters.createdBy !== 'All users' ? ' created by you' : ''}`
                                 : null}
                         </span>
+                        {isMyInsightsDefaultEnabled && createdByStrategy === 'filter' && (
+                            <CreatedByFilter filters={filters} setFilters={setModalFilters} />
+                        )}
                     </div>
                 </>
             ) : (
@@ -202,7 +223,7 @@ export function SavedInsightsTable({ renderActionColumn, dashboard }: SavedInsig
             ) : (
                 <div className="overflow-x-hidden">
                     <LemonTable
-                        dataSource={insights.results}
+                        dataSource={displayResults}
                         columns={columns}
                         loading={insightsLoading}
                         pagination={{
