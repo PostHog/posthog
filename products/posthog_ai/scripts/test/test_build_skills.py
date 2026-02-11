@@ -432,53 +432,8 @@ def test_end_to_end_template_with_pydantic(tmp_path: Path) -> None:
             assert "e2e-skill/SKILL.md" in zf.namelist()
             assert "| `title` |" in zf.read("e2e-skill/SKILL.md").decode()
 
-        assert builder.check_all() is True
     finally:
         del sys.modules["_test_e2e_models"]
-
-
-def test_check_detects_stale_zip(tmp_path: Path) -> None:
-    skill_src = tmp_path / "products" / "alpha" / "skills" / "stale-skill"
-    skill_src.mkdir(parents=True)
-    (skill_src / "SKILL.md").write_text("---\nname: stale-skill\ndescription: Stale\n---\nVersion 1\n")
-
-    builder = SkillBuilder(
-        repo_root=tmp_path,
-        products_dir=tmp_path / "products",
-        output_dir=tmp_path / "output",
-    )
-    builder.pack()
-
-    (skill_src / "SKILL.md").write_text("---\nname: stale-skill\ndescription: Stale\n---\nVersion 2\n")
-    assert builder.check_all() is False
-
-
-def test_check_detects_missing_zip(tmp_path: Path) -> None:
-    skill_src = tmp_path / "products" / "alpha" / "skills" / "missing-skill"
-    skill_src.mkdir(parents=True)
-    (skill_src / "SKILL.md").write_text("---\nname: missing\ndescription: Missing\n---\nContent\n")
-
-    builder = SkillBuilder(
-        repo_root=tmp_path,
-        products_dir=tmp_path / "products",
-        output_dir=tmp_path / "output",
-    )
-    assert builder.check_all() is False
-
-
-def test_check_detects_stale_zip_when_no_skills(tmp_path: Path) -> None:
-    output_dir = tmp_path / "output"
-    dist_dir = output_dir / "dist"
-    dist_dir.mkdir(parents=True)
-    with zipfile.ZipFile(dist_dir / "skills.zip", "w") as zf:
-        zf.writestr("old-skill/SKILL.md", "old content")
-
-    builder = SkillBuilder(
-        repo_root=tmp_path,
-        products_dir=tmp_path / "products",
-        output_dir=output_dir,
-    )
-    assert builder.check_all() is False
 
 
 def test_lint_all_passes_for_valid_skills(tmp_path: Path) -> None:

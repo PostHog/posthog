@@ -7,7 +7,6 @@ on:
             - master
         paths:
             - 'products/*/skills/**'
-            - 'products/posthog_ai/dist/**'
             - 'products/posthog_ai/scripts/**'
             - '.github/workflows/ci-agent-skills.yml'
 
@@ -36,12 +35,11 @@ jobs:
                       skills:
                         - 'products/*/skills/**'
                         - 'products/*/backend/max_tools.py'
-                        - 'products/posthog_ai/dist/**'
                         - 'products/posthog_ai/**'
                         - '.github/workflows/ci-agent-skills.yml'
 
     check-skills:
-        name: Check built skills are up-to-date
+        name: Check agent skills
         runs-on: ubuntu-latest
         needs: changes
         if: needs.changes.outputs.skills == 'true'
@@ -69,24 +67,72 @@ jobs:
             - name: Lint skills
               run: ./bin/hogli lint:skills
 
-            - name: Check skills are up to date
+            - name: Build skills
               env:
-                  SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # For testing only
+                  SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da'
                   DATABASE_URL: 'postgres://localhost:5432/posthog'
                   REDIS_URL: 'redis://localhost'
                   TEST: 1
+              run: ./bin/hogli build:skills
+
+    release-skills:
+        name: Release agent skills
+        runs-on: ubuntu-latest
+        needs: check-skills
+        if: github.ref == 'refs/heads/master'
+        permissions:
+            contents: write
+
+        steps:
+            - uses: actions/checkout@v6
+              with:
+                  fetch-depth: 0
+
+            - name: Set up Python
+              uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548 # v6.1.0
+              with:
+                  python-version-file: 'pyproject.toml'
+
+            - name: Install uv
+              uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b # v7.2.0
+              with:
+                  enable-cache: true
+                  save-cache: false
+                  version: 0.9.9
+
+            - name: Install python dependencies
+              run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+
+            - name: Build skills ZIP
+              env:
+                  SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da'
+                  DATABASE_URL: 'postgres://localhost:5432/posthog'
+                  REDIS_URL: 'redis://localhost'
+                  TEST: 1
+              run: ./bin/hogli build:skills
+
+            - name: Determine next version
+              id: version
               run: |
-                  ./bin/hogli pack:skills
-                  if ! git diff --exit-code products/posthog_ai/dist/skills.zip; then
-                      echo ""
-                      echo "::error::Agent skills are out of date!"
-                      echo ""
-                      echo "The skills ZIP in products/posthog_ai/dist/ is auto-generated"
-                      echo "from skill templates in products/*/skills/. When you modify"
-                      echo "skill sources, you need to regenerate the ZIP."
-                      echo ""
-                      echo "To fix, run locally:  hogli pack:skills"
-                      echo "Then commit the updated dist/skills.zip."
-                      echo ""
-                      exit 1
-                  fi
+                  LATEST_TAG=$(git tag -l 'agent-skills-v*' | grep -E '^agent-skills-v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1)
+                  if [ -z "$LATEST_TAG" ]; then LATEST_TAG="agent-skills-v0.0.0"; fi
+                  MINOR=$(echo "${LATEST_TAG#agent-skills-v}" | cut -d. -f2)
+                  echo "tag=agent-skills-v0.$((MINOR + 1)).0" >> "$GITHUB_OUTPUT"
+
+            - name: Create versioned and latest releases
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  gh release create "${{ steps.version.outputs.tag }}" \
+                      products/posthog_ai/dist/skills.zip \
+                      --title "Agent skills ${{ steps.version.outputs.tag }}" \
+                      --notes "Build from ${{ github.sha }}" \
+                      --latest=false
+
+                  gh release delete agent-skills-latest --yes || true
+                  git push origin :refs/tags/agent-skills-latest || true
+                  gh release create agent-skills-latest \
+                      products/posthog_ai/dist/skills.zip \
+                      --title "Agent skills (Latest)" \
+                      --notes "Latest build — same as ${{ steps.version.outputs.tag }}" \
+                      --latest=false

@@ -10,22 +10,19 @@ Skills can be:
 
 Each skill must have YAML frontmatter with at least ``name`` and ``description`` fields.
 The build renders skills to dist/skills/{skill_name}/ (gitignored, human-readable)
-and optionally packages them into dist/skills.zip (checked into git).
+and optionally packages them into dist/skills.zip (published as a GitHub release by CI).
 
 Requires the project's Python environment (managed by uv) for template rendering
 that imports Pydantic models from product code.
 
 Usage:
-    hogli build:skills          # Build all product skills to dist/skills/
-    hogli pack:skills           # Build and package into dist/skills.zip
-    hogli build:skills --check  # Check if dist/skills.zip is up-to-date (for CI)
+    hogli build:skills          # Build all product skills to dist/skills/ and dist/skills.zip
     hogli build:skills --list   # List discovered skills without building
     hogli lint:skills           # Validate skill sources without rendering
 """
 
 from __future__ import annotations
 
-import io
 import os
 import re
 import sys
@@ -334,52 +331,6 @@ class SkillBuilder:
                     zf.writestr(info, file_path.read_text())
         return zip_path
 
-    def _build_zip_bytes(self) -> bytes:
-        """Build skills and return what the ZIP contents would be, without writing to disk."""
-        skills = self.discoverer.discover()
-        renderer = SkillRenderer()
-        manifest = self.build_manifest(skills, renderer)
-
-        buf = io.BytesIO()
-        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-            for resource in manifest.resources:
-                for skill_file in resource.files:
-                    arcname = f"{resource.name}/{skill_file.path}"
-                    info = zipfile.ZipInfo(arcname, date_time=_ZIP_FIXED_TIME)
-                    zf.writestr(info, skill_file.content)
-        return buf.getvalue()
-
-    def check_all(self) -> bool:
-        """Check that dist/skills.zip is up-to-date with skill sources.
-
-        Returns True if the ZIP is current, False otherwise.
-        """
-        zip_path = self.dist_dir / "skills.zip"
-
-        skills = self.discoverer.discover()
-        if not skills:
-            if zip_path.exists():
-                print(f"STALE:   {zip_path.relative_to(self.repo_root)} (no skills found, but ZIP exists)")
-                return False
-            print("No product skills found.")
-            return True
-
-        if not zip_path.exists():
-            print(f"MISSING: {zip_path.relative_to(self.repo_root)}")
-            return False
-
-        expected_bytes = self._build_zip_bytes()
-        actual_bytes = zip_path.read_bytes()
-
-        if actual_bytes != expected_bytes:
-            print(f"STALE:   {zip_path.relative_to(self.repo_root)}")
-            return False
-
-        renderer = SkillRenderer()
-        manifest = self.build_manifest(skills, renderer)
-        print(f"OK:      {zip_path.relative_to(self.repo_root)} ({len(manifest.resources)} skill(s))")
-        return True
-
     def _collect_lint_files(self, skill: DiscoveredSkill) -> list[tuple[Path, int]]:
         """Collect all files for linting from a skill, with their depth relative to skill dir.
 
@@ -519,16 +470,6 @@ def main() -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
-        "--check",
-        action="store_true",
-        help="Check if dist/skills.zip is up-to-date (exit 1 if not)",
-    )
-    parser.add_argument(
-        "--pack",
-        action="store_true",
-        help="Build and package skills into dist/skills.zip",
-    )
-    parser.add_argument(
         "--list",
         action="store_true",
         help="List discovered product skills without building",
@@ -555,30 +496,12 @@ def main() -> None:
 
     _setup_django()
 
-    if args.check:
-        if not builder.check_all():
-            print("\nSkills are out of date. Run `hogli pack:skills` to rebuild.")
-            sys.exit(1)
-        print("\nAll product skills are up-to-date.")
-        return
-
-    if args.pack:
-        manifest = builder.build_all()
-        if not manifest.resources:
-            print("No product skills found in products/*/skills/.")
-            return
-        zip_path = builder._zip_skills_dist()
-        print(f"Built {len(manifest.resources)} skill(s) → {zip_path.relative_to(REPO_ROOT)}")
-        for r in manifest.resources:
-            print(f"  {r.name:<40} source={r.source}")
-        return
-
     manifest = builder.build_all()
     if not manifest.resources:
         print("No product skills found in products/*/skills/.")
         return
-
-    print(f"Built {len(manifest.resources)} skill(s) → {builder.skills_dist_dir.relative_to(REPO_ROOT)}")
+    zip_path = builder._zip_skills_dist()
+    print(f"Built {len(manifest.resources)} skill(s) → {zip_path.relative_to(REPO_ROOT)}")
     for r in manifest.resources:
         print(f"  {r.name:<40} source={r.source}")
 
