@@ -204,7 +204,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
     def test_cant_create_flag_with_invalid_filters(self):
         count = FeatureFlag.objects.count()
 
-        invalid_operators = ["icontains", "regex", "not_icontains", "not_regex", "lt", "gt", "lte", "gte"]
+        # These operators require string values (not arrays)
+        invalid_operators = ["regex", "not_regex", "lt", "gt", "lte", "gte"]
 
         for operator in invalid_operators:
             response = self.client.post(
@@ -241,6 +242,104 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             )
 
         self.assertEqual(FeatureFlag.objects.count(), count)
+
+    def test_can_create_flag_with_icontains_array_values(self):
+        # icontains and not_icontains should support array values
+        for operator in ["icontains", "not_icontains"]:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/feature_flags",
+                {
+                    "name": f"Feature with {operator}",
+                    "key": f"feature-{operator}-array",
+                    "filters": {
+                        "groups": [
+                            {
+                                "rollout_percentage": 100,
+                                "properties": [
+                                    {
+                                        "key": "email",
+                                        "type": "person",
+                                        "value": ["@posthog.com", "@example.com"],
+                                        "operator": operator,
+                                    }
+                                ],
+                            }
+                        ]
+                    },
+                },
+            )
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+
+    def test_icontains_rejects_empty_array_values(self):
+        for operator in ["icontains", "not_icontains"]:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/feature_flags",
+                {
+                    "name": f"Feature with {operator}",
+                    "key": f"feature-{operator}-empty",
+                    "filters": {
+                        "groups": [
+                            {
+                                "rollout_percentage": 100,
+                                "properties": [
+                                    {
+                                        "key": "email",
+                                        "type": "person",
+                                        "value": [],
+                                        "operator": operator,
+                                    }
+                                ],
+                            }
+                        ]
+                    },
+                },
+            )
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertEqual(
+                response.json(),
+                {
+                    "type": "validation_error",
+                    "code": "invalid_value",
+                    "detail": f"Empty array is not valid for operator {operator}",
+                    "attr": "filters",
+                },
+            )
+
+    def test_icontains_rejects_non_string_array_values(self):
+        # icontains should reject arrays containing non-strings
+        for operator in ["icontains", "not_icontains"]:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/feature_flags",
+                {
+                    "name": f"Feature with {operator}",
+                    "key": f"feature-{operator}-invalid",
+                    "filters": {
+                        "groups": [
+                            {
+                                "rollout_percentage": 100,
+                                "properties": [
+                                    {
+                                        "key": "email",
+                                        "type": "person",
+                                        "value": ["@posthog.com", 123],
+                                        "operator": operator,
+                                    }
+                                ],
+                            }
+                        ]
+                    },
+                },
+            )
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertEqual(
+                response.json(),
+                {
+                    "type": "validation_error",
+                    "code": "invalid_value",
+                    "detail": f"All values for operator {operator} must be strings",
+                    "attr": "filters",
+                },
+            )
 
         # Test that a string value is still acceptable
         response = self.client.post(

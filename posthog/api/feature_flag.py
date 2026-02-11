@@ -754,12 +754,10 @@ class FeatureFlagSerializer(
                             code="invalid_date",
                         )
 
-                # make sure regex, icontains, gte, lte, lt, and gt properties have string values
+                # make sure regex, gte, lte, lt, and gt properties have string values
                 if prop.operator in [
                     "regex",
-                    "icontains",
                     "not_regex",
-                    "not_icontains",
                     "gte",
                     "lte",
                     "gt",
@@ -769,6 +767,25 @@ class FeatureFlagSerializer(
                         detail=f"Invalid value for operator {prop.operator}: {prop.value}",
                         code="invalid_value",
                     )
+
+                # icontains and not_icontains support both string and array values
+                if prop.operator in ["icontains", "not_icontains"]:
+                    if isinstance(prop.value, list):
+                        if len(prop.value) == 0:
+                            raise serializers.ValidationError(
+                                detail=f"Empty array is not valid for operator {prop.operator}",
+                                code="invalid_value",
+                            )
+                        if not all(isinstance(v, str) for v in prop.value):
+                            raise serializers.ValidationError(
+                                detail=f"All values for operator {prop.operator} must be strings",
+                                code="invalid_value",
+                            )
+                    elif not isinstance(prop.value, str):
+                        raise serializers.ValidationError(
+                            detail=f"Invalid value for operator {prop.operator}: {prop.value}",
+                            code="invalid_value",
+                        )
 
                 if prop.operator in (PropertyOperator.IN_, PropertyOperator.NOT_IN) and prop.type != "cohort":
                     raise serializers.ValidationError(

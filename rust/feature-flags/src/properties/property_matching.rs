@@ -140,9 +140,22 @@ pub fn match_property(
             if let Some(match_value) = match_value {
                 // Using to_ascii_lowercase() since we only care about ASCII case insensitivity
                 // This is more performant than to_lowercase() which handles full Unicode
-                let is_contained = to_string_representation(match_value)
-                    .to_ascii_lowercase()
-                    .contains(&to_string_representation(value).to_ascii_lowercase());
+                let match_value_lower = to_string_representation(match_value).to_ascii_lowercase();
+
+                let is_contained = if value.is_array() {
+                    // If value is an array, check if ANY of the array values are contained
+                    value
+                        .as_array()
+                        .expect("expected array value")
+                        .iter()
+                        .any(|v| {
+                            match_value_lower
+                                .contains(&to_string_representation(v).to_ascii_lowercase())
+                        })
+                } else {
+                    match_value_lower
+                        .contains(&to_string_representation(value).to_ascii_lowercase())
+                };
 
                 if operator == OperatorType::Icontains {
                     Ok(is_contained)
@@ -874,6 +887,101 @@ mod test_match_properties {
         assert!(!match_property(
             &property_b,
             &HashMap::from([("key".to_string(), json!("three"))]),
+            true
+        )
+        .expect("expected match to exist"));
+    }
+
+    #[test]
+    fn test_match_properties_icontains_with_array_values() {
+        // Test icontains with array values - should match if ANY value is contained
+        let property_a = PropertyFilter {
+            key: "key".to_string(),
+            value: Some(json!(["posthog.com", "example.com"])),
+            operator: Some(OperatorType::Icontains),
+            prop_type: PropertyType::Person,
+            group_type_index: None,
+            negation: None,
+        };
+
+        // Should match - contains "posthog.com"
+        assert!(match_property(
+            &property_a,
+            &HashMap::from([("key".to_string(), json!("user@posthog.com"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // Should match - contains "example.com"
+        assert!(match_property(
+            &property_a,
+            &HashMap::from([("key".to_string(), json!("user@example.com"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // Should not match - contains neither
+        assert!(!match_property(
+            &property_a,
+            &HashMap::from([("key".to_string(), json!("user@gmail.com"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // Test case insensitivity
+        assert!(match_property(
+            &property_a,
+            &HashMap::from([("key".to_string(), json!("user@POSTHOG.COM"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // Test not_icontains with array values - should NOT match if ANY value is contained
+        let property_b = PropertyFilter {
+            key: "key".to_string(),
+            value: Some(json!(["posthog.com", "example.com"])),
+            operator: Some(OperatorType::NotIcontains),
+            prop_type: PropertyType::Person,
+            group_type_index: None,
+            negation: None,
+        };
+
+        // Should not match - contains "posthog.com"
+        assert!(!match_property(
+            &property_b,
+            &HashMap::from([("key".to_string(), json!("user@posthog.com"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // Should match - contains neither
+        assert!(match_property(
+            &property_b,
+            &HashMap::from([("key".to_string(), json!("user@gmail.com"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // Test single-element array (should behave the same as string)
+        let property_c = PropertyFilter {
+            key: "key".to_string(),
+            value: Some(json!(["posthog.com"])),
+            operator: Some(OperatorType::Icontains),
+            prop_type: PropertyType::Person,
+            group_type_index: None,
+            negation: None,
+        };
+
+        assert!(match_property(
+            &property_c,
+            &HashMap::from([("key".to_string(), json!("user@posthog.com"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        assert!(!match_property(
+            &property_c,
+            &HashMap::from([("key".to_string(), json!("user@gmail.com"))]),
             true
         )
         .expect("expected match to exist"));
