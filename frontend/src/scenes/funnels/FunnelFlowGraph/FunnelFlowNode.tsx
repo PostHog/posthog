@@ -23,15 +23,7 @@ import { FunnelFlowNodeData, NODE_HEIGHT, NODE_WIDTH } from './funnelFlowGraphLo
 
 function OptionalChip(): JSX.Element {
     return (
-        <span
-            className="ml-8 text-xxs lowercase tracking-wide px-1 rounded"
-            // eslint-disable-next-line react/forbid-dom-props
-            style={{
-                color: 'var(--muted)',
-                backgroundColor: 'color-mix(in srgb, var(--muted) 15%, transparent)',
-                border: '1px solid color-mix(in srgb, var(--muted) 30%, transparent)',
-            }}
-        >
+        <span className="ml-8 text-xxs lowercase tracking-wide px-1 rounded text-muted bg-fill-highlight-100 border border-primary-highlight">
             Optional
         </span>
     )
