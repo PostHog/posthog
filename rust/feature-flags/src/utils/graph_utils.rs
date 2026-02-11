@@ -326,6 +326,7 @@ where
         let mut node_slots: Vec<Option<T>> = nodes.into_iter().map(|n| Some(n.weight)).collect();
 
         Ok(stage_indices
+            // SAFETY: compute_stage_indices guarantees each node appears in exactly one stage
             .into_iter()
             .map(|stage| {
                 stage
