@@ -573,10 +573,7 @@ export function OverViewTab({
                             icon={<IconTrash />}
                             loading={bulkDeleteResponseLoading}
                             onClick={() => {
-                                const description =
-                                    selectedCount > 100
-                                        ? `Are you sure you want to delete ${selectedCount} feature flags? This will be processed in batches and may take a moment. This action cannot be undone.`
-                                        : `Are you sure you want to delete ${selectedCount} feature flag${selectedCount !== 1 ? 's' : ''}? This action cannot be undone.`
+                                const description = `Are you sure you want to delete ${selectedCount} feature flag${selectedCount !== 1 ? 's' : ''}? This action cannot be undone.`
                                 LemonDialog.open({
                                     title: `Delete ${selectedCount} feature flag${selectedCount !== 1 ? 's' : ''}?`,
                                     description,
