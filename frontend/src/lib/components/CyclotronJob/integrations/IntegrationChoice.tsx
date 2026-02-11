@@ -64,7 +64,7 @@ export function IntegrationChoice({
     }
 
     const handleModalComplete = (integrationId?: number): void => {
-        if (integrationId) {
+        if (typeof integrationId === 'number') {
             onChange?.(integrationId)
         }
         closeNewIntegrationModal()
