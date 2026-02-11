@@ -6,15 +6,6 @@ import type { DecompressionRequest, DecompressionResponse } from './decompressio
 interface PendingRequest {
     resolve: (data: Uint8Array) => void
     reject: (error: Error) => void
-    startTime: number
-    dataSize: number
-    isParallel?: boolean
-}
-
-interface DecompressionStats {
-    totalTime: number
-    count: number
-    totalSize: number
 }
 
 export class DecompressionWorkerManager {
@@ -23,8 +14,6 @@ export class DecompressionWorkerManager {
     private worker: Worker | null = null
     private messageId = 0
     private pendingRequests = new Map<number, PendingRequest>()
-    private stats: DecompressionStats = { totalTime: 0, count: 0, totalSize: 0 }
-    private isColdStart = true
     private workerInitFailed = false
 
     constructor(private readonly posthog?: PostHog) {
@@ -61,7 +50,7 @@ export class DecompressionWorkerManager {
                     return
                 }
 
-                const { id, decompressedData, error, workerDecompressDuration } = data as DecompressionResponse
+                const { id, decompressedData, error } = data as DecompressionResponse
 
                 const pending = this.pendingRequests.get(id)
                 if (!pending) {
@@ -69,16 +58,6 @@ export class DecompressionWorkerManager {
                 }
 
                 this.pendingRequests.delete(id)
-
-                const totalDuration = performance.now() - pending.startTime
-
-                this.updateStats(
-                    totalDuration,
-                    pending.dataSize,
-                    undefined,
-                    workerDecompressDuration,
-                    pending.isParallel
-                )
 
                 if (error || !decompressedData) {
                     pending.reject(new Error(error || 'Decompression failed'))
@@ -126,7 +105,7 @@ export class DecompressionWorkerManager {
         if (this.shouldUseWorker()) {
             return this.decompressWithFallback(compressedData, metadata)
         }
-        return this.decompressMainThread(compressedData, metadata)
+        return this.decompressMainThread(compressedData)
     }
 
     private shouldUseWorker(): boolean {
@@ -141,7 +120,7 @@ export class DecompressionWorkerManager {
             return await this.decompressWithWorker(compressedData, metadata)
         } catch (error) {
             this.reportWorkerFailure(error, compressedData.length, metadata?.isParallel)
-            return await this.decompressMainThread(compressedData, metadata)
+            return await this.decompressMainThread(compressedData)
         }
     }
 
@@ -161,7 +140,6 @@ export class DecompressionWorkerManager {
         metadata?: { isParallel?: boolean }
     ): Promise<Uint8Array> {
         const id = this.messageId++
-        const startTime = performance.now()
 
         return new Promise<Uint8Array>((resolve, reject) => {
             // Timeout safeguard: if worker doesn't respond, reject and fallback
@@ -189,9 +167,6 @@ export class DecompressionWorkerManager {
                     clearTimeout(timeout)
                     reject(error)
                 },
-                startTime,
-                dataSize: compressedData.length,
-                isParallel: metadata?.isParallel,
             })
 
             const message: DecompressionRequest = {
@@ -209,85 +184,13 @@ export class DecompressionWorkerManager {
         })
     }
 
-    private async decompressMainThread(
-        compressedData: Uint8Array,
-        metadata?: { isParallel?: boolean }
-    ): Promise<Uint8Array> {
-        const startTime = performance.now()
-        const dataSize = compressedData.length
-
+    private async decompressMainThread(compressedData: Uint8Array): Promise<Uint8Array> {
         try {
-            const decompressStart = performance.now()
-            const result = decompress_raw(compressedData)
-            const decompressDuration = performance.now() - decompressStart
-            const totalDuration = performance.now() - startTime
-            this.updateStats(totalDuration, dataSize, undefined, decompressDuration, metadata?.isParallel)
-            return result
+            return decompress_raw(compressedData)
         } catch (error) {
             console.error('Decompression error:', error)
             throw error instanceof Error ? error : new Error('Unknown decompression error')
         }
-    }
-
-    private updateStats(
-        duration: number,
-        dataSize: number,
-        _yieldDuration?: number,
-        decompressDuration?: number,
-        isParallel?: boolean
-    ): void {
-        this.stats.totalTime += duration
-        this.stats.count += 1
-        this.stats.totalSize += dataSize
-        const isColdStart = this.isColdStart
-        if (this.isColdStart) {
-            this.isColdStart = false
-        }
-        this.reportTiming(duration, dataSize, isColdStart, decompressDuration, isParallel)
-    }
-
-    private reportTiming(
-        durationMs: number,
-        sizeBytes: number,
-        isColdStart: boolean,
-        decompressDuration?: number,
-        isParallel?: boolean
-    ): void {
-        if (!this.posthog) {
-            return
-        }
-
-        // Only report on cold start and every 10th decompression to avoid
-        // flooding the microtask queue with posthog.capture() promise chains
-        if (!isColdStart && this.stats.count % 10 !== 0) {
-            return
-        }
-
-        const properties: Record<string, any> = {
-            method: 'worker',
-            duration_ms: durationMs,
-            size_bytes: sizeBytes,
-            is_cold_start: isColdStart,
-            aggregate_total_time_ms: this.stats.totalTime,
-            aggregate_count: this.stats.count,
-            aggregate_total_size_bytes: this.stats.totalSize,
-            aggregate_avg_time_ms: this.stats.count > 0 ? this.stats.totalTime / this.stats.count : 0,
-        }
-
-        if (decompressDuration !== undefined) {
-            properties.decompress_duration_ms = decompressDuration
-            properties.overhead_duration_ms = durationMs - decompressDuration
-        }
-
-        if (isParallel !== undefined) {
-            properties.is_parallel = isParallel
-        }
-
-        this.posthog.capture('replay_decompression_timing', properties)
-    }
-
-    getStats(): DecompressionStats {
-        return { ...this.stats }
     }
 
     terminate(): void {
