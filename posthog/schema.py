@@ -1717,6 +1717,7 @@ class FileSystemIconType(StrEnum):
     WORKFLOWS = "workflows"
     NOTEBOOK = "notebook"
     ACTION = "action"
+    ACTIVITY = "activity"
     COMMENT = "comment"
     ANNOTATION = "annotation"
     EVENT = "event"
