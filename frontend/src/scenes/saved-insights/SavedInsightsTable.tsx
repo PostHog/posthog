@@ -17,7 +17,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { pluralize } from 'lib/utils'
 import { SavedInsightsEmptyState } from 'scenes/insights/EmptyStates'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
-import { CreatedByFilter, SavedInsightsFilters } from 'scenes/saved-insights/SavedInsightsFilters'
+import { SavedInsightsFilters } from 'scenes/saved-insights/SavedInsightsFilters'
 import { urls } from 'scenes/urls'
 
 import { DashboardType, QueryBasedInsightModel } from '~/types'
@@ -33,7 +33,6 @@ interface SavedInsightsTableProps {
 
 export function SavedInsightsTable({ renderActionColumn, dashboard }: SavedInsightsTableProps): JSX.Element {
     const isExperimentEnabled = useFeatureFlag('PRODUCT_ANALYTICS_ADD_INSIGHT_TO_DASHBOARD_MODAL', 'test')
-    const isMyInsightsDefaultEnabled = useFeatureFlag('PRODUCT_ANALYTICS_DASHBOARD_MODAL_DEFAULT_MY_INSIGHTS', 'test')
     const {
         modalPage,
         insights,
@@ -192,19 +191,14 @@ export function SavedInsightsTable({ renderActionColumn, dashboard }: SavedInsig
     return (
         <div className="saved-insights">
             {isExperimentEnabled ? (
-                <>
-                    <SavedInsightsFilters filters={filters} setFilters={setModalFilters} showQuickFilters={false} />
-                    <div className="flex justify-between mt-3 mb-2 gap-2 items-center">
-                        <span className="text-secondary">
-                            {count
-                                ? `${startCount}${endCount - startCount > 1 ? '-' + endCount : ''} of ${pluralize(count, 'insight')}${createdByStrategy === 'filter' && filters.createdBy !== 'All users' ? ' created by you' : ''}`
-                                : null}
-                        </span>
-                        {isMyInsightsDefaultEnabled && createdByStrategy === 'filter' && (
-                            <CreatedByFilter filters={filters} setFilters={setModalFilters} />
-                        )}
-                    </div>
-                </>
+                <div className="mb-2">
+                    <SavedInsightsFilters
+                        filters={filters}
+                        setFilters={setModalFilters}
+                        showFeatureFlagToggle={false}
+                        showFavorites={false}
+                    />
+                </div>
             ) : (
                 <>
                     <SavedInsightsFilters filters={filters} setFilters={setModalFilters} showQuickFilters={false} />
@@ -249,8 +243,8 @@ export function SavedInsightsTable({ renderActionColumn, dashboard }: SavedInsig
                             isExperimentEnabled
                                 ? (insight) =>
                                       isInsightInDashboard(insight, dashboard?.tiles)
-                                          ? 'group bg-success-highlight border-l-2 border-l-success cursor-pointer hover:bg-success-highlight/70'
-                                          : 'group cursor-pointer hover:bg-success-highlight/30 border-l-2 border-l-transparent hover:border-l-success/50'
+                                          ? 'group bg-white border-l-2 border-l-success cursor-pointer hover:bg-success-highlight'
+                                          : 'group cursor-pointer hover:bg-white border-l-2 border-l-transparent hover:border-l-success/50'
                                 : undefined
                         }
                         onRow={

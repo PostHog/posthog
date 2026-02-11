@@ -10,7 +10,6 @@ import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { fullName } from 'lib/utils'
-import { cn } from 'lib/utils/css-classes'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { INSIGHT_TYPE_OPTIONS } from 'scenes/saved-insights/SavedInsights'
 import { SavedInsightFilters } from 'scenes/saved-insights/savedInsightsLogic'
@@ -118,6 +117,7 @@ export function CreatedByFilter({
             <LemonButton
                 size="small"
                 type="secondary"
+                status={createdBy !== 'All users' && (createdBy as number[]).length > 0 ? 'default' : 'alt'}
                 active={createdBy !== 'All users' && (createdBy as number[]).length > 0}
             >
                 {isFilteredToCurrentUser
@@ -134,15 +134,19 @@ export function SavedInsightsFilters({
     filters,
     setFilters,
     showQuickFilters = true,
+    showFeatureFlagToggle = true,
+    showFavorites = true,
 }: {
     filters: SavedInsightFilters
     setFilters: (filters: Partial<SavedInsightFilters>) => void
     showQuickFilters?: boolean
+    showFeatureFlagToggle?: boolean
+    showFavorites?: boolean
 }): JSX.Element {
     const { search, hideFeatureFlagInsights, favorited, tags, insightType } = filters
 
     return (
-        <div className={cn('flex justify-between gap-2 items-center flex-wrap')}>
+        <div className="flex gap-2 items-center flex-wrap">
             <LemonInput
                 type="search"
                 placeholder="Search for insights"
@@ -151,33 +155,40 @@ export function SavedInsightsFilters({
                 autoFocus
                 data-attr="insight-dashboard-modal-search"
             />
-            <div className="flex items-center gap-2 flex-wrap">
-                {showQuickFilters && (
-                    <>
-                        <LemonSelect
-                            dropdownMatchSelectWidth={false}
-                            size="small"
-                            onChange={(value) => {
-                                setFilters({ insightType: value as string })
-                            }}
-                            options={INSIGHT_TYPE_OPTIONS}
-                            value={insightType || 'All types'}
-                        />
-                        <TagSelect
-                            value={tags || []}
-                            onChange={(tags) => {
-                                setFilters({ tags: tags.length > 0 ? tags : [] })
-                            }}
-                        >
-                            {(selectedTags) => (
-                                <LemonButton size="small" type="secondary">
-                                    {selectedTags.length > 0 ? `Tags (${selectedTags.length})` : 'Tags'}
-                                </LemonButton>
-                            )}
-                        </TagSelect>
-                        <CreatedByFilter filters={filters} setFilters={setFilters} />
+            {showQuickFilters && (
+                <div className="flex gap-2 items-center flex-wrap ml-auto">
+                    <LemonSelect
+                        dropdownMatchSelectWidth={false}
+                        size="small"
+                        className={!insightType || insightType === 'All types' ? 'LemonButton--status-alt' : undefined}
+                        onChange={(value) => {
+                            setFilters({ insightType: value as string })
+                        }}
+                        options={INSIGHT_TYPE_OPTIONS}
+                        value={insightType || 'All types'}
+                    />
+                    <TagSelect
+                        value={tags || []}
+                        onChange={(tags) => {
+                            setFilters({ tags: tags.length > 0 ? tags : [] })
+                        }}
+                    >
+                        {(selectedTags) => (
+                            <LemonButton
+                                size="small"
+                                type="secondary"
+                                status={selectedTags.length > 0 ? 'default' : 'alt'}
+                                active={selectedTags.length > 0}
+                            >
+                                {selectedTags.length > 0 ? `Tags (${selectedTags.length})` : 'Tags'}
+                            </LemonButton>
+                        )}
+                    </TagSelect>
+                    <CreatedByFilter filters={filters} setFilters={setFilters} />
+                    {showFavorites && (
                         <LemonButton
                             type="secondary"
+                            status={favorited ? 'default' : 'alt'}
                             active={favorited || false}
                             onClick={() => setFilters({ favorited: !favorited })}
                             size="small"
@@ -185,13 +196,15 @@ export function SavedInsightsFilters({
                         >
                             Favorites
                         </LemonButton>
+                    )}
+                    {showFeatureFlagToggle && (
                         <FeatureFlagInsightsToggle
                             hideFeatureFlagInsights={hideFeatureFlagInsights ?? undefined}
                             onToggle={(checked) => setFilters({ hideFeatureFlagInsights: checked })}
                         />
-                    </>
-                )}
-            </div>
+                    )}
+                </div>
+            )}
         </div>
     )
 }

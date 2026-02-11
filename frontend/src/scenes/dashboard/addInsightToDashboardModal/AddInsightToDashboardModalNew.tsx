@@ -5,6 +5,7 @@ import posthog from 'posthog-js'
 import { IconFunnels, IconPlus, IconRetention, IconTrends } from '@posthog/icons'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { AddSavedInsightsToDashboard } from 'scenes/saved-insights/AddSavedInsightsToDashboard'
@@ -55,8 +56,8 @@ export function AddInsightToDashboardModalNew(): JSX.Element {
                 isOpen={addInsightToDashboardModalVisible}
                 width={860}
             >
-                <div className="space-y-4">
-                    <div className="flex flex-col sm:flex-row sm:items-center gap-3 p-4 bg-surface-secondary rounded-lg">
+                <div className="bg-surface-secondary rounded-lg p-4 space-y-3">
+                    <div className="flex flex-col sm:flex-row sm:items-center gap-3">
                         <div className="flex items-center gap-3">
                             <IconPlus className="text-2xl text-secondary shrink-0" />
                             <div>
@@ -113,6 +114,8 @@ export function AddInsightToDashboardModalNew(): JSX.Element {
                             </Popover>
                         </div>
                     </div>
+
+                    <LemonDivider />
 
                     <AddSavedInsightsToDashboard />
                 </div>
