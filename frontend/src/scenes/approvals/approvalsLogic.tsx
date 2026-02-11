@@ -61,7 +61,7 @@ export const approvalsLogic = kea<approvalsLogicType>([
             {
                 loadChangeRequests: async ({ url }, breakpoint) => {
                     if (!values.currentTeamId || !values.hasAvailableFeature(AvailableFeature.APPROVALS)) {
-                        return values.changeRequestsData
+                        return { changeRequests: [], changeRequestsCount: 0 }
                     }
 
                     await breakpoint(300)
