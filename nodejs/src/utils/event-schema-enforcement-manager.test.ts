@@ -137,8 +137,8 @@ describe('EventSchemaEnforcementManager', () => {
             expect(schema).toBeDefined()
             expect(schema!.event_name).toBe('purchase')
             expect(schema!.required_properties.size).toBe(2)
-            expect(schema!.required_properties.get('product_id')).toBe('String')
-            expect(schema!.required_properties.get('amount')).toBe('Numeric')
+            expect(schema!.required_properties.get('product_id')).toEqual(['String'])
+            expect(schema!.required_properties.get('amount')).toEqual(['Numeric'])
         })
 
         it('only returns required properties, not optional ones', async () => {
@@ -183,26 +183,26 @@ describe('EventSchemaEnforcementManager', () => {
             expect(Array.from(result.keys()).sort()).toEqual(['event_a', 'event_b'])
         })
 
-        it('skips validation for properties with conflicting types across property groups', async () => {
+        it('collects all types for properties with different types across property groups', async () => {
             const eventDefId = await createEventDefinition(teamId, 'test_event', 'reject')
 
             const propGroup1 = await createPropertyGroup(teamId)
             await createEventSchema(eventDefId, propGroup1)
-            await createProperty(propGroup1, 'conflicting_prop', 'String', true)
+            await createProperty(propGroup1, 'multi_type_prop', 'String', true)
             await createProperty(propGroup1, 'consistent_prop', 'Numeric', true)
 
             const propGroup2 = await createPropertyGroup(teamId)
             await createEventSchema(eventDefId, propGroup2)
-            await createProperty(propGroup2, 'conflicting_prop', 'Numeric', true)
+            await createProperty(propGroup2, 'multi_type_prop', 'Numeric', true)
             await createProperty(propGroup2, 'consistent_prop', 'Numeric', true)
 
             const result = await schemaManager.getSchemas(teamId)
 
             expect(result.size).toBe(1)
             const schema = result.get('test_event')
-            expect(schema!.required_properties.size).toBe(1)
-            expect(schema!.required_properties.has('conflicting_prop')).toBe(false)
-            expect(schema!.required_properties.get('consistent_prop')).toBe('Numeric')
+            expect(schema!.required_properties.size).toBe(2)
+            expect(schema!.required_properties.get('multi_type_prop')).toEqual(['Numeric', 'String'])
+            expect(schema!.required_properties.get('consistent_prop')).toEqual(['Numeric'])
         })
     })
 

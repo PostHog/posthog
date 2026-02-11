@@ -4,13 +4,13 @@ import { LazyLoader } from './lazy-loader'
 
 /**
  * Raw row from the database query - one row per property per event.
- * We aggregate these in JS to build the EventSchemaEnforcement structure.
+ * Each row contains all accepted types for a property (aggregated via array_agg).
  */
 interface RawSchemaPropertyRow {
     team_id: number
     event_name: string
     property_name: string
-    property_type: string
+    property_types: string[]
 }
 
 /**
@@ -67,16 +67,16 @@ export class EventSchemaEnforcementManager {
             return result
         }
 
-        // Properties that have conflicting types across property groups are excluded
-        // from validation (HAVING COUNT(DISTINCT ...) = 1) since misconfigured
-        // properties should not block ingestion.
+        // Collect all distinct types per property across property groups.
+        // When the same property appears in multiple groups with different types,
+        // all types are included — validation accepts if the value matches any.
         const queryResult = await this.postgres.query<RawSchemaPropertyRow>(
             PostgresUse.COMMON_READ,
             `SELECT
                 ed.team_id,
                 ed.name as event_name,
                 p.name as property_name,
-                MIN(p.property_type) as property_type
+                array_agg(DISTINCT p.property_type ORDER BY p.property_type) as property_types
             FROM posthog_eventdefinition ed
             JOIN posthog_eventschema es ON es.event_definition_id = ed.id
             JOIN posthog_schemapropertygroupproperty p ON p.property_group_id = es.property_group_id
@@ -84,7 +84,6 @@ export class EventSchemaEnforcementManager {
               AND ed.enforcement_mode = 'reject'
               AND p.is_required = true
             GROUP BY ed.team_id, ed.name, p.name
-            HAVING COUNT(DISTINCT p.property_type) = 1
             ORDER BY ed.team_id, ed.name, p.name`,
             [numericTeamIds],
             'fetch-enforced-event-schemas'
@@ -117,7 +116,7 @@ export class EventSchemaEnforcementManager {
                 result[teamId].set(row.event_name, schema)
             }
 
-            schema.required_properties.set(row.property_name, row.property_type)
+            schema.required_properties.set(row.property_name, row.property_types)
         }
 
         return result

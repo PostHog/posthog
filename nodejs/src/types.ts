@@ -652,8 +652,8 @@ export type OrganizationAvailableFeature = 'group_analytics' | 'data_pipelines' 
 /** Event schema with enforcement enabled. Only includes required properties since optional properties are not validated. */
 export interface EventSchemaEnforcement {
     event_name: string
-    /** Map from property name to its expected type */
-    required_properties: Map<string, string>
+    /** Map from property name to accepted types (multiple types when property groups disagree) */
+    required_properties: Map<string, string[]>
 }
 
 /** Usable Team model. */

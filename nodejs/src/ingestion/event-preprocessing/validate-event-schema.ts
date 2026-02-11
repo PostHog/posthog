@@ -59,7 +59,7 @@ function canCoerceToType(value: unknown, propertyType: string): boolean {
 export interface SchemaValidationError {
     propertyName: string
     reason: 'missing_required' | 'type_mismatch'
-    expectedType?: string
+    expectedTypes?: string[]
     actualValue?: unknown
 }
 
@@ -78,7 +78,7 @@ export function validateEventAgainstSchema(
 ): SchemaValidationResult {
     const errors: SchemaValidationError[] = []
 
-    for (const [propertyName, propertyType] of schema.required_properties) {
+    for (const [propertyName, propertyTypes] of schema.required_properties) {
         const value = eventProperties?.[propertyName]
 
         if (value === null || value === undefined) {
@@ -89,11 +89,11 @@ export function validateEventAgainstSchema(
             continue
         }
 
-        if (!canCoerceToType(value, propertyType)) {
+        if (!propertyTypes.some((type) => canCoerceToType(value, type))) {
             errors.push({
                 propertyName,
                 reason: 'type_mismatch',
-                expectedType: propertyType,
+                expectedTypes: propertyTypes,
                 actualValue: value,
             })
         }
@@ -145,7 +145,7 @@ export function createValidateEventSchemaStep<T extends { eventWithTeam: Incomin
                             errors: validationResult.errors.map((err) => ({
                                 property: err.propertyName,
                                 reason: err.reason,
-                                expectedType: err.expectedType,
+                                expectedTypes: err.expectedTypes,
                                 actualValue:
                                     err.actualValue !== undefined
                                         ? typeof err.actualValue === 'object'
