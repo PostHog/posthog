@@ -97,18 +97,32 @@ class TestGetResource:
             ("default_to_updated", None, "updated"),
         ]
     )
-    def test_pull_requests_incremental_sort(self, _name, incremental_field, expected_sort):
+    def test_pull_requests_incremental_sort_with_cutoff(self, _name, incremental_field, expected_sort):
+        last_value = datetime(2026, 1, 15, 10, 0, 0, tzinfo=UTC)
         resource = get_resource(
             "pull_requests",
             "owner/repo",
             should_use_incremental_field=True,
             incremental_field=incremental_field,
+            db_incremental_field_last_value=last_value,
         )
         params = _endpoint_params(resource)
 
         assert params["sort"] == expected_sort
         assert params["direction"] == "desc"
         assert "since" not in params
+
+    def test_pull_requests_incremental_no_sort_without_cutoff(self):
+        resource = get_resource(
+            "pull_requests",
+            "owner/repo",
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=None,
+        )
+        params = _endpoint_params(resource)
+
+        assert "sort" not in params
+        assert "direction" not in params
 
     def test_pull_requests_full_refresh_no_sort(self):
         resource = get_resource("pull_requests", "owner/repo", should_use_incremental_field=False)

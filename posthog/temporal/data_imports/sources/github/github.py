@@ -46,7 +46,7 @@ def get_resource(
         if name in ("issues", "commits"):
             params["since"] = formatted_value
 
-    if should_use_incremental_field:
+    if should_use_incremental_field and (config.sort_mode == "asc" or db_incremental_field_last_value):
         sort_field = (incremental_field or config.default_incremental_field or "updated_at").replace("_at", "")
         params["sort"] = sort_field
         params["direction"] = config.sort_mode
