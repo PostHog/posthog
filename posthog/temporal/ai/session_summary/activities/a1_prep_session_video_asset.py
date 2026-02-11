@@ -43,12 +43,14 @@ async def prep_session_video_asset_activity(
     success = False
     try:
         # Check if a video-based summary already exists for this session
-        summary_exists = await database_sync_to_async(SingleSessionSummary.objects.summaries_exist)(
+        existing_summary = await database_sync_to_async(
+            SingleSessionSummary.objects.get_summary, thread_sensitive=False
+        )(
             team_id=inputs.team_id,
-            session_ids=[inputs.session_id],
+            session_id=inputs.session_id,
             extra_summary_context=inputs.extra_summary_context,
         )
-        if summary_exists.get(inputs.session_id):
+        if existing_summary is not None:
             logger.debug(
                 f"Summary already exists for session {inputs.session_id}, skipping video processing",
                 session_id=inputs.session_id,
