@@ -1,1 +1,1 @@
-0997_oauthapplication_auth_brand
+1001_fix_person_property_in_operator

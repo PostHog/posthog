@@ -331,6 +331,10 @@
     --color-product-surveys-light: rgb(243 84 84);
     --color-product-data-warehouse-light: rgb(133 103 255);
     --color-product-llm-analytics-light: rgb(182 42 217);
+    --color-product-llm-clusters-light: rgb(147 51 234);
+    --color-product-llm-datasets-light: rgb(124 58 237);
+    --color-product-llm-evaluations-light: rgb(167 139 250);
+    --color-product-llm-prompts-light: rgb(196 181 253);
     --color-product-links-light: rgb(143 7 255);
     --color-product-revenue-analytics-light: rgb(52 175 102);
     --color-product-revenue-analytics-dark: rgb(54 196 111);
@@ -1108,7 +1112,8 @@
     }
 
     a:focus-visible,
-    button:focus-visible {
+    button:focus-visible,
+    [data-highlighted]:not(:hover) {
         outline: 2px solid var(--color-accent);
     }
 
@@ -1696,6 +1701,11 @@
         animation-fill-mode: none;
     }
 
+    .animate-pulse-glow {
+        animation: pulse-glow 2s ease-in-out forwards;
+        animation-fill-mode: none;
+    }
+
     // Highlight background blink
 
     /* stylelint-disable-next-line keyframes-name-pattern */
@@ -1731,6 +1741,19 @@
 
         100% {
             transform: rotateZ(360deg);
+        }
+    }
+
+    // Pass in a different color variable to change the color of the glow
+    // Example: <span className="[--pulse-glow-color:blue] animate-pulse-glow" />
+    /* stylelint-disable-next-line keyframes-name-pattern */
+    @keyframes pulse-glow {
+        0% {
+            box-shadow: 0 0 0 2px var(--pulse-glow-color, var(--color-accent));
+        }
+
+        100% {
+            box-shadow: 0 0 0 10px transparent;
         }
     }
 
@@ -1838,7 +1861,8 @@
     }
 
     .animate-logomark-jump {
-        --logomark-jump-magnitude: 1;
+        --logomark-jump-height-base: 12px;
+        --logomark-jump-magnitude: 1; // Overidden in code when someone wants a bigger jump
         --logomark-airtime: 0.4s; // Sync with LOGOMARK_AIRTIME_MS in Intro.tsx
 
         svg {
@@ -1869,7 +1893,7 @@
             }
 
             2% {
-                transform: translateY(calc(-200px * var(--logomark-jump-magnitude)));
+                transform: translateY(calc(var(--logomark-jump-height-base) * var(--logomark-jump-magnitude) * -1));
             }
 
             4% {
@@ -1886,7 +1910,7 @@
             }
 
             22% {
-                transform: translateY(calc(-200px * var(--logomark-jump-magnitude)));
+                transform: translateY(calc(var(--logomark-jump-height-base) * var(--logomark-jump-magnitude) * -1));
             }
         }
 

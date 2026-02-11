@@ -5,11 +5,12 @@ on:
         branches: [master]
     pull_request:
 
+permissions:
+    contents: read
+    pull-requests: read
+
 jobs:
     changes:
-        permissions:
-            contents: read
-            pull-requests: read
         runs-on: ubuntu-24.04
         timeout-minutes: 5
         name: Determine need to run MCP checks
@@ -18,6 +19,7 @@ jobs:
         steps:
             - uses: actions/checkout@v6
 
+            # Not only the MCP folder but any file that generates schema for the mcp folder
             - uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
               id: filter
               if: github.event_name != 'push' # Run all tests on master push
@@ -25,22 +27,41 @@ jobs:
                   filters: |
                       mcp:
                         - 'services/mcp/**'
+                        - 'products/**' 
+                        - 'ee/**/*'
+                        - 'posthog/**/*'
                         - '.github/workflows/mcp-ci.yml'
                         - '.github/workflows/mcp-publish.yml'
     build:
         name: Build Package
         runs-on: ubuntu-latest
         needs: changes
-        permissions:
-            contents: read
         if: needs.changes.outputs.mcp == 'true'
 
         steps:
             - name: Checkout code
               uses: actions/checkout@v6
 
+            - name: Set up Python
+              uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548 # v6.1.0
+              with:
+                  python-version: 3.12.12
+
+            - name: Install uv
+              uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b # v7.2.0
+              with:
+                  enable-cache: true
+                  save-cache: ${{ github.ref == 'refs/heads/master' }}
+                  version: 0.9.9
+
+            - name: Install Python dependencies
+              run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+
             - name: Setup pnpm
               uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.2.0
+
+            - name: Fix node-gyp permissions
+              run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
 
             - name: Setup Node.js
               uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
@@ -57,12 +78,19 @@ jobs:
             - name: Type check
               run: cd services/mcp && pnpm typecheck
 
+            - name: Check MCP schema is up to date
+              run: |
+                  ./bin/hogli build:schema-mcp
+                  if ! git diff --exit-code services/mcp/schema/tool-inputs.json; then
+                    echo ""
+                    echo "::error::MCP tool-inputs.json is out of date. Run 'hogli build:schema-mcp' and commit the result."
+                    exit 1
+                  fi
+
     unit-tests:
         name: Unit Tests
         runs-on: ubuntu-latest
         needs: changes
-        permissions:
-            contents: read
         if: needs.changes.outputs.mcp == 'true'
         concurrency:
             group: ${{ github.workflow }}-unit-${{ github.head_ref || github.ref }}
@@ -74,6 +102,9 @@ jobs:
 
             - name: Setup pnpm
               uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.2.0
+
+            - name: Fix node-gyp permissions
+              run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
 
             - name: Setup Node.js
               uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
@@ -89,21 +120,73 @@ jobs:
 
     integration-tests:
         name: Integration Tests
-        runs-on: ubuntu-latest
-        needs: [changes, unit-tests]
+        runs-on: depot-ubuntu-latest
+        needs: changes
+        timeout-minutes: 30
         if: needs.changes.outputs.mcp == 'true'
-        permissions:
-            contents: read
         concurrency:
             group: ${{ github.workflow }}-integration-${{ github.head_ref || github.ref }}
             cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+        env:
+            SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da'
+            DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
+            REDIS_URL: 'redis://localhost'
+            CLICKHOUSE_HOST: 'localhost'
+            CLICKHOUSE_SECURE: 'False'
+            CLICKHOUSE_VERIFY: 'False'
+            OBJECT_STORAGE_ENABLED: 'True'
+            OBJECT_STORAGE_ENDPOINT: 'http://localhost:19000'
+            OBJECT_STORAGE_ACCESS_KEY_ID: 'object_storage_root_user'
+            OBJECT_STORAGE_SECRET_ACCESS_KEY: 'object_storage_root_password'
+            SKIP_SERVICE_VERSION_REQUIREMENTS: 1
+            NO_RESTART_LOOP: 1
+            DISABLE_SECURE_SSL_REDIRECT: 'True'
+            CLICKHOUSE_LOGS_CLUSTER_SECURE: 'False'
+
         steps:
-            - name: Checkout code
-              uses: actions/checkout@v6
+            - uses: actions/checkout@v6
+              with:
+                  fetch-depth: 1
+
+            - name: Clean up data directories with container permissions
+              run: |
+                  [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs /data/minio" || true
+              continue-on-error: true
+
+            - name: Stop/Start stack with Docker Compose
+              shell: bash
+              run: |
+                  cp posthog/user_scripts/latest_user_defined_function.xml docker/clickhouse/user_defined_function.xml
+                  docker compose -f docker-compose.dev.yml down
+                  docker compose -f docker-compose.dev.yml up -d &
+
+            - name: Add Kafka and ClickHouse to /etc/hosts
+              shell: bash
+              run: echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts
+
+            - name: Set up Python
+              uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548 # v6.1.0
+              with:
+                  python-version: 3.12.12
+
+            - name: Install uv
+              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
+              with:
+                  enable-cache: true
+                  save-cache: ${{ github.ref == 'refs/heads/master' }}
+                  version: 0.9.9
+
+            - name: Install SAML (python3-saml) dependencies
+              shell: bash
+              run: |
+                  sudo apt-get update && sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
 
             - name: Setup pnpm
               uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.2.0
+
+            - name: Fix node-gyp permissions
+              run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
 
             - name: Setup Node.js
               uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
@@ -111,13 +194,137 @@ jobs:
                   node-version: 22
                   cache: 'pnpm'
 
-            - name: Install dependencies
-              run: pnpm install
+            - name: Install Python dependencies
+              shell: bash
+              run: |
+                  UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+
+            - name: Install Node dependencies
+              run: pnpm install --frozen-lockfile
+
+            - name: Set up needed files
+              shell: bash
+              run: |
+                  mkdir -p frontend/dist
+                  touch frontend/dist/index.html
+                  touch frontend/dist/layout.html
+                  touch frontend/dist/exporter.html
+
+            - name: Wait for services to be available
+              shell: bash
+              run: |
+                  bin/check_kafka_clickhouse_up
+                  bin/check_postgres_up
+
+            - name: Run migrations
+              run: |
+                  python manage.py migrate --noinput
+                  python manage.py migrate_clickhouse
+
+            - name: Create logs tables in ClickHouse
+              run: |
+                  python -c "
+                  import django, os
+                  os.environ['DJANGO_SETTINGS_MODULE'] = 'posthog.settings'
+                  django.setup()
+                  from posthog.clickhouse.client import sync_execute
+                  with open('products/logs/backend/test/test_logs_schema.sql') as f:
+                      schema_sql = f.read()
+                  schema_sql = schema_sql.replace('use database posthog_test;', '')
+                  for sql in schema_sql.split(';'):
+                      sql = sql.strip()
+                      if not sql:
+                          continue
+                      sync_execute(sql)
+                  print('Logs tables created successfully')
+                  "
+
+            - name: Seed test data
+              run: python manage.py generate_demo_data --n-clusters 10 --days-past 7 --days-future 0 --skip-materialization --skip-flag-sync --skip-user-product-list
+
+            - name: Create API key and extract test IDs
+              run: |
+                  python -c "
+                  import django, os
+                  os.environ['DJANGO_SETTINGS_MODULE'] = 'posthog.settings'
+                  django.setup()
+                  from posthog.models import Organization, Team, User
+                  from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+                  org = Organization.objects.first()
+                  team = Team.objects.first()
+                  user = User.objects.first()
+                  PersonalAPIKey.objects.create(
+                      user=user,
+                      label='mcp_ci_api_key',
+                      secure_value=hash_key_value('e2e_demo_api_key'),
+                  )
+                  print(f'TEST_ORG_ID={org.id}')
+                  print(f'TEST_PROJECT_ID={team.id}')
+                  " >> $GITHUB_ENV
+
+            - name: Start PostHog server
+              run: |
+                  python -m granian --interface asgi posthog.asgi:application --host 0.0.0.0 --port 8000 --workers 1 &> /tmp/server.log &
+
+            - name: Wait for PostHog to be ready
+              uses: iFaxity/wait-on-action@1fe019e0475491e9e8c4f421b6914ccc3ed8f99c # v1.2.1
+              with:
+                  resource: http://localhost:8000
+                  timeout: 180000
+                  interval: 2000
+                  verbose: true
 
             - name: Run integration tests
               run: cd services/mcp && pnpm run test:integration
               env:
-                  TEST_POSTHOG_API_BASE_URL: ${{ secrets.MCP_TEST_API_BASE_URL }}
-                  TEST_POSTHOG_PERSONAL_API_KEY: ${{ secrets.MCP_TEST_PERSONAL_API_KEY }}
-                  TEST_ORG_ID: ${{ secrets.MCP_TEST_ORG_ID }}
-                  TEST_PROJECT_ID: ${{ secrets.MCP_TEST_PROJECT_ID }}
+                  TEST_POSTHOG_API_BASE_URL: http://localhost:8000
+                  TEST_POSTHOG_PERSONAL_API_KEY: e2e_demo_api_key
+                  TEST_ORG_ID: ${{ env.TEST_ORG_ID }}
+                  TEST_PROJECT_ID: ${{ env.TEST_PROJECT_ID }}
+
+            - name: Show server logs on failure
+              if: failure()
+              run: cat /tmp/server.log || true
+
+            - name: Show docker compose logs on failure
+              if: failure()
+              shell: bash
+              run: docker compose -f docker-compose.dev.yml logs
+
+    # Collation job for required status check
+    mcp_tests:
+        needs: [changes, build, unit-tests, integration-tests]
+        name: MCP Tests Pass
+        runs-on: ubuntu-latest
+        if: always()
+        steps:
+            - name: Check all MCP jobs
+              run: |
+                  # Fail if change detection itself failed
+                  if [[ "${{ needs.changes.result }}" == "failure" ]]; then
+                    echo "Change detection job failed."
+                    exit 1
+                  fi
+
+                  # Pass if no MCP changes detected (jobs were skipped)
+                  if [[ "${{ needs.changes.outputs.mcp }}" != "true" ]]; then
+                    echo "MCP checks were skipped (no relevant changes)."
+                    exit 0
+                  fi
+
+                  if [[ "${{ needs.build.result }}" != "success" && "${{ needs.build.result }}" != "skipped" ]]; then
+                    echo "MCP build failed."
+                    exit 1
+                  fi
+
+                  if [[ "${{ needs.unit-tests.result }}" != "success" && "${{ needs.unit-tests.result }}" != "skipped" ]]; then
+                    echo "MCP unit tests failed."
+                    exit 1
+                  fi
+
+                  if [[ "${{ needs.integration-tests.result }}" != "success" && "${{ needs.integration-tests.result }}" != "skipped" ]]; then
+                    echo "MCP integration tests failed."
+                    exit 1
+                  fi
+
+                  echo "All MCP checks passed."

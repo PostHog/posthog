@@ -24,11 +24,14 @@ import { Link } from '@posthog/lemon-ui'
 import { AccountMenu } from 'lib/components/Account/AccountMenu'
 import { NewAccountMenu } from 'lib/components/Account/NewAccountMenu'
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
+import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
+import { useAppShortcut } from 'lib/components/AppShortcuts/useAppShortcut'
 import { commandLogic } from 'lib/components/Command/commandLogic'
 import { DebugNotice } from 'lib/components/DebugNotice'
 import { HealthMenu } from 'lib/components/HealthMenu/HealthMenu'
 import { HelpMenu } from 'lib/components/HelpMenu/HelpMenu'
 import { NavPanelAdvertisement } from 'lib/components/NavPanelAdvertisement/NavPanelAdvertisement'
+import { PosthogStatusShownOnlyIfNotOperational } from 'lib/components/PosthogStatus/PosthogStatusShownOnlyIfNotOperational'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -147,6 +150,14 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
 
         return false
     }
+
+    useAppShortcut({
+        name: 'ToggleLeftNav',
+        keybind: [keyBinds.toggleLeftNav],
+        intent: 'Toggle collapse left navigation',
+        interaction: 'function',
+        callback: toggleLayoutNavCollapsed,
+    })
 
     const navItems: {
         identifier: string
@@ -587,9 +598,14 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                     />
                                 </>
                             ) : (
-                                <div className="flex gap-1">
+                                <div
+                                    className={cn('flex gap-1', {
+                                        'items-center flex-col-reverse': isLayoutNavCollapsed,
+                                    })}
+                                >
                                     <HelpMenu />
                                     <HealthMenu />
+                                    <PosthogStatusShownOnlyIfNotOperational />
                                 </div>
                             )}
                         </div>

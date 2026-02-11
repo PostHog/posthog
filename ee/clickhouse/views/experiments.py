@@ -192,6 +192,10 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
         if len(variants) >= 21:
             raise ValidationError("Feature flag variants must be less than 21")
         elif len(variants) > 0:
+            if len(variants) < 2:
+                raise ValidationError(
+                    "Feature flag must have at least 2 variants (control and at least one test variant)"
+                )
             if "control" not in [variant["key"] for variant in variants]:
                 raise ValidationError("Feature flag variants must contain a control variant")
 
@@ -200,12 +204,13 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
     def validate_existing_feature_flag_for_experiment(self, feature_flag: FeatureFlag):
         variants = feature_flag.filters.get("multivariate", {}).get("variants", [])
 
-        if len(variants) and len(variants) > 1:
-            if variants[0].get("key") != "control":
-                raise ValidationError("Feature flag must have control as the first variant.")
-            return True
+        if len(variants) < 2:
+            raise ValidationError("Feature flag must have at least 2 variants (control and at least one test variant)")
 
-        raise ValidationError("Feature flag is not eligible for experiments.")
+        if "control" not in [variant["key"] for variant in variants]:
+            raise ValidationError("Feature flag must have a variant with key 'control'")
+
+        return feature_flag
 
     def validate_exposure_criteria(self, exposure_criteria: dict | None):
         if not exposure_criteria:
@@ -379,7 +384,10 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             ordering_changed = False
 
             saved_metric_ids = [sm["id"] for sm in saved_metrics_data]
-            saved_metrics_map = {sm.id: sm for sm in ExperimentSavedMetric.objects.filter(id__in=saved_metric_ids)}
+            saved_metrics_map = {
+                sm.id: sm
+                for sm in ExperimentSavedMetric.objects.filter(id__in=saved_metric_ids, team_id=self.context["team_id"])
+            }
 
             for sm_data in saved_metrics_data:
                 saved_metric = saved_metrics_map.get(sm_data["id"])
@@ -664,7 +672,12 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
 
         saved_metric_ids_list = [sm["id"] for sm in saved_metrics_data]
         if saved_metric_ids_list:
-            saved_metrics = {sm.id: sm for sm in ExperimentSavedMetric.objects.filter(id__in=saved_metric_ids_list)}
+            saved_metrics = {
+                sm.id: sm
+                for sm in ExperimentSavedMetric.objects.filter(
+                    id__in=saved_metric_ids_list, team_id=self.context["team_id"]
+                )
+            }
 
             for sm_data in saved_metrics_data:
                 saved_metric = saved_metrics.get(sm_data["id"])

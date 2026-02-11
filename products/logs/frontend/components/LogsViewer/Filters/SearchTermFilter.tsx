@@ -2,14 +2,12 @@ import { useActions, useValues } from 'kea'
 
 import { LemonInput } from '@posthog/lemon-ui'
 
-import { logsViewerConfigLogic } from 'products/logs/frontend/components/LogsViewer/config/logsViewerConfigLogic'
-
-import { logsSceneLogic } from '../../../logsSceneLogic'
+import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
 
 export const SearchTermFilter = (): JSX.Element => {
-    const { searchTerm } = useValues(logsSceneLogic)
-    const { setSearchTerm } = useActions(logsSceneLogic)
-    const { setFilter } = useActions(logsViewerConfigLogic)
+    const { filters } = useValues(logsViewerFiltersLogic)
+    const { searchTerm } = filters
+    const { setSearchTerm } = useActions(logsViewerFiltersLogic)
 
     return (
         <LemonInput
@@ -17,7 +15,6 @@ export const SearchTermFilter = (): JSX.Element => {
             value={searchTerm}
             onChange={(value) => {
                 setSearchTerm(value)
-                setFilter('searchTerm', value)
             }}
             placeholder="Search logs..."
         />

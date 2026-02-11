@@ -15,7 +15,7 @@ export function WrappingLoadingSkeleton({
     return (
         <div
             className={cn(
-                'wrapping-loading-skeleton [&>*]:opacity-0 rounded flex flex-col gap-px w-fit',
+                'wrapping-loading-skeleton [&>*]:opacity-0 rounded flex flex-col gap-px w-fit overflow-hidden',
                 fullWidth && 'w-full',
                 className
             )}

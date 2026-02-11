@@ -82,6 +82,16 @@ export function ManagedMigration(): JSX.Element {
                                 ),
                             },
                             {
+                                value: 's3_gzip',
+                                label: 'S3 (gzipped JSONL)',
+                                icon: (
+                                    <img
+                                        src="https://a0.awsstatic.com/libra-css/images/site/fav/favicon.ico"
+                                        className="w-4 h-4"
+                                    />
+                                ),
+                            },
+                            {
                                 value: 'mixpanel',
                                 label: 'Mixpanel',
                                 icon: <img src="https://mixpanel.com/favicon.ico" className="w-4 h-4" />,
@@ -95,7 +105,7 @@ export function ManagedMigration(): JSX.Element {
                     />
                 </LemonField>
 
-                {managedMigration.source_type === 's3' && (
+                {(managedMigration.source_type === 's3' || managedMigration.source_type === 's3_gzip') && (
                     <>
                         <LemonField name="content_type" label="Content Type">
                             <LemonSelect
@@ -111,7 +121,7 @@ export function ManagedMigration(): JSX.Element {
                     </>
                 )}
 
-                {managedMigration.source_type === 's3' && (
+                {(managedMigration.source_type === 's3' || managedMigration.source_type === 's3_gzip') && (
                     <>
                         <div className="flex gap-4">
                             <LemonField name="s3_region" label="S3 Region" className="flex-1">
@@ -133,7 +143,7 @@ export function ManagedMigration(): JSX.Element {
                         <div className="flex gap-4">
                             <LemonField name="start_date" label="Start Date" className="flex-1">
                                 <LemonCalendarSelectInput
-                                    granularity="minute"
+                                    granularity={managedMigration.source_type === 'mixpanel' ? 'day' : 'hour'}
                                     value={managedMigration.start_date ? dayjs(managedMigration.start_date) : null}
                                     onChange={(date) =>
                                         setManagedMigrationValue('start_date', date?.format('YYYY-MM-DD HH:mm:ss'))
@@ -143,7 +153,7 @@ export function ManagedMigration(): JSX.Element {
 
                             <LemonField name="end_date" label="End Date" className="flex-1">
                                 <LemonCalendarSelectInput
-                                    granularity="minute"
+                                    granularity={managedMigration.source_type === 'mixpanel' ? 'day' : 'hour'}
                                     value={managedMigration.end_date ? dayjs(managedMigration.end_date) : null}
                                     onChange={(date) =>
                                         setManagedMigrationValue('end_date', date?.format('YYYY-MM-DD HH:mm:ss'))
@@ -278,6 +288,11 @@ export function ManagedMigrations(): JSX.Element {
                                             icon: 'https://a0.awsstatic.com/libra-css/images/site/fav/favicon.ico',
                                             label: 'AWS S3',
                                             alt: 'S3',
+                                        },
+                                        s3_gzip: {
+                                            icon: 'https://a0.awsstatic.com/libra-css/images/site/fav/favicon.ico',
+                                            label: 'S3 (gzipped JSONL)',
+                                            alt: 'S3 Gzip',
                                         },
                                         mixpanel: {
                                             icon: 'https://mixpanel.com/favicon.ico',
