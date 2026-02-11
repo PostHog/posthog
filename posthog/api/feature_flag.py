@@ -1453,139 +1453,8 @@ class FeatureFlagViewSet(
     ]
 
     def _filter_request(self, request: request.Request, queryset: QuerySet) -> QuerySet:
-        filters = request.GET.dict()
-
-        for key in filters:
-            if key == "active":
-                if filters[key] == "STALE":
-                    # Get stale flags using the best available signal:
-                    # 1. If last_called_at exists: flag hasn't been called in 30+ days
-                    # 2. If last_called_at is NULL: flag is 100% rolled out and 30+ days old
-                    stale_threshold = thirty_days_ago()
-
-                    # Usage-based staleness (has last_called_at but not called recently)
-                    # Only active flags can be stale - disabled flags should not be marked as stale
-                    # Note: We don't check created_at here because if we have usage data,
-                    # the flag's age doesn't matter - only when it was last called.
-                    usage_based_stale = Q(last_called_at__lt=stale_threshold, active=True)
-
-                    # Config-based staleness (no last_called_at, so fall back to rollout config)
-                    # We require created_at < 30 days to give flags time to accumulate usage data.
-                    # This uses raw SQL for the complex JSON filter
-                    # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (static SQL, no user input)
-                    config_based_queryset = queryset.filter(
-                        last_called_at__isnull=True,
-                        active=True,
-                        created_at__lt=stale_threshold,
-                    ).extra(
-                        # This needs to be in sync with the implementation in `FeatureFlagStatusChecker`, flag_status.py
-                        # Note: Must use fully qualified table name (posthog_featureflag.filters) to avoid
-                        # ambiguity when Django joins other tables that also have a 'filters' column (e.g. Experiment)
-                        where=[
-                            """
-                            (
-                                (
-                                    EXISTS (
-                                        SELECT 1 FROM jsonb_array_elements(posthog_featureflag.filters->'groups') AS elem
-                                        WHERE elem->>'rollout_percentage' = '100'
-                                        AND (elem->'properties')::text = '[]'::text
-                                    )
-                                    AND (posthog_featureflag.filters->>'multivariate' IS NULL OR jsonb_array_length(posthog_featureflag.filters->'multivariate'->'variants') = 0)
-                                )
-                                OR
-                                (
-                                    EXISTS (
-                                        SELECT 1 FROM jsonb_array_elements(posthog_featureflag.filters->'multivariate'->'variants') AS variant
-                                        WHERE variant->>'rollout_percentage' = '100'
-                                    )
-                                    AND EXISTS (
-                                        SELECT 1 FROM jsonb_array_elements(posthog_featureflag.filters->'groups') AS elem
-                                        WHERE elem->>'rollout_percentage' = '100'
-                                        AND (elem->'properties')::text = '[]'::text
-                                    )
-                                )
-                                OR
-                                -- Multivariate that has a condition that overrides with a specific variant and the rollout_percentage is 100
-                                (
-                                    EXISTS (
-                                        SELECT 1 FROM jsonb_array_elements(posthog_featureflag.filters->'groups') AS elem
-                                        WHERE elem->>'rollout_percentage' = '100'
-                                        AND (elem->'properties')::text = '[]'::text
-                                        AND elem->'variant' IS NOT NULL
-                                    )
-                                    AND (posthog_featureflag.filters->>'multivariate' IS NOT NULL AND jsonb_array_length(posthog_featureflag.filters->'multivariate'->'variants') > 0)
-                                )
-                                OR (posthog_featureflag.filters IS NULL OR posthog_featureflag.filters = '{}'::jsonb)
-                            )
-                            """
-                        ]
-                    )
-
-                    # Combine both: usage-based OR config-based (for flags without usage data)
-                    # No distinct() needed since conditions are mutually exclusive
-                    # (last_called_at < threshold vs last_called_at IS NULL)
-                    queryset = queryset.filter(usage_based_stale) | config_based_queryset
-                else:
-                    queryset = queryset.filter(active=filters[key] == "true")
-            elif key == "created_by_id":
-                queryset = queryset.filter(created_by_id=request.GET["created_by_id"])
-            elif key == "search":
-                queryset = queryset.filter(
-                    Q(key__icontains=request.GET["search"])
-                    | Q(name__icontains=request.GET["search"])
-                    | Q(
-                        experiment__name__icontains=request.GET["search"],
-                        experiment__deleted=False,
-                    )
-                ).distinct()
-            elif key == "type":
-                type = request.GET["type"]
-                if type == "boolean":
-                    queryset = queryset.filter(
-                        Q(filters__multivariate__variants__isnull=True) | Q(filters__multivariate__variants=[])
-                    )
-                elif type == "multivariant":
-                    queryset = queryset.filter(
-                        Q(filters__multivariate__variants__isnull=False) & ~Q(filters__multivariate__variants=[])
-                    )
-                elif type == "experiment":
-                    queryset = queryset.filter(~Q(experiment__isnull=True))
-                elif type == "remote_config":
-                    queryset = queryset.filter(is_remote_configuration=True)
-            elif key == "evaluation_runtime":
-                evaluation_runtime = request.GET["evaluation_runtime"]
-                queryset = queryset.filter(evaluation_runtime=evaluation_runtime)
-            elif key == "excluded_properties":
-                try:
-                    excluded_keys = json.loads(request.GET["excluded_properties"])
-                    if excluded_keys:
-                        queryset = queryset.exclude(key__in=excluded_keys)
-                except (json.JSONDecodeError, TypeError):
-                    # If the JSON is invalid, ignore the filter
-                    pass
-            elif key == "tags":
-                try:
-                    tags = json.loads(request.GET["tags"])
-                    if tags:
-                        queryset = queryset.filter(tagged_items__tag__name__in=tags).distinct()
-                except (json.JSONDecodeError, TypeError):
-                    # If the JSON is invalid, ignore the filter
-                    pass
-            elif key == "has_evaluation_tags":
-                from django.db.models import Count
-
-                # Convert string to boolean
-                filter_value = filters[key].lower() in ("true", "1", "yes")
-
-                # Annotate with count of evaluation tags
-                queryset = queryset.annotate(eval_tag_count=Count("evaluation_tags"))
-
-                if filter_value:
-                    queryset = queryset.filter(eval_tag_count__gt=0)
-                else:
-                    queryset = queryset.filter(eval_tag_count=0)
-
-        return queryset
+        """Apply filters from request query params to queryset."""
+        return self._apply_filters(request.GET.dict(), queryset)
 
     def safely_get_queryset(self, queryset) -> QuerySet:
         from posthog.models.feature_flag import FeatureFlagEvaluationTag
@@ -2035,7 +1904,7 @@ class FeatureFlagViewSet(
 
         if filters:
             # Apply filters from request body (same logic as _filter_request but from dict)
-            queryset = self._filter_from_dict(filters, queryset)
+            queryset = self._apply_filters(filters, queryset)
         else:
             # Validate and convert IDs
             validated_ids = []
@@ -2174,13 +2043,21 @@ class FeatureFlagViewSet(
             }
         )
 
-    def _filter_from_dict(self, filters: dict, queryset: QuerySet) -> QuerySet:
-        """Apply filters from a dictionary (same logic as _filter_request but from dict instead of request.GET)."""
-        for key in filters:
-            value = filters[key]
+    def _apply_filters(self, filters: dict, queryset: QuerySet) -> QuerySet:
+        """
+        Apply filters to queryset.
+
+        Handles both string values (from URL query params) and native Python types (from JSON body).
+        Used by both _filter_request and bulk_delete endpoints.
+        """
+        from django.db.models import Count
+
+        for key, value in filters.items():
             if key == "active":
                 if value == "STALE":
-                    # Same stale logic as _filter_request
+                    # Get stale flags using the best available signal:
+                    # 1. If last_called_at exists: flag hasn't been called in 30+ days
+                    # 2. If last_called_at is NULL: flag is 100% rolled out and 30+ days old
                     stale_threshold = thirty_days_ago()
                     usage_based_stale = Q(last_called_at__lt=stale_threshold, active=True)
                     # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (static SQL, no user input)
@@ -2229,7 +2106,9 @@ class FeatureFlagViewSet(
                     )
                     queryset = queryset.filter(usage_based_stale) | config_based_queryset
                 else:
-                    queryset = queryset.filter(active=value == "true" or value is True)
+                    # Handle both string "true"/"false" and boolean True/False
+                    is_active = value == "true" or value is True
+                    queryset = queryset.filter(active=is_active)
             elif key == "created_by_id":
                 queryset = queryset.filter(created_by_id=value)
             elif key == "search":
@@ -2253,17 +2132,31 @@ class FeatureFlagViewSet(
                     queryset = queryset.filter(is_remote_configuration=True)
             elif key == "evaluation_runtime":
                 queryset = queryset.filter(evaluation_runtime=value)
+            elif key == "excluded_properties":
+                try:
+                    # Handle both list and JSON string
+                    excluded_keys = (
+                        value if isinstance(value, list) else json.loads(value) if isinstance(value, str) else []
+                    )
+                    if excluded_keys:
+                        queryset = queryset.exclude(key__in=excluded_keys)
+                except (json.JSONDecodeError, TypeError):
+                    pass
             elif key == "tags":
-                # Handle both string (JSON) and list
-                tags = value if isinstance(value, list) else json.loads(value) if isinstance(value, str) else []
-                if tags:
-                    queryset = queryset.filter(tagged_items__tag__name__in=tags).distinct()
+                try:
+                    # Handle both list and JSON string
+                    tags = value if isinstance(value, list) else json.loads(value) if isinstance(value, str) else []
+                    if tags:
+                        queryset = queryset.filter(tagged_items__tag__name__in=tags).distinct()
+                except (json.JSONDecodeError, TypeError):
+                    pass
             elif key == "has_evaluation_tags":
-                from django.db.models import Count
+                # Handle both string and boolean
+                if isinstance(value, bool):
+                    filter_value = value
+                else:
+                    filter_value = str(value).lower() in ("true", "1", "yes")
 
-                filter_value = (
-                    str(value).lower() in ("true", "1", "yes") if isinstance(value, (str, bool)) else bool(value)
-                )
                 queryset = queryset.annotate(eval_tag_count=Count("evaluation_tags"))
                 if filter_value:
                     queryset = queryset.filter(eval_tag_count__gt=0)
