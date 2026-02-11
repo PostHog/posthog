@@ -4,7 +4,6 @@ import { useEffect, useState } from 'react'
 import { IconPlus, IconRefresh, IconTrash } from '@posthog/icons'
 import {
     LemonButton,
-    LemonDialog,
     LemonInput,
     LemonModal,
     LemonSelect,
@@ -14,11 +13,16 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { IconKey } from 'lib/lemon-ui/icons'
 
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
+
 import { TrialUsageMeterDisplay } from './TrialUsageMeter'
 import {
+    AlternativeKey,
+    DependentConfigsResponse,
     KeyValidationResult,
     LLMProvider,
     LLMProviderKey,
@@ -82,6 +86,8 @@ function getKeyPlaceholder(provider: LLMProvider): string {
             return 'sk-ant-...'
         case 'gemini':
             return 'Enter your Gemini API key'
+        case 'openrouter':
+            return 'Enter your OpenRouter API key'
     }
 }
 
@@ -233,6 +239,7 @@ function AddKeyModal(): JSX.Element {
                             { value: 'openai', label: 'OpenAI' },
                             { value: 'anthropic', label: 'Anthropic' },
                             { value: 'gemini', label: 'Google Gemini' },
+                            { value: 'openrouter', label: 'OpenRouter' },
                         ]}
                         className="mt-1"
                         fullWidth
@@ -371,6 +378,118 @@ function EditKeyModal({ keyToEdit }: { keyToEdit: LLMProviderKey }): JSX.Element
     )
 }
 
+function DeleteKeyModal({
+    keyToDelete,
+    dependentConfigs,
+    dependentConfigsLoading,
+}: {
+    keyToDelete: LLMProviderKey
+    dependentConfigs: DependentConfigsResponse | null
+    dependentConfigsLoading: boolean
+}): JSX.Element {
+    const { providerKeysLoading } = useValues(llmProviderKeysLogic)
+    const { setKeyToDelete, confirmDelete } = useActions(llmProviderKeysLogic)
+    const [replacementKeyId, setReplacementKeyId] = useState<string | undefined>(undefined)
+
+    const hasEvaluations = (dependentConfigs?.evaluations.length ?? 0) > 0
+    const hasAlternatives = (dependentConfigs?.alternative_keys.length ?? 0) > 0
+
+    const firstAlternativeKeyId = dependentConfigs?.alternative_keys[0]?.id
+    useEffect(() => {
+        if (hasAlternatives && firstAlternativeKeyId) {
+            setReplacementKeyId(firstAlternativeKeyId)
+        }
+    }, [hasAlternatives, firstAlternativeKeyId])
+
+    const handleClose = (): void => {
+        setKeyToDelete(null)
+    }
+
+    const handleDelete = (): void => {
+        confirmDelete(hasEvaluations && hasAlternatives ? replacementKeyId : undefined)
+    }
+
+    const replacementOptions =
+        dependentConfigs?.alternative_keys.map((key: AlternativeKey) => ({
+            value: key.id,
+            label: key.name,
+        })) ?? []
+
+    return (
+        <LemonModal
+            isOpen
+            onClose={handleClose}
+            title="Delete API key?"
+            width={480}
+            footer={
+                <>
+                    <LemonButton type="secondary" onClick={handleClose}>
+                        Cancel
+                    </LemonButton>
+                    <LemonButton
+                        type="primary"
+                        status="danger"
+                        onClick={handleDelete}
+                        loading={providerKeysLoading}
+                        disabled={dependentConfigsLoading}
+                    >
+                        Delete key
+                    </LemonButton>
+                </>
+            }
+        >
+            {dependentConfigsLoading ? (
+                <LemonSkeleton className="h-20" />
+            ) : (
+                <div className="space-y-4">
+                    <p>
+                        Are you sure you want to delete "<strong>{keyToDelete.name}</strong>"? This cannot be undone.
+                    </p>
+
+                    {hasEvaluations && (
+                        <div className="bg-bg-light border rounded p-3">
+                            <p className="font-medium mb-2">
+                                {dependentConfigs!.evaluations.length} evaluation
+                                {dependentConfigs!.evaluations.length === 1 ? '' : 's'} using this key:
+                            </p>
+                            <ul className="list-disc pl-4 text-sm text-muted space-y-1">
+                                {dependentConfigs!.evaluations.map((evaluation) => (
+                                    <li key={evaluation.id}>{evaluation.name}</li>
+                                ))}
+                            </ul>
+                        </div>
+                    )}
+
+                    {hasEvaluations && hasAlternatives && (
+                        <div>
+                            <label className="text-sm font-medium">Replace with another key</label>
+                            <LemonSelect
+                                value={replacementKeyId}
+                                onChange={setReplacementKeyId}
+                                options={replacementOptions}
+                                className="mt-1"
+                                fullWidth
+                            />
+                            <p className="text-xs text-muted mt-1">
+                                The selected key will be used by evaluations that currently use this key.
+                            </p>
+                        </div>
+                    )}
+
+                    {hasEvaluations && !hasAlternatives && (
+                        <div className="bg-warning-highlight border border-warning rounded p-3">
+                            <p className="text-sm">
+                                <strong>No replacement keys available.</strong> These evaluations will be disabled after
+                                deletion.
+                            </p>
+                        </div>
+                    )}
+                </div>
+            )}
+        </LemonModal>
+    )
+}
+
 export function LLMProviderKeysSettings(): JSX.Element {
     const {
         providerKeys,
@@ -379,24 +498,11 @@ export function LLMProviderKeysSettings(): JSX.Element {
         evaluationConfigLoading,
         editingKey,
         validatingKeyId,
+        keyToDelete,
+        dependentConfigs,
+        dependentConfigsLoading,
     } = useValues(llmProviderKeysLogic)
-    const { setNewKeyModalOpen, deleteProviderKey, validateProviderKey, setEditingKey } =
-        useActions(llmProviderKeysLogic)
-
-    const handleDelete = (key: LLMProviderKey): void => {
-        LemonDialog.open({
-            title: 'Delete API key?',
-            description: `Are you sure you want to delete "${key.name}"? This cannot be undone.`,
-            primaryButton: {
-                children: 'Delete',
-                status: 'danger',
-                onClick: () => deleteProviderKey({ id: key.id }),
-            },
-            secondaryButton: {
-                children: 'Cancel',
-            },
-        })
-    }
+    const { setNewKeyModalOpen, validateProviderKey, setEditingKey, setKeyToDelete } = useActions(llmProviderKeysLogic)
 
     const columns: LemonTableColumns<LLMProviderKey> = [
         {
@@ -453,26 +559,41 @@ export function LLMProviderKeysSettings(): JSX.Element {
             render: (_, key) => (
                 <div className="flex gap-1">
                     {key.state !== 'ok' && (
+                        <AccessControlAction
+                            resourceType={AccessControlResourceType.LlmAnalytics}
+                            minAccessLevel={AccessControlLevel.Editor}
+                        >
+                            <LemonButton
+                                size="small"
+                                type="secondary"
+                                icon={<IconRefresh />}
+                                loading={validatingKeyId === key.id}
+                                onClick={() => validateProviderKey({ id: key.id })}
+                            >
+                                Validate
+                            </LemonButton>
+                        </AccessControlAction>
+                    )}
+                    <AccessControlAction
+                        resourceType={AccessControlResourceType.LlmAnalytics}
+                        minAccessLevel={AccessControlLevel.Editor}
+                    >
+                        <LemonButton size="small" type="secondary" onClick={() => setEditingKey(key)}>
+                            Edit
+                        </LemonButton>
+                    </AccessControlAction>
+                    <AccessControlAction
+                        resourceType={AccessControlResourceType.LlmAnalytics}
+                        minAccessLevel={AccessControlLevel.Editor}
+                    >
                         <LemonButton
                             size="small"
                             type="secondary"
-                            icon={<IconRefresh />}
-                            loading={validatingKeyId === key.id}
-                            onClick={() => validateProviderKey({ id: key.id })}
-                        >
-                            Validate
-                        </LemonButton>
-                    )}
-                    <LemonButton size="small" type="secondary" onClick={() => setEditingKey(key)}>
-                        Edit
-                    </LemonButton>
-                    <LemonButton
-                        size="small"
-                        type="secondary"
-                        status="danger"
-                        icon={<IconTrash />}
-                        onClick={() => handleDelete(key)}
-                    />
+                            status="danger"
+                            icon={<IconTrash />}
+                            onClick={() => setKeyToDelete(key)}
+                        />
+                    </AccessControlAction>
                 </div>
             ),
         },
@@ -492,12 +613,21 @@ export function LLMProviderKeysSettings(): JSX.Element {
                                 <h2 className="text-xl font-semibold">API keys</h2>
                                 <p className="text-muted">
                                     Add your API keys to run evaluations with your own account. Supports OpenAI,
-                                    Anthropic, and Google Gemini.
+                                    Anthropic, Google Gemini, and OpenRouter.
                                 </p>
                             </div>
-                            <LemonButton type="primary" icon={<IconPlus />} onClick={() => setNewKeyModalOpen(true)}>
-                                Add API key
-                            </LemonButton>
+                            <AccessControlAction
+                                resourceType={AccessControlResourceType.LlmAnalytics}
+                                minAccessLevel={AccessControlLevel.Editor}
+                            >
+                                <LemonButton
+                                    type="primary"
+                                    icon={<IconPlus />}
+                                    onClick={() => setNewKeyModalOpen(true)}
+                                >
+                                    Add API key
+                                </LemonButton>
+                            </AccessControlAction>
                         </div>
 
                         {evaluationConfig && !evaluationConfig.active_provider_key && (
@@ -511,15 +641,20 @@ export function LLMProviderKeysSettings(): JSX.Element {
                                 <p className="text-muted mb-4 text-center">
                                     Add your API key to run evaluations with your own account.
                                     <br />
-                                    Supports OpenAI, Anthropic, and Google Gemini.
+                                    Supports OpenAI, Anthropic, Google Gemini, and OpenRouter.
                                 </p>
-                                <LemonButton
-                                    type="primary"
-                                    icon={<IconPlus />}
-                                    onClick={() => setNewKeyModalOpen(true)}
+                                <AccessControlAction
+                                    resourceType={AccessControlResourceType.LlmAnalytics}
+                                    minAccessLevel={AccessControlLevel.Editor}
                                 >
-                                    Add API key
-                                </LemonButton>
+                                    <LemonButton
+                                        type="primary"
+                                        icon={<IconPlus />}
+                                        onClick={() => setNewKeyModalOpen(true)}
+                                    >
+                                        Add API key
+                                    </LemonButton>
+                                </AccessControlAction>
                             </div>
                         ) : (
                             <LemonTable
@@ -534,6 +669,13 @@ export function LLMProviderKeysSettings(): JSX.Element {
             </div>
             <AddKeyModal />
             {editingKey && <EditKeyModal keyToEdit={editingKey} />}
+            {keyToDelete && (
+                <DeleteKeyModal
+                    keyToDelete={keyToDelete}
+                    dependentConfigs={dependentConfigs}
+                    dependentConfigsLoading={dependentConfigsLoading}
+                />
+            )}
         </>
     )
 }

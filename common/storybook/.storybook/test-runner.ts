@@ -50,6 +50,7 @@ declare module '@storybook/types' {
             viewport?: { width: number; height: number }
             /**
              * Skip waiting for iframes to load. Useful for stories with external iframes that fail in CI.
+             * Also skips waiting for networkidle, which is useful for stories with background network activity.
              * @default false
              */
             skipIframeWait?: boolean
@@ -73,6 +74,7 @@ const LOADER_SELECTORS = [
     '.Toastify__toast',
     '[aria-busy="true"]',
     '.SessionRecordingPlayer--buffering',
+    '.PlayerSeekbar__segments__item--buffer-loading',
     '.Lettermark--unknown',
     '[data-attr="loading-bar"]',
 ]
@@ -97,26 +99,6 @@ module.exports = {
         const storyContext = await getStoryContext(page, context)
         const viewport = storyContext.parameters?.testOptions?.viewport || DEFAULT_VIEWPORT
         await page.setViewportSize(viewport)
-
-        // Log timing for webkit tests to diagnose timeout issues
-        const browserContext = page.context()
-        const browserName = browserContext.browser()?.browserType().name()
-        if (browserName === 'webkit' && process.env.CI) {
-            const pageLoadStart = Date.now()
-            // Listen for load event to measure actual load time
-            page.once('load', () => {
-                const loadTime = Date.now() - pageLoadStart
-                if (loadTime > 15000) {
-                    // eslint-disable-next-line no-console
-                    console.warn(
-                        `[webkit-diagnostics] SLOW page load: ${loadTime}ms for ${context.id} (threshold: 15000ms)`
-                    )
-                } else if (loadTime > 10000) {
-                    // eslint-disable-next-line no-console
-                    console.log(`[webkit-diagnostics] Page load: ${loadTime}ms for ${context.id}`)
-                }
-            })
-        }
     },
 
     async postVisit(page, context) {
@@ -466,7 +448,11 @@ async function waitForPageReady(page: Page, skipNetworkIdle = false): Promise<vo
     await page.waitForLoadState('load')
 
     if (process.env.CI && !skipNetworkIdle) {
-        await page.waitForLoadState('networkidle')
+        // networkidle can be flaky in CI due to background requests - don't fail on timeout
+        await page.waitForLoadState('networkidle').catch(() => {
+            // eslint-disable-next-line no-console
+            console.warn('[test-runner] networkidle timeout - proceeding anyway')
+        })
     }
 
     await page.evaluate(() => document.fonts.ready)

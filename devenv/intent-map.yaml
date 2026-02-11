@@ -159,7 +159,15 @@ intents:
 
     experiments:
         description: 'A/B testing and experimentation'
-        capabilities: [event_ingestion, flag_evaluation, property_definitions, celery_workers, nodejs_feature_flags]
+        capabilities:
+            [
+                event_ingestion,
+                flag_evaluation,
+                property_definitions,
+                celery_workers,
+                nodejs_feature_flags,
+                dagster_pipelines,
+            ]
 
     llm_analytics:
         description: 'LLM/AI observability and analytics'
@@ -209,6 +217,10 @@ intents:
     mcp:
         description: 'MCP server for AI assistant integration'
         capabilities: [mcp_server]
+
+    dagster:
+        description: 'Dagster for clickhouse maintenance, system workflows'
+        capabilities: [dagster_pipelines]
 
 # Always-required processes regardless of intent
 # This is the core stack needed for any development

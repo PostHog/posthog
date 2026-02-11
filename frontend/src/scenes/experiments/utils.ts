@@ -73,6 +73,11 @@ export function percentageDistribution(variantCount: number): number[] {
     return percentages
 }
 
+export function isEvenlyDistributed(variants: MultivariateFlagVariant[]): boolean {
+    const evenPercentages = percentageDistribution(variants.length)
+    return variants.every((variant, index) => variant.rollout_percentage === evenPercentages[index])
+}
+
 export function transformFiltersForWinningVariant(
     currentFlagFilters: FeatureFlagFilters,
     selectedVariant: string
@@ -863,7 +868,7 @@ export function initializeMetricOrdering(experiment: Experiment): Experiment {
  * Maps metrics to their results and errors in the correct display order
  * This handles the complex logic of:
  * 1. Mapping results by index to original metrics array (including shared metrics)
- * 2. Enriching shared metrics with metadata
+ * 2. Enriching shared metrics with metadata, including breakdowns
  * 3. Reordering everything according to the ordered UUIDs
  */
 export function getOrderedMetricsWithResults(
@@ -878,6 +883,7 @@ export function getOrderedMetricsWithResults(
     result: any
     error: any
     displayIndex: number
+    metricIndex: number
 }> {
     const metricType = isSecondary ? 'secondary' : 'primary'
     const results = isSecondary ? secondaryMetricsResults : primaryMetricsResults
@@ -895,6 +901,11 @@ export function getOrderedMetricsWithResults(
             name: sharedMetric.name,
             sharedMetricId: sharedMetric.saved_metric,
             isSharedMetric: true,
+            // Merge breakdowns from metadata into breakdownFilter
+            breakdownFilter: {
+                ...sharedMetric.query?.breakdownFilter,
+                breakdowns: sharedMetric.metadata?.breakdowns || [],
+            },
         })) as ExperimentMetric[]
 
     const allMetrics = [...regularMetrics, ...enrichedSharedMetrics]
@@ -903,6 +914,7 @@ export function getOrderedMetricsWithResults(
     const resultsMap = new Map()
     const errorsMap = new Map()
     const metricsMap = new Map()
+    const originalIndexMap = new Map()
 
     allMetrics.forEach((metric: any, index) => {
         const uuid = metric.uuid || metric.query?.uuid
@@ -910,6 +922,7 @@ export function getOrderedMetricsWithResults(
             resultsMap.set(uuid, results[index])
             errorsMap.set(uuid, errors[index])
             metricsMap.set(uuid, metric)
+            originalIndexMap.set(uuid, index) // Track original position for retry
         }
     })
 
@@ -926,5 +939,6 @@ export function getOrderedMetricsWithResults(
             result: resultsMap.get(metric.uuid),
             error: errorsMap.get(metric.uuid),
             displayIndex: index,
+            metricIndex: originalIndexMap.get(metric.uuid) ?? index, // Original position for retry
         }))
 }

@@ -895,6 +895,107 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["detail"], "This field may not be null.")
 
+    def test_rejects_metrics_with_dict_properties_on_create(self):
+        dict_properties_metric = {
+            "kind": "ExperimentMetric",
+            "metric_type": "mean",
+            "source": {
+                "kind": "EventsNode",
+                "event": "$pageview",
+                "properties": {
+                    "$current_url": {
+                        "value": "/start",
+                        "operator": "icontains",
+                    }
+                },
+            },
+        }
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Bad metrics experiment",
+                "feature_flag_key": "bad-metrics-flag",
+                "parameters": {},
+                "filters": {},
+                "metrics": [dict_properties_metric],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["attr"], "metrics")
+
+    def test_rejects_metrics_with_dict_properties_on_update(self):
+        create_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Good experiment",
+                "feature_flag_key": "update-metrics-flag",
+                "parameters": {},
+                "filters": {},
+            },
+            format="json",
+        )
+        self.assertEqual(create_response.status_code, status.HTTP_201_CREATED)
+        experiment_id = create_response.json()["id"]
+
+        dict_properties_metric = {
+            "kind": "ExperimentMetric",
+            "metric_type": "mean",
+            "source": {
+                "kind": "EventsNode",
+                "event": "$pageview",
+                "properties": {
+                    "$current_url": {
+                        "value": "/start",
+                        "operator": "icontains",
+                    }
+                },
+            },
+        }
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/",
+            {"metrics": [dict_properties_metric]},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["attr"], "metrics")
+
+    def test_accepts_metrics_with_array_properties(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Good metrics experiment",
+                "feature_flag_key": "good-metrics-flag",
+                "parameters": {},
+                "filters": {},
+                "metrics": [
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "source": {
+                            "kind": "EventsNode",
+                            "event": "$pageview",
+                            "properties": [
+                                {
+                                    "key": "$current_url",
+                                    "value": "/start",
+                                    "operator": "icontains",
+                                    "type": "event",
+                                }
+                            ],
+                        },
+                    }
+                ],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
     def test_experiment_date_validation(self):
         ff_key = "a-b-tests"
 
@@ -1327,12 +1428,17 @@ class TestExperimentCRUD(APILicensedTest):
 
         experiment = Experiment.objects.get(id=response.json()["id"])
         self.assertFalse(experiment.is_draft)
-        # Now try updating FF
+        # Now try updating FF with a different variant count (original has 3, this has 2)
         response = self.client.patch(
             f"/api/projects/{self.team.id}/experiments/{id}",
             {
                 "description": "Bazinga",
-                "parameters": {"feature_flag_variants": [{"key": "control", "name": "X", "rollout_percentage": 33}]},
+                "parameters": {
+                    "feature_flag_variants": [
+                        {"key": "control", "name": "X", "rollout_percentage": 50},
+                        {"key": "test", "name": "Y", "rollout_percentage": 50},
+                    ]
+                },
             },
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
@@ -1815,12 +1921,17 @@ class TestExperimentCRUD(APILicensedTest):
             },
         )
 
-        # Now try updating FF
+        # Now try updating FF with a different variant count (original has 3, this has 2)
         response = self.client.patch(
             f"/api/projects/{self.team.id}/experiments/{id}",
             {
                 "description": "Bazinga",
-                "parameters": {"feature_flag_variants": [{"key": "control", "name": "X", "rollout_percentage": 33}]},
+                "parameters": {
+                    "feature_flag_variants": [
+                        {"key": "control", "name": "X", "rollout_percentage": 50},
+                        {"key": "test", "name": "Y", "rollout_percentage": 50},
+                    ]
+                },
             },
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
@@ -2030,7 +2141,57 @@ class TestExperimentCRUD(APILicensedTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["detail"], "Feature flag must have control as the first variant.")
+        self.assertEqual(response.json()["detail"], "Feature flag must have a variant with key 'control'")
+
+    def test_create_experiment_with_feature_flag_insufficient_variants(self):
+        feature_flag = FeatureFlag.objects.create(
+            team=self.team,
+            name="Single variant flag",
+            key="single-variant-flag",
+            filters={
+                "multivariate": {
+                    "variants": [
+                        {"key": "control", "rollout_percentage": 100},
+                    ]
+                }
+            },
+            created_by=self.user,
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Single variant experiment",
+                "feature_flag_key": feature_flag.key,
+                "parameters": {},
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json()["detail"],
+            "Feature flag must have at least 2 variants (control and at least one test variant)",
+        )
+
+    def test_create_experiment_with_parameters_insufficient_variants(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Single variant experiment",
+                "feature_flag_key": "single-variant-key",
+                "parameters": {
+                    "feature_flag_variants": [
+                        {"key": "control", "rollout_percentage": 100},
+                    ]
+                },
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json()["detail"],
+            "Feature flag must have at least 2 variants (control and at least one test variant)",
+        )
 
     def test_create_experiment_with_valid_existing_feature_flag(self):
         feature_flag = FeatureFlag.objects.create(

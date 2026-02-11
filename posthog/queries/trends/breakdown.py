@@ -170,7 +170,7 @@ class TrendsBreakdown:
         action_query = ""
         action_params: dict = {}
         if self.entity.type == TREND_FILTER_TYPE_ACTIONS:
-            action = self.entity.get_action()
+            action = self.entity.get_action(self.team_id)
             action_query, action_params = format_action_filter(
                 team_id=self.team_id,
                 action=action,
@@ -728,7 +728,7 @@ class TrendsBreakdown:
         value: Union[str, int],
     ) -> str:
         if breakdown_type == "cohort":
-            return get_breakdown_cohort_name(breakdown_value)
+            return get_breakdown_cohort_name(breakdown_value, self.team)
         elif str(value) == BREAKDOWN_OTHER_STRING_LABEL or value == BREAKDOWN_OTHER_NUMERIC_LABEL:
             return BREAKDOWN_OTHER_DISPLAY
         elif str(value) == BREAKDOWN_NULL_STRING_LABEL or value == BREAKDOWN_NULL_NUMERIC_LABEL:

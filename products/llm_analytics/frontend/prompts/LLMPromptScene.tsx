@@ -5,6 +5,7 @@ import { router } from 'kea-router'
 import { IconPencil, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonTag, LemonTextArea } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { NotFound } from 'lib/components/NotFound'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
@@ -15,6 +16,8 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
+import { ProductKey } from '~/queries/schema/schema-general'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { useTracesQueryContext } from '../LLMAnalyticsTracesScene'
 import { PromptLogicProps, PromptMode, isPrompt, llmPromptLogic } from './llmPromptLogic'
@@ -23,6 +26,7 @@ import { openDeletePromptDialog } from './utils'
 export const scene: SceneExport<PromptLogicProps> = {
     component: LLMPromptScene,
     logic: llmPromptLogic,
+    productKey: ProductKey.LLM_ANALYTICS,
     paramsToProps: ({ params: { name }, searchParams }) => ({
         promptName: name && name !== 'new' ? name : 'new',
         mode: searchParams?.edit === 'true' ? PromptMode.Edit : PromptMode.View,
@@ -66,26 +70,36 @@ export function LLMPromptScene(): JSX.Element {
                     isLoading={promptLoading}
                     actions={
                         <>
-                            <LemonButton
-                                type="primary"
-                                icon={<IconPencil />}
-                                onClick={() => setMode(PromptMode.Edit)}
-                                size="small"
-                                data-attr="prompt-edit-button"
+                            <AccessControlAction
+                                resourceType={AccessControlResourceType.LlmAnalytics}
+                                minAccessLevel={AccessControlLevel.Editor}
                             >
-                                Edit
-                            </LemonButton>
+                                <LemonButton
+                                    type="primary"
+                                    icon={<IconPencil />}
+                                    onClick={() => setMode(PromptMode.Edit)}
+                                    size="small"
+                                    data-attr="prompt-edit-button"
+                                >
+                                    Edit
+                                </LemonButton>
+                            </AccessControlAction>
 
-                            <LemonButton
-                                type="secondary"
-                                status="danger"
-                                icon={<IconTrash />}
-                                onClick={() => openDeletePromptDialog(deletePrompt)}
-                                size="small"
-                                data-attr="prompt-delete-button"
+                            <AccessControlAction
+                                resourceType={AccessControlResourceType.LlmAnalytics}
+                                minAccessLevel={AccessControlLevel.Editor}
                             >
-                                Delete
-                            </LemonButton>
+                                <LemonButton
+                                    type="secondary"
+                                    status="danger"
+                                    icon={<IconTrash />}
+                                    onClick={() => openDeletePromptDialog(deletePrompt)}
+                                    size="small"
+                                    data-attr="prompt-delete-button"
+                                >
+                                    Delete
+                                </LemonButton>
+                            </AccessControlAction>
                         </>
                     }
                 />
@@ -122,27 +136,37 @@ export function LLMPromptScene(): JSX.Element {
                                 Cancel
                             </LemonButton>
 
-                            <LemonButton
-                                type="primary"
-                                onClick={submitPromptForm}
-                                loading={isPromptFormSubmitting}
-                                size="small"
-                                data-attr={isNewPrompt ? 'prompt-create-button' : 'prompt-save-button'}
+                            <AccessControlAction
+                                resourceType={AccessControlResourceType.LlmAnalytics}
+                                minAccessLevel={AccessControlLevel.Editor}
                             >
-                                {isNewPrompt ? 'Create prompt' : 'Save'}
-                            </LemonButton>
+                                <LemonButton
+                                    type="primary"
+                                    onClick={submitPromptForm}
+                                    loading={isPromptFormSubmitting}
+                                    size="small"
+                                    data-attr={isNewPrompt ? 'prompt-create-button' : 'prompt-save-button'}
+                                >
+                                    {isNewPrompt ? 'Create prompt' : 'Save'}
+                                </LemonButton>
+                            </AccessControlAction>
 
                             {!isNewPrompt && (
-                                <LemonButton
-                                    type="secondary"
-                                    status="danger"
-                                    icon={<IconTrash />}
-                                    onClick={() => openDeletePromptDialog(deletePrompt)}
-                                    size="small"
-                                    data-attr="prompt-delete-button"
+                                <AccessControlAction
+                                    resourceType={AccessControlResourceType.LlmAnalytics}
+                                    minAccessLevel={AccessControlLevel.Editor}
                                 >
-                                    Delete
-                                </LemonButton>
+                                    <LemonButton
+                                        type="secondary"
+                                        status="danger"
+                                        icon={<IconTrash />}
+                                        onClick={() => openDeletePromptDialog(deletePrompt)}
+                                        size="small"
+                                        data-attr="prompt-delete-button"
+                                    >
+                                        Delete
+                                    </LemonButton>
+                                </AccessControlAction>
                             )}
                         </>
                     }

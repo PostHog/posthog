@@ -12,7 +12,6 @@ from posthog.schema import (
     IntervalType,
     LLMTrace,
     LLMTraceEvent,
-    LLMTracePerson,
     NodeKind,
     TracesQuery,
     TracesQueryResponse,
@@ -193,12 +192,7 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
                 properties.$ai_trace_id AS id,
                 any(properties.$ai_session_id) AS ai_session_id,
                 min(timestamp) AS first_timestamp,
-                tuple(
-                    argMin(person.id, timestamp),
-                    argMin(distinct_id, timestamp),
-                    argMin(person.created_at, timestamp),
-                    argMin(person.properties, timestamp)
-                ) AS first_person,
+                argMin(distinct_id, timestamp) AS first_distinct_id,
                 round(
                     CASE
                         -- If all events with latency are generations, sum them all
@@ -294,7 +288,7 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
         return {
             **super().get_cache_payload(),
             # When the response schema changes, increment this version to invalidate the cache.
-            "schema_version": 3,
+            "schema_version": 4,
         }
 
     @cached_property
@@ -343,7 +337,7 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
             "id": "id",
             "ai_session_id": "aiSessionId",
             "created_at": "createdAt",
-            "person": "person",
+            "first_distinct_id": "distinctId",
             "total_latency": "totalLatency",
             "input_state_parsed": "inputState",
             "output_state_parsed": "outputState",
@@ -365,7 +359,6 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
         trace_dict = {
             **result,
             "created_at": created_at.isoformat(),
-            "person": self._map_person(result["first_person"]),
             "events": generations,
         }
         try:
@@ -392,15 +385,6 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
             "properties": orjson.loads(event_properties),
         }
         return LLMTraceEvent.model_validate(generation)
-
-    def _map_person(self, person: tuple[UUID, UUID, datetime, str]) -> LLMTracePerson:
-        uuid, distinct_id, created_at, properties = person
-        return LLMTracePerson(
-            uuid=str(uuid),
-            distinct_id=str(distinct_id),
-            created_at=created_at.isoformat(),
-            properties=orjson.loads(properties) if properties else {},
-        )
 
     def _get_subquery_filter(self) -> ast.Expr:
         exprs: list[ast.Expr] = [

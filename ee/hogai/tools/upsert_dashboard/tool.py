@@ -8,8 +8,8 @@ from pydantic import BaseModel, Field
 from posthog.schema import DataTableNode, HogQLQuery, InsightVizNode, QuerySchemaRoot
 
 from posthog.models import Dashboard, DashboardTile, Insight
-from posthog.rbac.user_access_control import UserAccessControl, access_level_satisfied_for_resource
 from posthog.sync import database_sync_to_async
+from posthog.utils import pluralize
 
 from ee.hogai.artifacts.types import ModelArtifactResult, VisualizationWithSourceResult
 from ee.hogai.context.dashboard.context import DashboardContext, DashboardInsightContext
@@ -20,7 +20,6 @@ from ee.hogai.tools.upsert_dashboard.prompts import (
     CREATE_NO_INSIGHTS_PROMPT,
     DASHBOARD_NOT_FOUND_PROMPT,
     MISSING_INSIGHT_IDS_PROMPT,
-    NO_PERMISSION_PROMPT,
     PERMISSION_REQUEST_PROMPT,
     UPDATE_NO_CHANGES_PROMPT,
     UPSERT_DASHBOARD_CONTEXT_PROMPT_TEMPLATE,
@@ -115,20 +114,20 @@ class UpsertDashboardTool(MaxTool):
             return artifact.content.name or "Insight"
 
         def join(items: list[str]) -> str:
-            return "\n".join(items)
+            return "\n".join(f"- {item}" for item in items)
 
-        created_insights = join([get_artifact_name(artifact) for artifact in diff["created"]])
-        deleted_insights = join(
-            [get_insight_name(tile.insight) for tile in diff["deleted"] if tile.insight is not None]
-        )
+        created_list = [get_artifact_name(artifact) for artifact in diff["created"]]
+        deleted_list = [get_insight_name(tile.insight) for tile in diff["deleted"] if tile.insight is not None]
 
         return format_prompt_string(
             PERMISSION_REQUEST_PROMPT,
             dashboard_name=dashboard.name or f"Dashboard #{dashboard.id}",
             new_dashboard_name=action.name,
             new_dashboard_description=action.description,
-            deleted_insights=deleted_insights,
-            new_insights=created_insights,
+            deleted_insights=join(deleted_list),
+            deleted_count=pluralize(len(deleted_list), "insight"),
+            new_insights=join(created_list),
+            added_count=pluralize(len(created_list), "insight"),
         )
 
     async def _arun_impl(self, action: UpsertDashboardAction) -> tuple[str, dict | None]:
@@ -225,13 +224,6 @@ class UpsertDashboardTool(MaxTool):
         return results
 
     @database_sync_to_async
-    def _check_user_permissions(self, dashboard: Dashboard) -> bool | None:
-        """Check if user has permission to edit the dashboard."""
-        user_access_control = UserAccessControl(user=self._user, team=self._team)
-        access_level = user_access_control.get_user_access_level(dashboard)
-        return access_level and access_level_satisfied_for_resource("dashboard", access_level, "editor")
-
-    @database_sync_to_async
     @transaction.atomic
     def _create_dashboard_with_tiles(self, name: str, description: str, insights: list[Insight]) -> Dashboard:
         """Create a new dashboard with tiles for the given insights."""
@@ -314,8 +306,10 @@ class UpsertDashboardTool(MaxTool):
                 active_tile_ids.add(new_tile.id)
                 tiles_to_update.append(new_tile)
 
-        # 3. Soft delete tiles not in the new list
-        tiles_to_delete = [t.id for t in all_tiles if t.id not in active_tile_ids and not t.deleted]
+        # 3. Soft delete insight tiles not in the new list (preserve text tiles)
+        tiles_to_delete = [
+            t.id for t in all_tiles if t.id not in active_tile_ids and not t.deleted and t.insight_id is not None
+        ]
         if tiles_to_delete:
             DashboardTile.objects.filter(id__in=tiles_to_delete).update(deleted=True)
 
@@ -401,9 +395,7 @@ class UpsertDashboardTool(MaxTool):
         except Dashboard.DoesNotExist:
             raise MaxToolFatalError(DASHBOARD_NOT_FOUND_PROMPT.format(dashboard_id=dashboard_id))
 
-        permission_result = await self._check_user_permissions(dashboard)
-        if not permission_result:
-            raise MaxToolFatalError(NO_PERMISSION_PROMPT)
+        await self.check_object_access(dashboard, "editor", action="edit")
 
         return dashboard
 
