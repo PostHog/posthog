@@ -367,15 +367,17 @@ def _expr_to_compare_op(
             )
     elif operator == PropertyOperator.ICONTAINS_MULTI:
         # Always expect multiple values for multi-contains operator
-        values_list = value if isinstance(value, list) else [value]
-        # Convert all values to strings for multi-search
-        string_values = [str(v) for v in values_list]
+        if isinstance(value, list):
+            string_values = [str(v) for v in value]
+        else:
+            string_values = [str(value)]
         return _multi_search_found(_create_multi_search_call(expr, string_values))
     elif operator == PropertyOperator.NOT_ICONTAINS_MULTI:
         # Always expect multiple values for multi-not-contains operator
-        values_list = value if isinstance(value, list) else [value]
-        # Convert all values to strings for multi-search
-        string_values = [str(v) for v in values_list]
+        if isinstance(value, list):
+            string_values = [str(v) for v in value]
+        else:
+            string_values = [str(value)]
         return _multi_search_not_found(_create_multi_search_call(expr, string_values))
     elif operator == PropertyOperator.REGEX:
         return ast.Call(
