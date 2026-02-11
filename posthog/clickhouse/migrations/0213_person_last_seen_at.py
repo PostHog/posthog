@@ -16,14 +16,14 @@ operations = [
     # Add last_seen_at column to the target tables
     # Writable table - Distributed engine (not replicated MergeTree)
     run_sql_with_exceptions(
-        f"ALTER TABLE IF EXISTS {PERSONS_WRITABLE_TABLE} ADD COLUMN IF NOT EXISTS last_seen_at Nullable(DateTime64)",
+        f"ALTER TABLE {PERSONS_WRITABLE_TABLE} ADD COLUMN IF NOT EXISTS last_seen_at Nullable(DateTime64)",
         sharded=False,
         is_alter_on_replicated_table=False,
         node_roles=[NodeRole.INGESTION_SMALL],
     ),
     # Person table - ReplicatedReplacingMergeTree (non-sharded)
     run_sql_with_exceptions(
-        f"ALTER TABLE IF EXISTS {PERSONS_TABLE} ADD COLUMN IF NOT EXISTS last_seen_at Nullable(DateTime64)",
+        f"ALTER TABLE {PERSONS_TABLE} ADD COLUMN IF NOT EXISTS last_seen_at Nullable(DateTime64)",
         sharded=False,
         is_alter_on_replicated_table=True,
         node_roles=[NodeRole.DATA, NodeRole.COORDINATOR],
