@@ -64,6 +64,7 @@ class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
         needs_person_join = self._needs_person_join()
         select_input: list[str] = []
         for col in self.select_input_raw():
+            col_name = col.split("--")[0].strip()
             # Selecting a "*" expands the list of columns
             if col == "*":
                 # Qualify with sessions. prefix when person join is present to avoid ambiguity
@@ -74,8 +75,13 @@ class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
                     else SELECT_STAR_FROM_SESSIONS_FIELDS
                 )
                 select_input.append(f"tuple({', '.join(fields)})")
-            elif col.split("--")[0].strip() == "person_display_name":
+            elif col_name == "person_display_name":
                 select_input.append(self._build_person_display_name_expr())
+            elif col_name.startswith("person.properties."):
+                select_input.append(self._transform_person_property_col(col))
+            elif col_name.startswith("session."):
+                # Transform session.X to just X (or sessions.X when person join is present)
+                select_input.append(self._transform_session_property_col(col, needs_person_join))
             else:
                 select_input.append(col)
         return select_input, [
@@ -83,15 +89,155 @@ class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
         ]
 
     def _needs_person_join(self) -> bool:
-        """Check if any selected column or orderBy requires person join."""
+        """Check if any selected column, orderBy, or filter requires person join."""
         for col in self.select_input_raw():
-            if col.split("--")[0].strip() == "person_display_name":
+            col_name = col.split("--")[0].strip()
+            if col_name == "person_display_name" or col_name.startswith("person.properties."):
                 return True
         if self.query.orderBy:
             for col in self.query.orderBy:
-                if col.split("--")[0].strip() == "person_display_name":
+                col_name = col.split("--")[0].strip()
+                if col_name == "person_display_name" or col_name.startswith("person.properties."):
+                    return True
+        if self.query.properties:
+            for prop in self.query.properties:
+                if hasattr(prop, "type") and prop.type == "person":
                     return True
         return False
+
+    def _transform_person_property_col(self, col: str) -> str:
+        """Transform person.properties.X to use __person_lookup alias."""
+        if "--" in col:
+            expr, comment = col.split("--", 1)
+            expr = expr.strip()
+            comment = comment.strip()
+        else:
+            expr = col.strip()
+            comment = None
+
+        transformed = expr.replace("person.properties.", "__person_lookup.properties.")
+
+        if comment:
+            return f"{transformed} -- {comment}"
+        return transformed
+
+    def _transform_session_property_col(self, col: str, needs_person_join: bool) -> str:
+        """Transform session.X to X or sessions.X (when person join is present to avoid ambiguity)."""
+        if "--" in col:
+            expr, comment = col.split("--", 1)
+            expr = expr.strip()
+            comment = comment.strip()
+        else:
+            expr = col.strip()
+            comment = None
+
+        # Remove the "session." prefix and optionally add "sessions." prefix
+        property_name = expr[8:]  # Remove "session." prefix
+        if needs_person_join:
+            transformed = f"sessions.{property_name}"
+        else:
+            transformed = property_name
+
+        if comment:
+            return f"{transformed} -- {comment}"
+        return transformed
+
+    def _person_property_to_expr(self, prop) -> ast.Expr:
+        """Convert a person property filter to an expression using __person_lookup."""
+        key = prop.key
+        value = prop.value
+        operator = getattr(prop, "operator", "exact")
+
+        # Build the property field reference
+        if re.match(r"^[A-Za-z_$][A-Za-z0-9_$]*$", key):
+            field = ast.Field(chain=["__person_lookup", "properties", key])
+        else:
+            field = ast.Field(chain=["__person_lookup", "properties", key])
+
+        # Handle different operators
+        if operator == "exact":
+            if isinstance(value, list):
+                return ast.CompareOperation(
+                    op=ast.CompareOperationOp.In,
+                    left=field,
+                    right=ast.Tuple(exprs=[ast.Constant(value=v) for v in value]),
+                )
+            return ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq,
+                left=field,
+                right=ast.Constant(value=value),
+            )
+        elif operator == "is_not":
+            if isinstance(value, list):
+                return ast.CompareOperation(
+                    op=ast.CompareOperationOp.NotIn,
+                    left=field,
+                    right=ast.Tuple(exprs=[ast.Constant(value=v) for v in value]),
+                )
+            return ast.CompareOperation(
+                op=ast.CompareOperationOp.NotEq,
+                left=field,
+                right=ast.Constant(value=value),
+            )
+        elif operator == "icontains":
+            return ast.CompareOperation(
+                op=ast.CompareOperationOp.ILike,
+                left=field,
+                right=ast.Constant(value=f"%{value}%"),
+            )
+        elif operator == "not_icontains":
+            return ast.CompareOperation(
+                op=ast.CompareOperationOp.NotILike,
+                left=field,
+                right=ast.Constant(value=f"%{value}%"),
+            )
+        elif operator == "regex":
+            return ast.Call(name="match", args=[field, ast.Constant(value=value)])
+        elif operator == "not_regex":
+            return ast.Not(expr=ast.Call(name="match", args=[field, ast.Constant(value=value)]))
+        elif operator == "is_set":
+            return ast.CompareOperation(
+                op=ast.CompareOperationOp.NotEq,
+                left=field,
+                right=ast.Constant(value=None),
+            )
+        elif operator == "is_not_set":
+            return ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq,
+                left=field,
+                right=ast.Constant(value=None),
+            )
+        elif operator == "gt":
+            return ast.CompareOperation(
+                op=ast.CompareOperationOp.Gt,
+                left=field,
+                right=ast.Constant(value=value),
+            )
+        elif operator == "lt":
+            return ast.CompareOperation(
+                op=ast.CompareOperationOp.Lt,
+                left=field,
+                right=ast.Constant(value=value),
+            )
+        elif operator == "gte":
+            return ast.CompareOperation(
+                op=ast.CompareOperationOp.GtEq,
+                left=field,
+                right=ast.Constant(value=value),
+            )
+        elif operator == "lte":
+            return ast.CompareOperation(
+                op=ast.CompareOperationOp.LtEq,
+                left=field,
+                right=ast.Constant(value=value),
+            )
+        else:
+            # Fallback to exact match for unknown operators
+            return ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq,
+                left=field,
+                right=ast.Constant(value=value),
+            )
 
     def to_query(self) -> ast.SelectQuery:
         with self.timings.measure("build_ast"):
@@ -111,19 +257,26 @@ class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
                     where_exprs = [parse_expr(expr, timings=self.timings) for expr in where_input]
                 if self.query.properties:
                     with self.timings.measure("properties"):
-                        # Filter out cohort and person properties from session-level filters
-                        # as they require person_id which doesn't exist in sessions table
-                        session_properties = [
-                            prop
-                            for prop in self.query.properties
-                            if not (
-                                hasattr(prop, "type")
-                                and prop.type in ("cohort", "static-cohort", "precalculated-cohort", "person")
-                            )
-                        ]
+                        # Separate person properties from session properties
+                        # Cohort properties are still filtered out as they require more complex handling
+                        session_properties = []
+                        person_properties = []
+                        for prop in self.query.properties:
+                            if hasattr(prop, "type"):
+                                if prop.type in ("cohort", "static-cohort", "precalculated-cohort"):
+                                    continue  # Skip cohort properties
+                                elif prop.type == "person":
+                                    person_properties.append(prop)
+                                    continue
+                            session_properties.append(prop)
+
                         where_exprs.extend(
                             property_to_expr(property, self.team, scope="session") for property in session_properties
                         )
+
+                        # Handle person properties using the __person_lookup join
+                        for prop in person_properties:
+                            where_exprs.append(self._person_property_to_expr(prop))
                 if self.query.fixedProperties:
                     with self.timings.measure("fixed_properties"):
                         where_exprs.extend(
@@ -255,7 +408,8 @@ class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
                 if self.query.orderBy is not None:
                     order_columns: list[str] = []
                     for col in self.query.orderBy:
-                        if col.split("--")[0].strip() == "person_display_name":
+                        col_name = col.split("--")[0].strip()
+                        if col_name == "person_display_name":
                             # Replace person_display_name with the actual expression
                             property_keys = (
                                 self.team.person_display_name_properties or PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
@@ -269,6 +423,10 @@ class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
                             expr = f"(coalesce({', '.join([*props, 'sessions.distinct_id'])}), toString(__person_lookup.id))"
                             new_col = re.sub(r"person_display_name -- Person\s*", expr, col)
                             order_columns.append(new_col)
+                        elif col_name.startswith("person.properties."):
+                            order_columns.append(self._transform_person_property_col(col))
+                        elif col_name.startswith("session."):
+                            order_columns.append(self._transform_session_property_col(col, self._needs_person_join()))
                         else:
                             order_columns.append(col)
                     order_by = [parse_order_expr(column, timings=self.timings) for column in order_columns]

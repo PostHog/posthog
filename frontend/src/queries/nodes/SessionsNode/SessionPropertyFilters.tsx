@@ -34,8 +34,9 @@ export function SessionPropertyFilters({ query, setQuery }: SessionPropertyFilte
               TaxonomicFilterGroupType.HogQLExpression,
           ]
         : [
-              // Only session properties when no event selected
+              // Session and person properties when no event selected
               TaxonomicFilterGroupType.SessionProperties,
+              TaxonomicFilterGroupType.PersonProperties,
               TaxonomicFilterGroupType.HogQLExpression,
           ]
 
