@@ -1,3 +1,4 @@
+import { createTestPipelineEvent } from '../../../tests/helpers/pipeline-event'
 import { PipelineEvent } from '../../types'
 import { PipelineResultType, drop, ok } from '../pipelines/results'
 import { createValidateEventUuidStep } from './validate-event-uuid'
@@ -7,16 +8,13 @@ describe('createValidateEventUuidStep', () => {
     let step: ReturnType<typeof createValidateEventUuidStep>
 
     beforeEach(() => {
-        mockEvent = {
+        mockEvent = createTestPipelineEvent({
             token: 'test-token-123',
             distinct_id: 'test-user-456',
             event: 'test-event',
             properties: { testProp: 'testValue' },
-            ip: '127.0.0.1',
-            site_url: 'https://example.com',
             now: '2020-02-23T02:15:00Z',
-            uuid: '123e4567-e89b-12d3-a456-426614174000',
-        }
+        })
 
         step = createValidateEventUuidStep()
         jest.clearAllMocks()

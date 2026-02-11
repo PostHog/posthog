@@ -4,6 +4,8 @@ import { PipelineResultType } from '~/ingestion/pipelines/results'
 import { Team } from '~/types'
 
 import { PersonsStore } from '../../../../src/worker/ingestion/persons/persons-store'
+import { createTestPluginEvent } from '../../../helpers/plugin-event'
+import { createTestTeam } from '../../../helpers/team'
 
 describe('processPersonlessDistinctIdsBatchStep', () => {
     let mockPersonsStore: jest.Mocked<PersonsStore>
@@ -18,12 +20,7 @@ describe('processPersonlessDistinctIdsBatchStep', () => {
         )
         processPersonlessDistinctIdsBatchStep = module.processPersonlessDistinctIdsBatchStep
 
-        team = {
-            id: 1,
-            uuid: 'test-team-uuid',
-            organization_id: 'test-org',
-            name: 'Test Team',
-        } as Team
+        team = createTestTeam()
 
         mockPersonsStore = {
             processPersonlessDistinctIdsBatch: jest.fn().mockResolvedValue(undefined),
@@ -34,21 +31,15 @@ describe('processPersonlessDistinctIdsBatchStep', () => {
     const createInput = (
         distinctId: string,
         processPerson: boolean | undefined = undefined
-    ): { event: PluginEvent; team: Team } => {
-        const event: PluginEvent = {
+    ): { event: PluginEvent; team: Team } => ({
+        event: createTestPluginEvent({
             distinct_id: distinctId,
-            ip: null,
-            site_url: 'http://localhost',
             team_id: team.id,
-            now: '2020-02-23T02:15:00Z',
-            timestamp: '2020-02-23T02:15:00Z',
-            event: '$pageview',
             properties: processPerson === undefined ? {} : { $process_person_profile: processPerson },
             uuid: `uuid-${distinctId}`,
-        }
-
-        return { event, team }
-    }
+        }),
+        team,
+    })
 
     describe('when enabled', () => {
         it('should process personless events and call batch insert', async () => {

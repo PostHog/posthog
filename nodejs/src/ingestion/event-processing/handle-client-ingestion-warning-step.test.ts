@@ -1,53 +1,29 @@
-import { Message } from 'node-rdkafka'
 import { v4 } from 'uuid'
 
-import { PluginEvent } from '@posthog/plugin-scaffold'
-
 import { createTestEventHeaders } from '../../../tests/helpers/event-headers'
-import { ProjectId, Team } from '../../types'
+import { createTestMessage } from '../../../tests/helpers/kafka-message'
+import { createTestPluginEvent } from '../../../tests/helpers/plugin-event'
+import { createTestTeam } from '../../../tests/helpers/team'
 import { PipelineResultType } from '../pipelines/results'
 import { EventPipelineRunnerInput } from './event-pipeline-runner-v1-step'
 import { createHandleClientIngestionWarningStep } from './handle-client-ingestion-warning-step'
-
-const createTestTeam = (overrides: Partial<Team> = {}): Team => ({
-    id: 1,
-    project_id: 1 as ProjectId,
-    organization_id: 'test-org-id',
-    uuid: v4(),
-    name: 'Test Team',
-    anonymize_ips: false,
-    api_token: 'test-api-token',
-    slack_incoming_webhook: null,
-    session_recording_opt_in: true,
-    person_processing_opt_out: null,
-    heatmaps_opt_in: null,
-    ingested_event: true,
-    person_display_name_properties: null,
-    test_account_filters: null,
-    cookieless_server_hash_mode: null,
-    timezone: 'UTC',
-    available_features: [],
-    drop_events_older_than_seconds: null,
-    ...overrides,
-})
 
 describe('handleClientIngestionWarningStep', () => {
     const team = createTestTeam()
     const eventUuid = v4()
 
-    const baseEvent: PluginEvent = {
+    const baseEvent = createTestPluginEvent({
         distinct_id: 'my_id',
-        ip: null,
         site_url: '',
         team_id: 1,
         now: new Date().toISOString(),
         event: '$pageview',
         properties: {},
         uuid: eventUuid,
-    }
+    })
 
     const baseInput: EventPipelineRunnerInput = {
-        message: {} as Message,
+        message: createTestMessage(),
         event: baseEvent,
         team,
         headers: createTestEventHeaders(),

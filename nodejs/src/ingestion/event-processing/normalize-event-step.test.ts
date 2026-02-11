@@ -1,35 +1,13 @@
 import { DateTime } from 'luxon'
-import { v4 } from 'uuid'
 
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { createTestEventHeaders } from '../../../tests/helpers/event-headers'
-import { ProjectId, Team } from '../../types'
+import { createTestPluginEvent } from '../../../tests/helpers/plugin-event'
+import { createTestTeam } from '../../../tests/helpers/team'
 import { UUIDT } from '../../utils/utils'
 import { PipelineResultType } from '../pipelines/results'
 import { createNormalizeEventStep } from './normalize-event-step'
-
-const createTestTeam = (overrides: Partial<Team> = {}): Team => ({
-    id: 1,
-    project_id: 1 as ProjectId,
-    organization_id: 'test-org-id',
-    uuid: v4(),
-    name: 'Test Team',
-    anonymize_ips: false,
-    api_token: 'test-api-token',
-    slack_incoming_webhook: null,
-    session_recording_opt_in: true,
-    person_processing_opt_out: null,
-    heatmaps_opt_in: null,
-    ingested_event: true,
-    person_display_name_properties: null,
-    test_account_filters: null,
-    cookieless_server_hash_mode: null,
-    timezone: 'UTC',
-    available_features: [],
-    drop_events_older_than_seconds: null,
-    ...overrides,
-})
 
 describe('normalizeEventStep wrapper', () => {
     const timestampComparisonLoggingSampleRate = 0
@@ -131,15 +109,14 @@ describe('normalizeEventStep wrapper', () => {
     it('sanitizes token with null bytes', async () => {
         const uuid = new UUIDT().toString()
         const event = {
-            distinct_id: 'my_id',
-            ip: null,
-            site_url: 'http://localhost',
-            team_id: team.id,
+            ...createTestPluginEvent({
+                distinct_id: 'my_id',
+                team_id: team.id,
+                timestamp: '2020-02-23T02:15:00Z',
+                event: 'test event',
+                uuid: uuid,
+            }),
             token: '\u0000token',
-            now: '2020-02-23T02:15:00Z',
-            timestamp: '2020-02-23T02:15:00Z',
-            event: 'test event',
-            uuid: uuid,
         } as PluginEvent
 
         const step = createNormalizeEventStep(timestampComparisonLoggingSampleRate)

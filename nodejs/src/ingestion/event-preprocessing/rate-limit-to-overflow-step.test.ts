@@ -1,4 +1,4 @@
-import { PipelineEvent } from '../../types'
+import { createTestPipelineEvent } from '../../../tests/helpers/pipeline-event'
 import { PipelineResultType } from '../pipelines/results'
 import { OverflowRedirectService } from '../utils/overflow-redirect/overflow-redirect-service'
 import { RateLimitToOverflowStepInput, createRateLimitToOverflowStep } from './rate-limit-to-overflow-step'
@@ -11,7 +11,7 @@ const createMockEvent = (token: string, distinctId: string, now?: Date): RateLim
         force_disable_person_processing: false,
         historical_migration: false,
     },
-    event: { distinct_id: distinctId, token } as PipelineEvent,
+    event: createTestPipelineEvent({ distinct_id: distinctId, token }),
 })
 
 const createMockOverflowRedirectService = (
