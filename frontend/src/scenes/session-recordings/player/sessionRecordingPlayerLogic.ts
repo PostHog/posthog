@@ -1426,10 +1426,16 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 }
             }
 
-            // If replayer isn't initialized, it will be initialized with the already loaded snapshots
+            // If replayer isn't initialized, it will be initialized with the already loaded snapshots.
+            // Add events in batches, yielding between batches to keep the UI responsive
+            // during large snapshot loads.
             if (values.player?.replayer) {
-                for (const event of eventsToAdd) {
-                    values.player?.replayer?.addEvent(event)
+                const EVENTS_PER_BATCH = 100
+                for (let i = 0; i < eventsToAdd.length; i++) {
+                    if (i > 0 && i % EVENTS_PER_BATCH === 0) {
+                        await new Promise<void>((r) => setTimeout(r, 0))
+                    }
+                    values.player?.replayer?.addEvent(eventsToAdd[i])
                 }
             }
 

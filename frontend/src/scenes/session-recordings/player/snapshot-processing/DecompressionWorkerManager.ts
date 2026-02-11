@@ -257,6 +257,12 @@ export class DecompressionWorkerManager {
             return
         }
 
+        // Only report on cold start and every 10th decompression to avoid
+        // flooding the microtask queue with posthog.capture() promise chains
+        if (!isColdStart && this.stats.count % 10 !== 0) {
+            return
+        }
+
         const properties: Record<string, any> = {
             method: 'worker',
             duration_ms: durationMs,
