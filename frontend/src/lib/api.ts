@@ -1493,8 +1493,12 @@ export class ApiRequest {
     }
 
     // Queries
-    public query(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('query')
+    public query(teamId?: TeamType['id'], queryKind?: string): ApiRequest {
+        const apiRequest = this.environmentsDetail(teamId).addPathComponent('query')
+        if (queryKind) {
+            return apiRequest.addPathComponent(queryKind)
+        }
+        return apiRequest
     }
 
     public queryStatus(queryId: string, showProgress: boolean, teamId?: TeamType['id']): ApiRequest {
@@ -3089,7 +3093,7 @@ const api = {
                 ...params,
             }
 
-            return await new ApiRequest().query().create({ data: { query: groupsQuery } })
+            return await new ApiRequest().query(undefined, groupsQuery.kind).create({ data: { query: groupsQuery } })
         },
         async create(data: CreateGroupParams): Promise<Group> {
             return await new ApiRequest().groups().create({ data })
@@ -5062,8 +5066,8 @@ const api = {
         },
     },
 
-    queryURL: (): string => {
-        return new ApiRequest().query().assembleFullUrl(true)
+    queryURL: (queryKind?: string): string => {
+        return new ApiRequest().query(undefined, queryKind).assembleFullUrl(true)
     },
 
     async query<T extends Record<string, any> = QuerySchema>(
@@ -5074,6 +5078,7 @@ const api = {
             refresh?: RefreshType
             filtersOverride?: DashboardFilter | null
             variablesOverride?: Record<string, HogQLVariable> | null
+            queryKind?: string
         }
     ): Promise<
         T extends { [response: string]: any }
@@ -5082,7 +5087,14 @@ const api = {
                 : T['response']
             : Record<string, any>
     > {
-        return await new ApiRequest().query().create({
+        const bodyKind = (query as { kind?: string }).kind
+        const pathKind = queryOptions?.queryKind
+
+        if (pathKind && pathKind !== bodyKind) {
+            throw new Error(`Query kind mismatch: path kind "${pathKind}" does not match body kind "${bodyKind}".`)
+        }
+
+        return await new ApiRequest().query(undefined, bodyKind).create({
             ...queryOptions?.requestOptions,
             data: {
                 query,
@@ -5104,6 +5116,7 @@ const api = {
             filtersOverride?: DashboardFilter | null
             variablesOverride?: Record<string, HogQLVariable> | null
             queryParams?: Omit<HogQLQuery, 'kind' | 'query' | 'tags'>
+            queryKind?: string
         }
     ): Promise<HogQLQueryResponse<T>> {
         const hogQLQuery: HogQLQuery = setLatestVersionsOnQuery({
@@ -5112,7 +5125,14 @@ const api = {
             query,
             tags,
         })
-        return await new ApiRequest().query().create({
+
+        if (queryOptions?.queryKind && queryOptions.queryKind !== hogQLQuery.kind) {
+            throw new Error(
+                `Query kind mismatch: path kind "${queryOptions.queryKind}" does not match body kind "${hogQLQuery.kind}".`
+            )
+        }
+
+        return await new ApiRequest().query(undefined, hogQLQuery.kind).create({
             ...queryOptions?.requestOptions,
             data: {
                 query: hogQLQuery,

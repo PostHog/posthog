@@ -65,7 +65,7 @@ export function createInsightStory(
                 ],
             },
             post: {
-                '/api/environments/:team_id/query/': (req, __, ctx) => [
+                '/api/environments/:team_id/query/:kind/': (req, __, ctx) => [
                     ctx.status(200),
                     ctx.json({
                         cache_key: req.params.query,

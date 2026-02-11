@@ -70,7 +70,7 @@ const meta: Meta<typeof PlayerInspector> = {
                 },
             },
             post: {
-                '/api/environments/:team_id/query': (req, res, ctx) => {
+                '/api/environments/:team_id/query/:kind': (req, res, ctx) => {
                     const body = req.body as Record<string, any>
 
                     if (body.query.kind === 'HogQLQuery') {

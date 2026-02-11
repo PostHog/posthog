@@ -2033,7 +2033,7 @@ exports[`sessionRecordingDataCoordinatorLogic deduplicateSnapshots should match 
 exports[`sessionRecordingDataCoordinatorLogic loading session events load events after metadata with 5 minute buffer 1`] = `
 [
   [
-    "api/environments/997/query",
+    "api/environments/997/query/HogQLQuery",
     {
       "client_query_id": undefined,
       "filters_override": undefined,
@@ -2080,7 +2080,7 @@ LIMIT 1000000",
     },
   ],
   [
-    "api/environments/997/query",
+    "api/environments/997/query/HogQLQuery",
     {
       "client_query_id": undefined,
       "filters_override": undefined,

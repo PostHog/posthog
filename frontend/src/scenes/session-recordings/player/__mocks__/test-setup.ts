@@ -65,7 +65,7 @@ function getDefaultMocks(
             '/api/projects/:team/notebooks/recording_comments': EMPTY_PAGINATED_RESPONSE,
         },
         post: {
-            '/api/environments/:team_id/query': customQueryHandler ?? recordingEventsJson,
+            '/api/environments/:team_id/query/:kind': customQueryHandler ?? recordingEventsJson,
         },
         patch: {
             '/api/environments/:team_id/session_recordings/:id': { success: true },

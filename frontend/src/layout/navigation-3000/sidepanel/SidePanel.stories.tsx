@@ -44,7 +44,7 @@ const meta: Meta = {
                 '/api/environments/:team_id/events': { results: [] },
             },
             post: {
-                '/api/environments/:team_id/query': {},
+                '/api/environments/:team_id/query/:kind': {},
             },
         }),
     ],

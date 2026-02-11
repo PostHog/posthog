@@ -32,6 +32,7 @@ from posthog.schema import (
 from posthog.hogql.constants import LimitContext
 
 from posthog.api.services.query import process_query_dict
+from posthog.clickhouse.query_tagging import QueryTags
 from posthog.models.insight_variable import InsightVariable
 from posthog.models.property_definition import PropertyDefinition, PropertyType
 from posthog.models.utils import UUIDT
@@ -363,7 +364,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
 
     @patch(
-        "posthog.clickhouse.client.execute._annotate_tagged_query", return_value=("SELECT 1&&&", {})
+        "posthog.clickhouse.client.execute._annotate_tagged_query", return_value=("SELECT 1&&&", QueryTags())
     )  # Erroneously constructed SQL
     def test_unsafe_clickhouse_error_is_swallowed(self, sqlparse_format_mock):
         query = {"kind": "EventsQuery", "select": ["timestamp"]}
