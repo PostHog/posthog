@@ -100,8 +100,3 @@ class HealthIssue(UUIDModel):
     def dismiss(self) -> None:
         self.status = self.Status.DISMISSED
         self.save(update_fields=["status", "updated_at"])
-
-    def reactivate(self) -> None:
-        self.status = self.Status.ACTIVE
-        self.resolved_at = None
-        self.save(update_fields=["status", "resolved_at", "updated_at"])

@@ -122,27 +122,12 @@ class TestHealthIssueAPI(APIBaseTest):
         issue.refresh_from_db()
         self.assertEqual(issue.status, expected_status)
 
-    def test_reactivate_resolved_issue(self):
-        issue = self._create_issue()
-        issue.resolve()
-
-        response = self.client.post(self._url(f"/{issue.id}/reactivate"))
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["status"], "active")
-
-        issue.refresh_from_db()
-        self.assertEqual(issue.status, HealthIssue.Status.ACTIVE)
-
-    def test_resolve_sets_resolved_at_and_reactivate_clears_it(self):
+    def test_resolve_sets_resolved_at(self):
         issue = self._create_issue()
 
         self.client.post(self._url(f"/{issue.id}/resolve"))
         issue.refresh_from_db()
         self.assertIsNotNone(issue.resolved_at)
-
-        self.client.post(self._url(f"/{issue.id}/reactivate"))
-        issue.refresh_from_db()
-        self.assertIsNone(issue.resolved_at)
 
     def test_summary_counts_active_issues_only(self):
         self._create_issue(severity=HealthIssue.Severity.CRITICAL, kind="sdk_outdated", unique_hash="h1")
