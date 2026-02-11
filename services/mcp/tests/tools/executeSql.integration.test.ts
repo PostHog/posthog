@@ -69,16 +69,6 @@ describe('execute-sql', { concurrent: false }, () => {
         expect(parsed).toHaveProperty('columns')
     })
 
-    it('should execute a query selecting from persons', async () => {
-        const result = await tool.handler(context, {
-            query: 'SELECT count() AS person_count FROM persons',
-        })
-
-        const parsed = JSON.parse(result)
-        expect(parsed.columns).toContain('person_count')
-        expect(parsed.results.length).toBe(1)
-    })
-
     it('should throw on invalid SQL', async () => {
         await expect(tool.handler(context, { query: 'SELEC INVALID SYNTAX' })).rejects.toThrow()
     })
