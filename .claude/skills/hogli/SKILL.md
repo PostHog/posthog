@@ -14,7 +14,7 @@ Run `hogli --help` to get the full, current command list. Run `hogli <command> -
 
 ## Process logging (for agents/debugging)
 
-`hogli dev:setup --log` enables file logging for all mprocs processes. Logs go to `/tmp/posthog-<process>.log` (django, frontend, celery, nodejs, temporal).
+`hogli dev:setup --log` enables file logging for all mprocs processes. Logs go to `/tmp/posthog-<process>.log` where `<process>` matches the mprocs process key (see `bin/mprocs.yaml`).
 
 ## Key references
 
