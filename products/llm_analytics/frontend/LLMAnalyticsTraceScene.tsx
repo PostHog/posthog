@@ -155,7 +155,7 @@ export function LLMAnalyticsTraceScene(): JSX.Element {
     useAttachedLogic(traceDataLogic, llmAnalyticsTraceLogic)
 
     return (
-        <BindLogic logic={traceDataLogic}>
+        <BindLogic logic={llmAnalyticsTraceDataLogic} props={{ traceId, query, cachedResults: null }}>
             <TraceSceneWrapper />
         </BindLogic>
     )

@@ -525,7 +525,7 @@ export function LLMAnalyticsScene(): JSX.Element {
     useAttachedLogic(dataCollectionLogic, llmAnalyticsSharedLogic)
 
     return (
-        <BindLogic logic={dataCollectionLogic}>
+        <BindLogic logic={dataNodeCollectionLogic} props={{ key: LLM_ANALYTICS_DATA_COLLECTION_NODE_ID }}>
             <SceneContent>
                 <SceneTitleSection
                     name={sceneConfigurations[Scene.LLMAnalytics].name}

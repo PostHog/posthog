@@ -40,7 +40,7 @@ export function LLMAnalyticsSessionScene(): JSX.Element {
     useAttachedLogic(sessionDataLogic, llmAnalyticsSessionLogic)
 
     return (
-        <BindLogic logic={sessionDataLogic}>
+        <BindLogic logic={llmAnalyticsSessionDataLogic} props={{ sessionId, query }}>
             <SessionSceneWrapper />
         </BindLogic>
     )
