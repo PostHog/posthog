@@ -45,7 +45,6 @@ export interface PropertyValueProps {
     preloadValues?: boolean
     forceSingleSelect?: boolean
     validationError?: string | null
-    operatorAllowlist?: Array<PropertyOperator>
 }
 
 export function PropertyValue({
