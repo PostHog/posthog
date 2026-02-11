@@ -181,7 +181,10 @@ export const flagSelectionLogic = kea<flagSelectionLogicType>([
 
     listeners(({ values, actions }) => ({
         toggleFlagSelection: ({ id, index }) => {
-            const { selectedFlagIds, shiftKeyHeld, previouslyCheckedIndex, currentPageFlags } = values
+            const { selectedFlagIds, shiftKeyHeld, previouslyCheckedIndex } = values
+            // Access featureFlagsLogic directly to ensure we get current page data
+            const { featureFlags } = featureFlagsLogic({}).values
+            const currentPageFlags = featureFlags?.results || []
 
             if (shiftKeyHeld && previouslyCheckedIndex !== null) {
                 // Shift-click: select range, following the anchor's direction
@@ -215,7 +218,11 @@ export const flagSelectionLogic = kea<flagSelectionLogicType>([
             actions.setPreviouslyCheckedIndex(index)
         },
         selectAll: () => {
-            const { selectedFlagIds, currentPageFlags } = values
+            const { selectedFlagIds } = values
+            // Access featureFlagsLogic directly to ensure we get current page data
+            const { featureFlags } = featureFlagsLogic({}).values
+            const currentPageFlags = featureFlags?.results || []
+
             const pageIds = currentPageFlags
                 .filter((f: FeatureFlagType) => f.can_edit)
                 .map((f: FeatureFlagType) => f.id)
