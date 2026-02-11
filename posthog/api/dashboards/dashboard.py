@@ -448,7 +448,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
 
             Team.objects.filter(
                 primary_dashboard=instance,
-                project_id=instance.team.project_id,
+                id=instance.team_id,
             ).update(primary_dashboard=None)
             group_type_mapping = GroupTypeMapping.objects.filter(
                 team=instance.team, project_id=instance.team.project_id, detail_dashboard_id=instance.id
