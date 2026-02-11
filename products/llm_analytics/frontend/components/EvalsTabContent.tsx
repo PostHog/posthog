@@ -42,6 +42,7 @@ function EvalsTabContentInner({
     timestamp,
     event,
     distinctId,
+    generationRunsLogic,
 }: {
     generationEventId: string
     timestamp: string

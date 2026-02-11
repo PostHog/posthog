@@ -146,13 +146,14 @@ export const scene: SceneExport = {
 }
 
 export function LLMAnalyticsTraceScene(): JSX.Element {
-    const { traceId, query } = useValues(llmAnalyticsTraceLogic)
-    const traceDataLogic = llmAnalyticsTraceDataLogic({ traceId, query, cachedResults: null })
+    const { traceId, query, searchQuery } = useValues(llmAnalyticsTraceLogic)
+    const logicProps = { traceId, query, cachedResults: null, searchQuery }
+    const traceDataLogic = llmAnalyticsTraceDataLogic(logicProps)
 
     useAttachedLogic(traceDataLogic, llmAnalyticsTraceLogic)
 
     return (
-        <BindLogic logic={llmAnalyticsTraceDataLogic} props={{ traceId, query, cachedResults: null }}>
+        <BindLogic logic={llmAnalyticsTraceDataLogic} props={logicProps}>
             <TraceSceneWrapper />
         </BindLogic>
     )
