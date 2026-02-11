@@ -99,7 +99,7 @@ payload['context'] := {
     }
 }
 
-let res := fetch('https://ingest.klime.com/v1/batch', {
+let res := fetch('https://i.klime.com/v1/batch', {
     'method': 'POST',
     'headers': {
         'Content-Type': 'application/json',

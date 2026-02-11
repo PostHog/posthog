@@ -36,7 +36,7 @@ class TestTemplateKlime(BaseHogFunctionTemplateTest):
         )
 
         assert self.get_mock_fetch_calls()[0] == (
-            "https://ingest.klime.com/v1/batch",
+            "https://i.klime.com/v1/batch",
             {
                 "method": "POST",
                 "headers": {
@@ -69,7 +69,12 @@ class TestTemplateKlime(BaseHogFunctionTemplateTest):
             self.run_function(
                 inputs=create_inputs(groupId="group-123"),
                 globals={
-                    "event": {"uuid": "uuid-1", "event": event_name, "properties": {}, "timestamp": "2024-01-01T00:00:00Z"},
+                    "event": {
+                        "uuid": "uuid-1",
+                        "event": event_name,
+                        "properties": {},
+                        "timestamp": "2024-01-01T00:00:00Z",
+                    },
                 },
             )
 
@@ -79,7 +84,12 @@ class TestTemplateKlime(BaseHogFunctionTemplateTest):
         self.run_function(
             inputs=create_inputs(action="track"),
             globals={
-                "event": {"uuid": "uuid-1", "event": "$identify", "properties": {}, "timestamp": "2024-01-01T00:00:00Z"},
+                "event": {
+                    "uuid": "uuid-1",
+                    "event": "$identify",
+                    "properties": {},
+                    "timestamp": "2024-01-01T00:00:00Z",
+                },
             },
         )
 
@@ -135,9 +145,7 @@ class TestTemplateKlime(BaseHogFunctionTemplateTest):
         self.run_function(inputs=create_inputs(action="group", groupId=""))
 
         assert not self.get_mock_fetch_calls()
-        assert self.get_mock_print_calls() == [
-            ("No group ID set. Skipping as group ID is required for group events.",)
-        ]
+        assert self.get_mock_print_calls() == [("No group ID set. Skipping as group ID is required for group events.",)]
 
     def test_api_error_raises(self):
         self.mock_fetch_response = lambda *args: {"status": 400, "body": {"error": "invalid request"}}  # type: ignore
