@@ -40,8 +40,12 @@ class RealtimeCohortCalculationCoordinatorWorkflowInputs:
     batch_delay_minutes: int = 5  # Delay between batches in minutes
     cohort_id: Optional[int] = None  # Filter to a specific cohort_id (optional)
     # Teams that should process all cohorts, and global percentage for teams not in team_ids
-    team_ids: Optional[set[int]] = None  # Teams that process all cohorts (if empty/None, all teams use global_percentage)
-    global_percentage: Optional[float] = None  # Percentage of cohorts for non-listed teams, or for all teams if team_ids is empty/None
+    team_ids: Optional[set[int]] = (
+        None  # Teams that process all cohorts (if empty/None, all teams use global_percentage)
+    )
+    global_percentage: Optional[float] = (
+        None  # Percentage of cohorts for non-listed teams, or for all teams if team_ids is empty/None
+    )
 
     def __post_init__(self):
         """Load default configuration from environment if not provided."""
