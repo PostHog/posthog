@@ -1,20 +1,23 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
+import { Fragment, useEffect, useState } from 'react'
 
 import { IconDrag } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonDropdown, LemonInput, SpinnerOverlay } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { hogFunctionTemplateListLogic } from 'scenes/hog-functions/list/hogFunctionTemplateListLogic'
 import { HogFunctionStatusTag } from 'scenes/hog-functions/misc/HogFunctionStatusTag'
 
 import { HogFunctionTemplateType } from '~/types'
 
+// Side-effect imports: register product-specific action nodes
+import 'products/conversations/frontend/workflows/actionNodes'
+
 import { CreateActionType, hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { useHogFlowStep } from '../steps/HogFlowSteps'
 import { getDelayDescription } from '../steps/stepDelayLogic'
 import { HogFlowAction } from '../types'
+import { getRegisteredActionNodeCategories } from './actionNodeRegistry'
 
 export const ACTION_NODES_TO_SHOW: CreateActionType[] = [
     {
@@ -135,27 +138,14 @@ export const POSTHOG_NODES_TO_SHOW: CreateActionType[] = [
     },
 ]
 
-const CONVERSATION_NODES: CreateActionType[] = [
-    {
-        type: 'function',
-        name: 'Get ticket',
-        description: 'Fetch current ticket data into a workflow variable.',
-        config: { template_id: 'template-posthog-get-ticket', inputs: {} },
-        output_variable: { key: 'ticket', result_path: null, spread: true },
-    },
-    {
-        type: 'function',
-        name: 'Update ticket',
-        description: 'Update a conversation ticket status or priority.',
-        config: { template_id: 'template-posthog-update-ticket', inputs: {} },
-    },
-]
-
 const TEMPLATE_IDS_AT_TOP_LEVEL: string[] = [
     ...ACTION_NODES_TO_SHOW.map((action) => (action.config as any).template_id),
     ...DELAY_NODES_TO_SHOW.map((action) => (action.config as any).template_id),
     ...LOGIC_NODES_TO_SHOW.map((action) => (action.config as any).template_id),
     ...POSTHOG_NODES_TO_SHOW.map((action) => (action.config as any).template_id),
+    ...getRegisteredActionNodeCategories().flatMap((cat) =>
+        cat.nodes.map((action) => (action.config as any).template_id)
+    ),
 ].filter((t) => !!t)
 
 function HogFlowEditorToolbarNode({
@@ -285,7 +275,10 @@ function HogFunctionTemplatesChooser(): JSX.Element {
 
 export function HogFlowEditorPanelBuild(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
-    const showConversationNodes = !!featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT]
+
+    const registeredCategories = getRegisteredActionNodeCategories().filter(
+        (cat) => !cat.featureFlag || featureFlags[cat.featureFlag]
+    )
 
     return (
         <div className="flex overflow-y-auto flex-col gap-px p-2" data-attr="workflow-add-action">
@@ -318,16 +311,16 @@ export function HogFlowEditorPanelBuild(): JSX.Element {
                 <HogFlowEditorToolbarNode key={`${action.type}-${index}`} action={action} />
             ))}
 
-            {showConversationNodes && (
-                <>
+            {registeredCategories.map((cat) => (
+                <Fragment key={cat.label}>
                     <span className="flex gap-2 text-sm font-semibold mt-2 items-center">
-                        Support <LemonDivider className="flex-1" />
+                        {cat.label} <LemonDivider className="flex-1" />
                     </span>
-                    {CONVERSATION_NODES.map((action, index) => (
+                    {cat.nodes.map((action, index) => (
                         <HogFlowEditorToolbarNode key={`${action.type}-${index}`} action={action} />
                     ))}
-                </>
-            )}
+                </Fragment>
+            ))}
         </div>
     )
 }
