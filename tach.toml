@@ -378,6 +378,6 @@ layer = "non_isolated"
 # depends_on = ["posthog"]
 # layer = "products"
 # interfaces = [
-#     "products.visual_review.backend.api",
+#     "products.visual_review.backend.facade",
 #     "products.visual_review.backend.presentation.views",
 # ]

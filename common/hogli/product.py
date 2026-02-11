@@ -21,7 +21,7 @@ def load_structure() -> dict:
 def _flatten_structure(files: dict, prefix: str = "", result: dict | None = None) -> dict[str, dict]:
     """
     Flatten nested structure into flat paths.
-    e.g., {"api/": {"api.py": {...}}} -> {"api/api.py": {...}}
+    e.g., {"facade/": {"api.py": {...}}} -> {"facade/api.py": {...}}
     """
     if result is None:
         result = {}
@@ -178,18 +178,18 @@ def lint_product(name: str, verbose: bool = True) -> list[str]:
 
     issues = []
 
-    # First, check if this is an isolated product (has dtos.py)
-    dtos_file = backend_dir / "api" / "dtos.py"
-    dtos_folder = backend_dir / "api" / "dtos"
-    is_isolated = dtos_file.exists() or dtos_folder.exists()
+    # First, check if this is an isolated product (has contracts.py)
+    contracts_file = backend_dir / "facade" / "contracts.py"
+    contracts_folder = backend_dir / "facade" / "contracts"
+    is_isolated = contracts_file.exists() or contracts_folder.exists()
     required_key = "required" if is_isolated else "required_lenient"
 
     if verbose:
         click.echo("  Checking for isolated architecture...")
         if is_isolated:
-            click.echo("    ✓ Has backend/api/dtos.py - running strict checks")
+            click.echo("    ✓ Has backend/facade/contracts.py - running strict checks")
         else:
-            click.echo("    ○ No backend/api/dtos.py - legacy product, showing progress toward isolation")
+            click.echo("    ○ No backend/facade/contracts.py - legacy product, showing progress toward isolation")
 
     # Check for root files (manifest.tsx, package.json, tsconfig.json)
     if verbose:
@@ -275,8 +275,8 @@ def lint_product(name: str, verbose: bool = True) -> list[str]:
 
         # Key isolation files to check
         isolation_files = [
-            ("api/dtos.py", "DTOs defined"),
-            ("api/api.py", "Facade API"),
+            ("facade/contracts.py", "Contract types defined"),
+            ("facade/api.py", "Facade API"),
             ("presentation/views.py", "DRF views in presentation/"),
             ("presentation/serializers.py", "Serializers in presentation/"),
             ("presentation/urls.py", "URLs in presentation/"),

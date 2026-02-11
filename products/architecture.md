@@ -4,36 +4,46 @@
 
 This document defines the future architectural direction for our Django monolith, focusing on:
 
-- Establishing a clear, Django-friendly **folder structure** for modular boundaries
-- Using **dataclass-based DTOs** as internal module contracts
-- Introducing **facades** as the only public API surface for modules
-- Enforcing **isolation** between modules to avoid accidental cross-app leaks
+- Establishing a clear, Django-friendly **folder structure** for product boundaries
+- Using **frozen dataclasses** as stable contract types between products
+- Introducing **facades** as the only public interface for products
+- Enforcing **isolation** between products to avoid accidental cross-product coupling
 - Enabling **selective testing** via Turbo (task caching) and tach (import boundary enforcement)
-- Providing guidance for developers unfamiliar with modern modular-monolith patterns
 
 This is a forward-looking design document, not a migration guide.
 
+### Terminology
+
+Different tools use different names for the same concept:
+
+- **Product** — a self-contained feature area under `products/<name>/`. This is the unit of isolation, ownership, and selective testing.
+- **Django app** — the backend implementation of a product (`products/<name>/backend/`). Registered in `INSTALLED_APPS` via `AppConfig`.
+- **Turbo package** — the build/test unit defined by `package.json`. One product = one Turbo package.
+- **tach module** — the import boundary node in `tach.toml`. Maps 1:1 to a product (core code like `posthog` and `ee` are also tach modules).
+
+This document uses **"product"** when talking about boundaries and architecture, and **"Django app"** only for Django-specific mechanics (models, migrations, `apps.py`).
+
 # 1. Why Modularization?
 
-As the codebase grows, running all tests for every change becomes expensive. Our goal:
+As the codebase grows, running all tests for every change becomes expensive, and startup time of the dev server grows. Our goal:
 
 - **Reduce CI time** via selective testing
-- **Make module boundaries explicit**
-- **Prevent accidental cross-app imports**
+- **Make product boundaries explicit**
+- **Prevent accidental cross-product imports**
 - **Preserve developer velocity as the system grows**
 
 Turbo provides task-level caching so that:
 
 - Only tests affected by a change run
-- Contract files (DTOs, domain types) determine whether downstream products need retesting
+- Contract files (frozen dataclasses, enums) determine whether downstream products need retesting
 
-tach enforces Python import boundaries at the module level, ensuring dependencies are explicitly declared in `tach.toml`.
+tach enforces Python import boundaries, ensuring dependencies are explicitly declared in `tach.toml`.
 
 To benefit from selective testing, we must introduce architectural boundaries inside the Django monolith.
 
-# 2. Turbo + tach (Initial Scope: Single App)
+# 2. Turbo + tach (Initial Scope: Single Product)
 
-We will begin by wiring up **one app** to:
+We will begin by wiring up **one product** to:
 
 - Validate the folder structure
 - Test contract-based selective testing with Turbo
@@ -42,76 +52,75 @@ We will begin by wiring up **one app** to:
 
 Focus:
 
-- One app = one Turbo package with `backend:test` and `backend:contract-check` tasks
-- Facade (`api/api.py`) will define the **public interface**
+- One product = one Turbo package with `backend:test` and `backend:contract-check` tasks
+- Facade (`facade/api.py`) will define the **public interface**
 - Internal files will be private implementation details
-- Presentation layer (DRF) will sit above the API but remain outside the contract surface initially
+- Presentation layer (DRF) will sit above the facade but remain outside the contract surface initially
 
 Eventually this grows into:
 
-- A dependency graph across apps via contract inputs
+- A dependency graph across products via contract inputs
 - True selective test execution
 
 But this document is about foundational structure, not full rollout.
 
-# 3. Folder Structure (Django-Friendly, Modular-Monolith Ready)
+# 3. Folder Structure
 
-Each Django app adopts the following structure:
+Each product adopts the following structure:
 
 ```text
-myapp/
+myproduct/
   backend/
     __init__.py
     apps.py
     models.py          # Django ORM only
-    domain_types.py    # Enums / domain constants
-    logic.py           # Business / domain logic
+    logic.py           # Business logic
 
     tasks/
       __init__.py
       tasks.py         # Celery entrypoints (call facade)
       schedules.py     # Celery beat / periodic config (optional)
 
-    api/
+    facade/
       __init__.py
-      api.py           # Facade (public API for other backend modules)
-      dtos.py          # DTOs used by facade
+      api.py           # Facade (the only thing other products may import)
+      contracts.py     # Frozen dataclasses (+ enums if small enough)
+      enums.py         # Optional: exported enums/shared types when contracts.py grows
 
     presentation/
       __init__.py
-      serializers.py   # DRF serializers (DTO <-> JSON)
-      views.py         # DRF views
+      serializers.py   # DRF serializers (contract types <-> JSON)
+      views.py         # DRF views (HTTP endpoints)
       urls.py          # HTTP routing
 
     tests/
-      test_models.py   # Unit: model tests
-      test_logic.py    # Unit: domain logic tests
-      test_api.py      # Unit: facade tests
-      test_presentation.py  # Integration: DRF tests
-      test_tasks.py    # Integration: Celery tests
+      test_models.py
+      test_logic.py
+      test_api.py            # Facade tests
+      test_presentation.py   # DRF integration tests
+      test_tasks.py
 ```
 
 ### Why this layout?
 
-- Matches Django conventions -> low friction
+- Matches Django conventions — low friction
 - Keeps business logic separate from HTTP concerns
-- Keeps app root clean
-- Provides an explicit, enforced boundary (`api/`)
+- Keeps the product root clean
+- Provides an explicit, enforced boundary (`facade/`)
 - Scales naturally with contract-based selective testing
 
 For the broader monorepo structure (products, services, platform), see [monorepo-layout.md](/docs/internal/monorepo-layout.md).
 
-# 4. DTOs as Dataclasses
+# 4. Contract Types
 
-DTOs are **stable, framework-free Python dataclasses**.
+Contract types are **stable, framework-free frozen dataclasses** that define what a product exposes to the rest of the codebase. They live in `backend/facade/contracts.py`.
 
 ### Characteristics:
 
 - No Django imports
 - Immutable (`frozen=True`)
-- Small, hashable, stable contract surface
-- Serve as internal contracts
-- Used by facades as inputs/outputs
+- Small, hashable, stable
+- Used by facades as inputs and outputs
 
 ### Example
 
@@ -128,88 +137,80 @@ class Artifact:
     created_at: datetime
 ```
 
-DTOs **should not depend on**:
+Contract types **should not depend on**:
 
 - Django models
 - DRF serializers
 - Request objects
 
-If a DTO's input and output shapes are identical -> reuse the same dataclass.
+If input and output shapes are identical, reuse the same dataclass.
 
-# 5. Facades: The Public API Surface
+# 5. Facades: The Public Interface
 
-Each app exposes a single structured API via `backend/api/api.py`.
-
-This is the **only** module other apps are allowed to import.
+Each product exposes a facade via `backend/facade/api.py`. This is the **only** file other products are allowed to import.
 
 ### Responsibilities
 
-- Accept DTOs as input parameters
-- Call domain logic (`logic.py`)
-- Convert Django models -> DTOs
+- Accept contract types as input parameters
+- Call business logic (`logic.py`)
+- Convert Django models → contract types before returning
 - Enforce transactions where needed
 - Remain thin and stable
 
-### Anti-responsibilities
+### Do NOT:
 
-**Do NOT:**
+- Implement business logic (use `logic.py`)
+- Import DRF, HTTP, or serializers
+- Expose Django models or return ORM instances
 
-- Implement business logic
-- Import DRF, HTTP, serializers
-- Expose Django models
-- Return ORM instances or QuerySets
-- Leak internal implementation details
-
-### Example facade method
+### Example
 
 ```python
 class ArtifactAPI:
     @staticmethod
     def create(params: CreateArtifact) -> Artifact:
         instance = logic.create_artifact(params)
-        return Artifact.from_model(instance)
+        return _to_artifact(instance)
 ```
 
 ### Why explicit mappers?
 
-Facades convert ORM models to DTOs via mapper functions. These look repetitive when fields align 1:1:
+Facades convert ORM models to contract types via mapper functions. These look repetitive when fields align 1:1:
 
 ```python
-def _to_artifact(artifact, project_id: UUID) -> dtos.Artifact:
-    return dtos.Artifact(
-        id=artifact.id,
-        content_hash=artifact.content_hash,
+def _to_artifact(instance) -> contracts.Artifact:
+    return contracts.Artifact(
+        id=instance.id,
+        content_hash=instance.content_hash,
         # ... more fields
     )
 ```
 
-The value isn't the copying--it's having **one place** where "internal" becomes "external contract":
+The value isn't the copying — it's having **one place** where "internal" becomes "external contract":
 
-1. **Explicit contract** - DTOs define exactly what callers receive. Internal fields don't accidentally leak.
-2. **Transformation point** - Add computed fields, flatten relations, rename for API consistency.
-3. **Drift absorption** - When models and DTOs diverge, mappers handle it cleanly instead of changes leaking everywhere.
+1. **Explicit contract** — contract types define exactly what callers receive. Internal fields don't accidentally leak.
+2. **Transformation point** — add computed fields, flatten relations, rename for consistency.
+3. **Drift absorption** — when models and contract types diverge, mappers handle it cleanly instead of changes leaking everywhere.
 
-The alternative--returning ORM objects--works until it doesn't, then you're retrofitting isolation under pressure.
+The alternative — returning ORM objects — works until it doesn't, then you're retrofitting isolation under pressure.
 
-# 6. Domain Logic (backend/logic.py)
+# 6. Business Logic (backend/logic.py)
 
-Business logic lives here.
+Business logic lives here: validation, calculations, business rules, ORM queries.
 
 Examples:
 
 - Deduplication rules
-- Domain invariants
+- Business invariants
 - Cross-field validations
-- Idempotency
+- Idempotency checks
 
-### Why?
+### Why separate from the facade?
 
 - Facades must stay thin and stable
-- Presentation should not contain domain rules
-- DTOs remain pure data
-- Logic is internal implementation--changes here don't affect other products' tests
-
-This is the **heart** of the module.
+- Presentation should not contain business rules
+- Contract types remain pure data
+- Logic is internal implementation — changes here don't affect other products' tests
 
 # 7. Presentation Layer (DRF)
 
@@ -218,97 +219,98 @@ Located in `backend/presentation/`.
 Responsibilities:
 
 - Validate incoming JSON (via DRF serializers)
-- Convert incoming JSON -> DTOs
+- Convert incoming JSON → contract types
 - Call facade methods
-- Convert DTOs -> JSON responses
+- Convert contract types → JSON responses
 - No business logic
 
-### Why not mix with domain or facade?
+### Why not mix with the facade?
 
 - Keeps HTTP concerns decoupled
-- Allows reusing domain logic for:
-  - async tasks
-  - CLI
-  - future services
-
-### Serializer generation
-
-Serializers for outgoing responses can be auto-generated from DTOs.
+- Allows reusing business logic for async tasks, CLI, future services
 
 ### Don't API views leak implementation?
 
-No, because:
+No. Views only call facades, and facades only return contract types. The presentation layer remains decoupled from internal details — when the facade hasn't changed, nothing outside the product is affected.
 
-- Views only call facades
-- Facades return DTOs, not models
-
-So it's the responsibility of the API developer to keep logic and implementation separate and only use facades. This way, the presentation layer remains decoupled from internal details. We can still run isolated tests on the domain logic while being sure that when our facade has not changed, anything outside the module is unaffected.
-
-# 8. Isolation, No-Leak Rules & Django Foreign Key Considerations (for Developers)
-
-To keep architecture clean, developers must follow:
+# 8. Isolation Rules
 
 ### Forbidden
 
-- One app importing another app's `models.py`
-- Using a model across boundaries
-- Importing anything from `backend/logic.py` outside the app
-- Importing views/serializers from another app
+- Importing another product's `models.py` directly
+- Importing anything from another product's `logic.py`
+- Importing views or serializers from another product
 - Returning ORM objects from facades
-- Calling internal functions of another module
 
 ### Allowed
 
-- Importing `myapp.backend.api` from another module
-- Returning DTOs from facades
-- Calling domain logic only from inside the same app
-- Letting presentation call facade functions
+- Importing another product's `backend.facade` (the facade)
+- Using contract types returned by facades
+- Calling business logic from within the same product
+- Presentation calling its own product's facade
 
-### Special Note on Django Foreign Keys
+### Concrete examples
 
-Django allows establishing `ForeignKey` relationships between models across apps. This is still allowed, but with important caveats. ForeignKey relations create **implicit reverse dependencies**, even if you never use them.
+**Product A needs data from Product B — use the facade:**
 
-Example:
+```python
+# products/revenue_analytics/backend/logic.py
+from products.data_warehouse.backend.facade import DataWarehouseAPI
+
+# OK: calling the facade, getting back contract types
+tables = DataWarehouseAPI.list_tables(team_id=team_id)
+```
+
+Not this:
+
+```python
+# WRONG: importing models directly from another product
+from products.data_warehouse.backend.models.table import DataWarehouseTable
+tables = DataWarehouseTable.objects.filter(team_id=team_id)
+```
+
+**Product exposing functionality — keep the facade thin:**
+
+```python
+# products/signals/backend/facade/api.py — real example from the codebase
+async def emit_signal(team_id, source_product, source_type, source_id, description, weight):
+    """Other products call this. They never touch signals' models or internals."""
+    ...
+```
+
+**Using contract types from another product:**
+
+```python
+# products/other_product/backend/logic.py
+from products.visual_review.backend.facade.contracts import Artifact
+
+def process_artifact(artifact: Artifact) -> None:
+    # artifact is a frozen dataclass, not an ORM object
+    ...
+```
+
+### What tach enforces
+
+The `interfaces` setting in `tach.toml` controls which paths inside a product other products can import. This is machine-enforced — tach will reject any import that doesn't go through the declared interfaces.
+
+During migration, existing cross-product model imports are tracked in `tach.toml` `depends_on`. The goal is to replace them with facade calls over time.
+
+### Django Foreign Keys
+
+Django allows `ForeignKey` relationships across products. This is still allowed, but ForeignKey relations create **implicit reverse dependencies**, even if you never use them:
 
 ```python
 # visual_review/backend/models.py
 project = models.ForeignKey(Project, ...)
 ```
 
-Even if your app never calls `Project`, Django will auto-generate:
+Django will auto-generate reverse relations (`project.visualreview_set`), migration dependencies, and app loading order dependencies — all of which violate isolation.
 
-- reverse relations (e.g. `project.visualreview_set`)
-- migration dependencies
-- app loading order dependencies
-
-This violates isolation:
-
-- Reverse relations leak internal implementation details
-- Creates hidden dependencies across apps
-- Makes selective testing harder
-- Makes boundaries unclear to developers
-
-### Rule:
-
-**A Django app may have ForeignKeys _to_ external apps (unless those are also strictly isolated), but other apps must not reference models _inside_ this app.**
-
-If you need reverse access, use:
-
-- explicit API calls (`OtherAppAPI.list_for_project(project_id)`) rather than ORM traversal
-- explicit DTO returns instead of model access
-
-This preserves clean boundaries.
-
-This prevents:
-
-- Hidden dependencies
-- Coupling across apps
-- Test explosion
-- Data-layer leaks
+**Rule:** a product may have ForeignKeys _to_ core models, but other products must not reference models _inside_ this product. Use `related_name='+'` to disable reverse relations. If you need reverse access, use explicit facade calls rather than ORM traversal.
 
 # 9. Turbo Tasks & Contract-Based Testing
 
-Each product is a Turborepo package with tasks defined in its `package.json`:
+Each product is a Turborepo package with tasks defined in its `package.json`.
 
 ## Contract files vs. implementation files
 
@@ -316,8 +318,8 @@ Turbo uses file-based inputs to determine cache validity. The key distinction:
 
 **Contract inputs** (used by `backend:contract-check`):
 
-- `backend/api/dtos.py` - DTO definitions
-- `backend/domain_types.py` - Enums, domain constants
+- `backend/facade/contracts.py` — contract type definitions (enums can live here too)
+- `backend/facade/enums.py` — optional, for exported enums/constants/shared types when contracts.py gets large
 
 **Implementation inputs** (used by `backend:test`):
 
@@ -332,23 +334,23 @@ Other products depend on a product's **contract files only**. When contract file
 - No Django imports (`from django.*`)
 - No DRF imports (`from rest_framework.*`)
 - Use stdlib for errors, not `django.core.exceptions`
-- No `DTO.from_model()` methods - put conversion in implementation code
+- No `from_model()` methods — put conversion in implementation code
 
 ## How selective testing works
 
 ```text
 other_product tests
        | depends on
-visual_review contracts  (dtos.py, domain_types.py)
+visual_review contracts  (facade/contracts.py, facade/enums.py)
        | does NOT depend on
 visual_review impl       (logic.py, models.py)
 ```
 
 **Scenario: Change `visual_review/logic.py`**
 
-- `visual_review backend:test` -> reruns (impl files changed)
-- `visual_review backend:contract-check` -> cache hit (contract files unchanged)
-- `other_product backend:test` -> skipped (depends only on contracts, which didn't change)
+- `visual_review backend:test` → reruns (impl files changed)
+- `visual_review backend:contract-check` → cache hit (contract files unchanged)
+- `other_product backend:test` → skipped (depends only on contracts, which didn't change)
 
 ## CI commands
 
@@ -367,17 +369,12 @@ pnpm turbo run backend:contract-check
 
 This document outlines the **future direction** of our codebase:
 
-- Django-idiomatic layout with modular boundaries
-- Dataclass DTOs as stable contracts
+- Django-idiomatic layout with product boundaries
+- Frozen dataclasses as stable contract types
 - Thin facades as the only public interface
-- Domain logic isolated and testable
+- Business logic isolated and testable
 - DRF presentation decoupled from core logic
 - Turbo for task caching and selective test execution
 - tach for Python import boundary enforcement
 
-This architecture:
-
-- Reduces coupling
-- Enables selective testing
-- Prepares us for monorepo-scale tooling
-- Keeps the system maintainable as we grow
+This architecture reduces coupling, enables selective testing, and keeps the system maintainable as we grow.

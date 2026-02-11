@@ -8,7 +8,7 @@ Backend and frontend are sub-parts of that package.
 
 This is the (future) home for all PostHog products ([RFC](https://github.com/PostHog/product-internal/pull/703)).
 
-For the detailed architecture rationale (DTOs, facades, isolated testing), see [architecture.md](./architecture.md).
+For the detailed architecture rationale (contract types, facades, isolated testing), see [architecture.md](./architecture.md).
 
 ## Folder structure
 
@@ -23,13 +23,13 @@ products/
       __init__.py
       apps.py
       models.py
-      domain_types.py       # enums, constants
       logic.py              # business logic
       migrations/
-      api/                  # facade (public API for other modules)
+      facade/               # cross-product Python interface
         __init__.py
-        api.py
-        dtos.py             # dataclass DTOs
+        api.py              # facade methods
+        contracts.py        # frozen dataclass contract types (+ enums)
+        enums.py            # optional: exported enums/shared types
       presentation/         # DRF views/serializers
         __init__.py
         views.py
