@@ -279,6 +279,22 @@ class TestRelativeDateParse(TestCase):
             "2019-01-01",
         )
 
+    @parameterized.expand(
+        [
+            # 2020-01-31 is a Friday
+            # Sunday week start (default): week started on Sunday Jan 26
+            ("sunday_start", 0, "2020-01-26"),
+            # Monday week start: week started on Monday Jan 27
+            ("monday_start", 1, "2020-01-27"),
+        ]
+    )
+    @freeze_time("2020-01-31")
+    def test_week_start(self, _name, week_start_day, expected_date):
+        self.assertEqual(
+            relative_date_parse("wStart", ZoneInfo("UTC"), team_week_start_day=week_start_day).strftime("%Y-%m-%d"),
+            expected_date,
+        )
+
     @freeze_time("2020-01-31")
     def test_normal_date(self):
         self.assertEqual(
@@ -288,8 +304,14 @@ class TestRelativeDateParse(TestCase):
 
 
 class TestDefaultEventName(BaseTest):
-    def test_no_events(self):
+    def test_no_events_returns_pageview_default(self):
+        # When team has no events at all, default to $pageview (most common for new teams)
         self.assertEqual(get_default_event_name(self.team), "$pageview")
+
+    def test_other_events_but_no_pageview_or_screen_returns_none(self):
+        # When team has events but no $pageview or $screen, return None for "all events"
+        EventDefinition.objects.create(name="custom_event", team=self.team)
+        self.assertIsNone(get_default_event_name(self.team))
 
     def test_take_screen(self):
         EventDefinition.objects.create(name="$screen", team=self.team)

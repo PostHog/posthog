@@ -109,7 +109,7 @@ export const getAnthropicSteps = (ctx: OnboardingComponentsContext): StepDefinit
                                 `,
                             },
                             {
-                                language: 'ts',
+                                language: 'typescript',
                                 file: 'Node',
                                 code: dedent`
                                     import { Anthropic } from '@posthog/ai'
@@ -174,7 +174,7 @@ export const getAnthropicSteps = (ctx: OnboardingComponentsContext): StepDefinit
                                 `,
                             },
                             {
-                                language: 'ts',
+                                language: 'typescript',
                                 file: 'Node',
                                 code: dedent`
                                     const response = await client.messages.create({

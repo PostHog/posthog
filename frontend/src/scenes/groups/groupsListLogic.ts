@@ -6,8 +6,7 @@ import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { groupsModel } from '~/models/groupsModel'
-import { NodeKind } from '~/queries/schema/schema-general'
-import { DataTableNode } from '~/queries/schema/schema-general'
+import { DataTableNode, NodeKind, ProductKey } from '~/queries/schema/schema-general'
 import { GroupPropertyFilter, GroupTypeIndex } from '~/types'
 
 import type { groupsListLogicType } from './groupsListLogicType'
@@ -24,13 +23,16 @@ export const GROUPS_LIST_DEFAULT_COLUMNS = ['group_name', 'key', 'created_at']
 export const GROUPS_LIST_DEFAULT_QUERY = (groupTypeIndex: GroupTypeIndex | number): DataTableNode =>
     ({
         kind: NodeKind.DataTableNode,
+
         source: {
             kind: NodeKind.GroupsQuery,
+            tags: { productKey: ProductKey.CUSTOMER_ANALYTICS },
             select: GROUPS_LIST_DEFAULT_COLUMNS,
             orderBy: [],
             properties: [],
             group_type_index: groupTypeIndex,
         },
+
         full: true,
         showEventFilter: false,
         propertiesViaUrl: true,

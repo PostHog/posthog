@@ -12,6 +12,7 @@ import { urls } from 'scenes/urls'
 import type { FileSystemImport } from '~/queries/schema/schema-general'
 import {
     DashboardFilter,
+    DateRange,
     ExperimentMetric,
     FileSystemIconType,
     HogQLFilters,
@@ -33,6 +34,7 @@ import {
     InsightType,
     RecordingUniversalFilters,
     ReplayTabs,
+    UniversalFiltersGroup,
 } from './types'
 
 /** This const is auto-generated, as is the whole file */
@@ -349,6 +351,7 @@ export const productConfiguration: Record<string, any> = {
     LLMAnalyticsDatasets: {
         projectBased: true,
         name: 'LLM analytics datasets',
+        description: 'Manage datasets for testing and evaluation.',
         layout: 'app-container',
         defaultDocsPath: '/docs/llm-analytics/installation',
     },
@@ -361,6 +364,7 @@ export const productConfiguration: Record<string, any> = {
     LLMAnalyticsEvaluations: {
         projectBased: true,
         name: 'Evaluations',
+        description: 'Configure and monitor automated LLM output evaluations.',
         activityScope: 'LLMAnalytics',
         layout: 'app-container',
         defaultDocsPath: '/docs/llm-analytics/evaluations',
@@ -382,6 +386,7 @@ export const productConfiguration: Record<string, any> = {
     LLMAnalyticsPrompts: {
         projectBased: true,
         name: 'Prompts',
+        description: 'Track and manage your LLM prompts.',
         layout: 'app-container',
         defaultDocsPath: '/docs/llm-analytics/prompts',
     },
@@ -394,6 +399,7 @@ export const productConfiguration: Record<string, any> = {
     LLMAnalyticsClusters: {
         projectBased: true,
         name: 'Clusters',
+        description: 'Discover patterns and clusters in your LLM usage.',
         layout: 'app-container',
         defaultDocsPath: '/docs/llm-analytics/clusters',
     },
@@ -548,6 +554,9 @@ export const productUrls = {
         params: {
             timestamp?: string
             fingerprint?: string
+            searchQuery?: string
+            dateRange?: DateRange
+            filterGroup?: UniversalFiltersGroup
         } = {}
     ): string => combineUrl(`/error_tracking/${id}`, params).url,
     errorTrackingIssueFingerprints: (id: string): string => `/error_tracking/${id}/fingerprints`,
@@ -573,9 +582,11 @@ export const productUrls = {
     featureFlagNew: ({
         type,
         sourceId,
+        template,
     }: {
         type?: 'boolean' | 'multivariate' | 'remote_config'
         sourceId?: number | string | null
+        template?: 'simple' | 'targeted' | 'multivariate' | 'targeted-multivariate'
     }): string => {
         const params = new URLSearchParams()
         if (type) {
@@ -583,6 +594,9 @@ export const productUrls = {
         }
         if (sourceId) {
             params.set('sourceId', sourceId.toString())
+        }
+        if (template) {
+            params.set('template', template)
         }
         return `/feature_flags/new?${params.toString()}`
     },
@@ -683,7 +697,8 @@ export const productUrls = {
         urls.insightNew({
             query: { kind: NodeKind.DataTableNode, source: { kind: 'HogQLQuery', query, filters } } as any,
         }),
-    insightEdit: (id: InsightShortId): string => `/insights/${id}/edit`,
+    insightEdit: (id: InsightShortId, dashboardId?: number): string =>
+        `/insights/${id}/edit${dashboardId ? `?dashboard=${dashboardId}` : ''}`,
     insightView: (
         id: InsightShortId,
         dashboardId?: number,

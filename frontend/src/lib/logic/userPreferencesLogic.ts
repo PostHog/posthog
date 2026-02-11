@@ -18,6 +18,7 @@ export const userPreferencesLogic = kea<userPreferencesLogicType>([
         unpinPersonProperty: (prop: string) => ({ prop }),
         pinGroupProperty: (prop: string) => ({ prop }),
         unpinGroupProperty: (prop: string) => ({ prop }),
+        setEditorVimModeEnabled: (enabled: boolean) => ({ enabled }),
     }),
     connect(() => ({
         values: [teamLogic, ['currentTeam']],
@@ -54,6 +55,13 @@ export const userPreferencesLogic = kea<userPreferencesLogicType>([
             {
                 pinGroupProperty: (state, { prop }) => (state.includes(prop) ? state : [...state, prop]),
                 unpinGroupProperty: (state, { prop }) => state.filter((p) => p !== prop),
+            },
+        ],
+        editorVimModeEnabled: [
+            false,
+            { persist: true },
+            {
+                setEditorVimModeEnabled: (_, { enabled }) => enabled,
             },
         ],
     })),

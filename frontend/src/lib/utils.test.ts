@@ -157,6 +157,15 @@ describe('lib/utils', () => {
                 )
             ).toEqual(false)
         })
+
+        it('rejects dangerous protocols (XSS prevention)', () => {
+            expect(isURL('javascript:alert(1)')).toEqual(false)
+            expect(isURL('javascript:alert(document.cookie)')).toEqual(false)
+            expect(isURL('JAVASCRIPT:alert(1)')).toEqual(false)
+            expect(isURL('data:text/html,<script>alert(1)</script>')).toEqual(false)
+            expect(isURL('vbscript:msgbox(1)')).toEqual(false)
+            expect(isURL('file:///etc/passwd')).toEqual(false)
+        })
     })
 
     describe('isExternalLink()', () => {
@@ -262,6 +271,69 @@ describe('lib/utils', () => {
                 expect(dateFilterToText('-1mStart', '-1mEnd', 'default')).toEqual('Last month')
             })
 
+            // The frontend DateFilter emits YYYY-MM-DD (without allowTimePrecision) or
+            // YYYY-MM-DDTHH:mm:ss (with allowTimePrecision, used by recordings).
+            // The AI agent (filter_session_recordings) emits YYYY-MM-DDTHH:mm:ss.SSS.
+            // All cross-combinations must display correctly.
+
+            it('handles ISO datetime without milliseconds (frontend DateFilter format)', () => {
+                // Both dates as YYYY-MM-DDTHH:mm:ss
+                expect(dateFilterToText('2026-02-01T00:00:00', '2026-02-04T23:59:59', 'default')).toEqual(
+                    'February 1, 00:00:00 - February 4, 23:59:59'
+                )
+                // Non-midnight times
+                expect(dateFilterToText('2026-02-01T14:30:00', '2026-02-04T18:45:00', 'default')).toEqual(
+                    'February 1, 14:30 - February 4, 18:45'
+                )
+            })
+
+            it('handles ISO datetime with milliseconds (AI agent format)', () => {
+                // Both dates as YYYY-MM-DDTHH:mm:ss.SSS
+                expect(dateFilterToText('2026-02-01T00:00:00.000', '2026-02-04T23:59:59.999', 'default')).toEqual(
+                    'February 1, 00:00:00 - February 4, 23:59:59'
+                )
+            })
+
+            it('handles mixed datetime formats (frontend × AI agent)', () => {
+                // YYYY-MM-DDTHH:mm:ss from + YYYY-MM-DDTHH:mm:ss.SSS to
+                expect(dateFilterToText('2026-02-01T00:00:00', '2026-02-04T23:59:59.999', 'default')).toEqual(
+                    'February 1, 00:00:00 - February 4, 23:59:59'
+                )
+                // YYYY-MM-DDTHH:mm:ss.SSS from + YYYY-MM-DDTHH:mm:ss to
+                expect(dateFilterToText('2026-02-01T00:00:00.000', '2026-02-04T23:59:59', 'default')).toEqual(
+                    'February 1, 00:00:00 - February 4, 23:59:59'
+                )
+            })
+
+            it('handles plain date + datetime (either direction)', () => {
+                // YYYY-MM-DD from + YYYY-MM-DDTHH:mm:ss to
+                expect(dateFilterToText('2026-02-01', '2026-02-04T23:59:59', 'default')).toEqual(
+                    'February 1, 00:00:00 - February 4, 23:59:59'
+                )
+                // YYYY-MM-DD from + YYYY-MM-DDTHH:mm:ss.SSS to
+                expect(dateFilterToText('2026-02-01', '2026-02-04T23:59:59.999', 'default')).toEqual(
+                    'February 1, 00:00:00 - February 4, 23:59:59'
+                )
+                // YYYY-MM-DDTHH:mm:ss from + YYYY-MM-DD to (both resolve to midnight → times omitted)
+                expect(dateFilterToText('2026-02-01T00:00:00', '2026-02-04', 'default')).toEqual(
+                    'February 1 - February 4'
+                )
+                // YYYY-MM-DDTHH:mm:ss.SSS from + YYYY-MM-DD to (both resolve to midnight → times omitted)
+                expect(dateFilterToText('2026-02-01T00:00:00.000', '2026-02-04', 'default')).toEqual(
+                    'February 1 - February 4'
+                )
+                // Non-midnight datetime from + YYYY-MM-DD to
+                expect(dateFilterToText('2026-02-01T14:30:00', '2026-02-04', 'default')).toEqual(
+                    'February 1, 14:30 - February 4, 00:00'
+                )
+            })
+
+            it('handles same-day datetime range', () => {
+                expect(dateFilterToText('2026-02-01T09:00:00', '2026-02-01T17:00:00', 'default')).toEqual(
+                    'February 1, 09:00 - 17:00'
+                )
+            })
+
             it('can have overridden date options', () => {
                 expect(dateFilterToText('-21d', null, 'default', [{ key: 'Last 3 weeks', values: ['-21d'] }])).toEqual(
                     'Last 3 weeks'
@@ -321,6 +393,40 @@ describe('lib/utils', () => {
                 expect(dateFilterToText(from, to, 'custom', dateMapping, true, 'YYYY-MM-DD hh:mm:ss')).toEqual(
                     '2018-04-04 12:00:00 - 2018-04-09 11:05:00'
                 )
+            })
+        })
+
+        describe('week formatting respects weekStartDay', () => {
+            // 2012-03-02 is a Friday
+            beforeEach(() => {
+                tk.freeze(new Date(1330688329321))
+            })
+            afterEach(() => {
+                tk.reset()
+            })
+
+            it('This week with Sunday start (default)', () => {
+                expect(
+                    dateFilterToText('wStart', undefined, 'default', dateMapping, true, undefined, undefined, 0)
+                ).toEqual('February 26 - March 2, 2012')
+            })
+
+            it('This week with Monday start', () => {
+                expect(
+                    dateFilterToText('wStart', undefined, 'default', dateMapping, true, undefined, undefined, 1)
+                ).toEqual('February 27 - March 2, 2012')
+            })
+
+            it('Last week with Sunday start (default)', () => {
+                expect(
+                    dateFilterToText('-1wStart', '-1wEnd', 'default', dateMapping, true, undefined, undefined, 0)
+                ).toEqual('February 19 - February 25, 2012')
+            })
+
+            it('Last week with Monday start', () => {
+                expect(
+                    dateFilterToText('-1wStart', '-1wEnd', 'default', dateMapping, true, undefined, undefined, 1)
+                ).toEqual('February 20 - February 26, 2012')
             })
         })
     })
@@ -415,6 +521,10 @@ describe('lib/utils', () => {
 
         it('should return days for month to date', () => {
             expect(getDefaultInterval('mStart', null)).toEqual('day')
+        })
+
+        it('should return days for week to date', () => {
+            expect(getDefaultInterval('wStart', null)).toEqual('day')
         })
 
         it('should return month for year to date', () => {

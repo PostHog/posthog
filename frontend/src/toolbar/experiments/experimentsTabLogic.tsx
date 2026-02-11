@@ -13,7 +13,7 @@ import { experimentsLogic } from '~/toolbar/experiments/experimentsLogic'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { WebExperiment, WebExperimentDraftType, WebExperimentForm } from '~/toolbar/types'
-import { elementToQuery } from '~/toolbar/utils'
+import { elementToQuery, joinWithUiHost } from '~/toolbar/utils'
 import { Experiment, ExperimentIdType } from '~/types'
 
 import type { experimentsTabLogicType } from './experimentsTabLogicType'
@@ -215,7 +215,7 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
                     lemonToast.success('Experiment saved', {
                         button: {
                             label: 'Open in PostHog',
-                            action: () => window.open(`${uiHost}${urls.experiment(response.id)}`, '_blank'),
+                            action: () => window.open(joinWithUiHost(uiHost, urls.experiment(response.id)), '_blank'),
                         },
                     })
                     breakpoint()
