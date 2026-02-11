@@ -326,7 +326,7 @@ describe('VariantsPanelCreateFeatureFlag', () => {
         it('renders rollout percentage section with default value of 100', () => {
             renderComponent(defaultExperiment)
 
-            expect(screen.getByText('Rollout percentage')).toBeInTheDocument()
+            expect(screen.getByText('Rollout percent')).toBeInTheDocument()
             const slider = screen.getByRole('slider')
             expect(slider).toHaveAttribute('aria-valuenow', '100')
         })
