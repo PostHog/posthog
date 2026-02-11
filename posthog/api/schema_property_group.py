@@ -157,7 +157,7 @@ class SchemaPropertyGroupViewSet(
     mixins.DestroyModelMixin,
     viewsets.GenericViewSet,
 ):
-    scope_object = "INTERNAL"
+    scope_object = "event_definition"
     serializer_class = SchemaPropertyGroupSerializer
     queryset = SchemaPropertyGroup.objects.all()
     lookup_field = "id"
