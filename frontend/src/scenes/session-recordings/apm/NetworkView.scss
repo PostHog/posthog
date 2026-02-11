@@ -2,4 +2,24 @@
     .NetworkView__table table {
         table-layout: fixed;
     }
+
+    .NetworkView__column-resize {
+        width: 9px;
+        margin-left: -4px;
+
+        &::after {
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            left: 4px;
+            width: 1px;
+            content: '';
+            background: transparent;
+            transition: background 150ms ease;
+        }
+
+        &:hover::after {
+            background: var(--border-bold);
+        }
+    }
 }
