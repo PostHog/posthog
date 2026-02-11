@@ -4,6 +4,7 @@ from typing import Any, Generic
 import pyarrow as pa
 from structlog.types import FilteringBoundLogger
 
+from posthog.models import DataWarehouseTable
 from posthog.temporal.common.shutdown import ShutdownMonitor
 from posthog.temporal.data_imports.pipelines.common.extract import (
     cdp_producer_clear_chunks,
@@ -20,6 +21,7 @@ from posthog.temporal.data_imports.pipelines.common.extract import (
 )
 from posthog.temporal.data_imports.pipelines.pipeline.batcher import Batcher
 from posthog.temporal.data_imports.pipelines.pipeline.cdp_producer import CDPProducer
+from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import DeltaTableHelper
 from posthog.temporal.data_imports.pipelines.pipeline.hogql_schema import HogQLSchema
 from posthog.temporal.data_imports.pipelines.pipeline.typings import PipelineResult, ResumableData, SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline.utils import (
@@ -34,6 +36,7 @@ from posthog.temporal.data_imports.sources.common.resumable import ResumableSour
 
 from products.data_warehouse.backend.models import ExternalDataJob, ExternalDataSchema
 from products.data_warehouse.backend.models.external_data_schema import process_incremental_value
+from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
 
 KAFKA_FLUSH_BATCH_SIZE = 100
 
@@ -42,41 +45,50 @@ class PipelineV3(Generic[ResumableData]):
     _resource: SourceResponse
     _resource_name: str
     _job: ExternalDataJob
+    _source: ExternalDataSource
     _schema: ExternalDataSchema
+    _table: DataWarehouseTable | None
     _logger: FilteringBoundLogger
     _is_incremental: bool
     _reset_pipeline: bool
-    _s3_batch_writer: S3BatchWriter
-    _kafka_producer: KafkaBatchProducer
+    _delta_table_helper: DeltaTableHelper
     _resumable_source_manager: ResumableSourceManager[ResumableData] | None
     _internal_schema: HogQLSchema
     _cdp_producer: CDPProducer
-    _accumulated_pa_schema: pa.Schema | None
     _batcher: Batcher
     _load_id: int
+    _s3_batch_writer: S3BatchWriter
+    _kafka_producer: KafkaBatchProducer
+    _accumulated_pa_schema: pa.Schema | None
     _batch_results: list[BatchWriteResult]
 
     def __init__(
         self,
-        source: SourceResponse,
+        source_response: SourceResponse,
         logger: FilteringBoundLogger,
         job_id: str,
         reset_pipeline: bool,
         shutdown_monitor: ShutdownMonitor,
+        job: ExternalDataJob,
+        schema: ExternalDataSchema,
+        source: ExternalDataSource,
+        table: DataWarehouseTable | None,
         resumable_source_manager: ResumableSourceManager[ResumableData] | None,
     ) -> None:
-        self._resource = source
-        self._resource_name = source.name
+        self._resource = source_response
+        self._resource_name = source_response.name
 
-        self._job = ExternalDataJob.objects.prefetch_related("schema").get(id=job_id)
+        self._job = job
         self._reset_pipeline = reset_pipeline
         self._logger = logger
         self._load_id = time.time_ns()
 
-        schema: ExternalDataSchema | None = self._job.schema
-        assert schema is not None
         self._schema = schema
+        self._source = source
+        self._table = table
         self._is_incremental = schema.is_incremental
+
+        self._delta_table_helper = DeltaTableHelper(self._resource_name, self._job, self._logger)
 
         self._s3_batch_writer = S3BatchWriter(self._logger, self._job, str(self._schema.id), self._job.workflow_run_id)
 
@@ -95,6 +107,8 @@ class PipelineV3(Generic[ResumableData]):
         # Determine if this is the first-ever sync (no DWH table exists yet)
         is_first_ever_sync = self._schema.table is None
 
+        is_resume = resumable_source_manager is not None and resumable_source_manager.can_resume()
+
         self._kafka_producer = KafkaBatchProducer(
             team_id=self._job.team_id,
             job_id=str(self._job.id),
@@ -105,6 +119,7 @@ class PipelineV3(Generic[ResumableData]):
             run_uuid=self._s3_batch_writer.get_run_uuid(),
             logger=self._logger,
             primary_keys=self._resource.primary_keys,
+            is_resume=is_resume,
             partition_count=partition_count,
             partition_size=partition_size,
             partition_keys=partition_keys,
@@ -127,29 +142,31 @@ class PipelineV3(Generic[ResumableData]):
         )
         self._batch_results = []
 
-    def run(self) -> PipelineResult:
+    async def run(self) -> PipelineResult:
         pa_memory_pool = pa.default_memory_pool()
 
         should_resume = self._resumable_source_manager is not None and self._resumable_source_manager.can_resume()
         source_is_resumable = self._resumable_source_manager is not None
 
         if should_resume:
-            self._logger.info("V3 Pipeline: Resumable source detected - attempting to resume previous import")
+            await self._logger.ainfo("V3 Pipeline: Resumable source detected - attempting to resume previous import")
 
         try:
-            reset_rows_synced_if_needed(self._job, self._is_incremental, self._reset_pipeline, should_resume)
+            await cdp_producer_clear_chunks(self._cdp_producer)
 
-            cdp_producer_clear_chunks(self._cdp_producer)
+            await reset_rows_synced_if_needed(self._job, self._is_incremental, self._reset_pipeline, should_resume)
 
             validate_incremental_sync(self._is_incremental, self._resource)
 
-            setup_row_tracking_with_billing_check(self._job.team_id, self._schema, self._resource, self._logger)
+            await setup_row_tracking_with_billing_check(
+                self._job.team_id, self._schema, self._resource, self._logger, billable=bool(self._job.billable)
+            )
 
             py_table = None
             row_count = 0
             chunk_index = 0
 
-            handle_reset_or_full_refresh(
+            await handle_reset_or_full_refresh(
                 self._reset_pipeline,
                 should_resume,
                 self._schema,
@@ -168,7 +185,7 @@ class PipelineV3(Generic[ResumableData]):
                 py_table = self._batcher.get_table()
                 row_count += py_table.num_rows
 
-                self._process_batch(
+                await self._process_batch(
                     pa_table=py_table,
                     batch_index=chunk_index,
                     row_count=row_count,
@@ -188,13 +205,13 @@ class PipelineV3(Generic[ResumableData]):
             if self._batcher.should_yield(include_incomplete_chunk=True):
                 py_table = self._batcher.get_table()
                 row_count += py_table.num_rows
-                self._process_batch(
+                await self._process_batch(
                     pa_table=py_table,
                     batch_index=chunk_index,
                     row_count=row_count,
                 )
 
-            self._finalize(row_count=row_count)
+            await self._finalize(row_count=row_count)
 
             return {"should_trigger_cdp_producer": self._cdp_producer.should_produce_table}
         finally:
@@ -205,7 +222,7 @@ class PipelineV3(Generic[ResumableData]):
 
             cleanup_memory(pa_memory_pool, py_table if "py_table" in locals() else None)
 
-    def _process_batch(self, pa_table: pa.Table, batch_index: int, row_count: int) -> None:
+    async def _process_batch(self, pa_table: pa.Table, batch_index: int, row_count: int) -> None:
         pa_table = _append_debug_column_to_pyarrows_table(pa_table, self._load_id)
         pa_table = normalize_table_column_names(pa_table)
 
@@ -219,14 +236,16 @@ class PipelineV3(Generic[ResumableData]):
                     null_column = pa.array([None] * pa_table.num_rows, type=field.type)
                     pa_table = pa_table.append_column(field, null_column)
 
-        batch_result = self._s3_batch_writer.write_batch(pa_table, batch_index)
+        batch_result = await self._s3_batch_writer.write_batch(pa_table, batch_index)
         self._batch_results.append(batch_result)
 
-        self._kafka_producer.send_batch_notification(batch_result, is_final_batch=False, cumulative_row_count=row_count)
+        await self._kafka_producer.send_batch_notification(
+            batch_result, is_final_batch=False, cumulative_row_count=row_count
+        )
 
         self._internal_schema.add_pyarrow_table(pa_table)
 
-        write_chunk_for_cdp_producer(self._cdp_producer, batch_index, pa_table)
+        await write_chunk_for_cdp_producer(self._cdp_producer, batch_index, pa_table)
 
         # Update accumulated schema with any new columns from this batch
         if self._accumulated_pa_schema is None:
@@ -236,7 +255,10 @@ class PipelineV3(Generic[ResumableData]):
                 if field.name not in self._accumulated_pa_schema.names:
                     self._accumulated_pa_schema = self._accumulated_pa_schema.append(field)
 
-        self._last_incremental_field_value, self._earliest_incremental_field_value = update_incremental_field_values(
+        (
+            self._last_incremental_field_value,
+            self._earliest_incremental_field_value,
+        ) = await update_incremental_field_values(
             self._schema,
             pa_table,
             self._resource,
@@ -246,11 +268,11 @@ class PipelineV3(Generic[ResumableData]):
             log_prefix="V3 Pipeline: ",
         )
 
-        update_row_tracking_after_batch(
+        await update_row_tracking_after_batch(
             str(self._job.id), self._job.team_id, self._schema.id, pa_table.num_rows, self._logger
         )
 
-    def _finalize(self, row_count: int) -> None:
+    async def _finalize(self, row_count: int) -> None:
         total_batches = len(self._batch_results)
 
         if total_batches == 0:
@@ -263,10 +285,10 @@ class PipelineV3(Generic[ResumableData]):
             total_rows=row_count,
         )
 
-        schema_path = self._s3_batch_writer.write_schema()
+        schema_path = await self._s3_batch_writer.write_schema()
 
         final_batch = self._batch_results[-1]
-        self._kafka_producer.send_batch_notification(
+        await self._kafka_producer.send_batch_notification(
             final_batch,
             is_final_batch=True,
             total_batches=total_batches,
@@ -276,13 +298,13 @@ class PipelineV3(Generic[ResumableData]):
             cumulative_row_count=row_count,
         )
 
-        self._kafka_producer.flush()
+        await self._kafka_producer.flush()
 
-        finalize_desc_sort_incremental_value(
+        await finalize_desc_sort_incremental_value(
             self._resource, self._schema, self._last_incremental_field_value, self._logger, log_prefix="V3 Pipeline: "
         )
 
-        self._logger.info(
+        await self._logger.ainfo(
             f"V3 Pipeline: Extraction complete",
             total_batches=total_batches,
             total_rows=row_count,

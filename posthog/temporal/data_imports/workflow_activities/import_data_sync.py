@@ -177,14 +177,14 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
             raise ValueError(f"Source type {model.pipeline.source_type} not supported")
 
 
-def _is_pipeline_v3_enabled(team_id: int, logger: FilteringBoundLogger) -> bool:
+async def _is_pipeline_v3_enabled(team_id: int, logger: FilteringBoundLogger) -> bool:
     try:
-        team = Team.objects.only("uuid", "organization_id").get(id=team_id)
+        team = await database_sync_to_async_pool(Team.objects.only("uuid", "organization_id").get)(id=team_id)
     except Team.DoesNotExist:
         return False
 
     try:
-        enabled = posthoganalytics.feature_enabled(
+        enabled = await database_sync_to_async_pool(posthoganalytics.feature_enabled)(
             WAREHOUSE_PIPELINES_V3_FLAG,
             str(team.uuid),
             groups={
@@ -232,34 +232,40 @@ async def _run(
 ) -> PipelineResult:
     try:
         job, schema, source, table = await _get_models(job_inputs.run_id)
-        pipeline = PipelineNonDLT(
-            source_response,
-            logger,
-            job_inputs.run_id,
-            reset_pipeline,
-            shutdown_monitor,
-            job,
-            schema,
-            source,
-            table,
-            resumable_source_manager,
-        )
-        result = await pipeline.run()
-        use_v3 = _is_pipeline_v3_enabled(job_inputs.team_id, logger)
+
+        use_v3 = await _is_pipeline_v3_enabled(job_inputs.team_id, logger)
 
         if use_v3:
             from posthog.temporal.data_imports.pipelines.pipeline_v3 import PipelineV3
 
             logger.info("Running V3 pipeline (feature flag enabled)")
             pipeline: PipelineV3 | PipelineNonDLT = PipelineV3(
-                source, logger, job_inputs.run_id, reset_pipeline, shutdown_monitor, resumable_source_manager
+                source_response,
+                logger,
+                job_inputs.run_id,
+                reset_pipeline,
+                shutdown_monitor,
+                job,
+                schema,
+                source,
+                table,
+                resumable_source_manager,
             )
         else:
             pipeline = PipelineNonDLT(
-                source, logger, job_inputs.run_id, reset_pipeline, shutdown_monitor, resumable_source_manager
+                source_response,
+                logger,
+                job_inputs.run_id,
+                reset_pipeline,
+                shutdown_monitor,
+                job,
+                schema,
+                source,
+                table,
+                resumable_source_manager,
             )
 
-        result = pipeline.run()
+        result = await pipeline.run()
         logger.debug("Finished running pipeline")
         del pipeline
         await logger.adebug("Finished running pipeline")

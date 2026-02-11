@@ -142,12 +142,49 @@ def _handle_partial_data_loading(
     logger.debug("partial_data_loading_complete", queryable_folder=queryable_folder)
 
 
+def _run_post_load_for_already_processed_batch(export_signal: ExportSignalMessage) -> None:
+    """Run post-load operations for a final batch whose data was already written to Delta Lake."""
+    job = ExternalDataJob.objects.prefetch_related("schema", "schema__source").get(id=export_signal.job_id)
+    schema = job.schema
+    assert schema is not None
+
+    delta_table_helper = DeltaTableHelper(
+        resource_name=export_signal.resource_name,
+        job=job,
+        logger=logger,
+    )
+
+    delta_table = delta_table_helper.get_delta_table()
+    if delta_table is None:
+        logger.warning("no_delta_table_for_post_load", job_id=export_signal.job_id)
+        return
+
+    pa_table = read_parquet(export_signal.s3_path)
+    internal_schema = HogQLSchema()
+    internal_schema.add_pyarrow_table(pa_table)
+
+    run_post_load_operations(
+        job=job,
+        schema=schema,
+        delta_table_helper=delta_table_helper,
+        row_count=export_signal.total_rows or 0,
+        file_uris=delta_table.file_uris(),
+        table_schema_dict=internal_schema.to_hogql_types(),
+        resource_name=export_signal.resource_name,
+        logger=logger,
+    )
+
+    logger.debug("post_load_operations_complete_for_already_processed_batch")
+
+
 def process_message(message: Any) -> None:
     export_signal = ExportSignalMessage.from_dict(message.value)
 
-    if is_batch_already_processed(
+    already_processed = is_batch_already_processed(
         export_signal.team_id, export_signal.schema_id, export_signal.run_uuid, export_signal.batch_index
-    ):
+    )
+
+    if already_processed and not export_signal.is_final_batch:
         logger.info(
             "batch_already_processed",
             team_id=export_signal.team_id,
@@ -155,6 +192,17 @@ def process_message(message: Any) -> None:
             run_uuid=export_signal.run_uuid,
             batch_index=export_signal.batch_index,
         )
+        return
+
+    if already_processed and export_signal.is_final_batch:
+        logger.info(
+            "batch_already_processed_running_post_load",
+            team_id=export_signal.team_id,
+            schema_id=export_signal.schema_id,
+            run_uuid=export_signal.run_uuid,
+            batch_index=export_signal.batch_index,
+        )
+        _run_post_load_for_already_processed_batch(export_signal)
         return
 
     logger.debug(

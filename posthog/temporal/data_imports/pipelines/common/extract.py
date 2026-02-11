@@ -234,12 +234,12 @@ async def handle_reset_or_full_refresh(
     from products.data_warehouse.backend.models import ExternalDataSchema as ExternalDataSchemaModel
 
     if reset_pipeline and not should_resume:
-        await logger.debug(f"{log_prefix}Cleaning up previous data due to reset_pipeline")
+        await logger.adebug(f"{log_prefix}Cleaning up previous data due to reset_pipeline")
         await reset_callback()
         await database_sync_to_async_pool(schema.update_sync_type_config_for_reset_pipeline)()
     elif schema.sync_type == ExternalDataSchemaModel.SyncType.FULL_REFRESH and not should_resume:
         # Avoid schema mismatches from existing data about to be overwritten
-        await logger.debug(f"{log_prefix}Cleaning up previous data due to full refresh sync")
+        await logger.adebug(f"{log_prefix}Cleaning up previous data due to full refresh sync")
         await reset_callback()
         await database_sync_to_async_pool(schema.update_sync_type_config_for_reset_pipeline)()
 
@@ -274,7 +274,9 @@ async def update_incremental_field_values(
             last_incremental_field_value = last_value
 
         if resource.sort_mode == "asc":
-            await logger.debug(f"{log_prefix}Updating incremental_field_last_value with {last_incremental_field_value}")
+            await logger.adebug(
+                f"{log_prefix}Updating incremental_field_last_value with {last_incremental_field_value}"
+            )
             await database_sync_to_async_pool(schema.update_incremental_field_value)(last_incremental_field_value)
 
         if resource.sort_mode == "desc":
@@ -282,7 +284,7 @@ async def update_incremental_field_values(
 
             if earliest_incremental_field_value is None or earliest_value < earliest_incremental_field_value:
                 earliest_incremental_field_value = earliest_value
-                await logger.debug(f"{log_prefix}Updating incremental_field_earliest_value with {earliest_value}")
+                await logger.adebug(f"{log_prefix}Updating incremental_field_earliest_value with {earliest_value}")
                 await database_sync_to_async_pool(schema.update_incremental_field_value)(
                     earliest_value, type="earliest"
                 )
@@ -328,7 +330,7 @@ async def finalize_desc_sort_incremental_value(
     # As mentioned above, for sort mode 'desc' we only want to update the `incremental_field_last_value` once we
     # have processed all of the data (we could also update it here for 'asc' but it's not needed)
     if resource.sort_mode == "desc" and last_incremental_field_value is not None:
-        await logger.debug(
+        await logger.adebug(
             f"{log_prefix}Sort mode is 'desc' -> updating incremental_field_last_value "
             f"with {last_incremental_field_value}"
         )
