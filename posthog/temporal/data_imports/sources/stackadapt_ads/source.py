@@ -12,6 +12,7 @@ from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleS
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import StackAdaptAdsSourceConfig
+from posthog.temporal.data_imports.sources.stackadapt_ads.settings import ENDPOINT_CONFIGS
 from posthog.temporal.data_imports.sources.stackadapt_ads.stackadapt_ads import (
     stackadapt_ads_source,
     validate_credentials as validate_stackadapt_credentials,
@@ -62,7 +63,15 @@ class StackAdaptAdsSource(SimpleSource[StackAdaptAdsSourceConfig]):
     def get_schemas(
         self, config: StackAdaptAdsSourceConfig, team_id: int, with_counts: bool = False
     ) -> list[SourceSchema]:
-        raise NotImplementedError("StackAdapt schemas not yet implemented")
+        return [
+            SourceSchema(
+                name=endpoint_name,
+                supports_incremental=endpoint_config.fields is not None and len(endpoint_config.fields) > 0,
+                supports_append=False,
+                incremental_fields=endpoint_config.fields or [],
+            )
+            for endpoint_name, endpoint_config in ENDPOINT_CONFIGS.items()
+        ]
 
     def source_for_pipeline(self, config: StackAdaptAdsSourceConfig, inputs: SourceInputs) -> SourceResponse:
         return stackadapt_ads_source(
