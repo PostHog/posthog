@@ -492,7 +492,7 @@
 # ---
 # name: TestClickhouseStickiness.test_stickiness_with_person_on_events_v2
   '''
-
+  
   SELECT DISTINCT person_id
   FROM events
   WHERE team_id = 99999
@@ -551,7 +551,7 @@
 # ---
 # name: TestClickhouseStickiness.test_timezones
   '''
-
+  
   SELECT countDistinct(aggregation_target),
          num_intervals
   FROM
@@ -584,7 +584,7 @@
 # ---
 # name: TestClickhouseStickiness.test_timezones.1
   '''
-
+  
   SELECT countDistinct(aggregation_target),
          num_intervals
   FROM
