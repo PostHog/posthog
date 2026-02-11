@@ -3461,10 +3461,6 @@
                 "prompt_token": 6e-7,
                 "completion_token": 0.0000025
             },
-            "parasail-fp8": {
-                "prompt_token": 5.9e-7,
-                "completion_token": 0.00000299
-            },
             "siliconflow-fp8": {
                 "prompt_token": 4e-7,
                 "completion_token": 0.000002
@@ -6402,6 +6398,21 @@
             "nextbit-bf16": {
                 "prompt_token": 6.5e-7,
                 "completion_token": 7.5e-7
+            }
+        }
+    },
+    {
+        "model": "stepfun/step-3.5-flash",
+        "cost": {
+            "default": {
+                "prompt_token": 1e-7,
+                "completion_token": 3e-7,
+                "cache_read_token": 2e-8
+            },
+            "stepfun-fp8": {
+                "prompt_token": 1e-7,
+                "completion_token": 3e-7,
+                "cache_read_token": 2e-8
             }
         }
     },
