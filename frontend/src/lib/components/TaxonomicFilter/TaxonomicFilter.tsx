@@ -47,6 +47,7 @@ export function TaxonomicFilter({
     maxContextOptions,
     useVerticalLayout,
     allowNonCapturedEvents = false,
+    definitionPopoverRenderer,
 }: TaxonomicFilterProps): JSX.Element {
     // Generate a unique key for each unique TaxonomicFilter that's rendered
     const taxonomicFilterLogicKey = useMemo(
@@ -128,6 +129,7 @@ export function TaxonomicFilter({
                         taxonomicFilterLogicProps={taxonomicFilterLogicProps}
                         popupAnchorElement={taxonomicFilterRef.current}
                         useVerticalLayout={useVerticalLayout}
+                        definitionPopoverRenderer={definitionPopoverRenderer}
                     />
                 )}
             </div>

@@ -16,6 +16,7 @@ import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import {
     DataWarehousePopoverField,
+    DefinitionPopoverRenderer,
     ListStorage,
     TaxonomicDefinitionTypes,
     TaxonomicFilterGroup,
@@ -36,6 +37,7 @@ import { NO_ITEM_SELECTED, infiniteListLogic } from './infiniteListLogic'
 
 export interface InfiniteListProps {
     popupAnchorElement: HTMLDivElement | null
+    definitionPopoverRenderer?: DefinitionPopoverRenderer
 }
 
 const staleIndicator = (parsedLastSeen: dayjs.Dayjs | null): JSX.Element => {
@@ -407,7 +409,7 @@ const InfiniteListRow = ({
     )
 }
 
-export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Element {
+export function InfiniteList({ popupAnchorElement, definitionPopoverRenderer }: InfiniteListProps): JSX.Element {
     const {
         mouseInteractionsEnabled,
         activeTab,
@@ -560,6 +562,7 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
                         item={selectedItem}
                         group={selectedItemGroup}
                         highlightedItemElement={highlightedItemElement}
+                        definitionPopoverRenderer={definitionPopoverRenderer}
                     />
                 </BindLogic>
             ) : null}

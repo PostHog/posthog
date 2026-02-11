@@ -6,7 +6,11 @@ import { LemonButton, LemonMenu, LemonTag } from '@posthog/lemon-ui'
 import { InfiniteList } from 'lib/components/TaxonomicFilter/InfiniteList'
 import { infiniteListLogic } from 'lib/components/TaxonomicFilter/infiniteListLogic'
 import { taxonomicFilterPreferencesLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterPreferencesLogic'
-import { TaxonomicFilterGroupType, TaxonomicFilterLogicProps } from 'lib/components/TaxonomicFilter/types'
+import {
+    DefinitionPopoverRenderer,
+    TaxonomicFilterGroupType,
+    TaxonomicFilterLogicProps,
+} from 'lib/components/TaxonomicFilter/types'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { IconBlank } from 'lib/lemon-ui/icons'
 import { cn } from 'lib/utils/css-classes'
@@ -22,6 +26,7 @@ export interface InfiniteSelectResultsProps {
     taxonomicFilterLogicProps: TaxonomicFilterLogicProps
     popupAnchorElement: HTMLDivElement | null
     useVerticalLayout?: boolean
+    definitionPopoverRenderer?: DefinitionPopoverRenderer
 }
 
 // CategoryPillContent uses useValues(infiniteListLogic) without props, relying on BindLogic context
@@ -173,6 +178,7 @@ export function InfiniteSelectResults({
     taxonomicFilterLogicProps,
     popupAnchorElement,
     useVerticalLayout: useVerticalLayoutProp,
+    definitionPopoverRenderer,
 }: InfiniteSelectResultsProps): JSX.Element {
     const { activeTab, taxonomicGroups, taxonomicGroupTypes, activeTaxonomicGroup, value } =
         useValues(taxonomicFilterLogic)
@@ -203,7 +209,10 @@ export function InfiniteSelectResults({
                     <TaxonomicGroupTitle openTab={openTab} />
                 </div>
             )}
-            <InfiniteList popupAnchorElement={popupAnchorElement} />
+            <InfiniteList
+                popupAnchorElement={popupAnchorElement}
+                definitionPopoverRenderer={definitionPopoverRenderer}
+            />
         </>
     )
 

@@ -66,6 +66,8 @@ export interface TaxonomicFilterProps {
     initialSearchQuery?: string
     /** Allow users to select events that haven't been captured yet (default: false) */
     allowNonCapturedEvents?: boolean
+    /** Optionally customize definition popover contents for selected items. */
+    definitionPopoverRenderer?: DefinitionPopoverRenderer
 }
 
 export interface DataWarehousePopoverField {
@@ -91,6 +93,12 @@ export type TaxonomicFilterRenderProps = {
     infiniteListLogicProps: InfiniteListLogicProps
 }
 export type TaxonomicFilterRender = (props: TaxonomicFilterRenderProps) => JSX.Element | null
+export type DefinitionPopoverRendererProps = {
+    item: TaxonomicDefinitionTypes
+    group: TaxonomicFilterGroup
+    defaultView: JSX.Element
+}
+export type DefinitionPopoverRenderer = (props: DefinitionPopoverRendererProps) => JSX.Element | null
 
 export interface TaxonomicFilterGroup {
     name: string

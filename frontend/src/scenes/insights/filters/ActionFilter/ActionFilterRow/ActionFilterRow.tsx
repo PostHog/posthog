@@ -37,6 +37,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { IconWithCount, SortableDragIcon } from 'lib/lemon-ui/icons'
 import { capitalizeFirstLetter, getEventNamesForAction } from 'lib/utils'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
+import { DataWarehouseFunnelStepDefinitionPopover } from 'scenes/data-warehouse/DataWarehouseFunnelStepDefinitionPopover'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { GroupIntroductionFooter } from 'scenes/groups/GroupsIntroduction'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
@@ -380,6 +381,7 @@ export function ActionFilterRow({
             dataWarehousePopoverFields={
                 typeKey === 'plugin-filters' ? ([] as DataWarehousePopoverField[]) : dataWarehousePopoverFields
             }
+            definitionPopoverRenderer={isFunnelContext ? DataWarehouseFunnelStepDefinitionPopover : undefined}
             excludedProperties={excludedProperties}
             allowNonCapturedEvents={allowNonCapturedEvents}
         />
