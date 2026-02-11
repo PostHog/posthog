@@ -147,8 +147,11 @@ class OrganizationSerializer(
     def validate_logo_media_id(self, value: UploadedMedia | None) -> UploadedMedia | None:
         if value is None:
             return value
-        if self.instance and value.team.organization_id != self.instance.id:
-            raise serializers.ValidationError("This media does not belong to this organization.")
+        if self.instance:
+            if value.team.organization_id != self.instance.id:
+                raise serializers.ValidationError("This media does not belong to this organization.")
+        else:
+            raise serializers.ValidationError("Cannot set logo media when creating an organization.")
         return value
 
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Organization:
