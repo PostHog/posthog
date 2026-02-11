@@ -1,4 +1,4 @@
-"""Domain types, enums, and constants for visual_review."""
+"""Exported enums and constants for visual_review."""
 
 from enum import StrEnum
 

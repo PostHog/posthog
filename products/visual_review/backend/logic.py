@@ -10,7 +10,7 @@ from uuid import UUID
 from django.db import transaction
 from django.utils import timezone
 
-from .domain_types import ReviewState, RunStatus, SnapshotResult
+from .facade.enums import ReviewState, RunStatus, SnapshotResult
 from .models import Artifact, Repo, Run, RunSnapshot
 from .storage import ArtifactStorage
 

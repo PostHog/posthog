@@ -18,7 +18,7 @@ Do NOT:
 from uuid import UUID
 
 from .. import logic
-from . import dtos
+from . import contracts
 
 # Re-export exceptions for callers
 RepoNotFoundError = logic.RepoNotFoundError
@@ -37,9 +37,9 @@ BaselineFilePathNotConfiguredError = logic.BaselineFilePathNotConfiguredError
 # the mapper absorbs the change instead of it leaking everywhere.
 
 
-def _to_artifact(artifact, repo_id: UUID) -> dtos.Artifact:
+def _to_artifact(artifact, repo_id: UUID) -> contracts.Artifact:
     download_url = logic.get_presigned_download_url(repo_id, artifact.content_hash)
-    return dtos.Artifact(
+    return contracts.Artifact(
         id=artifact.id,
         content_hash=artifact.content_hash,
         width=artifact.width,
@@ -48,8 +48,8 @@ def _to_artifact(artifact, repo_id: UUID) -> dtos.Artifact:
     )
 
 
-def _to_snapshot(snapshot, repo_id: UUID) -> dtos.Snapshot:
-    return dtos.Snapshot(
+def _to_snapshot(snapshot, repo_id: UUID) -> contracts.Snapshot:
+    return contracts.Snapshot(
         id=snapshot.id,
         identifier=snapshot.identifier,
         result=snapshot.result,
@@ -65,8 +65,8 @@ def _to_snapshot(snapshot, repo_id: UUID) -> dtos.Snapshot:
     )
 
 
-def _to_run(run) -> dtos.Run:
-    return dtos.Run(
+def _to_run(run) -> contracts.Run:
+    return contracts.Run(
         id=run.id,
         repo_id=run.repo_id,
         status=run.status,
@@ -76,7 +76,7 @@ def _to_run(run) -> dtos.Run:
         pr_number=run.pr_number,
         approved=run.approved,
         approved_at=run.approved_at,
-        summary=dtos.RunSummary(
+        summary=contracts.RunSummary(
             total=run.total_snapshots,
             changed=run.changed_count,
             new=run.new_count,
@@ -90,8 +90,8 @@ def _to_run(run) -> dtos.Run:
     )
 
 
-def _to_repo(repo) -> dtos.Repo:
-    return dtos.Repo(
+def _to_repo(repo) -> contracts.Repo:
+    return contracts.Repo(
         id=repo.id,
         team_id=repo.team_id,
         name=repo.name,
@@ -104,22 +104,22 @@ def _to_repo(repo) -> dtos.Repo:
 # --- Repo API ---
 
 
-def get_repo(repo_id: UUID) -> dtos.Repo:
+def get_repo(repo_id: UUID) -> contracts.Repo:
     repo = logic.get_repo(repo_id)
     return _to_repo(repo)
 
 
-def list_repos(team_id: int) -> list[dtos.Repo]:
+def list_repos(team_id: int) -> list[contracts.Repo]:
     projects = logic.list_repos_for_team(team_id)
     return [_to_repo(p) for p in projects]
 
 
-def create_repo(team_id: int, name: str) -> dtos.Repo:
+def create_repo(team_id: int, name: str) -> contracts.Repo:
     repo = logic.create_repo(team_id=team_id, name=name)
     return _to_repo(repo)
 
 
-def update_repo(input: dtos.UpdateRepoInput) -> dtos.Repo:
+def update_repo(input: contracts.UpdateRepoInput) -> contracts.Repo:
     repo = logic.update_repo(
         repo_id=input.repo_id,
         name=input.name,
@@ -132,13 +132,13 @@ def update_repo(input: dtos.UpdateRepoInput) -> dtos.Repo:
 # --- Run API ---
 
 
-def list_runs(team_id: int) -> list[dtos.Run]:
+def list_runs(team_id: int) -> list[contracts.Run]:
     """List all runs for a team across all projects."""
     runs = logic.list_runs_for_team(team_id)
     return [_to_run(r) for r in runs]
 
 
-def create_run(input: dtos.CreateRunInput) -> dtos.CreateRunResult:
+def create_run(input: contracts.CreateRunInput) -> contracts.CreateRunResult:
     snapshots = [
         {
             "identifier": s.identifier,
@@ -162,7 +162,7 @@ def create_run(input: dtos.CreateRunInput) -> dtos.CreateRunResult:
     )
 
     upload_targets = [
-        dtos.UploadTarget(
+        contracts.UploadTarget(
             content_hash=u["content_hash"],
             url=u["url"],
             fields=u["fields"],
@@ -170,15 +170,15 @@ def create_run(input: dtos.CreateRunInput) -> dtos.CreateRunResult:
         for u in uploads
     ]
 
-    return dtos.CreateRunResult(run_id=run.id, uploads=upload_targets)
+    return contracts.CreateRunResult(run_id=run.id, uploads=upload_targets)
 
 
-def get_run(run_id: UUID) -> dtos.Run:
+def get_run(run_id: UUID) -> contracts.Run:
     run = logic.get_run(run_id)
     return _to_run(run)
 
 
-def get_run_snapshots(run_id: UUID) -> list[dtos.Snapshot]:
+def get_run_snapshots(run_id: UUID) -> list[contracts.Snapshot]:
     snapshots = logic.get_run_snapshots(run_id)
     if not snapshots:
         return []
@@ -186,7 +186,7 @@ def get_run_snapshots(run_id: UUID) -> list[dtos.Snapshot]:
     return [_to_snapshot(s, repo_id) for s in snapshots]
 
 
-def complete_run(run_id: UUID) -> dtos.Run:
+def complete_run(run_id: UUID) -> contracts.Run:
     """
     Complete a run: verify uploads, create artifacts, trigger diff processing.
     """
@@ -194,7 +194,7 @@ def complete_run(run_id: UUID) -> dtos.Run:
     return _to_run(run)
 
 
-def approve_run(input: dtos.ApproveRunInput) -> dtos.Run:
+def approve_run(input: contracts.ApproveRunInput) -> contracts.Run:
     approved_snapshots = [{"identifier": s.identifier, "new_hash": s.new_hash} for s in input.snapshots]
 
     run = logic.approve_run(

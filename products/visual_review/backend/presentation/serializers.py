@@ -6,7 +6,7 @@ Converts DTOs to/from JSON using DataclassSerializer.
 
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
-from ..api.dtos import (
+from ..facade.contracts import (
     ApproveRunRequestInput,
     ApproveSnapshotInput,
     Artifact,

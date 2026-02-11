@@ -22,8 +22,8 @@ from rest_framework.response import Response
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
-from ..api import api
-from ..api.dtos import (
+from ..facade import api
+from ..facade.contracts import (
     ApproveRunInput,
     ApproveRunRequestInput,
     CreateRepoInput,
