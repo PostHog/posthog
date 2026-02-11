@@ -290,6 +290,23 @@ function convertToTypedExperimentResponse(response: CachedExperimentQueryRespons
     return null
 }
 
+/**
+ * We need a proper Saved Metric type. This is what comes back from the API.
+ * TODO: We should probably refactor this for more general use.
+ */
+export type ExperimentSavedMetric = {
+    id: number
+    experiment: number
+    saved_metric: number
+    metadata: {
+        type: 'primary' | 'secondary'
+        breakdowns?: Breakdown[]
+    }
+    created_at: string
+    query: ExperimentMetric
+    name: string
+}
+
 export const experimentLogic = kea<experimentLogicType>([
     props({} as ExperimentLogicProps),
     key((props) => {
@@ -739,6 +756,34 @@ export const experimentLogic = kea<experimentLogicType>([
                     }
                 },
                 updateMetricBreakdown: (state, { uuid, breakdown }) => {
+                    /**
+                     * Check if the UUID belongs to a shared metric
+                     * Shared Metric types are confusing. The query property
+                     * is, for all practical purposes, an ExperimentMetric.
+                     */
+                    const savedMetrics: ExperimentSavedMetric[] = [...(state?.saved_metrics || [])]
+                    const savedMetricIndex = savedMetrics.findIndex(
+                        ({ query: { uuid: savedMetricUuid } }) => savedMetricUuid === uuid
+                    )
+
+                    if (savedMetricIndex !== -1) {
+                        // Handle shared metric - update saved_metrics metadata
+                        const savedMetric = savedMetrics[savedMetricIndex]
+                        savedMetrics[savedMetricIndex] = {
+                            ...savedMetric,
+                            metadata: {
+                                ...savedMetric.metadata,
+                                breakdowns: [...(savedMetric.metadata?.breakdowns || []), breakdown],
+                            },
+                        }
+
+                        return {
+                            ...state,
+                            saved_metrics: savedMetrics,
+                        }
+                    }
+
+                    // Handle inline metric
                     const metricsKey =
                         (state?.metrics || ([] as ExperimentMetric[])).findIndex((m) => m.uuid === uuid) > -1
                             ? 'metrics'
@@ -767,6 +812,34 @@ export const experimentLogic = kea<experimentLogicType>([
                     }
                 },
                 removeMetricBreakdown: (state, { uuid, index }) => {
+                    /**
+                     * Check if the UUID belongs to a shared metric
+                     * Shared Metric types are confusing. The query property
+                     * is, for all practical purposes, an ExperimentMetric.
+                     */
+                    const savedMetrics: ExperimentSavedMetric[] = [...(state?.saved_metrics || [])]
+                    const savedMetricIndex = savedMetrics.findIndex(
+                        ({ query: { uuid: savedMetricUuid } }) => savedMetricUuid === uuid
+                    )
+
+                    if (savedMetricIndex !== -1) {
+                        // Handle shared metric - update saved_metrics metadata
+                        const savedMetric = savedMetrics[savedMetricIndex]
+                        savedMetrics[savedMetricIndex] = {
+                            ...savedMetric,
+                            metadata: {
+                                ...savedMetric.metadata,
+                                breakdowns: (savedMetric.metadata?.breakdowns || []).filter((_, i) => i !== index),
+                            },
+                        }
+
+                        return {
+                            ...state,
+                            saved_metrics: savedMetrics,
+                        }
+                    }
+
+                    // Handle inline metric
                     const metricsKey =
                         (state?.metrics || ([] as ExperimentMetric[])).findIndex((m) => m.uuid === uuid) > -1
                             ? 'metrics'
@@ -1488,10 +1561,18 @@ export const experimentLogic = kea<experimentLogicType>([
             actions.setLegacyPrimaryMetricsResults([])
             actions.setPrimaryMetricsResults([])
 
-            let metrics = values.experiment?.metrics
-            const sharedMetrics = values.experiment?.saved_metrics
-                .filter((sharedMetric) => sharedMetric.metadata.type === 'primary')
-                .map((sharedMetric) => sharedMetric.query)
+            let metrics = values.experiment?.metrics || []
+            const sharedMetrics: ExperimentMetric[] = (values.experiment?.saved_metrics as ExperimentSavedMetric[])
+                .filter(({ metadata }) => metadata.type === 'primary')
+                .map(({ query, metadata }) => ({
+                    ...query,
+                    // Merge breakdowns from metadata into the query
+                    breakdownFilter: {
+                        ...query?.breakdownFilter,
+                        breakdowns: metadata?.breakdowns || [],
+                    },
+                }))
+
             if (sharedMetrics) {
                 metrics = [...metrics, ...sharedMetrics]
             }
@@ -1518,10 +1599,18 @@ export const experimentLogic = kea<experimentLogicType>([
             actions.setLegacySecondaryMetricsResults([])
             actions.setSecondaryMetricsResults([])
 
-            let secondaryMetrics = values.experiment?.metrics_secondary
-            const sharedMetrics = values.experiment?.saved_metrics
-                .filter((sharedMetric) => sharedMetric.metadata.type === 'secondary')
-                .map((sharedMetric) => sharedMetric.query)
+            let secondaryMetrics = values.experiment?.metrics_secondary || []
+            const sharedMetrics: ExperimentMetric[] = (values.experiment?.saved_metrics as ExperimentSavedMetric[])
+                .filter(({ metadata }) => metadata.type === 'secondary')
+                .map(({ query, metadata }) => ({
+                    ...query,
+                    // Merge breakdowns from metadata into the query
+                    breakdownFilter: {
+                        ...query?.breakdownFilter,
+                        breakdowns: metadata?.breakdowns || [],
+                    },
+                }))
+
             if (sharedMetrics) {
                 secondaryMetrics = [...secondaryMetrics, ...sharedMetrics]
             }
@@ -1546,9 +1635,17 @@ export const experimentLogic = kea<experimentLogicType>([
 
             // Get the metric to retry
             let metrics = values.experiment?.metrics || []
-            const sharedMetrics = values.experiment?.saved_metrics
-                .filter((sharedMetric) => sharedMetric.metadata.type === 'primary')
-                .map((sharedMetric) => sharedMetric.query)
+            const sharedMetrics: ExperimentMetric[] = (values.experiment?.saved_metrics as ExperimentSavedMetric[])
+                .filter(({ metadata }) => metadata.type === 'primary')
+                .map(({ query, metadata }) => ({
+                    ...query,
+                    // Merge breakdowns from metadata into the query
+                    breakdownFilter: {
+                        ...query?.breakdownFilter,
+                        breakdowns: metadata?.breakdowns || [],
+                    },
+                }))
+
             if (sharedMetrics) {
                 metrics = [...metrics, ...sharedMetrics]
             }
@@ -1591,9 +1688,17 @@ export const experimentLogic = kea<experimentLogicType>([
 
             // Get the metric to retry
             let secondaryMetrics = values.experiment?.metrics_secondary || []
-            const sharedMetrics = values.experiment?.saved_metrics
-                .filter((sharedMetric) => sharedMetric.metadata.type === 'secondary')
-                .map((sharedMetric) => sharedMetric.query)
+            const sharedMetrics: ExperimentMetric[] = (values.experiment?.saved_metrics as ExperimentSavedMetric[])
+                .filter(({ metadata }) => metadata.type === 'secondary')
+                .map(({ query, metadata }) => ({
+                    ...query,
+                    // Merge breakdowns from metadata into the query
+                    breakdownFilter: {
+                        ...query?.breakdownFilter,
+                        breakdowns: metadata?.breakdowns || [],
+                    },
+                }))
+
             if (sharedMetrics) {
                 secondaryMetrics = [...secondaryMetrics, ...sharedMetrics]
             }
@@ -1642,10 +1747,24 @@ export const experimentLogic = kea<experimentLogicType>([
 
             actions.reportExperimentMetricBreakdownAdded(values.experiment, uuid, breakdown, isPrimary)
 
-            actions.updateExperiment({
+            const savedMetrics: ExperimentSavedMetric[] = [...(values.experiment.saved_metrics || [])]
+            // Check if this is a shared metric by looking in saved_metrics
+            const isSharedMetric = savedMetrics.some(({ query: { uuid: savedMetricUuid } }) => savedMetricUuid === uuid)
+
+            const updatePayload: Partial<Experiment> = {
                 metrics: values.experiment.metrics,
                 metrics_secondary: values.experiment.metrics_secondary,
-            })
+            }
+
+            // Only include saved_metrics_ids if we modified a shared metric
+            if (isSharedMetric) {
+                updatePayload.saved_metrics_ids = savedMetrics.map(({ saved_metric, metadata }) => ({
+                    id: saved_metric,
+                    metadata,
+                }))
+            }
+
+            actions.updateExperiment(updatePayload)
 
             if (isPrimary) {
                 actions.loadPrimaryMetricsResults(true)
@@ -1658,10 +1777,24 @@ export const experimentLogic = kea<experimentLogicType>([
 
             actions.reportExperimentMetricBreakdownRemoved(values.experiment, uuid, breakdown, index, isPrimary)
 
-            actions.updateExperiment({
+            const savedMetrics: ExperimentSavedMetric[] = [...(values.experiment.saved_metrics || [])]
+            // Check if this is a shared metric by looking in saved_metrics
+            const isSharedMetric = savedMetrics.some(({ query: { uuid: savedMetricUuid } }) => savedMetricUuid === uuid)
+
+            const updatePayload: Partial<Experiment> = {
                 metrics: values.experiment.metrics,
                 metrics_secondary: values.experiment.metrics_secondary,
-            })
+            }
+
+            // Only include saved_metrics_ids if we modified a shared metric
+            if (isSharedMetric) {
+                updatePayload.saved_metrics_ids = savedMetrics.map(({ saved_metric, metadata }) => ({
+                    id: saved_metric,
+                    metadata,
+                }))
+            }
+
+            actions.updateExperiment(updatePayload)
 
             if (isPrimary) {
                 actions.loadPrimaryMetricsResults(true)
