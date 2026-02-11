@@ -445,4 +445,4 @@ class TestFunnelDataWarehouse(ClickhouseTestMixin, BaseTest):
 
         results = response.results
         assert results[0]["count"] == 2
-        assert results[1]["count"] == 0
+        assert results[1]["count"] == 2
