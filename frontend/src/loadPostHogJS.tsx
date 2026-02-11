@@ -41,7 +41,8 @@ export function loadPostHogJS(): void {
                 } else {
                     loadedInstance.opt_in_capturing()
 
-                    if (loadedInstance.getFeatureFlag(FEATURE_FLAGS.TRACK_FRAMERATE)) {
+                    const shouldTrackFramerate = sampleOnProperty(loadedInstance.get_session_id(), 0.1)
+                    if (shouldTrackFramerate) {
                         const LONG_FRAME_THRESHOLD_MS = 50
                         const CAPTURE_INTERVAL_MS = 30_000
 
