@@ -170,7 +170,12 @@ class PipelineNonDLT(Generic[ResumableData]):
             validate_incremental_sync(self._is_incremental, self._resource)
 
             await setup_row_tracking_with_billing_check(
-                self._job.team_id, self._schema, self._resource, self._logger, billable=self._job.billable
+                self._job.team_id,
+                self._schema,
+                self._resource,
+                self._source,
+                self._logger,
+                billable=self._job.billable,
             )
 
             py_table = None
