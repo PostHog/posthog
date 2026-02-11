@@ -315,13 +315,13 @@ def _multi_search_not_found(search_call: ast.Call) -> ast.CompareOperation:
     return ast.CompareOperation(op=ast.CompareOperationOp.Eq, left=search_call, right=ast.Constant(value=0))
 
 
-def _create_multi_search_call(expr: ast.Expr, value: list[str]) -> ast.Call:
+def _create_multi_search_call(expr: ast.Expr, value: list) -> ast.Call:
     """Create a multiSearchAnyCaseInsensitive call for the given expression and values."""
     return ast.Call(
         name="multiSearchAnyCaseInsensitive",
         args=[
             ast.Call(name="toString", args=[expr]),
-            ast.Array(exprs=[ast.Constant(value=v) for v in value]),
+            ast.Array(exprs=[ast.Constant(value=str(v)) for v in value]),
         ],
     )
 
@@ -367,18 +367,12 @@ def _expr_to_compare_op(
             )
     elif operator == PropertyOperator.ICONTAINS_MULTI:
         # Always expect multiple values for multi-contains operator
-        if isinstance(value, list):
-            string_values = [str(v) for v in value]
-        else:
-            string_values = [str(value)]
-        return _multi_search_found(_create_multi_search_call(expr, string_values))
+        values_list = value if isinstance(value, list) else [value]
+        return _multi_search_found(_create_multi_search_call(expr, values_list))
     elif operator == PropertyOperator.NOT_ICONTAINS_MULTI:
         # Always expect multiple values for multi-not-contains operator
-        if isinstance(value, list):
-            string_values = [str(v) for v in value]
-        else:
-            string_values = [str(value)]
-        return _multi_search_not_found(_create_multi_search_call(expr, string_values))
+        values_list = value if isinstance(value, list) else [value]
+        return _multi_search_not_found(_create_multi_search_call(expr, values_list))
     elif operator == PropertyOperator.REGEX:
         return ast.Call(
             name="ifNull",
