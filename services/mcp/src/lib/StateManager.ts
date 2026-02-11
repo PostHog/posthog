@@ -33,11 +33,10 @@ export class StateManager {
 
     private async _fetchApiKey(): Promise<NonNullable<State['apiKey']>> {
         const apiKeyResult = await this._api.apiKeys().current()
-        console.log(apiKeyResult)
         if (apiKeyResult.success) {
             return apiKeyResult.data
         }
-        console.log(this._api.config.apiToken)
+
         const introspectionResult = await this._api.oauth().introspect({ token: this._api.config.apiToken })
 
         if (!introspectionResult.success) {
