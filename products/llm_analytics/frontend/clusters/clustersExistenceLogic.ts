@@ -2,13 +2,17 @@ import { afterMount, kea, path } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
+import { isDefinitionStale } from 'lib/utils/definitions'
 
-import { hogql } from '~/queries/utils'
+import { EventDefinitionType } from '~/types'
 
 import type { clustersExistenceLogicType } from './clustersExistenceLogicType'
 
+const CLUSTER_EVENT_NAMES = ['$ai_trace_clusters', '$ai_generation_clusters']
+
 /**
- * Lightweight singleton logic that checks whether any cluster events exist.
+ * Lightweight singleton logic that checks whether any cluster events exist
+ * via the EventDefinition table (Postgres, fast).
  * Used to conditionally hide the clusters tab/link when there's no data to show.
  */
 export const clustersExistenceLogic = kea<clustersExistenceLogicType>([
@@ -16,20 +20,16 @@ export const clustersExistenceLogic = kea<clustersExistenceLogicType>([
 
     loaders({
         hasClustersData: [
-            null as boolean | null,
+            false as boolean,
             {
                 loadHasClustersData: async (): Promise<boolean> => {
-                    const response = await api.queryHogQL(
-                        hogql`
-                            SELECT 1
-                            FROM events
-                            WHERE event IN ('$ai_trace_clusters', '$ai_generation_clusters')
-                                AND timestamp >= now() - INTERVAL 7 DAY
-                            LIMIT 1
-                        `,
-                        { productKey: 'llm_analytics', scene: 'LLMAnalyticsClusters' }
+                    const definitions = await api.eventDefinitions.list({
+                        event_type: EventDefinitionType.Event,
+                        search: '$ai_',
+                    })
+                    return definitions.results.some(
+                        (r) => CLUSTER_EVENT_NAMES.includes(r.name) && !isDefinitionStale(r)
                     )
-                    return (response.results?.length ?? 0) > 0
                 },
             },
         ],
