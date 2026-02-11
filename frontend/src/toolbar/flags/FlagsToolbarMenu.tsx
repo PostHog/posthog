@@ -1,6 +1,8 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 
+import { IconPerson } from '@posthog/icons'
+
 import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -16,10 +18,21 @@ import { urls } from 'scenes/urls'
 import { ToolbarMenu } from '~/toolbar/bar/ToolbarMenu'
 import { flagsToolbarLogic } from '~/toolbar/flags/flagsToolbarLogic'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
+import { joinWithUiHost } from '~/toolbar/utils'
 
 export const FlagsToolbarMenu = (): JSX.Element => {
-    const { searchTerm, filteredFlags, userFlagsLoading, draftPayloads, payloadErrors, countFlagsOverridden } =
-        useValues(flagsToolbarLogic)
+    const {
+        searchTerm,
+        filteredFlags,
+        userFlagsLoading,
+        draftPayloads,
+        payloadErrors,
+        countFlagsOverridden,
+        impersonatedDistinctId,
+        openPayloadEditors,
+        draftDistinctId,
+        impersonationOpen,
+    } = useValues(flagsToolbarLogic)
     const {
         setSearchTerm,
         setOverriddenUserFlag,
@@ -31,15 +44,19 @@ export const FlagsToolbarMenu = (): JSX.Element => {
         savePayloadOverride,
         setPayloadEditorOpen,
         clearAllOverrides,
+        loadFlagsForDistinctId,
+        clearImpersonation,
+        setDraftDistinctId,
+        setImpersonationOpen,
     } = useActions(flagsToolbarLogic)
     const { uiHost, posthog: posthogClient, toolbarFlagsKey } = useValues(toolbarConfigLogic)
-    const { openPayloadEditors } = useValues(flagsToolbarLogic)
 
     useOnMountEffect(() => {
         posthogClient?.onFeatureFlags(setFeatureFlagValueFromPostHogClient)
 
         if (toolbarFlagsKey && posthogClient) {
             // When toolbarFlagsKey is present, flags were pre-loaded via overrideFeatureFlags
+
             // Read the current values directly and update state
             const currentFlags = posthogClient.featureFlags.getFlagVariants()
             setFeatureFlagValueFromPostHogClient(Object.keys(currentFlags), currentFlags)
@@ -70,6 +87,14 @@ export const FlagsToolbarMenu = (): JSX.Element => {
                     >
                         Clear overrides
                     </LemonButton>
+                    <LemonButton
+                        className="flex-shrink-0"
+                        size="small"
+                        icon={<IconPerson />}
+                        type={impersonatedDistinctId ? 'primary' : 'secondary'}
+                        onClick={() => setImpersonationOpen(!impersonationOpen)}
+                        tooltip="Load feature flags for a provided distinct ID"
+                    />
                 </div>
             </ToolbarMenu.Header>
 
@@ -86,11 +111,12 @@ export const FlagsToolbarMenu = (): JSX.Element => {
                                         <div className="flex-1 truncate">
                                             <Link
                                                 className="font-medium"
-                                                to={`${uiHost}${
+                                                to={joinWithUiHost(
+                                                    uiHost,
                                                     feature_flag.id
                                                         ? urls.featureFlag(feature_flag.id)
                                                         : urls.featureFlags()
-                                                }`}
+                                                )}
                                                 subtle
                                                 target="_blank"
                                             >
@@ -216,9 +242,53 @@ export const FlagsToolbarMenu = (): JSX.Element => {
             </ToolbarMenu.Body>
 
             <ToolbarMenu.Footer>
-                <span className="text-xs">
-                    Note: overriding feature flags and payloads will only affect this browser.
-                </span>
+                <div className="flex flex-col gap-1 w-full">
+                    <AnimatedCollapsible collapsed={!impersonationOpen && !impersonatedDistinctId}>
+                        <div className="pb-2">
+                            {impersonatedDistinctId ? (
+                                <div className="flex items-center gap-2">
+                                    <span className="text-xs flex-1 truncate">
+                                        Viewing as: <strong>{impersonatedDistinctId}</strong>
+                                    </span>
+                                    <LemonButton type="secondary" size="xsmall" onClick={clearImpersonation}>
+                                        Clear
+                                    </LemonButton>
+                                </div>
+                            ) : (
+                                <div className="flex gap-1 items-center">
+                                    <LemonInput
+                                        placeholder="Distinct ID"
+                                        fullWidth
+                                        size="small"
+                                        value={draftDistinctId}
+                                        onChange={setDraftDistinctId}
+                                        onPressEnter={() => {
+                                            if (draftDistinctId.trim()) {
+                                                loadFlagsForDistinctId(draftDistinctId.trim())
+                                            }
+                                        }}
+                                    />
+                                    <LemonButton
+                                        type="secondary"
+                                        size="small"
+                                        className="flex-shrink-0"
+                                        onClick={() => {
+                                            if (draftDistinctId.trim()) {
+                                                loadFlagsForDistinctId(draftDistinctId.trim())
+                                            }
+                                        }}
+                                        disabledReason={!draftDistinctId.trim() ? 'Enter a distinct ID' : undefined}
+                                    >
+                                        Load
+                                    </LemonButton>
+                                </div>
+                            )}
+                        </div>
+                    </AnimatedCollapsible>
+                    <span className="text-xs">
+                        Note: overriding feature flags and payloads will only affect this browser.
+                    </span>
+                </div>
             </ToolbarMenu.Footer>
         </ToolbarMenu>
     )

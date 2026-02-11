@@ -1,5 +1,9 @@
 # posthog-cli
 
+# 0.5.27
+
+- fix: only warns on release id mismatch errors
+
 # 0.5.26
 
 - feat: use env variables provided by github actions when available

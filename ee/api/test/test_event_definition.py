@@ -482,3 +482,25 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_by_name_returns_enterprise_event_definition(self):
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7)
+        )
+        EnterpriseEventDefinition.objects.create(
+            team=self.demo_team, name="by_name_event", owner=self.user, description="test desc"
+        )
+
+        response = self.client.get("/api/projects/@current/event_definitions/by_name/?name=by_name_event")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["name"] == "by_name_event"
+        assert response.json()["description"] == "test desc"
+        assert response.json()["owner"]["id"] == self.user.id
+
+    def test_by_name_not_found(self):
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7)
+        )
+
+        response = self.client.get("/api/projects/@current/event_definitions/by_name/?name=nonexistent")
+        assert response.status_code == status.HTTP_404_NOT_FOUND

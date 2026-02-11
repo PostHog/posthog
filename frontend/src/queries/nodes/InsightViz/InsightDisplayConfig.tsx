@@ -87,8 +87,8 @@ export function InsightDisplayConfig(): JSX.Element {
         ((isTrends || isStickiness) && !(display && NON_TIME_SERIES_DISPLAY_TYPES.includes(display)))
     const showSmoothing =
         isTrends && !isValidBreakdown(breakdownFilter) && (!display || display === ChartDisplayType.ActionsLineGraph)
-    const showMultipleYAxesConfig = isTrends || isStickiness
-    const showAlertThresholdLinesConfig = isTrends
+    const showMultipleYAxesConfig = (isTrends || isStickiness) && !isNonTimeSeriesDisplay
+    const showAlertThresholdLinesConfig = isTrends && !isNonTimeSeriesDisplay
     const isLineGraph = display === ChartDisplayType.ActionsLineGraph || (!display && isTrendsQuery(querySource))
     const isLinearScale = !yAxisScaleType || yAxisScaleType === 'linear'
 
@@ -119,7 +119,9 @@ export function InsightDisplayConfig(): JSX.Element {
                               ? [{ label: () => <ShowAlertThresholdLinesFilter /> }]
                               : []),
                           ...(showMultipleYAxesConfig ? [{ label: () => <ShowMultipleYAxesFilter /> }] : []),
-                          ...(isTrends || isRetention ? [{ label: () => <ShowTrendLinesFilter /> }] : []),
+                          ...((isTrends || isRetention) && !isNonTimeSeriesDisplay
+                              ? [{ label: () => <ShowTrendLinesFilter /> }]
+                              : []),
                       ],
                   },
               ]

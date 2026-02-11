@@ -19,6 +19,7 @@ import { LemonCalendarRange } from 'lib/lemon-ui/LemonCalendarRange/LemonCalenda
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { dateFilterToText, dateMapping, uuid } from 'lib/utils'
 import { formatResolvedDateRange } from 'lib/utils/dateTimeUtils'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { ResolvedDateRangeResponse } from '~/queries/schema/schema-general'
 import { DateMappingOption, PropertyOperator } from '~/types'
@@ -138,6 +139,7 @@ export const DateFilter = forwardRef<HTMLButtonElement, RawDateFilterProps>(func
         fixedRangeGranularity,
     } = useValues(dateFilterLogic(logicProps))
 
+    const { weekStartDay } = useValues(teamLogic)
     const optionsRef = useRef<HTMLDivElement | null>(null)
     const rollingDateRangeRef = useRef<HTMLDivElement | null>(null)
     const [granularity, setGranularity] = useState<LemonCalendarSelectProps['granularity']>(
@@ -225,7 +227,10 @@ export const DateFilter = forwardRef<HTMLButtonElement, RawDateFilterProps>(func
                         values[1],
                         CUSTOM_OPTION_DESCRIPTION,
                         dateOptions,
-                        isDateFormatted
+                        isDateFormatted,
+                        undefined,
+                        undefined,
+                        weekStartDay
                     )
                     const startOfRangeDateValue = dateFilterToText(
                         values[0],
@@ -241,6 +246,7 @@ export const DateFilter = forwardRef<HTMLButtonElement, RawDateFilterProps>(func
                         <Tooltip key={key} title={makeLabel ? makeLabel(dateValue, startOfRangeDateValue) : undefined}>
                             <LemonButton
                                 key={key}
+                                data-attr={`date-filter-${key.toLowerCase().replace(/\s+/g, '-')}`}
                                 onClick={() => setDate(values[0] || null, values[1] || null, false, explicitDate)}
                                 active={isActive}
                                 fullWidth
