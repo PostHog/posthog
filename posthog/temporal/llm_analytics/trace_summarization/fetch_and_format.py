@@ -94,8 +94,8 @@ def _fetch_and_format_generation(
         SELECT
             properties.$ai_model as model,
             properties.$ai_provider as provider,
-            properties.$ai_input as input,
-            properties.$ai_output as output,
+            coalesce(nullIf(ai_properties.ai_input, ''), properties.$ai_input) as input,
+            coalesce(nullIf(ai_properties.ai_output, ''), properties.$ai_output) as output,
             properties.$ai_input_tokens as input_tokens,
             properties.$ai_output_tokens as output_tokens,
             properties.$ai_latency as latency

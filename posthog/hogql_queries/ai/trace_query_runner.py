@@ -129,16 +129,25 @@ class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
                     arraySort(
                         x -> x.3,
                         groupArrayIf(
-                            tuple(uuid, event, timestamp, properties),
+                            tuple(uuid, event, timestamp, properties,
+                                coalesce(nullIf(ai_properties.ai_input, ''), properties.$ai_input),
+                                coalesce(nullIf(ai_properties.ai_output, ''), properties.$ai_output),
+                                coalesce(nullIf(ai_properties.ai_output_choices, ''), properties.$ai_output_choices),
+                                coalesce(nullIf(ai_properties.ai_input_state, ''), properties.$ai_input_state),
+                                coalesce(nullIf(ai_properties.ai_output_state, ''), properties.$ai_output_state),
+                                coalesce(nullIf(ai_properties.ai_tools, ''), properties.$ai_tools)
+                            ),
                             event != '$ai_trace'
                         )
                     )
                 ) AS events,
-                argMinIf(properties.$ai_input_state,
-                         timestamp, event = '$ai_trace'
+                argMinIf(
+                    coalesce(nullIf(ai_properties.ai_input_state, ''), properties.$ai_input_state),
+                    timestamp, event = '$ai_trace'
                 ) AS input_state,
-                argMinIf(properties.$ai_output_state,
-                         timestamp, event = '$ai_trace'
+                argMinIf(
+                    coalesce(nullIf(ai_properties.ai_output_state, ''), properties.$ai_output_state),
+                    timestamp, event = '$ai_trace'
                 ) AS output_state,
                 ifNull(
                     argMinIf(
@@ -210,8 +219,8 @@ class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
         }
 
         generations = []
-        for uuid, event_name, timestamp, properties in result["events"]:
-            generations.append(self._map_event(uuid, event_name, timestamp, properties))
+        for uuid, event_name, timestamp, properties, *ai_cols in result["events"]:
+            generations.append(self._map_event(uuid, event_name, timestamp, properties, *ai_cols))
 
         trace_dict = {
             **result,
@@ -232,16 +241,33 @@ class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
         )
         return trace
 
+    AI_LARGE_PROPERTY_KEYS = (
+        "$ai_input",
+        "$ai_output",
+        "$ai_output_choices",
+        "$ai_input_state",
+        "$ai_output_state",
+        "$ai_tools",
+    )
+
     def _map_event(
-        self, event_uuid: UUID, event_name: str, event_timestamp: datetime, event_properties: str
+        self, event_uuid: UUID, event_name: str, event_timestamp: datetime, event_properties: str, *ai_cols: str
     ) -> LLMTraceEvent:
-        generation: dict[str, Any] = {
-            "id": str(event_uuid),
-            "event": event_name,
-            "createdAt": event_timestamp.isoformat(),
-            "properties": orjson.loads(event_properties),
-        }
-        return LLMTraceEvent.model_validate(generation)
+        props = orjson.loads(event_properties)
+        for key, val in zip(self.AI_LARGE_PROPERTY_KEYS, ai_cols):
+            if val and not props.get(key):
+                try:
+                    props[key] = orjson.loads(val)
+                except (orjson.JSONDecodeError, TypeError):
+                    props[key] = val
+        return LLMTraceEvent.model_validate(
+            {
+                "id": str(event_uuid),
+                "event": event_name,
+                "createdAt": event_timestamp.isoformat(),
+                "properties": props,
+            }
+        )
 
     def cache_target_age(self, last_refresh: Optional[datetime], lazy: bool = False) -> Optional[datetime]:
         if last_refresh is None:

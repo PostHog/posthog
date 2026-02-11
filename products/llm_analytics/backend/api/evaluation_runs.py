@@ -5,6 +5,7 @@ from typing import cast
 
 from django.conf import settings
 
+import orjson
 import structlog
 from rest_framework import serializers, viewsets
 from rest_framework.permissions import IsAuthenticated
@@ -87,16 +88,24 @@ class EvaluationRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         query_result = query_with_columns(
             f"""
             SELECT
-                uuid,
-                event,
-                properties,
-                timestamp,
-                team_id,
-                distinct_id,
-                elements_chain,
-                created_at,
-                person_id
+                events.uuid AS uuid,
+                events.event AS event,
+                events.properties AS properties,
+                events.timestamp AS timestamp,
+                events.team_id AS team_id,
+                events.distinct_id AS distinct_id,
+                events.elements_chain AS elements_chain,
+                events.created_at AS created_at,
+                events.person_id AS person_id,
+                ai_event_properties.ai_input AS _ai_input,
+                ai_event_properties.ai_output AS _ai_output,
+                ai_event_properties.ai_output_choices AS _ai_output_choices,
+                ai_event_properties.ai_input_state AS _ai_input_state,
+                ai_event_properties.ai_output_state AS _ai_output_state,
+                ai_event_properties.ai_tools AS _ai_tools
             FROM events
+            LEFT JOIN ai_event_properties ON ai_event_properties.uuid = events.uuid
+                AND ai_event_properties.team_id = events.team_id
             WHERE {" AND ".join(where_clauses)}
             LIMIT 1
             """,
@@ -107,6 +116,28 @@ class EvaluationRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             return Response({"error": f"Event {target_event_id} not found"}, status=404)
 
         event_data = query_result[0]
+
+        # Merge large AI properties from side table into the properties blob
+        props = (
+            orjson.loads(event_data["properties"])
+            if isinstance(event_data["properties"], str)
+            else event_data["properties"]
+        )
+        for prop_name, col_name in (
+            ("$ai_input", "_ai_input"),
+            ("$ai_output", "_ai_output"),
+            ("$ai_output_choices", "_ai_output_choices"),
+            ("$ai_input_state", "_ai_input_state"),
+            ("$ai_output_state", "_ai_output_state"),
+            ("$ai_tools", "_ai_tools"),
+        ):
+            val = event_data.pop(col_name, None)
+            if val and not props.get(prop_name):
+                try:
+                    props[prop_name] = orjson.loads(val)
+                except (orjson.JSONDecodeError, TypeError):
+                    props[prop_name] = val
+        event_data["properties"] = props
 
         # Build workflow inputs
         inputs = RunEvaluationInputs(

@@ -1122,28 +1122,28 @@ def get_teams_with_ai_credits_used_in_period(
                 FROM (
                     SELECT
                         JSONExtractString(properties, '$ai_trace_id') AS trace_id,
+                        coalesce(
+                            nullIf(ai_event_properties.ai_output_state, ''),
+                            JSONExtractRaw(properties, '$ai_output_state')
+                        ) AS output_state,
                         arrayFlatten(
                             arrayMap(
                                 msg -> JSONExtractArrayRaw(msg, 'tool_calls'),
                                 -- Only get messages from current turn (after last human message)
                                 arraySlice(
-                                    JSONExtractArrayRaw(
-                                        JSONExtractRaw(properties, '$ai_output_state'),
-                                        'messages'
-                                    ),
+                                    JSONExtractArrayRaw(output_state, 'messages'),
                                     -- Start from the position after the last human message
                                     arrayLastIndex(
                                         x -> JSONExtractString(x, 'type') = 'human',
-                                        JSONExtractArrayRaw(
-                                            JSONExtractRaw(properties, '$ai_output_state'),
-                                            'messages'
-                                        )
+                                        JSONExtractArrayRaw(output_state, 'messages')
                                     ) + 1
                                 )
                             )
                         ) AS tool_calls,
                         arrayMap(tc -> JSONExtractString(tc, 'name'), tool_calls) AS tool_names
                     FROM events
+                    LEFT JOIN ai_event_properties ON ai_event_properties.uuid = events.uuid
+                        AND ai_event_properties.team_id = events.team_id
                     PREWHERE
                         -- data inside PostHog project used as ground truth for billing (depends on region)
                         team_id = %(team_to_query)s

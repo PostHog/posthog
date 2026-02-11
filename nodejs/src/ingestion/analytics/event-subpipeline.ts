@@ -13,6 +13,7 @@ import { PersonsStore } from '../../worker/ingestion/persons/persons-store'
 import { createCreateEventStep } from '../event-processing/create-event-step'
 import { createEmitEventStep } from '../event-processing/emit-event-step'
 import { createEventPipelineRunnerV1Step } from '../event-processing/event-pipeline-runner-v1-step'
+import { createExtractAiPropertiesStep } from '../event-processing/extract-ai-properties-step'
 import { createExtractHeatmapDataStep } from '../event-processing/extract-heatmap-data-step'
 import { createNormalizeProcessPersonFlagStep } from '../event-processing/normalize-process-person-flag-step'
 import { PipelineBuilder, StartPipelineBuilder } from '../pipelines/builders/pipeline-builders'
@@ -29,6 +30,7 @@ export interface EventSubpipelineConfig {
     options: EventPipelineRunnerOptions & {
         CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: string
         CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: string
+        CLICKHOUSE_AI_EVENT_PROPERTIES_KAFKA_TOPIC: string
     }
     teamManager: TeamManager
     groupTypeManager: GroupTypeManager
@@ -60,6 +62,12 @@ export function createEventSubpipeline<TInput extends EventSubpipelineInput, TCo
             createExtractHeatmapDataStep({
                 kafkaProducer,
                 CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: options.CLICKHOUSE_HEATMAPS_KAFKA_TOPIC,
+            })
+        )
+        .pipe(
+            createExtractAiPropertiesStep({
+                kafkaProducer,
+                CLICKHOUSE_AI_EVENT_PROPERTIES_KAFKA_TOPIC: options.CLICKHOUSE_AI_EVENT_PROPERTIES_KAFKA_TOPIC,
             })
         )
         .pipe(createCreateEventStep())

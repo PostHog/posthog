@@ -51,6 +51,7 @@ from posthog.hogql.database.models import (
     UnknownDatabaseField,
     VirtualTable,
 )
+from posthog.hogql.database.schema.ai_event_properties import AiEventPropertiesTable
 from posthog.hogql.database.schema.app_metrics2 import AppMetrics2Table
 from posthog.hogql.database.schema.channel_type import create_initial_channel_type, create_initial_domain_type
 from posthog.hogql.database.schema.cohort_membership import CohortMembershipTable
@@ -248,10 +249,11 @@ class Database(BaseModel):
     tables: TableNode = TableNode(
         children={
             **ROOT_TABLES__DO_NOT_ADD_ANY_MORE,
+            "ai_event_properties": TableNode(name="ai_event_properties", table=AiEventPropertiesTable()),
             "posthog": TableNode(
                 children={
-                    **ROOT_TABLES__DO_NOT_ADD_ANY_MORE
-                    # Add new tables here
+                    **ROOT_TABLES__DO_NOT_ADD_ANY_MORE,
+                    "ai_event_properties": TableNode(name="ai_event_properties", table=AiEventPropertiesTable()),
                 }
             ),
             "system": SystemTables(),

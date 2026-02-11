@@ -286,6 +286,7 @@ export type IngestionConsumerConfig = {
     // Clickhouse topics
     CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: string
     CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: string
+    CLICKHOUSE_AI_EVENT_PROPERTIES_KAFKA_TOPIC: string
 
     // Cookieless server hash mode config
     COOKIELESS_DISABLED: boolean

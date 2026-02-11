@@ -20,7 +20,14 @@ from posthog.models.team import Team
 from posthog.temporal.llm_analytics.trace_summarization.constants import AI_EVENT_TYPES, TRACE_CAPTURE_RANGE
 
 _TRACE_EVENTS_QUERY = """
-    SELECT uuid, event, timestamp, properties
+    SELECT
+        uuid, event, timestamp, properties,
+        ai_properties.ai_input_state AS _ai_input_state,
+        ai_properties.ai_output_state AS _ai_output_state,
+        ai_properties.ai_input AS _ai_input,
+        ai_properties.ai_output AS _ai_output,
+        ai_properties.ai_output_choices AS _ai_output_choices,
+        ai_properties.ai_tools AS _ai_tools
     FROM events
     WHERE event IN {event_types}
       AND timestamp >= toDateTime({start_ts}, 'UTC')
@@ -28,6 +35,15 @@ _TRACE_EVENTS_QUERY = """
       AND properties.$ai_trace_id = {trace_id}
     ORDER BY timestamp
 """
+
+_AI_PROPERTY_COLUMNS = {
+    "$ai_input_state": "_ai_input_state",
+    "$ai_output_state": "_ai_output_state",
+    "$ai_input": "_ai_input",
+    "$ai_output": "_ai_output",
+    "$ai_output_choices": "_ai_output_choices",
+    "$ai_tools": "_ai_tools",
+}
 
 
 def fetch_trace(team: Team, trace_id: str, window_start: str, window_end: str) -> LLMTrace | None:
@@ -64,23 +80,40 @@ def fetch_trace(team: Team, trace_id: str, window_start: str, window_end: str) -
     first_timestamp: str | None = None
 
     for row in result.results:
-        event_uuid, event_name, event_timestamp, event_properties = row
+        event_uuid, event_name, event_timestamp, event_properties, *ai_cols = row
         if first_timestamp is None:
             first_timestamp = event_timestamp.isoformat()
 
         props = orjson.loads(event_properties) if isinstance(event_properties, str) else event_properties
 
+        # Merge large AI properties from the separate table back into props (dual-read)
+        for prop_name, col_idx in zip(_AI_PROPERTY_COLUMNS, range(len(ai_cols))):
+            val = ai_cols[col_idx]
+            if val and not props.get(prop_name):
+                try:
+                    props[prop_name] = orjson.loads(val)
+                except (orjson.JSONDecodeError, TypeError):
+                    props[prop_name] = val
+
         if event_name == "$ai_trace":
-            # Extract trace-level metadata; exclude from events list
             trace_name = props.get("$ai_span_name") or props.get("$ai_trace_name")
-            try:
-                input_state = orjson.loads(props["$ai_input_state"]) if props.get("$ai_input_state") else None
-            except (orjson.JSONDecodeError, TypeError):
-                input_state = None
-            try:
-                output_state = orjson.loads(props["$ai_output_state"]) if props.get("$ai_output_state") else None
-            except (orjson.JSONDecodeError, TypeError):
-                output_state = None
+            raw_input = props.get("$ai_input_state")
+            if isinstance(raw_input, str):
+                try:
+                    input_state = orjson.loads(raw_input)
+                except (orjson.JSONDecodeError, TypeError):
+                    input_state = None
+            else:
+                input_state = raw_input
+
+            raw_output = props.get("$ai_output_state")
+            if isinstance(raw_output, str):
+                try:
+                    output_state = orjson.loads(raw_output)
+                except (orjson.JSONDecodeError, TypeError):
+                    output_state = None
+            else:
+                output_state = raw_output
             continue
 
         events.append(

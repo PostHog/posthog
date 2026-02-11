@@ -11,6 +11,10 @@ from posthog.hogql.database.models import (
     Table,
     VirtualTable,
 )
+from posthog.hogql.database.schema.ai_event_properties import (
+    AiEventPropertiesTable,
+    join_with_ai_event_properties_table,
+)
 from posthog.hogql.database.schema.groups import GroupsTable, join_with_group_n_table
 from posthog.hogql.database.schema.person_distinct_ids import (
     PersonDistinctIdsTable,
@@ -126,6 +130,11 @@ class EventsTable(Table):
             from_field=["$session_id"],
             join_table=SessionsTableV1(),
             join_function=join_events_table_to_sessions_table,
+        ),
+        "ai_properties": LazyJoin(
+            from_field=["uuid"],
+            join_table=AiEventPropertiesTable(),
+            join_function=join_with_ai_event_properties_table,
         ),
         "elements_chain_href": StringDatabaseField(name="elements_chain_href", nullable=False),
         "elements_chain_texts": StringArrayDatabaseField(name="elements_chain_texts", nullable=False),

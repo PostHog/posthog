@@ -15,6 +15,7 @@ CONSUMER_GROUP_SESSION_REPLAY_EVENTS = "clickhouse_session_replay_events" if _US
 CONSUMER_GROUP_LOG_ENTRIES = "clickhouse_log_entries_v3" if _US else "clickhouse_log_entries"
 CONSUMER_GROUP_DOCUMENT_EMBEDDINGS = "clickhouse_document_embeddings2" if _US else "clickhouse_document_embeddings"
 CONSUMER_GROUP_HEATMAPS = "clickhouse_heatmaps" if _US else "group1"
+CONSUMER_GROUP_AI_EVENT_PROPERTIES = "clickhouse_ai_event_properties" if _US else "group1"
 CONSUMER_GROUP_PRECALCULATED_EVENTS = "clickhouse_precalculated_events2" if _US else "clickhouse_prefiltered_events"
 CONSUMER_GROUP_PRECALCULATED_PERSON_PROPERTIES = (
     "clickhouse_precalculated_person_properties2" if _US else "clickhouse_precalculated_person_properties"
