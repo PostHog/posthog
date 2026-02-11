@@ -470,6 +470,7 @@ export class SessionRecordingIngester {
         const promiseResults = await this.promiseScheduler.waitForAllSettled()
 
         // Clean up resources owned by this ingester
+        this.keyStore.stop()
         // Note: kafkaMetadataProducer may be shared (e.g., hub.kafkaProducer in production),
         // so callers are responsible for disconnecting it if they created it
         await this.kafkaMessageProducer.disconnect()
