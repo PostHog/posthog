@@ -496,8 +496,8 @@ mod tests {
             hypercache_reader,
         );
 
-        match flag_service.verify_token(&token).await {
-            Ok(extracted_token) => assert_eq!(extracted_token, team.api_token),
+        match flag_service.verify_token_and_get_team(&token).await {
+            Ok(verified_team) => assert_eq!(verified_team.api_token, team.api_token),
             Err(e) => panic!("Failed to extract and verify token: {e:?}"),
         };
     }
@@ -525,7 +525,7 @@ mod tests {
             hypercache_reader,
         );
         assert!(matches!(
-            flag_service.verify_token(&result).await,
+            flag_service.verify_token_and_get_team(&result).await,
             Err(FlagError::TokenValidationError)
         ));
 

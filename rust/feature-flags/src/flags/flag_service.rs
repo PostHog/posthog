@@ -51,10 +51,22 @@ impl FlagService {
         }
     }
 
-    /// Verifies the Project API token against HyperCache or the database.
+    /// Deprecated: use `verify_token_and_get_team` instead, which returns the Team
+    /// directly and avoids a redundant cache lookup.
+    #[allow(dead_code)]
     pub async fn verify_token(&self, token: &str) -> Result<String, FlagError> {
+        self.verify_token_and_get_team(token)
+            .await
+            .map(|_| token.to_string())
+    }
+
+    /// Verifies the Project API token and returns the Team.
+    ///
+    /// This combines token verification with team fetching to avoid a redundant
+    /// cache lookup — callers get the Team directly instead of re-fetching it.
+    pub async fn verify_token_and_get_team(&self, token: &str) -> Result<Team, FlagError> {
         match self.get_team_from_cache_or_pg(token).await {
-            Ok(_) => Ok(token.to_string()),
+            Ok(team) => Ok(team),
             Err(e) => {
                 tracing::warn!("Token validation failed for token '{}': {:?}", token, e);
                 inc(
@@ -169,7 +181,7 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn test_verify_token() {
+    async fn test_verify_token_and_get_team() {
         let redis_client = setup_redis_client(None).await;
         let pg_client = setup_pg_reader_client(None);
         let team_hypercache_reader = setup_team_hypercache_reader(redis_client.clone()).await;
@@ -185,13 +197,17 @@ mod tests {
             hypercache_reader,
         );
 
-        // Test valid token in HyperCache
-        let result = flag_service.verify_token(&team.api_token).await;
+        // Test valid token returns the team
+        let result = flag_service
+            .verify_token_and_get_team(&team.api_token)
+            .await;
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), team.api_token);
+        assert_eq!(result.unwrap().api_token, team.api_token);
 
         // Test invalid token
-        let result = flag_service.verify_token("invalid_token").await;
+        let result = flag_service
+            .verify_token_and_get_team("invalid_token")
+            .await;
         assert!(matches!(result, Err(FlagError::TokenValidationError)));
     }
 
