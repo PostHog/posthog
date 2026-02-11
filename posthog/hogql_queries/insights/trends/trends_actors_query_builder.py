@@ -366,17 +366,23 @@ class TrendsActorsQueryBuilder:
         for node in group.nodes:
             if isinstance(node, EventsNode):
                 if node.event is not None:
-                    group_filters.append(
-                        ast.CompareOperation(
-                            op=ast.CompareOperationOp.Eq,
-                            left=ast.Field(chain=["event"]),
-                            right=ast.Constant(value=str(node.event)),
-                        )
+                    event_expr: ast.Expr = ast.CompareOperation(
+                        op=ast.CompareOperationOp.Eq,
+                        left=ast.Field(chain=["event"]),
+                        right=ast.Constant(value=str(node.event)),
                     )
+                    if node.properties is not None and node.properties != []:
+                        properties_expr = property_to_expr(node.properties, self.team)
+                        event_expr = ast.And(exprs=[event_expr, properties_expr])
+                    group_filters.append(event_expr)
             elif isinstance(node, ActionsNode):
                 try:
                     action = Action.objects.get(pk=int(node.id), team__project_id=self.team.project_id)
-                    group_filters.append(action_to_expr(action))
+                    action_expr: ast.Expr = action_to_expr(action)
+                    if node.properties is not None and node.properties != []:
+                        properties_expr = property_to_expr(node.properties, self.team)
+                        action_expr = ast.And(exprs=[action_expr, properties_expr])
+                    group_filters.append(action_expr)
                 except Action.DoesNotExist:
                     # If an action doesn't exist, skip it
                     pass
