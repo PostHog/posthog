@@ -6,6 +6,7 @@ import React from 'react'
 import { LemonDivider, Tooltip } from '@posthog/lemon-ui'
 
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
+import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { Lettermark, LettermarkColor } from 'lib/lemon-ui/Lettermark'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -38,6 +39,13 @@ export const FunnelFlowNode = React.memo(function FunnelFlowNode({ data }: { dat
     const { aggregationTargetLabel } = useValues(funnelDataLogic(insightProps))
     const { canOpenPersonModal } = useValues(funnelPersonsModalLogic(insightProps))
     const { openPersonsModalForStep } = useActions(funnelPersonsModalLogic(insightProps))
+    const convertedPercentage = step.conversionRates.fromBasisStep * 100
+    const progressColor =
+        convertedPercentage >= 67
+            ? 'var(--success)'
+            : convertedPercentage >= 33
+              ? 'var(--warning)'
+              : 'var(--color-text-error)'
 
     return (
         <div
@@ -64,7 +72,13 @@ export const FunnelFlowNode = React.memo(function FunnelFlowNode({ data }: { dat
                         </div>
                         <FunnelStepMore stepIndex={stepIndex} />
                     </div>
-                    <LemonDivider />
+                    {isFirstStep ? (
+                        <LemonDivider />
+                    ) : (
+                        <Tooltip title={`${formatConvertedPercentage(step)} converted from first step`}>
+                            <LemonProgress strokeColor={progressColor} percent={convertedPercentage} />
+                        </Tooltip>
+                    )}
                 </div>
 
                 {/* Stats */}
