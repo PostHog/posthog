@@ -131,6 +131,7 @@ jobs:
         env:
             SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da'
             DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
+            PERSONS_DB_WRITER_URL: 'postgres://posthog:posthog@localhost:5432/posthog_persons'
             REDIS_URL: 'redis://localhost'
             CLICKHOUSE_HOST: 'localhost'
             CLICKHOUSE_SECURE: 'False'
