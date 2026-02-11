@@ -659,7 +659,7 @@ export function normalizeMessage(rawMessage: unknown, defaultRole: string): Comp
         }
         return [
             {
-                role: roleToUse,
+                role: normalizeRole('assistant (tool result)', roleToUse),
                 content: rawMessage.content,
                 tool_call_id: rawMessage.tool_use_id,
             },
