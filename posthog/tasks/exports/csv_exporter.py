@@ -441,11 +441,11 @@ def get_from_insights_api(exported_asset: ExportedAsset, limit: int, resource: d
         next_url = data.get("next")
 
 
-def _query_kind_supports_limit(kind: str | None) -> bool:
-    if not kind:
+def _query_supports_limit(query: dict) -> bool:
+    if not query.get("kind"):
         return False
     try:
-        QuerySchemaRoot.model_validate({"kind": kind, "limit": 1})
+        QuerySchemaRoot.model_validate({**query, "limit": 1})
         return True
     except ValidationError:
         return False
@@ -456,7 +456,7 @@ def get_from_query(exported_asset: ExportedAsset, limit: int, resource: dict) ->
     assert query is not None
 
     breakdown_filter = query.get("breakdownFilter") if query else None
-    supports_limit = _query_kind_supports_limit(query.get("kind"))
+    supports_limit = _query_supports_limit(query)
 
     total = 0
     cursor: str | None = None

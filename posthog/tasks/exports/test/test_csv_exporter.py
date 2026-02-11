@@ -570,7 +570,7 @@ class TestCSVExporter(APIBaseTest):
 
     @patch("posthog.models.exported_asset.object_storage.write_from_file")
     @patch("posthog.tasks.exports.csv_exporter.process_query_dict")
-    @patch("posthog.tasks.exports.csv_exporter._query_kind_supports_limit")
+    @patch("posthog.tasks.exports.csv_exporter._query_supports_limit")
     def test_skips_limit_when_query_does_not_support_it(
         self, mock_supports_limit: MagicMock, mock_process_query: MagicMock, mock_write: MagicMock
     ) -> None:
@@ -605,7 +605,7 @@ class TestCSVExporter(APIBaseTest):
 
     @patch("posthog.models.exported_asset.object_storage.write_from_file")
     @patch("posthog.tasks.exports.csv_exporter.process_query_dict")
-    @patch("posthog.tasks.exports.csv_exporter._query_kind_supports_limit")
+    @patch("posthog.tasks.exports.csv_exporter._query_supports_limit")
     def test_adds_limit_when_query_supports_it(
         self, mock_supports_limit: MagicMock, mock_process_query: MagicMock, mock_write: MagicMock
     ) -> None:
