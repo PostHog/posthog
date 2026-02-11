@@ -73,6 +73,7 @@
           ExternalDataSourceType.SHOPIFY: ShopifySourceConfig,
           ExternalDataSourceType.SNAPCHATADS: SnapchatAdsSourceConfig,
           ExternalDataSourceType.SNOWFLAKE: SnowflakeSourceConfig,
+          ExternalDataSourceType.STACKADAPTADS: StackAdaptAdsSourceConfig,
           ExternalDataSourceType.STRIPE: StripeSourceConfig,
           ExternalDataSourceType.SUPABASE: SupabaseSourceConfig,
           ExternalDataSourceType.TEMPORALIO: TemporalIOSourceConfig,
