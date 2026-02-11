@@ -10,31 +10,28 @@ logger = structlog.get_logger(__name__)
 def normalize_payloads_to_strings(apps, schema_editor):
     FeatureFlag = apps.get_model("posthog", "FeatureFlag")
 
-    # Only fetch flags where at least one payload value is a JSON object.
-    # Other non-string types (number, boolean, array, null) are left as-is.
-    flags_with_object_payloads = FeatureFlag.objects.raw("""
-        SELECT f.id
-        FROM posthog_featureflag f,
-             jsonb_each(f.filters->'payloads') AS kv(key, value)
-        WHERE f.filters->'payloads' IS NOT NULL
-          AND f.filters->'payloads' != '{}'::jsonb
-          AND jsonb_typeof(kv.value) = 'object'
-        GROUP BY f.id
+    flags_with_payloads = FeatureFlag.objects.raw("""
+        SELECT *
+        FROM posthog_featureflag
+        WHERE filters->'payloads' IS NOT NULL
+          AND filters->'payloads' != '{}'::jsonb
     """)
 
-    updated = 0
-    for flag in flags_with_object_payloads:
-        flag = FeatureFlag.objects.get(pk=flag.id)
+    to_update = []
+    for flag in flags_with_payloads:
         payloads = flag.filters.get("payloads", {})
+        changed = False
         for key, value in payloads.items():
             if isinstance(value, dict):
                 payloads[key] = json.dumps(value)
-        flag.filters["payloads"] = payloads
-        flag.save(update_fields=["filters"])
-        updated += 1
+                changed = True
+        if changed:
+            flag.filters["payloads"] = payloads
+            to_update.append(flag)
 
-    if updated:
-        logger.info("normalized_feature_flag_payloads", count=updated)
+    if to_update:
+        FeatureFlag.objects.bulk_update(to_update, ["filters"])
+        logger.info("normalized_feature_flag_payloads", count=len(to_update))
 
 
 class Migration(migrations.Migration):
