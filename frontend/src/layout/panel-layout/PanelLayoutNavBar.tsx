@@ -8,6 +8,7 @@ import {
     IconChevronRight,
     IconClock,
     IconDatabase,
+    IconDownload,
     IconFolderOpen,
     IconGear,
     IconHome,
@@ -490,11 +491,11 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                             </ListBox>
                         </ScrollableShadows>
 
-                        {!isRemovingSidePanelFlag && <div className="border-b border-primary h-px " />}
+                        <div className="border-b border-primary h-px " />
 
                         <div
                             className={cn('p-1 flex flex-col gap-px items-center', {
-                                'pb-2 pl-2 items-start': isRemovingSidePanelFlag,
+                                'p-1 items-start pb-2': isRemovingSidePanelFlag,
                             })}
                         >
                             <DebugNotice isCollapsed={isLayoutNavCollapsed} />
@@ -598,14 +599,24 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                     />
                                 </>
                             ) : (
-                                <div
-                                    className={cn('flex gap-1', {
-                                        'items-center flex-col-reverse': isLayoutNavCollapsed,
-                                    })}
-                                >
-                                    <HelpMenu />
-                                    <HealthMenu />
-                                    <PosthogStatusShownOnlyIfNotOperational />
+                                <div className="flex flex-col gap-px w-full">
+                                    <Link
+                                        to={urls.settings('project')}
+                                        buttonProps={{ menuItem: isLayoutNavCollapsed ? false : true }}
+                                    >
+                                        <IconGear />
+                                        {!isLayoutNavCollapsed && 'Settings'}
+                                    </Link>
+                                    <Link
+                                        to={urls.exports()}
+                                        buttonProps={{ menuItem: isLayoutNavCollapsed ? false : true }}
+                                    >
+                                        <IconDownload />
+                                        {!isLayoutNavCollapsed && 'Exports'}
+                                    </Link>
+                                    <HealthMenu iconOnly={isLayoutNavCollapsed} />
+                                    <HelpMenu iconOnly={isLayoutNavCollapsed} />
+                                    <PosthogStatusShownOnlyIfNotOperational iconOnly={isLayoutNavCollapsed} />
                                 </div>
                             )}
                         </div>

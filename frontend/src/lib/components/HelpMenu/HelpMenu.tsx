@@ -4,8 +4,8 @@ import { useActions, useValues } from 'kea'
 import {
     IconBook,
     IconConfetti,
+    IconCopy,
     IconDatabase,
-    IconDownload,
     IconEllipsis,
     IconExpand45,
     IconGear,
@@ -17,14 +17,19 @@ import {
     IconSparkles,
     IconSupport,
 } from '@posthog/icons'
-import { LemonTag } from '@posthog/lemon-ui'
+import { LemonTag, ProfilePicture } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Link } from 'lib/lemon-ui/Link/Link'
 import { IconBlank, IconPreview } from 'lib/lemon-ui/icons'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { DropdownMenuSeparator } from 'lib/ui/DropdownMenu/DropdownMenu'
+import { Label } from 'lib/ui/Label/Label'
 import { MenuOpenIndicator } from 'lib/ui/Menus/Menus'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { billingLogic } from 'scenes/billing/billingLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -42,7 +47,7 @@ import { ThemeMenu } from '../Menus/ThemeMenu'
 import { ScrollableShadows } from '../ScrollableShadows/ScrollableShadows'
 import { helpMenuLogic } from './helpMenuLogic'
 
-export function HelpMenu(): JSX.Element {
+export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Element {
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const { isHelpMenuOpen } = useValues(helpMenuLogic)
     const { setHelpMenuOpen } = useActions(helpMenuLogic)
@@ -52,6 +57,8 @@ export function HelpMenu(): JSX.Element {
     const { isCloud, preflight } = useValues(preflightLogic)
     const { showOfframpModal } = useActions(sidePanelOfframpLogic)
     const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
+    const { reportAccountOwnerClicked } = useActions(eventUsageLogic)
+    const { billing } = useValues(billingLogic)
 
     return (
         <Menu.Root open={isHelpMenuOpen} onOpenChange={setHelpMenuOpen}>
@@ -59,19 +66,29 @@ export function HelpMenu(): JSX.Element {
                 render={
                     <ButtonPrimitive
                         tooltip={
-                            <>
-                                Help menu
-                                <RenderKeybind keybind={[keyBinds.helpMenu]} className="ml-1" />
-                            </>
+                            !iconOnly ? (
+                                <>
+                                    Help menu
+                                    <RenderKeybind keybind={[keyBinds.helpMenu]} className="ml-1" />
+                                </>
+                            ) : undefined
                         }
-                        tooltipPlacement="top"
+                        tooltipPlacement="right"
                         tooltipCloseDelayMs={0}
-                        iconOnly
+                        iconOnly={iconOnly}
                         className="group"
+                        menuItem={!iconOnly}
+                        fullWidth={iconOnly}
                     >
                         <span className="flex text-secondary group-hover:text-primary">
-                            <IconQuestion className="size-5" />
+                            <IconQuestion className="size-[17px]" />
                         </span>
+                        {!iconOnly && (
+                            <>
+                                <span className="-ml-[1px]">Help</span>
+                                <MenuOpenIndicator direction="up" />
+                            </>
+                        )}
                     </ButtonPrimitive>
                 }
             />
@@ -148,20 +165,6 @@ export function HelpMenu(): JSX.Element {
                                         <Link {...props} to={urls.settings()} buttonProps={{ menuItem: true }}>
                                             <IconGear />
                                             Settings
-                                        </Link>
-                                    )}
-                                />
-                                <Menu.Item
-                                    render={(props) => (
-                                        <Link
-                                            {...props}
-                                            tooltip="View your exports"
-                                            tooltipPlacement="right"
-                                            buttonProps={{ menuItem: true }}
-                                            to={urls.exports()}
-                                        >
-                                            <IconDownload />
-                                            Exports
                                         </Link>
                                     )}
                                 />
@@ -283,6 +286,7 @@ export function HelpMenu(): JSX.Element {
                                         </Menu.Portal>
                                     </Menu.SubmenuRoot>
                                 )}
+
                                 {isRemovingSidePanelFlag && (
                                     <Menu.Item
                                         onClick={() => {
@@ -352,6 +356,46 @@ export function HelpMenu(): JSX.Element {
                                         </Menu.Positioner>
                                     </Menu.Portal>
                                 </Menu.SubmenuRoot>
+
+                                {billing?.account_owner?.email && billing?.account_owner?.name && (
+                                    <>
+                                        <Label intent="menu" className="px-2 mt-2">
+                                            YOUR POSTHOG HUMAN
+                                        </Label>
+                                        <DropdownMenuSeparator />
+                                        <Menu.Item
+                                            onClick={() => {
+                                                void copyToClipboard(billing?.account_owner?.email || '', 'email')
+                                                reportAccountOwnerClicked({
+                                                    name: billing?.account_owner?.name || '',
+                                                    email: billing?.account_owner?.email || '',
+                                                })
+                                            }}
+                                            render={
+                                                <ButtonPrimitive
+                                                    menuItem
+                                                    tooltip="This is your dedicated PostHog human. Click to copy their email. They can help you with trying out new products, solving problems, and reducing your spend."
+                                                    tooltipPlacement="right"
+                                                    data-attr="top-menu-account-owner"
+                                                >
+                                                    <ProfilePicture
+                                                        user={{
+                                                            first_name: billing?.account_owner?.name || '',
+                                                            email: billing?.account_owner?.email || '',
+                                                        }}
+                                                        size="xs"
+                                                    />
+                                                    <span className="truncate font-semibold">
+                                                        {billing?.account_owner?.name || ''}
+                                                    </span>
+                                                    <div className="ml-auto">
+                                                        <IconCopy />
+                                                    </div>
+                                                </ButtonPrimitive>
+                                            }
+                                        />
+                                    </>
+                                )}
                             </div>
                         </ScrollableShadows>
                     </Menu.Popup>

@@ -1,34 +1,34 @@
 import { Menu } from '@base-ui/react/menu'
 import { useActions, useValues } from 'kea'
 
-import { IconCopy, IconGear, IconLeave, IconPlusSmall, IconReceipt } from '@posthog/icons'
+import { IconLeave, IconPlusSmall, IconReceipt, IconSearch } from '@posthog/icons'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Link } from 'lib/lemon-ui/Link/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture/ProfilePicture'
 import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo/UploadedLogo'
-import { IconBlank } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { DropdownMenuSeparator } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { Label } from 'lib/ui/Label/Label'
 import { MenuOpenIndicator } from 'lib/ui/Menus/Menus'
-import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { billingLogic } from 'scenes/billing/billingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { globalModalsLogic } from '~/layout/GlobalModals'
 import { AccessLevelIndicator } from '~/layout/navigation/AccessLevelIndicator'
+import { AvailableFeature } from '~/types'
 
 import { RenderKeybind } from '../AppShortcuts/AppShortcutMenu'
 import { keyBinds } from '../AppShortcuts/shortcuts'
 import { ScrollableShadows } from '../ScrollableShadows/ScrollableShadows'
+import { upgradeModalLogic } from '../UpgradeModal/upgradeModalLogic'
 import { OrgModal } from './OrgModal'
 import { ProjectModal } from './ProjectModal'
 import { newAccountMenuLogic } from './newAccountMenuLogic'
@@ -39,17 +39,19 @@ interface AccountMenuProps {
 
 export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.Element {
     const { user } = useValues(userLogic)
-    const { currentOrganization } = useValues(organizationLogic)
     const { isCloudOrDev } = useValues(preflightLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const { billing } = useValues(billingLogic)
     const { showInviteModal } = useActions(inviteLogic)
     const { reportInviteMembersButtonClicked } = useActions(eventUsageLogic)
-    const { reportAccountOwnerClicked } = useActions(eventUsageLogic)
     const { logout } = useActions(userLogic)
     const { currentTeam } = useValues(teamLogic)
     const { isAccountMenuOpen } = useValues(newAccountMenuLogic)
     const { setAccountMenuOpen, openProjectSwitcher, openOrgSwitcher } = useActions(newAccountMenuLogic)
+    const { preflight } = useValues(preflightLogic)
+    const { currentOrganization } = useValues(organizationLogic)
+    const { guardAvailableFeature } = useValues(upgradeModalLogic)
+    const { showCreateProjectModal } = useActions(globalModalsLogic)
+    const { showCreateOrganizationModal } = useActions(globalModalsLogic)
 
     const projectNameStartsWithEmoji = currentTeam?.name?.match(/^\p{Emoji}/u) !== null
     const projectNameWithoutFirstEmoji = projectNameStartsWithEmoji
@@ -70,28 +72,36 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                             variant="panel"
                             data-attr="menu-item-me"
                             tooltip={
-                                <>
-                                    Account menu
-                                    <RenderKeybind keybind={[keyBinds.newAccountMenu]} className="ml-1" />
-                                </>
+                                <div className="flex flex-col gap-1">
+                                    <div>
+                                        Account menu
+                                        <RenderKeybind keybind={[keyBinds.newAccountMenu]} className="ml-1" />
+                                    </div>
+                                    <div>
+                                        Organization:{' '}
+                                        {currentOrganization ? currentOrganization.name : 'Select organization'}
+                                    </div>
+                                    <div>Project: {currentTeam ? currentTeam.name : 'Select project'}</div>
+                                </div>
                             }
                         >
                             {isAuthenticatedTeam(currentTeam) && (
-                                <>
-                                    <div
-                                        className={cn(
-                                            'Lettermark bg-[var(--color-bg-fill-button-tertiary-active)] size-5 dark:text-tertiary',
-                                            {
-                                                'size-[30px] rounded': isLayoutNavCollapsed,
-                                            }
-                                        )}
-                                    >
-                                        {String.fromCodePoint(currentTeam.name.codePointAt(0)!).toLocaleUpperCase()}
-                                    </div>
+                                <div className="flex items-center gap-2">
+                                    {currentOrganization ? (
+                                        <UploadedLogo
+                                            name={currentOrganization.name}
+                                            entityId={currentOrganization.id}
+                                            mediaId={currentOrganization.logo_media_id}
+                                            size="small"
+                                        />
+                                    ) : (
+                                        <UploadedLogo name="?" entityId="" mediaId="" size="xsmall" />
+                                    )}
+
                                     {!isLayoutNavCollapsed && (
                                         <span className="truncate">{projectNameWithoutFirstEmoji ?? 'Project'}</span>
                                     )}
-                                </>
+                                </div>
                             )}
                             {!isLayoutNavCollapsed && <MenuOpenIndicator />}
                         </ButtonPrimitive>
@@ -123,7 +133,7 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                                 menuItem: true,
                                                 truncate: true,
                                             }}
-                                            tooltip="Account settings"
+                                            tooltip="User settings"
                                             tooltipPlacement="right"
                                             data-attr="top-menu-account-owner"
                                         >
@@ -132,15 +142,33 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                                 <span className="font-semibold truncate">{user?.first_name}</span>
                                                 <span className="text-tertiary text-xs truncate">{user?.email}</span>
                                             </span>
-                                            <div className="ml-auto">
-                                                <IconGear className="text-tertiary" />
-                                            </div>
                                         </Link>
                                     )}
                                 />
 
-                                <Label intent="menu" className="px-2 mt-2">
+                                <Label intent="menu" className="pl-2 mt-2 relative">
                                     Projects
+                                    {preflight?.can_create_org && (
+                                        <ButtonPrimitive
+                                            iconOnly
+                                            tooltip="Create a new project"
+                                            size="sm"
+                                            className="absolute right-0 -top-1"
+                                            data-attr="new-project-button"
+                                            onClick={() => {
+                                                guardAvailableFeature(
+                                                    AvailableFeature.ORGANIZATIONS_PROJECTS,
+                                                    () => {
+                                                        setAccountMenuOpen(false)
+                                                        showCreateProjectModal()
+                                                    },
+                                                    { currentUsage: currentOrganization?.teams?.length }
+                                                )
+                                            }}
+                                        >
+                                            <IconPlusSmall className="text-tertiary" />
+                                        </ButtonPrimitive>
+                                    )}
                                 </Label>
                                 <DropdownMenuSeparator />
 
@@ -167,11 +195,6 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                                 <span className="truncate font-semibold">
                                                     {currentTeam ? projectNameWithoutFirstEmoji : 'Select project'}
                                                 </span>
-                                                {currentTeam && (
-                                                    <div className="ml-auto flex items-center gap-1">
-                                                        <IconGear className="text-tertiary" />
-                                                    </div>
-                                                )}
                                             </Link>
                                         )}
                                     />
@@ -199,8 +222,8 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                     onClick={() => openProjectSwitcher()}
                                     render={
                                         <ButtonPrimitive menuItem data-attr="top-menu-all-projects">
-                                            <IconBlank />
-                                            All projects
+                                            <IconSearch />
+                                            Switch project
                                             <span className="ml-auto text-tertiary text-xs">
                                                 <RenderKeybind keybind={[keyBinds.projectSwitcher]} />
                                             </span>
@@ -208,8 +231,29 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                     }
                                 />
 
-                                <Label intent="menu" className="px-2 mt-2">
+                                <Label intent="menu" className="px-2 mt-2 relative">
                                     Organizations
+                                    {preflight?.can_create_org && (
+                                        <ButtonPrimitive
+                                            iconOnly
+                                            tooltip="Create a new organization"
+                                            size="sm"
+                                            className="absolute right-0 -top-1"
+                                            data-attr="new-organization-button"
+                                            onClick={() => {
+                                                guardAvailableFeature(
+                                                    AvailableFeature.ORGANIZATIONS_PROJECTS,
+                                                    () => {
+                                                        setAccountMenuOpen(false)
+                                                        showCreateOrganizationModal()
+                                                    },
+                                                    { guardOnCloud: false }
+                                                )
+                                            }}
+                                        >
+                                            <IconPlusSmall className="text-tertiary" />
+                                        </ButtonPrimitive>
+                                    )}
                                 </Label>
                                 <DropdownMenuSeparator />
                                 <Menu.Item
@@ -242,7 +286,6 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                             {currentOrganization && (
                                                 <div className="ml-auto flex items-center gap-1">
                                                     <AccessLevelIndicator organization={currentOrganization} />
-                                                    <IconGear className="text-tertiary" />
                                                 </div>
                                             )}
                                         </Link>
@@ -281,8 +324,8 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                     }}
                                     render={
                                         <ButtonPrimitive menuItem data-attr="top-menu-all-organizations">
-                                            <IconBlank />
-                                            All organizations
+                                            <IconSearch />
+                                            Switch organization
                                             <span className="ml-auto text-tertiary text-xs">
                                                 <RenderKeybind keybind={[keyBinds.orgSwitcher]} />
                                             </span>
@@ -291,47 +334,6 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                 />
 
                                 <DropdownMenuSeparator />
-
-                                {billing?.account_owner?.email && billing?.account_owner?.name && (
-                                    <>
-                                        <Label intent="menu" className="px-2 mt-2">
-                                            YOUR POSTHOG HUMAN
-                                        </Label>
-                                        <DropdownMenuSeparator />
-                                        <Menu.Item
-                                            onClick={() => {
-                                                void copyToClipboard(billing?.account_owner?.email || '', 'email')
-                                                reportAccountOwnerClicked({
-                                                    name: billing?.account_owner?.name || '',
-                                                    email: billing?.account_owner?.email || '',
-                                                })
-                                            }}
-                                            render={
-                                                <ButtonPrimitive
-                                                    menuItem
-                                                    tooltip="This is your dedicated PostHog human. Click to copy their email. They can help you with trying out new products, solving problems, and reducing your spend."
-                                                    tooltipPlacement="right"
-                                                    data-attr="top-menu-account-owner"
-                                                >
-                                                    <ProfilePicture
-                                                        user={{
-                                                            first_name: billing?.account_owner?.name || '',
-                                                            email: billing?.account_owner?.email || '',
-                                                        }}
-                                                        size="xs"
-                                                    />
-                                                    <span className="truncate font-semibold">
-                                                        {billing?.account_owner?.name || ''}
-                                                    </span>
-                                                    <div className="ml-auto">
-                                                        <IconCopy />
-                                                    </div>
-                                                </ButtonPrimitive>
-                                            }
-                                        />
-                                        <DropdownMenuSeparator />
-                                    </>
-                                )}
 
                                 <Menu.Item
                                     onClick={() => logout()}

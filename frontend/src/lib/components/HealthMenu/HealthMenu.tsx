@@ -6,6 +6,7 @@ import { IconCloud, IconCode, IconDatabase, IconStethoscope, IconWarning } from 
 import { Link } from 'lib/lemon-ui/Link/Link'
 import { IconWithBadge } from 'lib/lemon-ui/icons'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { MenuOpenIndicator } from 'lib/ui/Menus/Menus'
 import { urls } from 'scenes/urls'
 
 import { sidePanelHealthLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelHealthLogic'
@@ -16,7 +17,7 @@ import { keyBinds } from '../AppShortcuts/shortcuts'
 import { ScrollableShadows } from '../ScrollableShadows/ScrollableShadows'
 import { healthMenuLogic } from './healthMenuLogic'
 
-export function HealthMenu(): JSX.Element {
+export function HealthMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Element {
     const {
         isHealthMenuOpen,
         postHogStatus,
@@ -57,21 +58,30 @@ export function HealthMenu(): JSX.Element {
                 render={
                     <ButtonPrimitive
                         tooltip={
-                            <>
-                                Health menu
-                                <RenderKeybind keybind={[keyBinds.healthMenu]} className="ml-1" />
-                            </>
+                            !iconOnly ? (
+                                <>
+                                    Health menu
+                                    <RenderKeybind keybind={[keyBinds.healthMenu]} className="ml-1" />
+                                </>
+                            ) : undefined
                         }
-                        tooltipPlacement="top"
+                        tooltipPlacement="right"
                         tooltipCloseDelayMs={0}
-                        iconOnly
+                        iconOnly={iconOnly}
                         className="group"
+                        menuItem={!iconOnly}
                     >
                         <span className="flex text-secondary group-hover:text-primary">
                             <IconWithBadge size="xsmall" content={triggerBadgeContent} status={triggerBadgeStatus}>
                                 <IconStethoscope className="size-4.5" />
                             </IconWithBadge>
                         </span>
+                        {!iconOnly && (
+                            <>
+                                <span className="-ml-[2px]">Health</span>
+                                <MenuOpenIndicator direction="up" />
+                            </>
+                        )}
                     </ButtonPrimitive>
                 }
             />
