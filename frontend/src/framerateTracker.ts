@@ -1,3 +1,4 @@
+// Inspired by https://github.com/soverenio/framerate-react (MIT)
 import type { PostHog } from 'posthog-js'
 
 const LONG_FRAME_THRESHOLD_MS = 50
