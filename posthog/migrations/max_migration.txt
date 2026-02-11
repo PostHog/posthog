@@ -1,1 +1,1 @@
-1000_create_healthissue_table
+1001_fix_person_property_in_operator

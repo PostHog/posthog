@@ -618,13 +618,22 @@ async def initialize_self_capture_api_token():
         posthoganalytics.host = settings.SITE_URL
 
 
-def get_default_event_name(team: "Team"):
+def get_default_event_name(team: "Team") -> str | None:
     from posthog.models import EventDefinition
 
     if EventDefinition.objects.filter(team=team, name="$pageview").exists():
         return "$pageview"
     elif EventDefinition.objects.filter(team=team, name="$screen").exists():
         return "$screen"
+
+    # Only default to "all events" (None) if the team has other events
+    # This avoids the race condition where a new user sends their first pageview
+    # but we've already computed the default as "all events"
+    has_any_events = EventDefinition.objects.filter(team=team).exists()
+    if has_any_events:
+        return None  # None means "all events"
+
+    # No events at all - default to $pageview (most common case for new teams)
     return "$pageview"
 
 
