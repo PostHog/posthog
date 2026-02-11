@@ -954,7 +954,12 @@ class ClickHousePrinter(HogQLPrinter):
         if self.context.output_format and is_top_level_query and (not part_of_select_union or is_last_query_in_union):
             clauses.append(f"FORMAT{space}{self.context.output_format}")
 
-        merged = self._merge_table_top_level_settings(node.settings) if is_top_level_query else node.settings
+        # When self.settings exists, table-level settings are merged in visit() instead
+        merged = (
+            self._merge_table_top_level_settings(node.settings)
+            if is_top_level_query and not self.settings
+            else node.settings
+        )
         if merged is not None:
             printed = self._print_settings(merged)
             if printed is not None:
