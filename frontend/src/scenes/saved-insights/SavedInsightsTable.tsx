@@ -15,7 +15,7 @@ import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/column
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { pluralize } from 'lib/utils'
-import { SavedInsightsEmptyState } from 'scenes/insights/EmptyStates'
+import { SavedInsightsEmptyState, SavedInsightsModalEmptyState } from 'scenes/insights/EmptyStates'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
 import { SavedInsightsFilters } from 'scenes/saved-insights/SavedInsightsFilters'
 import { urls } from 'scenes/urls'
@@ -213,7 +213,21 @@ export function SavedInsightsTable({ renderActionColumn, dashboard }: SavedInsig
                 </>
             )}
             {!insightsLoading && insights.count < 1 ? (
-                <SavedInsightsEmptyState filters={filters} usingFilters />
+                isExperimentEnabled ? (
+                    <SavedInsightsModalEmptyState
+                        search={filters.search}
+                        hasFilters={
+                            (filters.insightType !== undefined && filters.insightType !== 'All types') ||
+                            (filters.createdBy !== undefined && filters.createdBy !== 'All users') ||
+                            (filters.tags !== undefined && filters.tags.length > 0)
+                        }
+                        onClearFilters={() =>
+                            setModalFilters({ insightType: 'All types', createdBy: 'All users', tags: [] })
+                        }
+                    />
+                ) : (
+                    <SavedInsightsEmptyState filters={filters} usingFilters />
+                )
             ) : (
                 <div className="overflow-x-hidden">
                     <LemonTable
@@ -243,8 +257,8 @@ export function SavedInsightsTable({ renderActionColumn, dashboard }: SavedInsig
                             isExperimentEnabled
                                 ? (insight) =>
                                       isInsightInDashboard(insight, dashboard?.tiles)
-                                          ? 'group bg-white border-l-2 border-l-success cursor-pointer hover:bg-success-highlight'
-                                          : 'group cursor-pointer hover:bg-white border-l-2 border-l-transparent hover:border-l-success/50'
+                                          ? 'group bg-success-highlight border-l-2 border-l-success cursor-pointer hover:bg-success-highlight/70'
+                                          : 'group cursor-pointer hover:bg-success-highlight border-l-2 border-l-transparent hover:border-l-success/50'
                                 : undefined
                         }
                         onRow={

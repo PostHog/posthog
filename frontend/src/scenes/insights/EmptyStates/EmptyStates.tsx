@@ -640,6 +640,31 @@ const SAVED_INSIGHTS_COPY = {
     },
 }
 
+export function SavedInsightsModalEmptyState({
+    search,
+    hasFilters,
+    onClearFilters,
+}: {
+    search?: string
+    hasFilters: boolean
+    onClearFilters: () => void
+}): JSX.Element {
+    return (
+        <div className="flex flex-col items-center justify-center py-10 text-center">
+            <div className="illustration-main w-40 m-auto">
+                <BuilderHog3 className="w-full h-full" />
+            </div>
+            <h3 className="mb-1">{search ? `No insights matching "${search}"` : 'No matching insights'}</h3>
+            {hasFilters && <p className="text-secondary mb-3">Try clearing your filters to broaden the search</p>}
+            {hasFilters && (
+                <LemonButton type="secondary" onClick={onClearFilters}>
+                    Clear filters
+                </LemonButton>
+            )}
+        </div>
+    )
+}
+
 export function SavedInsightsEmptyState({
     filters,
     usingFilters,

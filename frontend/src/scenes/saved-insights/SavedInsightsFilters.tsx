@@ -160,7 +160,11 @@ export function SavedInsightsFilters({
                     <LemonSelect
                         dropdownMatchSelectWidth={false}
                         size="small"
-                        className={!insightType || insightType === 'All types' ? 'LemonButton--status-alt' : undefined}
+                        className={
+                            !insightType || insightType === 'All types'
+                                ? 'LemonButton--status-alt'
+                                : 'LemonButton--active'
+                        }
                         onChange={(value) => {
                             setFilters({ insightType: value as string })
                         }}
