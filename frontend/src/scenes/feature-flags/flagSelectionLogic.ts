@@ -219,11 +219,20 @@ export const flagSelectionLogic = kea<flagSelectionLogicType>([
             actions.setPreviouslyCheckedIndex(index)
         },
         selectAll: () => {
-            const flagIds = values.displayedFlags
+            const { selectedFlagIds, displayedFlags, isAllSelected } = values
+            const pageIds = displayedFlags
                 .filter((f: FeatureFlagType) => f.can_edit)
                 .map((f: FeatureFlagType) => f.id)
                 .filter((id: number | null): id is number => id !== null)
-            actions.setSelectedFlagIds(flagIds)
+
+            if (isAllSelected) {
+                // All page flags are selected, so deselect them (toggle off)
+                const pageIdSet = new Set(pageIds)
+                actions.setSelectedFlagIds(selectedFlagIds.filter((id: number) => !pageIdSet.has(id)))
+            } else {
+                // Add all page flags to the existing selection
+                actions.setSelectedFlagIds([...new Set([...selectedFlagIds, ...pageIds])])
+            }
         },
         selectAllMatching: () => {
             // Fetch all matching IDs from the backend
