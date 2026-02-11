@@ -1,5 +1,5 @@
 import { instrumentFn } from '../../common/tracing/tracing-utils'
-import { TopHogMetricType, type TopHogPipeOptions } from '../tophog/tophog'
+import { type TopHogPipeOptions } from '../tophog/tophog'
 import { Pipeline, PipelineResultWithContext } from './pipeline.interface'
 import { PipelineResult, isOkResult } from './results'
 import { ProcessingStep } from './steps'
@@ -33,29 +33,18 @@ export class StepPipeline<TInput, TIntermediate, TOutput, C> implements Pipeline
             }
         }
 
-        const startTime = this.topHogOptions?.length ? performance.now() : 0
+        const topHog = previousResultWithContext.context.topHog
+        const ends =
+            this.topHogOptions?.length && topHog
+                ? this.topHogOptions.map((m) => m.start(topHog, previousResult.value))
+                : undefined
 
         const currentResult = await instrumentFn({ key: this.stepName, sendException: false }, () =>
             this.currentStep(previousResult.value)
         )
 
-        if (this.topHogOptions?.length && isOkResult(currentResult)) {
-            const topHog = previousResultWithContext.context.topHog
-            if (topHog) {
-                const elapsedMs = performance.now() - startTime
-                for (const metric of this.topHogOptions) {
-                    const name = metric.name
-                    const key = metric.key(previousResult.value)
-                    switch (metric.type) {
-                        case TopHogMetricType.Count:
-                            topHog.increment(`${name}.count`, key, 1, metric.maxKeys)
-                            break
-                        case TopHogMetricType.Time:
-                            topHog.increment(`${name}.time_ms`, key, elapsedMs, metric.maxKeys)
-                            break
-                    }
-                }
-            }
+        if (ends) {
+            ends.forEach((end) => end())
         }
 
         return {

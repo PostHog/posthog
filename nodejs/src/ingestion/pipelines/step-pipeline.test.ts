@@ -1,6 +1,6 @@
 import { Message } from 'node-rdkafka'
 
-import { TopHogMetricType } from '../tophog/tophog'
+import { counter, timing } from '../tophog/tophog'
 import { createContext } from './helpers'
 import { TopHogTracker } from './pipeline.interface'
 import { dlq, drop, isOkResult, ok } from './results'
@@ -425,7 +425,7 @@ describe('StepPipeline', () => {
 
             const previous = new StartPipeline<{ teamId: number }, unknown>()
             const pipeline = new StepPipeline(myStep, previous, [
-                { key: (input) => ({ team_id: String(input.teamId) }), type: TopHogMetricType.Count, name: 'events' },
+                counter('events', (input) => ({ team_id: String(input.teamId) })),
             ])
 
             const input = createContext(ok({ teamId: 42 }), { message, topHog: mockTopHog })
@@ -443,7 +443,7 @@ describe('StepPipeline', () => {
 
             const previous = new StartPipeline<{ teamId: number }, unknown>()
             const pipeline = new StepPipeline(myStep, previous, [
-                { key: (input) => ({ team_id: String(input.teamId) }), type: TopHogMetricType.Time, name: 'events' },
+                timing('events', (input) => ({ team_id: String(input.teamId) })),
             ])
 
             const input = createContext(ok({ teamId: 42 }), { message, topHog: mockTopHog })
@@ -466,12 +466,8 @@ describe('StepPipeline', () => {
 
             const previous = new StartPipeline<{ teamId: number; userId: string }, unknown>()
             const pipeline = new StepPipeline(myStep, previous, [
-                {
-                    key: (input) => ({ team_id: String(input.teamId) }),
-                    type: TopHogMetricType.Count,
-                    name: 'by_team',
-                },
-                { key: (input) => ({ user_id: input.userId }), type: TopHogMetricType.Time, name: 'by_user' },
+                counter('by_team', (input) => ({ team_id: String(input.teamId) })),
+                timing('by_user', (input) => ({ user_id: input.userId })),
             ])
 
             const input = createContext(ok({ teamId: 42, userId: 'u_1' }), { message, topHog: mockTopHog })
@@ -492,11 +488,7 @@ describe('StepPipeline', () => {
 
             const previous = new StartPipeline<{ teamId: number }, unknown>()
             const pipeline = new StepPipeline(step, previous, [
-                {
-                    key: (input) => ({ team_id: String(input.teamId) }),
-                    type: TopHogMetricType.Count,
-                    name: 'heatmap_events',
-                },
+                counter('heatmap_events', (input) => ({ team_id: String(input.teamId) })),
             ])
 
             const input = createContext(ok({ teamId: 7 }), { message, topHog: mockTopHog })
@@ -505,19 +497,19 @@ describe('StepPipeline', () => {
             expect(mockTopHog.increment).toHaveBeenCalledWith('heatmap_events.count', { team_id: '7' }, 1, undefined)
         })
 
-        it('should not track on non-OK results', async () => {
+        it('should track even on non-OK results', async () => {
             const mockTopHog = createMockTopHog()
             const step = jest.fn().mockResolvedValue(dlq('bad data'))
 
             const previous = new StartPipeline<{ teamId: number }, unknown>()
             const pipeline = new StepPipeline(step, previous, [
-                { key: (input) => ({ team_id: String(input.teamId) }), type: TopHogMetricType.Count, name: 'events' },
+                counter('events', (input) => ({ team_id: String(input.teamId) })),
             ])
 
             const input = createContext(ok({ teamId: 1 }), { message, topHog: mockTopHog })
             await pipeline.process(input)
 
-            expect(mockTopHog.increment).not.toHaveBeenCalled()
+            expect(mockTopHog.increment).toHaveBeenCalledWith('events.count', { team_id: '1' }, 1, undefined)
         })
 
         it('should not track when previous result is not OK', async () => {
@@ -526,7 +518,7 @@ describe('StepPipeline', () => {
 
             const previous = new StartPipeline<{ teamId: number }, unknown>()
             const pipeline = new StepPipeline(step, previous, [
-                { key: (input) => ({ team_id: String(input.teamId) }), type: TopHogMetricType.Count, name: 'events' },
+                counter('events', (input) => ({ team_id: String(input.teamId) })),
             ])
 
             const input = createContext(drop<{ teamId: number }>('dropped'), {
@@ -544,7 +536,7 @@ describe('StepPipeline', () => {
 
             const previous = new StartPipeline<{ teamId: number }, unknown>()
             const pipeline = new StepPipeline(step, previous, [
-                { key: (input) => ({ team_id: String(input.teamId) }), type: TopHogMetricType.Count, name: 'events' },
+                counter('events', (input) => ({ team_id: String(input.teamId) })),
             ])
 
             const input = createContext(ok({ teamId: 1 }), { message })
@@ -562,7 +554,7 @@ describe('StepPipeline', () => {
 
             const previous = new StartPipeline<{ teamId: number }, unknown>()
             const pipeline = new StepPipeline(trackedStep, previous, [
-                { key: (input) => ({ team_id: String(input.teamId) }), type: TopHogMetricType.Count, name: 'events' },
+                counter('events', (input) => ({ team_id: String(input.teamId) })),
             ])
 
             const input = createContext(ok({ teamId: 5 }), { message, topHog: mockTopHog })

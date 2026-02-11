@@ -1,5 +1,6 @@
 import { KafkaProducerWrapper } from '../../kafka/producer'
 import { parseJSON } from '../../utils/json-parse'
+import { TopHogTracker } from '../pipelines/pipeline.interface'
 
 export interface TopHogOptions {
     kafkaProducer: KafkaProducerWrapper
@@ -12,20 +13,42 @@ export interface TopHogOptions {
     labels?: Record<string, string>
 }
 
-export enum TopHogMetricType {
-    Count,
-    Time,
+export interface TopHogMetricDescriptor<T> {
+    start(tracker: TopHogTracker, input: T): () => void
 }
 
-export interface TopHogMetric<T> {
-    /** Must return an object with stable property order — JSON.stringify is used for internal deduplication. */
-    key: (input: T) => Record<string, string>
-    type: TopHogMetricType
-    name: string
-    maxKeys?: number
+export type TopHogPipeOptions<T> = TopHogMetricDescriptor<T>[]
+
+export function counter<T>(
+    name: string,
+    key: (input: T) => Record<string, string>,
+    opts?: { maxKeys?: number }
+): TopHogMetricDescriptor<T> {
+    return {
+        start(tracker: TopHogTracker, input: T): () => void {
+            const k = key(input)
+            return () => {
+                tracker.increment(`${name}.count`, k, 1, opts?.maxKeys)
+            }
+        },
+    }
 }
 
-export type TopHogPipeOptions<T> = TopHogMetric<T>[]
+export function timing<T>(
+    name: string,
+    key: (input: T) => Record<string, string>,
+    opts?: { maxKeys?: number }
+): TopHogMetricDescriptor<T> {
+    return {
+        start(tracker: TopHogTracker, input: T): () => void {
+            const k = key(input)
+            const startTime = performance.now()
+            return () => {
+                tracker.increment(`${name}.time_ms`, k, performance.now() - startTime, opts?.maxKeys)
+            }
+        },
+    }
+}
 
 interface TopHogConfig {
     kafkaProducer: KafkaProducerWrapper
