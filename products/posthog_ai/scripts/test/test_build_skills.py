@@ -379,7 +379,7 @@ def test_end_to_end_template_with_pydantic(tmp_path: Path) -> None:
             ---
             # E2E test
 
-            {{ pydantic_fields("_test_e2e_models.E2EModel") }}
+            {{ pydantic_schema("_test_e2e_models.E2EModel") }}
             """)
         )
 
@@ -396,19 +396,19 @@ def test_end_to_end_template_with_pydantic(tmp_path: Path) -> None:
         assert resource.name == "e2e-skill"
         assert resource.description == "End-to-end test skill"
         assert resource.files[0].path == "SKILL.md"
-        assert "| `title` |" in resource.files[0].content
+        assert '"title"' in resource.files[0].content
 
         skills_dist = tmp_path / "output" / "dist" / "skills"
         assert skills_dist.exists()
         skill_file = skills_dist / "e2e-skill" / "SKILL.md"
         assert skill_file.exists()
-        assert "| `title` |" in skill_file.read_text()
+        assert '"title"' in skill_file.read_text()
 
         zip_path = builder.pack()
         assert zip_path.exists()
         with zipfile.ZipFile(zip_path) as zf:
             assert "e2e-skill/SKILL.md" in zf.namelist()
-            assert "| `title` |" in zf.read("e2e-skill/SKILL.md").decode()
+            assert '"title"' in zf.read("e2e-skill/SKILL.md").decode()
 
     finally:
         del sys.modules["_test_e2e_models"]

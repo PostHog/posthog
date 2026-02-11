@@ -9,10 +9,11 @@ from __future__ import annotations
 
 import json
 import importlib
-from typing import Any
+
+from pydantic import BaseModel
 
 
-def _import_model(dotted_path: str) -> type[Any]:
+def _import_model(dotted_path: str) -> type[BaseModel]:
     """Import a class by its fully-qualified dotted path.
 
     Example: ``products.feature_flags.backend.max_tools.FeatureFlagCreationSchema``
@@ -24,6 +25,8 @@ def _import_model(dotted_path: str) -> type[Any]:
     cls = getattr(module, class_name, None)
     if cls is None:
         raise ImportError(f"{class_name} not found in {module_path}")
+    if not (isinstance(cls, type) and issubclass(cls, BaseModel)):
+        raise ImportError(f"{class_name} is not a Pydantic model")
     return cls
 
 
@@ -57,52 +60,3 @@ def pydantic_schema(dotted_path: str, indent: int = 2) -> str:
     model_cls = _import_model(dotted_path)
     schema = model_cls.model_json_schema()
     return json.dumps(schema, indent=indent)
-
-
-def pydantic_fields(dotted_path: str) -> str:
-    """Return a Markdown table describing the fields of a Pydantic model.
-
-    Columns: Field | Type | Required | Description
-
-    Usage in a template::
-
-        {{ pydantic_fields("products.feature_flags.backend.max_tools.FeatureFlagCreationSchema") }}
-    """
-    model_cls = _import_model(dotted_path)
-    schema = model_cls.model_json_schema()
-    required_set = set(schema.get("required", []))
-    properties = schema.get("properties", {})
-
-    rows: list[str] = []
-    rows.append("| Field | Type | Required | Description |")
-    rows.append("|-------|------|----------|-------------|")
-
-    for name, prop in properties.items():
-        field_type = json_schema_type_label(prop)
-        required = "yes" if name in required_set else "no"
-        description = prop.get("description", "").replace("\n", " ").replace("|", "\\|")
-        rows.append(f"| `{name}` | {field_type} | {required} | {description} |")
-
-    return "\n".join(rows)
-
-
-def pydantic_field_list(dotted_path: str) -> str:
-    """Return a bullet list of field names with their types.
-
-    Usage in a template::
-
-        {{ pydantic_field_list("products.surveys.backend.max_tools.CreateTemplateArgs") }}
-    """
-    model_cls = _import_model(dotted_path)
-    schema = model_cls.model_json_schema()
-    properties = schema.get("properties", {})
-
-    lines: list[str] = []
-    for name, prop in properties.items():
-        field_type = json_schema_type_label(prop)
-        desc = prop.get("description", "")
-        line = f"- **`{name}`** ({field_type})"
-        if desc:
-            line += f": {desc}"
-        lines.append(line)
-    return "\n".join(lines)

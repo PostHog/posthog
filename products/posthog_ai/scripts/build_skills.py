@@ -194,12 +194,10 @@ class SkillRenderer:
     """Renders skill source files to final markdown via Jinja2."""
 
     def __init__(self) -> None:
-        from products.posthog_ai.scripts.pydantic_schema import pydantic_field_list, pydantic_fields, pydantic_schema
+        from products.posthog_ai.scripts.pydantic_schema import pydantic_schema
 
         self.env = _create_jinja_env(
             pydantic_schema=pydantic_schema,
-            pydantic_fields=pydantic_fields,
-            pydantic_field_list=pydantic_field_list,
         )
 
     def render(self, source_file: Path) -> str:

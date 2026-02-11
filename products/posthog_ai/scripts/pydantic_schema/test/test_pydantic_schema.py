@@ -11,12 +11,7 @@ import pytest
 
 from pydantic import BaseModel, Field
 
-from products.posthog_ai.scripts.pydantic_schema import (
-    json_schema_type_label,
-    pydantic_field_list,
-    pydantic_fields,
-    pydantic_schema,
-)
+from products.posthog_ai.scripts.pydantic_schema import json_schema_type_label, pydantic_schema
 
 
 @pytest.mark.parametrize(
@@ -72,16 +67,6 @@ class SampleModel(BaseModel):
     count: int = Field(default=0, description="A counter")
 
 
-class TinyModel(BaseModel):
-    x: str = Field(description="The x field")
-    y: int = Field(default=0, description="The y field")
-
-
-class BulletModel(BaseModel):
-    alpha: str = Field(description="First")
-    beta: int = Field(description="Second")
-
-
 def test_pydantic_schema_renders_json(register_fake_module: Callable[..., None]) -> None:
     register_fake_module("_test_schema_models", "SampleModel", SampleModel)
     result = pydantic_schema("_test_schema_models.SampleModel")
@@ -89,18 +74,3 @@ def test_pydantic_schema_renders_json(register_fake_module: Callable[..., None])
     assert schema["properties"]["name"]["type"] == "string"
     assert schema["properties"]["count"]["type"] == "integer"
     assert "name" in schema.get("required", [])
-
-
-def test_pydantic_fields_renders_table(register_fake_module: Callable[..., None]) -> None:
-    register_fake_module("_test_fields_models", "TinyModel", TinyModel)
-    result = pydantic_fields("_test_fields_models.TinyModel")
-    assert "| `x` |" in result
-    assert "| `y` |" in result
-    assert "| Field | Type | Required | Description |" in result
-
-
-def test_pydantic_field_list_renders_bullets(register_fake_module: Callable[..., None]) -> None:
-    register_fake_module("_test_bullets_models", "BulletModel", BulletModel)
-    result = pydantic_field_list("_test_bullets_models.BulletModel")
-    assert "- **`alpha`** (string): First" in result
-    assert "- **`beta`** (integer): Second" in result
