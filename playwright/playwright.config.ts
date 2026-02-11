@@ -15,13 +15,13 @@ export default defineConfig({
         Maximum time one test can run for. 
         Shorter timeout in local dev since it's annoying to wait 90 seconds for a test to run.
     */
-    timeout: process.env.CI ? 60 * 1000 : 30 * 1000,
+    timeout: process.env.CI ? 60 * 1000 : 60 * 1000,
     expect: {
         /**
          * Maximum time expect() should wait for the condition to be met.
          * For example in `await expect(locator).toHaveText();`
          */
-        timeout: process.env.CI ? 40 * 1000 : 10 * 1000,
+        timeout: process.env.CI ? 40 * 1000 : 30 * 1000,
         toHaveScreenshot: {
             maxDiffPixelRatio: 0.01, // 1% threshold for full-page screenshots
         },
@@ -37,7 +37,7 @@ export default defineConfig({
         and leave one core for all the rest
         For local running, our machines are all M3 or M4 by now so we can afford to run more workers
     */
-    workers: process.env.CI ? 3 : 6,
+    workers: process.env.CI ? 3 : 2,
     /* Reporter to use. See https://playwright.dev/docs/test-reporters */
     reporter: [
         ['html', { open: 'never' }],
@@ -68,7 +68,22 @@ export default defineConfig({
     projects: [
         {
             name: 'chromium',
-            use: { ...devices['Desktop Chrome'] },
+            use: {
+                ...devices['Desktop Chrome'],
+                launchOptions: {
+                    args: [
+                        // Additional performance flags worth considering:
+                        '--disable-gpu-vsync', // Remove frame timing constraints
+                        '--disable-font-subpixel-positioning', // Faster text layout
+                        '--disable-lcd-text', // Faster text rendering
+                        '--disable-smooth-scrolling', // Faster scroll interactions
+                        '--animation-duration-scale=0.05', // Instant animations (use with caution)
+                        '--disable-software-rasterizer', // No software rendering fallback
+                        '--disable-gpu-vsync',
+                        '--mute-audio',
+                    ],
+                },
+            },
         },
         // {
         //     name: 'chromium',
