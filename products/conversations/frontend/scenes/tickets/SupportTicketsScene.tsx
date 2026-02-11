@@ -279,6 +279,23 @@ export function SupportTicketsScene(): JSX.Element {
                     {
                         title: 'Assignee',
                         key: 'assignee',
+                        sorter: (a, b) => {
+                            const aAssignee = a.assignee
+                            const bAssignee = b.assignee
+                            if (!aAssignee && !bAssignee) {
+                                return 0
+                            }
+                            if (!aAssignee) {
+                                return 1
+                            }
+                            if (!bAssignee) {
+                                return -1
+                            }
+                            if (aAssignee.type !== bAssignee.type) {
+                                return aAssignee.type.localeCompare(bAssignee.type)
+                            }
+                            return String(aAssignee.id).localeCompare(String(bAssignee.id))
+                        },
                         render: (_, ticket) => (
                             <AssigneeResolver assignee={ticket.assignee ?? null}>
                                 {({ assignee }) => <AssigneeDisplay assignee={assignee} size="small" />}
