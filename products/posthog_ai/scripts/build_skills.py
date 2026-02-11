@@ -1,33 +1,36 @@
 #!/usr/bin/env python3
 # ruff: noqa: T201 allow print statements
 """
-Build coding agent skills from products/*/skills/ into a context-mill-compatible
-manifest for MCP resource distribution.
+Build coding agent skills from products/*/skills/ into rendered files and a ZIP
+archive for distribution.
 
 Skills can be:
 - Plain markdown (SKILL.md) — copied as-is
 - Jinja2 templates (SKILL.md.j2) — rendered with Python context including Pydantic schema helpers
 
 Each skill must have YAML frontmatter with at least ``name`` and ``description`` fields.
-The build produces a manifest.json in the ContextMillManifest format consumed by
-the MCP server at services/mcp/.
+The build renders skills to dist/skills/{skill_name}/ (gitignored, human-readable)
+and optionally packages them into dist/skills.zip (checked into git).
 
 Requires the project's Python environment (managed by uv) for template rendering
 that imports Pydantic models from product code.
 
 Usage:
-    hogli build:skills          # Build all product skills
-    hogli build:skills --check  # Check if built skills are up-to-date (for CI)
+    hogli build:skills          # Build all product skills to dist/skills/
+    hogli pack:skills           # Build and package into dist/skills.zip
+    hogli build:skills --check  # Check if dist/skills.zip is up-to-date (for CI)
     hogli build:skills --list   # List discovered skills without building
     hogli lint:skills           # Validate skill sources without rendering
 """
 
 from __future__ import annotations
 
+import io
 import os
 import re
 import sys
-import json
+import shutil
+import zipfile
 import argparse
 import textwrap
 from pathlib import Path
@@ -40,6 +43,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
 MANIFEST_VERSION = "1.0.0"
+_ZIP_FIXED_TIME = (2025, 1, 1, 0, 0, 0)
 
 _FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 _TEST_DIR_NAMES = {"test", "tests"}
@@ -218,6 +222,8 @@ class SkillBuilder:
         self.repo_root = repo_root
         self.products_dir = products_dir
         self.output_dir = output_dir
+        self.dist_dir = output_dir / "dist"
+        self.skills_dist_dir = self.dist_dir / "skills"
         self.discoverer = SkillDiscoverer(products_dir)
 
     def collect_skill_files(self, skill_dir: Path, renderer: SkillRenderer) -> list[SkillFile]:
@@ -296,61 +302,82 @@ class SkillBuilder:
         return SkillManifest(resources=resources)
 
     def build_all(self, *, dry_run: bool = False) -> SkillManifest:
-        """Build all product skills and write the manifest."""
+        """Build all product skills and write rendered files to skills_dist/."""
         skills = self.discoverer.discover()
         renderer = SkillRenderer()
         manifest = self.build_manifest(skills, renderer)
 
         if not dry_run and manifest.resources:
-            self.output_dir.mkdir(parents=True, exist_ok=True)
-            manifest_path = self.output_dir / "manifest.json"
-            manifest_path.write_text(json.dumps(manifest.model_dump(), indent=4) + "\n")
+            if self.skills_dist_dir.exists():
+                shutil.rmtree(self.skills_dist_dir)
+            for resource in manifest.resources:
+                for skill_file in resource.files:
+                    file_path = self.skills_dist_dir / resource.name / skill_file.path
+                    file_path.parent.mkdir(parents=True, exist_ok=True)
+                    file_path.write_text(skill_file.content)
 
         return manifest
 
-    def check_all(self) -> bool:
-        """Check that the built manifest is up-to-date.
+    def pack(self) -> Path:
+        """Build skills and package skills_dist/ into dist/skills.zip."""
+        self.build_all()
+        return self._zip_skills_dist()
 
-        Returns True if the manifest is current, False otherwise.
-        """
+    def _zip_skills_dist(self) -> Path:
+        """Create dist/skills.zip from the dist/skills/ directory."""
+        zip_path = self.dist_dir / "skills.zip"
+        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+            for file_path in sorted(self.skills_dist_dir.rglob("*")):
+                if file_path.is_file():
+                    arcname = str(file_path.relative_to(self.skills_dist_dir))
+                    info = zipfile.ZipInfo(arcname, date_time=_ZIP_FIXED_TIME)
+                    zf.writestr(info, file_path.read_text())
+        return zip_path
+
+    def _build_zip_bytes(self) -> bytes:
+        """Build skills and return what the ZIP contents would be, without writing to disk."""
         skills = self.discoverer.discover()
+        renderer = SkillRenderer()
+        manifest = self.build_manifest(skills, renderer)
 
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            for resource in manifest.resources:
+                for skill_file in resource.files:
+                    arcname = f"{resource.name}/{skill_file.path}"
+                    info = zipfile.ZipInfo(arcname, date_time=_ZIP_FIXED_TIME)
+                    zf.writestr(info, skill_file.content)
+        return buf.getvalue()
+
+    def check_all(self) -> bool:
+        """Check that dist/skills.zip is up-to-date with skill sources.
+
+        Returns True if the ZIP is current, False otherwise.
+        """
+        zip_path = self.dist_dir / "skills.zip"
+
+        skills = self.discoverer.discover()
         if not skills:
-            manifest_path = self.output_dir / "manifest.json"
-            if manifest_path.exists():
-                print(f"STALE:   {manifest_path.relative_to(self.repo_root)} (no skills found, but manifest exists)")
+            if zip_path.exists():
+                print(f"STALE:   {zip_path.relative_to(self.repo_root)} (no skills found, but ZIP exists)")
                 return False
             print("No product skills found.")
             return True
 
+        if not zip_path.exists():
+            print(f"MISSING: {zip_path.relative_to(self.repo_root)}")
+            return False
+
+        expected_bytes = self._build_zip_bytes()
+        actual_bytes = zip_path.read_bytes()
+
+        if actual_bytes != expected_bytes:
+            print(f"STALE:   {zip_path.relative_to(self.repo_root)}")
+            return False
+
         renderer = SkillRenderer()
-        expected_manifest = self.build_manifest(skills, renderer)
-        manifest_path = self.output_dir / "manifest.json"
-
-        if not manifest_path.exists():
-            print(f"MISSING: {manifest_path.relative_to(self.repo_root)}")
-            return False
-
-        actual_manifest = json.loads(manifest_path.read_text())
-        expected_dict = expected_manifest.model_dump()
-        if actual_manifest != expected_dict:
-            print(f"STALE:   {manifest_path.relative_to(self.repo_root)}")
-
-            actual_names = {r["name"] for r in actual_manifest.get("resources", [])}
-            expected_names = {r.name for r in expected_manifest.resources}
-            for added in expected_names - actual_names:
-                print(f"  + {added} (new)")
-            for removed in actual_names - expected_names:
-                print(f"  - {removed} (removed)")
-            for skill_name in actual_names & expected_names:
-                actual_r = next(r for r in actual_manifest["resources"] if r["name"] == skill_name)
-                expected_r = next(r for r in expected_manifest.resources if r.name == skill_name)
-                if actual_r != expected_r.model_dump():
-                    print(f"  ~ {skill_name} (changed)")
-
-            return False
-
-        print(f"OK:      {manifest_path.relative_to(self.repo_root)} ({len(expected_manifest.resources)} skill(s))")
+        manifest = self.build_manifest(skills, renderer)
+        print(f"OK:      {zip_path.relative_to(self.repo_root)} ({len(manifest.resources)} skill(s))")
         return True
 
     def _collect_lint_files(self, skill: DiscoveredSkill) -> list[tuple[Path, int]]:
@@ -494,7 +521,12 @@ def main() -> None:
     parser.add_argument(
         "--check",
         action="store_true",
-        help="Check if built manifest is up-to-date (exit 1 if not)",
+        help="Check if dist/skills.zip is up-to-date (exit 1 if not)",
+    )
+    parser.add_argument(
+        "--pack",
+        action="store_true",
+        help="Build and package skills into dist/skills.zip",
     )
     parser.add_argument(
         "--list",
@@ -509,7 +541,7 @@ def main() -> None:
     args = parser.parse_args()
 
     products_dir = REPO_ROOT / "products"
-    output_dir = REPO_ROOT / "services" / "mcp" / "skills"
+    output_dir = REPO_ROOT / "products" / "posthog_ai"
     builder = SkillBuilder(REPO_ROOT, products_dir, output_dir)
 
     if args.lint:
@@ -525,9 +557,20 @@ def main() -> None:
 
     if args.check:
         if not builder.check_all():
-            print("\nSkills are out of date. Run `hogli build:skills` to rebuild.")
+            print("\nSkills are out of date. Run `hogli pack:skills` to rebuild.")
             sys.exit(1)
         print("\nAll product skills are up-to-date.")
+        return
+
+    if args.pack:
+        manifest = builder.build_all()
+        if not manifest.resources:
+            print("No product skills found in products/*/skills/.")
+            return
+        zip_path = builder._zip_skills_dist()
+        print(f"Built {len(manifest.resources)} skill(s) → {zip_path.relative_to(REPO_ROOT)}")
+        for r in manifest.resources:
+            print(f"  {r.name:<40} source={r.source}")
         return
 
     manifest = builder.build_all()
@@ -535,8 +578,7 @@ def main() -> None:
         print("No product skills found in products/*/skills/.")
         return
 
-    manifest_path = output_dir / "manifest.json"
-    print(f"Built {len(manifest.resources)} skill(s) → {manifest_path.relative_to(REPO_ROOT)}")
+    print(f"Built {len(manifest.resources)} skill(s) → {builder.skills_dist_dir.relative_to(REPO_ROOT)}")
     for r in manifest.resources:
         print(f"  {r.name:<40} source={r.source}")
 

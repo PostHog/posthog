@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import sys
-import json
 import types
+import zipfile
 import textwrap
 from pathlib import Path
 
@@ -420,50 +420,40 @@ def test_end_to_end_template_with_pydantic(tmp_path: Path) -> None:
         assert resource.files[0].path == "SKILL.md"
         assert "| `title` |" in resource.files[0].content
 
-        manifest_path = tmp_path / "output" / "manifest.json"
-        assert manifest_path.exists()
-        written = json.loads(manifest_path.read_text())
-        assert written == manifest.model_dump()
+        skills_dist = tmp_path / "output" / "dist" / "skills"
+        assert skills_dist.exists()
+        skill_file = skills_dist / "e2e-skill" / "SKILL.md"
+        assert skill_file.exists()
+        assert "| `title` |" in skill_file.read_text()
+
+        zip_path = builder.pack()
+        assert zip_path.exists()
+        with zipfile.ZipFile(zip_path) as zf:
+            assert "e2e-skill/SKILL.md" in zf.namelist()
+            assert "| `title` |" in zf.read("e2e-skill/SKILL.md").decode()
 
         assert builder.check_all() is True
     finally:
         del sys.modules["_test_e2e_models"]
 
 
-def test_check_detects_stale_manifest(tmp_path: Path) -> None:
+def test_check_detects_stale_zip(tmp_path: Path) -> None:
     skill_src = tmp_path / "products" / "alpha" / "skills" / "stale-skill"
     skill_src.mkdir(parents=True)
-    (skill_src / "SKILL.md").write_text("---\nname: stale-skill\ndescription: Stale\n---\nVersion 2\n")
-
-    output_dir = tmp_path / "output"
-    output_dir.mkdir(parents=True)
-    stale_manifest = {
-        "version": "1.0.0",
-        "resources": [
-            {
-                "name": "stale-skill",
-                "description": "Stale",
-                "files": [
-                    {
-                        "path": "SKILL.md",
-                        "content": "Version 1",
-                    }
-                ],
-                "source": "products/alpha/skills/stale-skill",
-            }
-        ],
-    }
-    (output_dir / "manifest.json").write_text(json.dumps(stale_manifest))
+    (skill_src / "SKILL.md").write_text("---\nname: stale-skill\ndescription: Stale\n---\nVersion 1\n")
 
     builder = SkillBuilder(
         repo_root=tmp_path,
         products_dir=tmp_path / "products",
-        output_dir=output_dir,
+        output_dir=tmp_path / "output",
     )
+    builder.pack()
+
+    (skill_src / "SKILL.md").write_text("---\nname: stale-skill\ndescription: Stale\n---\nVersion 2\n")
     assert builder.check_all() is False
 
 
-def test_check_detects_missing_manifest(tmp_path: Path) -> None:
+def test_check_detects_missing_zip(tmp_path: Path) -> None:
     skill_src = tmp_path / "products" / "alpha" / "skills" / "missing-skill"
     skill_src.mkdir(parents=True)
     (skill_src / "SKILL.md").write_text("---\nname: missing\ndescription: Missing\n---\nContent\n")
@@ -476,10 +466,12 @@ def test_check_detects_missing_manifest(tmp_path: Path) -> None:
     assert builder.check_all() is False
 
 
-def test_check_detects_stale_manifest_when_no_skills(tmp_path: Path) -> None:
+def test_check_detects_stale_zip_when_no_skills(tmp_path: Path) -> None:
     output_dir = tmp_path / "output"
-    output_dir.mkdir(parents=True)
-    (output_dir / "manifest.json").write_text(json.dumps({"version": "1.0.0", "resources": [{"id": "old"}]}))
+    dist_dir = output_dir / "dist"
+    dist_dir.mkdir(parents=True)
+    with zipfile.ZipFile(dist_dir / "skills.zip", "w") as zf:
+        zf.writestr("old-skill/SKILL.md", "old content")
 
     builder = SkillBuilder(
         repo_root=tmp_path,
