@@ -2,7 +2,7 @@ import './ProjectHomepage.scss'
 
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { IconHome } from '@posthog/icons'
 
@@ -16,6 +16,7 @@ import { NewTabScene } from 'scenes/new-tab/NewTabScene'
 import { projectHomepageLogic } from 'scenes/project-homepage/projectHomepageLogic'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { ConfigurePinnedTabsModal } from '~/layout/scenes/ConfigurePinnedTabsModal'
@@ -31,8 +32,20 @@ export const scene: SceneExport = {
 function HomePageContent(): JSX.Element {
     const { dashboardLogicProps } = useValues(projectHomepageLogic)
     const { showInviteModal } = useActions(inviteLogic)
-    const { dashboard } = useValues(dashboardLogic(dashboardLogicProps as DashboardLogicProps))
+    const { dashboard, itemsLoading, dashboardFailedToLoad } = useValues(
+        dashboardLogic(dashboardLogicProps as DashboardLogicProps)
+    )
+    const { updateCurrentTeam } = useActions(teamLogic)
     const [isConfigurePinnedTabsOpen, setIsConfigurePinnedTabsOpen] = useState(false)
+
+    // If the primary dashboard was deleted (soft-delete) or is otherwise not found,
+    // clear the stale reference so the user sees NewTabScene instead of "Not Found".
+    const dashboardNotFound = !dashboard && !itemsLoading && !dashboardFailedToLoad
+    useEffect(() => {
+        if (dashboardNotFound) {
+            updateCurrentTeam({ primary_dashboard: null })
+        }
+    }, [dashboardNotFound])
 
     // TODO: Remove this after AA test is over
     const { featureFlags } = useValues(featureFlagLogic)

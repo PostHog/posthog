@@ -622,6 +622,36 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         group_type.refresh_from_db()
         self.assertIsNone(group_type.detail_dashboard_id)
 
+    def test_delete_dashboard_clears_primary_dashboard_on_team(self):
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "Primary"})
+        self.team.primary_dashboard_id = dashboard_id
+        self.team.save()
+        self.team.refresh_from_db()
+        self.assertEqual(self.team.primary_dashboard_id, dashboard_id)
+
+        self.dashboard_api.soft_delete(dashboard_id, "dashboards")
+
+        self.team.refresh_from_db()
+        self.assertIsNone(self.team.primary_dashboard_id)
+
+    def test_delete_dashboard_does_not_affect_other_teams_primary_dashboard(self):
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "Primary"})
+        self.team.primary_dashboard_id = dashboard_id
+        self.team.save()
+
+        other_team = Team.objects.create(organization=self.organization, name="Other Team")
+        other_dashboard = Dashboard.objects.create(team=other_team, name="Other Primary")
+        other_team.primary_dashboard = other_dashboard
+        other_team.save()
+
+        self.dashboard_api.soft_delete(dashboard_id, "dashboards")
+
+        self.team.refresh_from_db()
+        self.assertIsNone(self.team.primary_dashboard_id)
+
+        other_team.refresh_from_db()
+        self.assertEqual(other_team.primary_dashboard_id, other_dashboard.id)
+
     def test_dashboard_items(self):
         dashboard_id, _ = self.dashboard_api.create_dashboard({"filters": {"date_from": "-14d"}})
         insight_id, _ = self.dashboard_api.create_insight(

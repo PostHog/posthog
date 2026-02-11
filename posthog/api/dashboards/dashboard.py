@@ -450,6 +450,12 @@ class DashboardSerializer(DashboardMetadataSerializer):
             if group_type_mapping:
                 group_type_mapping.detail_dashboard_id = None
                 group_type_mapping.save()
+            # Clear primary_dashboard on any team that references this dashboard.
+            # Django's on_delete=SET_NULL only fires on hard deletes, but dashboards
+            # are soft-deleted, so we must handle this explicitly.
+            from posthog.models.team import Team
+
+            Team.objects.filter(primary_dashboard=instance).update(primary_dashboard=None)
 
         request_filters = initial_data.get("filters")
         if request_filters:
