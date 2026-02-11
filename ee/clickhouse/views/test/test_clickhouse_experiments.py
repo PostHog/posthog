@@ -2809,8 +2809,21 @@ class TestExperimentCRUD(APILicensedTest):
                     ]
                 },
                 "filters": {"events": [{"order": 0, "id": "$pageview"}]},
-                "metrics": [{"metric_type": "count", "count_query": {"events": [{"id": "$pageview"}]}}],
-                "metrics_secondary": [{"metric_type": "count", "count_query": {"events": [{"id": "$click"}]}}],
+                "metrics": [
+                    {
+                        "kind": "ExperimentTrendsQuery",
+                        "count_query": {
+                            "kind": "TrendsQuery",
+                            "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                        },
+                    }
+                ],
+                "metrics_secondary": [
+                    {
+                        "kind": "ExperimentTrendsQuery",
+                        "count_query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$click"}]},
+                    }
+                ],
                 "stats_config": {"method": "bayesian"},
                 "exposure_criteria": {"filterTestAccounts": True},
             },
@@ -2917,8 +2930,21 @@ class TestExperimentCRUD(APILicensedTest):
                     ]
                 },
                 "filters": {"events": [{"order": 0, "id": "$pageview"}]},
-                "metrics": [{"metric_type": "count", "count_query": {"events": [{"id": "$pageview"}]}}],
-                "metrics_secondary": [{"metric_type": "count", "count_query": {"events": [{"id": "$click"}]}}],
+                "metrics": [
+                    {
+                        "kind": "ExperimentTrendsQuery",
+                        "count_query": {
+                            "kind": "TrendsQuery",
+                            "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                        },
+                    }
+                ],
+                "metrics_secondary": [
+                    {
+                        "kind": "ExperimentTrendsQuery",
+                        "count_query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$click"}]},
+                    }
+                ],
             },
         )
 
