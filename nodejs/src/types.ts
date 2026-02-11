@@ -852,19 +852,20 @@ export interface BasePerson {
     uuid: string
     properties_last_updated_at: PropertiesLastUpdatedAt
     properties_last_operation: PropertiesLastOperation | null
-    last_seen_at: string | null
 }
 
 /** Raw Person row from database. */
 export interface RawPerson extends BasePerson {
     created_at: string
     version: string | null
+    last_seen_at: string | null
 }
 
 /** Usable Person model. */
 export interface InternalPerson extends BasePerson {
     created_at: DateTime
     version: number
+    last_seen_at: DateTime | null
 }
 
 /** Mutable fields that can be updated on a Person via updatePerson. */
@@ -875,6 +876,7 @@ export interface PersonUpdateFields {
     is_identified: boolean
     created_at: DateTime
     version?: number // Optional: allows forcing a specific version
+    last_seen_at?: DateTime | null
 }
 
 /** Person model exposed outside of person-specific DB logic. */
