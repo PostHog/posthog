@@ -25,9 +25,12 @@ from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission
 from posthog.storage import object_storage
 
 from .models import Task, TaskRun
+from .repository_readiness import compute_repository_readiness
 from .serializers import (
     ConnectionTokenResponseSerializer,
     ErrorResponseSerializer,
+    RepositoryReadinessQuerySerializer,
+    RepositoryReadinessResponseSerializer,
     TaskListQuerySerializer,
     TaskRunAppendLogRequestSerializer,
     TaskRunArtifactPresignRequestSerializer,
@@ -66,6 +69,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "partial_update",
             "destroy",
             "run",
+            "repository_readiness",
         ]
     }
 
@@ -79,6 +83,30 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     )
     def list(self, request, *args, **kwargs):
         return super().list(request, *args, **kwargs)
+
+    @validated_request(
+        query_serializer=RepositoryReadinessQuerySerializer,
+        responses={
+            200: OpenApiResponse(
+                response=RepositoryReadinessResponseSerializer, description="Repository readiness status"
+            ),
+        },
+        summary="Get repository readiness",
+        description="Get autonomy readiness details for a specific repository in the current project.",
+    )
+    @action(detail=False, methods=["get"], url_path="repository_readiness", required_scopes=["task:read"])
+    def repository_readiness(self, request, **kwargs):
+        repository = request.validated_query_data["repository"]
+        window_days = request.validated_query_data["window_days"]
+        refresh = request.validated_query_data["refresh"]
+
+        result = compute_repository_readiness(
+            team=self.team,
+            repository=repository,
+            window_days=window_days,
+            refresh=refresh,
+        )
+        return Response(result)
 
     def safely_get_queryset(self, queryset):
         qs = queryset.filter(team=self.team, deleted=False).order_by("-created_at")
