@@ -633,7 +633,10 @@ export function ControlledDefinitionPopover({
         <Popover
             visible={visible}
             referenceElement={highlightedItemElement}
-            className="click-outside-block hotkey-block"
+            className={cn('click-outside-block hotkey-block', {
+                'definition-popover--data-warehouse-funnel-wide':
+                    group.type === TaxonomicFilterGroupType.DataWarehouse && !!definitionPopoverRenderer,
+            })}
             overlay={
                 <DefinitionPopover.Wrapper>
                     <DefinitionPopover.Header
