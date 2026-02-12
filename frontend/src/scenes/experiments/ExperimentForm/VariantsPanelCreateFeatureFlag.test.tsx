@@ -322,6 +322,85 @@ describe('VariantsPanelCreateFeatureFlag', () => {
         })
     })
 
+    describe('rollout percentage', () => {
+        it('renders rollout percentage section with default value of 100', () => {
+            renderComponent(defaultExperiment)
+
+            expect(screen.getByText('Rollout percentage')).toBeInTheDocument()
+            const slider = screen.getByRole('slider')
+            expect(slider).toHaveAttribute('aria-valuenow', '100')
+        })
+
+        it('renders rollout percentage from experiment parameters', () => {
+            const experimentWithRollout = {
+                ...defaultExperiment,
+                parameters: {
+                    ...defaultExperiment.parameters,
+                    rollout_percentage: 75,
+                },
+            }
+
+            renderComponent(experimentWithRollout)
+
+            const slider = screen.getByRole('slider')
+            expect(slider).toHaveAttribute('aria-valuenow', '75')
+        })
+
+        it('calls onChange with rollout_percentage when input value changes', async () => {
+            const { container } = renderComponent(defaultExperiment)
+
+            const rolloutInput = container.querySelector(
+                '[data-attr="experiment-rollout-percentage-input"]'
+            ) as HTMLInputElement
+
+            await userEvent.clear(rolloutInput)
+            await userEvent.type(rolloutInput, '50')
+
+            const lastCall = mockOnChange.mock.calls[mockOnChange.mock.calls.length - 1][0]
+            expect(lastCall.parameters).toEqual(
+                expect.objectContaining({
+                    rollout_percentage: 50,
+                })
+            )
+        })
+
+        it('preserves rollout_percentage when variants are modified', async () => {
+            const experimentWithRollout = {
+                ...defaultExperiment,
+                parameters: {
+                    ...defaultExperiment.parameters,
+                    rollout_percentage: 75,
+                },
+            }
+
+            renderComponent(experimentWithRollout)
+
+            const addButton = screen.getByRole('button', { name: /add variant/i })
+            await userEvent.click(addButton)
+
+            const lastCall = mockOnChange.mock.calls[mockOnChange.mock.calls.length - 1][0]
+            expect(lastCall.parameters.rollout_percentage).toBe(75)
+        })
+
+        it('preserves rollout_percentage when experience continuity is toggled', async () => {
+            const experimentWithRollout = {
+                ...defaultExperiment,
+                parameters: {
+                    ...defaultExperiment.parameters,
+                    rollout_percentage: 60,
+                },
+            }
+
+            renderComponent(experimentWithRollout)
+
+            const checkbox = screen.getByRole('checkbox')
+            await userEvent.click(checkbox)
+
+            const lastCall = mockOnChange.mock.calls[mockOnChange.mock.calls.length - 1][0]
+            expect(lastCall.parameters.rollout_percentage).toBe(60)
+        })
+    })
+
     describe('edge cases', () => {
         it('handles experiment without parameters', () => {
             const experimentWithoutParams = {

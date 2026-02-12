@@ -3,6 +3,8 @@ import { useActions, useValues } from 'kea'
 
 import { IconSparkles, IconX } from '@posthog/icons'
 
+import { RenderKeybind } from 'lib/components/AppShortcuts/AppShortcutMenu'
+import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { cn } from 'lib/utils/css-classes'
 
@@ -57,11 +59,7 @@ export function SidePanelNavigation({ activeTab, onTabChange, children }: SidePa
                                         className="size-[33px] @[600px]/side-panel:w-auto hover:bg-transparent group justify-center @[600px]/side-panel:justify-normal"
                                     >
                                         {tab === SidePanelTab.Max ? (
-                                            <IconSparkles
-                                                className={cn(
-                                                    'text-accent size-4 group-hover:text-accent-hover -mt-[1px] ml-[2px]'
-                                                )}
-                                            />
+                                            <IconSparkles className={cn('text-ai size-4 -mt-[1px] ml-[2px]')} />
                                         ) : (
                                             <Icon
                                                 className={cn(
@@ -89,7 +87,12 @@ export function SidePanelNavigation({ activeTab, onTabChange, children }: SidePa
                     onClick={() => {
                         closeSidePanel()
                     }}
-                    tooltip="Close side panel"
+                    tooltip={
+                        <>
+                            Close scene panel{' '}
+                            <RenderKeybind className="relative -top-px" keybind={[keyBinds.toggleRightNav]} />
+                        </>
+                    }
                     tooltipPlacement="bottom-end"
                     iconOnly
                     className="group size-[33px] ml-auto"

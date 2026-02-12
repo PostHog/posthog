@@ -68,6 +68,7 @@ import { useAIData } from './hooks/useAIData'
 import { llmAnalyticsPlaygroundLogic } from './llmAnalyticsPlaygroundLogic'
 import { EnrichedTraceTreeNode, llmAnalyticsTraceDataLogic } from './llmAnalyticsTraceDataLogic'
 import { DisplayOption, TraceViewMode, llmAnalyticsTraceLogic } from './llmAnalyticsTraceLogic'
+import { llmPersonsLazyLoaderLogic } from './llmPersonsLazyLoaderLogic'
 import { SummaryViewDisplay } from './summary-view/SummaryViewDisplay'
 import { TextViewDisplay } from './text-view/TextViewDisplay'
 import { exportTraceToClipboard } from './traceExportUtils'
@@ -298,6 +299,19 @@ function TraceMetadata({
     showBillingInfo?: boolean
 }): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
+    const { personsCache, isDistinctIdLoading } = useValues(llmPersonsLazyLoaderLogic)
+    const { ensurePersonLoaded } = useActions(llmPersonsLazyLoaderLogic)
+
+    const cached = personsCache[trace.distinctId]
+    const loading = isDistinctIdLoading(trace.distinctId)
+
+    if (cached === undefined && !loading) {
+        ensurePersonLoaded(trace.distinctId)
+    }
+
+    const personData = cached
+        ? { distinct_id: cached.distinct_id, properties: cached.properties }
+        : { distinct_id: trace.distinctId }
 
     const getSessionUrl = (sessionId: string): string => {
         if (
@@ -323,7 +337,7 @@ function TraceMetadata({
     return (
         <header className="flex gap-1.5 flex-wrap">
             <Chip title="Person">
-                <PersonDisplay withIcon="sm" person={trace.person ?? { distinct_id: trace.distinctId }} />
+                <PersonDisplay withIcon="sm" person={personData} />
             </Chip>
             {trace.aiSessionId && (
                 <Chip
@@ -1065,7 +1079,7 @@ const EventContent = React.memo(
                                                       generationEventId={event.id}
                                                       timestamp={event.createdAt}
                                                       event={event.event}
-                                                      distinctId={trace.person?.distinct_id ?? trace.distinctId}
+                                                      distinctId={trace.distinctId}
                                                   />
                                               ),
                                           },
