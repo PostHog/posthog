@@ -1,5 +1,5 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import { router } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -335,6 +335,20 @@ export const surveyWizardLogic = kea<surveyWizardLogicType>([
             actions.loadSurveys()
             actions.reportSurveyEdited(survey)
             router.actions.push(urls.survey(survey.id))
+        },
+    })),
+
+    urlToAction(({ actions, props }) => ({
+        [urls.surveyWizard(props.id)]: (_, searchParams) => {
+            const templateParam = searchParams.template
+            if (templateParam && props.id === 'new') {
+                const matchingTemplate = defaultSurveyTemplates.find(
+                    (t) => t.templateType === templateParam || t.templateType === decodeURIComponent(templateParam)
+                )
+                if (matchingTemplate) {
+                    actions.selectTemplate(matchingTemplate)
+                }
+            }
         },
     })),
 
