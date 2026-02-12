@@ -3,7 +3,6 @@ import { useActions, useValues } from 'kea'
 import { LemonTabs, LemonTag } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { WebExperimentImplementationDetails } from 'scenes/experiments/WebExperimentImplementationDetails'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -66,7 +65,6 @@ const MetricsTab = (): JSX.Element => {
         primaryMetricsLengthWithSharedMetrics,
         hasMinimumExposureForResults,
         usesNewQueryRunner,
-        featureFlags,
     } = useValues(experimentLogic)
     /**
      * we still use the legacy metric results here. Results on the new format are loaded
@@ -96,19 +94,12 @@ const MetricsTab = (): JSX.Element => {
         firstPrimaryMetric &&
         firstPrimaryMetricResult
 
-    const isAiSummaryEnabled =
-        featureFlags[FEATURE_FLAGS.EXPERIMENT_AI_SUMMARY] === 'test' &&
-        usesNewQueryRunner &&
-        hasMinimumExposureForResults
-
-    const isSessionReplaySummaryEnabled = featureFlags[FEATURE_FLAGS.EXPERIMENTS_SESSION_REPLAY_SUMMARY]
-
     return (
         <>
-            {(isAiSummaryEnabled || isSessionReplaySummaryEnabled) && (
+            {usesNewQueryRunner && (
                 <div className="mt-1 mb-4 flex justify-start gap-2">
-                    {isAiSummaryEnabled && <SummarizeExperimentButton />}
-                    {isSessionReplaySummaryEnabled && <SummarizeSessionReplaysButton experiment={experiment} />}
+                    {hasMinimumExposureForResults && <SummarizeExperimentButton />}
+                    <SummarizeSessionReplaysButton experiment={experiment} />
                 </div>
             )}
             {usesNewQueryRunner && (
