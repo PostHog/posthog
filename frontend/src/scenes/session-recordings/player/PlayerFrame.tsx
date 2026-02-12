@@ -59,6 +59,19 @@ export const PlayerFrame = (): JSX.Element => {
         }
     }, [sessionRecordingId, setRootFrame])
 
+    // Remove orphaned replayer-wrapper elements that can accumulate when stale
+    // logic instances recreate their replayers during pauseOnPageHidden resume
+    useEffect(() => {
+        if (player?.replayer?.wrapper && frameRef.current) {
+            const wrappers = frameRef.current.querySelectorAll(':scope > .replayer-wrapper')
+            for (const wrapper of wrappers) {
+                if (wrapper !== player.replayer.wrapper) {
+                    wrapper.remove()
+                }
+            }
+        }
+    }, [player])
+
     // Recalculate the player size when the recording changes dimensions
     useEffect(() => {
         if (!player) {
