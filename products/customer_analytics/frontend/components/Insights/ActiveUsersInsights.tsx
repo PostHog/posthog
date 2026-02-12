@@ -75,7 +75,7 @@ function PowerUsersTable(): JSX.Element {
         source: {
             kind: NodeKind.ActorsQuery,
             select: isB2c
-                ? ['person_display_name -- Person', 'event_count', ...revenueFields, 'last_seen']
+                ? ['person_display_name -- Person', 'event_count', ...revenueFields, 'last_seen_at']
                 : ['group', 'event_count', ...revenueFields, 'last_seen'],
             source: {
                 kind: NodeKind.InsightActorsQuery,

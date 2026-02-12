@@ -183,58 +183,51 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertIsNotNone(results, "The query should execute without errors")
 
+    @freeze_time("2023-05-10T15:23:00Z")
     def test_persons_query_with_insight_actors_source_order_by_last_seen(self):
-        _create_person(
-            properties={
-                "email": f"first@posthog.com",
-                "name": "Mr Jump the Gun",
-            },
-            team=self.team,
-            distinct_ids=["jump-the-gun"],
-            is_identified=True,
-        )
-        _create_event(
-            distinct_id="jump-the-gun",
-            event=f"$pageview",
-            team=self.team,
-        )
-        self.random_uuid = self._create_random_persons()
-        _create_person(
-            properties={
-                "email": "last@posthog.com",
-                "name": "Mr Sleepy",
-            },
-            team=self.team,
-            distinct_ids=["sleepy"],
-            is_identified=True,
-        )
-        _create_event(
-            distinct_id="sleepy",
-            event=f"$pageview",
-            team=self.team,
-        )
+        with freeze_time("2023-05-07T15:23:00Z"):
+            _create_person(
+                properties={
+                    "email": f"first@posthog.com",
+                    "name": "Mr Jump the Gun",
+                },
+                team=self.team,
+                distinct_ids=["jump-the-gun"],
+                is_identified=True,
+            )
+            _create_event(distinct_id="jump-the-gun", event="clicky", team=self.team)
+        with freeze_time("2023-05-09T15:23:00Z"):
+            _create_person(
+                properties={
+                    "email": "last@posthog.com",
+                    "name": "Mr Sleepy",
+                },
+                team=self.team,
+                distinct_ids=["sleepy"],
+                is_identified=True,
+            )
+            _create_event(distinct_id="sleepy", event="clicky", team=self.team)
         flush_persons_and_events()
 
         for direction, expected_email in [("DESC", "last@posthog.com"), ("ASC", "first@posthog.com")]:
             with self.subTest(direction):
-                # Create ActorsQuery with InsightActorsQuery source, similar to PowerUsersTable
                 query = ActorsQuery(
-                    select=["properties.email", "event_count", "last_seen"],
+                    select=["properties.email", "event_count", "last_seen_at"],
                     source=InsightActorsQuery(
                         source=TrendsQuery(
-                            series=[EventsNode(event="$pageview")],
+                            series=[EventsNode(event="clicky")],
                             dateRange=DateRange(date_from="-30d"),
                             interval=IntervalType.DAY,
                             trendsFilter=TrendsFilter(display=ChartDisplayType.ACTIONS_TABLE),
                         ),
                         series=0,
                     ),
-                    orderBy=[f"last_seen {direction}"],
+                    orderBy=[f"last_seen_at {direction}"],
                 )
 
                 runner = self._create_runner(query)
                 results = runner.calculate().results
-                self.assertEqual(results[0][0], expected_email)
+                self.assertEqual(expected_email, results[0][0])
 
     def test_persons_query_order_by_with_aliases(self):
         # We use the first column by default as an order key. It used to cause "error redefining alias" errors.
@@ -838,59 +831,26 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         for uuid in person_uuids:
             self.assertIn(uuid, result)
 
-    @freeze_time("2023-05-10T15:00:00Z")
+    @freeze_time("2023-05-07T15:23:00Z")
     def test_last_seen_for_persons(self):
-        # Create person with events at different times
         _create_person(
             properties={"email": "test@example.com"},
             team=self.team,
-            distinct_ids=["user123"],
+            distinct_ids=["test-user-distinct-id"],
             is_identified=True,
+            immediate=True,
         )
-
-        # Create events at different times
-        with freeze_time("2023-05-08T10:00:00Z"):
-            _create_event(event="early_event", distinct_id="user123", team=self.team)
-
-        with freeze_time("2023-05-09T14:30:00Z"):
-            _create_event(event="late_event", distinct_id="user123", team=self.team)
-
         flush_persons_and_events()
-
-        # Query with last_seen included
-        query = ActorsQuery(select=["person", "id", "last_seen"])
+        query = ActorsQuery(select=["person", "id", "last_seen_at"])
         runner = ActorsQueryRunner(query=query, team=self.team)
 
         response = runner.calculate()
 
-        self.assertEqual(len(response.results), 2, "One for each event")
         result = response.results[0]
-
-        # Check that last_seen is the timestamp of the latest event
-        last_seen_idx = response.columns.index("last_seen")
+        last_seen_idx = response.columns.index("last_seen_at")
         last_seen_value = result[last_seen_idx]
-
-        self.assertEqual(str(last_seen_value), "2023-05-09 14:30:00+00:00")
-
-    def test_last_seen_not_calculated_when_not_requested(self):
-        _create_person(
-            properties={"email": "test@example.com"},
-            team=self.team,
-            distinct_ids=["user123"],
-            is_identified=True,
+        self.assertEqual(
+            "2023-05-07 15:00:00+00:00",
+            str(last_seen_value),
+            "Should round to the bottom of the hour of the event (user creation)",
         )
-        _create_event(event="test_event", distinct_id="user123", team=self.team)
-        flush_persons_and_events()
-
-        # Query without last_seen
-        query = ActorsQuery(select=["person", "id"])
-        runner = ActorsQueryRunner(query=query, team=self.team)
-
-        response = runner.calculate()
-
-        # Should not have last_seen column
-        self.assertNotIn("last_seen", response.columns)
-        # Generated SQL should not contain events table reference
-        hogql = runner.to_query()
-        printed_query = str(hogql)
-        self.assertNotIn("events", printed_query.lower())
