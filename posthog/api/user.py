@@ -88,7 +88,6 @@ from posthog.tasks.email import (
     send_two_factor_auth_enabled_email,
 )
 from posthog.user_permissions import UserPermissions
-from posthog.utils import render_template
 
 REDIRECT_TO_SITE_COUNTER = Counter("posthog_redirect_to_site", "Redirect to site")
 REDIRECT_TO_SITE_FAILED_COUNTER = Counter("posthog_redirect_to_site_failed", "Redirect to site failed")
@@ -904,15 +903,7 @@ def toolbar_oauth_exchange(request):
 @session_auth_required
 def toolbar_oauth_callback(request):
     # scaffold only, not implemented
-    return render_template(
-        "toolbar_oauth_callback.html",
-        request=request,
-        context={
-            "code_present": True,
-            "error_code": None,
-            "error_description": None,
-        },
-    )
+    return HttpResponse(status=200, content="Callback not implemented")
 
 
 @session_auth_required
