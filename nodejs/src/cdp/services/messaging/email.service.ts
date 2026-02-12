@@ -1,5 +1,4 @@
 import { MessageHeader, SESv2Client, SendEmailCommand, SendEmailCommandInput } from '@aws-sdk/client-sesv2'
-import AWS from 'aws-sdk'
 
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult, IntegrationType } from '~/cdp/types'
 import { createAddLogFunction, logEntry } from '~/cdp/utils'
@@ -26,18 +25,11 @@ export type EmailServiceHub = Pick<
 >
 
 export class EmailService {
-    ses: AWS.SES
     sesV2Client: SESv2Client
 
     private recipientTokensService: RecipientTokensService
 
     constructor(private hub: EmailServiceHub) {
-        this.ses = new AWS.SES({
-            accessKeyId: this.hub.SES_ACCESS_KEY_ID,
-            secretAccessKey: this.hub.SES_SECRET_ACCESS_KEY,
-            region: this.hub.SES_REGION,
-            endpoint: this.hub.SES_ENDPOINT || undefined,
-        })
         this.sesV2Client = new SESv2Client({
             region: this.hub.SES_REGION,
             endpoint: this.hub.SES_ENDPOINT || undefined,
