@@ -354,7 +354,7 @@ impl CheckpointDownloader for S3Downloader {
                     keys_found.push(meta.location.to_string());
                 }
                 Err(e) => {
-                    error!("Error listing S3 objects: {e}");
+                    error!("Error listing S3 objects: {e:#}");
                 }
             }
         }

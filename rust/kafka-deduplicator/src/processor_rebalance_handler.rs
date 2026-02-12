@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use async_trait::async_trait;
 use dashmap::mapref::entry::Entry;
 use dashmap::DashMap;
@@ -312,7 +312,7 @@ where
                                             topic = partition.topic(),
                                             partition = partition.partition_number(),
                                             path = %path.display(),
-                                            error = %e,
+                                            error = ?e,
                                             "Failed to clean up checkpoint import, orphan cleaner will handle it"
                                         );
                                     }
@@ -350,7 +350,7 @@ where
                                 error!(
                                     topic = partition.topic(),
                                     partition = partition.partition_number(),
-                                    error = %e,
+                                    error = ?e,
                                     "Failed to restore checkpoint"
                                 );
                                 fallback_reasons.insert(partition.clone(), "import_failed");
@@ -369,7 +369,7 @@ where
                             warn!(
                                 topic = partition.topic(),
                                 partition = partition.partition_number(),
-                                error = %e,
+                                error = ?e,
                                 "Failed to import checkpoint"
                             );
                             fallback_reasons.insert(partition.clone(), "import_failed");
@@ -463,7 +463,7 @@ where
                         error!(
                             topic = partition.topic(),
                             partition = partition.partition_number(),
-                            error = %e,
+                            error = ?e,
                             "Failed to create fallback store - processor will retry on first message"
                         );
                     }
@@ -478,7 +478,7 @@ where
             .await
         {
             warn!(
-                error = %e,
+                error = ?e,
                 "Partition directory cleanup failed - orphan cleaner will handle it"
             );
         }
@@ -497,8 +497,10 @@ where
                 "Resuming all owned partitions (rebalance cycle complete)"
             );
             if let Err(e) = consumer_command_tx.send(ConsumerCommand::Resume(resume_tpl)) {
-                error!("Failed to send resume command after store setup: {}", e);
-                return Err(anyhow::anyhow!("Failed to send resume command: {}", e));
+                error!("Failed to send resume command after store setup: {e:#}");
+                return Err(Err::<(), _>(e)
+                    .with_context(|| "Failed to send resume command")
+                    .unwrap_err());
             }
         }
 

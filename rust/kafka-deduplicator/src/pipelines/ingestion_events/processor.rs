@@ -272,7 +272,7 @@ impl IngestionEventsBatchProcessor {
                     .to_string();
                 keys.push(key);
             } else if let Err(e) = &parsed_events[idx] {
-                error!("Failed to parse event: {}", e);
+                error!("Failed to parse event: {e:#}");
             }
         }
 
@@ -361,7 +361,7 @@ impl IngestionEventsBatchProcessor {
                             Some(max_producer_offset.map_or(offset, |current| current.max(offset)));
                     }
                     Err(e) => {
-                        error!("Failed to publish non-duplicate event: {}", e);
+                        error!("Failed to publish non-duplicate event: {e:#}");
                         return Err(e);
                     }
                 }
@@ -434,12 +434,17 @@ impl IngestionEventsBatchProcessor {
             }
             Err((e, _)) => {
                 error!(
-                    "Failed to publish event with key {} to {}: {}",
-                    key, output_topic, e
+                    "Failed to publish event with key {} to {}: {e:#}",
+                    key, output_topic
                 );
-                Err(anyhow::anyhow!(
-                    "Failed to publish event with key '{key}' to topic '{output_topic}': {e}"
-                ))
+                Err(Err::<(), _>(e)
+                    .with_context(|| {
+                        format!(
+                            "Failed to publish event with key '{}' to topic '{}'",
+                            key, output_topic
+                        )
+                    })
+                    .unwrap_err())
             }
         }
     }

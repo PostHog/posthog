@@ -11,7 +11,6 @@ use crate::kafka::offset_tracker::OffsetTracker;
 use crate::kafka::rebalance_handler::RebalanceHandler;
 use crate::kafka::types::Partition;
 
-use anyhow::anyhow;
 use anyhow::{Context, Result};
 use axum::async_trait;
 use futures_util::StreamExt;
@@ -134,7 +133,7 @@ where
                             if let Err(e) = consumer.resume(&partitions) {
                                 error!(
                                     partition_count = partition_count,
-                                    error = %e,
+                                    error = ?e,
                                     "Failed to resume partitions"
                                 );
                             } else {
@@ -175,7 +174,7 @@ where
                             let (messages, _errors) = batch.unpack();
                             if let Err(e) = self.processor.process_batch(messages).await {
                                 // TODO: stat this
-                                error!("Error processing batch: {e}");
+                                error!("Error processing batch: {e:#}");
                             }
                         }
 
@@ -313,7 +312,7 @@ where
 
             // Other errors
             _ => {
-                error!("Unexpected error: {:?}", e);
+                error!("Unexpected error: {e:#}");
                 metrics::counter!(
                     BATCH_CONSUMER_KAFKA_ERROR,
                     &[("level", "fatal"), ("error", "unexpected"),]
@@ -381,7 +380,7 @@ where
                 offset_tracker.mark_committed(&offsets);
             }
             Err(e) => {
-                warn!("Failed to commit tracked offsets: {e}");
+                warn!("Failed to commit tracked offsets: {e:#}");
             }
         }
     }
@@ -415,7 +414,9 @@ where
                                     kafka_error_count = 0;
                                 }
                                 Err(e) => {
-                                    let wrapped_err = anyhow!("Error deserializing message: {e}");
+                                    let wrapped_err = Err::<(), _>(e)
+                                        .with_context(|| "Error deserializing message")
+                                        .unwrap_err();
                                     batch.push_error(BatchError::new(
                                         wrapped_err,
                                         Some(Partition::new(
