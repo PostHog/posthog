@@ -65,7 +65,9 @@ def build_access_control_guard(
         op=ast.CompareOperationOp.NotIn,
         left=ast.Call(
             name="toString",
-            args=[ast.Field(chain=["id"], type=ast.FieldType(name="id", table_type=table_type))],
+            args=[
+                ast.Field(chain=[table.primary_key], type=ast.FieldType(name=table.primary_key, table_type=table_type))
+            ],
         ),
         right=ast.Tuple(exprs=[ast.Constant(value=bid) for bid in blocked_ids]),
         type=ast.BooleanType(),

@@ -58,6 +58,7 @@ def build_function_call(postgres_table_name: str, context: Optional[HogQLContext
 class PostgresTable(FunctionCallTable):
     requires_args: bool = False
     postgres_table_name: str
+    primary_key: str = "id"
     access_scope: Optional[APIScopeObject] = None
 
     def to_printed_hogql(self):
