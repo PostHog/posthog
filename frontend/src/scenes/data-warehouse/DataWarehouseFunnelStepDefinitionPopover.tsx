@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 
-import { LemonButton, LemonInput, LemonModal, LemonSelect } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonLabel, LemonModal, LemonSelect } from '@posthog/lemon-ui'
 
 import { HogQLDropdown } from 'lib/components/HogQLDropdown/HogQLDropdown'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
@@ -92,23 +92,26 @@ export function DataWarehouseFunnelStepDefinitionPopover({
         >
             {table ? (
                 <div className="space-y-4">
-                    <LemonInput
-                        value={customName}
-                        onChange={setCustomName}
-                        placeholder="Step name (optional)"
-                        fullWidth
-                    />
-                    <PropertyFilters
-                        pageKey={`dw-funnel-step-properties-${table.name}`}
-                        propertyFilters={properties}
-                        onChange={setProperties}
-                        taxonomicGroupTypes={[
-                            TaxonomicFilterGroupType.DataWarehouseProperties,
-                            TaxonomicFilterGroupType.HogQLExpression,
-                        ]}
-                        schemaColumns={schemaColumns}
-                        dataWarehouseTableName={table.name}
-                    />
+                    <div>
+                        <LemonLabel className="mb-1" showOptional>
+                            Step name
+                        </LemonLabel>
+                        <LemonInput value={customName} onChange={setCustomName} placeholder="Step name" fullWidth />
+                    </div>
+                    <div>
+                        <LemonLabel className="mb-1">Properties</LemonLabel>
+                        <PropertyFilters
+                            pageKey={`dw-funnel-step-properties-${table.name}`}
+                            propertyFilters={properties}
+                            onChange={setProperties}
+                            taxonomicGroupTypes={[
+                                TaxonomicFilterGroupType.DataWarehouseProperties,
+                                TaxonomicFilterGroupType.HogQLExpression,
+                            ]}
+                            schemaColumns={schemaColumns}
+                            dataWarehouseTableName={table.name}
+                        />
+                    </div>
                     {dataWarehousePopoverFields.map(({ key, label, allowHogQL, hogQLOnly, optional, type }) => {
                         const fieldValue = fieldMappings[key]
                         const useHogQL = !!fieldValue && isUsingHogQLExpression(table, fieldValue)
