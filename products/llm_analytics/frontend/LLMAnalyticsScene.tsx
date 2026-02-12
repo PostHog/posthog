@@ -367,6 +367,29 @@ const TAB_DESCRIPTIONS: Record<string, string> = {
 }
 
 export function LLMAnalyticsScene({ tabId }: { tabId?: string }): JSX.Element {
+    const dataCollectionLogic = dataNodeCollectionLogic({ key: LLM_ANALYTICS_DATA_COLLECTION_NODE_ID })
+    useAttachedLogic(dataCollectionLogic, llmAnalyticsSharedLogic)
+
+    return (
+        <BindLogic logic={dataNodeCollectionLogic} props={{ key: LLM_ANALYTICS_DATA_COLLECTION_NODE_ID }}>
+            <BindLogic logic={llmAnalyticsDashboardLogic} props={{ tabId }}>
+                <BindLogic logic={llmAnalyticsGenerationsLogic} props={{ tabId }}>
+                    <BindLogic logic={llmAnalyticsTracesTabLogic} props={{ tabId }}>
+                        <BindLogic logic={llmAnalyticsErrorsLogic} props={{ tabId }}>
+                            <BindLogic logic={llmAnalyticsUsersLogic} props={{ tabId }}>
+                                <BindLogic logic={llmAnalyticsSessionsViewLogic} props={{ tabId }}>
+                                    <LLMAnalyticsSceneContent />
+                                </BindLogic>
+                            </BindLogic>
+                        </BindLogic>
+                    </BindLogic>
+                </BindLogic>
+            </BindLogic>
+        </BindLogic>
+    )
+}
+
+function LLMAnalyticsSceneContent(): JSX.Element {
     const { activeTab } = useValues(llmAnalyticsSharedLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { searchParams } = useValues(router)
@@ -522,79 +545,47 @@ export function LLMAnalyticsScene({ tabId }: { tabId?: string }): JSX.Element {
         ].filter(Boolean) as JSX.Element[]
     }, [featureFlags, toggleProduct])
 
-    const dataCollectionLogic = dataNodeCollectionLogic({ key: LLM_ANALYTICS_DATA_COLLECTION_NODE_ID })
-    useAttachedLogic(dataCollectionLogic, llmAnalyticsSharedLogic)
-
     return (
-        <BindLogic logic={dataNodeCollectionLogic} props={{ key: LLM_ANALYTICS_DATA_COLLECTION_NODE_ID }}>
-            <BindLogic logic={llmAnalyticsDashboardLogic} props={{ tabId }}>
-                <BindLogic logic={llmAnalyticsGenerationsLogic} props={{ tabId }}>
-                    <BindLogic logic={llmAnalyticsTracesTabLogic} props={{ tabId }}>
-                        <BindLogic logic={llmAnalyticsErrorsLogic} props={{ tabId }}>
-                            <BindLogic logic={llmAnalyticsUsersLogic} props={{ tabId }}>
-                                <BindLogic logic={llmAnalyticsSessionsViewLogic} props={{ tabId }}>
-                                    <SceneContent>
-                                        <SceneTitleSection
-                                            name={sceneConfigurations[Scene.LLMAnalytics].name}
-                                            description={
-                                                TAB_DESCRIPTIONS[activeTab] ||
-                                                sceneConfigurations[Scene.LLMAnalytics].description
-                                            }
-                                            resourceType={{
-                                                type:
-                                                    sceneConfigurations[Scene.LLMAnalytics].iconType ||
-                                                    'default_icon_type',
-                                            }}
-                                            actions={
-                                                <>
-                                                    <LemonButton
-                                                        to={DOCS_URLS_BY_TAB[activeTab] || DEFAULT_DOCS_URL}
-                                                        type="secondary"
-                                                        targetBlank
-                                                        size="small"
-                                                    >
-                                                        Documentation
-                                                    </LemonButton>
-                                                </>
-                                            }
-                                        />
+        <SceneContent>
+            <SceneTitleSection
+                name={sceneConfigurations[Scene.LLMAnalytics].name}
+                description={TAB_DESCRIPTIONS[activeTab] || sceneConfigurations[Scene.LLMAnalytics].description}
+                resourceType={{
+                    type: sceneConfigurations[Scene.LLMAnalytics].iconType || 'default_icon_type',
+                }}
+                actions={
+                    <>
+                        <LemonButton
+                            to={DOCS_URLS_BY_TAB[activeTab] || DEFAULT_DOCS_URL}
+                            type="secondary"
+                            targetBlank
+                            size="small"
+                        >
+                            Documentation
+                        </LemonButton>
+                    </>
+                }
+            />
 
-                                        {availableItemsInSidebar.length > 0 ? (
-                                            <>
-                                                <LemonBanner
-                                                    type="info"
-                                                    className="mb-2"
-                                                    dismissKey="llm-analytics-sidebar-moved-banner"
-                                                >
-                                                    We've moved{' '}
-                                                    {availableItemsInSidebar.map((el, i) => (
-                                                        <React.Fragment key={i}>
-                                                            {i > 0 && ', '}
-                                                            {el}
-                                                        </React.Fragment>
-                                                    ))}{' '}
-                                                    out of LLM Analytics and into their own apps. You can access them by
-                                                    clicking in the links above, or by clicking "All apps" in the
-                                                    sidebar. You can also customize your sidebar{' '}
-                                                    <Link onClick={openEditCustomProductsModal}>here</Link>.
-                                                </LemonBanner>
-                                                <EditCustomProductsModal />
-                                            </>
-                                        ) : null}
+            {availableItemsInSidebar.length > 0 ? (
+                <>
+                    <LemonBanner type="info" className="mb-2" dismissKey="llm-analytics-sidebar-moved-banner">
+                        We've moved{' '}
+                        {availableItemsInSidebar.map((el, i) => (
+                            <React.Fragment key={i}>
+                                {i > 0 && ', '}
+                                {el}
+                            </React.Fragment>
+                        ))}{' '}
+                        out of LLM Analytics and into their own apps. You can access them by clicking in the links
+                        above, or by clicking "All apps" in the sidebar. You can also customize your sidebar{' '}
+                        <Link onClick={openEditCustomProductsModal}>here</Link>.
+                    </LemonBanner>
+                    <EditCustomProductsModal />
+                </>
+            ) : null}
 
-                                        <LemonTabs
-                                            activeKey={activeTab}
-                                            data-attr="llm-analytics-tabs"
-                                            tabs={tabs}
-                                            sceneInset
-                                        />
-                                    </SceneContent>
-                                </BindLogic>
-                            </BindLogic>
-                        </BindLogic>
-                    </BindLogic>
-                </BindLogic>
-            </BindLogic>
-        </BindLogic>
+            <LemonTabs activeKey={activeTab} data-attr="llm-analytics-tabs" tabs={tabs} sceneInset />
+        </SceneContent>
     )
 }
