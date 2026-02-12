@@ -8,10 +8,8 @@ import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { ProductSetupButton } from 'lib/components/ProductSetup'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive, buttonPrimitiveVariants } from 'lib/ui/Button/ButtonPrimitives'
 import { TextareaPrimitive } from 'lib/ui/TextareaPrimitive/TextareaPrimitive'
 import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
@@ -165,9 +163,12 @@ type SceneMainTitleProps = {
 
     /**
      * Optional callback to generate a name using AI
-     * When provided, shows a sparkle button next to the name input when editing
      */
-    onGenerateName?: () => Promise<string>
+    onGenerateName?: () => void
+    /**
+     * Whether name generation is currently in progress
+     */
+    isGeneratingName?: boolean
 }
 
 export function SceneTitleSection({
@@ -187,6 +188,7 @@ export function SceneTitleSection({
     forceBackTo,
     className,
     onGenerateName,
+    isGeneratingName,
 }: SceneMainTitleProps): JSX.Element | null {
     const { breadcrumbs } = useValues(breadcrumbsLogic)
     const { zenMode } = useValues(navigation3000Logic)
@@ -283,6 +285,7 @@ export function SceneTitleSection({
                                     renameDebounceMs={renameDebounceMs}
                                     saveOnBlur={saveOnBlur}
                                     onGenerateName={onGenerateName}
+                                    isGeneratingName={isGeneratingName}
                                 />
                             </>
                         )}
@@ -328,7 +331,8 @@ type SceneNameProps = {
     forceEdit?: boolean
     renameDebounceMs?: number
     saveOnBlur?: boolean
-    onGenerateName?: () => Promise<string>
+    onGenerateName?: () => void
+    isGeneratingName?: boolean
 }
 
 function SceneName({
@@ -340,14 +344,11 @@ function SceneName({
     renameDebounceMs = 100,
     saveOnBlur = false,
     onGenerateName,
+    isGeneratingName = false,
 }: SceneNameProps): JSX.Element {
     const [name, setName] = useState(initialName)
     const [isEditing, setIsEditing] = useState(forceEdit)
-    const [isGenerating, setIsGenerating] = useState(false)
     const containerRef = useRef<HTMLDivElement>(null)
-
-    const { featureFlags } = useValues(featureFlagLogic)
-    const canAccessAutoname = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_AUTONAME_INSIGHTS_WITH_AI]
 
     const textClasses =
         'text-xl font-semibold my-0 pl-[var(--button-padding-x-sm)] min-h-[var(--button-height-sm)] leading-[1.4] select-auto'
@@ -377,19 +378,6 @@ function SceneName({
             onChange(value)
         }
     }, renameDebounceMs)
-
-    const handleGenerateName = async (): Promise<string | undefined> => {
-        if (!onGenerateName || isGenerating) {
-            return
-        }
-        setIsGenerating(true)
-        try {
-            const generatedName = await onGenerateName()
-            return generatedName
-        } finally {
-            setIsGenerating(false)
-        }
-    }
 
     // If onBlur is provided, we want to show a button that allows the user to edit the name
     // Otherwise, we want to show the name as a text
@@ -446,35 +434,20 @@ function SceneName({
                                 }
                             }}
                         />
-                        {canAccessAutoname && onGenerateName && (
-                            <Tooltip title={isGenerating ? 'Thinking...' : 'Name this insight'}>
+                        {onGenerateName && (
+                            <Tooltip title={isGeneratingName ? 'Thinking...' : 'Name this insight'}>
                                 <button
                                     type="button"
-                                    onClick={async () => {
-                                        if (isGenerating) {
-                                            return
-                                        }
-
-                                        const name = await handleGenerateName()
-                                        if (name && name !== initialName) {
-                                            setName(name)
-                                            // Trigger save with the new name
-                                            if (saveOnBlur) {
-                                                debouncedOnBlurSave(name)
-                                            } else {
-                                                debouncedOnChange(name)
-                                            }
-                                        }
-
-                                        if (!forceEdit) {
-                                            setIsEditing(false)
+                                    onClick={() => {
+                                        if (!isGeneratingName) {
+                                            onGenerateName()
                                         }
                                     }}
-                                    disabled={isGenerating}
+                                    disabled={isGeneratingName}
                                     className="shrink-0 transition duration-50 cursor-pointer hover:scale-110 rounded-md border border-dashed border-accent size-7 backdrop-blur-[2px] bg-[rgba(255,255,255,0.5)] dark:bg-[rgba(0,0,0,0.5)] disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
                                     <AnimatedSparkles
-                                        triggerAnimation={isGenerating}
+                                        triggerAnimation={isGeneratingName}
                                         className="relative size-full pl-0.5 pb-0.5"
                                     />
                                 </button>

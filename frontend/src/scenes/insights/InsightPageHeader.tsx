@@ -4,7 +4,6 @@ import { useState } from 'react'
 
 import { IconCode2, IconInfo, IconPencil, IconPeople, IconShare, IconTrash } from '@posthog/icons'
 
-import api from 'lib/api'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AddToDashboardModal } from 'lib/components/AddToDashboard/AddToDashboardModal'
 import { areAlertsSupportedForInsight } from 'lib/components/Alerts/insightAlertsLogic'
@@ -39,7 +38,6 @@ import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
-import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -120,11 +118,15 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
         hogQLVariables,
         insightQuery,
         insightData,
+        generatedInsightNameLoading,
     } = useValues(insightDataLogic(insightProps))
-    const { toggleQueryEditorPanel, toggleDebugPanel, cancelChanges } = useActions(insightDataLogic(insightProps))
+    const { toggleQueryEditorPanel, toggleDebugPanel, cancelChanges, generateInsightName } = useActions(
+        insightDataLogic(insightProps)
+    )
     const { createStaticCohort } = useActions(exportsLogic)
 
     const { featureFlags } = useValues(featureFlagLogic)
+    const canAccessAutoname = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_AUTONAME_INSIGHTS_WITH_AI]
 
     // endpointLogic
     const { openCreateFromInsightModal } = useActions(endpointLogic({ tabId: insightProps.tabId || '' }))
@@ -543,23 +545,8 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                 onDescriptionChange={(description) => {
                     setInsightMetadata({ description })
                 }}
-                onGenerateName={
-                    insightQuery
-                        ? async () => {
-                              try {
-                                  const response = await api.insights.generateName({
-                                      kind: NodeKind.InsightVizNode,
-                                      source: insightQuery,
-                                  })
-                                  return response.name
-                              } catch (error) {
-                                  console.error('Failed to generate name:', error)
-                                  lemonToast.error('Failed to generate name')
-                                  return ''
-                              }
-                          }
-                        : undefined
-                }
+                onGenerateName={canAccessAutoname && insightQuery ? generateInsightName : undefined}
+                isGeneratingName={canAccessAutoname && generatedInsightNameLoading}
                 canEdit={canEditInsight}
                 isLoading={insightLoading && !insight?.id}
                 forceEdit={insightMode === ItemMode.Edit}
