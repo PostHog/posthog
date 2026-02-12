@@ -10,14 +10,13 @@ import { HogFunctionStatusTag } from 'scenes/hog-functions/misc/HogFunctionStatu
 
 import { HogFunctionTemplateType } from '~/types'
 
-// Side-effect imports: register product-specific action nodes
-import 'products/conversations/frontend/workflows/actionNodes'
-
 import { CreateActionType, hogFlowEditorLogic } from '../hogFlowEditorLogic'
+// Side-effect imports: register product-specific trigger and action nodes
+import '../registry'
+import { getRegisteredActionNodeCategories } from '../registry/actions/actionNodeRegistry'
 import { useHogFlowStep } from '../steps/HogFlowSteps'
 import { getDelayDescription } from '../steps/stepDelayLogic'
 import { HogFlowAction } from '../types'
-import { getRegisteredActionNodeCategories } from './actionNodeRegistry'
 
 export const ACTION_NODES_TO_SHOW: CreateActionType[] = [
     {

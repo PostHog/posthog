@@ -46,10 +46,10 @@ import 'products/conversations/frontend/workflows/triggers'
 
 import { workflowLogic } from '../../workflowLogic'
 import { HogFlowEventFilters } from '../filters/HogFlowFilters'
+import { getRegisteredTriggerTypes } from '../registry/triggers/triggerTypeRegistry'
 import { HogFlowAction } from '../types'
 import { batchTriggerLogic } from './batchTriggerLogic'
 import { HogFlowFunctionConfiguration } from './components/HogFlowFunctionConfiguration'
-import { getRegisteredTriggerTypes } from './triggerTypeRegistry'
 
 type TriggerAction = Extract<HogFlowAction, { type: 'trigger' }>
 type EventTriggerConfig = {

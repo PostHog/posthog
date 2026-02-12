@@ -6,7 +6,7 @@ import { LemonSelect } from '@posthog/lemon-ui'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
-import { registerTriggerType } from 'products/workflows/frontend/Workflows/hogflows/steps/triggerTypeRegistry'
+import { registerTriggerType } from 'products/workflows/frontend/Workflows/hogflows/registry/triggers/triggerTypeRegistry'
 import { workflowLogic } from 'products/workflows/frontend/Workflows/workflowLogic'
 
 const SUPPORT_STATUS_VALUES = ['new', 'open', 'pending', 'on_hold', 'resolved'] as const

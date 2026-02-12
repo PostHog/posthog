@@ -1,9 +1,11 @@
+import { FeatureFlagKey } from 'lib/constants'
+
 export type TriggerTypeDefinition = {
     value: string
     label: string
     icon: JSX.Element
     description: string
-    featureFlag?: string
+    featureFlag?: FeatureFlagKey
     /** Return true if this trigger type owns the given event-type config */
     matchConfig?: (config: any) => boolean
     /** Build the initial config when this trigger type is selected */
