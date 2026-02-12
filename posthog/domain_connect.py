@@ -254,7 +254,7 @@ def get_available_providers() -> list[dict[str, str]]:
 
     Used when auto-detection fails so the user can manually select their provider.
     """
-    return [{"endpoint": endpoint, "name": name} for endpoint, name in DOMAIN_CONNECT_PROVIDERS.items()]
+    return [{"endpoint": endpoint, "name": str(name)} for endpoint, name in DOMAIN_CONNECT_PROVIDERS.items()]
 
 
 # --- Context resolvers ---

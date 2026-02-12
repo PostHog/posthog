@@ -187,8 +187,10 @@ class TestDiscoverDomainConnect(BaseTest):
             result = discover_domain_connect("example.com")
 
         self.assertIsNotNone(result)
-        self.assertEqual(result["provider_name"], "Cloudflare")
-        self.assertEqual(result["url_sync_ux"], "https://dash.cloudflare.com/domainconnect")
+
+        if result:
+            self.assertEqual(result["provider_name"], "Cloudflare")
+            self.assertEqual(result["url_sync_ux"], "https://dash.cloudflare.com/domainconnect")
 
     @patch("posthog.domain_connect._lookup_domain_connect_endpoint")
     def test_unsupported_provider(self, mock_lookup: MagicMock) -> None:
