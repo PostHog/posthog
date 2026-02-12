@@ -107,11 +107,9 @@ export const clustersAdminLogic = kea<clustersAdminLogicType>([
 
     listeners(({ actions, values }) => ({
         openModal: () => {
-            // Pre-populate event_filters from saved config
-            const savedFilters = values.config?.event_filters
-            if (savedFilters && savedFilters.length > 0) {
-                actions.setParams({ event_filters: savedFilters })
-            }
+            // Always sync event_filters from saved config (including empty)
+            const savedFilters = values.config?.event_filters ?? []
+            actions.setParams({ event_filters: savedFilters })
         },
 
         triggerClusteringRun: () => {
