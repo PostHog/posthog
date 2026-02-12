@@ -19,7 +19,7 @@ import { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { useInsightTooltip } from 'scenes/insights/useInsightTooltip'
-import { LineGraphProps, onChartClick, onChartHover } from 'scenes/insights/views/LineGraph/LineGraph'
+import { LineGraphProps, onChartClick } from 'scenes/insights/views/LineGraph/LineGraph'
 import { createTooltipData } from 'scenes/insights/views/LineGraph/tooltip-data'
 import { IndexedTrendResult } from 'scenes/trends/types'
 
@@ -85,7 +85,8 @@ export function PieChart({
                     responsive: true,
                     maintainAspectRatio: false,
                     hover: {
-                        mode: 'index',
+                        mode: 'nearest',
+                        intersect: true,
                     },
                     layout: {
                         padding: {
@@ -98,10 +99,16 @@ export function PieChart({
                     borderWidth: 0,
                     borderRadius: 0,
                     hoverOffset: onlyOneValue || disableHoverOffset ? 0 : 16,
-                    onHover(event: ChartEvent, _: ActiveElement[], chart: Chart) {
-                        onChartHover(event, chart, onClick)
+                    onHover(event: ChartEvent, activeElements: ActiveElement[]) {
+                        if (event.native) {
+                            const target = event.native.target as HTMLElement
+                            target.style.cursor = onClick && activeElements.length ? 'pointer' : 'default'
+                        }
                     },
-                    onClick: (event: ChartEvent, _: ActiveElement[], chart: Chart) => {
+                    onClick: (event: ChartEvent, elements: ActiveElement[], chart: Chart) => {
+                        if (!elements.length) {
+                            return
+                        }
                         onChartClick(event, chart, datasets, onClick)
                     },
                     plugins: {
