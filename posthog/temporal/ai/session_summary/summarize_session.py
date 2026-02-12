@@ -630,7 +630,7 @@ async def ensure_llm_single_session_summary(inputs: SingleSessionSummaryInputs):
         retry_policy=retry_policy,
     )
 
-    # Skip video-based summarization if session is too short
+    # Skip video-based summarization if session is too short or summary already exists
     if export_result is None:
         return
 
@@ -845,6 +845,14 @@ async def execute_summarize_session(
     Start the direct summarization workflow (no streaming) and return the summary.
     Intended to use as a part of other tools or workflows to get more context on summary, so implemented async.
     """
+    # Check if summary already exists before starting the Temporal workflow
+    existing_summary = await database_sync_to_async(SingleSessionSummary.objects.get_summary, thread_sensitive=False)(
+        team_id=team.id,
+        session_id=session_id,
+        extra_summary_context=extra_summary_context,
+    )
+    if existing_summary is not None:
+        return existing_summary.summary
     if model_to_use is None:
         model_to_use = (
             SESSION_SUMMARIES_SYNC_MODEL if video_validation_enabled != "full" else DEFAULT_VIDEO_UNDERSTANDING_MODEL
@@ -867,7 +875,7 @@ async def execute_summarize_session(
         client = await async_connect()
         handle = client.get_workflow_handle(workflow_id)
         await handle.result()
-    # Get the summary from the DB
+    # Get the ready summary from the DB
     summary_row = await database_sync_to_async(SingleSessionSummary.objects.get_summary, thread_sensitive=False)(
         team_id=team.id,
         session_id=session_id,

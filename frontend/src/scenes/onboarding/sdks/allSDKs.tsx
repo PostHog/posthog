@@ -31,6 +31,7 @@ import gatsbyImage from './logos/gatsby.svg'
 import geminiImage from './logos/gemini.svg'
 import goImage from './logos/go.svg'
 import gtmImage from './logos/gtm.svg'
+import honoImage from './logos/hono.svg'
 import htmlImage from './logos/html.svg'
 import javaImage from './logos/java.svg'
 import jsImage from './logos/javascript_web.svg'
@@ -180,6 +181,13 @@ export const ALL_SDKS: SDK[] = [
         tags: [SDKTag.SERVER],
         image: goImage,
         docsLink: 'https://posthog.com/docs/libraries/go',
+    },
+    {
+        name: 'Hono',
+        key: SDKKey.HONO,
+        tags: [SDKTag.SERVER],
+        image: honoImage,
+        docsLink: 'https://posthog.com/docs/libraries/hono',
     },
     {
         name: 'OpenAI',
@@ -467,8 +475,15 @@ export const ALL_SDKS: SDK[] = [
         docsLink: 'https://posthog.com/docs/libraries/node',
     },
     {
-        name: 'Nuxt.js',
+        name: 'Nuxt.js 3.7+',
         key: SDKKey.NUXT_JS,
+        tags: [SDKTag.WEB, SDKTag.SERVER],
+        image: nuxtImage,
+        docsLink: 'https://posthog.com/docs/libraries/nuxt-js',
+    },
+    {
+        name: 'Nuxt.js 3.6 and below',
+        key: SDKKey.NUXT_JS_36,
         tags: [SDKTag.WEB, SDKTag.SERVER],
         image: nuxtImage,
         docsLink: 'https://posthog.com/docs/libraries/nuxt-js',

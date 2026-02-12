@@ -61,7 +61,7 @@ TRACE_CAPTURE_RANGE = timedelta(minutes=10)
 SCHEDULE_INTERVAL_HOURS = 1  # How often the coordinator runs
 
 # Coordinator concurrency settings
-DEFAULT_MAX_CONCURRENT_TEAMS = 5  # Max teams to process in parallel
+DEFAULT_MAX_CONCURRENT_TEAMS = 8  # Max teams to process in parallel
 
 # Timeout configuration (in seconds)
 SAMPLE_TIMEOUT_SECONDS = 900  # 15 minutes for sampling query (buffer above QUERY_ASYNC 600s ClickHouse timeout)
@@ -119,7 +119,7 @@ EVENT_NAME_GENERATION_SUMMARY = "$ai_generation_summary"  # For generation-level
 GENERATION_DOCUMENT_TYPE = "llm-generation-summary-detailed"  # For generation-level embeddings
 
 # Generation-level configuration
-DEFAULT_MAX_GENERATIONS_PER_WINDOW = 50  # Higher than traces - generations are simpler units
+DEFAULT_MAX_GENERATIONS_PER_WINDOW = 20  # Higher than traces - generations are simpler units
 
 # Temporal configuration
 WORKFLOW_NAME = "llma-trace-summarization"
