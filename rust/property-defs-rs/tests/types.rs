@@ -372,7 +372,10 @@ fn test_initial_utm_properties_always_string() {
     // See https://github.com/PostHog/posthog/issues/12529
     let cases: Vec<(&str, Value)> = vec![
         // datetime-looking values that would otherwise be classified as DateTime
-        ("$initial_utm_campaign", Value::from("2025-03-11T09:48:12.863948+00:00")),
+        (
+            "$initial_utm_campaign",
+            Value::from("2025-03-11T09:48:12.863948+00:00"),
+        ),
         ("$initial_utm_source", Value::from("2023-12-13")),
         ("$initial_utm_medium", Value::from("2023-12-13T15:45:30Z")),
         // numeric values
@@ -403,7 +406,10 @@ fn test_initial_utm_properties_always_string() {
 fn test_bare_utm_properties_still_string() {
     // bare utm_* properties must still be classified as String
     let cases: Vec<(&str, Value)> = vec![
-        ("utm_source", Value::from("2025-03-11T09:48:12.863948+00:00")),
+        (
+            "utm_source",
+            Value::from("2025-03-11T09:48:12.863948+00:00"),
+        ),
         ("utm_campaign", Value::Number(Number::from(12345))),
         ("utm_medium", Value::from("true")),
         ("utm_content", Value::from("google")),
