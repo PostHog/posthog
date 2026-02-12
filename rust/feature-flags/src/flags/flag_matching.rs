@@ -969,7 +969,7 @@ impl FeatureFlagMatcher {
         // threads because CANONICAL_LOG uses tokio::task_local!. Fix by adding a thread_local!
         // fallback: install a fresh FlagsCanonicalLogLine per flag eval, take it after, send
         // deltas back through the oneshot channel, and merge into the real canonical log here.
-        // See: https://github.com/PostHog/posthog/issues/XXXXX
+        // See: https://github.com/PostHog/posthog/issues/47752
         rayon::spawn(move || {
             let results: Vec<_> = flags_to_evaluate
                 .into_par_iter()
