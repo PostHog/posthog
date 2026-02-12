@@ -1,5 +1,6 @@
 from django.db import models
 
+from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
 
 AUTH_TYPE_CHOICES = [
@@ -7,6 +8,10 @@ AUTH_TYPE_CHOICES = [
     ("api_key", "API Key"),
     ("oauth", "OAuth"),
 ]
+
+OAUTH_KIND_MAP: dict[str, str] = {
+    "https://mcp.linear.app": "linear",
+}
 
 RECOMMENDED_SERVERS = [
     {
@@ -34,9 +39,8 @@ RECOMMENDED_SERVERS = [
 
 
 class MCPServer(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     name = models.CharField(max_length=200)
-    url = models.URLField(max_length=2048)
+    url = models.URLField(max_length=2048, unique=True)
     description = models.TextField(blank=True, default="")
     icon_url = models.URLField(max_length=2048, blank=True, default="")
     auth_type = models.CharField(max_length=20, choices=AUTH_TYPE_CHOICES, default="none")
@@ -44,7 +48,6 @@ class MCPServer(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
 
     class Meta:
         db_table = "mcp_store_mcpserver"
-        unique_together = [("team", "url")]
 
 
 class MCPServerInstallation(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
@@ -52,6 +55,7 @@ class MCPServerInstallation(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="mcp_server_installations")
     server = models.ForeignKey(MCPServer, on_delete=models.CASCADE, related_name="installations")
     configuration = models.JSONField(default=dict, blank=True)
+    sensitive_configuration = EncryptedJSONField(default=dict, blank=True)
 
     class Meta:
         db_table = "mcp_store_mcpserverinstallation"

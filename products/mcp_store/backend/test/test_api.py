@@ -11,7 +11,6 @@ from products.mcp_store.backend.models import MCPServer, MCPServerInstallation
 class TestMCPServerAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def _create_server(self, **kwargs) -> MCPServer:
         defaults = {
-            "team": self.team,
             "name": "Test Server",
             "url": "https://mcp.example.com",
             "created_by": self.user,
@@ -38,6 +37,15 @@ class TestMCPServerAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert response.status_code == status.HTTP_200_OK
         assert len(response.json()["results"]) == 2
 
+    def test_servers_are_platform_level(self):
+        self._create_server(name="Global Server", url="https://mcp.global.com")
+
+        team2 = Team.objects.create(organization=self.organization, name="Team 2")
+        response = self.client.get(f"/api/environments/{team2.id}/mcp_servers/")
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.json()["results"]) == 1
+        assert response.json()["results"][0]["name"] == "Global Server"
+
     def test_retrieve_server(self):
         server = self._create_server()
         response = self.client.get(f"/api/environments/{self.team.id}/mcp_servers/{server.id}/")
@@ -49,16 +57,6 @@ class TestMCPServerAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         response = self.client.delete(f"/api/environments/{self.team.id}/mcp_servers/{server.id}/")
         assert response.status_code == status.HTTP_204_NO_CONTENT
         assert not MCPServer.objects.filter(id=server.id).exists()
-
-    def test_team_isolation(self):
-        team2 = Team.objects.create(organization=self.organization, name="Team 2")
-        self._create_server(name="Team 1 Server", url="https://mcp1.example.com")
-        MCPServer.objects.create(team=team2, name="Team 2 Server", url="https://mcp2.example.com", created_by=self.user)
-
-        response = self.client.get(f"/api/environments/{self.team.id}/mcp_servers/")
-        assert response.status_code == status.HTTP_200_OK
-        assert len(response.json()["results"]) == 1
-        assert response.json()["results"][0]["name"] == "Team 1 Server"
 
     def test_duplicate_url_rejected(self):
         self._create_server(url="https://mcp.example.com")
@@ -77,7 +75,6 @@ class TestMCPServerAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 class TestMCPServerInstallationAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def _create_server(self, **kwargs) -> MCPServer:
         defaults = {
-            "team": self.team,
             "name": "Test Server",
             "url": "https://mcp.example.com",
             "created_by": self.user,
@@ -123,18 +120,16 @@ class TestMCPServerInstallationAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchi
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    def test_install_server_from_other_team_rejected(self):
-        team2 = Team.objects.create(organization=self.organization, name="Team 2")
-        other_server = MCPServer.objects.create(
-            team=team2, name="Other Team Server", url="https://other.example.com", created_by=self.user
-        )
+    def test_can_install_any_platform_server(self):
+        server = self._create_server(name="Platform Server", url="https://platform.example.com")
 
+        team2 = Team.objects.create(organization=self.organization, name="Team 2")
         response = self.client.post(
-            f"/api/environments/{self.team.id}/mcp_server_installations/",
-            data={"server_id": str(other_server.id)},
+            f"/api/environments/{team2.id}/mcp_server_installations/",
+            data={"server_id": str(server.id)},
             format="json",
         )
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.status_code == status.HTTP_201_CREATED
 
     def test_user_isolation(self):
         server = self._create_server()

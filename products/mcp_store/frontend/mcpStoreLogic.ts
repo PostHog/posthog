@@ -1,5 +1,6 @@
 import { actions, afterMount, kea, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { urlToAction } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -90,6 +91,20 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
                     lemonToast.success('Server uninstalled')
                     return values.installations.filter((i) => i.id !== installationId)
                 },
+                completeOAuthInstall: async ({ code, serverId }: { code: string; serverId: string }) => {
+                    try {
+                        const installation = await api.mcpServerInstallations.oauthCallback({
+                            code,
+                            server_id: serverId,
+                        })
+                        lemonToast.success('Server connected')
+                        actions.loadServers()
+                        return [...values.installations, installation]
+                    } catch (e: any) {
+                        lemonToast.error(e.detail || 'Failed to complete OAuth connection')
+                        throw e
+                    }
+                },
             },
         ],
     })),
@@ -102,9 +117,18 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
         recommendedServers: [
             (s) => [s.servers, s.installedServerIds],
             (servers: MCPServer[], installedServerIds: Set<string>): MCPServer[] =>
-                servers.filter((s) => s.is_default && !installedServerIds.has(s.id)),
+                servers.filter((s) => !installedServerIds.has(s.id)),
         ],
     }),
+
+    urlToAction(({ actions }) => ({
+        '/mcp-store': (_, searchParams) => {
+            const { code, server_id } = searchParams
+            if (code && server_id) {
+                actions.completeOAuthInstall({ code, serverId: server_id })
+            }
+        },
+    })),
 
     afterMount(({ actions }) => {
         actions.loadServers()

@@ -7,6 +7,7 @@ import { LemonButton, LemonInput, LemonTable, LemonTag } from '@posthog/lemon-ui
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { SceneExport } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -53,6 +54,7 @@ export function McpStoreScene(): JSX.Element {
         useValues(mcpStoreLogic)
     const { installServer, uninstallServer, openAddCustomServerModal, setConfiguringServerId } =
         useActions(mcpStoreLogic)
+    const { currentTeamId } = useValues(teamLogic)
 
     return (
         <SceneContent>
@@ -144,14 +146,16 @@ export function McpStoreScene(): JSX.Element {
                                             type="secondary"
                                             size="small"
                                             onClick={() => {
-                                                if (server.auth_type === 'api_key') {
+                                                if (server.auth_type === 'oauth') {
+                                                    window.location.href = `/api/environments/${currentTeamId}/mcp_server_installations/authorize/?server_id=${server.id}`
+                                                } else if (server.auth_type === 'api_key') {
                                                     setConfiguringServerId(server.id)
                                                 } else {
                                                     installServer({ serverId: server.id })
                                                 }
                                             }}
                                         >
-                                            Install
+                                            {server.auth_type === 'oauth' ? 'Connect' : 'Install'}
                                         </LemonButton>
                                     ),
                             },

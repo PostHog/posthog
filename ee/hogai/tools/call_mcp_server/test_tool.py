@@ -8,7 +8,7 @@ from products.mcp_store.backend.models import MCPServer, MCPServerInstallation
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.tool_errors import MaxToolRetryableError
 from ee.hogai.tools.call_mcp_server.mcp_client import MCPClientError
-from ee.hogai.tools.call_mcp_server.tool import CallMCPServerTool, _get_installations
+from ee.hogai.tools.call_mcp_server.tool import CallMCPServerTool, _build_server_headers, _get_installations
 from ee.hogai.utils.types.base import AssistantState, NodePath
 
 
@@ -22,13 +22,14 @@ class TestCallMCPServerTool(ClickhouseTestMixin, NonAtomicBaseTest):
         self.node_path = (NodePath(name="test_node", tool_call_id="test_call", message_id="test"),)
 
     def _install_server(self, name="Test Server", url="https://mcp.example.com/mcp"):
-        server = MCPServer.objects.create(team=self.team, name=name, url=url)
+        server = MCPServer.objects.create(name=name, url=url)
         return MCPServerInstallation.objects.create(team=self.team, user=self.user, server=server)
 
     def _create_tool(self, installations: list[dict] | None = None):
         if installations is None:
             installations = []
         allowed_urls = {inst["server__url"] for inst in installations}
+        server_headers = _build_server_headers(installations)
         description = "test"
         tool = CallMCPServerTool(
             team=self.team,
@@ -40,6 +41,7 @@ class TestCallMCPServerTool(ClickhouseTestMixin, NonAtomicBaseTest):
         )
         tool._allowed_server_urls = allowed_urls
         tool._installations = installations
+        tool._server_headers = server_headers
         return tool
 
 
@@ -70,9 +72,7 @@ class TestCreateToolClass(TestCallMCPServerTool):
         other_user = await sync_to_async(User.objects.create_and_join)(
             self.organization, "other@example.com", "password"
         )
-        server = await sync_to_async(MCPServer.objects.create)(
-            team=self.team, name="Other Server", url="https://mcp.other.com"
-        )
+        server = await sync_to_async(MCPServer.objects.create)(name="Other Server", url="https://mcp.other.com")
         await sync_to_async(MCPServerInstallation.objects.create)(team=self.team, user=other_user, server=server)
 
         tool = await CallMCPServerTool.create_tool_class(

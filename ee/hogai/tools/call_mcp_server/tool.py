@@ -137,7 +137,7 @@ def _get_installations(team: Team, user: User) -> list[dict]:
     return list(
         MCPServerInstallation.objects.filter(team=team, user=user)
         .select_related("server")
-        .values("server__name", "server__url", "server__auth_type", "configuration")
+        .values("server__name", "server__url", "server__auth_type", "configuration", "sensitive_configuration")
     )
 
 
@@ -151,7 +151,9 @@ def _build_server_headers(installations: list[dict]) -> dict[str, dict[str, str]
 
         if auth_type == "api_key" and (api_key := config.get("api_key")):
             headers[url] = {"Authorization": f"Bearer {api_key}"}
-        elif auth_type == "oauth" and (access_token := config.get("access_token")):
-            headers[url] = {"Authorization": f"Bearer {access_token}"}
+        elif auth_type == "oauth":
+            sensitive = inst.get("sensitive_configuration") or {}
+            if access_token := sensitive.get("access_token"):
+                headers[url] = {"Authorization": f"Bearer {access_token}"}
 
     return headers
