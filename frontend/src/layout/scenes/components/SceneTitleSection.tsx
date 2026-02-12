@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useEffect, useRef, useState } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 
-import { IconEllipsis, IconPencil, IconSidePanel, IconSparkles, IconWrench, IconX } from '@posthog/icons'
+import { IconBrackets, IconEllipsis, IconPencil, IconSidePanel, IconSparkles, IconWrench, IconX } from '@posthog/icons'
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
 import { RenderKeybind } from 'lib/components/AppShortcuts/AppShortcutMenu'
@@ -32,9 +32,11 @@ import { SceneDivider } from './SceneDivider'
 export function SceneTitlePanelButton({
     inPanel = false,
     maxToolProps,
+    buttonClassName = 'size-[33px]',
 }: {
     inPanel?: boolean
     maxToolProps?: Omit<UseMaxToolOptions, 'active'>
+    buttonClassName?: string
 }): JSX.Element | null {
     const { scenePanelOpenManual, scenePanelIsPresent } = useValues(sceneLayoutLogic)
     const { setScenePanelOpen } = useActions(sceneLayoutLogic)
@@ -43,7 +45,7 @@ export function SceneTitlePanelButton({
     const { sidePanelOpen } = useValues(sidePanelStateLogic)
 
     const inactiveMaxToolProps: UseMaxToolOptions = { identifier: 'read_data', active: false }
-    const { openMax, definition, isMaxOpen } = useMaxTool(
+    const { openMax, definition } = useMaxTool(
         maxToolProps && isRemovingSidePanelFlag ? { ...maxToolProps, active: true } : inactiveMaxToolProps
     )
 
@@ -58,7 +60,7 @@ export function SceneTitlePanelButton({
         return (
             <>
                 <ButtonPrimitive
-                    className="size-[33px] group -mr-[2px]"
+                    className={cn(buttonClassName, 'group')}
                     onClick={(e) => {
                         e.stopPropagation()
                         e.preventDefault()
@@ -70,21 +72,14 @@ export function SceneTitlePanelButton({
                     }}
                     tooltip={
                         definition ? (
-                            !isMaxOpen ? (
-                                <>
-                                    <IconSparkles className="mr-1.5" />
-                                    {definition.name} with PostHog AI
-                                </>
-                            ) : (
-                                <>
-                                    PostHog AI can use this tool
-                                    <br />
-                                    <div className="flex items-center">
-                                        {definition.icon || <IconWrench />}
-                                        <i className="ml-1.5">{definition.name}</i>
-                                    </div>
-                                </>
-                            )
+                            <>
+                                Open PostHog AI
+                                <br />
+                                <div className="flex items-center">
+                                    {definition.icon || <IconWrench />}
+                                    <i className="ml-1.5">{definition.name}</i>
+                                </div>
+                            </>
                         ) : (
                             'Open PostHog AI'
                         )
@@ -93,12 +88,17 @@ export function SceneTitlePanelButton({
                     tooltipCloseDelayMs={0}
                     iconOnly
                 >
-                    <IconSparkles className="text-ai" />
+                    <div className="relative">
+                        <IconSparkles className="text-ai group-hover:animate-hue-rotate" />
+                        {maxToolProps && (
+                            <IconBrackets className="absolute size-2.5 top-0 -right-1 text-black dark:text-white" />
+                        )}
+                    </div>
                 </ButtonPrimitive>
 
                 {/* Size to mimic lemon button small */}
                 <ButtonPrimitive
-                    className="size-[33px] group -mr-[2px]"
+                    className={cn(buttonClassName, 'group -mr-[2px]')}
                     onClick={(e) => {
                         e.stopPropagation()
                         e.preventDefault()

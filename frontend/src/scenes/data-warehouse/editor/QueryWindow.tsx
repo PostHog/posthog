@@ -274,6 +274,7 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
                     )}
                     {isRemovingSidePanelFlag && (
                         <SceneTitlePanelButton
+                            buttonClassName="size-[26px]"
                             maxToolProps={{
                                 identifier: 'execute_sql',
                                 context: {
