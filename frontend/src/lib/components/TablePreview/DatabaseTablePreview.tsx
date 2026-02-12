@@ -19,7 +19,7 @@ export function DatabaseTablePreview({
     whereClause,
     ...rest
 }: DatabaseTablePreviewProps): JSX.Element {
-    const instanceLogicKey = useMemo(() => logicKey || `database-table-preview-${uniqueMemoizedIndex++}`, [logicKey])
+const instanceLogicKey = useRef(logicKey || `database-table-preview-${uniqueMemoizedIndex++}`).current
 
     const logic = databaseTablePreviewLogic({
         logicKey: instanceLogicKey,
