@@ -283,7 +283,7 @@ export function ProductSetupPopover({
                             )}
                         </div>
 
-                        {hoveredTask && !isSetupComplete && <TaskHoverDescription task={hoveredTask} />}
+                        {!isSetupComplete && <TaskHoverDescription task={hoveredTask} />}
 
                         <PopoverFooter
                             isDismissed={isDismissed}
@@ -435,26 +435,33 @@ function ProductSuggestionItem({ product, onSelect }: ProductSuggestionItemProps
 }
 
 interface TaskHoverDescriptionProps {
-    task: SetupTaskWithState
+    task: SetupTaskWithState | null
 }
 
 function TaskHoverDescription({ task }: TaskHoverDescriptionProps): JSX.Element {
     return (
-        <div className="px-3 py-2 border-t border-border bg-fill-tertiary">
-            <span className="text-xs font-medium">{task.title}</span>
-            {task.description && typeof task.description === 'string' && (
-                <p className="text-xs text-muted mt-0.5 leading-snug">{task.description}</p>
-            )}
-            {task.lockedReason && (
-                <p className="text-xs text-warning mt-1">
-                    <strong>Depends on:</strong> {task.lockedReason.replace('Complete "', '').replace('" first', '')}
-                </p>
-            )}
-            {task.requiresManualCompletion && !task.completed && !task.skipped && (
-                <p className="text-xs text-muted mt-1 italic">
-                    Manual task – {task.docsUrl ? 'click for instructions, then ' : ''}
-                    mark as complete when done.
-                </p>
+        <div className="px-3 py-2 border-t border-border bg-fill-tertiary min-h-28 flex flex-col">
+            {task ? (
+                <>
+                    <span className="text-xs font-medium">{task.title}</span>
+                    {task.description && typeof task.description === 'string' && (
+                        <p className="text-xs text-muted mt-0.5 leading-snug">{task.description}</p>
+                    )}
+                    {task.lockedReason && (
+                        <p className="text-xs text-warning mt-auto pt-1">
+                            <strong>Depends on:</strong>{' '}
+                            {task.lockedReason.replace('Complete "', '').replace('" first', '')}
+                        </p>
+                    )}
+                    {task.requiresManualCompletion && !task.completed && !task.skipped && (
+                        <p className="text-xs text-muted mt-1 italic">
+                            Manual task – {task.docsUrl ? 'click for instructions, then ' : ''}
+                            mark as complete when done.
+                        </p>
+                    )}
+                </>
+            ) : (
+                <p className="text-xs text-muted italic">Hover over a task for details</p>
             )}
         </div>
     )
