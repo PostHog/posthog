@@ -204,7 +204,7 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                                 buttonProps={{
                                                     menuItem: true,
                                                 }}
-                                                tooltip="Invite members"
+                                                tooltip="Project settings"
                                                 tooltipPlacement="right"
                                                 data-attr="top-menu-project-settings"
                                                 to={urls.project(currentTeam?.id, urls.settings('project'))}
