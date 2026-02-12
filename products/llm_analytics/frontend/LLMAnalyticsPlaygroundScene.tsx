@@ -1,7 +1,17 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
-import { IconCopy, IconGear, IconMessage, IconPencil, IconPlay, IconPlus, IconTrash } from '@posthog/icons'
+import {
+    IconChevronDown,
+    IconChevronRight,
+    IconCopy,
+    IconGear,
+    IconMessage,
+    IconPencil,
+    IconPlay,
+    IconPlus,
+    IconTrash,
+} from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -18,6 +28,8 @@ import {
     Link,
 } from '@posthog/lemon-ui'
 
+import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { humanFriendlyDuration } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -90,6 +102,23 @@ function SubscriptionRequiredBanner(): JSX.Element | null {
 }
 
 function PlaygroundLayout(): JSX.Element {
+    const { submitting, currentResponse, responseHasError } = useValues(llmAnalyticsPlaygroundLogic)
+    const { addResponseToHistory, addMessage } = useActions(llmAnalyticsPlaygroundLogic)
+    const prevSubmittingRef = useRef(false)
+
+    useEffect(() => {
+        const wasSubmitting = prevSubmittingRef.current
+        prevSubmittingRef.current = submitting
+
+        if (wasSubmitting && !submitting && currentResponse && currentResponse.trim() && !responseHasError) {
+            addResponseToHistory(currentResponse)
+            addMessage()
+            setTimeout(() => {
+                document.querySelector('[data-attr="messages-end"]')?.scrollIntoView({ behavior: 'smooth' })
+            }, 150)
+        }
+    }, [submitting])
+
     return (
         <div className="flex flex-col min-h-[calc(100vh-120px)] relative">
             <RateLimitBanner />
@@ -305,12 +334,14 @@ function ToolsDisplay({ expandTextAreas }: { expandTextAreas: boolean }): JSX.El
     const { setTools, submitPrompt } = useActions(llmAnalyticsPlaygroundLogic)
     const [showEditModal, setShowEditModal] = useState(false)
     const [localToolsJson, setLocalToolsJson] = useState<string | null>(null)
+    const [collapsed, setCollapsed] = useState(false)
 
     if (!tools) {
         return <></>
     }
 
     const toolsJsonString = localToolsJson ?? JSON.stringify(tools, null, 2)
+    const toolCount = Array.isArray(tools) ? tools.length : 0
 
     const handleToolsChange = (value: string): void => {
         setLocalToolsJson(value)
@@ -343,24 +374,36 @@ function ToolsDisplay({ expandTextAreas }: { expandTextAreas: boolean }): JSX.El
                     />
                 </div>
 
-                <div className="flex items-center gap-2 mb-2">
+                <div className="flex items-center gap-2 mb-2 cursor-pointer" onClick={() => setCollapsed(!collapsed)}>
+                    <LemonButton
+                        size="xsmall"
+                        icon={collapsed ? <IconChevronRight /> : <IconChevronDown />}
+                        noPadding
+                    />
                     <LemonTag type="caution" size="small">
                         Tools
                     </LemonTag>
+                    {collapsed && (
+                        <span className="text-xs text-muted truncate flex-1">
+                            {toolCount > 0 ? `${toolCount} tool${toolCount === 1 ? '' : 's'} defined` : 'No tools'}
+                        </span>
+                    )}
                 </div>
 
-                <LemonTextArea
-                    className="text-sm w-full font-mono"
-                    placeholder="Tools available to the AI assistant (JSON format)..."
-                    value={toolsJsonString}
-                    onChange={handleToolsChange}
-                    minRows={2}
-                    maxRows={expandTextAreas ? undefined : 6}
-                    onPressCmdEnter={() => {
-                        submitPrompt()
-                        scrollToOutput()
-                    }}
-                />
+                <AnimatedCollapsible collapsed={collapsed}>
+                    <LemonTextArea
+                        className="text-sm w-full font-mono"
+                        placeholder="Tools available to the AI assistant (JSON format)..."
+                        value={toolsJsonString}
+                        onChange={handleToolsChange}
+                        minRows={2}
+                        maxRows={expandTextAreas ? undefined : 6}
+                        onPressCmdEnter={() => {
+                            submitPrompt()
+                            scrollToOutput()
+                        }}
+                    />
+                </AnimatedCollapsible>
             </div>
 
             <LemonModal
@@ -396,6 +439,7 @@ function SystemMessageDisplay({ expandTextAreas }: { expandTextAreas: boolean })
     const { systemPrompt } = useValues(llmAnalyticsPlaygroundLogic)
     const { setSystemPrompt, submitPrompt } = useActions(llmAnalyticsPlaygroundLogic)
     const [showEditModal, setShowEditModal] = useState(false)
+    const [collapsed, setCollapsed] = useState(false)
 
     return (
         <>
@@ -410,24 +454,38 @@ function SystemMessageDisplay({ expandTextAreas }: { expandTextAreas: boolean })
                     />
                 </div>
 
-                <div className="flex items-center gap-2 mb-2">
+                <div className="flex items-center gap-2 mb-2 cursor-pointer" onClick={() => setCollapsed(!collapsed)}>
+                    <LemonButton
+                        size="xsmall"
+                        icon={collapsed ? <IconChevronRight /> : <IconChevronDown />}
+                        noPadding
+                    />
                     <LemonTag type="completion" size="small">
                         System
                     </LemonTag>
+                    {collapsed && (
+                        <span className="text-xs text-muted truncate flex-1">
+                            {systemPrompt
+                                ? systemPrompt.slice(0, 80) + (systemPrompt.length > 80 ? '…' : '')
+                                : 'No system prompt'}
+                        </span>
+                    )}
                 </div>
 
-                <LemonTextArea
-                    className="text-sm w-full"
-                    placeholder="System instructions for the AI assistant..."
-                    value={systemPrompt}
-                    onChange={setSystemPrompt}
-                    minRows={2}
-                    maxRows={expandTextAreas ? undefined : 8}
-                    onPressCmdEnter={() => {
-                        submitPrompt()
-                        scrollToOutput()
-                    }}
-                />
+                <AnimatedCollapsible collapsed={collapsed}>
+                    <LemonTextArea
+                        className="text-sm w-full"
+                        placeholder="System instructions for the AI assistant..."
+                        value={systemPrompt}
+                        onChange={setSystemPrompt}
+                        minRows={2}
+                        maxRows={expandTextAreas ? undefined : 8}
+                        onPressCmdEnter={() => {
+                            submitPrompt()
+                            scrollToOutput()
+                        }}
+                    />
+                </AnimatedCollapsible>
             </div>
 
             <LemonModal
@@ -510,11 +568,13 @@ function MessageDisplay({
         }
     }
 
+    const isAssistantWithContent = message.role === 'assistant' && message.content.trim().length > 0
+
     return (
         <div
-            className={`border rounded p-3 relative group bg-white dark:bg-[var(--color-bg-surface-primary)] hover:shadow-sm transition-shadow ${getRoleBorderClass(
+            className={`border rounded p-3 relative group hover:shadow-sm transition-shadow ${getRoleBorderClass(
                 message.role
-            )}`}
+            )} ${isAssistantWithContent ? 'bg-surface-secondary' : 'bg-white dark:bg-[var(--color-bg-surface-primary)]'}`}
         >
             <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
                 <LemonButton
@@ -538,25 +598,33 @@ function MessageDisplay({
                 />
             </div>
 
-            <LemonTextArea
-                className="text-sm w-full"
-                placeholder={`Enter ${message.role} message here...`}
-                value={message.content}
-                onChange={handleContentChange}
-                minRows={2}
-                maxRows={expandTextAreas ? undefined : 8}
-                onPressCmdEnter={() => {
-                    submitPrompt()
-                    scrollToOutput()
-                }}
-            />
+            {isAssistantWithContent ? (
+                <div className="text-sm opacity-75">
+                    <LemonMarkdown className="break-words" lowKeyHeadings wrapCode>
+                        {message.content}
+                    </LemonMarkdown>
+                </div>
+            ) : (
+                <LemonTextArea
+                    className="text-sm w-full"
+                    placeholder={`Enter ${message.role} message here...`}
+                    value={message.content}
+                    onChange={handleContentChange}
+                    minRows={2}
+                    maxRows={expandTextAreas ? undefined : 8}
+                    onPressCmdEnter={() => {
+                        submitPrompt()
+                        scrollToOutput()
+                    }}
+                />
+            )}
         </div>
     )
 }
 
 function OutputSection(): JSX.Element {
     const { submitting, currentResponse, lastRunDetails, responseHasError } = useValues(llmAnalyticsPlaygroundLogic)
-    const { addResponseToHistory, addCurrentRunToComparison } = useActions(llmAnalyticsPlaygroundLogic)
+    const { addCurrentRunToComparison } = useActions(llmAnalyticsPlaygroundLogic)
 
     return (
         <div data-attr="output-section">
@@ -564,22 +632,13 @@ function OutputSection(): JSX.Element {
                 <h3 className="text-lg font-semibold">Response</h3>
                 <div className="flex gap-2">
                     {!submitting && currentResponse && currentResponse.trim() && !responseHasError && (
-                        <>
-                            <LemonButton
-                                type="secondary"
-                                size="small"
-                                icon={<IconCopy />}
-                                onClick={() => void copyToClipboard(currentResponse, 'response')}
-                                tooltip="Copy response"
-                            />
-                            <LemonButton
-                                type="secondary"
-                                size="small"
-                                onClick={() => addResponseToHistory(currentResponse)}
-                            >
-                                Add to chat history
-                            </LemonButton>
-                        </>
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            icon={<IconCopy />}
+                            onClick={() => void copyToClipboard(currentResponse, 'response')}
+                            tooltip="Copy response"
+                        />
                     )}
                     {!submitting && lastRunDetails && !responseHasError && (
                         <LemonButton
@@ -607,13 +666,15 @@ function OutputSection(): JSX.Element {
                     <LemonSkeleton active className="my-2" />
                 )}
                 {currentResponse !== null ? (
-                    <pre
-                        className={`whitespace-pre-wrap text-sm break-words ${
-                            responseHasError ? 'text-red-800 dark:text-red-200' : ''
-                        }`}
-                    >
-                        {currentResponse}
-                    </pre>
+                    responseHasError ? (
+                        <pre className="whitespace-pre-wrap text-sm break-words text-red-800 dark:text-red-200">
+                            {currentResponse}
+                        </pre>
+                    ) : (
+                        <LemonMarkdown className="text-sm break-words" lowKeyHeadings wrapCode>
+                            {currentResponse}
+                        </LemonMarkdown>
+                    )
                 ) : (
                     <div className="flex flex-col items-center justify-center h-24 text-muted">
                         <IconMessage className="text-3xl mb-2 opacity-40" />
@@ -773,6 +834,7 @@ function StickyActionBar(): JSX.Element {
                         scrollToOutput()
                     }}
                     loading={submitting}
+                    tooltip="Run prompt (⌘↵)"
                     disabledReason={
                         submitting
                             ? 'Generating...'
