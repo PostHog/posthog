@@ -78,7 +78,6 @@ class ExperimentSavedMetricAdmin(admin.ModelAdmin):
     def migrate_metric(self, request, object_id):
         try:
             with transaction.atomic():
-                # nosemgrep: idor-lookup-without-team (Django admin, staff-only)
                 original = ExperimentSavedMetric.objects.select_for_update().get(pk=object_id)
 
                 if original.metadata and original.metadata.get("migrated_to"):
