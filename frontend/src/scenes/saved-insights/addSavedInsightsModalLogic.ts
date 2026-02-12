@@ -155,6 +155,27 @@ export const addSavedInsightsModalLogic = kea<addSavedInsightsModalLogicType>([
                     search_term: newFilters.search,
                 })
             }
+
+            if (newFilters.insightType !== oldFilters.insightType) {
+                posthog.capture('insight dashboard modal filtered', {
+                    filter_type: 'insight_type',
+                    value: newFilters.insightType,
+                })
+            }
+
+            if (newFilters.createdBy !== oldFilters.createdBy) {
+                posthog.capture('insight dashboard modal filtered', {
+                    filter_type: 'created_by',
+                    value: newFilters.createdBy,
+                })
+            }
+
+            if (!objectsEqual(newFilters.tags, oldFilters.tags)) {
+                posthog.capture('insight dashboard modal filtered', {
+                    filter_type: 'tags',
+                    value: newFilters.tags,
+                })
+            }
         },
 
         addInsightToDashboard: async ({ insight, dashboardId }) => {
