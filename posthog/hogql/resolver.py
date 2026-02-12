@@ -135,14 +135,32 @@ class Resolver(CloningVisitor):
         parent_ctes = self.ctes
         self.ctes = dict(parent_ctes)
 
-        node = super().visit_select_set_query(node)
-        node.type = ast.SelectSetQueryType(
-            types=[node.initial_select_query.type, *(x.select_query.type for x in node.subsequent_select_queries)]  # type: ignore
+        initial = self.visit(node.initial_select_query)
+
+        # Root WITH propagates to all subsequent branches. Branch-level CTEs shadow root CTEs.
+        if isinstance(initial, ast.SelectQuery) and initial.ctes:
+            for name, cte in initial.ctes.items():
+                self.ctes[name] = cte
+
+        subsequent: list[ast.SelectSetNode] = []
+        for expr in node.subsequent_select_queries:
+            subsequent.append(
+                ast.SelectSetNode(set_operator=expr.set_operator, select_query=self.visit(expr.select_query))
+            )
+
+        result = ast.SelectSetQuery(
+            start=node.start,
+            end=node.end,
+            initial_select_query=initial,
+            subsequent_select_queries=subsequent,
+        )
+        result.type = ast.SelectSetQueryType(
+            types=[result.initial_select_query.type, *(x.select_query.type for x in result.subsequent_select_queries)]  # type: ignore
         )
 
         self.ctes = parent_ctes
 
-        return node
+        return result
 
     def visit_cte(self, node: ast.CTE):
         self.cte_counter += 1

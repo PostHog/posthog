@@ -324,18 +324,21 @@ class TestResolver(BaseTest):
             "WITH cte1 AS (SELECT 1 AS a) SELECT 1 AS a LIMIT 50000 UNION ALL WITH cte2 AS (SELECT 2 AS a) SELECT a FROM cte2 LIMIT 50000 UNION ALL WITH cte1 AS (SELECT 1 AS a) SELECT a FROM cte1 LIMIT 50000",
         )
 
-    def test_ctes_not_shared_across_union_branches(self):
-        with self.assertRaises(ResolutionError) as e:
-            self._print_hogql(
-                """
-                WITH page_view_stats AS (SELECT 1 AS a)
-                SELECT * FROM page_view_stats
-                UNION ALL
-                WITH purchase_stats AS (SELECT 2 AS a)
-                SELECT * FROM page_view_stats
-                """
-            )
-        self.assertIn("Unknown table", str(e.exception))
+    def test_root_ctes_propagate_to_union_branches(self):
+        # Root WITH propagates to all branches; branch-level CTEs shadow root CTEs
+        printed = self._print_hogql(
+            """
+            WITH page_view_stats AS (SELECT 1 AS a)
+            SELECT * FROM page_view_stats
+            UNION ALL
+            WITH purchase_stats AS (SELECT 2 AS a)
+            SELECT * FROM page_view_stats
+            """
+        )
+        self.assertEqual(
+            printed,
+            "WITH page_view_stats AS (SELECT 1 AS a) SELECT a FROM page_view_stats LIMIT 50000 UNION ALL WITH purchase_stats AS (SELECT 2 AS a) SELECT a FROM page_view_stats LIMIT 50000",
+        )
 
     def test_ctes_scalar_subquery(self):
         self.assertEqual(
