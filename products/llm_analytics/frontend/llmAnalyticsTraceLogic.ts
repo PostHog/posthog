@@ -83,11 +83,11 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
     props({} as LLMAnalyticsTraceLogicProps),
     key((props) => props.tabId ?? 'default'),
 
-    connect(() => ({
+    connect((props: LLMAnalyticsTraceLogicProps) => ({
         values: [
             featureFlagLogic,
             ['featureFlags'],
-            llmAnalyticsSharedLogic,
+            llmAnalyticsSharedLogic({ tabId: props.tabId }),
             ['dateFilter', 'propertyFilters', 'shouldFilterTestAccounts', 'shouldFilterSupportTraces'],
         ],
     })),

@@ -46,8 +46,8 @@ export const llmAnalyticsSessionLogic = kea<llmAnalyticsSessionLogicType>([
     props({} as LLMAnalyticsSessionLogicProps),
     key((props) => props.tabId ?? 'default'),
 
-    connect(() => ({
-        values: [llmAnalyticsSharedLogic, ['dateFilter']],
+    connect((props: LLMAnalyticsSessionLogicProps) => ({
+        values: [llmAnalyticsSharedLogic({ tabId: props.tabId }), ['dateFilter']],
     })),
 
     actions({
