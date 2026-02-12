@@ -1184,6 +1184,47 @@ class TestProperty(BaseTest):
             self._parse_expr("person.properties.score <= 100"),
         )
 
+    def test_property_to_expr_date_operators(self):
+        """Test is_date_after and is_date_before operators.
+
+        These operators parse the comparison value with toDateTime. The property
+        expression is left unchanged - the PropertySwapper handles typed DateTime
+        properties, and for untyped string properties ClickHouse does implicit conversion.
+
+        Regression test for Zendesk #50438: Cohort query fails with
+        "Cannot convert string '2026-02-10T14:15:00Z' to type DateTime64(6, 'UTC')"
+        """
+        # is_date_after should parse the value as datetime
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "event", "key": "created_at", "operator": "is_date_after", "value": "2026-02-10"}
+            ),
+            self._parse_expr("properties.created_at > toDateTime('2026-02-10')"),
+        )
+
+        # is_date_before should also parse the value as datetime
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "event", "key": "created_at", "operator": "is_date_before", "value": "2026-02-10"}
+            ),
+            self._parse_expr("properties.created_at < toDateTime('2026-02-10')"),
+        )
+
+        # Test with person properties
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "person", "key": "signup_date", "operator": "is_date_after", "value": "2026-01-01"}
+            ),
+            self._parse_expr("person.properties.signup_date > toDateTime('2026-01-01')"),
+        )
+
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "person", "key": "signup_date", "operator": "is_date_before", "value": "2026-12-31"}
+            ),
+            self._parse_expr("person.properties.signup_date < toDateTime('2026-12-31')"),
+        )
+
     def test_property_to_expr_semver_operators(self):
         # Test semver_eq
         self.assertEqual(
