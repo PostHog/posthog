@@ -585,11 +585,11 @@ const ReplayFiltersTab = ({
                                 type="secondary"
                                 status="danger"
                                 size="small"
+                                className="max-w-xs"
+                                truncate
                                 onClick={() => void updateSavedFilter()}
                             >
-                                <span className="truncate">
-                                    Save changes to "{appliedSavedFilter.name || 'Unnamed'}"
-                                </span>
+                                Save changes to "{appliedSavedFilter.name || 'Unnamed'}"
                             </LemonButton>
                         </div>
                     )}
