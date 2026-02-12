@@ -820,7 +820,10 @@ jobs:
 
             - name: Wait for Docker services
               shell: bash
-              run: docker compose -f docker-compose.dev.yml -f docker-compose.profiles.yml --profile temporal --profile azure up -d --wait
+              # Only wait for core services here. Temporal boots slowly (auto-setup runs
+              # DB migrations) and was already started in background above — it will be
+              # ready by the time temporal tests run.
+              run: docker compose -f docker-compose.dev.yml up -d --wait
 
             - name: Determine if --snapshot-update should be on
               # UPDATE mode: human commits - update snapshots

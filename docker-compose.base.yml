@@ -435,10 +435,10 @@ services:
         restart: on-failure
         healthcheck:
             test: ['CMD', 'nc', '-z', 'localhost', '7233']
-            interval: 3s
+            interval: 5s
             timeout: 5s
-            retries: 60
-            start_period: 10s
+            retries: 30
+            start_period: 300s
         environment:
             - DB=postgresql
             - DB_PORT=5432
