@@ -6,6 +6,7 @@ from rest_framework.mixins import ListModelMixin, RetrieveModelMixin
 from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.status import HTTP_400_BAD_REQUEST
 from rest_framework.viewsets import GenericViewSet
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -20,12 +21,13 @@ class HealthIssueSerializer(serializers.ModelSerializer):
             "kind",
             "severity",
             "status",
+            "dismissed",
             "payload",
             "created_at",
             "updated_at",
             "resolved_at",
         ]
-        read_only_fields = fields
+        read_only_fields = [f for f in fields if f != "dismissed"]
 
 
 class HealthIssuePagination(LimitOffsetPagination):
@@ -48,6 +50,20 @@ class HealthIssueViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelMi
     queryset = HealthIssue.objects.all()
     serializer_class = HealthIssueSerializer
     pagination_class = HealthIssuePagination
+    http_method_names = ["get", "patch", "post", "head"]
+
+    WRITABLE_FIELDS = {"dismissed"}
+
+    def partial_update(self, request: Request, **kwargs) -> Response:
+        unknown_fields = set(request.data.keys()) - self.WRITABLE_FIELDS
+        if unknown_fields:
+            raise serializers.ValidationError(dict.fromkeys(unknown_fields, "This field is read-only."))
+
+        issue = self.get_object()
+        serializer = self.get_serializer(issue, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         queryset = (
@@ -69,23 +85,24 @@ class HealthIssueViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelMi
         if kind_filter := self.request.query_params.get("kind"):
             queryset = queryset.filter(kind=kind_filter)
 
-        return queryset
+        dismissed_filter = self.request.query_params.get("dismissed")
+        if dismissed_filter is not None:
+            queryset = queryset.filter(dismissed=dismissed_filter.lower() == "true")
 
-    @action(methods=["POST"], detail=True)
-    def dismiss(self, request: Request, **kwargs) -> Response:
-        issue = self.get_object()
-        issue.dismiss()
-        return Response(HealthIssueSerializer(issue).data)
+        return queryset
 
     @action(methods=["POST"], detail=True)
     def resolve(self, request: Request, **kwargs) -> Response:
         issue = self.get_object()
-        issue.resolve()
+        try:
+            issue.resolve()
+        except ValueError as e:
+            return Response({"detail": str(e)}, status=HTTP_400_BAD_REQUEST)
         return Response(HealthIssueSerializer(issue).data)
 
     @action(methods=["GET"], detail=False)
     def summary(self, request: Request, **kwargs) -> Response:
-        active_issues = self.get_queryset().filter(status=HealthIssue.Status.ACTIVE)
+        active_issues = self.get_queryset().filter(status=HealthIssue.Status.ACTIVE, dismissed=False)
 
         by_severity = {
             row["severity"]: row["count"]

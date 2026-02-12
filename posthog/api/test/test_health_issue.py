@@ -40,11 +40,12 @@ class TestHealthIssueAPI(APIBaseTest):
         [
             ("status", "active", 2),
             ("status", "resolved", 1),
-            ("status", "dismissed", 0),
             ("severity", "critical", 1),
             ("severity", "warning", 2),
             ("kind", "sdk_outdated", 2),
             ("kind", "missing_events", 1),
+            ("dismissed", "true", 1),
+            ("dismissed", "false", 2),
         ]
     )
     def test_filter_by_param(self, filter_name, filter_value, expected_count):
@@ -52,6 +53,8 @@ class TestHealthIssueAPI(APIBaseTest):
         self._create_issue(severity=HealthIssue.Severity.WARNING, kind="sdk_outdated", unique_hash="h2")
         resolved = self._create_issue(severity=HealthIssue.Severity.WARNING, kind="missing_events", unique_hash="h3")
         resolved.resolve()
+        resolved.dismissed = True
+        resolved.save(update_fields=["dismissed"])
 
         response = self.client.get(self._url(), {filter_name: filter_value})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -60,6 +63,7 @@ class TestHealthIssueAPI(APIBaseTest):
     @parameterized.expand(
         [
             ("status", "invalid_status"),
+            ("status", "dismissed"),
             ("severity", "mind_boggling"),
         ]
     )
@@ -106,21 +110,52 @@ class TestHealthIssueAPI(APIBaseTest):
         response = self.client.get(self._url("/00000000-0000-0000-0000-000000000000"))
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
-    @parameterized.expand(
-        [
-            ("dismiss", "dismissed"),
-            ("resolve", "resolved"),
-        ]
-    )
-    def test_status_transition(self, action, expected_status):
-        issue = self._create_issue(unique_hash=f"h_{action}")
+    def test_resolve_action(self):
+        issue = self._create_issue()
 
-        response = self.client.post(self._url(f"/{issue.id}/{action}"))
+        response = self.client.post(self._url(f"/{issue.id}/resolve"))
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["status"], expected_status)
+        self.assertEqual(response.json()["status"], "resolved")
 
         issue.refresh_from_db()
-        self.assertEqual(issue.status, expected_status)
+        self.assertEqual(issue.status, HealthIssue.Status.RESOLVED)
+
+    def test_patch_dismiss(self):
+        issue = self._create_issue()
+
+        response = self.client.patch(self._url(f"/{issue.id}"), {"dismissed": True}, content_type="application/json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.json()["dismissed"])
+
+        issue.refresh_from_db()
+        self.assertTrue(issue.dismissed)
+        self.assertEqual(issue.status, HealthIssue.Status.ACTIVE)
+
+    def test_patch_undismiss(self):
+        issue = self._create_issue(dismissed=True)
+
+        response = self.client.patch(self._url(f"/{issue.id}"), {"dismissed": False}, content_type="application/json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertFalse(response.json()["dismissed"])
+
+        issue.refresh_from_db()
+        self.assertFalse(issue.dismissed)
+
+    def test_patch_dismiss_resolved_issue(self):
+        issue = self._create_issue()
+        issue.resolve()
+
+        response = self.client.patch(self._url(f"/{issue.id}"), {"dismissed": True}, content_type="application/json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.json()["dismissed"])
+        self.assertEqual(response.json()["status"], "resolved")
+
+    def test_patch_read_only_field_returns_400(self):
+        issue = self._create_issue()
+
+        response = self.client.patch(self._url(f"/{issue.id}"), {"status": "resolved"}, content_type="application/json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["attr"], "status")
 
     def test_resolve_sets_resolved_at(self):
         issue = self._create_issue()
@@ -129,12 +164,15 @@ class TestHealthIssueAPI(APIBaseTest):
         issue.refresh_from_db()
         self.assertIsNotNone(issue.resolved_at)
 
-    def test_summary_counts_active_issues_only(self):
+    def test_summary_excludes_resolved_and_dismissed(self):
         self._create_issue(severity=HealthIssue.Severity.CRITICAL, kind="sdk_outdated", unique_hash="h1")
         self._create_issue(severity=HealthIssue.Severity.WARNING, kind="missing_events", unique_hash="h2")
         self._create_issue(severity=HealthIssue.Severity.WARNING, kind="sdk_outdated", unique_hash="h3")
         resolved = self._create_issue(severity=HealthIssue.Severity.CRITICAL, kind="resolved_kind", unique_hash="h4")
         resolved.resolve()
+        self._create_issue(
+            severity=HealthIssue.Severity.WARNING, kind="dismissed_kind", unique_hash="h5", dismissed=True
+        )
 
         response = self.client.get(self._url("/summary"))
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -153,10 +191,16 @@ class TestHealthIssueAPI(APIBaseTest):
         self.assertEqual(data["by_severity"], {})
         self.assertEqual(data["by_kind"], {})
 
+    def test_resolve_already_resolved_returns_400(self):
+        issue = self._create_issue(status=HealthIssue.Status.RESOLVED)
+
+        response = self.client.post(self._url(f"/{issue.id}/resolve"))
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
     @parameterized.expand(
         [
             ("POST", ""),
-            ("PATCH", "/00000000-0000-0000-0000-000000000000"),
+            ("PUT", "/00000000-0000-0000-0000-000000000000"),
             ("DELETE", "/00000000-0000-0000-0000-000000000000"),
         ]
     )
