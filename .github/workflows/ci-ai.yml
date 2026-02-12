@@ -84,9 +84,6 @@ jobs:
             - name: Add Kafka and ClickHouse to /etc/hosts
               run: sudo echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts
 
-            - name: Wait for Clickhouse & Kafka
-              run: bin/check_kafka_clickhouse_up
-
             - name: Run LLM evals
               run: pytest ee/hogai/eval/ci -vv --junitxml=junit.xml
               env:

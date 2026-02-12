@@ -141,11 +141,6 @@ core:
         services:
             - postgresql
 health_checks:
-    check:clickhouse:
-        bin_script: check_clickhouse_up
-        description: Poll ClickHouse HTTP port until service is ready
-        services:
-            - clickhouse
     check:dagster-graphql:
         bin_script: check_dagster_graphql_up
         description: Wait for Dagster UI to become available
@@ -155,32 +150,13 @@ health_checks:
         description: Verify DNS resolution for required service hostnames (clickhouse,
             kafka, etc)
         hidden: true
-    check:kafka-clickhouse:
-        bin_script: check_kafka_clickhouse_up
-        description: Wait for both Kafka and ClickHouse services to be ready
-        services:
-            - kafka
-            - clickhouse
-    check:postgres:
-        bin_script: check_postgres_up
-        description: Poll PostgreSQL connection until database is available
-        services:
-            - postgresql
-    check:temporal:
-        bin_script: check_temporal_up
-        description: Wait for Temporal service port with 180s timeout
-        services:
-            - temporal
     check:video-deps:
         bin_script: check_video_deps
         description: Install and verify Playwright browsers and FFmpeg dependencies
         hidden: true
     services:ready:
-        steps:
-            - check:clickhouse
-            - check:postgres
-            - check:temporal
-        description: Verify all core infrastructure services are ready
+        bin_script: wait-for-docker
+        description: Wait for all Docker Compose services to pass health checks
 start:
     start:
         bin_script: start

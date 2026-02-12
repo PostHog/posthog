@@ -309,10 +309,8 @@ jobs:
                   pnpm --filter=@posthog/playwright... install --frozen-lockfile
                   bin/turbo --filter=@posthog/frontend prepare
 
-            - name: Wait for services to be available
-              run: |
-                  bin/check_kafka_clickhouse_up
-                  bin/check_postgres_up
+            - name: Wait for Docker services
+              run: docker compose -f docker-compose.dev.yml up -d --wait
 
             - name: Build frontend
               run: |

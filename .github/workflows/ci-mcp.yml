@@ -210,11 +210,9 @@ jobs:
                   touch frontend/dist/layout.html
                   touch frontend/dist/exporter.html
 
-            - name: Wait for services to be available
+            - name: Wait for Docker services
               shell: bash
-              run: |
-                  bin/check_kafka_clickhouse_up
-                  bin/check_postgres_up
+              run: docker compose -f docker-compose.dev.yml up -d --wait
 
             - name: Run migrations
               run: |

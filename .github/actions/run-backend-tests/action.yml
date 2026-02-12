@@ -62,7 +62,7 @@ runs:
                   echo "Attempt $attempt of $max_attempts to start stack..."
 
                   if docker compose -f docker-compose.dev.yml down && \
-                     docker compose -f docker-compose.dev.yml up -d; then
+                     docker compose -f docker-compose.dev.yml up -d --wait; then
                       echo "Stack started successfully"
                       exit 0
                   fi
@@ -187,16 +187,6 @@ runs:
               touch frontend/dist/layout.html
               touch frontend/dist/exporter.html
               ./bin/download-mmdb
-
-        - name: Wait for Clickhouse & Kafka
-          shell: bash
-          run: bin/check_kafka_clickhouse_up
-
-        - name: Wait for Temporal
-          if: ${{ inputs.segment == 'Temporal' }}
-          shell: bash
-          run: |
-              bin/check_temporal_up
 
         - name: Determine if --snapshot-update should be on
           # Skip on forks (due to GITHUB_TOKEN being read-only in PRs coming from them) except for persons-on-events
