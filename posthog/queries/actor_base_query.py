@@ -34,7 +34,6 @@ class MatchedRecording(TypedDict):
 class CommonActor(TypedDict):
     id: Union[uuid.UUID, str]
     created_at: Optional[str]
-    last_seen_at: Optional[str]
     properties: dict[str, Any]
     matched_recordings: list[MatchedRecording]
     value_at_data_point: Optional[float]
@@ -42,6 +41,7 @@ class CommonActor(TypedDict):
 
 class SerializedPerson(CommonActor):
     type: Literal["person"]
+    last_seen_at: Optional[str]
     uuid: Union[uuid.UUID, str]
     is_identified: Optional[bool]
     name: str
@@ -333,6 +333,7 @@ def serialize_people(
             id=person.uuid,
             uuid=person.uuid,
             created_at=person.created_at,
+            last_seen_at=person.last_seen_at,
             properties=person.properties,
             is_identified=person.is_identified,
             name=get_person_name(team, person),
