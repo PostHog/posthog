@@ -1,15 +1,19 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
+import { Fragment, useEffect, useState } from 'react'
 
 import { IconDrag } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonDropdown, LemonInput, SpinnerOverlay } from '@posthog/lemon-ui'
 
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { hogFunctionTemplateListLogic } from 'scenes/hog-functions/list/hogFunctionTemplateListLogic'
 import { HogFunctionStatusTag } from 'scenes/hog-functions/misc/HogFunctionStatusTag'
 
 import { HogFunctionTemplateType } from '~/types'
 
 import { CreateActionType, hogFlowEditorLogic } from '../hogFlowEditorLogic'
+// Side-effect imports: register product-specific trigger and action nodes
+import '../registry'
+import { getRegisteredActionNodeCategories } from '../registry/actions/actionNodeRegistry'
 import { useHogFlowStep } from '../steps/HogFlowSteps'
 import { getDelayDescription } from '../steps/stepDelayLogic'
 import { HogFlowAction } from '../types'
@@ -138,6 +142,9 @@ const TEMPLATE_IDS_AT_TOP_LEVEL: string[] = [
     ...DELAY_NODES_TO_SHOW.map((action) => (action.config as any).template_id),
     ...LOGIC_NODES_TO_SHOW.map((action) => (action.config as any).template_id),
     ...POSTHOG_NODES_TO_SHOW.map((action) => (action.config as any).template_id),
+    ...getRegisteredActionNodeCategories().flatMap((cat) =>
+        cat.nodes.map((action) => (action.config as any).template_id)
+    ),
 ].filter((t) => !!t)
 
 function HogFlowEditorToolbarNode({
@@ -266,6 +273,12 @@ function HogFunctionTemplatesChooser(): JSX.Element {
 }
 
 export function HogFlowEditorPanelBuild(): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    const registeredCategories = getRegisteredActionNodeCategories().filter(
+        (cat) => !cat.featureFlag || featureFlags[cat.featureFlag]
+    )
+
     return (
         <div className="flex overflow-y-auto flex-col gap-px p-2" data-attr="workflow-add-action">
             <span className="flex gap-2 text-sm font-semibold mt-2 items-center">
@@ -295,6 +308,17 @@ export function HogFlowEditorPanelBuild(): JSX.Element {
             </span>
             {POSTHOG_NODES_TO_SHOW.map((action, index) => (
                 <HogFlowEditorToolbarNode key={`${action.type}-${index}`} action={action} />
+            ))}
+
+            {registeredCategories.map((cat) => (
+                <Fragment key={cat.label}>
+                    <span className="flex gap-2 text-sm font-semibold mt-2 items-center">
+                        {cat.label} <LemonDivider className="flex-1" />
+                    </span>
+                    {cat.nodes.map((action, index) => (
+                        <HogFlowEditorToolbarNode key={`${action.type}-${index}`} action={action} />
+                    ))}
+                </Fragment>
             ))}
         </div>
     )

@@ -377,6 +377,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                         "email": "bob@bob.com",
                     },
                     "uuid": ANY,
+                    "last_seen_at": ANY,
                 },
                 "recording_duration": ANY,
                 "snapshot_source": "web",
@@ -624,6 +625,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 "properties": {"email": "bob@bob.com", "$some_prop": "something"},
                 "created_at": "2023-01-01T12:00:00Z",
                 "uuid": ANY,
+                "last_seen_at": ANY,
             },
             "retention_period_days": 30,
             "recording_ttl": 29,
@@ -730,6 +732,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 "properties": {},
                 "created_at": None,
                 "uuid": response_data["person"]["uuid"],
+                "last_seen_at": None,
             },
         )
 

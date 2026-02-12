@@ -275,7 +275,7 @@ describe('LLM Analytics utils', () => {
 
         expect(normalizeMessage(message, 'user')).toEqual([
             {
-                role: 'user',
+                role: 'assistant (tool result)',
                 content: 'foo',
                 tool_call_id: '1',
             },
@@ -298,7 +298,7 @@ describe('LLM Analytics utils', () => {
         }
         expect(normalizeMessage(message, 'user')).toEqual([
             {
-                role: 'user',
+                role: 'assistant (tool result)',
                 content: 'foo',
                 tool_call_id: '1',
             },
@@ -435,7 +435,7 @@ describe('LLM Analytics utils', () => {
             expect(result[0].content).toBe('{"type":"output_text","text":"Some text"}')
         })
 
-        it('handles Anthropic tool result with nested content and preserves role', () => {
+        it('handles Anthropic tool result with nested content and overrides role to assistant (tool result)', () => {
             const toolResultMessage = {
                 type: 'tool_result',
                 tool_use_id: 'tool_123',
@@ -450,7 +450,7 @@ describe('LLM Analytics utils', () => {
             const result = normalizeMessage(toolResultMessage, 'tool')
 
             expect(result).toHaveLength(1)
-            expect(result[0].role).toBe('tool')
+            expect(result[0].role).toBe('assistant (tool result)')
             expect(result[0].content).toBe('Weather is sunny')
             expect(result[0].tool_call_id).toBe('tool_123')
         })

@@ -2281,7 +2281,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             }
 
             const parsedFilters = filters ? (isWebAnalyticsPropertyFilters(filters) ? filters : []) : undefined
-            if (parsedFilters && !objectsEqual(parsedFilters, values.webAnalyticsFilters)) {
+            if (parsedFilters && !objectsEqual(parsedFilters, values.rawWebAnalyticsFilters)) {
                 actions.setWebAnalyticsFilters(parsedFilters)
             }
             if (

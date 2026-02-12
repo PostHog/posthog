@@ -13,13 +13,17 @@ import { superpowersLogic } from 'lib/components/Superpowers/superpowersLogic'
 import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import { urls } from 'scenes/urls'
 
+import { SidePanelTab } from '~/types'
+
 import { navigation3000Logic } from './navigation-3000/navigationLogic'
+import { sidePanelStateLogic } from './navigation-3000/sidepanel/sidePanelStateLogic'
 import { themeLogic } from './navigation-3000/themeLogic'
+import { sceneLayoutLogic } from './scenes/sceneLayoutLogic'
 
 export function GlobalShortcuts(): null {
     const { superpowersEnabled } = useValues(superpowersLogic)
     const { appShortcutMenuOpen } = useValues(appShortcutLogic)
-
+    const { scenePanelIsPresent } = useValues(sceneLayoutLogic)
     const { setAppShortcutMenuOpen } = useActions(appShortcutLogic)
     const { toggleZenMode } = useActions(navigation3000Logic)
     const { toggleCommand } = useActions(commandLogic)
@@ -28,6 +32,11 @@ export function GlobalShortcuts(): null {
     const { openSuperpowers } = useActions(superpowersLogic)
     const { toggleHealthMenu } = useActions(healthMenuLogic)
     const { toggleTheme } = useActions(themeLogic)
+    const { openSidePanel, closeSidePanel } = useActions(sidePanelStateLogic)
+    const { sidePanelOpen } = useValues(sidePanelStateLogic)
+
+    // Open Info tab if scene has panel content, otherwise default to PostHog AI
+    const defaultTab = scenePanelIsPresent ? SidePanelTab.Info : SidePanelTab.Max
 
     useAppShortcut({
         name: 'Search',
@@ -82,6 +91,20 @@ export function GlobalShortcuts(): null {
         callback: () => {
             if (removeProjectIdIfPresent(router.values.location.pathname) !== urls.sqlEditor()) {
                 router.actions.push(urls.sqlEditor())
+            }
+        },
+    })
+
+    useAppShortcut({
+        name: 'toggle-scene-panel',
+        keybind: [keyBinds.toggleRightNav],
+        intent: 'Toggle scene panel',
+        interaction: 'function',
+        callback: () => {
+            if (sidePanelOpen) {
+                closeSidePanel()
+            } else {
+                openSidePanel(defaultTab)
             }
         },
     })

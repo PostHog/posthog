@@ -2261,6 +2261,11 @@ export interface FunnelsFilterApi {
      * @nullable
      */
     resultCustomizations?: FunnelsFilterApiResultCustomizations
+    /**
+     * Display linear regression trend lines on the chart (only for historical trends viz)
+     * @nullable
+     */
+    showTrendLines?: boolean | null
     /** @nullable */
     showValuesOnSeries?: boolean | null
     /** @nullable */

@@ -197,6 +197,7 @@ class BaseSiteDestinationFunctionTest(APIBaseTest):
             function_id = response.json()["id"]
 
             # load from the DB based on the created ID
+            # nosemgrep: idor-lookup-without-team (test helper only)
             hog_function = HogFunction.objects.get(id=function_id)
 
             return get_transpiled_function(hog_function)

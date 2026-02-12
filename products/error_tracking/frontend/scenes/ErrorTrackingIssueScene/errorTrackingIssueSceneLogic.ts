@@ -1,6 +1,6 @@
 import { actions, connect, defaults, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
@@ -10,6 +10,7 @@ import { Dayjs, dayjs } from 'lib/dayjs'
 import { uuid } from 'lib/utils'
 import { MaxContextInput, createMaxContextHelpers } from 'scenes/max/maxTypes'
 import { Scene } from 'scenes/sceneTypes'
+import { Params } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
@@ -20,11 +21,16 @@ import {
     ErrorTrackingRelationalIssue,
     SimilarIssue,
 } from '~/queries/schema/schema-general'
-import { ActivityScope, Breadcrumb, IntegrationType } from '~/types'
+import { ActivityScope, Breadcrumb, IntegrationType, UniversalFiltersGroup } from '~/types'
 
 import { issueActionsLogic } from '../../components/IssueActions/issueActionsLogic'
-import { issueFiltersLogic } from '../../components/IssueFilters/issueFiltersLogic'
+import {
+    issueFiltersLogic,
+    triggerFilterActions,
+    updateFilterSearchParams,
+} from '../../components/IssueFilters/issueFiltersLogic'
 import { errorTrackingIssueEventsQuery, errorTrackingIssueQuery, errorTrackingSimilarIssuesQuery } from '../../queries'
+import { syncSearchParams } from '../../utils'
 import { ERROR_TRACKING_DETAILS_RESOLUTION } from '../../utils'
 import type { errorTrackingIssueSceneLogicType } from './errorTrackingIssueSceneLogicType'
 
@@ -255,14 +261,31 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
 
     selectors(({ actions }) => ({
         breadcrumbs: [
-            (s) => [s.issue],
-            (issue: ErrorTrackingRelationalIssue | null): Breadcrumb[] => {
+            (s) => [s.issue, s.dateRange, s.filterTestAccounts, s.filterGroup, s.searchQuery],
+            (
+                issue: ErrorTrackingRelationalIssue | null,
+                dateRange: DateRange,
+                filterTestAccounts: boolean,
+                filterGroup: UniversalFiltersGroup,
+                searchQuery: string
+            ): Breadcrumb[] => {
                 const exceptionType: string = issue?.name || 'Issue'
+                // We want to keep params in sync between listing and details views
+                const urlParams = updateFilterSearchParams(
+                    {},
+                    {
+                        dateRange,
+                        filterTestAccounts,
+                        filterGroup,
+                        searchQuery,
+                    }
+                )
+
                 return [
                     {
                         key: Scene.ErrorTracking,
                         name: 'Error tracking',
-                        path: urls.errorTracking(),
+                        path: urls.errorTracking(urlParams),
                         iconType: 'error_tracking',
                     },
                     {
@@ -397,6 +420,24 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
             globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.ViewFirstError)
         },
     })),
+
+    urlToAction(({ actions, values }) => {
+        return {
+            '**/error_tracking/:id': (_, params) => triggerFilterActions(params, values, actions),
+        }
+    }),
+
+    actionToUrl(({ values }) => {
+        const buildURL = (): ReturnType<typeof syncSearchParams> =>
+            syncSearchParams(router, (params: Params) => updateFilterSearchParams(params, values))
+
+        return {
+            setDateRange: buildURL,
+            setFilterGroup: buildURL,
+            setSearchQuery: buildURL,
+            setFilterTestAccounts: buildURL,
+        }
+    }),
 ])
 
 function getNarrowDateRange(timestamp: Dayjs | string): DateRange {

@@ -11,6 +11,7 @@ interface EndpointTypeOption {
     name: string
     description: string
     url: string
+    dataAttr: string
 }
 
 const ENDPOINT_TYPE_OPTIONS: EndpointTypeOption[] = [
@@ -19,16 +20,18 @@ const ENDPOINT_TYPE_OPTIONS: EndpointTypeOption[] = [
         name: 'HogQL endpoint',
         description: 'Create an endpoint from a HogQL query in the SQL editor.',
         url: urls.sqlEditor({ outputTab: OutputTab.Endpoint }),
+        dataAttr: 'new-endpoint-overlay-hogql',
     },
     {
         icon: IconGraph,
         name: 'Insight endpoint',
         description: 'Create an endpoint from a new insight.',
         url: urls.insightNew(),
+        dataAttr: 'new-endpoint-overlay-insight',
     },
 ]
 
-export function OverlayForNewEndpointMenu({ dataAttr }: { dataAttr: string }): JSX.Element {
+export function OverlayForNewEndpointMenu(): JSX.Element {
     return (
         <>
             {ENDPOINT_TYPE_OPTIONS.map((option) => (
@@ -38,7 +41,7 @@ export function OverlayForNewEndpointMenu({ dataAttr }: { dataAttr: string }): J
                     onClick={() => {
                         router.actions.push(option.url)
                     }}
-                    data-attr={dataAttr}
+                    data-attr={option.dataAttr}
                     data-attr-endpoint-type={option.name}
                     fullWidth
                 >

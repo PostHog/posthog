@@ -246,6 +246,7 @@ export const DateFilter = forwardRef<HTMLButtonElement, RawDateFilterProps>(func
                         <Tooltip key={key} title={makeLabel ? makeLabel(dateValue, startOfRangeDateValue) : undefined}>
                             <LemonButton
                                 key={key}
+                                data-attr={`date-filter-${key.toLowerCase().replace(/\s+/g, '-')}`}
                                 onClick={() => setDate(values[0] || null, values[1] || null, false, explicitDate)}
                                 active={isActive}
                                 fullWidth
