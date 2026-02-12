@@ -483,7 +483,8 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
             }),
         ],
     })),
-    beforeUnmount(({ cache }) => {
+    beforeUnmount(({ cache, actions }) => {
+        actions.setProcessedSnapshots([])
         cache.windowIdForTimestamp = undefined
         cache.processingCache = undefined
     }),

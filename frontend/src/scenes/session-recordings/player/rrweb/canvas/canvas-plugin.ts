@@ -366,6 +366,21 @@ const handleMutationError = (error: unknown): void => {
 }
 
 const objectUrlsById = new Map<number, Set<string>>()
+const controllerById = new Map<number, AbortController>()
+
+export const cleanupCanvasPlugin = (): void => {
+    for (const [, urlSet] of objectUrlsById.entries()) {
+        for (const url of urlSet) {
+            URL.revokeObjectURL(url)
+        }
+    }
+    objectUrlsById.clear()
+
+    for (const [, controller] of controllerById.entries()) {
+        controller.abort()
+    }
+    controllerById.clear()
+}
 
 const trackUrl = (id: number, url: string): void => {
     let set = objectUrlsById.get(id)
@@ -404,8 +419,6 @@ const finalizeUrl = (id: number, url: string): void => {
         }
     }
 }
-
-const controllerById = new Map<number, AbortController>()
 
 const storeController = (id: number, controller: AbortController): void => {
     controllerById.set(id, controller)
