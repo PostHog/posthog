@@ -26,8 +26,17 @@ interface SavedInsightsTableProps {
 }
 
 export function SavedInsightsTable({ isSelected, onToggle, isToggling }: SavedInsightsTableProps): JSX.Element {
-    const { modalPage, insights, count, insightsLoading, filters, sorting, insightsPerPage, hasFilteredUI } =
-        useValues(addSavedInsightsModalLogic)
+    const {
+        modalPage,
+        insights,
+        count,
+        insightsLoading,
+        filters,
+        sorting,
+        insightsPerPage,
+        hasFilteredUI,
+        hasLoadedInsights,
+    } = useValues(addSavedInsightsModalLogic)
     const { setModalPage, setModalFilters } = useActions(addSavedInsightsModalLogic)
     const summarizeInsight = useSummarizeInsight()
 
@@ -113,7 +122,7 @@ export function SavedInsightsTable({ isSelected, onToggle, isToggling }: SavedIn
                     borderless={hasFilteredUI}
                 />
             </div>
-            {!insightsLoading && insights.count < 1 ? (
+            {hasLoadedInsights && !insightsLoading && insights.count < 1 ? (
                 <>
                     {hasFilteredUI && <LemonDivider className="my-0" />}
                     <SavedInsightsModalEmptyState

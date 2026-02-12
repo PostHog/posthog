@@ -153,6 +153,13 @@ export const addSavedInsightsModalLogic = kea<addSavedInsightsModalLogicType>([
                 }),
             },
         ],
+        hasLoadedInsights: [
+            false,
+            {
+                loadInsightsSuccess: () => true,
+                loadInsightsFailure: () => true,
+            },
+        ],
     }),
     selectors({
         filters: [
