@@ -3020,6 +3020,13 @@ class TestPrinter(BaseTest):
                 dialect="clickhouse",
             )
 
+    def test_date_part_macro_does_not_expand_exponentially(self):
+        sql = self._select("SELECT date_part('year', date_part('year', date_part('year', now())))")
+
+        assert "arrayMap((part, dt) -> multiIf" in sql
+        assert sql.count("now()") == 1
+        assert len(sql) < 3_000
+
     def test_fails_on_placeholder_macro_output_size_limit(self):
         large_string = "a" * 40_000
         query = parse_select(f"SELECT split_part('{large_string}', '.', 1)")
