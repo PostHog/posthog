@@ -370,7 +370,12 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                                                 </LemonBanner>
                                             )}
                                             {testResultData !== null && (
-                                                <div className="w-full">
+                                                <div
+                                                    className="w-full"
+                                                    ref={(el) =>
+                                                        el?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+                                                    }
+                                                >
                                                     <p className="text-xs text-secondary mb-1">
                                                         Click a key to use as result path
                                                     </p>
