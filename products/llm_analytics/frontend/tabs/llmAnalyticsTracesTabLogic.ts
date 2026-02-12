@@ -22,7 +22,11 @@ export interface LLMAnalyticsTracesTabLogicProps {
 
 export const llmAnalyticsTracesTabLogic = kea<llmAnalyticsTracesTabLogicType>([
     path(['products', 'llm_analytics', 'frontend', 'tabs', 'llmAnalyticsTracesTabLogic']),
-    key((props: LLMAnalyticsTracesTabLogicProps) => `${props?.tabId || ''}::${props?.personId || 'llmAnalyticsScene'}`),
+key((props: LLMAnalyticsTracesTabLogicProps) => 
+    props?.tabId 
+        ? `${props.tabId}::${props?.personId || 'llmAnalyticsScene'}` 
+        : (props?.personId || 'llmAnalyticsScene')
+),
     props({} as LLMAnalyticsTracesTabLogicProps),
     connect((props: LLMAnalyticsTracesTabLogicProps) => ({
         values: [
