@@ -57,7 +57,6 @@ from posthog.models.team.team import WeekStartDay
 from posthog.models.utils import UUIDT
 
 MAX_PLACEHOLDER_MACRO_EXPANSION_DEPTH = 8
-MAX_PLACEHOLDER_MACRO_OUTPUT_LENGTH = 100_000
 
 
 def get_channel_definition_dict():
@@ -93,7 +92,6 @@ class HogQLPrinter(Visitor[str]):
         self.tab_size = 4
         self._table_top_level_settings: dict[str, Any] = {}
         self._placeholder_macro_expansion_depth = 0
-        self._placeholder_macro_output_chars = 0
 
     def indent(self, extra: int = 0):
         return " " * self.tab_size * (self._indent + extra)
@@ -856,12 +854,6 @@ class HogQLPrinter(Visitor[str]):
                         f"Function '{node.name}' requires exactly {placeholder_count} argument{'s' if placeholder_count != 1 else ''}"
                     )
                 rendered = clickhouse_name.format(*[self.visit(arg) for arg in node.args])
-
-            self._placeholder_macro_output_chars += len(rendered)
-            if self._placeholder_macro_output_chars > MAX_PLACEHOLDER_MACRO_OUTPUT_LENGTH:
-                raise QueryError(
-                    f"Function '{node.name}' exceeded maximum placeholder macro output size of {MAX_PLACEHOLDER_MACRO_OUTPUT_LENGTH} characters."
-                )
 
             return rendered
         finally:
