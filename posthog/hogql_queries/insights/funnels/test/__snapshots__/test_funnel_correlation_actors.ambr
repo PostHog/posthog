@@ -5,7 +5,9 @@
          source.id AS id,
          source.matching_events AS matching_events
   FROM
-    (WITH funnel_actors AS
+    (WITH assumeNotNull(toDateTime('2021-01-01 00:00:00', 'UTC')) AS date_from,
+          assumeNotNull(toDateTime('2021-01-08 23:59:59', 'UTC')) AS date_to,
+          funnel_actors AS
        (SELECT aggregation_target AS actor_id,
                matched_events_array[plus(step_reached, 1)] AS matching_events,
                (matched_events_array[1][1]).1 AS timestamp,
@@ -53,12 +55,10 @@
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 0)
         ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
-          assumeNotNull(toDateTime('2021-01-01 00:00:00', 'UTC')) AS date_from,
-          assumeNotNull(toDateTime('2021-01-08 23:59:59', 'UTC')) AS date_to,
-          2 AS target_step,
-          ['$pageview', 'insight analyzed'] AS funnel_step_names SELECT funnel_actors.actor_id AS actor_id,
-                                                                        any(funnel_actors.matching_events) AS matching_events,
-                                                                        actor_id AS id
+          ['$pageview', 'insight analyzed'] AS funnel_step_names,
+          2 AS target_step SELECT funnel_actors.actor_id AS actor_id,
+                                  any(funnel_actors.matching_events) AS matching_events,
+                                  actor_id AS id
      FROM events AS event
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -118,7 +118,9 @@
          source.id AS id,
          source.matching_events AS matching_events
   FROM
-    (WITH funnel_actors AS
+    (WITH assumeNotNull(toDateTime('2021-01-01 00:00:00', 'UTC')) AS date_from,
+          assumeNotNull(toDateTime('2021-01-08 23:59:59', 'UTC')) AS date_to,
+          funnel_actors AS
        (SELECT aggregation_target AS actor_id,
                matched_events_array[plus(step_reached, 1)] AS matching_events,
                (matched_events_array[1][1]).1 AS timestamp,
@@ -167,12 +169,10 @@
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 0)
         ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
-          assumeNotNull(toDateTime('2021-01-01 00:00:00', 'UTC')) AS date_from,
-          assumeNotNull(toDateTime('2021-01-08 23:59:59', 'UTC')) AS date_to,
-          3 AS target_step,
-          ['$pageview', 'insight analyzed', 'insight updated'] AS funnel_step_names SELECT funnel_actors.actor_id AS actor_id,
-                                                                                           any(funnel_actors.matching_events) AS matching_events,
-                                                                                           actor_id AS id
+          ['$pageview', 'insight analyzed', 'insight updated'] AS funnel_step_names,
+          3 AS target_step SELECT funnel_actors.actor_id AS actor_id,
+                                  any(funnel_actors.matching_events) AS matching_events,
+                                  actor_id AS id
      FROM events AS event
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
