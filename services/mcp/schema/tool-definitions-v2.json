@@ -1,6 +1,6 @@
 {
     "execute-sql": {
-        "description": "Use this tool to generate an SQL query (or HogQL, which is PostHog's variant of SQL that supports most of ClickHouse SQL). We're going to use terms \"HogQL\" and \"SQL\" interchangeably. For more information, see the posthog-query-data skill.",
+        "description": "Use this tool to execute an SQL query (or HogQL, which is PostHog's variant of SQL that supports most of ClickHouse SQL). We're going to use terms \"HogQL\" and \"SQL\" interchangeably. For more information, see the posthog-query-data skill.\nBEFORE writing any query, you should follow these steps:\n1. Call posthog:read-data-warehouse-schema to discover available tables, views, columns, and their types. Do NOT guess table or column names.\n2. Call posthog:read-data-schema to discover available events, properties, and property values. Do NOT rely on training data or PostHog defaults.\n3. Only after completing steps 1 and 2, write and execute your SQL query using verified table and column names.\nAn example query to retrieve columns of a custom data warehouse table:\n```sql\nSELECT columns FROM system.data_warehouse_tables WHERE name = 'my_table'\n```",
         "category": "SQL",
         "feature": "sql",
         "summary": "Execute an SQL query.",

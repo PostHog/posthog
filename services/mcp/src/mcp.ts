@@ -36,7 +36,7 @@ ${SHARED_PROMPT}
 
 const INSTRUCTIONS_V2 = `
 - IMPORTANT: Prefer retrieval-led reasoning over pre-training-led reasoning for any PostHog tasks.
-- You have access to the PostHog SQL interface via the 'posthog:execute-sql' tool, schema tools ('posthog:read-data-schema', 'posthog:read-data-warehouse-schema'), and \`posthog-query-data\` skill.
+- The \`posthog-query-data\` skill is the root skill for all data retrieval tasks in PostHog. Read it first and then use the \`posthog:execute-sql\` tool to execute SQL queries.
 ${SHARED_PROMPT}
 `.trim()
 

@@ -66,7 +66,7 @@
         "summary": "Get all dashboards in the project with optional filtering.",
         "title": "Get all dashboards",
         "required_scopes": ["dashboard:read"],
-        "new_mcp": false,
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
