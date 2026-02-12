@@ -39,6 +39,10 @@ from products.analytics_platform.backend.lazy_preaggregation.lazy_preaggregation
     find_missing_contiguous_windows,
     is_non_retryable_error,
 )
+from products.analytics_platform.backend.lazy_preaggregation.preaggregation_notifications import (
+    job_channel,
+    set_ch_query_started,
+)
 from products.analytics_platform.backend.models import PreaggregationJob
 
 
@@ -1048,128 +1052,7 @@ class TestPreaggregationExecutor(BaseTest):
         assert custom_executor.ttl_seconds == 3600
 
 
-class TestTryCreateReplacementJob(BaseTest):
-    """Tests for _try_create_replacement_job method."""
-
-    def test_creates_replacement_when_no_pending_exists(self):
-        """Test that replacement job is created when no pending job exists for the range."""
-        executor = PreaggregationExecutor(max_retries=3)
-
-        failed_job = PreaggregationJob.objects.create(
-            team=self.team,
-            query_hash="test_hash",
-            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
-            time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
-            status=PreaggregationJob.Status.FAILED,
-            expires_at=django_timezone.now(),
-        )
-
-        replacement = executor._try_create_replacement_job(failed_job)
-
-        assert replacement is not None
-        assert replacement.id != failed_job.id
-        assert replacement.team == failed_job.team
-        assert replacement.query_hash == failed_job.query_hash
-        assert replacement.time_range_start == failed_job.time_range_start
-        assert replacement.time_range_end == failed_job.time_range_end
-        assert replacement.status == PreaggregationJob.Status.PENDING
-
-    def test_returns_none_when_pending_already_exists(self):
-        """Test that returns None when another pending job already exists for the range."""
-        executor = PreaggregationExecutor(max_retries=3)
-
-        # Create a failed job
-        failed_job = PreaggregationJob.objects.create(
-            team=self.team,
-            query_hash="test_hash",
-            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
-            time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
-            status=PreaggregationJob.Status.FAILED,
-            expires_at=django_timezone.now(),
-        )
-
-        # Create an existing pending job for the same range (simulating another waiter won)
-        PreaggregationJob.objects.create(
-            team=self.team,
-            query_hash="test_hash",
-            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
-            time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
-            status=PreaggregationJob.Status.PENDING,
-            expires_at=django_timezone.now(),
-        )
-
-        replacement = executor._try_create_replacement_job(failed_job)
-
-        # Should return None due to unique constraint violation
-        assert replacement is None
-
-
 class TestRaceConditionHandling(BaseTest):
-    """Tests for race condition handling when multiple waiters try to create replacement jobs."""
-
-    def test_second_replacement_attempt_fails_due_to_unique_constraint(self):
-        """Verify that a second replacement attempt fails when one already exists."""
-        executor = PreaggregationExecutor(max_retries=3)
-
-        # Create a failed job
-        failed_job = PreaggregationJob.objects.create(
-            team=self.team,
-            query_hash="test_race_hash",
-            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
-            time_range_end=datetime(2024, 1, 5, tzinfo=UTC),
-            status=PreaggregationJob.Status.FAILED,
-            expires_at=django_timezone.now(),
-        )
-
-        # First replacement attempt should succeed
-        replacement1 = executor._try_create_replacement_job(failed_job)
-        assert replacement1 is not None
-        assert replacement1.status == PreaggregationJob.Status.PENDING
-
-        # Second replacement attempt should fail (returns None due to unique constraint)
-        replacement2 = executor._try_create_replacement_job(failed_job)
-        assert replacement2 is None
-
-        # Only one pending job should exist
-        pending_count = PreaggregationJob.objects.filter(
-            team=self.team,
-            query_hash="test_race_hash",
-            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
-            time_range_end=datetime(2024, 1, 5, tzinfo=UTC),
-            status=PreaggregationJob.Status.PENDING,
-        ).count()
-        assert pending_count == 1
-
-    def test_replacement_allowed_after_previous_replacement_completes(self):
-        executor = PreaggregationExecutor(max_retries=5)
-
-        # Create a failed job
-        failed_job = PreaggregationJob.objects.create(
-            team=self.team,
-            query_hash="test_race_hash",
-            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
-            time_range_end=datetime(2024, 1, 5, tzinfo=UTC),
-            status=PreaggregationJob.Status.FAILED,
-            expires_at=django_timezone.now(),
-        )
-
-        # First replacement succeeds
-        replacement1 = executor._try_create_replacement_job(failed_job)
-        assert replacement1 is not None
-
-        # Mark replacement1 as FAILED
-        replacement1.status = PreaggregationJob.Status.FAILED
-        replacement1.error = "Test error"
-        replacement1.save()
-
-        # Now another replacement can be created
-        replacement2 = executor._try_create_replacement_job(replacement1)
-        assert replacement2 is not None
-
-
-class TestPreaggregationExecutorWaiting(BaseTest):
-    """Tests for PreaggregationExecutor waiting, retry, stale detection, and error handling."""
-
     def _make_preaggregation_query(self) -> ast.SelectQuery:
         s = parse_select(
             """
@@ -1185,176 +1068,104 @@ class TestPreaggregationExecutorWaiting(BaseTest):
         assert isinstance(s, ast.SelectQuery)
         return s
 
-    # --- Waiting for pending jobs ---
-
-    def test_returns_immediately_when_job_already_ready(self):
-        executor = PreaggregationExecutor(wait_timeout_seconds=5.0, poll_interval_seconds=0.1)
-
-        ready_job = PreaggregationJob.objects.create(
-            team=self.team,
-            query_hash="test_hash",
-            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
-            time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
-            status=PreaggregationJob.Status.READY,
-            expires_at=django_timezone.now(),
-        )
-
-        result = executor._wait_for_pending_jobs(self.team, [ready_job], lambda t, j: None)
-
-        assert result.success is True
-        assert ready_job.id in [j.id for j in result.ready_jobs]
-        assert len(result.failed_jobs) == 0
-        assert result.timed_out is False
-
-    def test_timeout_when_job_stays_pending(self):
-        executor = PreaggregationExecutor(wait_timeout_seconds=0.3, poll_interval_seconds=0.1)
-
-        pending_job = PreaggregationJob.objects.create(
-            team=self.team,
-            query_hash="test_hash",
-            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
-            time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
-            status=PreaggregationJob.Status.PENDING,
-            expires_at=django_timezone.now(),
-        )
-
-        result = executor._wait_for_pending_jobs(self.team, [pending_job], lambda t, j: None)
-
-        assert result.success is False
-        assert result.timed_out is True
-        assert len(result.ready_jobs) == 0
-
-    def test_waits_for_pending_job_to_complete(self):
-        executor = PreaggregationExecutor(wait_timeout_seconds=5.0, poll_interval_seconds=0.1)
-
-        pending_job = PreaggregationJob.objects.create(
-            team=self.team,
-            query_hash="test_hash",
-            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
-            time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
-            status=PreaggregationJob.Status.PENDING,
-            expires_at=django_timezone.now(),
-        )
-
-        poll_count = [0]
-        original_filter = PreaggregationJob.objects.filter
-
-        def mock_filter(*args, **kwargs):
-            result = original_filter(*args, **kwargs)
-            if "id__in" in kwargs and poll_count[0] == 0:
-                poll_count[0] += 1
-                pending_job.status = PreaggregationJob.Status.READY
-                pending_job.computed_at = django_timezone.now()
-                pending_job.save()
-            return result
-
-        with patch.object(PreaggregationJob.objects, "filter", side_effect=mock_filter):
-            result = executor._wait_for_pending_jobs(self.team, [pending_job], lambda t, j: None)
-
-        assert result.success is True
-        assert pending_job.id in [j.id for j in result.ready_jobs]
-        assert result.timed_out is False
-
-    def test_gives_up_at_max_retries(self):
-        executor = PreaggregationExecutor(wait_timeout_seconds=2.0, poll_interval_seconds=0.05, max_retries=2)
-
-        failed_job = PreaggregationJob.objects.create(
-            team=self.team,
-            query_hash="test_hash",
-            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
-            time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
-            status=PreaggregationJob.Status.FAILED,
-            error="Previous error",
-            expires_at=django_timezone.now(),
-        )
-
-        insert_call_count = [0]
-
-        def failing_insert(team, job):
-            insert_call_count[0] += 1
-            raise Exception("ClickHouse error")
-
-        result = executor._wait_for_pending_jobs(self.team, [failed_job], failing_insert)
-
-        # max_retries=2 means 2 retries before giving up
-        assert insert_call_count[0] == 2
-        assert result.success is False
-        assert len(result.ready_jobs) == 0
-        assert len(result.failed_jobs) == 1
-        assert result.failed_jobs[0].error is not None and "ClickHouse error" in result.failed_jobs[0].error
-
-    def test_multiple_pending_jobs_with_mixed_outcomes(self):
-        executor = PreaggregationExecutor(
-            wait_timeout_seconds=5.0,
-            poll_interval_seconds=0.05,
-            max_retries=2,
-        )
-
-        # Three pending jobs for different ranges
-        job_a = PreaggregationJob.objects.create(
-            team=self.team,
-            query_hash="test_hash_a",
-            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
-            time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
-            status=PreaggregationJob.Status.PENDING,
-            expires_at=django_timezone.now() + timedelta(days=7),
-        )
-        job_b = PreaggregationJob.objects.create(
-            team=self.team,
-            query_hash="test_hash_b",
-            time_range_start=datetime(2024, 1, 2, tzinfo=UTC),
-            time_range_end=datetime(2024, 1, 3, tzinfo=UTC),
-            status=PreaggregationJob.Status.PENDING,
-            expires_at=django_timezone.now() + timedelta(days=7),
-        )
-        job_c = PreaggregationJob.objects.create(
-            team=self.team,
-            query_hash="test_hash_c",
-            time_range_start=datetime(2024, 1, 3, tzinfo=UTC),
-            time_range_end=datetime(2024, 1, 4, tzinfo=UTC),
-            status=PreaggregationJob.Status.PENDING,
-            expires_at=django_timezone.now() + timedelta(days=7),
-        )
-
-        poll_count = [0]
-        original_filter = PreaggregationJob.objects.filter
-
-        def mock_filter(*args, **kwargs):
-            result = original_filter(*args, **kwargs)
-            if "id__in" in kwargs and poll_count[0] == 0:
-                poll_count[0] += 1
-                # Job A becomes READY
-                job_a.status = PreaggregationJob.Status.READY
-                job_a.computed_at = django_timezone.now()
-                job_a.save()
-                # Job B fails
-                job_b.status = PreaggregationJob.Status.FAILED
-                job_b.error = "Memory limit exceeded"
-                job_b.save()
-                # Job C becomes READY
-                job_c.status = PreaggregationJob.Status.READY
-                job_c.computed_at = django_timezone.now()
-                job_c.save()
-            return result
-
-        def failing_insert(team, job):
-            raise ServerException(message="Syntax error", code=62)
-
-        with patch.object(PreaggregationJob.objects, "filter", side_effect=mock_filter):
-            result = executor._wait_for_pending_jobs(self.team, [job_a, job_b, job_c], failing_insert)
-
-        assert result.success is False
-        ready_ids = {j.id for j in result.ready_jobs}
-        assert job_a.id in ready_ids
-        assert job_c.id in ready_ids
-        assert len(result.failed_jobs) == 1
-
-    # --- Execute with waiting ---
-
-    def test_uses_existing_ready_job_without_clickhouse(self):
+    def test_integrity_error_on_create_loops_back_and_picks_up_pending_job(self):
         query = self._make_preaggregation_query()
         query_info = QueryInfo(query=query, table=PreaggregationTable.PREAGGREGATION_RESULTS, timezone="UTC")
         query_hash = compute_query_hash(query_info)
+
+        executor = PreaggregationExecutor(wait_timeout_seconds=2.0, poll_interval_seconds=0.05)
+
+        # Another executor already created a PENDING job for this range
+        existing_pending = PreaggregationJob.objects.create(
+            team=self.team,
+            query_hash=query_hash,
+            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+            time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
+            status=PreaggregationJob.Status.PENDING,
+            expires_at=django_timezone.now() + timedelta(days=7),
+        )
+
+        def mock_wait(pubsub, duration):
+            existing_pending.status = PreaggregationJob.Status.READY
+            existing_pending.computed_at = django_timezone.now()
+            existing_pending.save()
+            return {"type": b"message", "channel": job_channel(existing_pending.id).encode(), "data": b"ready"}
+
+        with (
+            patch(
+                "products.analytics_platform.backend.lazy_preaggregation.lazy_preaggregation_executor.create_preaggregation_job",
+                side_effect=IntegrityError("duplicate key"),
+            ),
+            patch(
+                "products.analytics_platform.backend.lazy_preaggregation.lazy_preaggregation_executor.find_existing_jobs",
+                side_effect=[
+                    [],  # First call: miss the job (race window)
+                    [existing_pending],  # Second call: find it as PENDING after IntegrityError loops back
+                    [existing_pending],  # Third call (in loop): find it as READY, no pending → break
+                    [existing_pending],  # Fourth call: final collection after loop
+                ],
+            ),
+            patch.object(executor, "_wait_for_notification", side_effect=mock_wait),
+        ):
+            result = executor.execute(
+                team=self.team,
+                query_info=query_info,
+                start=datetime(2024, 1, 1, tzinfo=UTC),
+                end=datetime(2024, 1, 2, tzinfo=UTC),
+                run_insert=lambda t, j: None,
+            )
+
+        assert result.ready is True
+        assert existing_pending.id in result.job_ids
+
+    def test_unique_constraint_prevents_duplicate_pending_jobs(self):
+        query = self._make_preaggregation_query()
+        query_info = QueryInfo(query=query, table=PreaggregationTable.PREAGGREGATION_RESULTS, timezone="UTC")
+        query_hash = compute_query_hash(query_info)
+
+        # Create a PENDING job directly
+        PreaggregationJob.objects.create(
+            team=self.team,
+            query_hash=query_hash,
+            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+            time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
+            status=PreaggregationJob.Status.PENDING,
+            expires_at=django_timezone.now() + timedelta(days=7),
+        )
+
+        # Attempting to create another should raise IntegrityError
+        with pytest.raises(IntegrityError):
+            PreaggregationJob.objects.create(
+                team=self.team,
+                query_hash=query_hash,
+                time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+                time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
+                status=PreaggregationJob.Status.PENDING,
+                expires_at=django_timezone.now() + timedelta(days=7),
+            )
+
+
+class TestPreaggregationExecutorExecute(BaseTest):
+    def _make_query_info(self) -> tuple[QueryInfo, str]:
+        s = parse_select(
+            """
+            SELECT
+                toStartOfDay(timestamp) as time_window_start,
+                [] as breakdown_value,
+                uniqExactState(person_id) as uniq_exact_state
+            FROM events
+            WHERE event = '$pageview'
+            GROUP BY time_window_start
+            """
+        )
+        assert isinstance(s, ast.SelectQuery)
+        qi = QueryInfo(query=s, table=PreaggregationTable.PREAGGREGATION_RESULTS, timezone="UTC")
+        return qi, compute_query_hash(qi)
+
+    # --- Happy path ---
+
+    def test_returns_immediately_when_all_ranges_ready(self):
+        query_info, query_hash = self._make_query_info()
 
         ready_job = PreaggregationJob.objects.create(
             team=self.team,
@@ -1366,7 +1177,6 @@ class TestPreaggregationExecutorWaiting(BaseTest):
         )
 
         executor = PreaggregationExecutor()
-
         result = executor.execute(
             team=self.team,
             query_info=query_info,
@@ -1375,24 +1185,60 @@ class TestPreaggregationExecutorWaiting(BaseTest):
             run_insert=lambda t, j: None,
         )
 
-        assert ready_job.id in result.job_ids
         assert result.ready is True
+        assert ready_job.id in result.job_ids
 
-        total_jobs = PreaggregationJob.objects.filter(
+    def test_inserts_missing_ranges_and_returns_all_job_ids(self):
+        query_info, query_hash = self._make_query_info()
+
+        executor = PreaggregationExecutor()
+        result = executor.execute(
+            team=self.team,
+            query_info=query_info,
+            start=datetime(2024, 1, 1, tzinfo=UTC),
+            end=datetime(2024, 1, 3, tzinfo=UTC),
+            run_insert=lambda t, j: None,
+        )
+
+        assert result.ready is True
+        # Contiguous daily windows [Jan 1, Jan 2) + [Jan 2, Jan 3) are merged into one job
+        assert len(result.job_ids) == 1
+
+    # --- Waiting for pending jobs ---
+
+    def test_waits_for_pending_job_then_succeeds(self):
+        query_info, query_hash = self._make_query_info()
+
+        pending_job = PreaggregationJob.objects.create(
             team=self.team,
             query_hash=query_hash,
-        ).count()
-        assert total_jobs == 1
-
-    def test_does_not_create_duplicate_job_for_pending_range_after_timeout(self):
-        query = self._make_preaggregation_query()
-        query_info = QueryInfo(query=query, table=PreaggregationTable.PREAGGREGATION_RESULTS, timezone="UTC")
-        query_hash = compute_query_hash(query_info)
-
-        executor = PreaggregationExecutor(
-            wait_timeout_seconds=0.3,
-            poll_interval_seconds=0.1,
+            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+            time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
+            status=PreaggregationJob.Status.PENDING,
+            expires_at=django_timezone.now() + timedelta(days=7),
         )
+
+        def mock_wait(pubsub, duration):
+            pending_job.status = PreaggregationJob.Status.READY
+            pending_job.computed_at = django_timezone.now()
+            pending_job.save()
+            return {"type": b"message", "channel": job_channel(pending_job.id).encode(), "data": b"ready"}
+
+        executor = PreaggregationExecutor(wait_timeout_seconds=5.0, poll_interval_seconds=0.1)
+        with patch.object(executor, "_wait_for_notification", side_effect=mock_wait):
+            result = executor.execute(
+                team=self.team,
+                query_info=query_info,
+                start=datetime(2024, 1, 1, tzinfo=UTC),
+                end=datetime(2024, 1, 2, tzinfo=UTC),
+                run_insert=lambda t, j: None,
+            )
+
+        assert result.ready is True
+        assert pending_job.id in result.job_ids
+
+    def test_timeout_when_job_stays_pending(self):
+        query_info, query_hash = self._make_query_info()
 
         PreaggregationJob.objects.create(
             team=self.team,
@@ -1403,40 +1249,22 @@ class TestPreaggregationExecutorWaiting(BaseTest):
             expires_at=django_timezone.now() + timedelta(days=7),
         )
 
-        with patch(
-            "products.analytics_platform.backend.lazy_preaggregation.lazy_preaggregation_executor.create_preaggregation_job",
-            wraps=create_preaggregation_job,
-        ) as mock_create:
-            result = executor.execute(
-                team=self.team,
-                query_info=query_info,
-                start=datetime(2024, 1, 1, tzinfo=UTC),
-                end=datetime(2024, 1, 2, tzinfo=UTC),
-                run_insert=lambda t, j: None,
-            )
+        executor = PreaggregationExecutor(wait_timeout_seconds=0.3, poll_interval_seconds=0.1)
+        result = executor.execute(
+            team=self.team,
+            query_info=query_info,
+            start=datetime(2024, 1, 1, tzinfo=UTC),
+            end=datetime(2024, 1, 2, tzinfo=UTC),
+            run_insert=lambda t, j: None,
+        )
 
-        # Should not attempt to create a job for the still-PENDING range
-        # (doing so would hit IntegrityError and trigger a second wait)
-        mock_create.assert_not_called()
         assert result.ready is False
         assert any("Timeout" in e for e in result.errors)
 
-    # --- IntegrityError race handling ---
+    def test_does_not_create_duplicate_for_pending_range(self):
+        query_info, query_hash = self._make_query_info()
 
-    def test_execute_waits_for_existing_pending_job_on_integrity_error(self):
-        query = self._make_preaggregation_query()
-        query_info = QueryInfo(query=query, table=PreaggregationTable.PREAGGREGATION_RESULTS, timezone="UTC")
-        query_hash = compute_query_hash(query_info)
-
-        executor = PreaggregationExecutor(
-            wait_timeout_seconds=2.0,
-            poll_interval_seconds=0.05,
-        )
-
-        # Executor A already created a PENDING job for this range.
-        # Our find_existing_jobs missed it (race window), then our
-        # create_preaggregation_job hits the unique constraint.
-        existing_pending = PreaggregationJob.objects.create(
+        PreaggregationJob.objects.create(
             team=self.team,
             query_hash=query_hash,
             time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
@@ -1445,29 +1273,266 @@ class TestPreaggregationExecutorWaiting(BaseTest):
             expires_at=django_timezone.now() + timedelta(days=7),
         )
 
-        poll_count = [0]
-        original_filter = PreaggregationJob.objects.filter
+        executor = PreaggregationExecutor(wait_timeout_seconds=0.3, poll_interval_seconds=0.1)
+        with patch(
+            "products.analytics_platform.backend.lazy_preaggregation.lazy_preaggregation_executor.create_preaggregation_job",
+            wraps=create_preaggregation_job,
+        ) as mock_create:
+            executor.execute(
+                team=self.team,
+                query_info=query_info,
+                start=datetime(2024, 1, 1, tzinfo=UTC),
+                end=datetime(2024, 1, 2, tzinfo=UTC),
+                run_insert=lambda t, j: None,
+            )
 
-        def mock_filter(*args, **kwargs):
-            result = original_filter(*args, **kwargs)
-            if "id__in" in kwargs and poll_count[0] == 0:
-                poll_count[0] += 1
-                existing_pending.status = PreaggregationJob.Status.READY
-                existing_pending.computed_at = django_timezone.now()
-                existing_pending.save()
-            return result
+        mock_create.assert_not_called()
 
-        with (
-            patch(
-                "products.analytics_platform.backend.lazy_preaggregation.lazy_preaggregation_executor.find_existing_jobs",
-                return_value=[],
-            ),
-            patch(
-                "products.analytics_platform.backend.lazy_preaggregation.lazy_preaggregation_executor.create_preaggregation_job",
-                side_effect=IntegrityError("duplicate key value violates unique constraint"),
-            ),
-            patch.object(PreaggregationJob.objects, "filter", side_effect=mock_filter),
-        ):
+    # --- Insert-first ordering ---
+
+    def test_inserts_missing_ranges_before_waiting_for_pending(self):
+        query_info, query_hash = self._make_query_info()
+
+        # Jan 1 is PENDING (another executor), Jan 2 is missing
+        pending_job = PreaggregationJob.objects.create(
+            team=self.team,
+            query_hash=query_hash,
+            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+            time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
+            status=PreaggregationJob.Status.PENDING,
+            expires_at=django_timezone.now() + timedelta(days=7),
+        )
+
+        insert_times: list[float] = []
+        wait_times: list[float] = []
+
+        import time as time_mod
+
+        def mock_insert(team, job):
+            insert_times.append(time_mod.monotonic())
+
+        def mock_wait(pubsub, duration):
+            wait_times.append(time_mod.monotonic())
+            # Simulate the pending job completing
+            pending_job.status = PreaggregationJob.Status.READY
+            pending_job.computed_at = django_timezone.now()
+            pending_job.save()
+            return {"type": b"message", "data": b"ready"}
+
+        executor = PreaggregationExecutor(wait_timeout_seconds=5.0, poll_interval_seconds=0.1)
+        with patch.object(executor, "_wait_for_notification", side_effect=mock_wait):
+            result = executor.execute(
+                team=self.team,
+                query_info=query_info,
+                start=datetime(2024, 1, 1, tzinfo=UTC),
+                end=datetime(2024, 1, 3, tzinfo=UTC),
+                run_insert=mock_insert,
+            )
+
+        assert result.ready is True
+        assert len(result.job_ids) == 2
+        # Insert happened before waiting
+        assert len(insert_times) == 1
+        assert len(wait_times) >= 1
+        assert insert_times[0] < wait_times[0]
+
+    # --- Retry behavior ---
+
+    def test_retries_on_retryable_error_then_succeeds(self):
+        query_info, query_hash = self._make_query_info()
+        insert_count = [0]
+
+        def mock_insert(team, job):
+            insert_count[0] += 1
+            if insert_count[0] == 1:
+                raise ConnectionError("Connection refused")
+
+        executor = PreaggregationExecutor(max_retries=2)
+        result = executor.execute(
+            team=self.team,
+            query_info=query_info,
+            start=datetime(2024, 1, 1, tzinfo=UTC),
+            end=datetime(2024, 1, 2, tzinfo=UTC),
+            run_insert=mock_insert,
+        )
+
+        assert result.ready is True
+        assert insert_count[0] == 2
+
+    def test_gives_up_after_max_retries(self):
+        query_info, query_hash = self._make_query_info()
+        insert_count = [0]
+
+        def always_fail(team, job):
+            insert_count[0] += 1
+            raise ConnectionError("Connection refused")
+
+        executor = PreaggregationExecutor(max_retries=2, wait_timeout_seconds=5.0)
+        result = executor.execute(
+            team=self.team,
+            query_info=query_info,
+            start=datetime(2024, 1, 1, tzinfo=UTC),
+            end=datetime(2024, 1, 2, tzinfo=UTC),
+            run_insert=always_fail,
+        )
+
+        assert result.ready is False
+        # 1 initial attempt + 2 retries = 3
+        assert insert_count[0] == 3
+        assert any("Max retries" in e for e in result.errors)
+
+    # --- Non-retryable errors ---
+
+    def test_non_retryable_error_exits_immediately(self):
+        query_info, query_hash = self._make_query_info()
+        insert_count = [0]
+
+        def syntax_error(team, job):
+            insert_count[0] += 1
+            raise ServerException(message="Syntax error", code=62)
+
+        executor = PreaggregationExecutor(max_retries=3)
+        result = executor.execute(
+            team=self.team,
+            query_info=query_info,
+            start=datetime(2024, 1, 1, tzinfo=UTC),
+            end=datetime(2024, 1, 3, tzinfo=UTC),
+            run_insert=syntax_error,
+        )
+
+        assert result.ready is False
+        assert insert_count[0] == 1
+        assert len(result.errors) == 1
+        assert result.job_ids == []
+
+    def test_non_retryable_error_does_not_block_future_queries(self):
+        query_info, query_hash = self._make_query_info()
+
+        executor = PreaggregationExecutor(max_retries=3)
+
+        # First call fails with non-retryable error
+        result1 = executor.execute(
+            team=self.team,
+            query_info=query_info,
+            start=datetime(2024, 1, 1, tzinfo=UTC),
+            end=datetime(2024, 1, 2, tzinfo=UTC),
+            run_insert=lambda t, j: (_ for _ in ()).throw(ServerException(message="Syntax error", code=62)),
+        )
+        assert result1.ready is False
+
+        # Second call succeeds — failed job is ignored, new job is created
+        result2 = executor.execute(
+            team=self.team,
+            query_info=query_info,
+            start=datetime(2024, 1, 1, tzinfo=UTC),
+            end=datetime(2024, 1, 2, tzinfo=UTC),
+            run_insert=lambda t, j: None,
+        )
+        assert result2.ready is True
+        assert len(result2.job_ids) == 1
+
+    # --- Stale job recovery ---
+
+    def test_stale_pending_job_gets_replaced(self):
+        query_info, query_hash = self._make_query_info()
+
+        stale_job = PreaggregationJob.objects.create(
+            team=self.team,
+            query_hash=query_hash,
+            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+            time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
+            status=PreaggregationJob.Status.PENDING,
+            expires_at=django_timezone.now() + timedelta(days=7),
+        )
+        PreaggregationJob.objects.filter(id=stale_job.id).update(
+            created_at=django_timezone.now() - timedelta(seconds=120),
+        )
+
+        executor = PreaggregationExecutor(
+            stale_pending_threshold_seconds=0.1,
+            ch_start_grace_period_seconds=0.1,
+            wait_timeout_seconds=5.0,
+            poll_interval_seconds=0.05,
+        )
+        result = executor.execute(
+            team=self.team,
+            query_info=query_info,
+            start=datetime(2024, 1, 1, tzinfo=UTC),
+            end=datetime(2024, 1, 2, tzinfo=UTC),
+            run_insert=lambda t, j: None,
+        )
+
+        assert result.ready is True
+        assert len(result.job_ids) == 1
+        # Original stale job should be FAILED, a new job was created
+        stale_job.refresh_from_db()
+        assert stale_job.status == PreaggregationJob.Status.FAILED
+        assert result.job_ids[0] != stale_job.id
+
+    def test_non_stale_pending_job_is_not_marked_failed(self):
+        query_info, query_hash = self._make_query_info()
+
+        PreaggregationJob.objects.create(
+            team=self.team,
+            query_hash=query_hash,
+            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+            time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
+            status=PreaggregationJob.Status.PENDING,
+            expires_at=django_timezone.now() + timedelta(days=7),
+        )
+
+        executor = PreaggregationExecutor(
+            stale_pending_threshold_seconds=300,
+            ch_start_grace_period_seconds=300,
+            wait_timeout_seconds=0.3,
+            poll_interval_seconds=0.1,
+        )
+        result = executor.execute(
+            team=self.team,
+            query_info=query_info,
+            start=datetime(2024, 1, 1, tzinfo=UTC),
+            end=datetime(2024, 1, 2, tzinfo=UTC),
+            run_insert=lambda t, j: None,
+        )
+
+        # Times out, but job is NOT marked as stale/failed
+        assert result.ready is False
+        pending_jobs = PreaggregationJob.objects.filter(
+            team=self.team, query_hash=query_hash, status=PreaggregationJob.Status.PENDING
+        )
+        assert pending_jobs.count() == 1
+
+    # --- Exponential backoff ---
+
+    def test_exponential_backoff_increases_poll_interval(self):
+        query_info, query_hash = self._make_query_info()
+
+        pending_job = PreaggregationJob.objects.create(
+            team=self.team,
+            query_hash=query_hash,
+            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+            time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
+            status=PreaggregationJob.Status.PENDING,
+            expires_at=django_timezone.now() + timedelta(days=7),
+        )
+
+        wait_durations: list[float] = []
+
+        def mock_wait(pubsub, duration):
+            wait_durations.append(duration)
+            if len(wait_durations) == 5:
+                pending_job.status = PreaggregationJob.Status.READY
+                pending_job.computed_at = django_timezone.now()
+                pending_job.save()
+                return {"type": b"message", "data": b"ready"}
+            return None
+
+        executor = PreaggregationExecutor(
+            wait_timeout_seconds=100.0,
+            poll_interval_seconds=0.5,
+            max_poll_interval_seconds=4.0,
+        )
+        with patch.object(executor, "_wait_for_notification", side_effect=mock_wait):
             result = executor.execute(
                 team=self.team,
                 query_info=query_info,
@@ -1476,18 +1541,68 @@ class TestPreaggregationExecutorWaiting(BaseTest):
                 run_insert=lambda t, j: None,
             )
 
-        # Should succeed by waiting for the existing job, not error
         assert result.ready is True
-        assert existing_pending.id in result.job_ids
-        assert len(result.errors) == 0
+        assert len(wait_durations) == 5
+        assert wait_durations[0] == pytest.approx(0.5, abs=0.01)
+        assert wait_durations[1] == pytest.approx(1.0, abs=0.01)
+        assert wait_durations[2] == pytest.approx(2.0, abs=0.01)
+        assert wait_durations[3] == pytest.approx(4.0, abs=0.01)
+        assert wait_durations[4] == pytest.approx(4.0, abs=0.01)
 
-    # --- Missing job handling ---
+    def test_backoff_resets_after_successful_insert(self):
+        query_info, query_hash = self._make_query_info()
 
-    def test_wait_treats_deleted_job_as_failed(self):
+        # Jan 1 is PENDING, Jan 2 is missing
+        pending_job = PreaggregationJob.objects.create(
+            team=self.team,
+            query_hash=query_hash,
+            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+            time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
+            status=PreaggregationJob.Status.PENDING,
+            expires_at=django_timezone.now() + timedelta(days=7),
+        )
+
+        wait_durations: list[float] = []
+
+        def mock_wait(pubsub, duration):
+            wait_durations.append(duration)
+            if len(wait_durations) == 2:
+                pending_job.status = PreaggregationJob.Status.READY
+                pending_job.computed_at = django_timezone.now()
+                pending_job.save()
+                return {"type": b"message", "data": b"ready"}
+            return None
+
         executor = PreaggregationExecutor(
-            wait_timeout_seconds=0.5,
-            poll_interval_seconds=0.05,
-            max_retries=2,
+            wait_timeout_seconds=100.0,
+            poll_interval_seconds=1.0,
+            max_poll_interval_seconds=8.0,
+        )
+        with patch.object(executor, "_wait_for_notification", side_effect=mock_wait):
+            result = executor.execute(
+                team=self.team,
+                query_info=query_info,
+                start=datetime(2024, 1, 1, tzinfo=UTC),
+                end=datetime(2024, 1, 3, tzinfo=UTC),
+                run_insert=lambda t, j: None,
+            )
+
+        assert result.ready is True
+        # Sequence: insert Jan 2 (reset backoff) → loop back → find Jan 1 PENDING
+        # → wait(1.0) → wait(2.0) → Jan 1 ready → done
+        # The first wait is 1.0 (reset from insert), not a higher value
+        assert len(wait_durations) == 2
+        assert wait_durations[0] == pytest.approx(1.0, abs=0.01)
+        assert wait_durations[1] == pytest.approx(2.0, abs=0.01)
+
+
+class TestPubsubAndStaleDetection(BaseTest):
+    # --- Stale detection with CH liveness ---
+
+    def test_stale_detection_ch_not_started_within_grace(self):
+        executor = PreaggregationExecutor(
+            stale_pending_threshold_seconds=0.1,
+            ch_start_grace_period_seconds=300,
         )
 
         pending_job = PreaggregationJob.objects.create(
@@ -1498,31 +1613,14 @@ class TestPreaggregationExecutorWaiting(BaseTest):
             status=PreaggregationJob.Status.PENDING,
             expires_at=django_timezone.now() + timedelta(days=7),
         )
+        pending_job.refresh_from_db()
 
-        poll_count = [0]
-        original_filter = PreaggregationJob.objects.filter
+        assert executor._is_job_stale(pending_job) is False
 
-        def mock_filter(*args, **kwargs):
-            result = original_filter(*args, **kwargs)
-            if "id__in" in kwargs and poll_count[0] == 0:
-                poll_count[0] += 1
-                PreaggregationJob.objects.filter(id=pending_job.id).delete()
-            return result
-
-        with patch.object(PreaggregationJob.objects, "filter", side_effect=mock_filter):
-            result = executor._wait_for_pending_jobs(self.team, [pending_job], lambda t, j: None)
-
-        assert result.success is False
-        assert len(result.failed_jobs) == 1
-        assert result.timed_out is False
-
-    # --- Stale job handling ---
-
-    def test_marks_stale_pending_job_as_failed(self):
+    def test_stale_detection_ch_not_started_past_grace(self):
         executor = PreaggregationExecutor(
             stale_pending_threshold_seconds=0.1,
-            wait_timeout_seconds=1.0,
-            poll_interval_seconds=0.05,
+            ch_start_grace_period_seconds=1,
         )
 
         pending_job = PreaggregationJob.objects.create(
@@ -1534,7 +1632,67 @@ class TestPreaggregationExecutorWaiting(BaseTest):
             expires_at=django_timezone.now() + timedelta(days=7),
         )
         PreaggregationJob.objects.filter(id=pending_job.id).update(
-            updated_at=django_timezone.now() - timedelta(seconds=10)
+            created_at=django_timezone.now() - timedelta(seconds=10),
+        )
+        pending_job.refresh_from_db()
+
+        assert executor._is_job_stale(pending_job) is True
+
+    def test_stale_detection_ch_started_still_running(self):
+        executor = PreaggregationExecutor(stale_pending_threshold_seconds=0.1)
+
+        pending_job = PreaggregationJob.objects.create(
+            team=self.team,
+            query_hash="test_hash",
+            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+            time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
+            status=PreaggregationJob.Status.PENDING,
+            expires_at=django_timezone.now() + timedelta(days=7),
+        )
+        pending_job.refresh_from_db()
+
+        set_ch_query_started(pending_job.id)
+
+        with patch(
+            "products.analytics_platform.backend.lazy_preaggregation.lazy_preaggregation_executor.is_ch_query_alive",
+            return_value=True,
+        ):
+            assert executor._is_job_stale(pending_job) is False
+
+    def test_stale_detection_ch_started_not_running(self):
+        executor = PreaggregationExecutor(stale_pending_threshold_seconds=0.1)
+
+        pending_job = PreaggregationJob.objects.create(
+            team=self.team,
+            query_hash="test_hash",
+            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+            time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
+            status=PreaggregationJob.Status.PENDING,
+            expires_at=django_timezone.now() + timedelta(days=7),
+        )
+        PreaggregationJob.objects.filter(id=pending_job.id).update(
+            created_at=django_timezone.now() - timedelta(seconds=10),
+        )
+        pending_job.refresh_from_db()
+
+        set_ch_query_started(pending_job.id)
+
+        with patch(
+            "products.analytics_platform.backend.lazy_preaggregation.lazy_preaggregation_executor.is_ch_query_alive",
+            return_value=False,
+        ):
+            assert executor._is_job_stale(pending_job) is True
+
+    def test_marks_stale_pending_job_as_failed(self):
+        executor = PreaggregationExecutor(stale_pending_threshold_seconds=0.1)
+
+        pending_job = PreaggregationJob.objects.create(
+            team=self.team,
+            query_hash="test_hash",
+            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+            time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
+            status=PreaggregationJob.Status.PENDING,
+            expires_at=django_timezone.now() + timedelta(days=7),
         )
 
         result = executor._try_mark_stale_job_as_failed(pending_job)
@@ -1543,39 +1701,6 @@ class TestPreaggregationExecutorWaiting(BaseTest):
         pending_job.refresh_from_db()
         assert pending_job.status == PreaggregationJob.Status.FAILED
         assert pending_job.error is not None and "stale" in pending_job.error.lower()
-
-    def test_stale_job_triggers_replacement_flow(self):
-        executor = PreaggregationExecutor(
-            stale_pending_threshold_seconds=0.1,
-            wait_timeout_seconds=2.0,
-            poll_interval_seconds=0.05,
-            max_retries=3,
-        )
-
-        pending_job = PreaggregationJob.objects.create(
-            team=self.team,
-            query_hash="test_hash",
-            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
-            time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
-            status=PreaggregationJob.Status.PENDING,
-            expires_at=django_timezone.now() + timedelta(days=7),
-        )
-        PreaggregationJob.objects.filter(id=pending_job.id).update(
-            updated_at=django_timezone.now() - timedelta(seconds=10)
-        )
-
-        result = executor._wait_for_pending_jobs(self.team, [pending_job], lambda t, j: None)
-
-        assert result.success is True
-        assert len(result.ready_jobs) == 1
-        assert result.timed_out is False
-
-        pending_job.refresh_from_db()
-        assert pending_job.status == PreaggregationJob.Status.FAILED
-
-        replacement = result.ready_jobs[0]
-        assert replacement.status == PreaggregationJob.Status.READY
-        assert replacement.id != pending_job.id
 
     def test_only_one_waiter_marks_stale_job(self):
         executor = PreaggregationExecutor(stale_pending_threshold_seconds=0.1)
@@ -1588,9 +1713,6 @@ class TestPreaggregationExecutorWaiting(BaseTest):
             status=PreaggregationJob.Status.PENDING,
             expires_at=django_timezone.now() + timedelta(days=7),
         )
-        PreaggregationJob.objects.filter(id=pending_job.id).update(
-            updated_at=django_timezone.now() - timedelta(seconds=10)
-        )
 
         result1 = executor._try_mark_stale_job_as_failed(pending_job)
         assert result1 is True
@@ -1598,284 +1720,68 @@ class TestPreaggregationExecutorWaiting(BaseTest):
         result2 = executor._try_mark_stale_job_as_failed(pending_job)
         assert result2 is False
 
-    def test_non_stale_pending_job_not_marked(self):
-        executor = PreaggregationExecutor(
-            stale_pending_threshold_seconds=300,
-            wait_timeout_seconds=0.5,
-            poll_interval_seconds=0.1,
-        )
+    # --- Publish on terminal transitions ---
 
-        pending_job = PreaggregationJob.objects.create(
-            team=self.team,
-            query_hash="test_hash",
-            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
-            time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
-            status=PreaggregationJob.Status.PENDING,
-            expires_at=django_timezone.now() + timedelta(days=7),
-        )
-
-        result = executor._wait_for_pending_jobs(self.team, [pending_job], lambda t, j: None)
-
-        assert result.timed_out is True
-        pending_job.refresh_from_db()
-        assert pending_job.status == PreaggregationJob.Status.PENDING
-
-    # --- Non-retryable error handling ---
-
-    def test_syntax_error_not_retried(self):
-        executor = PreaggregationExecutor(
-            wait_timeout_seconds=5.0,
-            poll_interval_seconds=0.1,
-            max_retries=3,
-        )
-
-        failed_job = PreaggregationJob.objects.create(
-            team=self.team,
-            query_hash="test_hash",
-            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
-            time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
-            status=PreaggregationJob.Status.FAILED,
-            error="Previous error",
-            expires_at=django_timezone.now() + timedelta(days=7),
-        )
-
-        insert_attempt_count = [0]
-
-        def mock_insert(team, job):
-            insert_attempt_count[0] += 1
-            raise ServerException(message="Syntax error near SELECT", code=62)
-
-        result = executor._wait_for_pending_jobs(self.team, [failed_job], mock_insert)
-
-        assert insert_attempt_count[0] == 1
-        assert result.success is False
-        assert len(result.failed_jobs) == 1
-        assert result.timed_out is False
-
-    def test_non_retryable_error_does_not_block_future_queries(self):
-        query = self._make_preaggregation_query()
-        query_info = QueryInfo(query=query, table=PreaggregationTable.PREAGGREGATION_RESULTS, timezone="UTC")
-        query_hash = compute_query_hash(query_info)
-
-        executor = PreaggregationExecutor(
-            wait_timeout_seconds=5.0,
-            poll_interval_seconds=0.1,
-            max_retries=3,
-        )
-
-        # First call: INSERT always fails with a syntax error (non-retryable)
-        result1 = executor.execute(
-            team=self.team,
-            query_info=query_info,
-            start=datetime(2024, 1, 1, tzinfo=UTC),
-            end=datetime(2024, 1, 2, tzinfo=UTC),
-            run_insert=lambda t, j: (_ for _ in ()).throw(ServerException(message="Syntax error", code=62)),
-        )
-        assert result1.ready is False
-        assert len(result1.errors) > 0
-
-        # The FAILED job should exist in the DB
-        failed_jobs = list(
-            PreaggregationJob.objects.filter(
-                team=self.team, query_hash=query_hash, status=PreaggregationJob.Status.FAILED
+    def test_publish_on_successful_insert(self):
+        with patch(
+            "products.analytics_platform.backend.lazy_preaggregation.lazy_preaggregation_executor.publish_job_completion"
+        ) as mock_publish:
+            query = parse_select(
+                "SELECT toStartOfDay(timestamp) as a, [] as b, uniqExactState(person_id) as c FROM events GROUP BY a"
             )
-        )
-        assert len(failed_jobs) >= 1
+            assert isinstance(query, ast.SelectQuery)
+            query_info = QueryInfo(query=query, table=PreaggregationTable.PREAGGREGATION_RESULTS, timezone="UTC")
 
-        # Second call: same range, INSERT succeeds — should create a fresh job
-        result2 = executor.execute(
-            team=self.team,
-            query_info=query_info,
-            start=datetime(2024, 1, 1, tzinfo=UTC),
-            end=datetime(2024, 1, 2, tzinfo=UTC),
-            run_insert=lambda t, j: None,
-        )
-        assert result2.ready is True
-        assert len(result2.job_ids) == 1
-        # The new job should be different from the failed one
-        assert result2.job_ids[0] not in {j.id for j in failed_jobs}
+            executor = PreaggregationExecutor()
+            result = executor.execute(
+                team=self.team,
+                query_info=query_info,
+                start=datetime(2024, 1, 1, tzinfo=UTC),
+                end=datetime(2024, 1, 2, tzinfo=UTC),
+                run_insert=lambda t, j: None,
+            )
+            assert result.ready is True
+            assert mock_publish.call_count == 1
+            assert mock_publish.call_args[0][1] == "ready"
 
-    def test_network_error_is_retried(self):
-        executor = PreaggregationExecutor(
-            wait_timeout_seconds=5.0,
-            poll_interval_seconds=0.05,
-            max_retries=3,
-        )
+    def test_publish_on_failed_insert(self):
+        with patch(
+            "products.analytics_platform.backend.lazy_preaggregation.lazy_preaggregation_executor.publish_job_completion"
+        ) as mock_publish:
+            query = parse_select(
+                "SELECT toStartOfDay(timestamp) as a, [] as b, uniqExactState(person_id) as c FROM events GROUP BY a"
+            )
+            assert isinstance(query, ast.SelectQuery)
+            query_info = QueryInfo(query=query, table=PreaggregationTable.PREAGGREGATION_RESULTS, timezone="UTC")
 
-        failed_job = PreaggregationJob.objects.create(
-            team=self.team,
-            query_hash="test_hash",
-            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
-            time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
-            status=PreaggregationJob.Status.FAILED,
-            error="Previous error",
-            expires_at=django_timezone.now() + timedelta(days=7),
-        )
+            executor = PreaggregationExecutor(max_retries=0)
+            result = executor.execute(
+                team=self.team,
+                query_info=query_info,
+                start=datetime(2024, 2, 1, tzinfo=UTC),
+                end=datetime(2024, 2, 2, tzinfo=UTC),
+                run_insert=lambda t, j: (_ for _ in ()).throw(Exception("boom")),
+            )
+            assert result.ready is False
+            assert mock_publish.call_count == 1
+            assert mock_publish.call_args[0][1] == "failed"
 
-        insert_attempt_count = [0]
-
-        def mock_insert(team, job):
-            insert_attempt_count[0] += 1
-            if insert_attempt_count[0] < 2:
-                raise ConnectionError("Connection refused")
-
-        result = executor._wait_for_pending_jobs(self.team, [failed_job], mock_insert)
-
-        assert insert_attempt_count[0] == 2
-        assert result.success is True
-        assert len(result.ready_jobs) == 1
-
-    def test_retryable_error_triggers_replacement(self):
-        executor = PreaggregationExecutor(
-            wait_timeout_seconds=2.0,
-            poll_interval_seconds=0.05,
-            max_retries=4,
-        )
-
-        failed_job = PreaggregationJob.objects.create(
-            team=self.team,
-            query_hash="test_hash",
-            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
-            time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
-            status=PreaggregationJob.Status.FAILED,
-            error="Previous memory error",
-            expires_at=django_timezone.now() + timedelta(days=7),
-        )
-
-        insert_attempt_count = [0]
-
-        def mock_insert(team, job):
-            insert_attempt_count[0] += 1
-            if insert_attempt_count[0] < 3:
-                raise ServerException(message="Memory limit exceeded", code=241)
-
-        result = executor._wait_for_pending_jobs(self.team, [failed_job], mock_insert)
-
-        assert insert_attempt_count[0] == 3
-        assert result.success is True
-        assert len(result.ready_jobs) == 1
-        assert len(result.failed_jobs) == 0
-
-    # --- Exponential backoff ---
-
-    def test_exponential_backoff_increases_poll_interval(self):
-        executor = PreaggregationExecutor(
-            wait_timeout_seconds=10.0,
-            poll_interval_seconds=0.5,
-            max_poll_interval_seconds=4.0,
-        )
-
-        pending_job = PreaggregationJob.objects.create(
-            team=self.team,
-            query_hash="test_hash",
-            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
-            time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
-            status=PreaggregationJob.Status.PENDING,
-            expires_at=django_timezone.now() + timedelta(days=7),
-        )
-
-        poll_count = [0]
-        original_filter = PreaggregationJob.objects.filter
-
-        def mock_filter(*args, **kwargs):
-            result = original_filter(*args, **kwargs)
-            if "id__in" in kwargs:
-                poll_count[0] += 1
-                if poll_count[0] >= 5:
-                    pending_job.status = PreaggregationJob.Status.READY
-                    pending_job.computed_at = django_timezone.now()
-                    pending_job.save()
-            return result
-
-        sleep_durations: list[float] = []
-
-        def mock_sleep(duration):
-            sleep_durations.append(duration)
-
-        with (
-            patch.object(PreaggregationJob.objects, "filter", side_effect=mock_filter),
-            patch(
-                "products.analytics_platform.backend.lazy_preaggregation.lazy_preaggregation_executor.time.sleep",
-                side_effect=mock_sleep,
-            ),
-        ):
-            result = executor._wait_for_pending_jobs(self.team, [pending_job], lambda t, j: None)
-
-        assert result.success is True
-        assert len(sleep_durations) >= 4
-        assert sleep_durations[0] == pytest.approx(0.5, abs=0.01)
-        assert sleep_durations[1] == pytest.approx(1.0, abs=0.01)
-        assert sleep_durations[2] == pytest.approx(2.0, abs=0.01)
-        assert sleep_durations[3] == pytest.approx(4.0, abs=0.01)
-
-    def test_backoff_resets_on_replacement_job(self):
-        executor = PreaggregationExecutor(
-            wait_timeout_seconds=10.0,
-            poll_interval_seconds=0.5,
-            max_poll_interval_seconds=8.0,
-            max_retries=4,
-        )
-
-        # Start PENDING so we build up backoff, then fail, then replacement also
-        # fails (retryable) forcing another poll — which should use reset interval.
-        pending_job = PreaggregationJob.objects.create(
-            team=self.team,
-            query_hash="test_hash",
-            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
-            time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
-            status=PreaggregationJob.Status.PENDING,
-            expires_at=django_timezone.now() + timedelta(days=7),
-        )
-
-        poll_count = [0]
-        original_filter = PreaggregationJob.objects.filter
-
-        def mock_filter(*args, **kwargs):
-            result = original_filter(*args, **kwargs)
-            if "id__in" in kwargs:
-                poll_count[0] += 1
-                if poll_count[0] == 4:
-                    # After 4 polls (backoff: 0.5→1.0→2.0→4.0), job fails
-                    pending_job.status = PreaggregationJob.Status.FAILED
-                    pending_job.error = "Some error"
-                    pending_job.save()
-            return result
-
-        insert_attempt_count = [0]
-
-        def mock_insert(team, job):
-            insert_attempt_count[0] += 1
-            if insert_attempt_count[0] == 1:
-                raise ConnectionError("Connection refused")
-
-        sleep_durations: list[float] = []
-
-        def mock_sleep(duration):
-            sleep_durations.append(duration)
-
-        with (
-            patch.object(PreaggregationJob.objects, "filter", side_effect=mock_filter),
-            patch(
-                "products.analytics_platform.backend.lazy_preaggregation.lazy_preaggregation_executor.time.sleep",
-                side_effect=mock_sleep,
-            ),
-        ):
-            result = executor._wait_for_pending_jobs(self.team, [pending_job], mock_insert)
-
-        assert result.success is True
-        # Sequence:
-        #   Poll 1: PENDING → sleep(0.5)
-        #   Poll 2: PENDING → sleep(1.0)
-        #   Poll 3: PENDING → sleep(2.0)
-        #   Poll 4: FAILED → reset backoff → create replacement → insert fails
-        #            (retryable) → sleep(0.5) ← reset, NOT 4.0
-        #   Poll 5: replacement FAILED → create replacement2 → insert succeeds → done
-        assert len(sleep_durations) == 4, f"Expected 4 sleeps, got {sleep_durations}"
-        assert sleep_durations[0] == pytest.approx(0.5, abs=0.01)
-        assert sleep_durations[1] == pytest.approx(1.0, abs=0.01)
-        assert sleep_durations[2] == pytest.approx(2.0, abs=0.01)
-        # Without reset this would be 4.0 — the reset to 0.5 proves it works
-        assert sleep_durations[3] == pytest.approx(0.5, abs=0.01)
+    def test_publish_on_stale_mark(self):
+        with patch(
+            "products.analytics_platform.backend.lazy_preaggregation.lazy_preaggregation_executor.publish_job_completion"
+        ) as mock_publish:
+            executor = PreaggregationExecutor()
+            stale_job = PreaggregationJob.objects.create(
+                team=self.team,
+                query_hash="stale_hash",
+                time_range_start=datetime(2024, 3, 1, tzinfo=UTC),
+                time_range_end=datetime(2024, 3, 2, tzinfo=UTC),
+                status=PreaggregationJob.Status.PENDING,
+                expires_at=django_timezone.now() + timedelta(days=7),
+            )
+            executor._try_mark_stale_job_as_failed(stale_job)
+            assert mock_publish.call_count == 1
+            assert mock_publish.call_args[0][1] == "failed"
 
 
 class TestIsNonRetryableError(BaseTest):

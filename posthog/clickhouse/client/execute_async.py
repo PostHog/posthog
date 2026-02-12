@@ -52,6 +52,7 @@ class QueryRetrievalError(Exception):
 class QueryStatusManager:
     STATUS_TTL_SECONDS = 60 * 20  # 20 minutes
     DEDUP_TTL_SECONDS = 60 * 20  # 20 minutes
+    HEARTBEAT_TTL_SECONDS = 10  # Expires if poll_query_performance stops seeing the query
     KEY_PREFIX_ASYNC_RESULTS = "query_async"
     KEY_PREFIX_RUNNING_QUERIES = "running_queries"
 
@@ -67,6 +68,10 @@ class QueryStatusManager:
     @property
     def clickhouse_query_status_key(self) -> str:
         return f"{self.KEY_PREFIX_ASYNC_RESULTS}:{self.team_id}:{self.query_id}:status"
+
+    @property
+    def heartbeat_key(self) -> str:
+        return f"{self.KEY_PREFIX_ASYNC_RESULTS}:{self.team_id}:{self.query_id}:heartbeat"
 
     @property
     def running_queries_key(self) -> str:
@@ -108,6 +113,7 @@ class QueryStatusManager:
         for clickhouse_query_progress in clickhouse_query_progresses:
             clickhouse_query_progress_dict[clickhouse_query_progress["query_id"]] = clickhouse_query_progress
         self._store_clickhouse_query_progress_dict(clickhouse_query_progress_dict)
+        self.redis_client.set(self.heartbeat_key, "1", ex=self.HEARTBEAT_TTL_SECONDS)
 
     def has_results(self) -> bool:
         return self.redis_client.exists(self.results_key) == 1
