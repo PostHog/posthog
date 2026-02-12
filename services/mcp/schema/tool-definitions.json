@@ -785,7 +785,7 @@
         "summary": "Search for entities by name or description.",
         "title": "Search entities",
         "required_scopes": ["project:read"],
-        "new_mcp": true,
+        "new_mcp": false,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,

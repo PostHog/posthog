@@ -35,7 +35,7 @@
         "feature": "data-schema",
         "summary": "Read core data warehouse schemas and table lists.",
         "title": "Read data warehouse schema",
-        "required_scopes": ["insight:read", "query:read"],
+        "required_scopes": ["warehouse_table:read", "warehouse_view:read"],
         "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
