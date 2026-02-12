@@ -5704,7 +5704,12 @@ async function handleFetch(url: string, method: string, fetcher: () => Promise<R
             }
         }
 
-        throw new ApiError('Non-OK response', response.status, response.headers, data)
+        throw new ApiError(
+            `Non-OK response [${method} ${pathname}] (status ${response.status}: ${response.statusText})`,
+            response.status,
+            response.headers,
+            data
+        )
     }
 
     return response
