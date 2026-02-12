@@ -145,7 +145,9 @@ export const alertNotificationLogic = kea<alertNotificationLogicType>([
             const failedNotifications = pending.filter((_, i) => results[i].status === 'rejected')
 
             if (failedNotifications.length > 0) {
-                lemonToast.error(`Failed to create ${failedNotifications.length} notification(s).`)
+                lemonToast.error(
+                    `Alert saved, but ${failedNotifications.length} notification(s) failed to create. Reopen the alert to add them again.`
+                )
                 actions.setPendingNotifications(failedNotifications)
             } else {
                 if (results.length > 0) {
