@@ -3009,7 +3009,9 @@ class TestPrinter(BaseTest):
 
     def test_fails_on_placeholder_macro_expansion_depth_limit(self):
         query = parse_select(
-            "SELECT date_part('year', date_part('year', date_part('year', date_part('year', date_part('year', date_part('year', date_part('year', date_part('year', date_part('year', now()))))))))))"
+            """
+            SELECT date_part('year', date_part('year', date_part('year', date_part('year', date_part('year', date_part('year', date_part('year', date_part('year', date_part('year', now())))))))))
+            """
         )
         with pytest.raises(QueryError, match="exceeded maximum placeholder macro depth"):
             prepare_and_print_ast(
