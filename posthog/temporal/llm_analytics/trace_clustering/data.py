@@ -102,6 +102,58 @@ def fetch_eligible_trace_ids(
     return [row[0] for row in rows if row[0]]
 
 
+def fetch_generation_ids_for_traces(
+    team: Team,
+    trace_ids: list[ItemId],
+    window_start: datetime,
+    window_end: datetime,
+) -> list[ItemId]:
+    """Map trace IDs to generation IDs by querying $ai_generation events.
+
+    Args:
+        team: Team object to query for
+        trace_ids: List of trace IDs to find generations for
+        window_start: Start of time window
+        window_end: End of time window
+
+    Returns:
+        List of distinct generation IDs belonging to the given traces
+    """
+    if not trace_ids:
+        return []
+
+    trace_ids_tuple = ast.Tuple(exprs=[ast.Constant(value=tid) for tid in trace_ids])
+
+    query = parse_select(
+        """
+        SELECT DISTINCT properties.$ai_generation_id as generation_id
+        FROM events
+        WHERE event = {event_name}
+            AND timestamp >= {start_dt}
+            AND timestamp < {end_dt}
+            AND isNotNull(properties.$ai_generation_id)
+            AND properties.$ai_generation_id != ''
+            AND properties.$ai_trace_id IN {trace_ids}
+        """
+    )
+
+    with tags_context(product=Product.LLM_ANALYTICS):
+        result = execute_hogql_query(
+            query_type="GenerationIdsForTraces",
+            query=query,
+            placeholders={
+                "event_name": ast.Constant(value="$ai_generation"),
+                "start_dt": ast.Constant(value=window_start),
+                "end_dt": ast.Constant(value=window_end),
+                "trace_ids": trace_ids_tuple,
+            },
+            team=team,
+        )
+
+    rows = result.results or []
+    return [row[0] for row in rows if row[0]]
+
+
 def fetch_item_embeddings_for_clustering(
     team: Team,
     window_start: datetime,
@@ -134,20 +186,10 @@ def fetch_item_embeddings_for_clustering(
         else constants.LLMA_TRACE_DOCUMENT_TYPE
     )
 
-    # TODO: trace_filters for generation-level clustering requires mapping trace_ids to
-    # generation_ids via $ai_generation_summary events. For now, skip filters and log warning.
-    if trace_filters and analysis_level == "generation":
-        logger.warning(
-            "trace_filters are not yet supported for generation-level clustering - filters will be ignored. "
-            "Generation embeddings use generation_id as document_id, but trace_filters return trace_ids. "
-            "Support requires querying $ai_generation_summary events to map trace_ids to generation_ids.",
-            team_id=team.id,
-            trace_filters=trace_filters,
-        )
-        trace_filters = None  # Skip filters for generation-level
-
-    # If filters provided, first get eligible trace IDs
-    eligible_trace_ids: list[ItemId] | None = None
+    # If filters provided, first get eligible item IDs.
+    # For trace-level: eligible IDs are trace IDs directly.
+    # For generation-level: find eligible trace IDs, then map to generation IDs.
+    eligible_item_ids: list[ItemId] | None = None
     if trace_filters:
         eligible_trace_ids = fetch_eligible_trace_ids(
             team=team,
@@ -156,16 +198,27 @@ def fetch_item_embeddings_for_clustering(
             trace_filters=trace_filters,
             max_samples=max_samples,
         )
-        # If no traces match filters, return early
         if not eligible_trace_ids:
             return [], {}, {}
 
-    # Build base query - add IN clause if we have eligible trace IDs
+        if analysis_level == "generation":
+            eligible_item_ids = fetch_generation_ids_for_traces(
+                team=team,
+                trace_ids=eligible_trace_ids,
+                window_start=window_start,
+                window_end=window_end,
+            )
+            if not eligible_item_ids:
+                return [], {}, {}
+        else:
+            eligible_item_ids = eligible_trace_ids
+
+    # Build base query - add IN clause if we have eligible item IDs
     # We also fetch rendering to link embeddings to their source summarization run
     # Backwards compatibility: support both old and new document type formats
     # - New format: document_type = "llm-trace-summary-detailed" (mode in document_type, batch_run_id in rendering)
     # - Old format: document_type = "llm-trace-summary" AND rendering = "llma_trace_detailed"
-    if eligible_trace_ids:
+    if eligible_item_ids:
         query = parse_select(
             """
             SELECT document_id, embedding, rendering
@@ -183,7 +236,7 @@ def fetch_item_embeddings_for_clustering(
             LIMIT {max_samples}
             """
         )
-        eligible_ids_tuple = ast.Tuple(exprs=[ast.Constant(value=tid) for tid in eligible_trace_ids])
+        eligible_ids_tuple = ast.Tuple(exprs=[ast.Constant(value=iid) for iid in eligible_item_ids])
     else:
         query = parse_select(
             """
