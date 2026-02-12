@@ -1,4 +1,4 @@
-import { afterMount, kea, key, path, props } from 'kea'
+import { afterMount, kea, key, path, props, propsChanged } from 'kea'
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
@@ -53,5 +53,19 @@ export const databaseTablePreviewLogic = kea<databaseTablePreviewLogicType>([
     })),
     afterMount(({ actions }) => {
         actions.loadPreviewData()
+    }),
+    propsChanged(({ actions, props }, oldProps) => {
+        const previousWhereClause = oldProps.whereClause?.trim() || null
+        const nextWhereClause = props.whereClause?.trim() || null
+        const previousLimit = oldProps.limit || DEFAULT_LIMIT
+        const nextLimit = props.limit || DEFAULT_LIMIT
+
+        if (
+            props.tableName !== oldProps.tableName ||
+            previousWhereClause !== nextWhereClause ||
+            previousLimit !== nextLimit
+        ) {
+            actions.loadPreviewData()
+        }
     }),
 ])
