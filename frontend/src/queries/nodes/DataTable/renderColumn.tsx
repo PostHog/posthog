@@ -1,5 +1,7 @@
 import { combineUrl, router } from 'kea-router'
 
+import { IconInfo } from '@posthog/icons'
+
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { Property } from 'lib/components/Property'
@@ -45,7 +47,7 @@ import { llmAnalyticsColumnRenderers } from 'products/llm_analytics/frontend/llm
 
 import { extractExpressionComment, removeExpressionComment } from './utils'
 
-const DATETIME_KEYS = ['timestamp', 'created_at', 'last_seen', 'session_start', 'session_end']
+const DATETIME_KEYS = ['timestamp', 'created_at', 'last_seen', 'last_seen_at', 'session_start', 'session_end']
 
 // Registry for product-specific column renderers
 // Products can add their custom column renderers here to have them automatically applied across all DataTable instances
@@ -193,6 +195,20 @@ export function renderColumn(
             </Link>
         ) : (
             content
+        )
+    } else if ((isActorsQuery(query.source) || isActorsQuery(query)) && key === 'last_seen_at') {
+        // For now only persons query is using the rounded last seen
+        return (
+            <TZLabel
+                time={value}
+                showSeconds
+                banner={
+                    <div className="flex gap-1 text-xs border-b p-2">
+                        <IconInfo />
+                        Last seen updates hourly and may not reflect the exact timestamp of the latest event
+                    </div>
+                }
+            />
         )
     } else if (DATETIME_KEYS.includes(key)) {
         return <TZLabel time={value} showSeconds />
