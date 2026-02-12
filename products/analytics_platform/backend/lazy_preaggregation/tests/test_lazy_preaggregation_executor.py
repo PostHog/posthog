@@ -1,3 +1,4 @@
+import time as time_mod
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -1305,8 +1306,6 @@ class TestPreaggregationExecutorExecute(BaseTest):
 
         insert_times: list[float] = []
         wait_times: list[float] = []
-
-        import time as time_mod
 
         def mock_insert(team, job):
             insert_times.append(time_mod.monotonic())
