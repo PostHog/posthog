@@ -332,6 +332,7 @@ class TestRawSessionsModel(ClickhouseTestMixin, BaseTest):
                 where="team_id = %(team_id)s AND timestamp >= '2024-03-01'",
                 shard_index=1,
                 num_shards=2,
+                include_session_timestamp=True,
             ),
             {"team_id": self.team.id},
         )
