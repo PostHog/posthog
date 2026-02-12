@@ -1,3 +1,4 @@
+import posthog from 'posthog-js'
 import { useEffect, useMemo, useState } from 'react'
 
 import { LemonButton, LemonInput, LemonLabel, LemonModal, LemonSelect } from '@posthog/lemon-ui'
@@ -6,8 +7,11 @@ import { HogQLDropdown } from 'lib/components/HogQLDropdown/HogQLDropdown'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { DataWarehousePopoverField, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
+import { hogqlQuery } from '~/queries/query'
+import { hogql } from '~/queries/utils'
 import { AnyPropertyFilter } from '~/types'
 
+import { TablePreview } from './TablePreview'
 import { DataWarehouseTableForInsight } from './types'
 
 interface DataWarehouseFunnelStepDefinitionModalValues {
@@ -46,6 +50,8 @@ export function DataWarehouseFunnelStepDefinitionPopover({
     const [fieldMappings, setFieldMappings] = useState<Record<string, string | null | undefined>>(
         initialValues.fieldMappings
     )
+    const [tablePreviewData, setTablePreviewData] = useState<Record<string, any>[]>([])
+    const [tablePreviewLoading, setTablePreviewLoading] = useState(false)
 
     useEffect(() => {
         if (!isOpen) {
@@ -56,6 +62,46 @@ export function DataWarehouseFunnelStepDefinitionPopover({
         setProperties(initialValues.properties)
         setFieldMappings(initialValues.fieldMappings)
     }, [initialValues, isOpen])
+
+    useEffect(() => {
+        if (!isOpen || !table) {
+            setTablePreviewData([])
+            setTablePreviewLoading(false)
+            return
+        }
+
+        let isCancelled = false
+        setTablePreviewLoading(true)
+
+        hogqlQuery(hogql`SELECT * FROM ${hogql.identifier(table.name)} LIMIT 10`)
+            .then((response) => {
+                if (isCancelled) {
+                    return
+                }
+
+                const transformedData = (response.results || []).map((row: any[]) =>
+                    Object.fromEntries(
+                        (response.columns || []).map((column: string, index: number) => [column, row[index]])
+                    )
+                )
+                setTablePreviewData(transformedData)
+            })
+            .catch((error) => {
+                posthog.captureException(error)
+                if (!isCancelled) {
+                    setTablePreviewData([])
+                }
+            })
+            .finally(() => {
+                if (!isCancelled) {
+                    setTablePreviewLoading(false)
+                }
+            })
+
+        return () => {
+            isCancelled = true
+        }
+    }, [isOpen, table?.name])
 
     const schemaColumns = useMemo(() => (table ? Object.values(table.fields ?? {}) : []), [table])
 
@@ -161,6 +207,15 @@ export function DataWarehouseFunnelStepDefinitionPopover({
                             </div>
                         )
                     })}
+                    <div>
+                        <LemonLabel className="mb-1">Table preview</LemonLabel>
+                        <TablePreview
+                            table={table}
+                            emptyMessage="Select a data warehouse table first"
+                            previewData={tablePreviewData}
+                            loading={tablePreviewLoading}
+                        />
+                    </div>
                 </div>
             ) : null}
         </LemonModal>
