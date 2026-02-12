@@ -226,6 +226,9 @@ class UsageReportCounters:
     logs_records_in_period: int
     logs_mb_in_period: int
 
+    # Product Tours
+    product_tour_impressions_count_in_period: int
+
 
 # Instance metadata to be included in overall report
 @dataclasses.dataclass
@@ -1014,6 +1017,30 @@ def get_teams_with_survey_responses_count_in_period(
         settings=CH_BILLING_SETTINGS,
     )
 
+    return results
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_product_tour_impressions_count_in_period(
+    begin: datetime,
+    end: datetime,
+) -> list[tuple[int, int]]:
+    results = sync_execute(
+        """
+        SELECT
+            team_id,
+            count() as count
+        FROM events
+        WHERE
+            event = 'product tour shown'
+            AND timestamp >= %(begin)s AND timestamp < %(end)s
+        GROUP BY team_id
+        """,
+        {"begin": begin, "end": end},
+        workload=Workload.OFFLINE,
+        settings=CH_BILLING_SETTINGS,
+    )
     return results
 
 
@@ -1991,6 +2018,9 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
         ),
         "teams_with_logs_bytes_in_period": get_teams_with_logs_bytes_in_period(period_start, period_end),
         "teams_with_logs_records_in_period": get_teams_with_logs_records_in_period(period_start, period_end),
+        "teams_with_product_tour_impressions_count_in_period": get_teams_with_product_tour_impressions_count_in_period(
+            period_start, period_end
+        ),
     }
 
 
@@ -2149,6 +2179,9 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         logs_bytes_in_period=all_data["teams_with_logs_bytes_in_period"].get(team.id, 0),
         logs_records_in_period=all_data["teams_with_logs_records_in_period"].get(team.id, 0),
         logs_mb_in_period=int(all_data["teams_with_logs_bytes_in_period"].get(team.id, 0) // 1_000_000),
+        product_tour_impressions_count_in_period=all_data["teams_with_product_tour_impressions_count_in_period"].get(
+            team.id, 0
+        ),
     )
 
 
