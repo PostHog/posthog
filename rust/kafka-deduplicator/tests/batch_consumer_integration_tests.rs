@@ -5,7 +5,7 @@ use std::time::Duration;
 use axum::async_trait;
 use kafka_deduplicator::kafka::{
     batch_consumer::*,
-    batch_context::ConsumerCommandSender,
+    batch_context::{ConsumerCommand, ConsumerCommandSender},
     batch_message::*,
     offset_tracker::OffsetTracker,
     partition_router::{shutdown_workers, PartitionRouter, PartitionRouterConfig},
@@ -25,8 +25,9 @@ use rdkafka::{
     consumer::{Consumer, StreamConsumer},
     producer::{FutureProducer, FutureRecord},
     util::Timeout,
-    TopicPartitionList,
+    Offset, TopicPartitionList,
 };
+use std::sync::Mutex;
 use time::OffsetDateTime;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 use tokio::sync::oneshot;
@@ -94,9 +95,71 @@ fn create_batch_kafka_consumer(
         batch_size,
         batch_timeout,
         Duration::from_secs(1),
+        Duration::from_secs(5), // seek_timeout
     )?;
 
     Ok((consumer, chan_rx, shutdown_tx))
+}
+
+/// Rebalance handler that captures the ConsumerCommandSender when async_setup runs,
+/// so tests can send SeekPartitions (or other commands) to the consumer.
+struct CaptureCommandSenderHandler {
+    inner: TestRebalanceHandler,
+    sender_out: Arc<Mutex<Option<ConsumerCommandSender>>>,
+    ready_tx: Mutex<Option<oneshot::Sender<()>>>,
+}
+
+impl CaptureCommandSenderHandler {
+    fn new(ready_tx: oneshot::Sender<()>) -> Self {
+        Self {
+            inner: TestRebalanceHandler::default(),
+            sender_out: Arc::new(Mutex::new(None)),
+            ready_tx: Mutex::new(Some(ready_tx)),
+        }
+    }
+
+    fn take_sender(&self) -> Option<ConsumerCommandSender> {
+        self.sender_out.lock().unwrap().take()
+    }
+}
+
+#[async_trait]
+impl RebalanceHandler for CaptureCommandSenderHandler {
+    fn setup_assigned_partitions(&self, partitions: &TopicPartitionList) {
+        self.inner.setup_assigned_partitions(partitions);
+    }
+
+    fn setup_revoked_partitions(&self, partitions: &TopicPartitionList) {
+        self.inner.setup_revoked_partitions(partitions);
+    }
+
+    async fn async_setup_assigned_partitions(
+        &self,
+        consumer_command_tx: &ConsumerCommandSender,
+    ) -> Result<()> {
+        self.sender_out
+            .lock()
+            .unwrap()
+            .replace(consumer_command_tx.clone());
+        if let Some(tx) = self.ready_tx.lock().unwrap().take() {
+            let _ = tx.send(());
+        }
+        self.inner
+            .async_setup_assigned_partitions(consumer_command_tx)
+            .await
+    }
+
+    async fn cleanup_revoked_partitions(&self, partitions: &TopicPartitionList) -> Result<()> {
+        self.inner.cleanup_revoked_partitions(partitions).await
+    }
+
+    async fn on_pre_rebalance(&self) -> Result<()> {
+        self.inner.on_pre_rebalance().await
+    }
+
+    async fn on_post_rebalance(&self) -> Result<()> {
+        self.inner.on_post_rebalance().await
+    }
 }
 
 /// Helper to send test messages
@@ -477,6 +540,7 @@ async fn test_offset_commits_with_routing_processor() -> Result<()> {
         50, // batch size
         Duration::from_millis(100),
         Duration::from_millis(500), // commit interval - 500ms to ensure commits happen
+        Duration::from_secs(5),     // seek_timeout
     )?;
 
     // Step 4: Start consumption and wait for processing
@@ -565,6 +629,237 @@ async fn test_offset_commits_with_routing_processor() -> Result<()> {
         total_messages,
         "Should have processed all {total_messages} messages"
     );
+
+    Ok(())
+}
+
+/// Consume some messages, seek back to offset 0, then consume again and assert we see
+/// the same messages again (partition was rewound).
+#[tokio::test]
+async fn test_seek_partitions_rewinds_consumer() -> Result<()> {
+    let test_topic = format!("{}-seek-rewind-{}", TEST_TOPIC_BASE, Uuid::now_v7());
+    let group_id = format!("test-group-seek-rewind-{}", Uuid::now_v7());
+    let num_messages = 5;
+
+    create_topic_with_partitions(&test_topic, 1).await?;
+    let messages = generate_test_messages(num_messages);
+    send_test_messages(&test_topic, messages).await?;
+
+    let (ready_tx, ready_rx) = oneshot::channel();
+    let handler = Arc::new(CaptureCommandSenderHandler::new(ready_tx));
+
+    let mut config = ClientConfig::new();
+    config
+        .set("bootstrap.servers", KAFKA_BROKERS)
+        .set("group.id", &group_id)
+        .set("enable.auto.commit", "false")
+        .set("auto.offset.reset", "earliest")
+        .set("session.timeout.ms", "6000")
+        .set("heartbeat.interval.ms", "2000");
+
+    let (shutdown_tx, shutdown_rx) = oneshot::channel();
+    let (chan_tx, mut batch_rx) = unbounded_channel();
+
+    struct TestProcessor {
+        sender: UnboundedSender<Batch<CapturedEvent>>,
+    }
+    #[async_trait]
+    impl BatchConsumerProcessor<CapturedEvent> for TestProcessor {
+        async fn process_batch(&self, messages: Vec<KafkaMessage<CapturedEvent>>) -> Result<()> {
+            let mut batch = Batch::new();
+            for msg in messages {
+                batch.push_message(msg);
+            }
+            self.sender
+                .send(batch)
+                .map_err(|e| anyhow::anyhow!("Failed to send batch: {e}"))
+        }
+    }
+
+    let coordinator = create_test_tracker();
+    let processor = Arc::new(TestProcessor { sender: chan_tx });
+    let offset_tracker = Arc::new(OffsetTracker::new(coordinator));
+
+    let consumer = BatchConsumer::<CapturedEvent>::new(
+        &config,
+        handler.clone(),
+        processor,
+        offset_tracker,
+        shutdown_rx,
+        &test_topic,
+        10,
+        Duration::from_millis(100),
+        Duration::from_secs(1),
+        Duration::from_secs(5),
+    )?;
+
+    let consumer_handle = tokio::spawn(async move { consumer.start_consumption().await });
+
+    let wait_result = tokio::time::timeout(Duration::from_secs(10), ready_rx).await;
+    assert!(
+        wait_result.is_ok(),
+        "Timeout waiting for rebalance and sender capture"
+    );
+    let _ = wait_result.unwrap();
+    let sender = handler
+        .take_sender()
+        .expect("Sender should have been captured");
+
+    let mut total_msgs = 0;
+    let deadline = std::time::Instant::now() + Duration::from_secs(15);
+    while total_msgs < num_messages && std::time::Instant::now() < deadline {
+        match tokio::time::timeout(Duration::from_millis(200), batch_rx.recv()).await {
+            Ok(Some(batch_result)) => {
+                let (msgs, errs) = batch_result.unpack();
+                if !errs.is_empty() {
+                    panic!("Errors in batch: {errs:?}");
+                }
+                total_msgs += msgs.len();
+            }
+            Ok(None) => break,
+            _ => {}
+        }
+    }
+    assert_eq!(
+        total_msgs, num_messages,
+        "Should have received {} messages before seek, got {}",
+        num_messages, total_msgs
+    );
+
+    let mut seek_tpl = TopicPartitionList::new();
+    seek_tpl
+        .add_partition_offset(&test_topic, 0, Offset::Offset(0))
+        .unwrap();
+    sender
+        .send(ConsumerCommand::SeekPartitions(seek_tpl))
+        .expect("Send SeekPartitions");
+    let mut resume_tpl = TopicPartitionList::new();
+    resume_tpl.add_partition(&test_topic, 0);
+    sender
+        .send(ConsumerCommand::Resume(resume_tpl))
+        .expect("Send Resume");
+
+    let deadline2 = std::time::Instant::now() + Duration::from_secs(15);
+    while total_msgs < num_messages * 2 && std::time::Instant::now() < deadline2 {
+        match tokio::time::timeout(Duration::from_millis(200), batch_rx.recv()).await {
+            Ok(Some(batch_result)) => {
+                let (msgs, errs) = batch_result.unpack();
+                if !errs.is_empty() {
+                    panic!("Errors in batch: {errs:?}");
+                }
+                total_msgs += msgs.len();
+            }
+            Ok(None) => break,
+            _ => {}
+        }
+    }
+    assert_eq!(
+        total_msgs,
+        num_messages * 2,
+        "After seek to 0, should have received {} messages total (rewind), got {}",
+        num_messages * 2,
+        total_msgs
+    );
+
+    let _ = shutdown_tx.send(());
+    let result = tokio::time::timeout(Duration::from_secs(5), consumer_handle).await;
+    assert!(result.is_ok(), "Consumer should shut down");
+    let join_result = result.unwrap();
+    assert!(join_result.is_ok(), "Consumer task should not panic");
+    let _ = join_result.unwrap();
+
+    Ok(())
+}
+
+/// Integration test that exercises the SeekPartitions command.
+///
+/// Creates a consumer with a handler that captures the command sender, then sends
+/// SeekPartitions followed by Resume. Verifies the consumer handles both without panicking.
+#[tokio::test]
+async fn test_seek_partitions_command_handled() -> Result<()> {
+    let test_topic = format!("{}-seek-cmd-{}", TEST_TOPIC_BASE, Uuid::now_v7());
+    let group_id = format!("test-group-seek-cmd-{}", Uuid::now_v7());
+
+    create_topic_with_partitions(&test_topic, 1).await?;
+    let messages = generate_test_messages(5);
+    send_test_messages(&test_topic, messages).await?;
+
+    let (ready_tx, ready_rx) = oneshot::channel();
+    let handler = Arc::new(CaptureCommandSenderHandler::new(ready_tx));
+
+    let mut config = ClientConfig::new();
+    config
+        .set("bootstrap.servers", KAFKA_BROKERS)
+        .set("group.id", &group_id)
+        .set("enable.auto.commit", "false")
+        .set("auto.offset.reset", "earliest")
+        .set("session.timeout.ms", "6000")
+        .set("heartbeat.interval.ms", "2000");
+
+    let (shutdown_tx, shutdown_rx) = oneshot::channel();
+
+    struct NoopProcessor;
+    #[async_trait]
+    impl BatchConsumerProcessor<CapturedEvent> for NoopProcessor {
+        async fn process_batch(&self, _messages: Vec<KafkaMessage<CapturedEvent>>) -> Result<()> {
+            Ok(())
+        }
+    }
+
+    let coordinator = create_test_tracker();
+    let processor = Arc::new(NoopProcessor);
+    let offset_tracker = Arc::new(OffsetTracker::new(coordinator));
+
+    let consumer = BatchConsumer::<CapturedEvent>::new(
+        &config,
+        handler.clone(),
+        processor,
+        offset_tracker,
+        shutdown_rx,
+        &test_topic,
+        10,
+        Duration::from_millis(100),
+        Duration::from_secs(1),
+        Duration::from_secs(5), // seek_timeout
+    )?;
+
+    let consumer_handle = tokio::spawn(async move { consumer.start_consumption().await });
+
+    // Wait for rebalance so handler has captured the command sender
+    let wait_result = tokio::time::timeout(Duration::from_secs(10), ready_rx).await;
+    assert!(
+        wait_result.is_ok(),
+        "Timeout waiting for rebalance and sender capture"
+    );
+    let _ = wait_result.unwrap();
+
+    let sender = handler
+        .take_sender()
+        .expect("Sender should have been captured");
+
+    // Send SeekPartitions (topic, partition 0, offset 0)
+    let mut seek_tpl = TopicPartitionList::new();
+    seek_tpl
+        .add_partition_offset(&test_topic, 0, Offset::Offset(0))
+        .unwrap();
+    sender
+        .send(ConsumerCommand::SeekPartitions(seek_tpl))
+        .expect("Send SeekPartitions");
+
+    // Send Resume so consumer can continue (handler already sent Resume; this is redundant but harmless)
+    let mut resume_tpl = TopicPartitionList::new();
+    resume_tpl.add_partition(&test_topic, 0);
+    sender
+        .send(ConsumerCommand::Resume(resume_tpl))
+        .expect("Send Resume");
+
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let _ = shutdown_tx.send(());
+    let result = tokio::time::timeout(Duration::from_secs(5), consumer_handle).await;
+    assert!(result.is_ok(), "Consumer should shut down");
+    let join_result = result.unwrap();
+    assert!(join_result.is_ok(), "Consumer task should not panic");
+    let _ = join_result.unwrap();
 
     Ok(())
 }
