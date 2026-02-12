@@ -130,6 +130,7 @@ class AssistantContextManager(AssistantContextMixin):
             OrganizationMembership.Level.OWNER,
         )
 
+    @database_sync_to_async
     def check_has_audit_logs_access(self) -> bool:
         """
         Check if the user has access to the audit logs tool.

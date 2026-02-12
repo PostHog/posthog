@@ -480,13 +480,15 @@ class TestActivityLogContextDatetimeFilter(ActivityLogTestBase):
         assert "too-old" not in result
         assert "too-new" not in result
 
-    async def test_invalid_datetime_string_is_ignored(self):
+    async def test_invalid_datetime_string_is_ignored_with_warning(self):
         await self._create_log(item_id="1", detail={"name": "entry"})
 
         context = self._create_context()
         result = await context.fetch_and_format(after="not-a-date", before="also-invalid")
 
         assert "entry" in result
+        assert "'after' filter 'not-a-date' is not a valid ISO 8601 datetime and was ignored" in result
+        assert "'before' filter 'also-invalid' is not a valid ISO 8601 datetime and was ignored" in result
 
 
 @freeze_time("2025-06-15T12:00:00Z")

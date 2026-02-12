@@ -205,7 +205,7 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
             prompt_vars["billing_prompt"] = READ_DATA_BILLING_PROMPT
             kinds.append(ReadBillingInfo)
 
-        has_audit_logs_access = context_manager.check_has_audit_logs_access()
+        has_audit_logs_access = await context_manager.check_has_audit_logs_access()
 
         if has_audit_logs_access:
             prompt_vars["activity_log_prompt"] = READ_DATA_ACTIVITY_LOG_PROMPT
@@ -281,7 +281,7 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
             case ReadExperiment() as schema:
                 return await self._read_experiment(schema.id, schema.feature_flag_key), None
             case ReadActivityLog() as schema:
-                if not self._context_manager.check_has_audit_logs_access():
+                if not await self._context_manager.check_has_audit_logs_access():
                     raise MaxToolFatalError(ACTIVITY_LOG_INSUFFICIENT_ACCESS_PROMPT)
                 return await self._read_activity_log(
                     schema.scope,

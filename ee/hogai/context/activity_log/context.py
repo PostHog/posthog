@@ -65,6 +65,12 @@ class ActivityLogContext:
         limit: int = 20,
         offset: int = 0,
     ) -> str:
+        warnings: list[str] = []
+        if after and self._parse_datetime(after) is None:
+            warnings.append(f"Warning: 'after' filter '{after}' is not a valid ISO 8601 datetime and was ignored.")
+        if before and self._parse_datetime(before) is None:
+            warnings.append(f"Warning: 'before' filter '{before}' is not a valid ISO 8601 datetime and was ignored.")
+
         entries, total_count = await self._fetch_entries(
             scope=scope,
             activity=activity,
@@ -75,7 +81,7 @@ class ActivityLogContext:
             limit=limit,
             offset=offset,
         )
-        return self._format_entries(
+        result = self._format_entries(
             entries,
             scope=scope,
             user_email=user_email,
@@ -83,6 +89,9 @@ class ActivityLogContext:
             offset=offset,
             limit=limit,
         )
+        if warnings:
+            return "\n".join(warnings) + "\n\n" + result
+        return result
 
     @staticmethod
     def _parse_datetime(value: str) -> datetime | None:
