@@ -1318,7 +1318,7 @@ class TestEventListTimeWindowOptimization(ClickhouseTestMixin, APIBaseTest):
                     "distinct_id": "1",
                     "elements_chain": "",
                 }
-                for _ in range(50)
+                for _ in range(1000)
             ],
             3600,  # applied_window
         )
@@ -1332,7 +1332,7 @@ class TestEventListTimeWindowOptimization(ClickhouseTestMixin, APIBaseTest):
         # Should update cache to new format
         mock_cache.set.assert_called_once()
         cached_data = mock_cache.set.call_args[0][1]
-        assert cached_data == {"window": 3600, "result_count": 50}
+        assert cached_data == {"window": 3600, "result_count": 1000}
 
     @patch("posthog.api.event.cache")
     @patch("posthog.models.event.query_event_list.insight_query_with_columns")
