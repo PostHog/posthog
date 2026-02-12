@@ -50,7 +50,11 @@ class HealthIssueViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelMi
     pagination_class = HealthIssuePagination
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
-        queryset = queryset.annotate(severity_order=SEVERITY_ORDERING).order_by("severity_order", "-created_at")
+        queryset = (
+            queryset.filter(team_id=self.team_id)
+            .annotate(severity_order=SEVERITY_ORDERING)
+            .order_by("severity_order", "-created_at")
+        )
 
         if status_filter := self.request.query_params.get("status"):
             if status_filter not in VALID_STATUSES:
