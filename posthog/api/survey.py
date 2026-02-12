@@ -2077,6 +2077,7 @@ def public_survey_page(request, survey_id: str):
 
     # Database query with minimal fields and timeout protection
     try:
+        # nosemgrep: idor-lookup-without-team (public survey page, intentionally unauthenticated)
         survey = Survey.objects.select_related("team").get(id=survey_id)
     except Survey.DoesNotExist:
         logger.info("survey_page_not_found", survey_id=survey_id)

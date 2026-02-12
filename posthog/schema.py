@@ -1717,6 +1717,7 @@ class FileSystemIconType(StrEnum):
     WORKFLOWS = "workflows"
     NOTEBOOK = "notebook"
     ACTION = "action"
+    ACTIVITY = "activity"
     COMMENT = "comment"
     ANNOTATION = "annotation"
     EVENT = "event"
@@ -6315,6 +6316,7 @@ class SourceFieldInputConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    caption: str | None = None
     label: str
     name: str
     placeholder: str

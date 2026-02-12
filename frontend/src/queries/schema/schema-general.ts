@@ -2879,6 +2879,7 @@ export type FileSystemIconType =
     | 'workflows'
     | 'notebook'
     | 'action'
+    | 'activity'
     | 'comment'
     | 'annotation'
     | 'event'
@@ -4725,6 +4726,7 @@ export interface SourceFieldInputConfig {
     label: string
     required: boolean
     placeholder: string
+    caption?: string
 }
 
 export type SourceFieldSelectConfigConverter = 'str_to_int' | 'str_to_bool' | 'str_to_optional_int'

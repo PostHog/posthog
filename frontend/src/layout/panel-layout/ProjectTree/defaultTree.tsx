@@ -6,6 +6,7 @@ import {
     IconBook,
     IconBug,
     IconCircleDashed,
+    IconClock,
     IconCode,
     IconCode2,
     IconDashboard,
@@ -189,6 +190,9 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     action: {
         icon: <IconPlay />,
+    },
+    activity: {
+        icon: <IconClock />,
     },
     comment: {
         icon: <IconNotification />,

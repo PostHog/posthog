@@ -6,6 +6,7 @@
         "summary": "Add an existing insight to a dashboard.",
         "title": "Add insight to dashboard",
         "required_scopes": ["dashboard:write"],
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -20,6 +21,7 @@
         "summary": "Create a new dashboard in the project.",
         "title": "Create dashboard",
         "required_scopes": ["dashboard:write"],
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
@@ -34,6 +36,7 @@
         "summary": "Delete a dashboard by ID.",
         "title": "Delete dashboard",
         "required_scopes": ["dashboard:write"],
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": true,
             "idempotentHint": true,
@@ -48,6 +51,7 @@
         "summary": "Get a specific dashboard by ID, including insights that are on the dashboard.",
         "title": "Get dashboard",
         "required_scopes": ["dashboard:read"],
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -62,6 +66,7 @@
         "summary": "Get all dashboards in the project with optional filtering.",
         "title": "Get all dashboards",
         "required_scopes": ["dashboard:read"],
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -76,6 +81,7 @@
         "summary": "Update an existing dashboard by ID.",
         "title": "Update dashboard",
         "required_scopes": ["dashboard:write"],
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -90,6 +96,7 @@
         "summary": "Reorder tiles on a dashboard.",
         "title": "Reorder dashboard tiles",
         "required_scopes": ["dashboard:write"],
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -104,6 +111,7 @@
         "summary": "Search the PostHog documentation for information.",
         "title": "Search docs",
         "required_scopes": [],
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -118,6 +126,7 @@
         "summary": "Get the details of an error in the project.",
         "title": "Get error details",
         "required_scopes": ["error_tracking:read"],
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -132,6 +141,7 @@
         "summary": "List errors in the project.",
         "title": "List errors",
         "required_scopes": ["error_tracking:read"],
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -146,6 +156,7 @@
         "summary": "Creates a new feature flag in the project.",
         "title": "Create feature flag",
         "required_scopes": ["feature_flag:write"],
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
@@ -160,6 +171,7 @@
         "summary": "Delete a feature flag in the project.",
         "title": "Delete feature flag",
         "required_scopes": ["feature_flag:write"],
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": true,
             "idempotentHint": true,
@@ -174,6 +186,7 @@
         "summary": "Get all feature flags in the project.",
         "title": "Get all feature flags",
         "required_scopes": ["feature_flag:read"],
+        "new_mcp": false,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -188,6 +201,7 @@
         "summary": "Get the definition of a feature flag.",
         "title": "Get feature flag definition",
         "required_scopes": ["feature_flag:read"],
+        "new_mcp": false,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -202,6 +216,7 @@
         "summary": "Update a feature flag in the project.",
         "title": "Update feature flag",
         "required_scopes": ["feature_flag:write"],
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -216,6 +231,7 @@
         "summary": "Get all experiments in the project.",
         "title": "Get all experiments",
         "required_scopes": ["experiment:read"],
+        "new_mcp": false,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -230,6 +246,7 @@
         "summary": "Create A/B test experiment with guided metric and feature flag setup",
         "title": "Create experiment",
         "required_scopes": ["experiment:write"],
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
@@ -244,6 +261,7 @@
         "summary": "Delete an experiment by ID.",
         "title": "Delete experiment",
         "required_scopes": ["experiment:write"],
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": true,
             "idempotentHint": true,
@@ -258,6 +276,7 @@
         "summary": "Update an existing experiment with lifecycle management and restart capability.",
         "title": "Update experiment",
         "required_scopes": ["experiment:write"],
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -272,6 +291,7 @@
         "summary": "Get details of a specific experiment.",
         "title": "Get experiment details",
         "required_scopes": ["experiment:read"],
+        "new_mcp": false,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -286,6 +306,7 @@
         "summary": "Get comprehensive experiment results including metrics and exposure data.",
         "title": "Get experiment results",
         "required_scopes": ["experiment:read"],
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -300,6 +321,7 @@
         "summary": "Save a query as an insight.",
         "title": "Create insight from query",
         "required_scopes": ["insight:write"],
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
@@ -314,6 +336,7 @@
         "summary": "Delete an insight by ID.",
         "title": "Delete insight",
         "required_scopes": ["insight:write"],
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": true,
             "idempotentHint": true,
@@ -328,6 +351,7 @@
         "summary": "Get a specific insight by ID.",
         "title": "Get insight",
         "required_scopes": ["insight:read"],
+        "new_mcp": false,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -342,6 +366,7 @@
         "summary": "Execute a query on an existing insight to get its results/data.",
         "title": "Query insight",
         "required_scopes": ["query:read"],
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -356,6 +381,7 @@
         "summary": "Get all insights in the project with optional filtering.",
         "title": "Get all insights",
         "required_scopes": ["insight:read"],
+        "new_mcp": false,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -370,39 +396,12 @@
         "summary": "Update an existing insight by ID.",
         "title": "Update insight",
         "required_scopes": ["insight:write"],
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
-        }
-    },
-    "query-run": {
-        "description": "You should use this to answer questions that a user has about their data and for when you want to create a new insight. You can use 'event-definitions-list' to get events to use in the query, and 'event-properties-list' to get properties for those events. It can run a trend, funnel or HogQL query. Where possible, use a trend or funnel rather than a HogQL query, unless you know the HogQL is correct (e.g. it came from a previous insight.).",
-        "category": "Insights & analytics",
-        "summary": "Run a trend, funnel or HogQL query.",
-        "feature": "insights",
-        "title": "Run query",
-        "required_scopes": ["query:read"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
-    "query-generate-hogql-from-question": {
-        "description": "This is a slow tool, and you should only use it once you have tried to create a query using the 'query-run' tool, or the query is too complicated to create a trend / funnel. Queries project's PostHog data based on a provided natural language question - don't provide SQL query as input but describe the output you want. When giving the results back to the user, first show the SQL query that was used, then provide results in reasily readable format. You should also offer to save the query as an insight if the user wants to.",
-        "category": "Insights & analytics",
-        "summary": "Queries project's PostHog data based on a provided natural language question.",
-        "feature": "insights",
-        "title": "Generate SQL",
-        "required_scopes": ["query:read"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": true
         }
     },
     "get-llm-total-costs-for-project": {
@@ -412,6 +411,7 @@
         "summary": "Fetches the total LLM daily costs for each model for a project over a given number of days.",
         "title": "Get LLM costs",
         "required_scopes": ["warehouse_table:read"],
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -426,6 +426,7 @@
         "summary": "Get the details of the active organization.",
         "title": "Get organization details",
         "required_scopes": ["organization:read"],
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -440,6 +441,7 @@
         "summary": "Get the organizations the user has access to.",
         "title": "Get organizations",
         "required_scopes": ["user:read"],
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -454,6 +456,7 @@
         "summary": "Change the active organization from the default organization.",
         "title": "Switch active organization",
         "required_scopes": ["organization:read"],
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -468,6 +471,7 @@
         "summary": "Fetches projects that the user has access to in the current organization.",
         "title": "Get projects",
         "required_scopes": ["organization:read"],
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -482,6 +486,7 @@
         "summary": "List all event definitions in the project with optional filtering.",
         "title": "List all events",
         "required_scopes": ["event_definition:read"],
+        "new_mcp": false,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -510,6 +515,7 @@
         "summary": "Get properties for events or persons.",
         "title": "Get properties",
         "required_scopes": ["property_definition:read"],
+        "new_mcp": false,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -524,6 +530,7 @@
         "summary": "Get event and property definitions for the project.",
         "title": "Get property definitions",
         "required_scopes": ["property_definition:read"],
+        "new_mcp": false,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -538,6 +545,7 @@
         "summary": "Change the active project from the default project.",
         "title": "Switch active project",
         "required_scopes": ["project:read"],
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -552,6 +560,7 @@
         "required_scopes": ["survey:write"],
         "feature": "surveys",
         "title": "Create survey",
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
@@ -566,6 +575,7 @@
         "required_scopes": ["survey:read"],
         "feature": "surveys",
         "title": "Get survey",
+        "new_mcp": false,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -580,6 +590,7 @@
         "required_scopes": ["survey:read"],
         "feature": "surveys",
         "title": "Get all surveys",
+        "new_mcp": false,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -594,6 +605,7 @@
         "required_scopes": ["survey:write"],
         "feature": "surveys",
         "title": "Update survey",
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -608,6 +620,7 @@
         "required_scopes": ["survey:write"],
         "feature": "surveys",
         "title": "Delete survey",
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": true,
             "idempotentHint": true,
@@ -622,6 +635,7 @@
         "required_scopes": ["survey:read"],
         "feature": "surveys",
         "title": "Get all survey response stats",
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -636,6 +650,7 @@
         "required_scopes": ["survey:read"],
         "feature": "surveys",
         "title": "Get survey response stats",
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -650,6 +665,7 @@
         "summary": "Search and query logs in the project.",
         "title": "Query logs",
         "required_scopes": ["logs:read"],
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -664,6 +680,7 @@
         "summary": "List available log attributes.",
         "title": "List log attributes",
         "required_scopes": ["logs:read"],
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -678,6 +695,7 @@
         "summary": "Get values for a log attribute.",
         "title": "List attribute values",
         "required_scopes": ["logs:read"],
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -692,6 +710,7 @@
         "summary": "Get all actions in the project.",
         "title": "Get all actions",
         "required_scopes": ["action:read"],
+        "new_mcp": false,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -706,6 +725,7 @@
         "summary": "Get a specific action by ID.",
         "title": "Get action",
         "required_scopes": ["action:read"],
+        "new_mcp": false,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -720,6 +740,7 @@
         "summary": "Create a new action in the project.",
         "title": "Create action",
         "required_scopes": ["action:write"],
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
@@ -734,6 +755,7 @@
         "summary": "Update an existing action.",
         "title": "Update action",
         "required_scopes": ["action:write"],
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -748,6 +770,7 @@
         "summary": "Delete an action by ID.",
         "title": "Delete action",
         "required_scopes": ["action:write"],
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": true,
             "idempotentHint": true,
@@ -762,6 +785,7 @@
         "summary": "Search for entities by name or description.",
         "title": "Search entities",
         "required_scopes": ["project:read"],
+        "new_mcp": false,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,

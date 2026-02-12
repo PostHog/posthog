@@ -201,6 +201,7 @@ class ApprovalPolicySerializer(serializers.ModelSerializer):
             # Create: get organization from view
             organization_id = self.context["view"].organization.id
 
+        # nosemgrep: idor-lookup-without-org (org validation after lookup)
         roles = Role.objects.filter(id__in=value)
 
         # Check all submitted IDs exist

@@ -8,6 +8,7 @@ import {
     IconChevronRight,
     IconClock,
     IconDatabase,
+    IconDownload,
     IconFolderOpen,
     IconGear,
     IconHome,
@@ -507,14 +508,21 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                             </ListBox>
                         </ScrollableShadows>
 
-                        {!isRemovingSidePanelFlag && <div className="border-b border-primary h-px " />}
+                        <div className="border-b border-primary h-px " />
 
                         <div
                             className={cn('p-1 flex flex-col gap-px items-center', {
-                                'pb-2 pl-2 items-start': isRemovingSidePanelFlag,
+                                'p-1 items-start pb-2': isRemovingSidePanelFlag,
                             })}
                         >
-                            <DebugNotice isCollapsed={isLayoutNavCollapsed} />
+                            <div
+                                className={cn('flex flex-col gap-px w-full', {
+                                    'items-center': isLayoutNavCollapsed,
+                                })}
+                            >
+                                <DebugNotice isCollapsed={isLayoutNavCollapsed} />
+                            </div>
+
                             <NavPanelAdvertisement />
 
                             {!isRemovingSidePanelFlag ? (
@@ -616,13 +624,31 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                 </>
                             ) : (
                                 <div
-                                    className={cn('flex gap-1', {
-                                        'items-center flex-col-reverse': isLayoutNavCollapsed,
+                                    className={cn('flex flex-col gap-px w-full', {
+                                        'items-center': isLayoutNavCollapsed,
                                     })}
                                 >
-                                    <HelpMenu />
-                                    <HealthMenu />
-                                    <PosthogStatusShownOnlyIfNotOperational />
+                                    <Link
+                                        to={urls.settings('project')}
+                                        buttonProps={{ menuItem: isLayoutNavCollapsed ? false : true }}
+                                        tooltip={isLayoutNavCollapsed ? 'Settings' : undefined}
+                                        tooltipPlacement="right"
+                                    >
+                                        <IconGear />
+                                        {!isLayoutNavCollapsed && 'Settings'}
+                                    </Link>
+                                    <Link
+                                        to={urls.exports()}
+                                        buttonProps={{ menuItem: isLayoutNavCollapsed ? false : true }}
+                                        tooltip={isLayoutNavCollapsed ? 'Exports' : undefined}
+                                        tooltipPlacement="right"
+                                    >
+                                        <IconDownload />
+                                        {!isLayoutNavCollapsed && 'Exports'}
+                                    </Link>
+                                    <HealthMenu iconOnly={isLayoutNavCollapsed} />
+                                    <HelpMenu iconOnly={isLayoutNavCollapsed} />
+                                    <PosthogStatusShownOnlyIfNotOperational iconOnly={isLayoutNavCollapsed} />
                                 </div>
                             )}
                         </div>

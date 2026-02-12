@@ -227,14 +227,14 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'Activity',
         defaultDocsPath: '/docs/data/events',
         description: 'Explore your events or see real-time events from your app or website.',
-        iconType: 'event',
+        iconType: 'activity',
     },
     [Scene.ExploreEvents]: {
         projectBased: true,
         name: 'Explore events',
         defaultDocsPath: '/docs/data/events',
         description: 'A catalog of all user interactions with your app or website.',
-        iconType: 'event',
+        iconType: 'activity',
     },
     [Scene.ExploreSessions]: {
         projectBased: true,

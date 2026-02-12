@@ -19,6 +19,8 @@ class TaskSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
 
     title = serializers.CharField(max_length=255, required=False, allow_blank=True)
+    description = serializers.CharField(required=False, allow_blank=True)
+    origin_product = serializers.ChoiceField(choices=Task.OriginProduct.choices, required=False)
 
     class Meta:
         model = Task

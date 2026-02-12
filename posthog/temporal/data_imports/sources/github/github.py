@@ -3,6 +3,7 @@ from datetime import date, datetime
 from typing import Any, Optional
 
 import requests
+from dateutil import parser as dateutil_parser
 from dlt.sources.helpers.requests import Request, Response
 from dlt.sources.helpers.rest_client.paginators import BasePaginator
 
@@ -36,18 +37,31 @@ def get_resource(
     params: dict[str, Any] = {
         "per_page": config.page_size,
         "state": "all",  # Get all states for issues/PRs
+        # Default to created asc for stable offset-based pagination —
+        # created is immutable so new items append to the end and
+        # don't shift already-fetched pages.
+        "sort": "created",
+        "direction": "asc",
     }
 
-    # Handle incremental loading via 'since' parameter (only issues endpoint supports this)
+    # Override sort for incremental syncs with a cutoff value
     if should_use_incremental_field and db_incremental_field_last_value:
         formatted_value = _format_incremental_value(db_incremental_field_last_value)
-        if name == "issues":
+        incremental = incremental_field or config.default_incremental_field or "updated_at"
+        sort_field_mapping = {
+            "updated_at": "updated",
+            "created_at": "created",
+        }
+        params["sort"] = sort_field_mapping[incremental]
+        params["direction"] = config.sort_mode
+        # Issues and commits support the 'since' parameter for incremental sync
+        if name in ("issues", "commits"):
             params["since"] = formatted_value
 
     return {
         "name": config.name,
         "table_name": config.name,
-        "primary_key": "id",
+        "primary_key": config.primary_key,
         "write_disposition": {
             "disposition": "merge",
             "strategy": "upsert",
@@ -65,9 +79,17 @@ def get_resource(
 class GithubPaginator(BasePaginator):
     """Paginator for GitHub API using Link header pagination."""
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        incremental_field: str | None = None,
+        db_incremental_field_last_value: datetime | None = None,
+        sort_mode: str = "asc",
+    ) -> None:
         super().__init__()
         self._next_url: str | None = None
+        self._incremental_field = incremental_field
+        self._db_incremental_field_last_value = db_incremental_field_last_value
+        self._sort_mode = sort_mode
 
     def update_state(self, response: Response, data: list[Any] | None = None) -> None:
         # GitHub uses Link header for pagination
@@ -86,6 +108,34 @@ class GithubPaginator(BasePaginator):
                     self._next_url = match.group(1)
                     self._has_next_page = True
                     break
+
+        # For descending sort with incremental sync, stop pagination when we hit old records
+        if (
+            self._has_next_page
+            and self._sort_mode == "desc"
+            and self._incremental_field
+            and self._db_incremental_field_last_value
+            and data
+        ):
+            # Check if we've hit any item older than our cutoff
+            # With desc sort, once we hit an old record, we can stop
+            any_item_older = any(self._is_older_than_cutoff(item.get(self._incremental_field)) for item in data if item)
+            if any_item_older:
+                self._has_next_page = False
+                self._next_url = None
+
+    def _is_older_than_cutoff(self, value: str | datetime | None) -> bool:
+        if value is None or self._db_incremental_field_last_value is None:
+            return False
+
+        if isinstance(value, str):
+            try:
+                parsed_value = dateutil_parser.parse(value)
+                return parsed_value <= self._db_incremental_field_last_value
+            except (ValueError, TypeError):
+                return False
+
+        return value <= self._db_incremental_field_last_value
 
     def update_request(self, request: Request) -> None:
         if self._next_url:
@@ -173,12 +223,28 @@ def _flatten_stargazer(item: dict[str, Any]) -> dict[str, Any]:
     return item
 
 
+def _is_issue_not_pr(item: dict[str, Any]) -> bool:
+    """Filter predicate to exclude pull requests from the issues endpoint.
+
+    GitHub's Issues API returns both issues and PRs. PRs can be identified
+    by the presence of the 'pull_request' key in the response.
+    """
+    return "pull_request" not in item or item["pull_request"] is None
+
+
 def _get_item_mapper(endpoint: str):
     """Get the appropriate item mapper for the endpoint."""
     if endpoint == "commits":
         return _flatten_commit
     if endpoint == "stargazers":
         return _flatten_stargazer
+    return None
+
+
+def _get_item_filter(endpoint: str):
+    """Get the appropriate item filter for the endpoint."""
+    if endpoint == "issues":
+        return _is_issue_not_pr
     return None
 
 
@@ -202,6 +268,18 @@ def github_source(
     if endpoint == "stargazers":
         headers["Accept"] = "application/vnd.github.star+json"
 
+    # The actual sort mode matches the endpoint config only when
+    # we have a cutoff value; otherwise get_resource defaults to asc.
+    actual_sort_mode = (
+        endpoint_config.sort_mode if should_use_incremental_field and db_incremental_field_last_value else "asc"
+    )
+
+    paginator_incremental_field = None
+    paginator_db_incremental_field_last_value = None
+    if actual_sort_mode == "desc" and should_use_incremental_field:
+        paginator_incremental_field = incremental_field or endpoint_config.default_incremental_field
+        paginator_db_incremental_field_last_value = db_incremental_field_last_value
+
     config: RESTAPIConfig = {
         "client": {
             "base_url": "https://api.github.com",
@@ -210,7 +288,11 @@ def github_source(
                 "token": personal_access_token,
             },
             "headers": headers,
-            "paginator": GithubPaginator(),
+            "paginator": GithubPaginator(
+                incremental_field=paginator_incremental_field,
+                db_incremental_field_last_value=paginator_db_incremental_field_last_value,
+                sort_mode=actual_sort_mode,
+            ),
         },
         "resource_defaults": {
             "primary_key": "id",
@@ -236,6 +318,13 @@ def github_source(
     assert len(resources) == 1
 
     resource = resources[0]
+
+    # Apply filter if endpoint has one (e.g., issues filters out PRs)
+    item_filter = _get_item_filter(endpoint)
+    if item_filter:
+        resource = resource.add_filter(item_filter)
+
+    # Apply mapper if endpoint has one (e.g., commits flattens nested data)
     item_mapper = _get_item_mapper(endpoint)
     if item_mapper:
         resource = resource.add_map(item_mapper)
@@ -243,7 +332,8 @@ def github_source(
     return SourceResponse(
         name=endpoint,
         items=lambda: resource,
-        primary_keys=["id"],
+        primary_keys=[endpoint_config.primary_key],
+        sort_mode=actual_sort_mode,
         partition_count=1,
         partition_size=1,
         partition_mode="datetime" if endpoint_config.partition_key else None,
