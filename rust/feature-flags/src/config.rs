@@ -493,7 +493,10 @@ impl ThreadCounts {
         let cores = std::thread::available_parallelism()
             .map(|n| n.get())
             .unwrap_or(1);
+        Self::from_cores(cores)
+    }
 
+    fn from_cores(cores: usize) -> Self {
         // With 1 core we need at least 1 thread per pool to function,
         // accepting the slight oversubscription.
         let tokio_workers = (cores * 3 / 4).max(1);
@@ -1030,6 +1033,51 @@ mod tests {
 
         assert_eq!(zero_config.redis_response_timeout_ms, 0);
         assert_eq!(zero_config.redis_connection_timeout_ms, 0);
+    }
+}
+
+#[cfg(test)]
+mod thread_counts_tests {
+    use super::*;
+    use rstest::rstest;
+
+    #[rstest]
+    #[case::single_core(1, 1, 1)]
+    #[case::two_cores(2, 1, 1)]
+    #[case::four_cores(4, 3, 1)]
+    #[case::eight_cores(8, 6, 2)]
+    #[case::sixteen_cores(16, 12, 4)]
+    fn test_thread_allocation(
+        #[case] cores: usize,
+        #[case] expected_tokio: usize,
+        #[case] expected_rayon: usize,
+    ) {
+        let counts = ThreadCounts::from_cores(cores);
+        assert_eq!(counts.tokio_workers, expected_tokio);
+        assert_eq!(counts.rayon_threads, expected_rayon);
+    }
+
+    #[test]
+    fn test_both_pools_always_have_at_least_one_thread() {
+        for cores in 1..=128 {
+            let counts = ThreadCounts::from_cores(cores);
+            assert!(counts.tokio_workers >= 1, "tokio must have >= 1 thread for {cores} cores");
+            assert!(counts.rayon_threads >= 1, "rayon must have >= 1 thread for {cores} cores");
+        }
+    }
+
+    #[test]
+    fn test_total_threads_do_not_exceed_cores_plus_one() {
+        for cores in 2..=128 {
+            let counts = ThreadCounts::from_cores(cores);
+            assert!(
+                counts.tokio_workers + counts.rayon_threads <= cores + 1,
+                "total threads ({} + {}) should not exceed cores + 1 ({}) for {cores} cores",
+                counts.tokio_workers,
+                counts.rayon_threads,
+                cores + 1
+            );
+        }
     }
 }
 
