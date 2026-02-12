@@ -32,6 +32,7 @@ interface VariantsPanelCreateFeatureFlagProps {
         }
     }) => void
     disabled?: boolean
+    layout?: 'horizontal' | 'vertical'
 }
 
 interface RolloutPercentageControlProps {
@@ -170,6 +171,7 @@ export const VariantsPanelCreateFeatureFlag = ({
     experiment,
     onChange,
     disabled = false,
+    layout = 'horizontal',
 }: VariantsPanelCreateFeatureFlagProps): JSX.Element => {
     const [isCustomSplit, setIsCustomSplit] = useState(false)
 
@@ -266,7 +268,7 @@ export const VariantsPanelCreateFeatureFlag = ({
 
     return (
         <div className="flex flex-col gap-4">
-            <div className="flex gap-4">
+            <div className={`flex gap-4 ${layout === 'vertical' ? 'flex-col' : 'flex-row'}`}>
                 <div className="flex-1">
                     <LemonField.Pure label="Variants">
                         <div className="border border-primary rounded p-4">
