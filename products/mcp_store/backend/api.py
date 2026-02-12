@@ -1,3 +1,4 @@
+import time
 import secrets
 from typing import Any
 from urllib.parse import urlencode
@@ -247,6 +248,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
 
         sensitive_config: dict[str, Any] = {
             "access_token": access_token,
+            "token_retrieved_at": int(time.time()),
         }
         if refresh_token := token_data.get("refresh_token"):
             sensitive_config["refresh_token"] = refresh_token

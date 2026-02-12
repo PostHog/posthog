@@ -82,3 +82,35 @@ def generate_pkce() -> tuple[str, str]:
     digest = hashlib.sha256(code_verifier.encode("ascii")).digest()
     code_challenge = base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
     return code_verifier, code_challenge
+
+
+class TokenRefreshError(Exception):
+    pass
+
+
+def refresh_oauth_token(
+    *,
+    token_url: str,
+    refresh_token: str,
+    client_id: str,
+    client_secret: str | None = None,
+) -> dict:
+    data: dict[str, str] = {
+        "grant_type": "refresh_token",
+        "refresh_token": refresh_token,
+        "client_id": client_id,
+    }
+    if client_secret:
+        data["client_secret"] = client_secret
+
+    try:
+        resp = requests.post(token_url, data=data, timeout=TIMEOUT)
+        resp.raise_for_status()
+    except requests.RequestException as e:
+        raise TokenRefreshError(f"Token refresh request failed: {e}") from e
+
+    token_data = resp.json()
+    if "access_token" not in token_data:
+        raise TokenRefreshError("Token refresh response missing access_token")
+
+    return token_data
