@@ -4,6 +4,8 @@ import { useEffect, useState } from 'react'
 import { IconDrag } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonDropdown, LemonInput, SpinnerOverlay } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { hogFunctionTemplateListLogic } from 'scenes/hog-functions/list/hogFunctionTemplateListLogic'
 import { HogFunctionStatusTag } from 'scenes/hog-functions/misc/HogFunctionStatusTag'
 
@@ -130,6 +132,22 @@ export const POSTHOG_NODES_TO_SHOW: CreateActionType[] = [
         name: 'Set group property',
         description: 'Set properties of a group in PostHog.',
         config: { template_id: 'template-posthog-group-identify', inputs: {} },
+    },
+]
+
+const CONVERSATION_NODES: CreateActionType[] = [
+    {
+        type: 'function',
+        name: 'Get ticket',
+        description: 'Fetch current ticket data into a workflow variable.',
+        config: { template_id: 'template-posthog-get-ticket', inputs: {} },
+        output_variable: { key: 'ticket', result_path: null, spread: true },
+    },
+    {
+        type: 'function',
+        name: 'Update ticket',
+        description: 'Update a conversation ticket status or priority.',
+        config: { template_id: 'template-posthog-update-ticket', inputs: {} },
     },
 ]
 
@@ -266,6 +284,9 @@ function HogFunctionTemplatesChooser(): JSX.Element {
 }
 
 export function HogFlowEditorPanelBuild(): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const showConversationNodes = !!featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT]
+
     return (
         <div className="flex overflow-y-auto flex-col gap-px p-2" data-attr="workflow-add-action">
             <span className="flex gap-2 text-sm font-semibold mt-2 items-center">
@@ -296,6 +317,17 @@ export function HogFlowEditorPanelBuild(): JSX.Element {
             {POSTHOG_NODES_TO_SHOW.map((action, index) => (
                 <HogFlowEditorToolbarNode key={`${action.type}-${index}`} action={action} />
             ))}
+
+            {showConversationNodes && (
+                <>
+                    <span className="flex gap-2 text-sm font-semibold mt-2 items-center">
+                        Support <LemonDivider className="flex-1" />
+                    </span>
+                    {CONVERSATION_NODES.map((action, index) => (
+                        <HogFlowEditorToolbarNode key={`${action.type}-${index}`} action={action} />
+                    ))}
+                </>
+            )}
         </div>
     )
 }

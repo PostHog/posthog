@@ -1,10 +1,11 @@
-"""URL configuration for Conversations widget API."""
+"""URL configuration for Conversations widget and external API."""
 
 from django.urls import path, re_path
 
 from .slack_channels import SlackChannelsView
 from .slack_events import supporthog_event_handler
 from .slack_oauth import SupportSlackAuthorizeView, support_slack_oauth_callback
+from .external import ExternalTicketView
 from .widget import WidgetMarkReadView, WidgetMessagesView, WidgetMessageView, WidgetTicketsView
 
 urlpatterns = [
@@ -18,4 +19,5 @@ urlpatterns = [
     path("v1/slack/callback", support_slack_oauth_callback, name="supporthog-slack-callback"),
     # Slack channels (authenticated, optional trailing slash)
     re_path(r"^v1/slack/channels/?$", SlackChannelsView.as_view(), name="slack-channels"),
+    path("external/ticket/<uuid:ticket_id>", ExternalTicketView.as_view(), name="external-ticket"),
 ]

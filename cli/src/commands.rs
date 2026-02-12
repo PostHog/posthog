@@ -34,7 +34,7 @@ pub struct Cli {
 #[derive(Subcommand)]
 pub enum Commands {
     /// Interactively authenticate with PostHog, storing a personal API token locally. You can also use the
-    /// environment variables `POSTHOG_CLI_TOKEN` and `POSTHOG_CLI_ENV_ID`
+    /// environment variables `POSTHOG_CLI_API_KEY` and `POSTHOG_CLI_PROJECT_ID`
     Login,
 
     /// Experimental commands, not quite ready for prime time

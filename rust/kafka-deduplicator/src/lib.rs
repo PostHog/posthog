@@ -1,8 +1,6 @@
 pub mod checkpoint;
 pub mod checkpoint_manager;
 pub mod config;
-pub mod duplicate_metrics;
-pub mod event;
 pub mod kafka;
 pub mod metrics;
 pub mod metrics_const;
@@ -16,5 +14,6 @@ pub mod store_manager;
 pub mod test_utils;
 pub mod utils;
 
-// Re-export traits from pipelines module for convenience
+// Re-export commonly used types for convenience
+pub use config::PipelineType;
 pub use pipelines::{DeduplicationKeyExtractor, DeduplicationMetadata, EventParser};
