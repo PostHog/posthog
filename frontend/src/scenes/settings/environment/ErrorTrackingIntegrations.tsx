@@ -1,4 +1,8 @@
-import { GitLabIntegration, GithubIntegration, LinearIntegration } from './Integrations'
+import { PostHogFeature } from 'posthog-js/react'
+
+import { FEATURE_FLAGS } from 'lib/constants'
+
+import { GitLabIntegration, GithubIntegration, JiraIntegration, LinearIntegration } from './Integrations'
 
 export function ErrorTrackingIntegrations(): JSX.Element {
     return (
@@ -15,6 +19,12 @@ export function ErrorTrackingIntegrations(): JSX.Element {
                 <h3>GitLab</h3>
                 <GitLabIntegration />
             </div>
+            <PostHogFeature flag={FEATURE_FLAGS.ERROR_TRACKING_JIRA_INTEGRATION} match={true}>
+                <div>
+                    <h3>Jira</h3>
+                    <JiraIntegration />
+                </div>
+            </PostHogFeature>
         </div>
     )
 }

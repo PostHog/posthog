@@ -15,6 +15,7 @@ from django.utils import timezone as django_timezone
 from clickhouse_driver.errors import ServerException
 
 from posthog.hogql import ast
+from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
@@ -391,7 +392,7 @@ def build_preaggregation_insert_sql(
         query.where = date_range_filter
 
     # Print the SELECT query to ClickHouse SQL
-    context = HogQLContext(team_id=team.id, team=team, enable_select_queries=True)
+    context = HogQLContext(team_id=team.id, team=team, enable_select_queries=True, limit_top_select=False)
     select_sql, _ = prepare_and_print_ast(
         query,
         context=context,
@@ -428,7 +429,9 @@ def run_preaggregation_insert(
         expires_at=job.expires_at,
     )
 
-    sync_execute(insert_sql, values)
+    sync_execute(
+        insert_sql, values, settings=HogQLQuerySettings(load_balancing="in_order").model_dump(exclude_none=True)
+    )
 
 
 class PreaggregationExecutor:
@@ -853,7 +856,9 @@ def ensure_preaggregated(
             table=table,
             base_placeholders=base_placeholders,
         )
-        sync_execute(insert_sql, values)
+        sync_execute(
+            insert_sql, values, settings=HogQLQuerySettings(load_balancing="in_order").model_dump(exclude_none=True)
+        )
 
     executor = PreaggregationExecutor(ttl_seconds=ttl_seconds)
     return executor.execute(team, query_info, time_range_start, time_range_end, run_insert=_run_manual_insert)
@@ -902,7 +907,7 @@ def _build_manual_insert_sql(
     query.select.insert(1, job_id_expr)
 
     # Print to SQL
-    context = HogQLContext(team_id=team.id, team=team, enable_select_queries=True)
+    context = HogQLContext(team_id=team.id, team=team, enable_select_queries=True, limit_top_select=False)
     select_sql, _ = prepare_and_print_ast(
         query,
         context=context,

@@ -22,13 +22,7 @@ import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
 import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { ElementRect } from '~/toolbar/types'
 import { TOOLBAR_ID, elementToActionStep, getRectForElement, joinWithUiHost } from '~/toolbar/utils'
-import {
-    ProductTour,
-    ProductTourProgressionTriggerType,
-    ProductTourStep,
-    ProductTourStepType,
-    StepOrderVersion,
-} from '~/types'
+import { ProductTour, ProductTourStep, ProductTourStepType, StepOrderVersion } from '~/types'
 
 import { inferSelector } from './elementInference'
 import type { productToursLogicType } from './productToursLogicType'
@@ -94,9 +88,7 @@ export function getStepElement(step: TourStep): HTMLElement | null {
         return step.element
     }
 
-    const useManualSelector = step.useManualSelector ?? false
-
-    if (useManualSelector) {
+    if (step.elementTargeting === 'manual') {
         if (!step.selector) {
             return null
         }
@@ -171,13 +163,7 @@ export const productToursLogic = kea<productToursLogicType>([
         removeStep: (index: number) => ({ index }),
 
         // Step configuration
-        setStepTargetingMode: (index: number, useManual: boolean) => ({ index, useManual }),
-        updateStepSelector: (index: number, selector: string) => ({ index, selector }),
-        updateStepProgressionTrigger: (index: number, trigger: ProductTourProgressionTriggerType) => ({
-            index,
-            trigger,
-        }),
-        clearStepTargeting: (index: number) => ({ index }),
+        updateStep: (index: number, patch: Partial<TourStep>) => ({ index, patch }),
 
         // Tour CRUD
         selectTour: (id: string | null) => ({ id }),
@@ -354,7 +340,7 @@ export const productToursLogic = kea<productToursLogicType>([
                 const { id, name, steps } = formValues
                 const isUpdate = !!id
 
-                // Strip element references and add pre-computed HTML for SDK consumption
+                // Strip element references and add pre-computed HTML
                 const stepsForApi = steps.map(({ element: _, ...step }) => prepareStepForRender(step))
 
                 // Get existing step_order_history if updating an existing tour
@@ -529,6 +515,7 @@ export const productToursLogic = kea<productToursLogicType>([
                 element,
                 inferenceData,
                 useManualSelector: false,
+                elementTargeting: 'auto',
                 progressionTrigger: existingStep?.progressionTrigger ?? 'button',
                 ...(screenshot ? { screenshotMediaId: screenshot.mediaId } : {}),
             }
@@ -558,35 +545,7 @@ export const productToursLogic = kea<productToursLogicType>([
                 actions.setEditorState({ mode: 'idle' })
             }
         },
-        setStepTargetingMode: ({ index, useManual }) => {
-            if (!values.tourForm) {
-                return
-            }
-            const steps = [...(values.tourForm.steps || [])]
-            const step = steps[index]
-            if (!step || !hasElementTarget(step)) {
-                return
-            }
-
-            steps[index] = {
-                ...step,
-                useManualSelector: useManual,
-            }
-            actions.setTourFormValue('steps', steps)
-        },
-        updateStepSelector: ({ index, selector }) => {
-            if (!values.tourForm) {
-                return
-            }
-            const steps = [...(values.tourForm.steps || [])]
-            const step = steps[index]
-            if (!step || !hasElementTarget(step)) {
-                return
-            }
-            steps[index] = { ...step, selector, element: undefined }
-            actions.setTourFormValue('steps', steps)
-        },
-        updateStepProgressionTrigger: ({ index, trigger }) => {
+        updateStep: ({ index, patch }) => {
             if (!values.tourForm) {
                 return
             }
@@ -595,7 +554,7 @@ export const productToursLogic = kea<productToursLogicType>([
             if (!step) {
                 return
             }
-            steps[index] = { ...step, progressionTrigger: trigger }
+            steps[index] = { ...step, ...patch }
             actions.setTourFormValue('steps', steps)
         },
         clearStepTargeting: ({ index }) => {
@@ -614,6 +573,7 @@ export const productToursLogic = kea<productToursLogicType>([
                 inferenceData: undefined,
                 screenshotMediaId: undefined,
                 useManualSelector: undefined,
+                elementTargeting: undefined,
                 element: undefined,
             }
             actions.setTourFormValue('steps', steps)

@@ -120,9 +120,14 @@ export function useInsightTooltip(): {
 } {
     const tooltipId = useMemo(() => Math.random().toString(36).substring(2, 11), [])
 
-    // Clean up tooltip on unmount
+    // Hide tooltip on scroll and clean up on unmount
     useOnMountEffect(() => {
+        const handleScrollEnd = (): void => hideTooltip(tooltipId)
+        // Tooltips are absolutely positioned on document.body and don't move with their chart.
+        // Use capture to catch scrollend from any scrollable ancestor (main, AI chat, side panels, etc.)
+        document.addEventListener('scrollend', handleScrollEnd, true)
         return () => {
+            document.removeEventListener('scrollend', handleScrollEnd, true)
             cleanupTooltip(tooltipId)
         }
     })

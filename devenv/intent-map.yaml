@@ -218,6 +218,10 @@ intents:
         description: 'MCP server for AI assistant integration'
         capabilities: [mcp_server]
 
+    dagster:
+        description: 'Dagster for clickhouse maintenance, system workflows'
+        capabilities: [dagster_pipelines]
+
 # Always-required processes regardless of intent
 # This is the core stack needed for any development
 always_required:

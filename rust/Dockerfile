@@ -7,6 +7,7 @@ ENV RUSTC_WRAPPER=sccache SCCACHE_LOG=debug SCCACHE_DIR=/sccache
 FROM base AS planner
 WORKDIR /app
 ARG BIN
+ENV PROTO_ROOT=../proto
 
 COPY . .
 RUN cargo chef prepare --recipe-path recipe.json --bin $BIN
@@ -14,11 +15,12 @@ RUN cargo chef prepare --recipe-path recipe.json --bin $BIN
 FROM base AS builder
 WORKDIR /app
 ARG BIN
+ENV PROTO_ROOT=../proto
 
 # Ensure working C compile setup (not installed by default in arm64 images)
 # libclang-dev is required for bindgen (used by librocksdb-sys)
 # pkg-config is required for openssl-sys to find system OpenSSL
-RUN apt-get update && apt-get install build-essential libssl-dev pkg-config cmake libclang-dev -y
+RUN apt-get update && apt-get install build-essential libssl-dev pkg-config cmake libclang-dev protobuf-compiler -y
 
 COPY --from=planner /app/recipe.json recipe.json
 RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
