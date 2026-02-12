@@ -8,6 +8,7 @@ import { PositionSelector } from 'scenes/surveys/survey-appearance/SurveyAppeara
 
 import { PRODUCT_TOUR_STEP_WIDTHS, ProductTourStep, ProductTourStepType, ScreenPosition, SurveyPosition } from '~/types'
 
+import { ProductTourContentGenerationButton } from '../components/ProductTourContentGenerationButton'
 import { ProductTourPreview } from '../components/ProductTourPreview'
 import { StepSettings } from '../components/StepSettings'
 import { productTourLogic } from '../productTourLogic'
@@ -160,6 +161,10 @@ export function ProductTourStepsEditor({ tourId }: ProductTourStepsEditorProps):
                                 </button>
                             )
                         })}
+                    </div>
+
+                    <div className="p-2 border-t">
+                        <ProductTourContentGenerationButton tourId={tourId} />
                     </div>
                 </div>
             )}

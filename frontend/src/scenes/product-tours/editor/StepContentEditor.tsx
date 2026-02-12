@@ -25,6 +25,7 @@ import { Popover } from 'lib/lemon-ui/Popover'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { IconBold, IconItalic, IconLink } from 'lib/lemon-ui/icons'
 
+import { StepContentSuggestion } from '../components/StepContentSuggestion'
 import { DEFAULT_APPEARANCE } from '../constants'
 import { productTourLogic } from '../productTourLogic'
 import { isBannerAnnouncement } from '../productToursLogic'
@@ -548,6 +549,8 @@ export function StepContentEditor({
 
     return (
         <div ref={dropRef} className="StepContentEditor flex flex-col gap-4">
+            <StepContentSuggestion tourId={tourId} />
+
             {toolbar}
 
             {isBanner ? (
