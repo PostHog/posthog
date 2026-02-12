@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
@@ -12,9 +12,6 @@ import type { globalSetupLogicType } from './globalSetupLogicType'
 import { PRODUCTS_WITH_SETUP } from './productSetupRegistry'
 import { SetupTaskId } from './types'
 
-/** URL search param that triggers opening the quick start popover */
-export const QUICK_START_PARAM = 'quickstart'
-
 /**
  * Global setup logic - the single source of truth for task completion and UI state.
  *
@@ -27,9 +24,9 @@ export const QUICK_START_PARAM = 'quickstart'
  */
 export const globalSetupLogic = kea<globalSetupLogicType>([
     path(['lib', 'components', 'ProductSetup', 'globalSetupLogic']),
-    connect({
+    connect(() => ({
         values: [sceneLogic, ['activeSceneProductKey']],
-    }),
+    })),
     actions({
         // Task actions - single source of truth for task state updates
         // All actions accept either a single task ID or an array of task IDs
@@ -261,19 +258,4 @@ export const globalSetupLogic = kea<globalSetupLogicType>([
             }
         },
     })),
-    afterMount(({ actions }) => {
-        // Check if URL has quickstart param set to 'true' - if so, open the popover and remove the param
-        const searchParams = new URLSearchParams(window.location.search)
-        const quickstartValue = searchParams.get(QUICK_START_PARAM)
-
-        if (quickstartValue === 'true') {
-            actions.openGlobalSetup()
-
-            // Remove the param from URL without triggering navigation
-            searchParams.delete(QUICK_START_PARAM)
-            const newSearch = searchParams.toString()
-            const newUrl = window.location.pathname + (newSearch ? `?${newSearch}` : '') + window.location.hash
-            window.history.replaceState({}, '', newUrl)
-        }
-    }),
 ])

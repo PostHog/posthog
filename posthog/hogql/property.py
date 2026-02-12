@@ -305,6 +305,27 @@ def _validate_between_values(value: ValueT, operator: PropertyOperator) -> TypeG
     return True
 
 
+def _multi_search_found(search_call: ast.Call) -> ast.CompareOperation:
+    """Create comparison operation to check if multiSearchAnyCaseInsensitive found a match."""
+    return ast.CompareOperation(op=ast.CompareOperationOp.Gt, left=search_call, right=ast.Constant(value=0))
+
+
+def _multi_search_not_found(search_call: ast.Call) -> ast.CompareOperation:
+    """Create comparison operation to check if multiSearchAnyCaseInsensitive did not find a match."""
+    return ast.CompareOperation(op=ast.CompareOperationOp.Eq, left=search_call, right=ast.Constant(value=0))
+
+
+def _create_multi_search_call(expr: ast.Expr, value: list) -> ast.Call:
+    """Create a multiSearchAnyCaseInsensitive call for the given expression and values."""
+    return ast.Call(
+        name="multiSearchAnyCaseInsensitive",
+        args=[
+            ast.Call(name="toString", args=[expr]),
+            ast.Array(exprs=[ast.Constant(value=str(v)) for v in value]),
+        ],
+    )
+
+
 def _expr_to_compare_op(
     expr: ast.Expr, value: ValueT, operator: PropertyOperator, property: Property, is_json_field: bool, team: Team
 ) -> ast.Expr:
@@ -321,17 +342,29 @@ def _expr_to_compare_op(
             right=ast.Constant(value=None),
         )
     elif operator == PropertyOperator.ICONTAINS:
-        return ast.CompareOperation(
-            op=ast.CompareOperationOp.ILike,
-            left=ast.Call(name="toString", args=[expr]),
-            right=ast.Constant(value=f"%{value}%"),
-        )
+        if isinstance(value, list) and len(value) > 1:
+            # Multiple values: use ClickHouse's multiSearchAnyCaseInsensitive for efficient searching
+            return _multi_search_found(_create_multi_search_call(expr, value))
+        else:
+            # Single value (or single-element array): keep existing ILIKE logic for backward compatibility
+            single_value = value[0] if isinstance(value, list) and len(value) == 1 else value
+            return ast.CompareOperation(
+                op=ast.CompareOperationOp.ILike,
+                left=ast.Call(name="toString", args=[expr]),
+                right=ast.Constant(value=f"%{single_value}%"),
+            )
     elif operator == PropertyOperator.NOT_ICONTAINS:
-        return ast.CompareOperation(
-            op=ast.CompareOperationOp.NotILike,
-            left=ast.Call(name="toString", args=[expr]),
-            right=ast.Constant(value=f"%{value}%"),
-        )
+        if isinstance(value, list) and len(value) > 1:
+            # Multiple values: use ClickHouse's multiSearchAnyCaseInsensitive with negation
+            return _multi_search_not_found(_create_multi_search_call(expr, value))
+        else:
+            # Single value (or single-element array): keep existing NOT ILIKE logic for backward compatibility
+            single_value = value[0] if isinstance(value, list) and len(value) == 1 else value
+            return ast.CompareOperation(
+                op=ast.CompareOperationOp.NotILike,
+                left=ast.Call(name="toString", args=[expr]),
+                right=ast.Constant(value=f"%{single_value}%"),
+            )
     elif operator == PropertyOperator.REGEX:
         return ast.Call(
             name="ifNull",
@@ -732,7 +765,12 @@ def property_to_expr(
                 ],
             )
 
-        if isinstance(value, list) and operator not in (PropertyOperator.BETWEEN, PropertyOperator.NOT_BETWEEN):
+        if isinstance(value, list) and operator not in (
+            PropertyOperator.BETWEEN,
+            PropertyOperator.NOT_BETWEEN,
+            PropertyOperator.ICONTAINS,
+            PropertyOperator.NOT_ICONTAINS,
+        ):
             if len(value) == 0:
                 return ast.Constant(value=1)
             elif len(value) == 1:
@@ -777,6 +815,25 @@ def property_to_expr(
                         )
                     else:
                         return compare_op
+                elif operator in (PropertyOperator.ICONTAINS, PropertyOperator.NOT_ICONTAINS):
+                    # For contains operators, delegate to _expr_to_compare_op which handles multiple values efficiently
+                    if is_exception_string_array_property or is_visited_page_property:
+                        # For exception properties and visited_page, use multiSearch optimization within arrayExists
+                        multi_search_expr = _expr_to_compare_op(
+                            ast.Field(chain=["v"]), value, operator, property, property.type != "session", team
+                        )
+                        if is_exception_string_array_property:
+                            return parse_expr(
+                                "arrayExists(v -> {expr}, {key})",
+                                {"expr": multi_search_expr, "key": extracted_field},
+                            )
+                        else:  # is_visited_page_property
+                            return parse_expr(
+                                "arrayExists(v -> {expr}, {key})",
+                                {"expr": multi_search_expr, "key": all_urls_field},
+                            )
+                    else:
+                        return _expr_to_compare_op(expr, value, operator, property, property.type != "session", team)
 
                 exprs = [
                     property_to_expr(
@@ -1049,7 +1106,7 @@ def action_to_expr(action: Action, events_alias: Optional[str] = None) -> ast.Ex
 
 def entity_to_expr(entity: RetentionEntity, team: Team) -> ast.Expr:
     if entity.type == TREND_FILTER_TYPE_ACTIONS and entity.id is not None:
-        action = Action.objects.get(pk=entity.id)
+        action = Action.objects.get(pk=entity.id, team=team)
         return action_to_expr(action)
     if entity.id is None:
         return ast.Constant(value=True)

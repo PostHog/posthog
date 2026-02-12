@@ -68,6 +68,9 @@ jobs:
             - name: Install pnpm
               uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.2.0
 
+            - name: Fix node-gyp permissions
+              run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
+
             - name: Set up Node.js
               uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
               with:
@@ -101,6 +104,9 @@ jobs:
 
             - name: Install pnpm
               uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.2.0
+
+            - name: Fix node-gyp permissions
+              run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
 
             - name: Set up Node.js
               uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
@@ -163,7 +169,7 @@ jobs:
             - name: Stop/Start stack with Docker Compose
               run: |
                   docker compose -f docker-compose.dev.yml down
-                  docker compose -f docker-compose.dev.yml up -d
+                  docker compose -f docker-compose.dev.yml up -d --wait
 
             - name: Add Kafka and ClickHouse to /etc/hosts
               run: echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts
@@ -175,7 +181,7 @@ jobs:
 
             - name: Install uv
               id: setup-uv
-              uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b # v7.2.0
+              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
               with:
                   enable-cache: true
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
@@ -210,6 +216,9 @@ jobs:
             - name: Install pnpm
               uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.2.0
 
+            - name: Fix node-gyp permissions
+              run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
+
             - name: Set up Node.js
               uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
               with:
@@ -228,16 +237,20 @@ jobs:
                   npm_config_fetch_retry_maxtimeout: 60000
               run: pnpm --filter=@posthog/nodejs... install --frozen-lockfile
 
-            - name: Wait for Clickhouse, Redis, Kafka
+            - name: Wait for Clickhouse, Redis, Kafka, Localstack
               run: |
-                  docker compose -f docker-compose.dev.yml up kafka redis7 clickhouse maildev -d --wait
+                  docker compose -f docker-compose.dev.yml up kafka redis7 clickhouse maildev localstack -d --wait
                   bin/check_kafka_clickhouse_up
+
+            - name: Fetch base branch for diff
+              if: github.event_name == 'pull_request'
+              run: git fetch origin ${{ github.base_ref }} --depth=1
 
             - name: Check for migrations in this PR
               id: check_migrations
               if: github.event_name == 'pull_request'
               run: |
-                  if git diff --name-only origin/${{ github.base_ref }}...HEAD | grep -E '(migrations/|rust/.*migrate)'; then
+                  if git diff --name-only origin/${{ github.base_ref }}..HEAD | grep -E '(migrations/|rust/.*migrate)'; then
                     echo "has_migrations=true" >> $GITHUB_OUTPUT
                   else
                     echo "has_migrations=false" >> $GITHUB_OUTPUT
@@ -291,6 +304,8 @@ jobs:
                   SHARD_INDEX: ${{ matrix.shard }}
                   SHARD_COUNT: 3
                   LOG_LEVEL: info
+                  # Enable localstack integration tests for DynamoDB/KMS
+                  LOCALSTACK_ENABLED: '1'
               run: bin/turbo run test --filter=@posthog/nodejs
 
             - name: Output logs on failure

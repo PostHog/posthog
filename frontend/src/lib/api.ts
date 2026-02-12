@@ -195,6 +195,7 @@ import {
     WebAnalyticsFilterPresetType,
 } from '~/types'
 
+import type { CustomerJourneyApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 import {
     ErrorTrackingRule,
     ErrorTrackingRuleType,
@@ -714,6 +715,10 @@ export class ApiRequest {
         return this.logs(projectId).addPathComponent('explainLogWithAI')
     }
 
+    public logsExport(projectId?: ProjectType['id']): ApiRequest {
+        return this.logs(projectId).addPathComponent('export')
+    }
+
     // # Data management
     public eventDefinitions(projectId?: ProjectType['id']): ApiRequest {
         return this.projectsDetail(projectId).addPathComponent('event_definitions')
@@ -805,6 +810,14 @@ export class ApiRequest {
 
     public customerProfileConfigsDetail(id: CustomerProfileConfigType['id'], teamId?: TeamType['id']): ApiRequest {
         return this.customerProfileConfigs(teamId).addPathComponent(id)
+    }
+
+    public customerJourneys(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('customer_journeys')
+    }
+
+    public customerJourneysDetail(id: CustomerJourneyApi['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.customerJourneys(teamId).addPathComponent(id)
     }
 
     // Recordings
@@ -1939,6 +1952,9 @@ const api = {
                 )
                 .get()
         },
+        async list(params?: Record<string, any>): Promise<PaginatedResponse<InsightModel>> {
+            return await new ApiRequest().insights().withQueryString(params).get()
+        },
         async get(id: number): Promise<InsightModel | null> {
             return await new ApiRequest().insight(id).get()
         },
@@ -1959,6 +1975,9 @@ const api = {
         },
         async analyze(id: number): Promise<{ result: string }> {
             return await new ApiRequest().insight(id).withAction('analyze').get()
+        },
+        async generateName(query: Record<string, any>): Promise<{ name: string }> {
+            return await new ApiRequest().insights().withAction('generate_name').create({ data: { query } })
         },
     },
 
@@ -2423,7 +2442,7 @@ const api = {
         }: {
             query: Omit<LogsQuery, 'kind'>
             signal?: AbortSignal
-        }): Promise<{ results: LogMessage[]; hasMore: boolean; nextCursor?: string }> {
+        }): Promise<{ results: LogMessage[]; hasMore: boolean; nextCursor?: string; maxExportableLogs: number }> {
             return new ApiRequest().logsQuery().create({ signal, data: { query } })
         },
         async sparkline({ query, signal }: { query: Omit<LogsQuery, 'kind'>; signal?: AbortSignal }): Promise<any[]> {
@@ -2437,6 +2456,15 @@ const api = {
         },
         async explain(uuid: string, timestamp: string): Promise<LogExplanation> {
             return new ApiRequest().logsExplainWithAI().create({ data: { uuid, timestamp } })
+        },
+        async exportQuery({
+            query,
+            columns,
+        }: {
+            query: Omit<LogsQuery, 'kind'>
+            columns?: string[]
+        }): Promise<{ id: number; export_format: string; has_content: boolean; filename: string }> {
+            return new ApiRequest().logsExport().create({ data: { query, columns } })
         },
     },
 
@@ -2822,6 +2850,20 @@ const api = {
         },
         async delete(id: CustomerProfileConfigType['id']): Promise<void> {
             return await new ApiRequest().customerProfileConfigsDetail(id).delete()
+        },
+    },
+
+    customerJourneys: {
+        async list(): Promise<CountedPaginatedResponse<CustomerJourneyApi>> {
+            return await new ApiRequest().customerJourneys().get()
+        },
+        async create(
+            data: Pick<CustomerJourneyApi, 'insight' | 'name'> & { description?: string }
+        ): Promise<CustomerJourneyApi> {
+            return await new ApiRequest().customerJourneys().create({ data })
+        },
+        async delete(id: CustomerJourneyApi['id']): Promise<void> {
+            return await new ApiRequest().customerJourneysDetail(id).delete()
         },
     },
 
@@ -3896,6 +3938,12 @@ const api = {
             data: { code: string; return_variables?: boolean; timeout?: number }
         ): Promise<Record<string, any>> {
             return await new ApiRequest().notebook(notebookId).withAction('kernel/execute').create({ data })
+        },
+        async hogqlExecute(
+            notebookId: NotebookType['short_id'],
+            data: { query: string }
+        ): Promise<{ columns?: string[]; results?: any[]; error?: string }> {
+            return await new ApiRequest().notebook(notebookId).withAction('hogql/execute').create({ data })
         },
         async kernelExecuteStream(
             notebookId: NotebookType['short_id'],

@@ -1,22 +1,10 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
-import React from 'react'
+import React, { useMemo } from 'react'
 
-import { IconCopy, IconPencil, IconPlus, IconSearch, IconTrash } from '@posthog/icons'
-import {
-    LemonBanner,
-    LemonButton,
-    LemonInput,
-    LemonSwitch,
-    LemonTab,
-    LemonTable,
-    LemonTabs,
-    LemonTag,
-    Link,
-    Spinner,
-} from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonTab, LemonTabs, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 
-import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { useAppShortcut } from 'lib/components/AppShortcuts/useAppShortcut'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
@@ -24,20 +12,18 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { More } from 'lib/lemon-ui/LemonButton/More'
-import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils'
-import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { EventDetails } from 'scenes/activity/explore/EventDetails'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
-import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { EditCustomProductsModal } from '~/layout/panel-layout/PinnedFolder/EditCustomProductsModal'
+import { editCustomProductsModalLogic } from '~/layout/panel-layout/PinnedFolder/editCustomProductsModalLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
@@ -45,7 +31,7 @@ import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { DataTableRow } from '~/queries/nodes/DataTable/dataTableLogic'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { isEventsQuery } from '~/queries/utils'
-import { DashboardPlacement, EventType } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, DashboardPlacement, EventType } from '~/types'
 
 import { LLMAnalyticsErrors } from './LLMAnalyticsErrors'
 import { LLMAnalyticsPlaygroundScene } from './LLMAnalyticsPlaygroundScene'
@@ -54,23 +40,9 @@ import { LLMAnalyticsSessionsScene } from './LLMAnalyticsSessionsScene'
 import { LLMAnalyticsSetupPrompt } from './LLMAnalyticsSetupPrompt'
 import { LLMAnalyticsTraces } from './LLMAnalyticsTracesScene'
 import { LLMAnalyticsUsers } from './LLMAnalyticsUsers'
-import { ClustersView } from './clusters/ClustersView'
-import { LLMAnalyticsDatasetsScene } from './datasets/LLMAnalyticsDatasetsScene'
-import { EvaluationTemplatesEmptyState } from './evaluations/EvaluationTemplates'
-import {
-    EvaluationMetrics,
-    PASS_RATE_SUCCESS_THRESHOLD,
-    PASS_RATE_WARNING_THRESHOLD,
-} from './evaluations/components/EvaluationMetrics'
-import { EvaluationStats, evaluationMetricsLogic } from './evaluations/evaluationMetricsLogic'
-import { llmEvaluationsLogic } from './evaluations/llmEvaluationsLogic'
-import { EvaluationConfig } from './evaluations/types'
 import { useSortableColumns } from './hooks/useSortableColumns'
 import { llmAnalyticsColumnRenderers } from './llmAnalyticsColumnRenderers'
 import { LLM_ANALYTICS_DATA_COLLECTION_NODE_ID, llmAnalyticsSharedLogic } from './llmAnalyticsSharedLogic'
-import { LLMPromptsScene } from './prompts/LLMPromptsScene'
-import { LLMProviderKeysSettings } from './settings/LLMProviderKeysSettings'
-import { TrialUsageMeter } from './settings/TrialUsageMeter'
 import { llmAnalyticsDashboardLogic } from './tabs/llmAnalyticsDashboardLogic'
 import { getDefaultGenerationsColumns, llmAnalyticsGenerationsLogic } from './tabs/llmAnalyticsGenerationsLogic'
 import { truncateValue } from './utils'
@@ -111,9 +83,14 @@ const Filters = ({ hidePropertyFilters = false }: { hidePropertyFilters?: boolea
             )}
             {hidePropertyFilters && <div className="flex-1" />}
             {activeTab === 'dashboard' && selectedDashboardId && (
-                <LemonButton type="secondary" size="small" to={urls.dashboard(selectedDashboardId)}>
-                    Edit dashboard
-                </LemonButton>
+                <AccessControlAction
+                    resourceType={AccessControlResourceType.LlmAnalytics}
+                    minAccessLevel={AccessControlLevel.Editor}
+                >
+                    <LemonButton type="secondary" size="small" to={urls.dashboard(selectedDashboardId)}>
+                        Edit dashboard
+                    </LemonButton>
+                </AccessControlAction>
             )}
             <LLMAnalyticsReloadAction />
         </div>
@@ -349,242 +326,12 @@ function LLMAnalyticsGenerations(): JSX.Element {
     )
 }
 
-function LLMAnalyticsEvaluations(): JSX.Element {
-    return (
-        <BindLogic logic={llmEvaluationsLogic} props={{}}>
-            <BindLogic logic={evaluationMetricsLogic} props={{}}>
-                <LLMAnalyticsEvaluationsContent />
-            </BindLogic>
-        </BindLogic>
-    )
-}
-
-function LLMAnalyticsEvaluationsContent(): JSX.Element {
-    const { evaluations, filteredEvaluations, evaluationsLoading, evaluationsFilter } = useValues(llmEvaluationsLogic)
-    const { setEvaluationsFilter, toggleEvaluationEnabled, duplicateEvaluation, loadEvaluations } =
-        useActions(llmEvaluationsLogic)
-    const { evaluationsWithMetrics } = useValues(evaluationMetricsLogic)
-    const { currentTeamId } = useValues(teamLogic)
-    const { push } = useActions(router)
-
-    const filteredEvaluationsWithMetrics = evaluationsWithMetrics.filter((evaluation: EvaluationConfig) =>
-        filteredEvaluations.some((filtered) => filtered.id === evaluation.id)
-    )
-
-    // Show templates when there are no evaluations at all (not just filtered empty)
-    if (!evaluationsLoading && evaluations.length === 0) {
-        return <EvaluationTemplatesEmptyState />
-    }
-
-    const columns: LemonTableColumns<EvaluationConfig> = [
-        {
-            title: 'Name',
-            key: 'name',
-            render: (_, evaluation) => (
-                <div className="flex flex-col">
-                    <Link to={urls.llmAnalyticsEvaluation(evaluation.id)} className="font-semibold text-primary">
-                        {evaluation.name}
-                    </Link>
-                    {evaluation.description && <div className="text-muted text-sm">{evaluation.description}</div>}
-                </div>
-            ),
-            sorter: (a, b) => a.name.localeCompare(b.name),
-        },
-        {
-            title: 'Status',
-            key: 'enabled',
-            render: (_, evaluation) => (
-                <div className="flex items-center gap-2">
-                    <LemonSwitch
-                        checked={evaluation.enabled}
-                        onChange={() => toggleEvaluationEnabled(evaluation.id)}
-                        size="small"
-                        data-attr="toggle-evaluation-enabled"
-                    />
-                    <span className={evaluation.enabled ? 'text-success' : 'text-muted'}>
-                        {evaluation.enabled ? 'Enabled' : 'Disabled'}
-                    </span>
-                </div>
-            ),
-            sorter: (a, b) => Number(b.enabled) - Number(a.enabled),
-        },
-        {
-            title: 'Prompt',
-            key: 'prompt',
-            render: (_, evaluation) => (
-                <div className="max-w-md">
-                    <div className="text-sm font-mono bg-bg-light border rounded px-2 py-1 truncate">
-                        {evaluation.evaluation_config.prompt || '(No prompt)'}
-                    </div>
-                </div>
-            ),
-        },
-        {
-            title: 'Triggers',
-            key: 'conditions',
-            render: (_, evaluation) => (
-                <div className="flex flex-wrap gap-1">
-                    {evaluation.conditions.map((condition) => (
-                        <LemonTag key={condition.id} type="option">
-                            {condition.rollout_percentage}%
-                            {condition.properties.length > 0 &&
-                                ` when ${condition.properties.length} condition${condition.properties.length !== 1 ? 's' : ''}`}
-                        </LemonTag>
-                    ))}
-                    {evaluation.conditions.length === 0 && <span className="text-muted text-sm">No triggers</span>}
-                </div>
-            ),
-        },
-        {
-            title: 'Runs',
-            key: 'recent_stats',
-            render: (_, evaluation: EvaluationConfig & { stats?: EvaluationStats }) => {
-                const stats = evaluation.stats
-                if (!stats || stats.runs_count === 0) {
-                    return <span className="text-muted text-sm">No runs</span>
-                }
-
-                const passRateColor =
-                    stats.pass_rate >= PASS_RATE_SUCCESS_THRESHOLD
-                        ? 'text-success'
-                        : stats.pass_rate >= PASS_RATE_WARNING_THRESHOLD
-                          ? 'text-warning'
-                          : 'text-danger'
-
-                return (
-                    <div className="flex flex-col items-center">
-                        <div className="text-sm">
-                            {stats.runs_count} run{stats.runs_count !== 1 ? 's' : ''}
-                        </div>
-                        <div className={`font-semibold ${passRateColor}`}>{stats.pass_rate}%</div>
-                    </div>
-                )
-            },
-        },
-        {
-            title: 'Actions',
-            key: 'actions',
-            render: (_, evaluation) => (
-                <More
-                    overlay={
-                        <>
-                            <LemonButton
-                                icon={<IconPencil />}
-                                onClick={() => push(urls.llmAnalyticsEvaluation(evaluation.id))}
-                                fullWidth
-                            >
-                                Edit
-                            </LemonButton>
-                            <LemonButton
-                                icon={<IconCopy />}
-                                onClick={() => duplicateEvaluation(evaluation.id)}
-                                fullWidth
-                            >
-                                Duplicate
-                            </LemonButton>
-                            <LemonButton
-                                icon={<IconTrash />}
-                                status="danger"
-                                onClick={() => {
-                                    deleteWithUndo({
-                                        endpoint: `environments/${currentTeamId}/evaluations`,
-                                        object: evaluation,
-                                        callback: () => loadEvaluations(),
-                                    })
-                                }}
-                                fullWidth
-                            >
-                                Delete
-                            </LemonButton>
-                        </>
-                    }
-                />
-            ),
-        },
-    ]
-
-    return (
-        <div className="space-y-4">
-            <Filters hidePropertyFilters />
-
-            <TrialUsageMeter showSettingsLink />
-
-            <LemonBanner type="info" dismissKey="evals-billing-notice">
-                Each evaluation run counts as an LLM analytics event.
-            </LemonBanner>
-
-            <div className="flex justify-between items-center">
-                <div>
-                    <h2 className="text-xl font-semibold">Evaluations</h2>
-                    <p className="text-muted">
-                        Configure evaluation prompts and triggers to automatically assess your LLM generations.
-                    </p>
-                </div>
-                <AppShortcut
-                    name="NewLLMEvaluation"
-                    keybind={[keyBinds.new]}
-                    intent="Create evaluation"
-                    interaction="click"
-                    scope={Scene.LLMAnalytics}
-                >
-                    <LemonButton
-                        type="primary"
-                        icon={<IconPlus />}
-                        to={urls.llmAnalyticsEvaluationTemplates()}
-                        data-attr="create-evaluation-button"
-                        tooltip="Create evaluation"
-                    >
-                        Create Evaluation
-                    </LemonButton>
-                </AppShortcut>
-            </div>
-
-            {/* Metrics Visualization */}
-            <EvaluationMetrics />
-
-            {/* Search */}
-            <div className="flex items-center gap-2">
-                <AppShortcut
-                    name="SearchLLMEvaluations"
-                    keybind={[keyBinds.filter]}
-                    intent="Search evaluations"
-                    interaction="click"
-                    scope={Scene.LLMAnalytics}
-                >
-                    <LemonInput
-                        type="search"
-                        placeholder="Search evaluations..."
-                        value={evaluationsFilter}
-                        data-attr="evaluations-search-input"
-                        onChange={setEvaluationsFilter}
-                        prefix={<IconSearch />}
-                        className="max-w-sm"
-                    />
-                </AppShortcut>
-            </div>
-
-            {/* Table */}
-            <LemonTable
-                columns={columns}
-                dataSource={filteredEvaluationsWithMetrics}
-                loading={evaluationsLoading}
-                rowKey="id"
-                pagination={{
-                    pageSize: 50,
-                }}
-                nouns={['evaluation', 'evaluations']}
-            />
-        </div>
-    )
-}
-
 const DEFAULT_DOCS_URL = 'https://posthog.com/docs/llm-analytics/installation'
 const DOCS_URLS_BY_TAB: Record<string, string> = {
     traces: 'https://posthog.com/docs/llm-analytics/traces',
     generations: 'https://posthog.com/docs/llm-analytics/generations',
     sessions: 'https://posthog.com/docs/llm-analytics/sessions',
     errors: 'https://posthog.com/docs/llm-analytics/errors',
-    evaluations: 'https://posthog.com/docs/llm-analytics/evaluations',
 }
 
 const TAB_DESCRIPTIONS: Record<string, string> = {
@@ -595,18 +342,15 @@ const TAB_DESCRIPTIONS: Record<string, string> = {
     errors: 'Monitor and debug errors in your LLM pipeline.',
     sessions: 'Analyze user sessions containing LLM interactions.',
     playground: 'Test and experiment with LLM prompts in a sandbox environment.',
-    evaluations: 'Configure and monitor automated LLM output evaluations.',
-    datasets: 'Manage datasets for testing and evaluation.',
-    clusters: 'Discover patterns and clusters in your LLM usage.',
-    prompts: 'Track and manage your LLM prompts.',
-    settings: 'Configure LLM analytics settings and API keys.',
 }
 
 export function LLMAnalyticsScene(): JSX.Element {
     const { activeTab } = useValues(llmAnalyticsSharedLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { searchParams } = useValues(router)
+
     const { push } = useActions(router)
+    const { toggleProduct, openModal: openEditCustomProductsModal } = useActions(editCustomProductsModalLogic)
 
     // Tab switching shortcuts
     useAppShortcut({
@@ -685,22 +429,17 @@ export function LLMAnalyticsScene(): JSX.Element {
         },
     ]
 
-    if (
-        featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_ERRORS_TAB] ||
-        featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
-    ) {
-        tabs.push({
-            key: 'errors',
-            label: 'Errors',
-            content: (
-                <LLMAnalyticsSetupPrompt>
-                    <LLMAnalyticsErrors />
-                </LLMAnalyticsSetupPrompt>
-            ),
-            link: combineUrl(urls.llmAnalyticsErrors(), searchParams).url,
-            'data-attr': 'errors-tab',
-        })
-    }
+    tabs.push({
+        key: 'errors',
+        label: 'Errors',
+        content: (
+            <LLMAnalyticsSetupPrompt>
+                <LLMAnalyticsErrors />
+            </LLMAnalyticsSetupPrompt>
+        ),
+        link: combineUrl(urls.llmAnalyticsErrors(), searchParams).url,
+        'data-attr': 'errors-tab',
+    })
 
     // TODO: Once we remove FF, should add to the shortcuts list at the top of the component
     if (
@@ -736,91 +475,30 @@ export function LLMAnalyticsScene(): JSX.Element {
         'data-attr': 'playground-tab',
     })
 
-    // TODO: Once we remove FF, should add to the shortcuts list at the top of the component
-    if (featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS]) {
-        tabs.push({
-            key: 'evaluations',
-            label: (
-                <>
-                    Evaluations{' '}
-                    <LemonTag className="ml-1" type="warning">
-                        Beta
-                    </LemonTag>
-                </>
-            ),
-            content: <LLMAnalyticsEvaluations />,
-            link: combineUrl('/llm-analytics/evaluations', searchParams).url,
-            'data-attr': 'evaluations-tab',
-        })
-    }
-
-    // TODO: Once we remove FF, should add to the shortcuts list at the top of the component
-    if (featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_DATASETS]) {
-        tabs.push({
-            key: 'datasets',
-            label: (
-                <>
-                    Datasets{' '}
-                    <LemonTag className="ml-1" type="warning">
-                        Beta
-                    </LemonTag>
-                </>
-            ),
-            content: <LLMAnalyticsDatasetsScene />,
-            link: combineUrl(urls.llmAnalyticsDatasets(), searchParams).url,
-            'data-attr': 'datasets-tab',
-        })
-    }
-
-    if (featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_CLUSTERS_TAB]) {
-        tabs.push({
-            key: 'clusters',
-            label: (
-                <>
-                    Clusters{' '}
-                    <LemonTag className="ml-1" type="completion">
-                        Alpha
-                    </LemonTag>
-                </>
-            ),
-            content: (
-                <LLMAnalyticsSetupPrompt>
-                    <ClustersView />
-                </LLMAnalyticsSetupPrompt>
-            ),
-            link: combineUrl(urls.llmAnalyticsClusters(), searchParams).url,
-            'data-attr': 'clusters-tab',
-        })
-    }
-
-    // TODO: Once we remove FF, should add to the shortcuts list at the top of the component
-    if (featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_PROMPTS]) {
-        tabs.push({
-            key: 'prompts',
-            label: (
-                <>
-                    Prompts{' '}
-                    <LemonTag className="ml-1" type="completion">
-                        Alpha
-                    </LemonTag>
-                </>
-            ),
-            content: <LLMPromptsScene />,
-            link: combineUrl(urls.llmAnalyticsPrompts(), searchParams).url,
-            'data-attr': 'prompts-tab',
-        })
-    }
-
-    // TODO: Once we remove FF, should add to the shortcuts list at the top of the component
-    if (featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS]) {
-        tabs.push({
-            key: 'settings',
-            label: 'Settings',
-            content: <LLMProviderKeysSettings />,
-            link: combineUrl(urls.llmAnalyticsSettings(), searchParams).url,
-            'data-attr': 'settings-tab',
-        })
-    }
+    const availableItemsInSidebar = useMemo(() => {
+        return [
+            featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_CLUSTERS_TAB] ? (
+                <Link to={urls.llmAnalyticsClusters()} onClick={() => toggleProduct('Clusters', true)}>
+                    clusters
+                </Link>
+            ) : null,
+            featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_DATASETS] ? (
+                <Link to={urls.llmAnalyticsDatasets()} onClick={() => toggleProduct('Datasets', true)}>
+                    datasets
+                </Link>
+            ) : null,
+            featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS] ? (
+                <Link to={urls.llmAnalyticsEvaluations()} onClick={() => toggleProduct('Evaluations', true)}>
+                    evaluations
+                </Link>
+            ) : null,
+            featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_PROMPTS] ? (
+                <Link to={urls.llmAnalyticsPrompts()} onClick={() => toggleProduct('Prompts', true)}>
+                    prompts
+                </Link>
+            ) : null,
+        ].filter(Boolean) as JSX.Element[]
+    }, [featureFlags, toggleProduct])
 
     return (
         <BindLogic logic={dataNodeCollectionLogic} props={{ key: LLM_ANALYTICS_DATA_COLLECTION_NODE_ID }}>
@@ -844,6 +522,24 @@ export function LLMAnalyticsScene(): JSX.Element {
                         </>
                     }
                 />
+
+                {availableItemsInSidebar.length > 0 ? (
+                    <>
+                        <LemonBanner type="info" className="mb-2" dismissKey="llm-analytics-sidebar-moved-banner">
+                            We've moved{' '}
+                            {availableItemsInSidebar.map((el, i) => (
+                                <React.Fragment key={i}>
+                                    {i > 0 && ', '}
+                                    {el}
+                                </React.Fragment>
+                            ))}{' '}
+                            out of LLM Analytics and into their own apps. You can access them by clicking in the links
+                            above, or by clicking "All apps" in the sidebar. You can also customize your sidebar{' '}
+                            <Link onClick={openEditCustomProductsModal}>here</Link>.
+                        </LemonBanner>
+                        <EditCustomProductsModal />
+                    </>
+                ) : null}
 
                 <LemonTabs activeKey={activeTab} data-attr="llm-analytics-tabs" tabs={tabs} sceneInset />
             </SceneContent>

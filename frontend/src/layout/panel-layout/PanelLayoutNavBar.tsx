@@ -8,6 +8,7 @@ import {
     IconChevronRight,
     IconClock,
     IconDatabase,
+    IconDownload,
     IconFolderOpen,
     IconGear,
     IconHome,
@@ -31,6 +32,7 @@ import { DebugNotice } from 'lib/components/DebugNotice'
 import { HealthMenu } from 'lib/components/HealthMenu/HealthMenu'
 import { HelpMenu } from 'lib/components/HelpMenu/HelpMenu'
 import { NavPanelAdvertisement } from 'lib/components/NavPanelAdvertisement/NavPanelAdvertisement'
+import { PosthogStatusShownOnlyIfNotOperational } from 'lib/components/PosthogStatus/PosthogStatusShownOnlyIfNotOperational'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -151,13 +153,11 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
     }
 
     useAppShortcut({
-        name: 'collapse-left-navigation',
+        name: 'ToggleLeftNav',
         keybind: [keyBinds.toggleLeftNav],
-        intent: 'Collapse left navigation',
+        intent: 'Toggle collapse left navigation',
         interaction: 'function',
-        callback: () => {
-            toggleLayoutNavCollapsed(!isLayoutNavCollapsed)
-        },
+        callback: toggleLayoutNavCollapsed,
     })
 
     const navItems: {
@@ -491,14 +491,21 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                             </ListBox>
                         </ScrollableShadows>
 
-                        {!isRemovingSidePanelFlag && <div className="border-b border-primary h-px " />}
+                        <div className="border-b border-primary h-px " />
 
                         <div
                             className={cn('p-1 flex flex-col gap-px items-center', {
-                                'pb-2 pl-2 items-start': isRemovingSidePanelFlag,
+                                'p-1 items-start pb-2': isRemovingSidePanelFlag,
                             })}
                         >
-                            <DebugNotice isCollapsed={isLayoutNavCollapsed} />
+                            <div
+                                className={cn('flex flex-col gap-px w-full', {
+                                    'items-center': isLayoutNavCollapsed,
+                                })}
+                            >
+                                <DebugNotice isCollapsed={isLayoutNavCollapsed} />
+                            </div>
+
                             <NavPanelAdvertisement />
 
                             {!isRemovingSidePanelFlag ? (
@@ -599,9 +606,32 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                     />
                                 </>
                             ) : (
-                                <div className="flex gap-1">
-                                    <HelpMenu />
-                                    <HealthMenu />
+                                <div
+                                    className={cn('flex flex-col gap-px w-full', {
+                                        'items-center': isLayoutNavCollapsed,
+                                    })}
+                                >
+                                    <Link
+                                        to={urls.settings('project')}
+                                        buttonProps={{ menuItem: isLayoutNavCollapsed ? false : true }}
+                                        tooltip={isLayoutNavCollapsed ? 'Settings' : undefined}
+                                        tooltipPlacement="right"
+                                    >
+                                        <IconGear />
+                                        {!isLayoutNavCollapsed && 'Settings'}
+                                    </Link>
+                                    <Link
+                                        to={urls.exports()}
+                                        buttonProps={{ menuItem: isLayoutNavCollapsed ? false : true }}
+                                        tooltip={isLayoutNavCollapsed ? 'Exports' : undefined}
+                                        tooltipPlacement="right"
+                                    >
+                                        <IconDownload />
+                                        {!isLayoutNavCollapsed && 'Exports'}
+                                    </Link>
+                                    <HealthMenu iconOnly={isLayoutNavCollapsed} />
+                                    <HelpMenu iconOnly={isLayoutNavCollapsed} />
+                                    <PosthogStatusShownOnlyIfNotOperational iconOnly={isLayoutNavCollapsed} />
                                 </div>
                             )}
                         </div>

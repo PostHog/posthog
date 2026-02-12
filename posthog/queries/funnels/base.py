@@ -123,7 +123,7 @@ class ClickhouseFunnelBase(ABC):
         sampling_factor: Optional[float] = None,
     ) -> dict[str, Any]:
         if step.type == TREND_FILTER_TYPE_ACTIONS:
-            name = step.get_action().name
+            name = step.get_action(self._team.pk).name
         else:
             name = step.id
 
@@ -237,7 +237,7 @@ class ClickhouseFunnelBase(ABC):
                 serialized_result.update(
                     {
                         "breakdown": (
-                            get_breakdown_cohort_name(breakdown_value)
+                            get_breakdown_cohort_name(breakdown_value, self._team)
                             if self._filter.breakdown_type == "cohort"
                             else breakdown_value
                         ),
@@ -558,7 +558,7 @@ class ClickhouseFunnelBase(ABC):
     def _build_step_query(self, entity: Entity, index: int, entity_name: str, step_prefix: str) -> str:
         filters = self._build_filters(entity, index, entity_name)
         if entity.type == TREND_FILTER_TYPE_ACTIONS:
-            action = entity.get_action()
+            action = entity.get_action(self._team.pk)
             for action_step_event in action.get_step_events():
                 if entity_name not in self.params[entity_name]:
                     self.params[entity_name].append(action_step_event)

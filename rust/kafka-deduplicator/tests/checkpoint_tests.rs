@@ -8,8 +8,8 @@ use chrono::Utc;
 use tokio_util::sync::CancellationToken;
 
 use kafka_deduplicator::checkpoint::{
-    CheckpointConfig, CheckpointExporter, CheckpointMetadata, CheckpointPlan, CheckpointUploader,
-    CheckpointWorker,
+    hash_prefix_for_partition, CheckpointConfig, CheckpointExporter, CheckpointMetadata,
+    CheckpointPlan, CheckpointUploader, CheckpointWorker,
 };
 use kafka_deduplicator::kafka::types::Partition;
 use kafka_deduplicator::store::TimestampMetadata;
@@ -151,6 +151,9 @@ impl CheckpointUploader for MockUploader {
                 }
             }
             let remote_file_path = self.upload_dir.join(&remote_file_path_str);
+            if let Some(parent) = remote_file_path.parent() {
+                tokio::fs::create_dir_all(parent).await?;
+            }
             tokio::fs::copy(&local_file_path, &remote_file_path).await?;
             uploaded_keys.push(remote_file_path_str);
         }
@@ -382,8 +385,7 @@ async fn test_checkpoint_from_plan_with_no_previous_metadata() {
     assert!(result.is_some());
     let info = result.unwrap();
 
-    // manually construct expected remote attempt path as CheckpointInfo
-    // would have to apply to all *new* files tracked in metadata.files
+    // manually construct expected remote attempt path (unhashed, for metadata.json)
     let expected_remote_path = format!(
         "{}/{}/{}/{}",
         config.s3_key_prefix,
@@ -395,9 +397,29 @@ async fn test_checkpoint_from_plan_with_no_previous_metadata() {
 
     let remote_checkpoint_files = uploader.get_stored_files().await.unwrap();
     assert!(!remote_checkpoint_files.is_empty());
-    assert!(remote_checkpoint_files
-        .keys()
-        .all(|k| k.contains(&expected_remote_path)));
+    // metadata.json at unhashed path; object files at hashed path
+    let hash = hash_prefix_for_partition(partition.topic(), partition.partition_number());
+    let expected_object_prefix = format!(
+        "{}/{}/{}/{}/{}",
+        hash,
+        config.s3_key_prefix,
+        partition.topic(),
+        partition.partition_number(),
+        CheckpointMetadata::generate_id(attempt_timestamp),
+    );
+    for k in remote_checkpoint_files.keys() {
+        if k.ends_with("metadata.json") {
+            assert!(
+                !k.contains(&hash),
+                "metadata.json must not contain hash, got: {k}"
+            );
+        } else {
+            assert!(
+                k.starts_with(&expected_object_prefix),
+                "object file key must have hashed path, got: {k}"
+            );
+        }
+    }
 
     // Verify exported files contain expected RocksDB checkpoint files
     assert!(remote_checkpoint_files
@@ -469,8 +491,7 @@ async fn test_checkpoint_from_plan_with_previous_metadata() {
     assert!(result.is_some());
     let orig_info = result.unwrap();
 
-    // manually construct expected remote attempt path as CheckpointInfo
-    // would have to apply to all *new* files tracked in metadata.files
+    // manually construct expected remote attempt path (unhashed)
     let orig_expected_remote_path = format!(
         "{}/{}/{}/{}",
         config.s3_key_prefix,
@@ -485,9 +506,28 @@ async fn test_checkpoint_from_plan_with_previous_metadata() {
 
     let orig_remote_checkpoint_files = uploader.get_stored_files().await.unwrap();
     assert!(!orig_remote_checkpoint_files.is_empty());
-    assert!(orig_remote_checkpoint_files
-        .keys()
-        .all(|k| k.contains(&orig_expected_remote_path)));
+    let hash = hash_prefix_for_partition(partition.topic(), partition.partition_number());
+    let orig_expected_object_prefix = format!(
+        "{}/{}/{}/{}/{}",
+        hash,
+        config.s3_key_prefix,
+        partition.topic(),
+        partition.partition_number(),
+        CheckpointMetadata::generate_id(attempt_timestamp),
+    );
+    for k in orig_remote_checkpoint_files.keys() {
+        if k.ends_with("metadata.json") {
+            assert!(
+                !k.contains(&hash),
+                "metadata.json must not contain hash, got: {k}"
+            );
+        } else {
+            assert!(
+                k.starts_with(&orig_expected_object_prefix),
+                "object file key must have hashed path, got: {k}"
+            );
+        }
+    }
 
     // Verify exported files contain expected RocksDB checkpoint files, including SSTs
     assert!(orig_remote_checkpoint_files
@@ -519,6 +559,14 @@ async fn test_checkpoint_from_plan_with_previous_metadata() {
         partition.partition_number(),
         next_checkpoint_id,
     );
+    let next_expected_object_prefix = format!(
+        "{}/{}/{}/{}/{}",
+        hash,
+        config.s3_key_prefix,
+        partition.topic(),
+        partition.partition_number(),
+        next_checkpoint_id,
+    );
 
     assert!(uploader.clear().await.is_ok());
 
@@ -544,9 +592,19 @@ async fn test_checkpoint_from_plan_with_previous_metadata() {
     let next_remote_checkpoint_files = uploader.get_stored_files().await.unwrap();
 
     assert!(!next_remote_checkpoint_files.is_empty());
-    assert!(next_remote_checkpoint_files
-        .keys()
-        .all(|k| k.contains(&next_expected_remote_path)));
+    for k in next_remote_checkpoint_files.keys() {
+        if k.ends_with("metadata.json") {
+            assert!(
+                !k.contains(&hash),
+                "metadata.json must not contain hash, got: {k}"
+            );
+        } else {
+            assert!(
+                k.starts_with(&next_expected_object_prefix),
+                "object file key must have hashed path, got: {k}"
+            );
+        }
+    }
 
     // there should be no new SST files uploaded in this checkpoint
     // because the original checkpoint uploaded them already
@@ -626,7 +684,7 @@ async fn test_checkpoint_with_pre_cancelled_token_fails() {
 
     // Checkpoint should fail with cancellation error
     let result = worker
-        .checkpoint_partition_cancellable(&store, None, Some(&cancel_token))
+        .checkpoint_partition_cancellable(&store, None, Some(&cancel_token), Some("test"))
         .await;
 
     assert!(result.is_err(), "Checkpoint should fail when pre-cancelled");
@@ -694,7 +752,7 @@ async fn test_checkpoint_with_active_token_succeeds() {
 
     // Checkpoint should succeed with active token
     let result = worker
-        .checkpoint_partition_cancellable(&store, None, Some(&cancel_token))
+        .checkpoint_partition_cancellable(&store, None, Some(&cancel_token), None)
         .await;
 
     assert!(

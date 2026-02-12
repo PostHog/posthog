@@ -10,6 +10,8 @@ import { KAFKA_CDP_BATCH_HOGFLOW_REQUESTS } from '~/config/kafka-topics'
 import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk, Hub, PluginServerService } from '../types'
 import { logger } from '../utils/logger'
 import { UUID, UUIDT, delay } from '../utils/utils'
+import { getAsyncFunctionHandler, getRegisteredAsyncFunctionNames } from './async-function-registry'
+import './async-functions'
 import {
     CdpSourceWebhooksConsumer,
     CdpSourceWebhooksConsumerHub,
@@ -159,10 +161,18 @@ export class CdpApi {
         router.get('/api/hog_function_templates', this.getHogFunctionTemplates)
         router.post('/api/messaging/generate_preferences_token', asyncHandler(this.generatePreferencesToken()))
         router.get('/api/messaging/validate_preferences_token/:token', asyncHandler(this.validatePreferencesToken()))
-        router.post('/public/webhooks/:webhook_id', asyncHandler(this.handleWebhook()))
+        const publicBodySizeLimit = (req: ModifiedRequest, res: express.Response, next: express.NextFunction): void => {
+            if (req.rawBody && req.rawBody.length > 512_000) {
+                res.status(413).json({ error: 'Request entity too large' })
+                return
+            }
+            next()
+        }
+
+        router.post('/public/webhooks/:webhook_id', publicBodySizeLimit, asyncHandler(this.handleWebhook()))
         router.get('/public/webhooks/:webhook_id', asyncHandler(this.handleWebhook()))
         router.get('/public/m/pixel', asyncHandler(this.getEmailTrackingPixel()))
-        router.post('/public/m/ses_webhook', express.text(), asyncHandler(this.postSesWebhook()))
+        router.post('/public/m/ses_webhook', publicBodySizeLimit, express.text(), asyncHandler(this.postSesWebhook()))
         router.get('/public/m/redirect', asyncHandler(this.getEmailTrackingRedirect()))
 
         return router
@@ -670,45 +680,19 @@ const buildHogExecutorAsyncOptions = (
     mockAsyncFunctions: boolean,
     logs: MinimalLogEntry[]
 ): HogExecutorExecuteAsyncOptions => {
+    let mockFunctions: Record<string, (...args: any[]) => any> | undefined
+
+    if (mockAsyncFunctions) {
+        mockFunctions = {}
+        for (const name of getRegisteredAsyncFunctionNames()) {
+            const handler = getAsyncFunctionHandler(name)!
+            mockFunctions[name] = (...args: any[]) => handler.mock(args, logs)
+        }
+    }
+
     return {
         maxAsyncFunctions: MAX_ASYNC_STEPS,
         asyncFunctionsNames: mockAsyncFunctions ? [] : undefined,
-        functions: mockAsyncFunctions
-            ? {
-                  fetch: (...args: any[]) => {
-                      logs.push({
-                          level: 'info',
-                          timestamp: DateTime.now(),
-                          message: `Async function 'fetch' was mocked with arguments:`,
-                      })
-                      logs.push({
-                          level: 'info',
-                          timestamp: DateTime.now(),
-                          message: `fetch('${args[0]}', ${JSON.stringify(args[1], null, 2)})`,
-                      })
-
-                      return {
-                          status: 200,
-                          body: {},
-                      }
-                  },
-                  sendEmail: (...args: any[]) => {
-                      logs.push({
-                          level: 'info',
-                          timestamp: DateTime.now(),
-                          message: `Async function 'sendEmail' was mocked with arguments:`,
-                      })
-                      logs.push({
-                          level: 'info',
-                          timestamp: DateTime.now(),
-                          message: `sendEmail(${JSON.stringify(args[0], null, 2)})`,
-                      })
-
-                      return {
-                          success: true,
-                      }
-                  },
-              }
-            : undefined,
+        functions: mockFunctions,
     }
 }

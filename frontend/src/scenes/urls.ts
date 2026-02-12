@@ -196,6 +196,7 @@ export const urls = {
     debugQuery: (query?: string | Record<string, any>): string =>
         combineUrl('/debug', {}, query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {}).url,
     debugHog: (): string => '/debug/hog',
+    signalsDebug: (): string => '/debug/signals',
     moveToPostHogCloud: (): string => '/move-to-cloud',
     heatmaps: (params?: string): string =>
         `/heatmaps${params ? `?${params.startsWith('?') ? params.slice(1) : params}` : ''}`,
@@ -231,6 +232,7 @@ export const urls = {
     health: (): string => '/health',
     pipelineStatus: (): string => '/health/pipeline-status',
     sdkDoctor: (): string => '/health/sdk-doctor',
+    exports: (): string => '/exports',
 }
 
 export interface UrlMatcher {

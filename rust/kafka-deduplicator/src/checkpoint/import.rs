@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
+use super::error::{DownloadCancelledError, ImportTimeoutError};
 use super::{CheckpointDownloader, CheckpointMetadata};
 use crate::metrics_const::{
     CHECKPOINT_IMPORT_ATTEMPT_DURATION_HISTOGRAM, CHECKPOINT_IMPORT_DURATION_HISTOGRAM,
@@ -55,7 +56,7 @@ impl Drop for ImportCleanupGuard {
                         topic = %self.topic,
                         partition = self.partition,
                         path = %self.path.display(),
-                        error = %e,
+                        error = ?e,
                         "Import cleanup guard: failed to remove directory, orphan cleaner will handle it"
                     );
                 }
@@ -136,10 +137,12 @@ impl CheckpointImporter {
                 );
                 metrics::histogram!(CHECKPOINT_IMPORT_DURATION_HISTOGRAM, "result" => "timeout")
                     .record(start_time.elapsed().as_secs_f64());
-                Err(anyhow::anyhow!(
-                    "Checkpoint import timed out after {}s for topic:{topic} partition:{partition_number}",
-                    self.import_timeout.as_secs()
-                ))
+                Err(ImportTimeoutError {
+                    topic: topic.to_string(),
+                    partition: partition_number,
+                    timeout_secs: self.import_timeout.as_secs(),
+                }
+                .into())
             }
         }
     }
@@ -189,7 +192,10 @@ impl CheckpointImporter {
                     );
                     metrics::histogram!(CHECKPOINT_IMPORT_DURATION_HISTOGRAM, "result" => "cancelled")
                         .record(start_time.elapsed().as_secs_f64());
-                    return Err(anyhow::anyhow!("Checkpoint import cancelled"));
+                    return Err(DownloadCancelledError {
+                        reason: "import cancelled before attempt".to_string(),
+                    }
+                    .into());
                 }
             }
 
@@ -281,7 +287,7 @@ impl CheckpointImporter {
                         checkpoint = attempt_tag,
                         local_attempt_path = local_path_tag,
                         attempt_duration_secs = attempt_duration,
-                        error = e.to_string(),
+                        error = ?e,
                         "Failed to import checkpoint files"
                     );
                     continue;
@@ -317,11 +323,11 @@ impl CheckpointImporter {
                         fetched_metadata_files.push(metadata);
                     }
                     Err(e) => {
-                        error!("Failed to parse metadata from file bytes: {remote_key}: {e}");
+                        error!("Failed to parse metadata from file bytes: {remote_key}: {e:#}");
                     }
                 },
                 Err(e) => {
-                    error!("Failed to download metadata file: {remote_key}: {e}");
+                    error!("Failed to download metadata file: {remote_key}: {e:#}");
                 }
             }
         }
@@ -373,7 +379,7 @@ impl CheckpointImporter {
                 Ok(())
             }
             Err(e) => {
-                error!("Failed to download checkpoint files to: {local_attempt_path:?}: {e}");
+                error!("Failed to download checkpoint files to: {local_attempt_path:?}: {e:#}");
                 Err(e)
             }
         }
@@ -433,7 +439,10 @@ mod tests {
         ) -> Result<()> {
             if let Some(token) = cancel_token {
                 if token.is_cancelled() {
-                    return Err(anyhow::anyhow!("Download cancelled"));
+                    return Err(DownloadCancelledError {
+                        reason: "test mock".to_string(),
+                    }
+                    .into());
                 }
             }
             tokio::fs::write(local_filepath, b"mock file content").await?;
@@ -513,7 +522,10 @@ mod tests {
             // Check cancellation before starting
             if let Some(token) = cancel_token {
                 if token.is_cancelled() {
-                    return Err(anyhow::anyhow!("Download cancelled"));
+                    return Err(DownloadCancelledError {
+                        reason: "test mock".to_string(),
+                    }
+                    .into());
                 }
             }
 
@@ -530,7 +542,10 @@ mod tests {
             // Check cancellation before starting
             if let Some(token) = cancel_token {
                 if token.is_cancelled() {
-                    return Err(anyhow::anyhow!("Download cancelled"));
+                    return Err(DownloadCancelledError {
+                        reason: "test mock".to_string(),
+                    }
+                    .into());
                 }
             }
 
@@ -578,9 +593,11 @@ mod tests {
             .await;
 
         assert!(result.is_err());
+        let err = result.unwrap_err();
         assert!(
-            result.unwrap_err().to_string().contains("cancelled"),
-            "Error should mention cancellation"
+            err.downcast_ref::<DownloadCancelledError>().is_some(),
+            "Error should be DownloadCancelledError: {}",
+            err
         );
     }
 
@@ -605,9 +622,11 @@ mod tests {
             .await;
 
         assert!(result.is_err());
+        let err = result.unwrap_err();
         assert!(
-            result.unwrap_err().to_string().contains("cancelled"),
-            "Error should mention cancellation"
+            err.downcast_ref::<DownloadCancelledError>().is_some(),
+            "Error should be DownloadCancelledError: {}",
+            err
         );
     }
 

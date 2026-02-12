@@ -1,12 +1,12 @@
 {
     "name": "@posthog/products-conversations",
     "dependencies": {
-        "kea": "^3.1.7",
-        "kea-loaders": "^3.1.1",
-        "kea-router": "^3.4.1",
-        "kea-subscriptions": "^3.0.1",
-        "posthog-js": "1.339.1",
-        "ts-pattern": "4.3"
+        "kea": "catalog:",
+        "kea-loaders": "catalog:",
+        "kea-router": "catalog:",
+        "kea-subscriptions": "catalog:",
+        "posthog-js": "catalog:",
+        "ts-pattern": "catalog:"
     },
     "peerDependencies": {
         "@posthog/icons": "*",

@@ -12,6 +12,7 @@ import { urls } from 'scenes/urls'
 import type { FileSystemImport } from '~/queries/schema/schema-general'
 import {
     DashboardFilter,
+    DateRange,
     ExperimentMetric,
     FileSystemIconType,
     HogQLFilters,
@@ -33,6 +34,7 @@ import {
     InsightType,
     RecordingUniversalFilters,
     ReplayTabs,
+    UniversalFiltersGroup,
 } from './types'
 
 /** This const is auto-generated, as is the whole file */
@@ -78,11 +80,14 @@ export const productScenes: Record<string, () => Promise<any>> = {
     LLMAnalyticsPlayground: () => import('../../products/llm_analytics/frontend/LLMAnalyticsPlaygroundScene'),
     LLMAnalyticsDatasets: () => import('../../products/llm_analytics/frontend/datasets/LLMAnalyticsDatasetsScene'),
     LLMAnalyticsDataset: () => import('../../products/llm_analytics/frontend/datasets/LLMAnalyticsDatasetScene'),
-    LLMAnalyticsEvaluations: () => import('../../products/llm_analytics/frontend/LLMAnalyticsScene'),
+    LLMAnalyticsEvaluations: () =>
+        import('../../products/llm_analytics/frontend/evaluations/LLMAnalyticsEvaluationsScene'),
     LLMAnalyticsEvaluation: () => import('../../products/llm_analytics/frontend/evaluations/LLMAnalyticsEvaluation'),
     LLMAnalyticsEvaluationTemplates: () =>
         import('../../products/llm_analytics/frontend/evaluations/EvaluationTemplates'),
+    LLMAnalyticsPrompts: () => import('../../products/llm_analytics/frontend/prompts/LLMPromptsScene'),
     LLMAnalyticsPrompt: () => import('../../products/llm_analytics/frontend/prompts/LLMPromptScene'),
+    LLMAnalyticsClusters: () => import('../../products/llm_analytics/frontend/clusters/LLMAnalyticsClustersScene'),
     LLMAnalyticsCluster: () => import('../../products/llm_analytics/frontend/clusters/LLMAnalyticsClusterScene'),
     Logs: () => import('../../products/logs/frontend/LogsScene'),
     ManagedMigration: () => import('../../products/managed_migrations/frontend/ManagedMigration'),
@@ -109,7 +114,8 @@ export const productRoutes: Record<string, [string, string]> = {
     '/support/tickets': ['SupportTickets', 'supportTickets'],
     '/support/tickets/:ticketId': ['SupportTicketDetail', 'supportTicketDetail'],
     '/support/settings': ['SupportSettings', 'supportSettings'],
-    '/customer_analytics': ['CustomerAnalytics', 'customerAnalytics'],
+    '/customer_analytics/dashboard': ['CustomerAnalytics', 'customerAnalyticsDashboard'],
+    '/customer_analytics/journeys': ['CustomerAnalytics', 'customerAnalyticsJourneys'],
     '/customer_analytics/configuration': ['CustomerAnalyticsConfiguration', 'customerAnalyticsConfiguration'],
     '/data-warehouse': ['DataWarehouse', 'dataWarehouse'],
     '/models': ['Models', 'models'],
@@ -129,7 +135,6 @@ export const productRoutes: Record<string, [string, string]> = {
     '/links': ['Links', 'links'],
     '/link/:id': ['Link', 'link'],
     '/live-debugger': ['LiveDebugger', 'liveDebugger'],
-    '/llm-analytics': ['LLMAnalytics', 'llmAnalytics'],
     '/llm-analytics/dashboard': ['LLMAnalytics', 'llmAnalyticsDashboard'],
     '/llm-analytics/generations': ['LLMAnalytics', 'llmAnalyticsGenerations'],
     '/llm-analytics/traces': ['LLMAnalytics', 'llmAnalyticsTraces'],
@@ -139,16 +144,16 @@ export const productRoutes: Record<string, [string, string]> = {
     '/llm-analytics/sessions': ['LLMAnalytics', 'llmAnalyticsSessions'],
     '/llm-analytics/sessions/:id': ['LLMAnalyticsSession', 'llmAnalytics'],
     '/llm-analytics/playground': ['LLMAnalytics', 'llmAnalyticsPlayground'],
-    '/llm-analytics/datasets': ['LLMAnalytics', 'llmAnalyticsDatasets'],
+    '/llm-analytics/datasets': ['LLMAnalyticsDatasets', 'llmAnalyticsDatasets'],
     '/llm-analytics/datasets/:id': ['LLMAnalyticsDataset', 'llmAnalyticsDataset'],
-    '/llm-analytics/evaluations': ['LLMAnalytics', 'llmAnalyticsEvaluations'],
+    '/llm-analytics/evaluations': ['LLMAnalyticsEvaluations', 'llmAnalyticsEvaluations'],
     '/llm-analytics/evaluations/templates': ['LLMAnalyticsEvaluationTemplates', 'llmAnalyticsEvaluationTemplates'],
     '/llm-analytics/evaluations/:id': ['LLMAnalyticsEvaluation', 'llmAnalyticsEvaluation'],
-    '/llm-analytics/prompts': ['LLMAnalytics', 'llmAnalyticsPrompts'],
+    '/llm-analytics/prompts': ['LLMAnalyticsPrompts', 'llmAnalyticsPrompts'],
     '/llm-analytics/prompts/:name': ['LLMAnalyticsPrompt', 'llmAnalyticsPrompt'],
     '/llm-analytics/settings': ['LLMAnalytics', 'llmAnalyticsSettings'],
-    '/llm-analytics/clusters': ['LLMAnalytics', 'llmAnalyticsClusters'],
-    '/llm-analytics/clusters/:runId': ['LLMAnalytics', 'llmAnalyticsClusters'],
+    '/llm-analytics/clusters': ['LLMAnalyticsClusters', 'llmAnalyticsClusters'],
+    '/llm-analytics/clusters/:runId': ['LLMAnalyticsClusters', 'llmAnalyticsClusters'],
     '/llm-analytics/clusters/:runId/:clusterId': ['LLMAnalyticsCluster', 'llmAnalyticsCluster'],
     '/logs': ['Logs', 'logs'],
     '/managed_migrations': ['ManagedMigration', 'managedMigration'],
@@ -177,8 +182,12 @@ export const productRedirects: Record<
     string | ((params: Params, searchParams: Params, hashParams: Params) => string)
 > = {
     '/support': '/support/tickets',
+    '/customer_analytics': (_params, searchParams, hashParams) =>
+        combineUrl('/customer_analytics/dashboard', searchParams, hashParams).url,
+    '/llm-analytics': (_params, searchParams, hashParams) =>
+        combineUrl(`/llm-analytics/dashboard`, searchParams, hashParams).url,
     '/llm-observability': (_params, searchParams, hashParams) =>
-        combineUrl(`/llm-analytics`, searchParams, hashParams).url,
+        combineUrl(`/llm-analytics/dashboard`, searchParams, hashParams).url,
     '/llm-observability/dashboard': (_params, searchParams, hashParams) =>
         combineUrl(`/llm-analytics/dashboard`, searchParams, hashParams).url,
     '/llm-observability/generations': (_params, searchParams, hashParams) =>
@@ -345,6 +354,7 @@ export const productConfiguration: Record<string, any> = {
     LLMAnalyticsDatasets: {
         projectBased: true,
         name: 'LLM analytics datasets',
+        description: 'Manage datasets for testing and evaluation.',
         layout: 'app-container',
         defaultDocsPath: '/docs/llm-analytics/installation',
     },
@@ -356,10 +366,11 @@ export const productConfiguration: Record<string, any> = {
     },
     LLMAnalyticsEvaluations: {
         projectBased: true,
-        name: 'LLM analytics evaluations',
+        name: 'Evaluations',
+        description: 'Configure and monitor automated LLM output evaluations.',
         activityScope: 'LLMAnalytics',
         layout: 'app-container',
-        defaultDocsPath: '/docs/llm-analytics/installation',
+        defaultDocsPath: '/docs/llm-analytics/evaluations',
     },
     LLMAnalyticsEvaluation: {
         projectBased: true,
@@ -375,11 +386,25 @@ export const productConfiguration: Record<string, any> = {
         layout: 'app-container',
         defaultDocsPath: '/docs/llm-analytics/installation',
     },
+    LLMAnalyticsPrompts: {
+        projectBased: true,
+        name: 'Prompts',
+        description: 'Track and manage your LLM prompts.',
+        layout: 'app-container',
+        defaultDocsPath: '/docs/llm-analytics/prompts',
+    },
     LLMAnalyticsPrompt: {
         projectBased: true,
         name: 'LLM analytics prompt',
         layout: 'app-container',
         defaultDocsPath: '/docs/llm-analytics/installation',
+    },
+    LLMAnalyticsClusters: {
+        projectBased: true,
+        name: 'Clusters',
+        description: 'Discover patterns and clusters in your LLM usage.',
+        layout: 'app-container',
+        defaultDocsPath: '/docs/llm-analytics/clusters',
     },
     LLMAnalyticsCluster: {
         projectBased: true,
@@ -470,6 +495,8 @@ export const productUrls = {
     supportTicketDetail: (ticketId: string | number): string => `/support/tickets/${ticketId}`,
     supportSettings: (): string => '/support/settings',
     customerAnalytics: (): string => '/customer_analytics',
+    customerAnalyticsDashboard: (): string => '/customer_analytics/dashboard',
+    customerAnalyticsJourneys: (): string => '/customer_analytics/journeys',
     customerAnalyticsConfiguration: (): string => '/customer_analytics/configuration',
     dashboards: (): string => '/dashboard',
     dashboard: (id: string | number, highlightInsightId?: string): string =>
@@ -532,6 +559,9 @@ export const productUrls = {
         params: {
             timestamp?: string
             fingerprint?: string
+            searchQuery?: string
+            dateRange?: DateRange
+            filterGroup?: UniversalFiltersGroup
         } = {}
     ): string => combineUrl(`/error_tracking/${id}`, params).url,
     errorTrackingIssueFingerprints: (id: string): string => `/error_tracking/${id}/fingerprints`,
@@ -557,9 +587,11 @@ export const productUrls = {
     featureFlagNew: ({
         type,
         sourceId,
+        template,
     }: {
         type?: 'boolean' | 'multivariate' | 'remote_config'
         sourceId?: number | string | null
+        template?: 'simple' | 'targeted' | 'multivariate' | 'targeted-multivariate'
     }): string => {
         const params = new URLSearchParams()
         if (type) {
@@ -567,6 +599,9 @@ export const productUrls = {
         }
         if (sourceId) {
             params.set('sourceId', sourceId.toString())
+        }
+        if (template) {
+            params.set('template', template)
         }
         return `/feature_flags/new?${params.toString()}`
     },
@@ -579,7 +614,7 @@ export const productUrls = {
     links: (): string => '/links',
     link: (id: string): string => `/link/${id}`,
     liveDebugger: (): string => '/live-debugger',
-    llmAnalyticsDashboard: (): string => '/llm-analytics',
+    llmAnalyticsDashboard: (): string => '/llm-analytics/dashboard',
     llmAnalyticsGenerations: (): string => '/llm-analytics/generations',
     llmAnalyticsTraces: (): string => '/llm-analytics/traces',
     llmAnalyticsTrace: (
@@ -667,7 +702,8 @@ export const productUrls = {
         urls.insightNew({
             query: { kind: NodeKind.DataTableNode, source: { kind: 'HogQLQuery', query, filters } } as any,
         }),
-    insightEdit: (id: InsightShortId): string => `/insights/${id}/edit`,
+    insightEdit: (id: InsightShortId, dashboardId?: number): string =>
+        `/insights/${id}/edit${dashboardId ? `?dashboard=${dashboardId}` : ''}`,
     insightView: (
         id: InsightShortId,
         dashboardId?: number,
@@ -1054,6 +1090,34 @@ export const getTreeItemsNew = (): FileSystemImport[] => [
 /** This const is auto-generated, as is the whole file */
 export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
+        path: 'Clusters',
+        intents: [ProductKey.LLM_CLUSTERS],
+        category: 'AI Analytics',
+        type: 'llm_clusters',
+        iconType: 'llm_clusters' as FileSystemIconType,
+        iconColor: ['var(--color-product-llm-clusters-light)'] as FileSystemIconColor,
+        href: urls.llmAnalyticsClusters(),
+        flag: FEATURE_FLAGS.LLM_ANALYTICS_CLUSTERS_TAB,
+        tags: ['alpha'],
+        sceneKey: 'LLMAnalyticsClusters',
+        sceneKeys: [
+            'LLMAnalytics',
+            'LLMAnalyticsTrace',
+            'LLMAnalyticsSession',
+            'LLMAnalyticsUsers',
+            'LLMAnalyticsPlayground',
+            'LLMAnalyticsDatasets',
+            'LLMAnalyticsDataset',
+            'LLMAnalyticsEvaluations',
+            'LLMAnalyticsEvaluation',
+            'LLMAnalyticsEvaluationTemplates',
+            'LLMAnalyticsPrompts',
+            'LLMAnalyticsPrompt',
+            'LLMAnalyticsClusters',
+            'LLMAnalyticsCluster',
+        ],
+    },
+    {
         path: 'Customer analytics',
         intents: [ProductKey.CUSTOMER_ANALYTICS],
         category: 'Analytics',
@@ -1102,6 +1166,34 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         sceneKeys: ['DataWarehouse', 'Models', 'SQLEditor'],
     },
     {
+        path: 'Datasets',
+        intents: [ProductKey.LLM_DATASETS],
+        category: 'AI Analytics',
+        type: 'llm_datasets',
+        iconType: 'llm_datasets' as FileSystemIconType,
+        iconColor: ['var(--color-product-llm-datasets-light)'] as FileSystemIconColor,
+        href: urls.llmAnalyticsDatasets(),
+        flag: FEATURE_FLAGS.LLM_ANALYTICS_DATASETS,
+        tags: ['beta'],
+        sceneKey: 'LLMAnalyticsDatasets',
+        sceneKeys: [
+            'LLMAnalytics',
+            'LLMAnalyticsTrace',
+            'LLMAnalyticsSession',
+            'LLMAnalyticsUsers',
+            'LLMAnalyticsPlayground',
+            'LLMAnalyticsDatasets',
+            'LLMAnalyticsDataset',
+            'LLMAnalyticsEvaluations',
+            'LLMAnalyticsEvaluation',
+            'LLMAnalyticsEvaluationTemplates',
+            'LLMAnalyticsPrompts',
+            'LLMAnalyticsPrompt',
+            'LLMAnalyticsClusters',
+            'LLMAnalyticsCluster',
+        ],
+    },
+    {
         path: 'Early access features',
         intents: [ProductKey.EARLY_ACCESS_FEATURES],
         category: 'Features',
@@ -1148,6 +1240,34 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         ],
     },
     {
+        path: 'Evaluations',
+        intents: [ProductKey.LLM_EVALUATIONS],
+        category: 'AI Analytics',
+        type: 'llm_evaluations',
+        iconType: 'llm_evaluations' as FileSystemIconType,
+        iconColor: ['var(--color-product-llm-evaluations-light)'] as FileSystemIconColor,
+        href: urls.llmAnalyticsEvaluations(),
+        flag: FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS,
+        tags: ['beta'],
+        sceneKey: 'LLMAnalyticsEvaluations',
+        sceneKeys: [
+            'LLMAnalytics',
+            'LLMAnalyticsTrace',
+            'LLMAnalyticsSession',
+            'LLMAnalyticsUsers',
+            'LLMAnalyticsPlayground',
+            'LLMAnalyticsDatasets',
+            'LLMAnalyticsDataset',
+            'LLMAnalyticsEvaluations',
+            'LLMAnalyticsEvaluation',
+            'LLMAnalyticsEvaluationTemplates',
+            'LLMAnalyticsPrompts',
+            'LLMAnalyticsPrompt',
+            'LLMAnalyticsClusters',
+            'LLMAnalyticsCluster',
+        ],
+    },
+    {
         path: `Experiments`,
         intents: [ProductKey.EXPERIMENTS],
         category: 'Features',
@@ -1180,8 +1300,16 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     },
     {
         path: 'LLM analytics',
-        intents: [ProductKey.LLM_ANALYTICS],
-        category: 'Analytics',
+        intents: [
+            ProductKey.LLM_ANALYTICS,
+            ProductKey.LLM_EVALUATIONS,
+            ProductKey.LLM_DATASETS,
+            ProductKey.LLM_PROMPTS,
+            ProductKey.LLM_CLUSTERS,
+        ],
+        category: 'AI Analytics',
+        visualOrder: 1,
+        type: 'llm_analytics',
         iconType: 'llm_analytics' as FileSystemIconType,
         iconColor: ['var(--color-product-llm-analytics-light)'] as FileSystemIconColor,
         href: urls.llmAnalyticsDashboard(),
@@ -1197,7 +1325,9 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'LLMAnalyticsEvaluations',
             'LLMAnalyticsEvaluation',
             'LLMAnalyticsEvaluationTemplates',
+            'LLMAnalyticsPrompts',
             'LLMAnalyticsPrompt',
+            'LLMAnalyticsClusters',
             'LLMAnalyticsCluster',
         ],
     },
@@ -1280,12 +1410,41 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         flag: FEATURE_FLAGS.PRODUCT_TOURS,
     },
     {
+        path: 'Prompts',
+        intents: [ProductKey.LLM_PROMPTS],
+        category: 'AI Analytics',
+        type: 'llm_prompts',
+        iconType: 'llm_prompts' as FileSystemIconType,
+        iconColor: ['var(--color-product-llm-prompts-light)'] as FileSystemIconColor,
+        href: urls.llmAnalyticsPrompts(),
+        flag: FEATURE_FLAGS.LLM_ANALYTICS_PROMPTS,
+        tags: ['alpha'],
+        sceneKey: 'LLMAnalyticsPrompts',
+        sceneKeys: [
+            'LLMAnalytics',
+            'LLMAnalyticsTrace',
+            'LLMAnalyticsSession',
+            'LLMAnalyticsUsers',
+            'LLMAnalyticsPlayground',
+            'LLMAnalyticsDatasets',
+            'LLMAnalyticsDataset',
+            'LLMAnalyticsEvaluations',
+            'LLMAnalyticsEvaluation',
+            'LLMAnalyticsEvaluationTemplates',
+            'LLMAnalyticsPrompts',
+            'LLMAnalyticsPrompt',
+            'LLMAnalyticsClusters',
+            'LLMAnalyticsCluster',
+        ],
+    },
+    {
         path: 'Revenue analytics',
         intents: [ProductKey.REVENUE_ANALYTICS],
         category: 'Analytics',
         href: urls.revenueAnalytics(),
         type: 'revenue',
-        tags: ['beta'],
+        flag: FEATURE_FLAGS.REVENUE_ANALYTICS,
+        tags: ['alpha'],
         sceneKey: 'RevenueAnalytics',
         sceneKeys: ['RevenueAnalytics'],
     },
