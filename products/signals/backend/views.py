@@ -1,4 +1,5 @@
 import uuid
+import logging
 from typing import cast
 
 from django.conf import settings
@@ -21,6 +22,8 @@ from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission
 from products.signals.backend.api import emit_signal
 from products.signals.backend.models import SignalReport
 from products.signals.backend.serializers import SignalReportArtefactSerializer, SignalReportSerializer
+
+logger = logging.getLogger(__name__)
 
 
 class EmitSignalSerializer(serializers.Serializer):
@@ -74,6 +77,7 @@ class SignalReportViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet)
             "list",
             "retrieve",
             "artefacts",
+            "analyze_sessions",
         ]
     }
 
@@ -91,6 +95,52 @@ class SignalReportViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet)
 
     def get_serializer_context(self):
         return {**super().get_serializer_context(), "team": self.team}
+
+    @extend_schema(
+        responses={
+            200: OpenApiResponse(description="Session analysis workflow completed"),
+            403: OpenApiResponse(description="Only available in DEBUG mode"),
+            500: OpenApiResponse(description="Session analysis workflow failed"),
+        },
+        summary="Run session analysis",
+        description="Run the video segment clustering workflow for this team. DEBUG only. Blocks until workflow completes.",
+    )
+    @action(detail=False, methods=["post"], url_path="analyze_sessions", required_scopes=["task:write"])
+    def analyze_sessions(self, request, **kwargs):
+        if not settings.DEBUG:
+            return Response(
+                {"error": "This endpoint is only available in DEBUG mode"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        from products.tasks.backend.temporal.client import execute_video_segment_clustering_workflow
+
+        try:
+            lookback_hours = 7 * 24  # 7 days
+            result = execute_video_segment_clustering_workflow(team_id=self.team.id, lookback_hours=lookback_hours)
+
+            response_status = status.HTTP_200_OK if result.get("success") else status.HTTP_500_INTERNAL_SERVER_ERROR
+
+            return Response(
+                {
+                    "workflow_id": result["workflow_id"],
+                    "lookback_hours": lookback_hours,
+                    "success": result.get("success"),
+                    "error": result.get("error"),
+                    "segments_processed": result.get("segments_processed"),
+                    "clusters_found": result.get("clusters_found"),
+                    "reports_created": result.get("reports_created"),
+                    "reports_updated": result.get("reports_updated"),
+                    "artefacts_created": result.get("artefacts_created"),
+                },
+                status=response_status,
+            )
+        except Exception:
+            logger.exception(f"Failed to run session analysis workflow for team {self.team.id}")
+            return Response(
+                {"error": "Failed to run session analysis workflow"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
     @extend_schema(
         responses={

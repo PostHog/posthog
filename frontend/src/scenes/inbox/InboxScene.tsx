@@ -1,11 +1,12 @@
 import { useActions, useValues } from 'kea'
 
 import { IconChevronRight, IconExpand } from '@posthog/icons'
-import { LemonBadge, LemonButton, LemonSkeleton, LemonTag, Spinner } from '@posthog/lemon-ui'
+import { LemonBadge, LemonButton, LemonSkeleton, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { humanFriendlyDetailedTime } from 'lib/utils'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -163,8 +164,9 @@ function InboxSkeleton(): JSX.Element {
 }
 
 export function InboxScene(): JSX.Element {
-    const { reports, reportsLoading } = useValues(inboxSceneLogic)
-    const { loadReports } = useActions(inboxSceneLogic)
+    const { reports, reportsLoading, isRunningSessionAnalysis } = useValues(inboxSceneLogic)
+    const { loadReports, runSessionAnalysis } = useActions(inboxSceneLogic)
+    const { isDev } = useValues(preflightLogic)
     const isProductAutonomyEnabled = useFeatureFlag('PRODUCT_AUTONOMY')
 
     if (!isProductAutonomyEnabled) {
@@ -178,9 +180,29 @@ export function InboxScene(): JSX.Element {
                 description="Actionable reports surfaced from automatic analysis of your product."
                 resourceType={{ type: 'inbox' }}
                 actions={
-                    <LemonButton type="secondary" onClick={() => loadReports()} loading={reportsLoading} size="small">
-                        Refresh
-                    </LemonButton>
+                    <div className="flex items-center gap-2">
+                        {isDev && (
+                            <Tooltip title="Analyze the last 7 days of sessions">
+                                <LemonButton
+                                    type="secondary"
+                                    onClick={() => runSessionAnalysis()}
+                                    loading={isRunningSessionAnalysis}
+                                    size="small"
+                                    data-attr="run-session-analysis-button"
+                                >
+                                    Run session analysis
+                                </LemonButton>
+                            </Tooltip>
+                        )}
+                        <LemonButton
+                            type="secondary"
+                            onClick={() => loadReports()}
+                            loading={reportsLoading}
+                            size="small"
+                        >
+                            Refresh
+                        </LemonButton>
+                    </div>
                 }
             />
 

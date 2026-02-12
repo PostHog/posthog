@@ -1,5 +1,7 @@
-import { actions, events, kea, path, reducers } from 'kea'
+import { actions, events, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
+
+import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 
@@ -11,6 +13,9 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
 
     actions({
         setExpandedReportId: (id: string | null) => ({ id }),
+        runSessionAnalysis: true,
+        runSessionAnalysisSuccess: true,
+        runSessionAnalysisFailure: (error: string) => ({ error }),
     }),
 
     loaders(({ values }) => ({
@@ -41,7 +46,32 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                 setExpandedReportId: (_, { id }) => id,
             },
         ],
+        isRunningSessionAnalysis: [
+            false,
+            {
+                runSessionAnalysis: () => true,
+                runSessionAnalysisSuccess: () => false,
+                runSessionAnalysisFailure: () => false,
+            },
+        ],
     }),
+
+    listeners(({ actions }) => ({
+        runSessionAnalysis: async () => {
+            try {
+                await api.signalReports.analyzeSessions()
+                lemonToast.success('Session analysis completed')
+                actions.runSessionAnalysisSuccess()
+            } catch (error: any) {
+                const errorMessage = error?.detail || error?.message || 'Failed to run session analysis'
+                lemonToast.error(errorMessage)
+                actions.runSessionAnalysisFailure(errorMessage)
+            }
+        },
+        runSessionAnalysisSuccess: () => {
+            actions.loadReports()
+        },
+    })),
 
     events(({ actions }) => ({
         afterMount: () => {
