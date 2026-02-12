@@ -16,7 +16,7 @@ from posthog.models.activity_logging.activity_log import (
 )
 from posthog.sync import database_sync_to_async
 
-from .prompts import (
+from ee.hogai.context.activity_log.prompts import (
     ACTIVITY_LOG_CONTEXT_TEMPLATE,
     ACTIVITY_LOG_ENTRY_TEMPLATE,
     ACTIVITY_LOG_NO_RESULTS,
@@ -131,11 +131,11 @@ class ActivityLogContext:
         if scope:
             queryset = queryset.filter(scope=scope)
         if activity:
-            queryset = queryset.filter(activity=activity)
+            queryset = queryset.filter(activity__iexact=activity)
         if item_id:
             queryset = queryset.filter(item_id=item_id)
         if user_email:
-            queryset = queryset.filter(user__email=user_email)
+            queryset = queryset.filter(user__email__iexact=user_email)
         if after:
             parsed = self._parse_datetime(after)
             if parsed:
@@ -189,7 +189,7 @@ class ActivityLogContext:
         )
 
     def _format_single_entry(self, entry: ActivityLog) -> str:
-        timestamp = entry.created_at.strftime("%Y-%m-%d %H:%M UTC")
+        timestamp = entry.created_at.isoformat()
 
         user_attribution = self._format_user_attribution(entry)
         item_name = self._extract_item_name(entry)

@@ -132,7 +132,16 @@ class ReadActivityLog(BaseModel):
     kind: Literal["activity_log"] = "activity_log"
     scope: str | None = Field(
         default=None,
-        description="Filter by scope (e.g. 'FeatureFlag', 'Insight', 'Experiment', 'Dashboard', 'HogFunction', 'BatchExport', 'Survey').",
+        description=(
+            "Filter by resource scope. Available scopes: "
+            "Action, AlertConfiguration, Annotation, BatchExport, BatchImport, Cohort, Comment, "
+            "Dashboard, DataManagement, EarlyAccessFeature, EventDefinition, Experiment, "
+            "ExternalDataSchema, ExternalDataSource, FeatureFlag, HogFlow, HogFunction, "
+            "Insight, Notebook, Organization, OrganizationDomain, OrganizationMembership, "
+            "Person, PersonalAPIKey, Plugin, PluginConfig, Project, PropertyDefinition, "
+            "Replay, SessionRecordingPlaylist, Survey, Tag, TaggedItem, Team, User, "
+            "WebAnalyticsFilterPreset."
+        ),
     )
     activity: str | None = Field(
         default=None,

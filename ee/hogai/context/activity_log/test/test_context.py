@@ -796,7 +796,7 @@ class TestActivityLogContextFormatting(ActivityLogTestBase):
         context = ActivityLogContext(team=self.team, user=self.user)
         result = await context.fetch_and_format()
 
-        assert "2025-06-15 12:00 UTC" in result
+        assert "2025-06-15T12:00:00+00:00" in result
 
     async def test_entry_format_structure(self):
         await self._create_log(
@@ -809,7 +809,7 @@ class TestActivityLogContextFormatting(ActivityLogTestBase):
         context = ActivityLogContext(team=self.team, user=self.user)
         result = await context.fetch_and_format()
 
-        assert "- **2025-06-15 12:00 UTC** | Dashboard | deleted | My Dashboard" in result
+        assert "- **2025-06-15T12:00:00+00:00** | Dashboard | deleted | My Dashboard" in result
 
     async def test_detail_with_non_dict_type_uses_item_id(self):
         await ActivityLog.objects.acreate(
