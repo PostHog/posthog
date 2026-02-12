@@ -9,22 +9,6 @@ describe('createApplyPersonProcessingRestrictionsStep', () => {
     let eventIngestionRestrictionManager: EventIngestionRestrictionManager
     let step: ReturnType<typeof createApplyPersonProcessingRestrictionsStep>
 
-    const createEvent = (overrides = {}) =>
-        createTestPipelineEvent({
-            token: 'default-token-123',
-            distinct_id: 'default-user-456',
-            event: 'test-event',
-            properties: { defaultProp: 'defaultValue' },
-            ...overrides,
-        })
-
-    const createHeaders = (overrides = {}) =>
-        createTestEventHeaders({
-            token: 'default-token',
-            distinct_id: 'default-distinct-id',
-            ...overrides,
-        })
-
     beforeEach(() => {
         eventIngestionRestrictionManager = {
             getAppliedRestrictions: jest.fn().mockReturnValue(new Set()),
@@ -34,9 +18,9 @@ describe('createApplyPersonProcessingRestrictionsStep', () => {
     })
 
     it('should not modify event if no skip conditions', async () => {
-        const event = createEvent({ properties: { defaultProp: 'defaultValue' } })
+        const event = createTestPipelineEvent({ properties: { defaultProp: 'defaultValue' } })
         const team = createTestTeam({ person_processing_opt_out: false })
-        const headers = createHeaders({ token: 'valid-token-abc', distinct_id: 'user-123' })
+        const headers = createTestEventHeaders({ token: 'valid-token-abc', distinct_id: 'user-123' })
         const input = { event, team, headers }
 
         const result = await step(input)
@@ -52,9 +36,9 @@ describe('createApplyPersonProcessingRestrictionsStep', () => {
     })
 
     it('should set $process_person_profile to false if there is a restriction', async () => {
-        const event = createEvent()
+        const event = createTestPipelineEvent()
         const team = createTestTeam({ person_processing_opt_out: false })
-        const headers = createHeaders({ token: 'restricted-token-def', distinct_id: 'restricted-user-456' })
+        const headers = createTestEventHeaders({ token: 'restricted-token-def', distinct_id: 'restricted-user-456' })
         const input = { event, team, headers }
         jest.mocked(eventIngestionRestrictionManager.getAppliedRestrictions).mockReturnValue(
             new Set([Restriction.SKIP_PERSON_PROCESSING])
@@ -73,9 +57,9 @@ describe('createApplyPersonProcessingRestrictionsStep', () => {
     })
 
     it('should set $process_person_profile to false if team opted out of person processing', async () => {
-        const event = createEvent()
+        const event = createTestPipelineEvent()
         const team = createTestTeam({ person_processing_opt_out: true })
-        const headers = createHeaders({ token: 'opt-out-token-ghi', distinct_id: 'opt-out-user-789' })
+        const headers = createTestEventHeaders({ token: 'opt-out-token-ghi', distinct_id: 'opt-out-user-789' })
         const input = { event, team, headers }
 
         const result = await step(input)
@@ -91,11 +75,11 @@ describe('createApplyPersonProcessingRestrictionsStep', () => {
     })
 
     it('should preserve existing properties when setting $process_person_profile', async () => {
-        const event = createEvent({
+        const event = createTestPipelineEvent({
             properties: { customProp: 'customValue', $set: { a: 1, b: 2 } },
         })
         const team = createTestTeam()
-        const headers = createHeaders({ token: 'preserve-token-jkl', distinct_id: 'preserve-user-012' })
+        const headers = createTestEventHeaders({ token: 'preserve-token-jkl', distinct_id: 'preserve-user-012' })
         const input = { event, team, headers }
         jest.mocked(eventIngestionRestrictionManager.getAppliedRestrictions).mockReturnValue(
             new Set([Restriction.SKIP_PERSON_PROCESSING])
@@ -118,11 +102,11 @@ describe('createApplyPersonProcessingRestrictionsStep', () => {
     })
 
     it('should call getAppliedRestrictions when token is undefined', async () => {
-        const event = createEvent({
+        const event = createTestPipelineEvent({
             properties: { customProp: 'customValue' },
         })
         const team = createTestTeam()
-        const headers = createHeaders({ token: undefined, distinct_id: 'undefined-token-user-999' })
+        const headers = createTestEventHeaders({ token: undefined, distinct_id: 'undefined-token-user-999' })
         const input = { event, team, headers }
 
         const result = await step(input)
@@ -138,11 +122,11 @@ describe('createApplyPersonProcessingRestrictionsStep', () => {
     })
 
     it('should set $process_person_profile to false when token is undefined and restriction is applied', async () => {
-        const event = createEvent({
+        const event = createTestPipelineEvent({
             properties: { customProp: 'customValue' },
         })
         const team = createTestTeam()
-        const headers = createHeaders({ token: undefined, distinct_id: 'undefined-token-user-888' })
+        const headers = createTestEventHeaders({ token: undefined, distinct_id: 'undefined-token-user-888' })
         const input = { event, team, headers }
         jest.mocked(eventIngestionRestrictionManager.getAppliedRestrictions).mockReturnValue(
             new Set([Restriction.SKIP_PERSON_PROCESSING])
@@ -164,9 +148,9 @@ describe('createApplyPersonProcessingRestrictionsStep', () => {
     })
 
     it('should pass session_id from headers to getAppliedRestrictions', async () => {
-        const event = createEvent({ properties: { defaultProp: 'defaultValue' } })
+        const event = createTestPipelineEvent({ properties: { defaultProp: 'defaultValue' } })
         const team = createTestTeam({ person_processing_opt_out: false })
-        const headers = createHeaders({
+        const headers = createTestEventHeaders({
             token: 'valid-token-abc',
             distinct_id: 'user-123',
             session_id: 'session-456',
@@ -186,9 +170,9 @@ describe('createApplyPersonProcessingRestrictionsStep', () => {
     })
 
     it('should pass event name from headers to getAppliedRestrictions', async () => {
-        const event = createEvent({ properties: { defaultProp: 'defaultValue' } })
+        const event = createTestPipelineEvent({ properties: { defaultProp: 'defaultValue' } })
         const team = createTestTeam({ person_processing_opt_out: false })
-        const headers = createHeaders({
+        const headers = createTestEventHeaders({
             token: 'valid-token-abc',
             distinct_id: 'user-123',
             event: '$pageview',
@@ -208,9 +192,9 @@ describe('createApplyPersonProcessingRestrictionsStep', () => {
     })
 
     it('should pass uuid from headers to getAppliedRestrictions', async () => {
-        const event = createEvent({ properties: { defaultProp: 'defaultValue' } })
+        const event = createTestPipelineEvent({ properties: { defaultProp: 'defaultValue' } })
         const team = createTestTeam({ person_processing_opt_out: false })
-        const headers = createHeaders({
+        const headers = createTestEventHeaders({
             token: 'valid-token-abc',
             distinct_id: 'user-123',
             uuid: 'event-uuid-789',
@@ -230,9 +214,9 @@ describe('createApplyPersonProcessingRestrictionsStep', () => {
     })
 
     it('should skip person processing when session_id is restricted', async () => {
-        const event = createEvent({ properties: { defaultProp: 'defaultValue' } })
+        const event = createTestPipelineEvent({ properties: { defaultProp: 'defaultValue' } })
         const team = createTestTeam({ person_processing_opt_out: false })
-        const headers = createHeaders({
+        const headers = createTestEventHeaders({
             token: 'valid-token-abc',
             distinct_id: 'user-123',
             session_id: 'restricted-session',
@@ -256,9 +240,9 @@ describe('createApplyPersonProcessingRestrictionsStep', () => {
     })
 
     it('should skip person processing when event_name is restricted', async () => {
-        const event = createEvent({ properties: { defaultProp: 'defaultValue' } })
+        const event = createTestPipelineEvent({ properties: { defaultProp: 'defaultValue' } })
         const team = createTestTeam({ person_processing_opt_out: false })
-        const headers = createHeaders({
+        const headers = createTestEventHeaders({
             token: 'valid-token-abc',
             distinct_id: 'user-123',
             event: '$restricted_event',
@@ -282,9 +266,9 @@ describe('createApplyPersonProcessingRestrictionsStep', () => {
     })
 
     it('should skip person processing when uuid is restricted', async () => {
-        const event = createEvent({ properties: { defaultProp: 'defaultValue' } })
+        const event = createTestPipelineEvent({ properties: { defaultProp: 'defaultValue' } })
         const team = createTestTeam({ person_processing_opt_out: false })
-        const headers = createHeaders({
+        const headers = createTestEventHeaders({
             token: 'valid-token-abc',
             distinct_id: 'user-123',
             uuid: 'restricted-uuid-789',
