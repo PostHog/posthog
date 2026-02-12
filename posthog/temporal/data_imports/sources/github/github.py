@@ -47,8 +47,12 @@ def get_resource(
     # Override sort for incremental syncs with a cutoff value
     if should_use_incremental_field and db_incremental_field_last_value:
         formatted_value = _format_incremental_value(db_incremental_field_last_value)
-        sort_field = (incremental_field or config.default_incremental_field or "updated_at").replace("_at", "")
-        params["sort"] = sort_field
+        incremental = incremental_field or config.default_incremental_field or "updated_at"
+        sort_field_mapping = {
+            "updated_at": "updated",
+            "created_at": "created",
+        }
+        params["sort"] = sort_field_mapping[incremental]
         params["direction"] = config.sort_mode
         # Issues and commits support the 'since' parameter for incremental sync
         if name in ("issues", "commits"):
