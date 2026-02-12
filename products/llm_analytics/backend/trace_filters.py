@@ -38,6 +38,6 @@ def get_team_trace_filters_bulk(team_ids: Iterable[int]) -> dict[str, list[dict[
 
 def set_team_trace_filters(team: Team, trace_filters: list[dict[str, Any]]) -> None:
     extra_settings = team.extra_settings or {}
-    extra_settings[TRACE_FILTERS_SETTING_KEY] = trace_filters
+    extra_settings[TRACE_FILTERS_SETTING_KEY] = sanitize_trace_filters(trace_filters)
     team.extra_settings = extra_settings
     team.save(update_fields=["extra_settings"])
