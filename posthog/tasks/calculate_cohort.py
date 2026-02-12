@@ -242,7 +242,7 @@ def increment_version_and_enqueue_calculate_cohort(cohort: Cohort, *, initiating
             return
 
         # Create a chain of tasks to ensure sequential execution
-        task_chain = []
+        task_chain: list = []
         for cohort_id in sorted_cohort_ids:
             current_cohort = seen_cohorts_cache.get(cohort_id)
             if current_cohort and not current_cohort.is_static:
