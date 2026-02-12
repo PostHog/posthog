@@ -2196,10 +2196,10 @@ importers:
         specifier: 'catalog:'
         version: 6.6.2
       kea:
-        specifier: '*'
+        specifier: 'catalog:'
         version: 3.1.7(react@18.3.1)
       kea-loaders:
-        specifier: '*'
+        specifier: 'catalog:'
         version: 3.1.1(kea@3.1.7(react@18.3.1))
       react:
         specifier: 18.3.1
@@ -2612,16 +2612,16 @@ importers:
         specifier: 'catalog:'
         version: 3.1.3
       kea:
-        specifier: '*'
+        specifier: 'catalog:'
         version: 3.1.7(react@18.3.1)
       kea-forms:
-        specifier: '*'
+        specifier: 'catalog:'
         version: 3.2.0(kea@3.1.7(react@18.3.1))
       kea-loaders:
-        specifier: '*'
+        specifier: 'catalog:'
         version: 3.1.1(kea@3.1.7(react@18.3.1))
       kea-router:
-        specifier: '*'
+        specifier: 'catalog:'
         version: 3.4.1(kea@3.1.7(react@18.3.1))
       kea-subscriptions:
         specifier: 'catalog:'
@@ -41726,7 +41726,7 @@ snapshots:
 
   regenerator-transform@0.15.2:
     dependencies:
-      '@babel/runtime': 7.28.4
+      '@babel/runtime': 7.28.6
 
   regexp.prototype.flags@1.5.1:
     dependencies:
