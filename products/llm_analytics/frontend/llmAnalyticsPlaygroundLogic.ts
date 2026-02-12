@@ -282,7 +282,7 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
                 submitPrompt: () => '',
                 addAssistantMessageChunk: (state, { text }) => (state ?? '') + text,
                 addFinalizedContent: (state, { text }) => (state ?? '') + text,
-                addResponseToHistory: () => null,
+                addResponseToHistory: (state) => state,
                 clearConversation: () => null,
                 setMessages: () => null,
             },
