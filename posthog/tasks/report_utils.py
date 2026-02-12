@@ -15,8 +15,6 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.utils import get_machine_id
 
-logger = structlog.get_logger(__name__)
-
 
 def get_org_owner_or_first_user(organization_id: str) -> Optional[User]:
     # Find the membership object for the org owner
@@ -69,6 +67,9 @@ def capture_event(
         distinct_id = org_owner.distinct_id if org_owner and org_owner.distinct_id else f"org-{organization_id}"
 
     if is_cloud():
+        # Get logger at call time (not module import time) so it uses the correct
+        # structlog configuration in both Temporal and non-Temporal contexts
+        logger = structlog.get_logger(__name__)
         logger.info(
             "[Usage Report] Capturing usage report event",
             event_name=name,
