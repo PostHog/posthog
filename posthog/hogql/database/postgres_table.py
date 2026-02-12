@@ -1,3 +1,4 @@
+from functools import cache
 from typing import Optional
 
 from django.conf import settings
@@ -8,6 +9,16 @@ from posthog.hogql.escape_sql import escape_hogql_identifier
 
 from posthog.person_db_router import PERSONS_DB_MODELS
 from posthog.scopes import APIScopeObject
+
+
+@cache
+def _pk_column_for_pg_table(postgres_table_name: str) -> str:
+    from django.apps import apps
+
+    for model in apps.get_models():
+        if model._meta.db_table == postgres_table_name:
+            return model._meta.pk.column
+    return "id"
 
 
 def build_function_call(postgres_table_name: str, context: Optional[HogQLContext] = None):
@@ -58,8 +69,11 @@ def build_function_call(postgres_table_name: str, context: Optional[HogQLContext
 class PostgresTable(FunctionCallTable):
     requires_args: bool = False
     postgres_table_name: str
-    primary_key: str = "id"
     access_scope: Optional[APIScopeObject] = None
+
+    @property
+    def primary_key(self) -> str:
+        return _pk_column_for_pg_table(self.postgres_table_name)
 
     def to_printed_hogql(self):
         return escape_hogql_identifier(self.name)
