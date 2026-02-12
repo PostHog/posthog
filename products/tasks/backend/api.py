@@ -542,7 +542,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         serializer = TaskRunArtifactPresignResponseSerializer({"url": url, "expires_in": expires_in})
         return Response(serializer.data)
 
-    @validated_request(
+    @extend_schema(
         responses={
             200: OpenApiResponse(description="Log content in JSONL format"),
             404: OpenApiResponse(description="Task run not found"),
