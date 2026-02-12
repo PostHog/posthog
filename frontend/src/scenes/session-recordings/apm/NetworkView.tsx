@@ -1,6 +1,7 @@
 import './NetworkView.scss'
 
 import { BindLogic, useActions, useValues } from 'kea'
+import { useCallback, useRef, useState } from 'react'
 
 import { IconChevronLeft, IconChevronRight } from '@posthog/icons'
 import { LemonTable, Link } from '@posthog/lemon-ui'
@@ -47,7 +48,8 @@ function SimpleURL({ name, entryType }: { name: string | undefined; entryType: s
                 <span className="whitespace-nowrap">
                     {entryType === 'navigation' ? url.hostname : null}
                     {url.pathname}
-                    {url.hash.length || url.search.length ? '...' : null}
+                    {url.search}
+                    {url.hash}
                 </span>
             </Tooltip>
         )
@@ -122,10 +124,56 @@ function WaterfallMeta(): JSX.Element | null {
     )
 }
 
+// Status (128px) + Duration (86px) + min Timings (100px)
+const FIXED_COLUMNS_WIDTH = 128 + 86 + 100
+
+function useColumnResize(
+    initialWidth: number,
+    containerRef: React.RefObject<HTMLDivElement | null>
+): [number, (e: React.MouseEvent) => void] {
+    const [width, setWidth] = useState(initialWidth)
+    const widthRef = useRef(initialWidth)
+    widthRef.current = width
+
+    const onMouseDown = useCallback(
+        (e: React.MouseEvent) => {
+            if (e.button !== 0) {
+                return
+            }
+            e.preventDefault()
+            const startX = e.pageX
+            const startWidth = widthRef.current
+            const containerWidth = containerRef.current?.offsetWidth ?? 800
+            const maxWidth = Math.max(200, containerWidth - FIXED_COLUMNS_WIDTH)
+
+            const onMouseMove = (moveEvent: MouseEvent): void => {
+                const delta = moveEvent.pageX - startX
+                setWidth(Math.max(100, Math.min(maxWidth, startWidth + delta)))
+            }
+            const onMouseUp = (): void => {
+                document.removeEventListener('mousemove', onMouseMove)
+                document.removeEventListener('mouseup', onMouseUp)
+                document.body.style.cursor = ''
+                document.body.style.userSelect = ''
+            }
+
+            document.addEventListener('mousemove', onMouseMove)
+            document.addEventListener('mouseup', onMouseUp)
+            document.body.style.cursor = 'col-resize'
+            document.body.style.userSelect = 'none'
+        },
+        [containerRef]
+    )
+
+    return [width, onMouseDown]
+}
+
 export function NetworkView(): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
     const logic = networkViewLogic({ sessionRecordingId: logicProps.sessionRecordingId })
     const { isLoading, currentPage, hasPageViews } = useValues(logic)
+    const containerRef = useRef<HTMLDivElement>(null)
+    const [urlColumnWidth, onUrlHeaderMouseDown] = useColumnResize(250, containerRef)
 
     if (isLoading) {
         return (
@@ -137,10 +185,16 @@ export function NetworkView(): JSX.Element {
 
     return (
         <BindLogic logic={networkViewLogic} props={{ sessionRecordingId: logicProps.sessionRecordingId }}>
-            <div className="NetworkView overflow-auto py-2 px-4">
+            <div className="NetworkView overflow-y-auto py-2 px-4">
                 <WaterfallMeta />
                 <LemonDivider />
-                <div className="deprecated-space-y-1 px-0">
+                <div ref={containerRef} className="relative deprecated-space-y-1 px-0">
+                    <div
+                        className="NetworkView__column-resize absolute top-0 bottom-0 z-10 cursor-col-resize"
+                        // eslint-disable-next-line react/forbid-dom-props
+                        style={{ left: urlColumnWidth }}
+                        onMouseDown={onUrlHeaderMouseDown}
+                    />
                     <LemonTable
                         className="NetworkView__table"
                         size="small"
@@ -155,7 +209,7 @@ export function NetworkView(): JSX.Element {
                                 title: 'URL',
                                 key: 'url',
                                 dataIndex: 'name',
-                                width: 250,
+                                width: urlColumnWidth,
                                 render: function RenderUrl(_, item) {
                                     return <SimpleURL name={item.name} entryType={item.entry_type} />
                                 },
@@ -163,7 +217,7 @@ export function NetworkView(): JSX.Element {
                             {
                                 title: 'Timings',
                                 key: 'timings',
-                                render: function RenderUrl(_, item) {
+                                render: function RenderTimings(_, item) {
                                     return <NetworkBar item={item} />
                                 },
                             },
@@ -171,7 +225,8 @@ export function NetworkView(): JSX.Element {
                                 title: 'Status',
                                 key: 'status',
                                 width: 128,
-                                render: function RenderUrl(_, item) {
+                                align: 'center',
+                                render: function RenderStatus(_, item) {
                                     return <NetworkStatus item={item} />
                                 },
                             },
@@ -179,7 +234,8 @@ export function NetworkView(): JSX.Element {
                                 title: 'Duration',
                                 key: 'duration',
                                 width: 86,
-                                render: function RenderUrl(_, item) {
+                                align: 'right',
+                                render: function RenderDuration(_, item) {
                                     return <Duration item={item} />
                                 },
                             },

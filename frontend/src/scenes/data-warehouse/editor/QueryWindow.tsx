@@ -1,7 +1,7 @@
 import { Monaco } from '@monaco-editor/react'
 import { useActions, useValues } from 'kea'
 import type { editor as importedEditor } from 'monaco-editor'
-import { useMemo } from 'react'
+import { memo, useMemo } from 'react'
 
 import { IconBook, IconDownload, IconInfo, IconPlayFilled } from '@posthog/icons'
 import { LemonDivider, Spinner } from '@posthog/lemon-ui'
@@ -355,7 +355,7 @@ function RunButton(): JSX.Element {
     )
 }
 
-function InternalQueryWindow({ tabId }: { tabId: string }): JSX.Element | null {
+const InternalQueryWindow = memo(function InternalQueryWindow({ tabId }: { tabId: string }): JSX.Element | null {
     const { finishedLoading } = useValues(multitabEditorLogic)
 
     // NOTE: hacky way to avoid flicker loading
@@ -364,4 +364,4 @@ function InternalQueryWindow({ tabId }: { tabId: string }): JSX.Element | null {
     }
 
     return <OutputPane tabId={tabId} />
-}
+})

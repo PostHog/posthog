@@ -3,10 +3,11 @@ from posthog.test.base import APIBaseTest
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.models import Insight
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.team import Team
 
-from products.customer_analytics.backend.models import CustomerProfileConfig
+from products.customer_analytics.backend.models import CustomerJourney, CustomerProfileConfig
 
 
 class TestCustomerProfileConfigViewSet(APIBaseTest):
@@ -195,3 +196,184 @@ class TestCustomerProfileConfigViewSet(APIBaseTest):
         for method, url in endpoints:
             response = getattr(self.client, method.lower())(url, format="json")
             self.assertIn(response.status_code, [status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN])
+
+
+class TestCustomerJourneyViewSet(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.endpoint_base = f"/api/environments/{self.team.id}/customer_journeys/"
+        self.insight = Insight.objects.create(team=self.team)
+
+    def _create_journey(self, **kwargs):
+        defaults = {"team": self.team, "insight": self.insight, "name": "Test Journey"}
+        defaults.update(kwargs)
+        return CustomerJourney.objects.create(**defaults)
+
+    def test_create(self):
+        response = self.client.post(
+            self.endpoint_base,
+            {"insight": self.insight.id, "name": "My Journey", "description": "A description"},
+            format="json",
+        )
+
+        self.assertEqual(status.HTTP_201_CREATED, response.status_code, response.json())
+        data = response.json()
+        self.assertIn("id", data)
+        self.assertEqual(data["name"], "My Journey")
+        self.assertEqual(data["description"], "A description")
+        self.assertEqual(data["insight"], self.insight.id)
+        self.assertIn("created_at", data)
+        self.assertIn("updated_at", data)
+
+        journey = CustomerJourney.objects.get(id=data["id"])
+        self.assertEqual(journey.created_by, self.user)
+        self.assertEqual(journey.team, self.team)
+
+    def test_list(self):
+        insight2 = Insight.objects.create(team=self.team)
+        j1 = self._create_journey(name="Journey 1")
+        j2 = self._create_journey(name="Journey 2", insight=insight2)
+
+        other_team = Team.objects.create(organization=self.organization)
+        other_insight = Insight.objects.create(team=other_team)
+        CustomerJourney.objects.create(team=other_team, insight=other_insight, name="Other")
+
+        response = self.client.get(self.endpoint_base)
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        data = response.json()
+        self.assertEqual(data["count"], 2)
+        ids = {r["id"] for r in data["results"]}
+        self.assertEqual(ids, {str(j1.id), str(j2.id)})
+
+    def test_retrieve(self):
+        journey = self._create_journey(description="desc")
+
+        response = self.client.get(f"{self.endpoint_base}{journey.id}/")
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        data = response.json()
+        self.assertEqual(data["id"], str(journey.id))
+        self.assertEqual(data["name"], "Test Journey")
+        self.assertEqual(data["description"], "desc")
+        self.assertEqual(data["insight"], self.insight.id)
+
+    def test_update(self):
+        journey = self._create_journey()
+
+        response = self.client.patch(
+            f"{self.endpoint_base}{journey.id}/",
+            {"name": "Updated", "description": "New desc"},
+            format="json",
+        )
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        journey.refresh_from_db()
+        self.assertEqual(journey.name, "Updated")
+        self.assertEqual(journey.description, "New desc")
+
+    def test_delete(self):
+        journey = self._create_journey()
+        journey_id = journey.id
+
+        response = self.client.delete(f"{self.endpoint_base}{journey.id}/")
+
+        self.assertEqual(status.HTTP_204_NO_CONTENT, response.status_code)
+        self.assertFalse(CustomerJourney.objects.filter(id=journey_id).exists())
+
+    @parameterized.expand(
+        [
+            (
+                "create",
+                lambda self: self.client.post(
+                    self.endpoint_base,
+                    {"insight": self.insight.id, "name": "Logged"},
+                    format="json",
+                ),
+                "created",
+            ),
+            (
+                "update",
+                lambda self: self.client.patch(
+                    f"{self.endpoint_base}{self._create_journey().id}/",
+                    {"name": "Renamed"},
+                    format="json",
+                ),
+                "updated",
+            ),
+            (
+                "delete",
+                lambda self: self.client.delete(f"{self.endpoint_base}{self._create_journey().id}/"),
+                "deleted",
+            ),
+        ]
+    )
+    def test_activity_log(self, _name, perform_action, expected_activity):
+        perform_action(self)
+
+        logs = ActivityLog.objects.filter(team_id=self.team.id, scope="CustomerJourney", activity=expected_activity)
+        self.assertEqual(logs.count(), 1)
+
+    def test_unique_insight_per_team(self):
+        self._create_journey()
+
+        response = self.client.post(
+            self.endpoint_base,
+            {"insight": self.insight.id, "name": "Duplicate"},
+            format="json",
+        )
+
+        self.assertEqual(status.HTTP_409_CONFLICT, response.status_code)
+        self.assertIn("already exists", response.json()["detail"])
+
+    def test_team_isolation(self):
+        other_team = Team.objects.create(organization=self.organization)
+        other_insight = Insight.objects.create(team=other_team)
+        other_journey = CustomerJourney.objects.create(team=other_team, insight=other_insight, name="Other")
+
+        response = self.client.get(f"{self.endpoint_base}{other_journey.id}/")
+        self.assertEqual(status.HTTP_404_NOT_FOUND, response.status_code)
+
+    def test_cannot_create_journey_with_other_team_insight(self):
+        other_team = Team.objects.create(organization=self.organization)
+        other_insight = Insight.objects.create(team=other_team)
+
+        response = self.client.post(
+            self.endpoint_base,
+            {"insight": other_insight.id, "name": "Cross-team journey"},
+            format="json",
+        )
+
+        self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code)
+        data = response.json()
+        self.assertEqual(data["attr"], "insight")
+        self.assertEqual(data["detail"], "The insight does not belong to this team.")
+
+    @parameterized.expand(
+        [
+            ("missing_name", lambda self: {"insight": self.insight.id}, "name"),
+            ("missing_insight", lambda self: {"name": "Journey"}, "insight"),
+            ("invalid_insight_id", lambda self: {"name": "Journey", "insight": 999999}, "insight"),
+        ]
+    )
+    def test_validation_errors(self, _name, make_data, expected_error_field):
+        response = self.client.post(self.endpoint_base, make_data(self), format="json")
+
+        self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code)
+        data = response.json()
+        self.assertEqual(data["attr"], expected_error_field)
+        self.assertEqual(data["type"], "validation_error")
+
+    def test_authentication_required(self):
+        self.client.logout()
+
+        for method, url, expected_status_code in [
+            ("GET", self.endpoint_base, status.HTTP_401_UNAUTHORIZED),
+            ("POST", self.endpoint_base, status.HTTP_401_UNAUTHORIZED),
+            ("GET", f"{self.endpoint_base}test-id/", status.HTTP_401_UNAUTHORIZED),
+            ("PATCH", f"{self.endpoint_base}test-id/", status.HTTP_401_UNAUTHORIZED),
+            ("DELETE", f"{self.endpoint_base}test-id/", status.HTTP_401_UNAUTHORIZED),
+        ]:
+            with self.subTest(method):
+                response = getattr(self.client, method.lower())(url, format="json")
+                self.assertEqual(expected_status_code, response.status_code)
