@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+from typing import Any
 
 from freezegun import freeze_time
 from posthog.test.base import BaseTest
@@ -15,12 +16,12 @@ from ee.hogai.context.activity_log.context import MAX_VALUE_LENGTH, ActivityLogC
 from ee.hogai.context.activity_log.prompts import ACTIVITY_LOG_NO_RESULTS
 
 
-class ActivityLogTestMixin:
-    def setUp(self):
+class ActivityLogTestBase(BaseTest):
+    def setUp(self) -> None:
         super().setUp()
         post_save.disconnect(activity_log_created, sender=ActivityLog)
 
-    def tearDown(self):
+    def tearDown(self) -> None:
         post_save.connect(activity_log_created, sender=ActivityLog)
         super().tearDown()
 
@@ -31,7 +32,7 @@ class ActivityLogTestMixin:
         activity: str = "updated",
         item_id: str = "1",
         detail: dict | None = None,
-        user=None,
+        user: Any = None,
         is_system: bool = False,
         was_impersonated: bool = False,
         created_at: datetime | None = None,
@@ -50,7 +51,7 @@ class ActivityLogTestMixin:
 
 
 @freeze_time("2025-06-15T12:00:00Z")
-class TestActivityLogContext(ActivityLogTestMixin, BaseTest):
+class TestActivityLogContext(ActivityLogTestBase):
     def _create_context(self) -> ActivityLogContext:
         return ActivityLogContext(team=self.team, user=self.user)
 
@@ -355,7 +356,7 @@ class TestActivityLogContext(ActivityLogTestMixin, BaseTest):
 
 
 @freeze_time("2025-06-15T12:00:00Z")
-class TestActivityLogContextTruncation(ActivityLogTestMixin, BaseTest):
+class TestActivityLogContextTruncation(ActivityLogTestBase):
     def _create_context(self) -> ActivityLogContext:
         return ActivityLogContext(team=self.team, user=self.user)
 
@@ -413,7 +414,7 @@ class TestActivityLogContextTruncation(ActivityLogTestMixin, BaseTest):
 
 
 @freeze_time("2025-06-15T12:00:00Z")
-class TestActivityLogContextVisibility(ActivityLogTestMixin, BaseTest):
+class TestActivityLogContextVisibility(ActivityLogTestBase):
     def _create_context(self, user=None) -> ActivityLogContext:
         return ActivityLogContext(team=self.team, user=user or self.user)
 
@@ -577,7 +578,7 @@ class TestActivityLogContextVisibility(ActivityLogTestMixin, BaseTest):
 
 
 @freeze_time("2025-06-15T12:00:00Z")
-class TestActivityLogContextFormatting(ActivityLogTestMixin, BaseTest):
+class TestActivityLogContextFormatting(ActivityLogTestBase):
     async def test_timestamp_format(self):
         await self._create_log(
             scope="FeatureFlag",
