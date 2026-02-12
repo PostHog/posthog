@@ -978,6 +978,7 @@ class TestEnsurePreaggregated(ClickhouseTestMixin, BaseTest):
             time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
             ttl_seconds=60 * 60,  # 1 hour
         )
+        assert result.ready is True
 
         job = PreaggregationJob.objects.get(id=result.job_ids[0])
         # expires_at should be about 1 hour from now
