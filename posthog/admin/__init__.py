@@ -16,6 +16,7 @@ def register_all_admin():
         DataWarehouseTableAdmin,
         DuckLakeCatalogAdmin,
         EventIngestionRestrictionConfigAdmin,
+        ExternalDataSchemaAdmin,
         ExperimentAdmin,
         ExperimentSavedMetricAdmin,
         FeatureFlagAdmin,
@@ -115,6 +116,9 @@ def register_all_admin():
 
     admin.site.register(ProductTour, ProductTourAdmin)
 
+    from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
+
+    admin.site.register(ExternalDataSchema, ExternalDataSchemaAdmin)
     admin.site.register(DataWarehouseTable, DataWarehouseTableAdmin)
     admin.site.register(DuckLakeCatalog, DuckLakeCatalogAdmin)
     admin.site.register(HogFunction, HogFunctionAdmin)

@@ -10,6 +10,7 @@ from .data_color_theme_admin import DataColorThemeAdmin
 from .data_warehouse_table_admin import DataWarehouseTableAdmin
 from .ducklake_catalog_admin import DuckLakeCatalogAdmin
 from .event_ingestion_restriction_config import EventIngestionRestrictionConfigAdmin
+from .external_data_schema_admin import ExternalDataSchemaAdmin
 from .experiment_admin import ExperimentAdmin
 from .experiment_saved_metric_admin import ExperimentSavedMetricAdmin
 from .feature_flag_admin import FeatureFlagAdmin
@@ -43,6 +44,7 @@ __all__ = [
     "DataWarehouseTableAdmin",
     "DuckLakeCatalogAdmin",
     "EventIngestionRestrictionConfigAdmin",
+    "ExternalDataSchemaAdmin",
     "ExperimentAdmin",
     "ExperimentSavedMetricAdmin",
     "FeatureFlagAdmin",
