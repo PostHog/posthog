@@ -4,6 +4,7 @@ import { IconChevronRight, IconExpand } from '@posthog/icons'
 import { LemonBadge, LemonButton, LemonSkeleton, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import ViewRecordingButton from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -27,6 +28,15 @@ function ArtefactCard({ artefact }: { artefact: SignalReportArtefact }): JSX.Ele
             <div className="flex items-center gap-2 mb-1">
                 <LemonTag size="small">{artefact.type}</LemonTag>
                 <TZLabel time={artefact.created_at} />
+                {artefact.type === 'video_segment' && content.session_id && (
+                    <ViewRecordingButton
+                        sessionId={content.session_id}
+                        timestamp={content.start_time}
+                        size="xsmall"
+                        type="secondary"
+                        label="Play"
+                    />
+                )}
             </div>
             {content.session_id && (
                 <p className="text-sm text-secondary m-0 mt-1 truncate">
