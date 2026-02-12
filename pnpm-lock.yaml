@@ -1851,6 +1851,9 @@ importers:
       kea-test-utils:
         specifier: 'catalog:'
         version: 0.2.4(kea@3.1.7(react@18.3.1))
+      posthog-js:
+        specifier: 'catalog:'
+        version: 1.345.2
       react:
         specifier: 18.3.1
         version: 18.3.1
