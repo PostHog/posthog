@@ -315,33 +315,34 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                                                     </LemonField.Pure>
                                                 </div>
                                             ))}
-                                            <LemonButton
-                                                icon={<IconPlus />}
-                                                size="small"
-                                                type="secondary"
-                                                onClick={() => {
-                                                    const updated = [...mappings, { key: '', result_path: '' }]
-                                                    setMappings(updated)
-                                                }}
-                                            >
-                                                Add mapping
-                                            </LemonButton>
-                                            <LemonDivider className="my-1" />
-                                            <LemonButton
-                                                icon={<IconPlay />}
-                                                size="small"
-                                                type="primary"
-                                                loading={testLoading}
-                                                tooltip="Executes a real HTTP request to this step's endpoint and shows the response so you can pick which property to store."
-                                                disabledReason={
-                                                    workflow.id === 'new'
-                                                        ? 'Save the workflow first to test steps'
-                                                        : undefined
-                                                }
-                                                onClick={runOutputTest}
-                                            >
-                                                Pick from response
-                                            </LemonButton>
+                                            <div className="flex gap-2 w-full">
+                                                <LemonButton
+                                                    icon={<IconPlus />}
+                                                    size="small"
+                                                    type="secondary"
+                                                    onClick={() => {
+                                                        const updated = [...mappings, { key: '', result_path: '' }]
+                                                        setMappings(updated)
+                                                    }}
+                                                >
+                                                    Add mapping
+                                                </LemonButton>
+                                                <LemonButton
+                                                    icon={<IconPlay />}
+                                                    size="small"
+                                                    type="primary"
+                                                    loading={testLoading}
+                                                    tooltip="Executes a real HTTP request to this step's endpoint and shows the response so you can pick which property to store."
+                                                    disabledReason={
+                                                        workflow.id === 'new'
+                                                            ? 'Save the workflow first to test steps'
+                                                            : undefined
+                                                    }
+                                                    onClick={runOutputTest}
+                                                >
+                                                    Pick from response
+                                                </LemonButton>
+                                            </div>
                                             {testError && (
                                                 <LemonBanner type="error" className="w-full">
                                                     {testError}
