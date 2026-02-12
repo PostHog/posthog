@@ -15644,6 +15644,7 @@
                 "workflows",
                 "notebook",
                 "action",
+                "activity",
                 "comment",
                 "annotation",
                 "event",

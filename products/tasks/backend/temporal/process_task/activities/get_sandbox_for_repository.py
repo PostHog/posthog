@@ -1,8 +1,6 @@
 import logging
 from dataclasses import dataclass
 
-from django.conf import settings
-
 from temporalio import activity
 
 from posthog.temporal.common.utils import asyncify
@@ -13,7 +11,11 @@ from products.tasks.backend.services.sandbox import Sandbox, SandboxConfig, Sand
 from products.tasks.backend.temporal.exceptions import GitHubAuthenticationError, OAuthTokenError, TaskNotFoundError
 from products.tasks.backend.temporal.oauth import create_oauth_access_token
 from products.tasks.backend.temporal.observability import emit_agent_log, log_activity_execution
-from products.tasks.backend.temporal.process_task.utils import get_github_token, get_sandbox_name_for_task
+from products.tasks.backend.temporal.process_task.utils import (
+    get_github_token,
+    get_sandbox_api_url,
+    get_sandbox_name_for_task,
+)
 
 from .get_task_processing_context import TaskProcessingContext
 
@@ -77,7 +79,7 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
         environment_variables = {
             "GITHUB_TOKEN": github_token,
             "POSTHOG_PERSONAL_API_KEY": access_token,
-            "POSTHOG_API_URL": settings.SITE_URL,
+            "POSTHOG_API_URL": get_sandbox_api_url(),
             "POSTHOG_PROJECT_ID": str(ctx.team_id),
             "JWT_PUBLIC_KEY": get_sandbox_jwt_public_key(),
         }

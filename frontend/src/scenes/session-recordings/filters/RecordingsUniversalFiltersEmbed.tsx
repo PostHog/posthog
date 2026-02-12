@@ -11,6 +11,7 @@ import {
     IconHide,
     IconPerson,
     IconPlus,
+    IconRefresh,
     IconRevert,
     IconTrash,
     IconX,
@@ -62,7 +63,10 @@ import { sessionRecordingSavedFiltersLogic } from '../filters/sessionRecordingSa
 import { TimestampFormat, playerSettingsLogic } from '../player/playerSettingsLogic'
 import { playlistFiltersLogic } from '../playlist/playlistFiltersLogic'
 import { createPlaylist, updatePlaylist } from '../playlist/playlistUtils'
-import { defaultRecordingDurationFilter } from '../playlist/sessionRecordingsPlaylistLogic'
+import {
+    defaultRecordingDurationFilter,
+    sessionRecordingsPlaylistLogic,
+} from '../playlist/sessionRecordingsPlaylistLogic'
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
 import { CurrentFilterIndicator } from './CurrentFilterIndicator'
 import { DurationFilter } from './DurationFilter'
@@ -205,12 +209,15 @@ export const RecordingsUniversalFiltersEmbedButton = ({
     setFilters,
     totalFiltersCount,
     currentSessionRecordingId,
+    onReload,
 }: {
     filters: RecordingUniversalFilters
     setFilters: (filters: Partial<RecordingUniversalFilters>) => void
     totalFiltersCount?: number
     currentSessionRecordingId?: string
+    onReload?: () => void
 }): JSX.Element => {
+    const { sessionRecordingsResponseLoading } = useValues(sessionRecordingsPlaylistLogic)
     const { isFiltersExpanded } = useValues(playlistFiltersLogic)
     const { setIsFiltersExpanded } = useActions(playlistFiltersLogic)
     const { playlistTimestampFormat } = useValues(playerSettingsLogic)
@@ -218,26 +225,27 @@ export const RecordingsUniversalFiltersEmbedButton = ({
 
     return (
         <>
-            <MaxTool
-                identifier="filter_session_recordings"
-                context={{
-                    current_filters: filters,
-                    current_session_id: currentSessionRecordingId,
-                }}
-                callback={(toolOutput: Record<string, any>) => {
-                    // Improve type
-                    setFilters(toolOutput.recordings_filters)
-                    setIsFiltersExpanded(true)
-                }}
-                initialMaxPrompt="Show me recordings where "
-                suggestions={[
-                    'Show recordings of people who visited signup in the last 24 hours',
-                    'Show recordings showing user frustration',
-                    'Show recordings of people who faced bugs',
-                ]}
-                onMaxOpen={() => setIsFiltersExpanded(false)}
-            >
-                <>
+            <div className="flex gap-2">
+                <MaxTool
+                    identifier="filter_session_recordings"
+                    context={{
+                        current_filters: filters,
+                        current_session_id: currentSessionRecordingId,
+                    }}
+                    callback={(toolOutput: Record<string, any>) => {
+                        // Improve type
+                        setFilters(toolOutput.recordings_filters)
+                        setIsFiltersExpanded(true)
+                    }}
+                    initialMaxPrompt="Show me recordings where "
+                    suggestions={[
+                        'Show recordings of people who visited signup in the last 24 hours',
+                        'Show recordings showing user frustration',
+                        'Show recordings of people who faced bugs',
+                    ]}
+                    onMaxOpen={() => setIsFiltersExpanded(false)}
+                    className="grow"
+                >
                     <LemonButton
                         active={isFiltersExpanded}
                         type="secondary"
@@ -252,9 +260,18 @@ export const RecordingsUniversalFiltersEmbedButton = ({
                         {isFiltersExpanded ? 'Hide' : 'Show'} filters{' '}
                         {totalFiltersCount ? <LemonBadge.Number count={totalFiltersCount} size="small" /> : null}
                     </LemonButton>
-                </>
-            </MaxTool>
-            <CurrentFilterIndicator />
+                    <CurrentFilterIndicator />
+                </MaxTool>
+                <LemonButton
+                    type="secondary"
+                    onClick={onReload}
+                    icon={<IconRefresh />}
+                    loading={sessionRecordingsResponseLoading}
+                    size="small"
+                    tooltip="Refresh list"
+                    data-attr="refresh-recordings-list"
+                />
+            </div>
             <div className="flex gap-2 mt-2 justify-between">
                 <HideRecordingsMenu />
                 <SettingsMenu

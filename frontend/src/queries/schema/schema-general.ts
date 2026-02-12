@@ -2879,6 +2879,7 @@ export type FileSystemIconType =
     | 'workflows'
     | 'notebook'
     | 'action'
+    | 'activity'
     | 'comment'
     | 'annotation'
     | 'event'
