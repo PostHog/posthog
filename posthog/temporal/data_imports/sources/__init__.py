@@ -13,6 +13,7 @@ from .google_ads.source import GoogleAdsSource
 from .google_sheets.source import GoogleSheetsSource
 from .hubspot.source import HubspotSource
 from .klaviyo.source import KlaviyoSource
+from .linear.source import LinearSource
 from .linkedin_ads.source import LinkedInAdsSource
 from .mailchimp.source import MailchimpSource
 from .mailjet.source import MailJetSource
@@ -53,6 +54,7 @@ __all__ = [
     "GoogleSheetsSource",
     "HubspotSource",
     "KlaviyoSource",
+    "LinearSource",
     "LinkedInAdsSource",
     "MailchimpSource",
     "MailJetSource",

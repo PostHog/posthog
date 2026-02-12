@@ -37,7 +37,7 @@ class BigQueryUseCustomRegionConfig(config.Config):
 
 
 @config.config
-class GithubAuthTypeConfig(config.Config):
+class GithubAuthMethodConfig(config.Config):
     github_integration_id: int | None = config.value(converter=config.str_to_optional_int, default_factory=lambda: None)
     selection: Literal["oauth", "pat"] = "oauth"
     personal_access_token: str | None = None
@@ -119,7 +119,7 @@ class DoItSourceConfig(config.Config):
 
 @config.config
 class GithubSourceConfig(config.Config):
-    auth_method: GithubAuthTypeConfig
+    auth_method: GithubAuthMethodConfig
     repository: str
 
 
@@ -143,6 +143,11 @@ class HubspotSourceConfig(config.Config):
 @config.config
 class KlaviyoSourceConfig(config.Config):
     api_key: str
+
+
+@config.config
+class LinearSourceConfig(config.Config):
+    linear_integration_id: int = config.value(converter=config.str_to_int)
 
 
 @config.config
@@ -328,6 +333,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.GOOGLESHEETS: GoogleSheetsSourceConfig,
         ExternalDataSourceType.HUBSPOT: HubspotSourceConfig,
         ExternalDataSourceType.KLAVIYO: KlaviyoSourceConfig,
+        ExternalDataSourceType.LINEAR: LinearSourceConfig,
         ExternalDataSourceType.LINKEDINADS: LinkedinAdsSourceConfig,
         ExternalDataSourceType.MSSQL: MSSQLSourceConfig,
         ExternalDataSourceType.MAILCHIMP: MailchimpSourceConfig,
