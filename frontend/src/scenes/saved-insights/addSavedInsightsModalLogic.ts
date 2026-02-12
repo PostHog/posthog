@@ -32,6 +32,7 @@ interface InsightListParams {
     date_from?: SavedInsightFilters['dateFrom']
     date_to?: SavedInsightFilters['dateTo']
     dashboards?: number[]
+    tags?: string
 }
 
 export const INSIGHTS_PER_PAGE = 15
@@ -66,7 +67,8 @@ export const addSavedInsightsModalLogic = kea<addSavedInsightsModalLogicType>([
             loadInsights: async (_, breakpoint) => {
                 await breakpoint(300)
 
-                const { order, page, search, dashboardId, insightType, createdBy, dateFrom, dateTo } = values.filters
+                const { order, page, search, dashboardId, insightType, createdBy, dateFrom, dateTo, tags } =
+                    values.filters
 
                 const perPage = values.insightsPerPage
                 const params: InsightListParams = {
@@ -82,6 +84,7 @@ export const addSavedInsightsModalLogic = kea<addSavedInsightsModalLogicType>([
                     ...(dateFrom && dateFrom !== 'all' ? { date_from: dateFrom, date_to: dateTo || undefined } : {}),
                     ...(dashboardId ? { dashboards: [dashboardId] } : {}),
                     ...(createdBy !== 'All users' ? { created_by: createdBy } : {}),
+                    ...(tags && tags.length > 0 ? { tags: JSON.stringify(tags) } : {}),
                 }
 
                 const response = await api.get(
@@ -208,6 +211,8 @@ export const addSavedInsightsModalLogic = kea<addSavedInsightsModalLogicType>([
             const { userInsights, user, isExperimentEnabled } = values
             if (isExperimentEnabled && userInsights.count > 0 && user?.id) {
                 actions.setModalFilters({ createdBy: [user.id] })
+            } else {
+                actions.loadInsights()
             }
         },
 
@@ -263,8 +268,9 @@ export const addSavedInsightsModalLogic = kea<addSavedInsightsModalLogicType>([
         afterMount: () => {
             if (values.isExperimentEnabled) {
                 actions.loadUserInsights()
+            } else {
+                actions.loadInsights()
             }
-            actions.loadInsights()
         },
     })),
 ])

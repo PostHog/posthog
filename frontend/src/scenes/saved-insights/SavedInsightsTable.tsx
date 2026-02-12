@@ -109,6 +109,7 @@ export function SavedInsightsTable({ isSelected, onToggle, isToggling }: SavedIn
                     filters={filters}
                     setFilters={setModalFilters}
                     quickFilters={['insightType', 'tags', 'createdBy']}
+                    borderless
                 />
             </div>
             {!insightsLoading && insights.count < 1 ? (

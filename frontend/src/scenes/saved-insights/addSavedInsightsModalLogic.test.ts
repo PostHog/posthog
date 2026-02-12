@@ -133,6 +133,23 @@ describe('addSavedInsightsModalLogic', () => {
             expect(getCapturedUrl()!.searchParams.get('created_by')).toBe('[42]')
         })
 
+        it('includes tags param when tags are selected', async () => {
+            const { logic, getCapturedUrl } = useSetupWithUrlCapture()
+            await expectLogic(logic).toDispatchActions(['loadInsightsSuccess'])
+
+            logic.actions.setModalFilters({ tags: ['important', 'revenue'] })
+            await expectLogic(logic).toDispatchActions(['loadInsightsSuccess'])
+
+            expect(getCapturedUrl()!.searchParams.get('tags')).toBe('["important","revenue"]')
+        })
+
+        it('excludes tags param when no tags are selected', async () => {
+            const { logic, getCapturedUrl } = useSetupWithUrlCapture()
+            await expectLogic(logic).toDispatchActions(['loadInsightsSuccess'])
+
+            expect(getCapturedUrl()!.searchParams.has('tags')).toBe(false)
+        })
+
         it('excludes created_by param when set to "All users"', async () => {
             const { logic, getCapturedUrl } = useSetupWithUrlCapture()
             await expectLogic(logic).toDispatchActions(['loadInsightsSuccess'])
@@ -199,8 +216,8 @@ describe('addSavedInsightsModalLogic', () => {
 
             await expectLogic(logic).toDispatchActions([
                 'loadUserInsights',
-                'loadInsights',
                 'loadUserInsightsSuccess',
+                'loadInsights',
                 'loadInsightsSuccess',
             ])
         })

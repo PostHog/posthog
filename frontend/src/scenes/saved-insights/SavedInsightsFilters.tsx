@@ -9,27 +9,33 @@ import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { cn } from 'lib/utils/css-classes'
 import { fullName } from 'lib/utils'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { INSIGHT_TYPE_OPTIONS } from 'scenes/saved-insights/SavedInsights'
 import { SavedInsightFilters } from 'scenes/saved-insights/savedInsightsLogic'
 
-export function CreatedByFilter({
+export type QuickFilterKind = 'insightType' | 'tags' | 'createdBy' | 'favorites' | 'featureFlags'
+const ALL_QUICK_FILTERS: QuickFilterKind[] = ['insightType', 'tags', 'createdBy', 'favorites', 'featureFlags']
+
+export function SavedInsightsFilters({
     filters,
     setFilters,
+    quickFilters = ALL_QUICK_FILTERS,
+    borderless = false,
 }: {
     filters: SavedInsightFilters
     setFilters: (filters: Partial<SavedInsightFilters>) => void
+    quickFilters?: QuickFilterKind[]
+    /** When true, inactive filters appear borderless. */
+    borderless?: boolean
 }): JSX.Element {
-    const { createdBy } = filters
+    const { search, hideFeatureFlagInsights, favorited, tags, insightType, createdBy } = filters
     const { meFirstMembers, filteredMembers, search: memberSearch } = useValues(membersLogic)
     const { setSearch: setMemberSearch, ensureAllMembersLoaded } = useActions(membersLogic)
-
-    const currentUserId = meFirstMembers[0]?.user.id
-    const isFilteredToCurrentUser =
-        createdBy !== 'All users' &&
-        (createdBy as number[]).length === 1 &&
-        (createdBy as number[])[0] === currentUserId
+    const quickFilterSet = new Set(quickFilters)
+    const hasInsightTypeSelection = !!insightType && insightType !== 'All types'
+    const hasCreatedBySelection = createdBy !== 'All users' && (createdBy as number[]).length > 0
 
     const handleMemberToggle = (userId: number): void => {
         const currentUsers = createdBy !== 'All users' ? (createdBy as number[]) : []
@@ -44,109 +50,7 @@ export function CreatedByFilter({
     }
 
     return (
-        <LemonDropdown
-            closeOnClickInside={false}
-            matchWidth={false}
-            placement="bottom-end"
-            actionable
-            overlay={
-                <div className="max-w-100 deprecated-space-y-2" onClick={() => ensureAllMembersLoaded()}>
-                    <LemonInput
-                        type="search"
-                        placeholder="Search"
-                        autoFocus
-                        value={memberSearch}
-                        onChange={setMemberSearch}
-                        fullWidth
-                    />
-                    <ul className="deprecated-space-y-px">
-                        {filteredMembers.map((member) => (
-                            <li key={member.user.uuid}>
-                                <LemonButton
-                                    fullWidth
-                                    role="menuitem"
-                                    size="small"
-                                    icon={<ProfilePicture size="md" user={member.user} />}
-                                    onClick={() => handleMemberToggle(member.user.id)}
-                                >
-                                    <span className="flex items-center justify-between gap-2 flex-1">
-                                        <span className="flex items-center gap-2 max-w-full">
-                                            <input
-                                                type="checkbox"
-                                                className="cursor-pointer"
-                                                checked={
-                                                    createdBy !== 'All users' &&
-                                                    (createdBy as number[]).includes(member.user.id)
-                                                }
-                                                readOnly
-                                            />
-                                            <span>{fullName(member.user)}</span>
-                                        </span>
-                                        <span className="text-secondary">
-                                            {meFirstMembers[0] === member && `(you)`}
-                                        </span>
-                                    </span>
-                                </LemonButton>
-                            </li>
-                        ))}
-                        {filteredMembers.length === 0 ? (
-                            <div className="p-2 text-secondary italic truncate border-t">
-                                {memberSearch ? <span>No matches</span> : <span>No users</span>}
-                            </div>
-                        ) : null}
-                        {createdBy !== 'All users' && (createdBy as number[]).length > 0 && (
-                            <>
-                                <div className="my-1 border-t" />
-                                <li>
-                                    <LemonButton
-                                        fullWidth
-                                        role="menuitem"
-                                        size="small"
-                                        onClick={() => setFilters({ createdBy: 'All users' })}
-                                        type="tertiary"
-                                    >
-                                        Clear selection
-                                    </LemonButton>
-                                </li>
-                            </>
-                        )}
-                    </ul>
-                </div>
-            }
-        >
-            <LemonButton
-                size="small"
-                type="secondary"
-                status={createdBy !== 'All users' && (createdBy as number[]).length > 0 ? 'default' : 'alt'}
-                active={createdBy !== 'All users' && (createdBy as number[]).length > 0}
-            >
-                {isFilteredToCurrentUser
-                    ? 'Created by you'
-                    : createdBy !== 'All users' && (createdBy as number[]).length > 0
-                      ? `Created by (${(createdBy as number[]).length})`
-                      : 'Created by'}
-            </LemonButton>
-        </LemonDropdown>
-    )
-}
-
-export type QuickFilterKind = 'insightType' | 'tags' | 'createdBy' | 'favorites' | 'featureFlags'
-const ALL_QUICK_FILTERS: QuickFilterKind[] = ['insightType', 'tags', 'createdBy', 'favorites', 'featureFlags']
-
-export function SavedInsightsFilters({
-    filters,
-    setFilters,
-    quickFilters = ALL_QUICK_FILTERS,
-}: {
-    filters: SavedInsightFilters
-    setFilters: (filters: Partial<SavedInsightFilters>) => void
-    quickFilters?: QuickFilterKind[]
-}): JSX.Element {
-    const { search, hideFeatureFlagInsights, favorited, tags, insightType } = filters
-    const quickFilterSet = new Set(quickFilters)
-
-    return (
-        <div className="flex gap-2 items-center flex-wrap">
+        <div className={cn('flex justify-between gap-2 items-center flex-wrap')}>
             <LemonInput
                 type="search"
                 placeholder="Search for insights"
@@ -161,11 +65,8 @@ export function SavedInsightsFilters({
                         <LemonSelect
                             dropdownMatchSelectWidth={false}
                             size="small"
-                            className={
-                                !insightType || insightType === 'All types'
-                                    ? 'LemonButton--status-alt'
-                                    : 'LemonButton--active'
-                            }
+                            active={hasInsightTypeSelection}
+                            status={borderless && !hasInsightTypeSelection ? 'alt' : 'default'}
                             onChange={(value) => {
                                 setFilters({ insightType: value as string })
                             }}
@@ -184,7 +85,7 @@ export function SavedInsightsFilters({
                                 <LemonButton
                                     size="small"
                                     type="secondary"
-                                    status={selectedTags.length > 0 ? 'default' : 'alt'}
+                                    status={borderless && selectedTags.length === 0 ? 'alt' : 'default'}
                                     active={selectedTags.length > 0}
                                 >
                                     {selectedTags.length > 0 ? `Tags (${selectedTags.length})` : 'Tags'}
@@ -192,11 +93,93 @@ export function SavedInsightsFilters({
                             )}
                         </TagSelect>
                     )}
-                    {quickFilterSet.has('createdBy') && <CreatedByFilter filters={filters} setFilters={setFilters} />}
+                    {quickFilterSet.has('createdBy') && (
+                        <LemonDropdown
+                            closeOnClickInside={false}
+                            matchWidth={false}
+                            placement="bottom-end"
+                            actionable
+                            overlay={
+                                <div className="max-w-100 deprecated-space-y-2" onClick={() => ensureAllMembersLoaded()}>
+                                    <LemonInput
+                                        type="search"
+                                        placeholder="Search"
+                                        autoFocus
+                                        value={memberSearch}
+                                        onChange={setMemberSearch}
+                                        fullWidth
+                                    />
+                                    <ul className="deprecated-space-y-px">
+                                        {filteredMembers.map((member) => (
+                                            <li key={member.user.uuid}>
+                                                <LemonButton
+                                                    fullWidth
+                                                    role="menuitem"
+                                                    size="small"
+                                                    icon={<ProfilePicture size="md" user={member.user} />}
+                                                    onClick={() => handleMemberToggle(member.user.id)}
+                                                >
+                                                    <span className="flex items-center justify-between gap-2 flex-1">
+                                                        <span className="flex items-center gap-2 max-w-full">
+                                                            <input
+                                                                type="checkbox"
+                                                                className="cursor-pointer"
+                                                                checked={
+                                                                    createdBy !== 'All users' &&
+                                                                    (createdBy as number[]).includes(member.user.id)
+                                                                }
+                                                                readOnly
+                                                            />
+                                                            <span>{fullName(member.user)}</span>
+                                                        </span>
+                                                        <span className="text-secondary">
+                                                            {meFirstMembers[0] === member && `(you)`}
+                                                        </span>
+                                                    </span>
+                                                </LemonButton>
+                                            </li>
+                                        ))}
+                                        {filteredMembers.length === 0 ? (
+                                            <div className="p-2 text-secondary italic truncate border-t">
+                                                {memberSearch ? <span>No matches</span> : <span>No users</span>}
+                                            </div>
+                                        ) : null}
+                                        {hasCreatedBySelection && (
+                                            <>
+                                                <div className="my-1 border-t" />
+                                                <li>
+                                                    <LemonButton
+                                                        fullWidth
+                                                        role="menuitem"
+                                                        size="small"
+                                                        onClick={() => setFilters({ createdBy: 'All users' })}
+                                                        type="tertiary"
+                                                    >
+                                                        Clear selection
+                                                    </LemonButton>
+                                                </li>
+                                            </>
+                                        )}
+                                    </ul>
+                                </div>
+                            }
+                        >
+                            <LemonButton
+                                size="small"
+                                type="secondary"
+                                status={borderless && !hasCreatedBySelection ? 'alt' : 'default'}
+                                active={hasCreatedBySelection}
+                            >
+                                {hasCreatedBySelection
+                                    ? `Created by (${(createdBy as number[]).length})`
+                                    : 'Created by'}
+                            </LemonButton>
+                        </LemonDropdown>
+                    )}
                     {quickFilterSet.has('favorites') && (
                         <LemonButton
                             type="secondary"
-                            status={favorited ? 'default' : 'alt'}
+                            status={borderless && !favorited ? 'alt' : 'default'}
                             active={favorited || false}
                             onClick={() => setFilters({ favorited: !favorited })}
                             size="small"
