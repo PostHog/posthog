@@ -398,6 +398,16 @@ class BatchExportBackfill(UUIDTModel):
         auto_now=True,
         help_text="The timestamp at which this BatchExportBackfill was last updated.",
     )
+    total_records_count = models.BigIntegerField(
+        null=True,
+        blank=True,
+        help_text="The total number of records to export. Initially estimated, updated with actual count after completion.",
+    )
+    adjusted_start_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="The actual start time after adjustment for earliest available data. May differ from start_at if user requested a date before data exists.",
+    )
 
     @property
     def workflow_id(self) -> str:
