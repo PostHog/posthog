@@ -44,6 +44,10 @@ COHORTS_STALE_COUNT_GAUGE = Gauge(
     "cohorts_stale", "Number of cohorts that haven't been calculated in more than X hours", ["hours"]
 )
 
+COHORTS_TOTAL_GAUGE = Gauge(
+    "cohorts_total", "Total number of eligible cohorts for recalculation (non-static, non-deleted)"
+)
+
 COHORT_STUCK_COUNT_GAUGE = Gauge(
     # TODO: rename to cohorts_stuck because this is a gauge not a counter
     "cohort_stuck_count",
@@ -142,6 +146,8 @@ def update_cohort_metrics() -> None:
         is_calculating=False,
         errors_calculating__lte=MAX_ERRORS_CALCULATING,
     ).exclude(is_static=True)
+
+    COHORTS_TOTAL_GAUGE.set(base_queryset.count())
 
     for hours in [24, 36, 48]:
         stale_count = base_queryset.filter(last_calculation__lte=now - relativedelta(hours=hours)).count()
