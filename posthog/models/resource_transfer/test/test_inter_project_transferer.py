@@ -12,6 +12,7 @@ from posthog.models.resource_transfer.inter_project_transferer import (
     duplicate_resource_to_new_team,
 )
 from posthog.models.resource_transfer.resource_transfer import ResourceTransfer
+from posthog.models.resource_transfer.types import ResourceKind
 
 
 class TestBuildResourceDuplicationGraph(BaseTest):
@@ -69,7 +70,7 @@ class TestBuildResourceDuplicationGraph(BaseTest):
 
     def test_exclude_set_prevents_revisiting_resources(self) -> None:
         insight = Insight.objects.create(team=self.team, name="My insight")
-        exclude: set[tuple[str, Any]] = {("Insight", insight.pk)}
+        exclude: set[tuple[ResourceKind, Any]] = {("Insight", insight.pk)}
 
         graph = list(build_resource_duplication_graph(insight, exclude))
         assert len(graph) == 0

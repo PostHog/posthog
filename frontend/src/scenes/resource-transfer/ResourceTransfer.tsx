@@ -44,7 +44,7 @@ export function ResourceTransfer(props: ResourceTransferLogicProps): JSX.Element
         <SceneContent>
             <SceneTitleSection
                 name={title}
-                resourceType={{ type: undefined }}
+                resourceType={{ type: 'Resource Transfer' }}
                 forceBackTo={{
                     name: rootResourceName ?? props.resourceKind,
                     path: sourceResourceUrl(props.resourceKind, props.resourceId),

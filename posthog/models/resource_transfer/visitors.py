@@ -496,12 +496,18 @@ class InsightVisitor(
             payload: ResourcePayload,
             resource_map: ResourceMap,
         ) -> ResourcePayload:
-            vertex = resource_map.get((target_model, old_pk))
+            target_visitor = ResourceTransferVisitor.get_visitor(target_model)
+
+            if target_visitor is None:
+                raise TypeError(f"Could not rewrite {target_model.__name__} because it has no configured visitor")
+
+            vertex = resource_map.get((target_visitor.kind, old_pk))
             if vertex is None:
                 raise ValueError(
                     f"Could not rewrite JSON reference to {target_model.__name__}(pk={old_pk}): "
                     "resource not found in map"
                 )
+
             if vertex.duplicated_resource is None:
                 raise ValueError(
                     f"Could not rewrite JSON reference to {target_model.__name__}(pk={old_pk}): resource not duplicated yet"

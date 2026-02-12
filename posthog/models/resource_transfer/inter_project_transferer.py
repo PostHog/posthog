@@ -1,6 +1,6 @@
 from collections.abc import Generator, Iterable
 from graphlib import TopologicalSorter
-from typing import Any
+from typing import Any, cast
 
 from django.core.exceptions import ObjectDoesNotExist
 from django.db import models, transaction
@@ -8,6 +8,7 @@ from django.db import models, transaction
 from posthog.models import Project, Team
 from posthog.models.resource_transfer.resource_transfer import ResourceTransfer
 from posthog.models.resource_transfer.types import (
+    ResourceKind,
     ResourceMap,
     ResourcePayload,
     ResourceTransferEdge,
@@ -245,11 +246,14 @@ def get_suggested_substitutions(
         model = visitor.get_model()
         try:
             previously_duplicated_resource = model.objects.get(pk=transfer_record.duplicated_resource_id)
-        except model.DoesNotExist:
+        except ObjectDoesNotExist:
             continue
 
         source_key: ResourceTransferKey = (visitor.kind, vertex.source_resource.pk)
-        dest_key: ResourceTransferKey = (transfer_record.resource_kind, previously_duplicated_resource.pk)
+        dest_key: ResourceTransferKey = (
+            cast(ResourceKind, transfer_record.resource_kind),
+            previously_duplicated_resource.pk,
+        )
         recommendations.append((source_key, dest_key))
 
     return recommendations
@@ -280,13 +284,13 @@ def _get_mapped_substitutions(
         source_model = source_visitor.get_model()
         try:
             source_resource = source_model.objects.get(pk=source_pk)
-        except source_model.DoesNotExist:
+        except ObjectDoesNotExist:
             raise ValueError(f"Could not find source resource: {source_kind} {source_pk}")
 
         dest_model = dest_visitor.get_model()
         try:
             dest_resource = dest_model.objects.get(pk=dest_pk)
-        except dest_model.DoesNotExist:
+        except ObjectDoesNotExist:
             raise ValueError(f"Could not find substituted resource: {dest_kind} {dest_pk}")
 
         normalized_key: ResourceTransferKey = (source_kind, source_resource.pk)
